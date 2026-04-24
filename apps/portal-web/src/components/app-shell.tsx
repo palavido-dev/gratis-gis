@@ -48,10 +48,10 @@ export async function AppShell({ children }: { children: ReactNode }) {
     }
   }
 
-  // Unauthenticated visitors get no chrome — the page they land on
-  // (the public landing at /, the /signed-out screen, etc.) is
-  // responsible for its own layout. Prevents the sidebar / nav from
-  // showing links the user can't use without signing in.
+  // Unauthenticated visitors get no chrome. The page they land on
+  // (always the public landing at `/`) is responsible for its own
+  // layout. Prevents the sidebar / nav from showing links the user
+  // can't use without signing in.
   if (!session) {
     return (
       <div className="min-h-screen bg-surface-0 text-ink-0">{children}</div>

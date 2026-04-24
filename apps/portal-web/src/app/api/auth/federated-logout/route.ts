@@ -3,7 +3,7 @@ import { getToken } from 'next-auth/jwt';
 import { keycloakEndSessionBase } from '@/lib/auth';
 
 /**
- * Federated logout — the piece plain NextAuth doesn't do.
+ * Federated logout. The piece plain NextAuth doesn't do.
  *
  * Problem: calling `/api/auth/signout` only drops the portal-side
  * session cookie. Keycloak's own SSO session stays alive, so the next
@@ -12,17 +12,17 @@ import { keycloakEndSessionBase } from '@/lib/auth';
  *
  *   1. We build a redirect to Keycloak's `end_session_endpoint`
  *      with the stored `id_token_hint` and a `post_logout_redirect_uri`
- *      pointing at our /signed-out page.
+ *      pointing at the public landing page (`/`).
  *   2. We also clear the NextAuth session / CSRF cookies on the same
  *      response so the portal side is dropped in the same round-trip.
- *   3. The browser → Keycloak → Keycloak clears its SSO session and
- *      redirects to /signed-out.
- *   4. /signed-out renders a clean "you are signed out" page with a
- *      fresh "Sign in" link. Next click goes through Keycloak's login
- *      form for real (no silent auth because Keycloak has no session).
+ *   3. The browser hits Keycloak; Keycloak clears its SSO session and
+ *      redirects to `/`.
+ *   4. The landing page renders the unauthenticated public view (with
+ *      its own Sign in link). The next sign-in click goes through
+ *      Keycloak's login form for real because there is no SSO session.
  *
- * Route is GET so it can be the target of a normal `<Link>` / `<a>`
- * — the app-shell's "Sign out" menu item points here instead of
+ * Route is GET so it can be the target of a normal `<Link>` / `<a>`.
+ * The app-shell's "Sign out" menu item points here instead of
  * `/api/auth/signout`.
  */
 export async function GET(req: NextRequest) {
@@ -39,7 +39,11 @@ export async function GET(req: NextRequest) {
   const base = (
     process.env.NEXTAUTH_URL ?? new URL(req.url).origin
   ).replace(/\/$/, '');
-  const postLogoutRedirectUri = `${base}/signed-out`;
+  // Land back on the public landing page; it already handles the
+  // unauthenticated view, so a separate "you are signed out" card is
+  // dead weight that makes the portal feel like it bounced out to
+  // somewhere else.
+  const postLogoutRedirectUri = `${base}/`;
 
   const endSession = new URL(keycloakEndSessionBase);
   if (idToken) endSession.searchParams.set('id_token_hint', idToken);
