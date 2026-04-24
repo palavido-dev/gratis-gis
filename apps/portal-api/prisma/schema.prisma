@@ -48,12 +48,6 @@ enum PrincipalType {
   group
 }
 
-enum BasemapSourceKind {
-  xyz
-  vector_style       @map("vector-style")
-  wms
-}
-
 enum ItemType {
   map
   data_layer                 @map("data-layer")
@@ -97,7 +91,6 @@ model Organization {
   users    User[]
   groups   Group[]
   items    Item[]
-  basemaps Basemap[]
 
   @@map("organization")
 }
@@ -376,14 +369,6 @@ model ItemShare {
   @@map("item_share")
 }
 
-/// Custom basemap registered by an org admin. Appears in the web map
-/// editor's basemap picker alongside the built-in set compiled into
-/// portal-web. Each row is a MapLibre source recipe — a raster tile
-/// URL (XYZ), a vector style.json URL, or a WMS GetMap endpoint.
-///
-/// sourceKind tells the renderer which flavor we're dealing with so
-/// the picker can build the right MapLibre style on the fly without
-/// having to sniff content types at request time.
 /// A file attached to a specific feature inside a v3 feature-service
 /// layer. The bytes live in MinIO at `storageKey` and are served via
 /// the long-lived `storageUrl`. We never embed the bytes here — only
@@ -418,34 +403,3 @@ model FeatureAttachment {
   @@map("feature_attachment")
 }
 
-model Basemap {
-  id           String            @id @default(uuid()) @db.Uuid
-  orgId        String            @map("org_id") @db.Uuid
-  /// Human-readable name shown in the picker.
-  label        String
-  /// Short description shown under the label.
-  description  String            @default("")
-  /// URL template for xyz (with {z}/{x}/{y}), a full style.json URL
-  /// for vector_style, or a WMS GetMap URL for wms.
-  url          String
-  sourceKind   BasemapSourceKind @map("source_kind")
-  /// Attribution text rendered verbatim in the map chrome.
-  attribution  String            @default("")
-  /// Optional preview image URL; null falls back to a badge tile.
-  thumbnailUrl String?           @map("thumbnail_url")
-  /// Source-kind-specific extras (e.g. WMS layers, format, CRS).
-  /// JSON so we can grow it without a migration per knob.
-  config       Json?             @db.JsonB
-  /// Exactly one basemap per org may be the default (used for fresh
-  /// web maps). Enforced at the service layer; a partial unique
-  /// index could also enforce it in a follow-up SQL migration.
-  isDefault    Boolean           @default(false) @map("is_default")
-  createdAt    DateTime          @default(now()) @map("created_at")
-  updatedAt    DateTime          @updatedAt        @map("updated_at")
-  createdBy    String            @map("created_by") @db.Uuid
-
-  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-
-  @@index([orgId])
-  @@map("basemap")
-}

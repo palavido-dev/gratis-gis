@@ -12,6 +12,7 @@ import {
   Users,
 } from 'lucide-react';
 import type {
+  BasemapData,
   Item,
   ItemShare,
   Group,
@@ -31,7 +32,62 @@ import {
 } from '@gratis-gis/shared-types';
 import { EntityBadge } from '@gratis-gis/ui';
 import { ItemTypeBadge, getItemTypeLabel } from '@/lib/item-type-icon';
+import type { CustomBasemap } from '@/lib/custom-basemap';
 import { apiFetch } from '@/lib/api';
+
+// Name the local alias so the transform signature is readable. Keeps
+// the inline type annotation in the list fetch below from ballooning.
+type CustomBasemapRow = CustomBasemap;
+
+/**
+ * Map a basemap item (type=basemap, data_json: BasemapData) into the
+ * CustomBasemap row shape that MapEditor / MapCanvas already consume.
+ * Returns null when the basemap isn't renderable yet — unset URL,
+ * unknown kind, or a Phase 2 `composed-map` kind the canvas doesn't
+ * handle in Phase 1a.
+ */
+function basemapItemToCustomBasemap(
+  it: Item<BasemapData>,
+): CustomBasemapRow | null {
+  const d = it.data ?? ({} as BasemapData);
+  let url: string | undefined;
+  let sourceKind: CustomBasemapRow['sourceKind'];
+  let config: Record<string, unknown> | null = null;
+  switch (d.kind) {
+    case 'style-url':
+      if (!d.styleUrl) return null;
+      url = d.styleUrl;
+      sourceKind = 'vector-style';
+      break;
+    case 'tile-url':
+      if (!d.tileUrl) return null;
+      url = d.tileUrl;
+      sourceKind = 'xyz';
+      break;
+    case 'wms':
+      if (!d.wmsUrl) return null;
+      url = d.wmsUrl;
+      sourceKind = 'wms';
+      config = (d.wmsConfig ?? null) as Record<string, unknown> | null;
+      break;
+    default:
+      // 'composed-map' is Phase 2; anything unexpected is a forward-compat
+      // dropped entry rather than a render-time crash.
+      return null;
+  }
+  return {
+    id: it.id,
+    orgId: it.orgId,
+    label: it.title,
+    description: it.description ?? '',
+    url,
+    sourceKind,
+    attribution: d.attribution ?? '',
+    thumbnailUrl: d.thumbnailUrl ?? it.thumbnailUrl ?? null,
+    config,
+    isDefault: false,
+  };
+}
 import { SharingPanel } from './sharing-panel';
 import { ItemDependencies } from './item-dependencies';
 import { DeleteItemButton } from './delete-button';
@@ -87,25 +143,26 @@ export default async function ItemDetailPage({ params }: Props) {
   const me = await apiFetch<{ id: string; orgRole: string }>('/api/users/me');
   const canManage = me.id === item.ownerId || me.orgRole === 'admin';
 
-  // For web maps, fetch the org's custom basemap library so the
-  // editor's basemap picker can list them alongside the built-ins.
-  // Failure is non-fatal — the editor falls back to built-ins only.
+  // For web maps, pull the org's basemap item library so the editor's
+  // picker lists them alongside the built-ins. Basemaps are first-class
+  // items (see #72), so we fetch them through the standard items list
+  // and map each item's data_json (BasemapData) into the shape the
+  // MapEditor already consumes (CustomBasemap). Failure is non-fatal;
+  // the editor falls back to the built-in basemaps.
   const customBasemaps =
     item.type === 'map'
-      ? await apiFetch<
-          Array<{
-            id: string;
-            orgId: string;
-            label: string;
-            description: string;
-            url: string;
-            sourceKind: 'xyz' | 'vector-style' | 'wms';
-            attribution: string;
-            thumbnailUrl: string | null;
-            config: Record<string, unknown> | null;
-            isDefault: boolean;
-          }>
-        >('/api/basemaps').catch(() => [])
+      ? await apiFetch<Array<Item<BasemapData>>>(
+          '/api/items?type=basemap',
+        )
+          .then((items) =>
+            items
+              // Skip items that don't have a usable URL yet (e.g. fresh
+              // basemaps created through the wizard that the author
+              // hasn't configured, or Phase 2 composed-map entries).
+              .map(basemapItemToCustomBasemap)
+              .filter((b): b is CustomBasemapRow => b !== null),
+          )
+          .catch(() => [])
       : [];
 
   // Load groups (for the share picker) and any referenced users.
