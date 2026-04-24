@@ -21,7 +21,6 @@ import {
   MinLength,
 } from 'class-validator';
 import type { ItemAccess, ItemType, Prisma, PrincipalType, SharePermission } from '@prisma/client';
-import { ITEM_TYPES } from '@gratis-gis/shared-types';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
@@ -29,13 +28,33 @@ import type { CreateItemInput, UpdateItemInput } from './items.service.js';
 import { ItemsService } from './items.service.js';
 import { DataSnapshotService } from './data-snapshot.service.js';
 
-// Use the shared-types canonical list as the single source of truth for
-// valid item type strings. Previously this file kept its own hardcoded
-// array which drifted every time a new item type landed (basemap / #72
-// exposed the drift). Re-exporting here would be a second copy; just
-// consume the shared list.
+// Keep this list in sync with packages/shared-types/src/item-types.ts
+// (ITEM_TYPES) and the Prisma ItemType enum. Ideally we would import the
+// shared list at runtime, but shared-types is published as raw .ts with
+// `"type": "module"` which Node's ESM resolver can't consume from our
+// CommonJS dist/ output (see DECISIONS.md on packaging shared-types).
+// When adding or renaming an item type, update all three spots.
+const ITEM_TYPE_VALUES = [
+  'map',
+  'data_layer',
+  'arcgis_service',
+  'form',
+  'form_submission_collection',
+  'web_app',
+  'report_template',
+  'dashboard',
+  'file',
+  'layer_package',
+  'notebook',
+  'tool',
+  'widget_package',
+  'pick_list',
+  'geo_boundary',
+  'basemap',
+] as const;
+
 class CreateItemDto {
-  @IsEnum(ITEM_TYPES) type!: ItemType;
+  @IsEnum(ITEM_TYPE_VALUES) type!: ItemType;
   @IsString() @MinLength(1) @MaxLength(200) title!: string;
   @IsOptional() @IsString() @MaxLength(5000) description?: string;
   @IsOptional() @IsArray() @IsString({ each: true }) tags?: string[];
