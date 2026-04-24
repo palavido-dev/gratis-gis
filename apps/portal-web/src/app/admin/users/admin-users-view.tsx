@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Check,
@@ -9,6 +9,7 @@ import {
   MailPlus,
   Pencil,
   Plus,
+  RotateCcw,
   Save,
   Search,
   ShieldCheck,
@@ -815,6 +816,8 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
           </span>
         </label>
 
+        <CapabilitiesSection userId={user.id} role={orgRole} />
+
         {error ? (
           <p className="text-xs text-danger" role="alert">
             {error}
@@ -847,6 +850,241 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
     </div>
   );
 }
+
+// ---------------------------------------------------------------
+// Capabilities section
+// ---------------------------------------------------------------
+
+interface CapabilityRow {
+  capability: string;
+  baseline: boolean;
+  effective: boolean;
+  override: {
+    enabled: boolean;
+    note: string | null;
+    grantedBy: string;
+    grantedAt: string;
+  } | null;
+}
+
+interface CapabilityListResponse {
+  rows: CapabilityRow[];
+  effective: string[];
+}
+
+/**
+ * Effective capability set for a user, with per-capability overrides
+ * layered on top of the role baseline. Toggling a row syncs to the
+ * server immediately (POST upsert / DELETE) and then re-renders from
+ * the fresh response so the override badges stay accurate.
+ *
+ * `role` is read from the parent dialog's draft state so the
+ * baseline column updates live as the admin flips the role
+ * dropdown above. The actual role change does not persist until the
+ * dialog's Save button fires; while the role is in flux, baselines
+ * shown here are the prospective ones.
+ */
+function CapabilitiesSection({
+  userId,
+  role,
+}: {
+  userId: string;
+  role: OrgRole;
+}) {
+  const [rows, setRows] = useState<CapabilityRow[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/portal/admin/users/${userId}/capabilities`,
+      );
+      if (!res.ok) {
+        setError(`Failed to load capabilities (${res.status}).`);
+        return;
+      }
+      const body = (await res.json()) as CapabilityListResponse;
+      setRows(body.rows);
+    } catch (err) {
+      setError((err as Error).message ?? 'Failed to load capabilities');
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  // The API computes baseline against the user's persisted role. If
+  // the admin is mid-edit and has changed the dropdown, recompute the
+  // visible baseline column locally so the row matches the role they
+  // are about to save. (The list endpoint will catch up after Save.)
+  const localBaselines = useMemo(() => {
+    if (!rows) return null;
+    return new Map(
+      rows.map((r) => [r.capability, ROLE_BASELINES_LOCAL[role].has(r.capability)]),
+    );
+  }, [rows, role]);
+
+  async function applyToggle(row: CapabilityRow) {
+    setBusy(row.capability);
+    setError(null);
+    try {
+      const baseline = localBaselines?.get(row.capability) ?? row.baseline;
+      const newEffective = !row.effective;
+      // If the new desired state matches the baseline, the row should
+      // not have an override at all. Otherwise upsert the override.
+      const url = `/api/portal/admin/users/${userId}/capabilities`;
+      let res: Response;
+      if (newEffective === baseline) {
+        res = await fetch(`${url}/${row.capability}`, { method: 'DELETE' });
+      } else {
+        res = await fetch(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            capability: row.capability,
+            enabled: newEffective,
+          }),
+        });
+      }
+      if (!res.ok) {
+        setError(`Save failed (${res.status}).`);
+        return;
+      }
+      const body = (await res.json()) as CapabilityListResponse;
+      setRows(body.rows);
+    } catch (err) {
+      setError((err as Error).message ?? 'Save failed');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function resetToBaseline(capability: string) {
+    setBusy(capability);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/portal/admin/users/${userId}/capabilities/${capability}`,
+        { method: 'DELETE' },
+      );
+      if (!res.ok) {
+        setError(`Reset failed (${res.status}).`);
+        return;
+      }
+      const body = (await res.json()) as CapabilityListResponse;
+      setRows(body.rows);
+    } catch (err) {
+      setError((err as Error).message ?? 'Reset failed');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <fieldset className="space-y-2 rounded-md border border-border bg-surface-0 p-2">
+      <legend className="px-1 text-xs uppercase tracking-wide text-muted">
+        Capabilities
+      </legend>
+      {!rows ? (
+        <p className="text-xs text-muted">Loading capabilities...</p>
+      ) : (
+        <ul className="space-y-1">
+          {rows.map((row) => {
+            const baseline =
+              localBaselines?.get(row.capability) ?? row.baseline;
+            const overridden = row.override !== null;
+            return (
+              <li
+                key={row.capability}
+                className="flex items-center gap-2 text-xs"
+              >
+                <input
+                  type="checkbox"
+                  checked={row.effective}
+                  disabled={busy !== null}
+                  onChange={() => void applyToggle(row)}
+                  className="h-3.5 w-3.5 rounded border-border text-accent focus:ring-accent/30"
+                  aria-label={row.capability}
+                />
+                <span className="flex-1 font-mono text-[11px] text-ink-1">
+                  {row.capability}
+                </span>
+                {overridden ? (
+                  <span
+                    className={
+                      row.effective
+                        ? 'rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700'
+                        : 'rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-medium text-rose-700'
+                    }
+                  >
+                    {row.effective ? 'override granted' : 'override revoked'}
+                  </span>
+                ) : (
+                  <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-muted">
+                    {baseline ? 'baseline' : 'not granted'}
+                  </span>
+                )}
+                {overridden ? (
+                  <button
+                    type="button"
+                    title="Reset to role default"
+                    disabled={busy !== null}
+                    onClick={() => void resetToBaseline(row.capability)}
+                    className="inline-flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-1 disabled:opacity-50"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                  </button>
+                ) : (
+                  <span className="h-6 w-6" aria-hidden="true" />
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {error ? (
+        <p className="text-[11px] text-danger" role="alert">
+          {error}
+        </p>
+      ) : null}
+      <p className="text-[11px] text-muted">
+        Overrides take effect immediately and are independent of the Save
+        button above.
+      </p>
+    </fieldset>
+  );
+}
+
+/**
+ * Local mirror of the API's role baselines. Kept in sync with
+ * apps/portal-api/src/auth/capabilities.ts. When adding a new
+ * capability, update both. (The full list also lives in
+ * docs/handoff/per-user-capability-overrides.md.)
+ */
+const ROLE_BASELINES_LOCAL: Record<OrgRole, Set<string>> = {
+  viewer: new Set(['can_view_public_items']),
+  contributor: new Set([
+    'can_view_public_items',
+    'can_publish_items',
+    'can_share_items',
+    'can_edit_own_items',
+  ]),
+  admin: new Set([
+    'can_view_public_items',
+    'can_publish_items',
+    'can_share_items',
+    'can_edit_own_items',
+    'can_edit_any_item',
+    'can_manage_users',
+    'can_edit_branding',
+    'can_manage_basemaps',
+    'can_disable_users',
+    'can_run_housekeeping',
+  ]),
+};
 
 /**
  * Short, human-friendly "time since" label for the Last Login column.
