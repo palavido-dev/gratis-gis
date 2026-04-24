@@ -70,6 +70,7 @@ enum ItemType {
   widget_package             @map("widget-package")
   pick_list                  @map("pick-list")
   geo_boundary               @map("geo-boundary")
+  basemap
 }
 
 // ---------- Tables ----------

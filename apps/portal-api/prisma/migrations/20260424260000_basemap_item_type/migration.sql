@@ -1,0 +1,11 @@
+-- Add the `basemap` variant to ItemType. Phase 1a of the basemap
+-- refactor (task #72): basemaps become first-class items so they
+-- participate in sharing, dependency tracking, ownership, provenance,
+-- and housekeeping the same way every other item does. The companion
+-- migration `20260424260100_backfill_basemap_items` then copies
+-- existing rows from the legacy `basemap` table into `item`. We split
+-- the two steps because Postgres forbids using a newly-added enum
+-- value in the same transaction that added it.
+-- The legacy `basemap` table and its Nest module are left alone here;
+-- task #74 drops them once Phase 1a has settled in Matt's dev env.
+ALTER TYPE "ItemType" ADD VALUE 'basemap';

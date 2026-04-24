@@ -3,6 +3,7 @@ import {
   ClipboardList,
   FileText,
   File as FileIcon,
+  Globe,
   Inbox,
   Layers,
   LayoutDashboard,
@@ -44,6 +45,7 @@ const ITEM_TYPE_ICONS: Record<ItemType, LucideIcon> = {
   widget_package: Box,
   pick_list: ListChecks,
   geo_boundary: MapPin,
+  basemap: Globe,
 };
 
 /**
@@ -70,6 +72,7 @@ const ITEM_TYPE_LABELS: Record<ItemType, string> = {
   widget_package: 'Widget package',
   pick_list: 'Pick list',
   geo_boundary: 'Boundary',
+  basemap: 'Basemap',
 };
 
 export function getItemTypeLabel(t: ItemType): string {
@@ -96,6 +99,7 @@ const ITEM_TYPE_ACCENT: Record<ItemType, string> = {
   widget_package: 'text-teal-700',
   pick_list: 'text-lime-600',
   geo_boundary: 'text-orange-600',
+  basemap: 'text-slate-600',
 };
 
 /** Tailwind class combos for the tile background used in compact
@@ -117,6 +121,7 @@ const ITEM_TYPE_TILE: Record<ItemType, string> = {
   widget_package: 'bg-teal-600/90 text-white',
   pick_list: 'bg-lime-500/90 text-white',
   geo_boundary: 'bg-orange-500/90 text-white',
+  basemap: 'bg-slate-600/90 text-white',
 };
 
 export function getItemTypeIcon(type: ItemType): LucideIcon {

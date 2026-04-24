@@ -18,3 +18,4 @@ export * from './data-layer';
 export * from './arcgis-service';
 export * from './pick-list';
 export * from './geo-boundary';
+export * from './basemap';

@@ -9,6 +9,7 @@ import {
   ExternalLink,
   FileText,
   FlaskConical,
+  Globe,
   Globe2,
   LayoutDashboard,
   Layers,
@@ -32,6 +33,7 @@ import type {
 } from '@gratis-gis/shared-types';
 import {
   DEFAULT_ARCGIS_SERVICE,
+  DEFAULT_BASEMAP,
   DEFAULT_DATA_LAYER_V3,
   DEFAULT_GEO_BOUNDARY,
   DEFAULT_PICK_LIST,
@@ -95,6 +97,12 @@ const TYPE_OPTIONS: TypeOption[] = [
     label: 'Boundary',
     desc: 'A named region (polygon) reused across shares, maps, and filters.',
     Icon: MapIcon,
+  },
+  {
+    value: 'basemap',
+    label: 'Basemap',
+    desc: 'A reusable background layer (style URL, tile template, or WMS) for maps.',
+    Icon: Globe,
   },
   {
     value: 'form',
@@ -358,6 +366,11 @@ export function NewItemWizard() {
       // Start an empty boundary; detail-page editor lets the user
       // draw, upload, or paste the geometry.
       data = DEFAULT_GEO_BOUNDARY;
+    } else if (type === 'basemap') {
+      // Start with the empty basemap scaffold (kind=tile-url, no URL).
+      // The detail-page editor (shipped separately) lets the user pick
+      // a style-url / tile-url / wms source and paste the URL.
+      data = DEFAULT_BASEMAP;
     } else {
       data = {};
     }
