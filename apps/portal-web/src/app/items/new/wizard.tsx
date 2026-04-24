@@ -209,7 +209,6 @@ export function NewItemWizard() {
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   const pickType = useCallback((t: ItemType) => {
@@ -415,27 +414,14 @@ export function NewItemWizard() {
         // API accepted the payload but we can't navigate to the detail
         // page. Fall back to the items list so the user still sees
         // their new item and knows the create worked.
-        const typeLabel =
-          TYPE_OPTIONS.find((o) => o.value === type)?.label ?? 'Item';
-        setSuccessMsg(
-          `${typeLabel} created. Redirecting to your items...`,
-        );
         startTransition(() => router.push('/items'));
         return;
       }
-      // Surface an immediate success message so the user sees feedback
-      // even while the detail page is server-rendering. The actual
-      // redirect fires on the next tick via startTransition.
-      const typeLabel =
-        TYPE_OPTIONS.find((o) => o.value === type)?.label ?? 'Item';
-      setSuccessMsg(
-        `${typeLabel} "${saved.title}" created. Opening it now...`,
-      );
       // data_layer still wants the ingest panel front and centre.
       // arcgis_service no longer needs #configure-arcgis because we baked
       // the probed config into dataJson above.
       const anchor = type === 'data_layer' ? '#add-data' : '';
-      startTransition(() => router.push(`/items/${saved!.id}${anchor}`));
+      startTransition(() => router.push(`/items/${saved.id}${anchor}`));
     } catch (err) {
       // Network failure or thrown error inside fetch - surface it
       // rather than leaving the user staring at a silent form.
@@ -670,16 +656,6 @@ export function NewItemWizard() {
         </div>
       ) : null}
 
-      {successMsg ? (
-        <div
-          className="flex items-center gap-2 rounded-md border border-success/30 bg-success/5 px-3 py-2 text-sm text-success"
-          role="status"
-        >
-          <Check className="h-4 w-4 shrink-0" />
-          <span>{successMsg}</span>
-        </div>
-      ) : null}
-
       <div className="flex items-center justify-end gap-3">
         <button
           type="button"
@@ -692,15 +668,15 @@ export function NewItemWizard() {
         <button
           type="button"
           onClick={submit}
-          disabled={submitting || successMsg !== null}
+          disabled={submitting}
           className="inline-flex h-10 items-center gap-2 rounded-md bg-accent px-4 text-sm font-medium text-accent-foreground shadow-card hover:opacity-90 disabled:opacity-50"
         >
-          {submitting || successMsg !== null ? (
+          {submitting ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
             <Sparkles className="h-4 w-4" />
           )}
-          {successMsg !== null ? 'Redirecting...' : 'Create item'}
+          Create item
         </button>
       </div>
     </div>
