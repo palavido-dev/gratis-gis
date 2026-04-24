@@ -13,8 +13,8 @@ interface Props {
 /**
  * Label-engine editor.
  *
- * The label text is an expression â€” the same `{{field | formatter}}`
- * grammar as popups â€” rather than a single field name. That means a
+ * The label text is an expression — the same `{{field | formatter}}`
+ * grammar as popups — rather than a single field name. That means a
  * user can produce "Population: 1,234" instead of just "1234", or
  * combine multiple fields ("{{name}} ({{pop | number}})"). Insert-field
  * and insert-formatter menus drop canned snippets at the caret so the

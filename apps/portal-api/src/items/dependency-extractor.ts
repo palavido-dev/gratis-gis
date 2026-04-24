@@ -50,7 +50,7 @@ export function extractDependencies(
         if (typeof id === 'string' && id.length > 0) itemIds.add(id);
       } else if (kind === 'arcgis-rest') {
         // Prefer the direct back-reference when the layer was added
-        // from a portal item â€” URL matching is brittle (trailing
+        // from a portal item — URL matching is brittle (trailing
         // slashes, alternate hostnames, query strings). Fall back to
         // URL matching for layers added by raw-URL paste.
         const direct = source.sourceItemId;
@@ -95,7 +95,7 @@ export function extractDependencies(
     }
   }
 
-  // Hook points for other types â€” extend as those item types come online.
+  // Hook points for other types — extend as those item types come online.
 
   return { itemIds: Array.from(itemIds), urls: Array.from(urls) };
 }
@@ -110,7 +110,7 @@ export function extractDependencies(
  */
 export function normalizeArcgisUrl(u: string): string {
   let s = u.trim();
-  // Strip query + fragment â€” these are presentation artifacts, not
+  // Strip query + fragment — these are presentation artifacts, not
   // part of the service identity.
   const q = s.indexOf('?');
   if (q >= 0) s = s.slice(0, q);

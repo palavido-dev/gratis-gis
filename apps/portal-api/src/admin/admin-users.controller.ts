@@ -48,7 +48,7 @@ class InviteUserDto {
   @IsOptional() @IsString() @MaxLength(60) firstName?: string;
   @IsOptional() @IsString() @MaxLength(60) lastName?: string;
   @IsOptional() @IsEnum(['viewer', 'contributor', 'admin']) orgRole?: OrgRole;
-  /** Defaults to true â€” the normal invitation flow. */
+  /** Defaults to true — the normal invitation flow. */
   @IsOptional() @IsBoolean() sendSetupEmail?: boolean;
 }
 
@@ -62,7 +62,7 @@ class UpdateUserDto {
 
 /**
  * Admin-only CRUD endpoints for managing users in the built-in
- * Keycloak realm. All paths are gated by AdminGuard â€” non-admins
+ * Keycloak realm. All paths are gated by AdminGuard — non-admins
  * get a 403 regardless of whether the resource exists.
  *
  * Responses are the raw Keycloak user representation plus a

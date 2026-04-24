@@ -71,7 +71,7 @@ const GEOMETRY_OPTIONS: Array<{
 
 function randomId(prefix: string): string {
   // Short opaque ids for layers. Not globally unique, just stable per
-  // wizard session â€” the backend will assign its own uuids when it
+  // wizard session — the backend will assign its own uuids when it
   // materializes the tables in Phase C.
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -147,7 +147,7 @@ export function DataLayerBuilder({ value, onChange }: Props) {
     (id: string) => {
       // Also clean up any layers that pointed at this one as a parent.
       // With exactOptionalPropertyTypes we can't assign `undefined` to an
-      // optional prop â€” build the cleared copy by destructuring instead.
+      // optional prop — build the cleared copy by destructuring instead.
       const next = layers
         .filter((l) => l.id !== id)
         .map((l) => {
@@ -173,7 +173,7 @@ export function DataLayerBuilder({ value, onChange }: Props) {
 
   const replaceLayer = useCallback(
     (id: string, next: DataLayerSublayer) => {
-      // Full replacement â€” use this (not patchLayer) when you need to
+      // Full replacement — use this (not patchLayer) when you need to
       // *remove* an optional key like parentLayerId, because the spread
       // in patchLayer would merge it back in from the previous state.
       updateLayers(layers.map((l) => (l.id === id ? next : l)));
@@ -262,7 +262,7 @@ export function DataLayerBuilder({ value, onChange }: Props) {
         <ImportPanel
           onClose={() => setImportOpen(false)}
           onImport={(imported) => {
-            // Append rather than replace â€” authors can import into an
+            // Append rather than replace — authors can import into an
             // already-seeded builder without losing manually-defined
             // layers.
             updateLayers([...layers, ...imported]);
@@ -305,7 +305,7 @@ export function DataLayerBuilder({ value, onChange }: Props) {
 
 interface LayerCardProps {
   layer: DataLayerSublayer;
-  /** Layers with a geometry type â€” potential parents for a table. */
+  /** Layers with a geometry type — potential parents for a table. */
   spatialLayers: DataLayerSublayer[];
   /** Whether the card starts expanded. Parent picks this so a long
    *  list of layers doesn't blow the page out by default. */
@@ -347,7 +347,7 @@ function LayerCard({
   // without lifting their individual open/closed state up here.
   const [fieldCollapseSignal, setFieldCollapseSignal] = useState(0);
   // Index of the most-recently-added field, for auto-focusing its name
-  // input so the user can see â€” and start typing â€” the new row
+  // input so the user can see — and start typing — the new row
   // immediately rather than hunting for it below expanded settings.
   const [focusIndex, setFocusIndex] = useState<number | null>(null);
 
@@ -416,7 +416,7 @@ function LayerCard({
 
       {open ? (
         <div className="space-y-4 border-t border-border px-3 py-3">
-          {/* Machine name â€” shown as an advanced-ish detail below the display label. */}
+          {/* Machine name — shown as an advanced-ish detail below the display label. */}
           <div className="grid grid-cols-[auto_1fr] items-center gap-2 text-xs">
             <label
               htmlFor={`${layer.id}-name`}
@@ -460,7 +460,7 @@ function LayerCard({
             </label>
             <label
               className="inline-flex cursor-pointer items-center gap-1.5"
-              title="Attachment storage is a Phase E backend change â€” the toggle persists so you can opt in now."
+              title="Attachment storage is a Phase E backend change — the toggle persists so you can opt in now."
             >
               <input
                 type="checkbox"
@@ -584,7 +584,7 @@ function FieldsTable({
 
       {/* Second "Add field" trigger lives below the table so it's
           always visible even when several rows have their settings
-          panel expanded â€” the top button can end up scrolled off
+          panel expanded — the top button can end up scrolled off
           with a dense layer. */}
       {fields.length > 0 ? (
         <button
@@ -604,7 +604,7 @@ function FieldsTable({
 
 interface FieldRowProps {
   field: FeatureField;
-  /** Parent-driven collapse counter â€” bumps force-close the settings
+  /** Parent-driven collapse counter — bumps force-close the settings
    *  pane. Auto-bumped when a new field is added so the page doesn't
    *  lengthen indefinitely, and manually bumped by "Collapse all". */
   collapseSignal: number;
@@ -795,7 +795,7 @@ function FieldRow({
               className="text-[10px] text-muted"
               title="Settings apply to text or number fields"
             >
-              â€”
+              —
             </span>
           )}
         </td>
@@ -876,7 +876,7 @@ interface ConstraintsEditorProps {
 }
 
 /**
- * Advanced storage hints for a field. Optional â€” authors who don't
+ * Advanced storage hints for a field. Optional — authors who don't
  * care can ignore them and PostgreSQL's defaults (TEXT, NUMERIC) will
  * carry everything. Shown only for string and number fields since
  * boolean and date have nothing to configure.
@@ -888,7 +888,7 @@ interface ConstraintsEditorProps {
 function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
   const storage = field.storage ?? {};
 
-  // Accept undefined values here explicitly â€” callers pass `undefined`
+  // Accept undefined values here explicitly — callers pass `undefined`
   // to mean "clear this key", and exactOptionalPropertyTypes would
   // otherwise reject that on the stricter FeatureFieldStorage shape.
   function patchStorage(
@@ -931,7 +931,7 @@ function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
           >
             Max length
             <span className="ml-1 text-[10px] text-muted">
-              characters â€” leave blank for unlimited
+              characters — leave blank for unlimited
             </span>
           </label>
           <input
@@ -1008,7 +1008,7 @@ function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
                 >
                   Digits after decimal (scale)
                   <span className="ml-1 text-[10px] text-muted">
-                    e.g. 4 for â€¦6789
+                    e.g. 4 for …6789
                   </span>
                 </label>
                 <input
@@ -1034,7 +1034,7 @@ function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
 
       <p className="mt-2 text-[10px] text-muted">
         These are optional. PostgreSQL stores text as unlimited TEXT and
-        numbers as arbitrary-precision NUMERIC by default â€” set these only
+        numbers as arbitrary-precision NUMERIC by default — set these only
         when you need Esri/shapefile export compatibility or strict input
         validation.
       </p>
@@ -1054,7 +1054,7 @@ interface DomainEditorProps {
  * Dispatches to either the inline coded-value editor or the shared
  * pick-list picker based on the current domain variant. Offers a
  * toggle so authors can switch between the two without losing state
- * that doesn't overlap â€” switching from inline â†’ shared just drops
+ * that doesn't overlap — switching from inline â†’ shared just drops
  * the inline values; switching the other way leaves the user with an
  * empty inline list to populate.
  */
@@ -1185,7 +1185,7 @@ function SharedPickListRefEditor({
         if (!cancelled) setLists(rows);
       })
       .catch(() => {
-        /* leave list empty â€” user can still type an ID */
+        /* leave list empty — user can still type an ID */
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -1235,7 +1235,7 @@ function SharedPickListRefEditor({
           type="button"
           onClick={onDisable}
           className="inline-flex h-6 items-center gap-1 rounded px-1.5 text-[11px] text-muted hover:bg-surface-2 hover:text-ink-1"
-          title="Remove the pick list â€” any value becomes allowed again"
+          title="Remove the pick list — any value becomes allowed again"
         >
           <X className="h-3 w-3" />
           Disable
@@ -1255,10 +1255,10 @@ function SharedPickListRefEditor({
           >
             <option value="">
               {loading
-                ? 'Loadingâ€¦'
+                ? 'Loading…'
                 : lists.length === 0
-                  ? 'No shared pick lists yet â€” create one below'
-                  : 'Select a pick listâ€¦'}
+                  ? 'No shared pick lists yet — create one below'
+                  : 'Select a pick list…'}
             </option>
             {lists.map((l) => (
               <option key={l.id} value={l.id}>
@@ -1296,7 +1296,7 @@ function SharedPickListRefEditor({
         <div className="mt-2 rounded border border-border bg-surface-1 p-2 text-[11px]">
           <p className="mb-1 uppercase tracking-wide text-muted">Preview</p>
           {previewLoading ? (
-            <p className="text-muted">Loading entriesâ€¦</p>
+            <p className="text-muted">Loading entries…</p>
           ) : preview && preview.length > 0 ? (
             <ul className="space-y-0.5">
               {preview.map((e) => (
@@ -1333,7 +1333,7 @@ interface CodedValueEditorProps {
   onDisable: () => void;
   /**
    * Fires after the user promotes the current inline values into a new
-   * shared pick list â€” hands the new pick_list item id back so the
+   * shared pick list — hands the new pick_list item id back so the
    * field can switch its domain over to `coded-value-ref`.
    */
   onPromoteToShared: (newItemId: string) => void;
@@ -1406,7 +1406,7 @@ function CodedValueEditor({
             type="button"
             onClick={onDisable}
             className="inline-flex h-6 items-center gap-1 rounded px-1.5 text-[11px] text-muted hover:bg-surface-2 hover:text-ink-1"
-            title="Remove the pick list â€” any value becomes allowed again"
+            title="Remove the pick list — any value becomes allowed again"
           >
             <X className="h-3 w-3" />
             Disable pick list
@@ -1580,7 +1580,7 @@ function ParentLinkRow({
           }}
           className="h-7 w-full rounded border border-border bg-surface-1 px-1 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
         >
-          <option value="">â€” None (standalone table) â€”</option>
+          <option value="">— None (standalone table) —</option>
           {parentOptions.map((p) => (
             <option key={p.id} value={p.id}>
               {p.label}
@@ -1623,14 +1623,14 @@ interface ImportPanelProps {
 }
 
 /**
- * Import panel â€” multi-format.
+ * Import panel — multi-format.
  *
  * GeoJSON / JSON is still parsed client-side (fast, no server round-
  * trip). Everything else (KML, KMZ, shapefile zip, File GDB zip) is
  * POSTed to /api/ingest/probe, which uses GDAL on the server to list
  * layers + fields. Authors can then pick which of those layers to add
  * as builder layers. Feature data itself is loaded later via
- * /items/:id/layers/:layerId/import after the item is created â€” this
+ * /items/:id/layers/:layerId/import after the item is created — this
  * panel only seeds the schema.
  */
 
@@ -1656,7 +1656,7 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
     setError(null);
     setProbed(null);
     const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-    // GeoJSON stays client-side â€” it's small and parses quickly.
+    // GeoJSON stays client-side — it's small and parses quickly.
     if (ext === 'geojson' || ext === 'json') {
       setBusy('parsing');
       try {
@@ -1694,7 +1694,7 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
 
     // KML / KMZ / shapefile zip / GDB / anything OGR-readable: send to
     // the server's probe endpoint. Returns layer metadata without the
-    // geometry â€” we just need to seed the builder schema here.
+    // geometry — we just need to seed the builder schema here.
     setBusy('probing');
     try {
       const body = new FormData();
@@ -1715,7 +1715,7 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
         layers: ProbedLayer[];
       };
       if (out.layers.length === 1) {
-        // Single-layer file â€” add it straight away, no picker needed.
+        // Single-layer file — add it straight away, no picker needed.
         addProbedLayers(file.name, out.layers, out.layers[0]!.name);
         return;
       }
@@ -1798,7 +1798,7 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
         <div>
           <p className="mb-2 text-[11px] text-muted">
             <span className="font-medium text-ink-1">{probed.fileName}</span>{' '}
-            â€” {probed.driver} Â· {probed.layers.length} layer
+            — {probed.driver} · {probed.layers.length} layer
             {probed.layers.length === 1 ? '' : 's'}. Pick which to add:
           </p>
           <ul className="mb-2 max-h-60 space-y-0.5 overflow-y-auto rounded border border-border bg-surface-1 p-1">
@@ -1876,7 +1876,7 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
 
       {busy ? (
         <p className="mt-2 text-[11px] text-muted">
-          {busy === 'parsing' ? 'Parsing locallyâ€¦' : 'Probing on the serverâ€¦'}
+          {busy === 'parsing' ? 'Parsing locally…' : 'Probing on the server…'}
         </p>
       ) : null}
       {error ? (

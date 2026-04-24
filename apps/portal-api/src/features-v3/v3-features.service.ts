@@ -138,7 +138,7 @@ export class V3FeaturesService {
   }
 
   /** Update a feature by expiring the current row and inserting a new
-   *  one â€” same temporal-versioning pattern as the v2 features service. */
+   *  one — same temporal-versioning pattern as the v2 features service. */
   async updateFeature(
     itemId: string,
     layerId: string,

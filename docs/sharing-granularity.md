@@ -41,11 +41,11 @@ each user's request is filtered in-flight.
 FieldPolicy (one row per policy):
   id              uuid PK
   itemId          uuid â†’ Item (must be feature-service)
-  name            text          â€” admin-facing label
-  principalMatch  jsonb         â€” who this applies to
-  visibleColumns  text[]        â€” columns this audience can see
-  maskMode        enum          â€” 'drop' | 'mask_null' | 'mask_redact'
-  priority        int           â€” tiebreak when multiple rules match
+  name            text          — admin-facing label
+  principalMatch  jsonb         — who this applies to
+  visibleColumns  text[]        — columns this audience can see
+  maskMode        enum          — 'drop' | 'mask_null' | 'mask_redact'
+  priority        int           — tiebreak when multiple rules match
   createdAt       timestamptz
 
 RowPolicy (one row per policy):
@@ -53,7 +53,7 @@ RowPolicy (one row per policy):
   itemId          uuid â†’ Item
   name            text
   principalMatch  jsonb
-  filter          jsonb         â€” safe-expression AST (see below)
+  filter          jsonb         — safe-expression AST (see below)
   priority        int
   createdAt       timestamptz
 ```
@@ -89,7 +89,7 @@ server-side against the authenticated `AuthUser`. Composable.
 
 ### filter (row policy)
 
-Safe expression AST evaluated per row. No raw SQL in the payload â€” the
+Safe expression AST evaluated per row. No raw SQL in the payload — the
 server compiles it into parameterized SQL.
 
 ```jsonc
@@ -112,9 +112,9 @@ everyone else, policies must say yes.
 
 For a read of feature-service `S` by authenticated user `U`:
 
-1. **Authorization gate** â€” `canRead(U, S)` via the normal item sharing
+1. **Authorization gate** — `canRead(U, S)` via the normal item sharing
    rules (see `data-model.md`). If false: 404 and stop.
-2. **Owner / admin short-circuit** â€” if `U` is `S`'s owner or an org
+2. **Owner / admin short-circuit** — if `U` is `S`'s owner or an org
    admin of the owning org: full access (all rows, all columns), skip
    policies entirely. This is how item ownership always works: create an
    item and it's yours, full visibility, no policy authoring required.
@@ -144,7 +144,7 @@ For a read of feature-service `S` by authenticated user `U`:
 5. **Query compilation**: translate to parameterized SQL with the
    `effectiveFilter` in `WHERE` and the `visibleCols` as the `SELECT`
    list. Non-visible columns are either omitted (`maskMode='drop'`) or
-   replaced with `NULL` / `'â€¢â€¢â€¢â€¢'` in the projection.
+   replaced with `NULL` / `'••••'` in the projection.
 6. **Enforce identically on the tile path**: pg\_tileserv uses a
    parameterized function wrapper that reads the JWT claims, computes the
    same `effectiveFilter` + `visibleCols`, and returns only matching
@@ -154,16 +154,16 @@ For a read of feature-service `S` by authenticated user `U`:
 
 Because we deny by default, simply sharing an item to a group via
 `ItemShare` is not enough to let that group *read* rows from a
-feature-service â€” you also need at least a RowPolicy (even a trivial
+feature-service — you also need at least a RowPolicy (even a trivial
 "always true" one) matching that group. The Permissions UI enforces this
 by refusing to save a share to a non-admin without at least one
 applicable policy, and offers to scaffold a trivially permissive policy
 so the admin can narrow it afterward. This trades slightly more up-front
-configuration for much stronger safety guarantees â€” the same trade-off
+configuration for much stronger safety guarantees — the same trade-off
 Postgres RLS forces, for the same reason.
 
 For non-feature-service item types (web-maps, reports, dashboards,
-notebooks) the deny-by-default row/field policies don't apply â€” those
+notebooks) the deny-by-default row/field policies don't apply — those
 items have no rows or fields to filter. Sharing rules from
 `data-model.md` govern them directly.
 
@@ -194,7 +194,7 @@ and nobody sees it until you add a field policy that includes it.
 
 ## Schema changes are safe
 
-New columns are **invisible by default** to non-owners â€” because no
+New columns are **invisible by default** to non-owners — because no
 existing `FieldPolicy.visibleColumns` array mentions them. (Owners and
 org admins still see them immediately, per step 2.) This is the opposite
 of the layer-view pattern, where the base schema leaks into every view
@@ -232,7 +232,7 @@ a **Permissions** tab with three sections:
    columns; cells are checkboxes. A "default" row at the top controls
    what happens for audiences not explicitly listed.
 
-Plus: a **"Preview asâ€¦"** selector at the top of the tab. Pick a real
+Plus: a **"Preview as…"** selector at the top of the tab. Pick a real
 user or a hypothetical principal-match, and the page re-renders showing
 exactly what that user would see: visible columns grayed out,
 effective row count, the compiled SQL. This is the single feature that
@@ -252,9 +252,9 @@ policies.
 
 ## What this gives you that AGOL layer-views don't
 
-- One layer, one app, one tile cache â€” serves every audience
+- One layer, one app, one tile cache — serves every audience
 - Per-user sharing, not just per-group
-- Column hiding *and* column masking ("â€¢â€¢â€¢â€¢" instead of dropped, when
+- Column hiding *and* column masking ("••••" instead of dropped, when
   the UI needs to indicate "something exists here, you can't see it")
 - Row filters that reference the viewer (`owner_id = :viewer.id`)
 - Schema additions are invisible until explicitly exposed
@@ -270,7 +270,7 @@ row/field policies yet.
 policy-evaluation logic in the API query path, the Permissions tab UI
 (including Preview-as-user). This lands alongside the first feature-
 service rendering work so policies are a first-class concept from day
-one â€” never bolted on later.
+one — never bolted on later.
 
 **Phase 2+ (hardening):** the pg\_tileserv function wrapper that enforces
 policies at the tile path, and the nightly drift check. Required before

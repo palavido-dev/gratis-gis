@@ -38,7 +38,7 @@ interface Props {
   /**
    * Per-layer map of backing item id (data_layer, arcgis_service).
    * Layers whose source isn't an item (geojson-url / geojson-inline)
-   * map to null â€” those can't have item-level access gaps because
+   * map to null — those can't have item-level access gaps because
    * there's no separate item to share.
    */
   layerItemIds: Record<string, string | null>;
@@ -69,9 +69,9 @@ interface Props {
  * Per-layer access matrix modal for a web map.
  *
  * Two concerns stacked in one view:
- *   1. Webmap-scoped access â€” what each shared principal can see +
+ *   1. Webmap-scoped access — what each shared principal can see +
  *      do on this particular map (the View/Query/Edit matrix).
- *   2. Item-level sharing â€” whether the principal even has access to
+ *   2. Item-level sharing — whether the principal even has access to
  *      the backing feature / ArcGIS service. The matrix surfaces
  *      gaps here with a warning badge and a one-click "Grant view on
  *      this item" action, so authors don't have to hop between the
@@ -168,7 +168,7 @@ export function AccessMatrix({
   /**
    * Can this layer be edited via the map's (yet-to-ship) feature
    * editing flow? Only data_layer layers have a writable backing
-   * store the webmap can own â€” arcgis-rest points at a remote service
+   * store the webmap can own — arcgis-rest points at a remote service
    * we don't control, geojson-url is read-only by definition, and
    * geojson-inline is baked into the webmap's own dataJson (not
    * per-feature editable). Exposing Edit for those three types in the
@@ -189,7 +189,7 @@ export function AccessMatrix({
     p: MatrixPrincipal,
   ): boolean {
     const shares = itemShares[itemId];
-    if (!shares) return true; // haven't loaded yet â€” don't warn prematurely
+    if (!shares) return true; // haven't loaded yet — don't warn prematurely
     if (p.type === 'user') {
       if (
         shares.some(
@@ -480,7 +480,7 @@ export function AccessMatrix({
 
       {/* Per-cell detail dialog. Rendered as a sibling of the main
           matrix (both sit on the same fixed backdrop) so it's never
-          clipped by the matrix's scroll area â€” the bug where users
+          clipped by the matrix's scroll area — the bug where users
           had to scroll down to notice the popover. Stop-propagation
           on the inner card lets a backdrop click close just this
           dialog without collapsing the whole matrix. */}
@@ -559,12 +559,12 @@ function AccessBadge({
     view: entry.view,
     query: entry.view && entry.query,
     // If the layer isn't editable, the "E" part of the badge would
-    // be misleading â€” the flag has no runtime effect regardless of
+    // be misleading — the flag has no runtime effect regardless of
     // what's stored in entry.edit.
     edit: editable && entry.view && entry.query && entry.edit,
   };
   const label = !effective.view
-    ? 'â€”'
+    ? '—'
     : effective.edit
       ? 'V+Q+E'
       : effective.query
@@ -588,7 +588,7 @@ function AccessBadge({
       {!hasItemAccess ? (
         <span
           className="absolute -right-1 -top-1 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-warn text-[8px] font-bold text-white"
-          title="No access to the backing item â€” grant from the popover"
+          title="No access to the backing item — grant from the popover"
         >
           !
         </span>
@@ -598,7 +598,7 @@ function AccessBadge({
 }
 
 /**
- * Per-cell detail dialog â€” the View/Query/Edit toggles plus the
+ * Per-cell detail dialog — the View/Query/Edit toggles plus the
  * item-level access status and Grant button. Rendered as a proper
  * centered modal (not an absolutely-positioned popover below the
  * cell) so nothing inside the matrix's scroll region can clip it.
@@ -715,7 +715,7 @@ function AccessDetailDialog({
           </div>
         ) : (
           <div className="rounded-md bg-surface-2 px-3 py-2 text-xs text-muted">
-            No backing item â€” every principal with map access can see
+            No backing item — every principal with map access can see
             this layer.
           </div>
         )}
@@ -739,7 +739,7 @@ function AccessDetailDialog({
             desc={
               editable
                 ? 'Modify features (enables once editing UI ships)'
-                : 'Not available â€” this layer has no writable source'
+                : 'Not available — this layer has no writable source'
             }
             checked={editable && entry.edit}
             disabled={!editable || !entry.view || !entry.query}

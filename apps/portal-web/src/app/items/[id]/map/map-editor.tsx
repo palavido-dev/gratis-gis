@@ -52,7 +52,7 @@ interface Props {
   /**
    * Custom basemaps registered at /admin/basemaps in this org, merged
    * into the basemap picker alongside the hardcoded built-ins. Empty
-   * array is fine â€” the picker falls back to built-ins only.
+   * array is fine — the picker falls back to built-ins only.
    */
   customBasemaps?: CustomBasemap[];
 }
@@ -64,7 +64,7 @@ interface Props {
  * only persists changes they actually want.
  *
  * Layout: left sidebar with layer panel, right side the map. On narrow
- * viewports the sidebar collapses into a drawer (future) â€” for v2 we
+ * viewports the sidebar collapses into a drawer (future) — for v2 we
  * use a fixed-width sidebar and let horizontal scroll handle anything
  * below that.
  */
@@ -190,7 +190,7 @@ export function MapEditor({
    * Shared selection state: per-layer set of feature ids. Because
    * every geojson source is added with `generateId: true`, these ids
    * are the same as the feature's array index in the cached
-   * FeatureCollection â€” which is what the attribute table uses for
+   * FeatureCollection — which is what the attribute table uses for
    * its row selection. That alignment lets one Set serve both the
    * map highlight and the table checkboxes without translation.
    */
@@ -228,7 +228,7 @@ export function MapEditor({
   // For arcgis-rest sources we NOW carry an optional `sourceItemId`
   // back-reference (set when the layer was added from a portal
   // arcgis_service item via the item picker). When present, that's
-  // the backing item the matrix should gate access against â€” the
+  // the backing item the matrix should gate access against — the
   // ArcGIS service is proxied through the portal, and gaps on the
   // arcgis_service item's shares translate to "this principal can
   // see the web map but not this ArcGIS layer's data". Layers added
@@ -248,7 +248,7 @@ export function MapEditor({
   }, [map.layers]);
 
   async function loadMatrixData() {
-    // Webmap's own shares â€” drives the principal column list.
+    // Webmap's own shares — drives the principal column list.
     try {
       const res = await fetch(`/api/portal/items/${itemId}`);
       if (res.ok) {
@@ -256,9 +256,9 @@ export function MapEditor({
         setWebmapShares(j.shares ?? []);
       }
     } catch {
-      /* non-fatal â€” matrix shows empty principals list */
+      /* non-fatal — matrix shows empty principals list */
     }
-    // Each distinct backing item â€” pulls its shares for gap detection.
+    // Each distinct backing item — pulls its shares for gap detection.
     const uniqItemIds = Array.from(
       new Set(
         Object.values(layerItemIds).filter(
@@ -274,7 +274,7 @@ export function MapEditor({
           const j = (await r.json()) as { shares?: ItemShare[] };
           setItemShares((prev) => ({ ...prev, [id]: j.shares ?? [] }));
         } catch {
-          /* non-fatal â€” cell falls back to "no warning" */
+          /* non-fatal — cell falls back to "no warning" */
         }
       }),
     );
@@ -289,12 +289,12 @@ export function MapEditor({
         setGroupDirectory(dir);
       }
     } catch {
-      /* non-fatal â€” groups show as short ids */
+      /* non-fatal — groups show as short ids */
     }
 
     // Users: batch-resolve names + group memberships for every
     // principal on the webmap's share list. One call covers the
-    // whole matrix â€” avoids a per-row fetch during render.
+    // whole matrix — avoids a per-row fetch during render.
     try {
       // Snapshot webmapShares here; the list was just refreshed at
       // the top of loadMatrixData so whatever's in state now is
@@ -339,7 +339,7 @@ export function MapEditor({
         }
       }
     } catch {
-      /* non-fatal â€” users show as short ids, memberships empty */
+      /* non-fatal — users show as short ids, memberships empty */
     }
   }
 
@@ -353,7 +353,7 @@ export function MapEditor({
   }, [matrixOpen, itemId]);
 
   // Deduplicate shares into a principal list. Filters to principals
-  // who actually have view-or-better access to the webmap â€” the
+  // who actually have view-or-better access to the webmap — the
   // matrix exists to narrow their access, not to create new ones.
   const matrixPrincipals = useMemo<MatrixPrincipal[]>(() => {
     return webmapShares.map((s) => {
@@ -393,7 +393,7 @@ export function MapEditor({
         setItemShares((prev) => ({ ...prev, [bitemId]: j.shares ?? [] }));
       }
     } catch {
-      /* non-fatal â€” matrix may show stale state until close/reopen */
+      /* non-fatal — matrix may show stale state until close/reopen */
     }
   }
 
@@ -436,7 +436,7 @@ export function MapEditor({
   const abortsRef = useRef<Record<string, AbortController>>({});
 
   // Discover metadata for any layer we haven't seen yet. The key here is
-  // layer id + a stable hash of the source â€” if a user swaps the URL in
+  // layer id + a stable hash of the source — if a user swaps the URL in
   // place we need a fresh fetch, not a stale cache.
   const sourceKeys = map.layers.map(
     (l) => `${l.id}|${JSON.stringify(l.source)}`,
@@ -616,7 +616,7 @@ export function MapEditor({
           <span className="hidden text-xs text-muted sm:inline">
             {selectedCustom
               ? selectedCustom.description ||
-                `Custom basemap â€” ${selectedCustom.sourceKind}`
+                `Custom basemap — ${selectedCustom.sourceKind}`
               : BASEMAPS[map.basemap].description}
           </span>
 

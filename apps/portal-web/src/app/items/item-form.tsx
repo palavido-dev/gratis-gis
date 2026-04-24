@@ -70,7 +70,7 @@ const LICENSE_OPTIONS: Array<{ value: string; label: string; hint?: string }> = 
     label: 'Proprietary / rights reserved',
     hint: 'Internal use only',
   },
-  { value: 'custom', label: 'CustomÃ¢â‚¬Â¦', hint: 'Specify your own value' },
+  { value: 'custom', label: 'Custom…', hint: 'Specify your own value' },
 ];
 
 const ITEM_TYPE_OPTIONS: Array<{ value: ItemType; label: string; desc: string }> = [
@@ -148,7 +148,7 @@ const accessOptions: Array<{
 ];
 
 /**
- * Create/edit form for item metadata. Data payload is not edited here Ã¢â‚¬â€
+ * Create/edit form for item metadata. Data payload is not edited here —
  * type-specific editors (map authoring, form designer, etc.) ship with
  * their respective pillars. On create, the payload defaults to {}.
  */

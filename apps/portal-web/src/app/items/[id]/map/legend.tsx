@@ -157,7 +157,7 @@ function LayerSwatch({
 
   // Simple renderer (or an in-progress unique-values / class-breaks).
   // Only show swatches for geometries the layer actually contains.
-  // If metadata hasn't told us yet, show everything â€” it's better than
+  // If metadata hasn't told us yet, show everything — it's better than
   // missing a mark for a geometry the user knows is there.
   return (
     <SimpleSwatches

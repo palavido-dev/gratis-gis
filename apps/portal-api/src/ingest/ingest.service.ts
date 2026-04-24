@@ -95,7 +95,7 @@ export class IngestService {
           drivers.add(layer.ds.driver.description);
           if (sourceSrs === null) sourceSrs = srsAuthCode(layer.srs);
           // Build a per-layer transform from the layer's SRS to 4326.
-          // If the layer has no SRS declared we can't transform â€” we
+          // If the layer has no SRS declared we can't transform — we
           // assume the coordinates are already 4326 (the OGC
           // convention for GeoJSON) and skip the transform.
           const xform = buildTransform(gdal, layer.srs, target4326);
@@ -417,7 +417,7 @@ function gdalGeomToSimple(
  * reprojected in-place into the target SRS before serialization.
  * That's the critical piece for #48: without this, a shapefile in
  * UTM meters (EPSG:26911) would land in PostGIS with 4326 declared
- * but coordinates like `[480000, 3750000]` â€” off in the Gulf of
+ * but coordinates like `[480000, 3750000]` — off in the Gulf of
  * Guinea when rendered.
  */
 function featureGeomJson(
@@ -444,7 +444,7 @@ function featureGeomJson(
       geom.transform(transform);
     } catch {
       // Reprojection can fail on malformed geometries (self-
-      // intersecting polygons, empty rings). Drop silently â€” the
+      // intersecting polygons, empty rings). Drop silently — the
       // caller's feature count reflects what actually made it in.
       return null;
     }
@@ -460,7 +460,7 @@ function featureGeomJson(
  * Build a gdal CoordinateTransformation from a layer's source SRS
  * to EPSG:4326 for ingest. Returns null when:
  *   - the layer has no declared SRS (assume the caller wants no
- *     transform â€” e.g. already-4326 GeoJSON with no explicit SRS)
+ *     transform — e.g. already-4326 GeoJSON with no explicit SRS)
  *   - the layer's SRS already IS 4326 (transform would be a no-op)
  *   - building the transform throws (proj lookup failure, etc.)
  * A null return tells featureGeomJson to skip the transform step.
@@ -475,7 +475,7 @@ function buildTransform(
     getAuthorityName?: () => string | null;
     getAuthorityCode?: () => string | null;
   };
-  // Skip transform if source already claims EPSG:4326 â€” cheapest
+  // Skip transform if source already claims EPSG:4326 — cheapest
   // correctness path, and avoids a no-op roundtrip through proj.
   try {
     if (
@@ -485,7 +485,7 @@ function buildTransform(
       return null;
     }
   } catch {
-    /* fall through to build the transform â€” safer than refusing */
+    /* fall through to build the transform — safer than refusing */
   }
   try {
     return new (gdal as unknown as {

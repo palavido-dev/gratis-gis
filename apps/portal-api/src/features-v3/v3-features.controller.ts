@@ -92,7 +92,7 @@ export class V3FeaturesController {
     return this.v3.listFeatures(itemId, layerId, opts);
   }
 
-  /** GeoJSON view of a single layer â€” the map editor's overlay source
+  /** GeoJSON view of a single layer — the map editor's overlay source
    *  hits this per-layer URL for v3 items, the same way v2 items use
    *  /items/:id/geojson. */
   @Get('geojson')
@@ -148,7 +148,7 @@ export class V3FeaturesController {
    *  read (or edit) it, and the named layer is part of its schema.
    *  Returns the geographic restriction (if any) that applies to this
    *  caller on this item so the query can clip rows to the allowed
-   *  area. Null means no restriction â€” either because the caller has
+   *  area. Null means no restriction — either because the caller has
    *  unrestricted access (owner / admin / org / public) or because
    *  their share(s) don't carry a polygon. */
   private async assertV3Layer(
@@ -181,7 +181,7 @@ export class V3FeaturesController {
       // Authoritative edit gate: same helper update() uses.
       await this.items.assertCanEdit(user, itemId);
     }
-    // Geo-limit is only meaningful on read â€” writes go through
+    // Geo-limit is only meaningful on read — writes go through
     // canEdit which doesn't use a polygon today (the share either
     // grants edit or doesn't). For reads, consult every matching
     // share's polygon to build the union. Owners / admins return

@@ -66,7 +66,7 @@ export function DataLayerEditor({ itemId, initial, canEdit }: Props) {
   const v2 = isV2(initial);
   const v3 = isV3(initial);
 
-  // v3 is multi-layer â€” this single-layer editor surfaces aggregated
+  // v3 is multi-layer — this single-layer editor surfaces aggregated
   // stats and the fields of the first layer. The dedicated multi-layer
   // editor (Phase B+) is the proper home for v3 editing; this block is
   // a compatibility bridge so the existing ingest flows still compile.
@@ -116,7 +116,7 @@ export function DataLayerEditor({ itemId, initial, canEdit }: Props) {
   }
 
   /**
-   * Server-side GDAL ingest â€” handles File Geodatabase and other formats
+   * Server-side GDAL ingest — handles File Geodatabase and other formats
    * that have no in-browser parser. The ingest endpoint now writes directly
    * to PostGIS (provisioning the table on first use) and returns v2 metadata.
    */

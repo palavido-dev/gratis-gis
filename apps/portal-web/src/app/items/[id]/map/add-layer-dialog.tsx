@@ -42,10 +42,10 @@ type Tab = 'url' | 'paste' | 'file' | 'portal' | 'curated' | 'arcgis';
 
 /**
  * Four-tab layer catalog:
- *   1. URL â€” paste a GeoJSON URL and go.
- *   2. Paste â€” drop inline GeoJSON for tiny datasets.
- *   3. Portal â€” data_layer items from this portal.
- *   4. Curated â€” hand-picked, well-maintained public datasets.
+ *   1. URL — paste a GeoJSON URL and go.
+ *   2. Paste — drop inline GeoJSON for tiny datasets.
+ *   3. Portal — data_layer items from this portal.
+ *   4. Curated — hand-picked, well-maintained public datasets.
  *
  * The dialog itself stays stateless about which source wins: it builds a
  * MapLayer and fires onAdd, the parent decides what to do with it.
@@ -93,7 +93,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
   // Load portal items when the portal tab activates or the query changes.
   // Fetch both layer-bearing item types in parallel and merge by
   // recency. Uses Promise.allSettled so one failing fetch (common
-  // right after introducing a new item type â€” the API server may
+  // right after introducing a new item type — the API server may
   // still be serving a pre-migration Prisma client) doesn't blank
   // out the other type's results.
   useEffect(() => {
@@ -321,7 +321,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
           override?.label ??
           (ordered.length === 1
             ? item.title
-            : `${item.title} â€” ${l.name ?? `Layer ${l.id}`}`);
+            : `${item.title} — ${l.name ?? `Layer ${l.id}`}`);
         onAdd(
           makeLayer(title, {
             kind: 'arcgis-rest',
@@ -430,7 +430,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
         </div>
 
 <div className="flex gap-0 border-b border-border px-2 pt-2">
-          {/* Portal first â€” content inside this org's catalog is the
+          {/* Portal first — content inside this org's catalog is the
               most common "add a layer" path once maps exist. Curated
               sources come next as the guided-browse option. File /
               Paste / URL are progressively more manual. */}
@@ -734,7 +734,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                         {arcgisService.name}
                       </div>
                       <div className="text-[11px] text-muted">
-                        {arcgisService.serviceType} â€¢ {arcgisService.layers.length}{' '}
+                        {arcgisService.serviceType} • {arcgisService.layers.length}{' '}
                         layer{arcgisService.layers.length === 1 ? '' : 's'}
                       </div>
                     </div>
@@ -763,7 +763,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
               <p className="text-[11px] text-muted">
                 The service must allow cross-origin requests from this
                 portal. Paginated fetches cap at ~5000 features per
-                viewport â€” zoom in for denser layers, or pull the data
+                viewport — zoom in for denser layers, or pull the data
                 to a local copy from the layer&apos;s item page (coming
                 next).
               </p>
@@ -898,7 +898,7 @@ function TabButton({
  * Scrollable layer picker for an ArcGIS service probe. Nested group
  * layers (MapServers often wrap sub-layers in folders) are rendered
  * with a subtle indent so hierarchy is visible without an accordion.
- * Empty-geometry rows (tables) are greyed but still selectable â€” the
+ * Empty-geometry rows (tables) are greyed but still selectable — the
  * attribute table view works even when there's nothing to draw.
  */
 function ArcgisLayerPicker({

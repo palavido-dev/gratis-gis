@@ -61,7 +61,7 @@ export function SearchBar({
     (l) => l.search?.enabled && l.search.fields.length > 0,
   );
 
-  // Debounced geocoder. Don't run for super-short queries â€” every
+  // Debounced geocoder. Don't run for super-short queries — every
   // keystroke triggers a network request and Nominatim asks nicely
   // that we keep volume low.
   useEffect(() => {
@@ -262,7 +262,7 @@ export function SearchBar({
               </Section>
             ) : query.trim().length >= 3 && !geocodeLoading ? (
               <div className="px-3 py-2 text-xs text-muted">
-                No matches{anyLayerSearchable ? '' : ' â€” try a longer query'}.
+                No matches{anyLayerSearchable ? '' : ' — try a longer query'}.
               </div>
             ) : null
           ) : null}

@@ -20,7 +20,7 @@ export interface ItemCardProps {
    */
   fallbackIcon?: ReactNode;
   /** Optional trailing slot rendered at the top of the card (above the
-   *  thumbnail area) â€” used for things like sharing indicators. */
+   *  thumbnail area) — used for things like sharing indicators. */
   headerExtra?: ReactNode;
   className?: string;
 }

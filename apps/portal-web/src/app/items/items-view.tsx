@@ -23,11 +23,11 @@ import { ReassignOwnerDialog } from '@/components/reassign-owner-dialog';
  * Client-side wrapper around the items list. Owns three bits of UI
  * state that don't warrant a round-trip to the server:
  *
- *   - view mode (card vs list) â€” persists via localStorage so the
+ *   - view mode (card vs list) — persists via localStorage so the
  *     user's preference sticks between visits
- *   - type filters â€” one or more item types can be toggled on; empty
+ *   - type filters — one or more item types can be toggled on; empty
  *     means "show all"
- *   - group-by â€” 'none' (flat list), 'type', 'access'. Owner grouping
+ *   - group-by — 'none' (flat list), 'type', 'access'. Owner grouping
  *     is an obvious future addition but needs a user/name lookup we
  *     don't carry on the list response today.
  *
@@ -61,8 +61,8 @@ const SORT_LABELS: Record<SortBy, string> = {
   'updated-asc': 'Least recently updated',
   'created-desc': 'Newest first',
   'created-asc': 'Oldest first',
-  'title-asc': 'Name (Aâ€“Z)',
-  'title-desc': 'Name (Zâ€“A)',
+  'title-asc': 'Name (A–Z)',
+  'title-desc': 'Name (Z–A)',
 };
 
 const TYPE_LABELS: Record<ItemType, string> = {
@@ -97,7 +97,7 @@ export function ItemsView({ items, currentUser }: Props) {
   // Bulk-select state: ids of items the current user has ticked for
   // ownership reassignment. Kept as a Set so toggles are O(1). Only
   // items the user can manage (their own + all for admins) can land
-  // here â€” gating happens in ItemGrid where each row is rendered.
+  // here — gating happens in ItemGrid where each row is rendered.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showReassign, setShowReassign] = useState(false);
   const [bulkSaving, setBulkSaving] = useState(false);
@@ -105,7 +105,7 @@ export function ItemsView({ items, currentUser }: Props) {
   const router = useRouter();
 
   // Rehydrate persisted preferences on mount. Running this lazily
-  // (not as a useState initializer) keeps the component SSR-safe â€”
+  // (not as a useState initializer) keeps the component SSR-safe —
   // the first render always matches the server's ("card", "none").
   useEffect(() => {
     try {
@@ -721,7 +721,7 @@ function ItemGrid({
       {/* Header row. Grid template has an extra 1.5rem leading column
           for the checkbox. The "select all visible" checkbox only
           appears when the current user can manage at least one row
-          in this group â€” otherwise it'd be a no-op. */}
+          in this group — otherwise it'd be a no-op. */}
       <li className="hidden grid-cols-[1.5rem_auto_minmax(0,1fr)_8rem_8rem_7rem_9rem_auto] items-center gap-3 border-b border-border bg-surface-2 px-4 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted sm:grid">
         {manageableIds.size > 0 ? (
           <input

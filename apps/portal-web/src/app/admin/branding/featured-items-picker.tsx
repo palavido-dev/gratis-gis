@@ -22,7 +22,7 @@ import { getItemTypeAccent, getItemTypeIcon } from '@/lib/item-type-icon';
  *   - Load the org's public items once on mount and keep them in
  *     memory; the list isn't long enough to warrant server-side
  *     search for v1.
- *   - Current featured order is driven by `value` Ã¢â‚¬â€ the parent
+ *   - Current featured order is driven by `value` — the parent
  *     keeps the canonical state, we just emit onChange with the
  *     reordered / filtered id array.
  *   - An "Add featured item" dropdown shows every public item that
@@ -61,7 +61,7 @@ export function FeaturedItemsPicker({ value, onChange }: Props) {
         // The server-side list endpoint filters by visibility, so
         // public items are the intersection of "listed to me" and
         // `access === 'public'`. We fetch the whole visible set and
-        // narrow here Ã¢â‚¬â€ saves needing a new API for a single page.
+        // narrow here — saves needing a new API for a single page.
         const res = await fetch('/api/portal/items');
         if (!res.ok) {
           setLoadError(`Could not load items: ${res.status}`);
@@ -97,7 +97,7 @@ export function FeaturedItemsPicker({ value, onChange }: Props) {
   }, [items]);
 
   // "Featured rows" are rendered in the exact order the parent
-  // owns Ã¢â‚¬â€ we don't reorder by title / date here.
+  // owns — we don't reorder by title / date here.
   const featuredRows = value.map((id) => ({
     id,
     item: itemsById.get(id),
@@ -152,7 +152,7 @@ export function FeaturedItemsPicker({ value, onChange }: Props) {
     return (
       <div className="rounded-md border border-border bg-surface-0 p-3 text-xs text-muted">
         <Loader2 className="mr-1 inline h-3.5 w-3.5 animate-spin" />
-        Loading your org's itemsÃ¢â‚¬Â¦
+        Loading your org's items…
       </div>
     );
   }
@@ -190,7 +190,7 @@ export function FeaturedItemsPicker({ value, onChange }: Props) {
         </ul>
       )}
 
-      {/* Adder Ã¢â‚¬â€ a popover-style panel. Shown as a collapsible
+      {/* Adder — a popover-style panel. Shown as a collapsible
           chunk rather than a modal so the admin can see the
           already-featured list while picking. */}
       {adding ? (
@@ -245,7 +245,7 @@ function FeaturedRow({
   onRemove: () => void;
 }) {
   // Missing item means the id in `value` no longer matches a public
-  // item Ã¢â‚¬â€ either the item's access was flipped, the item was
+  // item — either the item's access was flipped, the item was
   // deleted, or it's in a different org. Show a soft-warning row
   // rather than silently dropping it, so the admin can clean up.
   if (!item) {
@@ -253,7 +253,7 @@ function FeaturedRow({
       <li className="flex items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs">
         <span className="min-w-0 truncate text-amber-900">
           Unknown item{' '}
-          <code className="font-mono">{id.slice(0, 8)}Ã¢â‚¬Â¦</code>
+          <code className="font-mono">{id.slice(0, 8)}…</code>
           <span className="ml-2 text-amber-700">
             (not public any more? Deleted?)
           </span>
@@ -353,7 +353,7 @@ function Adder({
         <input
           value={query}
           onChange={(e) => onQuery(e.target.value)}
-          placeholder="Search public itemsÃ¢â‚¬Â¦"
+          placeholder="Search public items…"
           className="w-full rounded border border-border bg-surface-1 py-1.5 pl-7 pr-2 text-xs"
           autoFocus
         />

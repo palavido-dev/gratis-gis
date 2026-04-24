@@ -114,7 +114,7 @@ Beyond what traditional geoprocessing model builders offer:
 
 Phase 7 delivers:
 
-- Canvas + node catalog (baseline 20â€“30 nodes)
+- Canvas + node catalog (baseline 20–30 nodes)
 - SQL-pushdown runner for common spatial ops
 - Save/run/view-results flow
 - Widget export MVP (map-layer + chart outputs)

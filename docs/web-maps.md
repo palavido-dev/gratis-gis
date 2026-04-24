@@ -61,17 +61,17 @@ list draws on top (same mental model as every design tool).
 
 Per-layer controls available today:
 
-- **Source** â€” GeoJSON URL or inline GeoJSON (small datasets only;
+- **Source** — GeoJSON URL or inline GeoJSON (small datasets only;
   inline features live in the item's dataJson). Feature-service as a
   source is stubbed; it lights up when that pillar ships.
-- **Visibility + opacity** â€” toggle and 0-100% slider.
-- **Simple-renderer style** â€” per geometry family (point / line /
+- **Visibility + opacity** — toggle and 0-100% slider.
+- **Simple-renderer style** — per geometry family (point / line /
   polygon), with color, width/radius, outline color, outline width,
   and fill opacity. A GeoJSON source that mixes geometries renders
   all three styles at once, each filtered to its matching geometry.
-- **Click popup** â€” on/off. v2 shows every feature property by
+- **Click popup** — on/off. v2 shows every feature property by
   default; field selection + templating ship next.
-- **Hover highlight** â€” brightens the fill, thickens the outline, and
+- **Hover highlight** — brightens the fill, thickens the outline, and
   bumps circle radius under the cursor. Cursor also switches to a
   pointer whenever the mouse is over a feature.
 

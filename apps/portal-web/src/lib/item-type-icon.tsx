@@ -24,7 +24,7 @@ import type { ItemType } from '@gratis-gis/shared-types';
  * render an item card or thumbnail pass this icon in explicitly.
  *
  * The colored tile background used behind the icon lives in
- * @gratis-gis/ui's ItemCard â€” keeping the palette there so every
+ * @gratis-gis/ui's ItemCard — keeping the palette there so every
  * render shares the same colors, and keeping the icon component here
  * so portal-web owns the lucide surface.
  */

@@ -16,27 +16,27 @@ const BOB_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 const GROUP_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 
 async function main() {
-  console.log('Ã¢â€ â€™ seeding organization');
+  console.log('-> seeding organization');
   const org = await prisma.organization.upsert({
     where: { id: ACME_ID },
     update: {},
     create: { id: ACME_ID, slug: 'acme', name: 'Acme Corp' },
   });
 
-  console.log('Ã¢â€ â€™ seeding users');
+  console.log('-> seeding users');
   await prisma.user.upsert({
     where: { id: MATEO_ID },
     update: {
       username: 'mateo',
       email: 'mateo@acme.test',
-      fullName: 'Mateo GarcÃƒÂ­a',
+      fullName: 'Mateo García',
     },
     create: {
       id: MATEO_ID,
       orgId: org.id,
       username: 'mateo',
       email: 'mateo@acme.test',
-      fullName: 'Mateo GarcÃƒÂ­a',
+      fullName: 'Mateo García',
       orgRole: 'contributor',
     },
   });
@@ -53,7 +53,7 @@ async function main() {
     },
   });
 
-  console.log('Ã¢â€ â€™ seeding group');
+  console.log('-> seeding group');
   await prisma.group.upsert({
     where: { id: GROUP_ID },
     update: {},
@@ -77,7 +77,7 @@ async function main() {
     create: { groupId: GROUP_ID, userId: BOB_ID, role: 'admin' },
   });
 
-  console.log('Ã¢â€ â€™ seeding items');
+  console.log('-> seeding items');
 
   // Small demo feature service: a handful of points around the Acme HQ
   // neighborhood with a category attribute so unique-value and filter
@@ -162,7 +162,7 @@ async function main() {
     },
   });
 
-  console.log('Ã¢Å“â€œ seed complete');
+  console.log('✓ seed complete');
 }
 
 main()
@@ -170,4 +170,4 @@ main()
     console.error(e);
     process.exit(1);
   })
-  .finally(() => prisma.$disconnect());
+  .finally(() => prisma.$dis

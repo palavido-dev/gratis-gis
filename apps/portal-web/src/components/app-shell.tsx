@@ -49,7 +49,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
     }
   }
 
-  // Unauthenticated visitors get no chrome â€” the page they land on
+  // Unauthenticated visitors get no chrome — the page they land on
   // (the public landing at /, the /signed-out screen, etc.) is
   // responsible for its own layout. Prevents the sidebar / nav from
   // showing links the user can't use without signing in.
@@ -69,7 +69,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
         <nav className="mt-4 flex flex-col gap-0.5 text-sm">
           <NavLink href="/" icon={<LayoutGrid className="h-4 w-4" />}>Overview</NavLink>
           {/* Single items entry. The My / All toggle lives on the page
-              itself â€” see apps/portal-web/src/app/items/page.tsx. */}
+              itself — see apps/portal-web/src/app/items/page.tsx. */}
           <NavLink href="/items" icon={<MapIcon className="h-4 w-4" />}>Items</NavLink>
           <NavLink href="/groups" icon={<Users className="h-4 w-4" />}>Groups</NavLink>
           <NavLink href="/recently-deleted" icon={<Trash2 className="h-4 w-4" />}>
@@ -121,7 +121,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
             <label className="relative max-w-md flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
               <input
-                placeholder="Search items, groups, peopleâ€¦"
+                placeholder="Search items, groups, people…"
                 className="h-9 w-full rounded-md border border-border bg-surface-1 pl-9 pr-3 text-sm text-ink-1 placeholder:text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
               />
             </label>

@@ -89,7 +89,7 @@ export default async function ItemDetailPage({ params }: Props) {
 
   // For web maps, fetch the org's custom basemap library so the
   // editor's basemap picker can list them alongside the built-ins.
-  // Failure is non-fatal Ã¢â‚¬â€ the editor falls back to built-ins only.
+  // Failure is non-fatal — the editor falls back to built-ins only.
   const customBasemaps =
     item.type === 'map'
       ? await apiFetch<
@@ -364,7 +364,7 @@ export default async function ItemDetailPage({ params }: Props) {
         </section>
       )}
 
-      {/* Dependency panel runs above Sharing for everyone Ã¢â‚¬â€ knowing
+      {/* Dependency panel runs above Sharing for everyone — knowing
           what else will break if you touch this item is the same
           shape of question whether you're the owner or a viewer. */}
       <section className="mb-8">

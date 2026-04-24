@@ -48,7 +48,7 @@ const PILLARS: Partial<Record<ItemType, PillarInfo>> = {
   dashboard: {
     label: 'Dashboard',
     blurb:
-      'Live panels powered by your feature services Ã¢â‚¬â€ charts, counters, maps, filters.',
+      'Live panels powered by your feature services — charts, counters, maps, filters.',
     doc: 'docs/app-builder.md',
   },
   notebook: {

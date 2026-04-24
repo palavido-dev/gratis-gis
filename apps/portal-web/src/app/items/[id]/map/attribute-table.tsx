@@ -111,7 +111,7 @@ export function AttributeTable({
     setLastPicked(null);
     setSortBy(null);
     setQuery('');
-    // Note: we deliberately don't clear the shared selection here â€”
+    // Note: we deliberately don't clear the shared selection here —
     // switching layers should preserve the picks on other layers.
   }, [open, queryableLayers, activeLayerId]);
 
@@ -244,7 +244,7 @@ export function AttributeTable({
             value={activeLayerId ?? ''}
             onChange={(e) => {
               setActiveLayerId(e.target.value);
-              // Preserve selection across layer switches â€” picks on
+              // Preserve selection across layer switches — picks on
               // other layers keep their highlight on the map.
               setQuery('');
               setSortBy(null);
