@@ -15,6 +15,7 @@ import type { ItemType, ItemWithShares } from '@gratis-gis/shared-types';
 import {
   getItemTypeAccent,
   getItemTypeIcon,
+  getItemTypeLabel,
 } from '@/lib/item-type-icon';
 import { ItemSharingIndicator } from '@/components/item-sharing-indicator';
 import { ReassignOwnerDialog } from '@/components/reassign-owner-dialog';
@@ -63,24 +64,6 @@ const SORT_LABELS: Record<SortBy, string> = {
   'created-asc': 'Oldest first',
   'title-asc': 'Name (A–Z)',
   'title-desc': 'Name (Z–A)',
-};
-
-const TYPE_LABELS: Record<ItemType, string> = {
-  map: 'Map',
-  data_layer: 'Data layer',
-  arcgis_service: 'ArcGIS service',
-  form: 'Form',
-  form_submission_collection: 'Form submissions',
-  web_app: 'Web app',
-  report_template: 'Report template',
-  dashboard: 'Dashboard',
-  file: 'File',
-  layer_package: 'Layer package',
-  notebook: 'Notebook',
-  tool: 'Tool',
-  widget_package: 'Widget package',
-  pick_list: 'Pick list',
-  geo_boundary: 'Boundary',
 };
 
 const ACCESS_LABELS: Record<string, string> = {
@@ -524,7 +507,7 @@ function Toolbar({
                 }`}
               >
                 <Icon className={`h-3 w-3 ${active ? '' : accent}`} />
-                {TYPE_LABELS[t] ?? t}
+                {getItemTypeLabel(t)}
                 <span className="text-muted">({count})</span>
               </button>
             );
@@ -608,7 +591,7 @@ function ItemsBody({
       {ordered.map(([key, group]) => {
         const label =
           groupBy === 'type'
-            ? (TYPE_LABELS[key as ItemType] ?? key)
+            ? getItemTypeLabel(key as ItemType)
             : (ACCESS_LABELS[key] ?? key);
         return (
           <section key={key}>
@@ -797,7 +780,7 @@ function ItemGrid({
                   ) : null}
                 </div>
                 <p className="hidden truncate text-[11px] text-muted sm:block">
-                  {TYPE_LABELS[item.type] ?? item.type}
+                  {getItemTypeLabel(item.type)}
                 </p>
                 <p
                   className="hidden truncate text-[11px] text-muted sm:block"
