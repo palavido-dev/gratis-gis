@@ -11,18 +11,37 @@ import {
 } from 'react';
 import maplibregl from 'maplibre-gl';
 import type {
-  BasemapKey,
   MapData,
   MapLayer,
   MapLayerFilter,
   MapLayerFilterClause,
 } from '@gratis-gis/shared-types';
 import { DEFAULT_LAYER_SCALE, ZOOM_MAX, ZOOM_MIN } from '@gratis-gis/shared-types';
-import { BASEMAPS } from '@/lib/basemaps';
 import {
   customBasemapToStyle,
   type CustomBasemap,
 } from '@/lib/custom-basemap';
+
+/**
+ * Absolute fallback MapLibre style. Used only when the map references a
+ * basemap item that no longer exists in the org's library (e.g. the
+ * author deleted it) AND the caller did not pass any basemaps. Built-in
+ * basemaps are normally seeded per org and flow through the `basemaps`
+ * prop; this inline OSM raster keeps the editor from crashing in the
+ * edge case where the library is empty or unreachable.
+ */
+const FALLBACK_STYLE: maplibregl.StyleSpecification = {
+  version: 8,
+  sources: {
+    raster: {
+      type: 'raster',
+      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      attribution: '(c) OpenStreetMap contributors',
+    },
+  },
+  layers: [{ id: 'raster-layer', type: 'raster', source: 'raster' }],
+};
 import {
   MAP_ICONS,
   iconImageId,
@@ -38,12 +57,12 @@ interface Props {
   /** Controlled camera + basemap + layer list. */
   map: MapData;
   /**
-   * Custom basemaps from the org's library. If the Map's
-   * `customBasemapId` is set and present in this list, we
-   * materialize a MapLibre style from the row instead of the
-   * built-in `map.basemap` key.
+   * Basemap items from the org's library (type=basemap in the item
+   * model). The map references one of these by UUID through
+   * `map.basemap`; if the referenced item is missing we fall back to
+   * an inline OSM raster style so the canvas never fails to render.
    */
-  customBasemaps?: CustomBasemap[];
+  basemaps?: CustomBasemap[];
   /** Fired whenever the user pans, zooms, rotates, or pitches. */
   onCameraChange: (next: Pick<MapData, 'center' | 'zoom' | 'bearing' | 'pitch'>) => void;
   /** Per-layer sets of selected feature ids (identical to feature indexes). */
@@ -98,7 +117,7 @@ export interface MapCanvasHandle {
 export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
   {
     map,
-    customBasemaps = [],
+    basemaps = [],
     onCameraChange,
     selection,
     selectTool,
@@ -107,11 +126,11 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  // Stable ref to the current customBasemaps array so the basemap-
-  // swap effect can read the latest list without re-running on every
+  // Stable ref to the current basemaps array so the basemap-swap
+  // effect can read the latest list without re-running on every
   // identity change of the prop.
-  const customBasemapsRef = useRef<CustomBasemap[]>(customBasemaps);
-  customBasemapsRef.current = customBasemaps;
+  const basemapsRef = useRef<CustomBasemap[]>(basemaps);
+  basemapsRef.current = basemaps;
   const mapRef = useRef<maplibregl.Map | null>(null);
   const hoveredRef = useRef<{ sourceId: string; featureId: string | number } | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
@@ -271,22 +290,22 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     onCameraChangeRef.current = onCameraChange;
   }, [onCameraChange]);
 
-  // Resolve the MapLibre style for the current MapData. Custom
-  // basemap wins if still present in the library; otherwise fall back
-  // to the built-in key. MapLibre's setStyle() accepts either a
-  // StyleSpecification or a URL string, so this returns whichever
-  // variant the source kind implies.
+  // Resolve the MapLibre style for the current MapData. `map.basemap`
+  // is a UUID referencing a basemap item in the org's library. If
+  // that item is present, materialize its BasemapData into a MapLibre
+  // style (vector style URL or inline raster/WMS). If the reference
+  // is empty or dangling, fall back to the inline OSM raster so the
+  // canvas never fails to render. MapLibre's setStyle() accepts
+  // either a StyleSpecification or a URL string.
   function resolveStyle(): maplibregl.StyleSpecification | string {
-    if (map.customBasemapId) {
-      const row = customBasemapsRef.current.find(
-        (b) => b.id === map.customBasemapId,
-      );
+    if (map.basemap) {
+      const row = basemapsRef.current.find((b) => b.id === map.basemap);
       if (row) {
         const cs = customBasemapToStyle(row);
         return cs.kind === 'url' ? cs.url : cs.style;
       }
     }
-    return BASEMAPS[map.basemap].style;
+    return FALLBACK_STYLE;
   }
 
   // Create the map once; tear down on unmount.
@@ -365,12 +384,10 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     const m = mapRef.current;
     if (!m) return;
     // Tag for the loaded style so we can tell when a new basemap
-    // choice needs a reset. Includes customBasemapId so a swap
-    // between two custom basemaps (same built-in fallback key) also
-    // triggers a setStyle.
-    const desiredTag = map.customBasemapId
-      ? `custom:${map.customBasemapId}`
-      : `builtin:${map.basemap}`;
+    // choice needs a reset. Uses the basemap item UUID directly (or
+    // a 'none' sentinel when the map has no basemap set and is
+    // rendering against the fallback style).
+    const desiredTag = `basemap:${map.basemap || 'none'}`;
     const current = (
       m.getStyle() as { metadata?: { basemapTag?: string } } | null
     )?.metadata?.basemapTag;
@@ -457,11 +474,9 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
       window.clearInterval(pollHandle);
       m.off('idle', onIdle);
     };
-    // Re-run on either built-in or custom basemap changes so swapping
-    // between custom rows (or from a custom back to a built-in)
-    // triggers a setStyle.
+    // Re-run when the chosen basemap item id changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [map.basemap, map.customBasemapId]);
+  }, [map.basemap]);
 
   // Keep overlay layers (everything after the basemap) in sync with
   // props. Depends on iconsTick so the sync re-runs once each icon

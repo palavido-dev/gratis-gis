@@ -300,6 +300,18 @@ export class ItemsService {
   }
 
   async create(user: AuthUser, input: CreateItemInput) {
+    // For map items, resolve the empty-string basemap sentinel from
+    // DEFAULT_MAP to the org's seeded positron (or any available)
+    // basemap item UUID so every new map opens against a real
+    // basemap without the client needing to know any UUIDs up front.
+    const resolvedData: Prisma.InputJsonValue =
+      input.type === 'map'
+        ? ((await this.resolveDefaultBasemap(
+            user.orgId,
+            input.data,
+          )) as Prisma.InputJsonValue)
+        : input.data;
+
     const row = await this.prisma.item.create({
       data: {
         orgId: user.orgId,
@@ -308,7 +320,7 @@ export class ItemsService {
         title: input.title,
         description: input.description ?? '',
         tags: input.tags ?? [],
-        data: input.data,
+        data: resolvedData,
         access: input.access ?? 'private',
         ...(input.thumbnailUrl ? { thumbnailUrl: input.thumbnailUrl } : {}),
         ...(input.license !== undefined && input.license !== null ? { license: input.license } : {}),
@@ -342,6 +354,45 @@ export class ItemsService {
       }
     }
     return row;
+  }
+
+  /**
+   * Map items arrive from the wizard with the DEFAULT_MAP scaffold,
+   * which uses an empty-string sentinel for `basemap`. Resolve the
+   * sentinel to a real basemap item UUID so every saved map references
+   * a renderable basemap from creation time. Preference order:
+   *   1. The org's seeded `positron` basemap (matches the prior default).
+   *   2. Any other seeded built-in basemap.
+   *   3. Any basemap item visible to the org.
+   * If none exists at all (which shouldn't happen since auth-sync seeds
+   * on first login), leave the empty string in place; the canvas
+   * gracefully falls back to the inline OSM raster.
+   */
+  private async resolveDefaultBasemap(
+    orgId: string,
+    data: unknown,
+  ): Promise<unknown> {
+    if (!data || typeof data !== 'object') return data;
+    const obj = data as { basemap?: unknown };
+    if (typeof obj.basemap !== 'string' || obj.basemap.length > 0) return data;
+
+    const candidates = await this.prisma.item.findMany({
+      where: { orgId, type: 'basemap', deletedAt: null },
+      select: { id: true, data: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (candidates.length === 0) return data;
+
+    const positron = candidates.find((c) => {
+      const k = (c.data as { seededKey?: unknown } | null)?.seededKey;
+      return k === 'positron';
+    });
+    const seeded = candidates.find((c) => {
+      const k = (c.data as { seededKey?: unknown } | null)?.seededKey;
+      return typeof k === 'string';
+    });
+    const pick = positron ?? seeded ?? candidates[0]!;
+    return { ...obj, basemap: pick.id };
   }
 
   /**

@@ -6,29 +6,99 @@
  * viewer is expected to tolerate missing fields and fall back to
  * defaults so older maps keep rendering after additive changes.
  */
-export type BasemapKey =
+/**
+ * Well-known marker stored in `data_json.seededKey` on the five built-in
+ * basemap items that every org gets seeded with on creation. The union
+ * stays here as a convenience for callers that want to pick a specific
+ * built-in (e.g. `DEFAULT_MAP` resolves to whichever item has
+ * `seededKey === 'positron'` in the viewing org). Do NOT treat these
+ * as a closed set of valid basemaps; they are just the seeded
+ * defaults. Users can delete or rename the seeded items, and add any
+ * number of their own basemap items.
+ */
+export type BuiltinBasemapSeedKey =
   | 'osm'
   | 'positron'
   | 'dark-matter'
   | 'voyager'
   | 'satellite';
 
+export const BUILTIN_BASEMAP_SEED_KEYS: BuiltinBasemapSeedKey[] = [
+  'positron',
+  'osm',
+  'voyager',
+  'dark-matter',
+  'satellite',
+];
+
+/**
+ * Seeded by the portal on org creation so every org has a working set
+ * of built-in basemaps out of the box. Kept in one place (instead of a
+ * .env or config file) so admins never have to restart the API to
+ * change the basemap library. The migration
+ * 20260424280000_seed_builtin_basemaps hardcodes the same list for
+ * existing orgs; this array is what the auth-sync hook uses for
+ * newly-created orgs.
+ */
+export interface BuiltinBasemapSeed {
+  seededKey: BuiltinBasemapSeedKey;
+  title: string;
+  description: string;
+  tileUrl: string;
+  attribution: string;
+}
+
+export const BUILTIN_BASEMAP_SEEDS: BuiltinBasemapSeed[] = [
+  {
+    seededKey: 'positron',
+    title: 'Positron',
+    description: 'Light and muted. Good base for overlay data.',
+    tileUrl: 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+    attribution: '(c) OpenStreetMap contributors (c) Carto',
+  },
+  {
+    seededKey: 'osm',
+    title: 'OpenStreetMap',
+    description: 'Classic OSM raster. Broad coverage, familiar styling.',
+    tileUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '(c) OpenStreetMap contributors',
+  },
+  {
+    seededKey: 'voyager',
+    title: 'Voyager',
+    description: 'Balanced contrast with clear place labels.',
+    tileUrl:
+      'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+    attribution: '(c) OpenStreetMap contributors (c) Carto',
+  },
+  {
+    seededKey: 'dark-matter',
+    title: 'Dark matter',
+    description: 'Dark theme for dashboards and presentations.',
+    tileUrl: 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+    attribution: '(c) OpenStreetMap contributors (c) Carto',
+  },
+  {
+    seededKey: 'satellite',
+    title: 'Satellite',
+    description: 'ESA / ArcGIS Online World Imagery.',
+    tileUrl:
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Imagery (c) ESA WorldCover',
+  },
+];
+
 export interface MapData {
   version: 1;
   /**
-   * Built-in basemap choice. Always set — acts as the fallback when
-   * `customBasemapId` is also set but the custom basemap has been
-   * deleted from the org's library.
+   * UUID of the basemap item this map renders against. Resolved at
+   * render time against the org's basemap items (items with
+   * type='basemap'). Empty string is a sentinel meaning "use the org
+   * default"; the server fills it in on create, the viewer falls back
+   * to the org's `seededKey='positron'` seed if the referenced item
+   * has been deleted.
    */
-  basemap: BasemapKey;
-  /**
-   * Optional UUID of a basemap from the org's custom basemap library
-   * (see /admin/basemaps). When set and still present, the viewer
-   * materializes a MapLibre style from that row instead of the
-   * built-in `basemap` key. Optional + additive so v1 maps without
-   * it keep rendering.
-   */
-  customBasemapId?: string;
+  basemap: string;
   center: [number, number];
   zoom: number;
   bearing: number;
@@ -403,10 +473,15 @@ export interface MapLayerLabels {
   offsetY: number;
 }
 
-/** Freshly-created map with the defaults we want every new map to carry. */
+/**
+ * Freshly-created map with the defaults we want every new map to carry.
+ * `basemap` is an empty-string sentinel; the server-side create path
+ * (items.service) resolves it to the org's `seededKey='positron'`
+ * basemap item so every new map opens with a usable default.
+ */
 export const DEFAULT_MAP: MapData = {
   version: 1,
-  basemap: 'positron',
+  basemap: '',
   center: [-98.5795, 39.8283],
   zoom: 3,
   bearing: 0,

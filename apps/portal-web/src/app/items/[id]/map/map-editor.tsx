@@ -10,7 +10,6 @@ import {
   Table,
 } from 'lucide-react';
 import type {
-  BasemapKey,
   Group,
   ItemShare,
   MapData,
@@ -29,7 +28,6 @@ import {
   DEFAULT_LAYER_STYLE,
   DEFAULT_MAP,
 } from '@gratis-gis/shared-types';
-import { BASEMAPS, BASEMAP_KEYS } from '@/lib/basemaps';
 import type { CustomBasemap } from '@/lib/custom-basemap';
 import { MapCanvas, type MapCanvasHandle } from './map-canvas';
 import { LayerPanel } from './layer-panel';
@@ -50,11 +48,12 @@ interface Props {
   initial: MapData;
   canEdit: boolean;
   /**
-   * Custom basemaps registered at /admin/basemaps in this org, merged
-   * into the basemap picker alongside the hardcoded built-ins. Empty
-   * array is fine — the picker falls back to built-ins only.
+   * Basemap items from the org's library (items of type=basemap).
+   * Includes the seeded built-ins and any user-authored basemaps.
+   * The picker lists these as the sole basemap options; the map
+   * references a specific one through `MapData.basemap` (UUID).
    */
-  customBasemaps?: CustomBasemap[];
+  basemaps?: CustomBasemap[];
 }
 
 /**
@@ -72,7 +71,7 @@ export function MapEditor({
   itemId,
   initial,
   canEdit,
-  customBasemaps = [],
+  basemaps = [],
 }: Props) {
   // Hydrate older persisted maps. Each bump in the schema lands a new
   // migrator here; the goal is that any v2.x map still opens cleanly.
@@ -494,40 +493,22 @@ export function MapEditor({
   }
 
   /**
-   * The picker <select> emits string values; values prefixed with
-   * `custom:` are custom basemap UUIDs, anything else is a built-in
-   * BasemapKey. Custom selection sets `customBasemapId` *and* keeps
-   * the last built-in key as a fallback for if the custom basemap is
-   * ever deleted from the library.
+   * The picker <select> emits a basemap item UUID; the map stores it
+   * directly in `MapData.basemap`. All basemaps (seeded built-ins and
+   * user-authored) now live in one flat list.
    */
   function setBasemap(value: string) {
-    if (value.startsWith('custom:')) {
-      const customBasemapId = value.slice('custom:'.length);
-      setMap((m) => ({ ...m, customBasemapId }));
-    } else {
-      const basemap = value as BasemapKey;
-      // Clear customBasemapId using destructure+spread so the optional
-      // key disappears under exactOptionalPropertyTypes.
-      setMap((m) => {
-        const { customBasemapId: _c, ...rest } = m;
-        void _c;
-        return { ...rest, basemap };
-      });
-    }
+    setMap((m) => ({ ...m, basemap: value }));
     markDirty();
   }
 
-  /** Value currently shown in the picker: `custom:<id>` if a custom
-   *  basemap is selected, otherwise the built-in key. */
-  const pickerValue = map.customBasemapId
-    ? `custom:${map.customBasemapId}`
-    : map.basemap;
+  /** Value currently shown in the picker: the basemap item UUID. */
+  const pickerValue = map.basemap;
 
-  /** Metadata of the selected custom basemap (if any), used for the
-   *  description line and for attribution. */
-  const selectedCustom = map.customBasemapId
-    ? customBasemaps.find((b) => b.id === map.customBasemapId)
-    : undefined;
+  /** Metadata of the selected basemap, used for the description line
+   *  and attribution. Undefined when the map still has the empty
+   *  sentinel basemap or the referenced item has been deleted. */
+  const selectedBasemap = basemaps.find((b) => b.id === map.basemap);
 
   function setLayers(next: MapLayer[]) {
     setMap((m) => ({ ...m, layers: next }));
@@ -595,29 +576,17 @@ export function MapEditor({
             onChange={(e) => setBasemap(e.target.value)}
             className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
           >
-            <optgroup label="Built-in">
-              {BASEMAP_KEYS.map((key) => (
-                <option key={key} value={key}>
-                  {BASEMAPS[key].label}
-                </option>
-              ))}
-            </optgroup>
-            {customBasemaps.length > 0 ? (
-              <optgroup label="Custom">
-                {customBasemaps.map((b) => (
-                  <option key={b.id} value={`custom:${b.id}`}>
-                    {b.label}
-                    {b.isDefault ? ' (org default)' : ''}
-                  </option>
-                ))}
-              </optgroup>
+            {basemaps.length === 0 ? (
+              <option value="">No basemaps available</option>
             ) : null}
+            {basemaps.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.label}
+              </option>
+            ))}
           </select>
           <span className="hidden text-xs text-muted sm:inline">
-            {selectedCustom
-              ? selectedCustom.description ||
-                `Custom basemap — ${selectedCustom.sourceKind}`
-              : BASEMAPS[map.basemap].description}
+            {selectedBasemap?.description ?? ''}
           </span>
 
           <div className="ml-auto flex items-center gap-2">
@@ -693,7 +662,7 @@ export function MapEditor({
           <MapCanvas
             ref={canvasRef}
             map={map}
-            customBasemaps={customBasemaps}
+            basemaps={basemaps}
             onCameraChange={onCameraChange}
             selection={selection}
             selectTool={selectTool}

@@ -16,8 +16,29 @@ import type {
   GeoBoundaryData,
   GeoBoundaryGeometry,
 } from '@gratis-gis/shared-types';
-import { BASEMAPS } from '@/lib/basemaps';
 import { importSpatialFile } from '@/lib/spatial-import';
+
+/**
+ * Minimal raster OSM style used as the preview backdrop. The geo-
+ * boundary editor never depends on the org's basemap item library --
+ * this page needs to work the moment a new org is created, before any
+ * basemap items have been seeded, and a shape-on-a-map preview only
+ * needs a neutral backdrop anyway. Inlined here because the old
+ * `BASEMAPS` hardcoded record has been removed in favour of the
+ * items-based library.
+ */
+const PREVIEW_BASEMAP_STYLE: maplibregl.StyleSpecification = {
+  version: 8,
+  sources: {
+    raster: {
+      type: 'raster',
+      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      attribution: '(c) OpenStreetMap contributors',
+    },
+  },
+  layers: [{ id: 'raster-layer', type: 'raster', source: 'raster' }],
+};
 
 /**
  * Editor for a `geo_boundary` item. Three ways to author the
@@ -212,14 +233,14 @@ function BoundaryPreview({ geometry }: { geometry: GeoBoundaryGeometry | null })
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
 
-  // One-time map init. OSM basemap keeps this page from depending on
-  // any per-org custom basemap config — admins editing their first
-  // boundary before configuring basemaps still see a real map.
+  // One-time map init. Inline OSM style keeps this page from
+  // depending on the org's basemap item library; admins editing their
+  // first boundary still see a real map even if nothing is seeded.
   useEffect(() => {
     if (!containerRef.current) return;
     const m = new maplibregl.Map({
       container: containerRef.current,
-      style: BASEMAPS.osm.style,
+      style: PREVIEW_BASEMAP_STYLE,
       center: [-98, 39],
       zoom: 3,
       attributionControl: { compact: true },

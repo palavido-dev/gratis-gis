@@ -3,6 +3,63 @@ import type { OrgRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { KeycloakClaims } from './jwt.strategy.js';
 
+/**
+ * Built-in basemap seeds. Kept inline rather than imported from
+ * `@gratis-gis/shared-types` because shared-types is consumed as raw
+ * TypeScript source (see DECISIONS.md on shared-types packaging) and
+ * the Nest API would fail to resolve the module at runtime. The list
+ * must stay in sync with `BUILTIN_BASEMAP_SEEDS` in
+ * `packages/shared-types/src/map.ts` and with the hardcoded values in
+ * migration `20260424280000_seed_builtin_basemaps`.
+ */
+interface BuiltinBasemapSeed {
+  seededKey: string;
+  title: string;
+  description: string;
+  tileUrl: string;
+  attribution: string;
+}
+
+const BUILTIN_BASEMAP_SEEDS: BuiltinBasemapSeed[] = [
+  {
+    seededKey: 'positron',
+    title: 'Positron',
+    description: 'Light and muted. Good base for overlay data.',
+    tileUrl: 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+    attribution: '(c) OpenStreetMap contributors (c) Carto',
+  },
+  {
+    seededKey: 'osm',
+    title: 'OpenStreetMap',
+    description: 'Classic OSM raster. Broad coverage, familiar styling.',
+    tileUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '(c) OpenStreetMap contributors',
+  },
+  {
+    seededKey: 'voyager',
+    title: 'Voyager',
+    description: 'Balanced contrast with clear place labels.',
+    tileUrl:
+      'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+    attribution: '(c) OpenStreetMap contributors (c) Carto',
+  },
+  {
+    seededKey: 'dark-matter',
+    title: 'Dark matter',
+    description: 'Dark theme for dashboards and presentations.',
+    tileUrl: 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+    attribution: '(c) OpenStreetMap contributors (c) Carto',
+  },
+  {
+    seededKey: 'satellite',
+    title: 'Satellite',
+    description: 'ESA / ArcGIS Online World Imagery.',
+    tileUrl:
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Imagery (c) ESA WorldCover',
+  },
+];
+
 export interface AuthUser {
   id: string;
   orgId: string;
@@ -54,6 +111,14 @@ export class AuthSyncService {
     // username means a seeded `alice` and a Keycloak-authenticated `alice`
     // resolve to the same row, and downstream FKs (items, group memberships)
     // remain stable even if the IdP is swapped out or the sub changes.
+    // After both the org and the user exist (the user upsert happens
+    // below), make sure the org has its built-in basemap items seeded.
+    // Seeding is idempotent: the helper only inserts rows for
+    // seededKey markers that are missing. Kept on the auth-sync path
+    // so any first sign-in against a fresh org immediately gets a
+    // working basemap library without a separate admin step.
+    // We run it AFTER the user upsert below so the owner assignment
+    // can reference a real user.
     const user = await this.prisma.user.upsert({
       where: { username: claims.preferred_username },
       update: {
@@ -82,6 +147,12 @@ export class AuthSyncService {
       },
     });
 
+    // Seed built-in basemap items if this org is missing any. Cheap
+    // guard: only inserts for seededKey markers that are not already
+    // present, so the common case (org already seeded) is one SELECT
+    // that returns five rows and no writes.
+    await this.ensureBuiltinBasemaps(org.id, user.id);
+
     // Exclude memberships whose group is in the trash. Otherwise an item
     // shared to a soft-deleted group would still match this user's
     // effective groupIds and grant read access -- which would defeat
@@ -99,5 +170,57 @@ export class AuthSyncService {
       orgRole: user.orgRole,
       groupIds: memberships.map((m) => m.groupId),
     };
+  }
+
+  /**
+   * For each built-in basemap seed, insert an item row if the org
+   * doesn't already have one with that `seededKey`. The caller passes
+   * `fallbackOwnerId` (the user who just signed in) to use when the
+   * org has no admin yet; if an admin exists, they own the seed
+   * instead, matching the migration's behaviour for existing orgs.
+   */
+  private async ensureBuiltinBasemaps(
+    orgId: string,
+    fallbackOwnerId: string,
+  ): Promise<void> {
+    const existingKeys = await this.prisma.item.findMany({
+      where: { orgId, type: 'basemap' },
+      select: { data: true },
+    });
+    const have = new Set<string>();
+    for (const row of existingKeys) {
+      const key = (row.data as { seededKey?: unknown } | null)?.seededKey;
+      if (typeof key === 'string') have.add(key);
+    }
+    const missing = BUILTIN_BASEMAP_SEEDS.filter(
+      (s) => !have.has(s.seededKey),
+    );
+    if (missing.length === 0) return;
+
+    const admin = await this.prisma.user.findFirst({
+      where: { orgId, orgRole: 'admin' },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+    const ownerId = admin?.id ?? fallbackOwnerId;
+
+    await this.prisma.item.createMany({
+      data: missing.map((seed) => ({
+        orgId,
+        ownerId,
+        type: 'basemap' as const,
+        title: seed.title,
+        description: seed.description,
+        tags: ['built-in'],
+        data: {
+          version: 1,
+          kind: 'tile-url',
+          tileUrl: seed.tileUrl,
+          attribution: seed.attribution,
+          seededKey: seed.seededKey,
+        },
+        access: 'org' as const,
+      })),
+    });
   }
 }

@@ -148,8 +148,8 @@ export default async function ItemDetailPage({ params }: Props) {
   // items (see #72), so we fetch them through the standard items list
   // and map each item's data_json (BasemapData) into the shape the
   // MapEditor already consumes (CustomBasemap). Failure is non-fatal;
-  // the editor falls back to the built-in basemaps.
-  const customBasemaps =
+  // the canvas falls back to an inline OSM raster style.
+  const basemaps =
     item.type === 'map'
       ? await apiFetch<Array<Item<BasemapData>>>(
           '/api/items?type=basemap',
@@ -332,7 +332,7 @@ export default async function ItemDetailPage({ params }: Props) {
             itemId={item.id}
             initial={{ ...DEFAULT_MAP, ...((item.data ?? {}) as Partial<MapData>) }}
             canEdit={canManage}
-            customBasemaps={customBasemaps}
+            basemaps={basemaps}
           />
         </section>
       ) : item.type === 'data_layer' ? (
