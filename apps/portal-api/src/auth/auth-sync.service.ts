@@ -1,64 +1,8 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import type { OrgRole } from '@prisma/client';
+import { BUILTIN_BASEMAP_SEEDS } from '@gratis-gis/shared-types';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { KeycloakClaims } from './jwt.strategy.js';
-
-/**
- * Built-in basemap seeds. Kept inline rather than imported from
- * `@gratis-gis/shared-types` because shared-types is consumed as raw
- * TypeScript source (see DECISIONS.md on shared-types packaging) and
- * the Nest API would fail to resolve the module at runtime. The list
- * must stay in sync with `BUILTIN_BASEMAP_SEEDS` in
- * `packages/shared-types/src/map.ts` and with the hardcoded values in
- * migration `20260424280000_seed_builtin_basemaps`.
- */
-interface BuiltinBasemapSeed {
-  seededKey: string;
-  title: string;
-  description: string;
-  tileUrl: string;
-  attribution: string;
-}
-
-const BUILTIN_BASEMAP_SEEDS: BuiltinBasemapSeed[] = [
-  {
-    seededKey: 'positron',
-    title: 'Positron',
-    description: 'Light and muted. Good base for overlay data.',
-    tileUrl: 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-    attribution: '(c) OpenStreetMap contributors (c) Carto',
-  },
-  {
-    seededKey: 'osm',
-    title: 'OpenStreetMap',
-    description: 'Classic OSM raster. Broad coverage, familiar styling.',
-    tileUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    attribution: '(c) OpenStreetMap contributors',
-  },
-  {
-    seededKey: 'voyager',
-    title: 'Voyager',
-    description: 'Balanced contrast with clear place labels.',
-    tileUrl:
-      'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-    attribution: '(c) OpenStreetMap contributors (c) Carto',
-  },
-  {
-    seededKey: 'dark-matter',
-    title: 'Dark matter',
-    description: 'Dark theme for dashboards and presentations.',
-    tileUrl: 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-    attribution: '(c) OpenStreetMap contributors (c) Carto',
-  },
-  {
-    seededKey: 'satellite',
-    title: 'Satellite',
-    description: 'ESA / ArcGIS Online World Imagery.',
-    tileUrl:
-      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    attribution: 'Imagery (c) ESA WorldCover',
-  },
-];
 
 export interface AuthUser {
   id: string;
