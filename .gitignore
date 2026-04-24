@@ -50,3 +50,12 @@ backups/
 run-api.bat
 run-web.bat
 run-dev.bat
+
+# Claude session handoff notes. Local only; these are for Claude
+# continuity across sessions, not for the public repo.
+CLAUDE.md
+HANDOFF.md
+DECISIONS.md
+docs/handoff/
+.git-commit-msg
+
