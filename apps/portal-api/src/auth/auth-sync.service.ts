@@ -3,6 +3,10 @@ import type { OrgRole } from '@prisma/client';
 import { BUILTIN_BASEMAP_SEEDS } from '@gratis-gis/shared-types';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { KeycloakClaims } from './jwt.strategy.js';
+import {
+  effectiveCapabilities,
+  type CapabilityKey,
+} from './capabilities.js';
 
 export interface AuthUser {
   id: string;
@@ -12,6 +16,15 @@ export interface AuthUser {
   orgRole: OrgRole;
   /** Group IDs the user belongs to, resolved at request time. */
   groupIds: string[];
+  /**
+   * Effective capability set for this request, computed by combining
+   * the role baseline with any per-user overrides from
+   * `user_capability_override`. Use `hasCapability(user, ...)` from
+   * `auth/capabilities.ts` rather than reading this directly so the
+   * helper picks up unknown-key safety and stays the only place that
+   * does the lookup.
+   */
+  capabilities: ReadonlySet<CapabilityKey>;
 }
 
 /**
@@ -106,6 +119,15 @@ export class AuthSyncService {
       select: { groupId: true },
     });
 
+    // Per-user capability overrides. Joined into AuthUser as the
+    // effective capability set so `hasCapability(user, ...)` is a
+    // hot-path Set lookup rather than a database round-trip.
+    const overrides = await this.prisma.userCapabilityOverride.findMany({
+      where: { userId: user.id },
+      select: { capability: true, enabled: true },
+    });
+    const capabilities = effectiveCapabilities(user.orgRole, overrides);
+
     return {
       id: user.id,
       orgId: user.orgId,
@@ -113,6 +135,7 @@ export class AuthSyncService {
       email: user.email,
       orgRole: user.orgRole,
       groupIds: memberships.map((m) => m.groupId),
+      capabilities,
     };
   }
 

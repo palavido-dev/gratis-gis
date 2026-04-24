@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { AdminUsersController } from './admin-users.controller.js';
 import { AdminBrandingController } from './admin-branding.controller.js';
+import { AdminCapabilitiesController } from './admin-capabilities.controller.js';
 import { AdminGuard } from './admin.guard.js';
 import { HousekeepingController } from './housekeeping.controller.js';
 import { HousekeepingService } from './housekeeping.service.js';
@@ -23,6 +24,7 @@ import { KeycloakAdminService } from './keycloak-admin.service.js';
   controllers: [
     AdminUsersController,
     AdminBrandingController,
+    AdminCapabilitiesController,
     HousekeepingController,
   ],
   providers: [KeycloakAdminService, AdminGuard, HousekeepingService],

@@ -116,9 +116,43 @@ model User {
   ownedGroups   Group[]       @relation("GroupOwner")
   groupMembers  GroupMember[]
   ownedItems    Item[]        @relation("ItemOwner")
+  capabilityOverrides UserCapabilityOverride[]
 
   @@index([orgId])
   @@map("user")
+}
+
+/// Per-user capability override. Layers on top of role baselines so a
+/// real org's edge cases ("almost a contributor, but also needs to
+/// manage curated basemaps") don't require minting a one-off role per
+/// exception. See docs/handoff/per-user-capability-overrides.md.
+///
+/// `enabled = true` grants a capability the role does not have.
+/// `enabled = false` revokes a capability the role does have.
+/// Effective capability for (user, cap) = override if present, else
+/// role baseline. Baselines live in code (apps/portal-api/src/auth/
+/// capabilities.ts), not in the database.
+model UserCapabilityOverride {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  /// Capability key, e.g. "can_manage_basemaps". Plain string rather
+  /// than an enum so we can add new capabilities without schema
+  /// migrations. Validated in the service layer against
+  /// CAPABILITY_KEYS.
+  capability String
+  enabled    Boolean
+  /// Admin user id who granted (or revoked) this override.
+  grantedBy  String   @map("granted_by") @db.Uuid
+  grantedAt  DateTime @default(now()) @map("granted_at")
+  /// Optional human-readable reason for the override; surfaces in the
+  /// admin UI so future admins can see why an exception exists.
+  note       String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, capability])
+  @@index([userId])
+  @@map("user_capability_override")
 }
 
 model Group {
