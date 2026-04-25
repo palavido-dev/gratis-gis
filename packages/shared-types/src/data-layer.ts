@@ -198,6 +198,18 @@ export interface DataLayerSublayer {
   fields: FeatureField[];
   /** Does the viewer allow in-place feature edits? */
   editingEnabled: boolean;
+  /**
+   * Layer-level row-access baseline (#41). 'all-rows' (default,
+   * legacy behaviour) lets every editor see / edit every row in the
+   * layer. 'own-rows-only' makes every share behave as if its
+   * rowScope were 'own'; per-share rowScope='own' can tighten
+   * further but never loosen. Owner / admin / item-public callers
+   * always see everything regardless. Useful for inspection layers
+   * where every editor (no matter how shared) should only touch
+   * their own rows. Optional with 'all-rows' semantics when absent
+   * so existing layers keep working unchanged.
+   */
+  editingPolicy?: 'all-rows' | 'own-rows-only';
   /** Should features in this layer carry attachments (photos, docs)?
    *  Backend support is Phase E; the flag is stored today so Phase B
    *  UIs can read/write it without a second migration. */

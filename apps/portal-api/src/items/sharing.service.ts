@@ -184,14 +184,22 @@ export class SharingService {
     user: AuthUser,
     item: Item,
     shares: ItemShare[] = [],
+    layerPolicy: 'all-rows' | 'own-rows-only' = 'all-rows',
   ): 'all' | 'own' {
     // Owner / admin / public / org-public all bypass row scoping
     // entirely. This matches the geoLimitFor exemptions and keeps
     // the safety-valve invariant: admins always see everything.
+    // The layer-level editingPolicy does NOT change this -- the
+    // safety valve always wins.
     if (item.ownerId === user.id) return 'all';
     if (user.orgRole === 'admin' && item.orgId === user.orgId) return 'all';
     if (item.access === 'public') return 'all';
     if (item.access === 'org' && item.orgId === user.orgId) return 'all';
+
+    // Layer-level baseline (#41). 'own-rows-only' tightens every
+    // matching share regardless of its own rowScope; per-share
+    // rowScope can never loosen the layer baseline.
+    if (layerPolicy === 'own-rows-only') return 'own';
 
     const matching = shares.filter((s) => this.shareMatches(user, s));
     if (matching.length === 0) {

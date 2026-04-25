@@ -184,7 +184,11 @@ export class V3FeaturesController {
     }
     const data = item.data as {
       version?: number;
-      layers?: Array<{ id: string; parentLayerId?: string }>;
+      layers?: Array<{
+        id: string;
+        parentLayerId?: string;
+        editingPolicy?: 'all-rows' | 'own-rows-only';
+      }>;
     } | null;
     if (data?.version !== 3) {
       throw new NotFoundException(
@@ -216,8 +220,16 @@ export class V3FeaturesController {
     // Row-scope applies to BOTH reads and writes (#40). On reads it
     // narrows the SELECT; on writes it gates the per-row update /
     // delete to features the caller created. Owner / admin / public
-    // / org-public bypass the scope inside SharingService.
-    const rowScope = this.sharing.effectiveRowScope(user, item, shares);
+    // / org-public bypass the scope inside SharingService. The
+    // layer-level editingPolicy (#41) tightens every matching share
+    // when set to 'own-rows-only'.
+    const layerPolicy = layer.editingPolicy ?? 'all-rows';
+    const rowScope = this.sharing.effectiveRowScope(
+      user,
+      item,
+      shares,
+      layerPolicy,
+    );
     return { geoLimit, rowScope };
   }
 }

@@ -474,6 +474,32 @@ function LayerCard({
               Allow attachments
               <span className="text-[10px] text-muted">(storage soon)</span>
             </label>
+            {/* Layer-level row policy (#41). 'all-rows' (default)
+                lets every editor see / edit every row. 'own-rows-only'
+                tightens every share so editors only touch features
+                they themselves created. Owner / admin always see
+                everything. Per-share rowScope='own' can tighten this
+                further but never loosen it. */}
+            <label
+              className="inline-flex cursor-pointer items-center gap-1.5"
+              title="Limit editors to the rows they themselves created"
+            >
+              <span className="text-muted">Editor scope</span>
+              <select
+                value={layer.editingPolicy ?? 'all-rows'}
+                onChange={(e) =>
+                  onPatch({
+                    editingPolicy: e.target.value as
+                      | 'all-rows'
+                      | 'own-rows-only',
+                  })
+                }
+                className="h-7 rounded-md border border-border bg-surface-1 px-2 text-[11px] focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+              >
+                <option value="all-rows">All features</option>
+                <option value="own-rows-only">Only their own</option>
+              </select>
+            </label>
           </div>
 
           {layer.geometryType === null ? (
