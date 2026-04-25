@@ -71,6 +71,9 @@ export async function AppShell({ children }: { children: ReactNode }) {
           {/* Single items entry. The My / All toggle lives on the page
               itself: see apps/portal-web/src/app/items/page.tsx. */}
           <NavLink href="/items" icon={<MapIcon className="h-4 w-4" />}>Items</NavLink>
+          <NavLink href="/folders" icon={<FolderIcon className="h-4 w-4" />}>
+            Folders
+          </NavLink>
           <NavLink href="/groups" icon={<Users className="h-4 w-4" />}>Groups</NavLink>
           <NavLink href="/recently-deleted" icon={<Trash2 className="h-4 w-4" />}>
             Recently deleted
@@ -103,12 +106,6 @@ export async function AppShell({ children }: { children: ReactNode }) {
                 icon={<Sparkles className="h-4 w-4" />}
               >
                 Housekeeping
-              </NavLink>
-              <NavLink
-                href="/admin/folders"
-                icon={<FolderIcon className="h-4 w-4" />}
-              >
-                Folders
               </NavLink>
             </>
           ) : null}

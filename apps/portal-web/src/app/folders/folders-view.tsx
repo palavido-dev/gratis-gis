@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import type { ItemAccess } from '@gratis-gis/shared-types';
 
-export interface AdminFolderRow {
+export interface FolderRow {
   id: string;
   title: string;
   breadcrumb: string;
@@ -23,7 +23,7 @@ export interface AdminFolderRow {
 }
 
 interface Props {
-  rows: AdminFolderRow[];
+  rows: FolderRow[];
 }
 
 type SortBy = 'breadcrumb' | 'owner' | 'children' | 'updated';
@@ -46,7 +46,7 @@ const ACCESS_BADGE: Record<ItemAccess, string> = {
  * there is no admin-only edit flow on top of the existing item
  * editor.
  */
-export function AdminFoldersView({ rows }: Props) {
+export function FoldersView({ rows }: Props) {
   const [q, setQ] = useState('');
   const [sortBy, setSortBy] = useState<SortBy>('breadcrumb');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
@@ -104,7 +104,7 @@ export function AdminFoldersView({ rows }: Props) {
       {visible.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border bg-surface-1 px-6 py-10 text-center text-sm text-muted">
           {rows.length === 0
-            ? 'No folders in this org yet.'
+            ? 'No folders you can see yet. Create one from the items page rail.'
             : 'No folders match your filter.'}
         </div>
       ) : (
