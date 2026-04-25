@@ -164,8 +164,14 @@ function FolderNode({
             className={`h-3 w-3 transition-transform ${isOpen ? 'rotate-90' : ''}`}
           />
         </button>
+        {/* Click filters the items grid to this folder's contents
+            instead of navigating to a separate detail page. The
+            file-explorer model: rail = navigation, grid = content.
+            Right-click / kebab on the row will surface "Open
+            details", "Share", etc. (Phase 1c slice 2).
+            See docs/folders.md. */}
         <Link
-          href={`/items/${folder.id}`}
+          href={`/items?folder=${folder.id}`}
           className="flex flex-1 items-center gap-1.5 truncate"
           title={folder.title}
         >

@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Plus, Layers } from 'lucide-react';
+import { Plus, Layers, ChevronRight, Folder as FolderIcon } from 'lucide-react';
 import type { ItemWithShares } from '@gratis-gis/shared-types';
 import { apiFetch } from '@/lib/api';
 import { EmptyState } from '@/components/empty-state';
@@ -7,23 +7,28 @@ import { ItemsView } from './items-view';
 import { FolderRail, type FolderRailNode } from './folder-rail';
 
 interface Props {
-  searchParams: { scope?: string; mine?: string; q?: string };
+  searchParams: {
+    scope?: string;
+    mine?: string;
+    q?: string;
+    folder?: string;
+  };
 }
 
 /**
- * Items page: single entry point for all content.
+ * Items page: single entry point for all content + folder navigation.
  *
- * Scope toggle: ?scope=mine (default) vs ?scope=all. We deliberately
- * default to 'mine' so a user's own content leads the page; one click
- * of the toggle expands to the full org view they have access to.
+ * Scope toggle: ?scope=mine (default) vs ?scope=all. Folder selection
+ * is in the URL too via ?folder=<uuid>; clicking a folder in the rail
+ * tree sets that param and the grid swaps to "what's in that folder"
+ * without leaving the page. Breadcrumbs above the grid show the path
+ * and the user clicks "All items" to clear.
  *
  * Backward compat: the old `?mine=true` URL still works (matches a
  * handful of external links + the sidebar nav that used to link
  * straight to it).
  */
 export default async function ItemsPage({ searchParams }: Props) {
-  // Normalize scope. Accept the legacy `?mine=true` URL so existing
-  // links / bookmarks keep working.
   const scope: 'mine' | 'all' =
     searchParams.scope === 'all'
       ? 'all'
@@ -33,27 +38,13 @@ export default async function ItemsPage({ searchParams }: Props) {
           ? 'mine'
           : searchParams.mine === 'false'
             ? 'all'
-            : 'mine'; // default
+            : 'mine';
 
-  const qs = new URLSearchParams();
-  if (scope === 'mine') qs.set('mine', 'true');
-  if (searchParams.q) qs.set('q', searchParams.q);
+  const folderId = searchParams.folder ?? null;
 
-  // Items come back with their shares joined so the sharing indicator
-  // on each card has the data it needs without a second round-trip.
-  const items = await apiFetch<ItemWithShares[]>(
-    `/api/items${qs.toString() ? `?${qs}` : ''}`,
-  );
-  // Viewer is fetched once; all per-card canManage checks run off it.
-  const me = await apiFetch<{ id: string; orgRole: string }>(
-    '/api/users/me',
-  );
   // Pull every folder the caller can see in this org so the rail
-  // tree on the left can render top-level folders eagerly without a
-  // second round-trip. Non-folder items in this list are hidden by
-  // ItemsView's grid filter; folders surface only through the rail.
-  // Failure is non-fatal -- the rail simply renders empty. See
-  // docs/folders.md.
+  // tree can render top-level eagerly. Failure is non-fatal -- the
+  // rail simply renders empty.
   const folders = await apiFetch<ItemWithShares[]>('/api/items?type=folder')
     .then((rows) =>
       rows.map<FolderRailNode>((r) => ({
@@ -69,6 +60,65 @@ export default async function ItemsPage({ searchParams }: Props) {
       })),
     )
     .catch(() => []);
+
+  // Items list. Two modes:
+  //   - With ?folder=<id>: fetch the folder's contents (visible to
+  //     this caller, in the folder's authoritative order). The
+  //     scope toggle (mine/all) and any client-side type filters
+  //     still apply on top.
+  //   - Without folder: fetch the user's items list with the regular
+  //     scope toggle in effect.
+  let items: ItemWithShares[] = [];
+  let activeFolder: ItemWithShares | null = null;
+  if (folderId) {
+    try {
+      const [folder, contents] = await Promise.all([
+        apiFetch<ItemWithShares>(`/api/items/${folderId}`),
+        apiFetch<ItemWithShares[]>(
+          `/api/items/${folderId}/folder-contents`,
+        ),
+      ]);
+      activeFolder = folder.type === 'folder' ? folder : null;
+      items = contents;
+    } catch {
+      items = [];
+      activeFolder = null;
+    }
+  } else {
+    const qs = new URLSearchParams();
+    if (scope === 'mine') qs.set('mine', 'true');
+    if (searchParams.q) qs.set('q', searchParams.q);
+    items = await apiFetch<ItemWithShares[]>(
+      `/api/items${qs.toString() ? `?${qs}` : ''}`,
+    );
+  }
+
+  const me = await apiFetch<{ id: string; orgRole: string }>('/api/users/me');
+
+  // Breadcrumbs from the visible folder set: walks the parent chain
+  // back to a top-level ancestor. Multi-parent folders pick the
+  // first parent encountered, matching the rail's behaviour.
+  const breadcrumb: Array<{ id: string; title: string }> = [];
+  if (activeFolder && folders.length > 0) {
+    const byId = new Map<string, FolderRailNode>();
+    for (const f of folders) byId.set(f.id, f);
+    const parentOf = new Map<string, string>();
+    for (const f of folders) {
+      for (const c of f.childItemIds) {
+        if (!parentOf.has(c)) parentOf.set(c, f.id);
+      }
+    }
+    const seen = new Set<string>();
+    let cur: string | undefined = activeFolder.id;
+    while (cur && !seen.has(cur)) {
+      seen.add(cur);
+      const row = byId.get(cur);
+      if (!row) break;
+      breadcrumb.unshift({ id: row.id, title: row.title });
+      cur = parentOf.get(cur);
+    }
+  }
+
   const isMine = scope === 'mine';
 
   return (
@@ -88,38 +138,90 @@ export default async function ItemsPage({ searchParams }: Props) {
         </Link>
       </header>
 
-      {/* Scope toggle sits above the view/group/filter bar so it reads
-          as the primary slice of the list. Server-rendered so the
-          correct tab is active on first paint with no flicker; the
-          links carry the user's other query params along if we ever
-          add more (q, etc.). */}
-      <div className="mb-4 inline-flex rounded-md border border-border bg-surface-1 p-0.5 text-sm">
-        <ScopeTab href={buildHref(searchParams, 'mine')} active={isMine}>
-          My items
-        </ScopeTab>
-        <ScopeTab href={buildHref(searchParams, 'all')} active={!isMine}>
-          All items
-        </ScopeTab>
-      </div>
+      {/* Scope toggle disappears when a folder is selected: a folder
+          shows its own contents intersected with what the caller can
+          see, and the mine/all distinction stops being meaningful. */}
+      {!folderId ? (
+        <div className="mb-4 inline-flex rounded-md border border-border bg-surface-1 p-0.5 text-sm">
+          <ScopeTab href={buildHref(searchParams, 'mine')} active={isMine}>
+            My items
+          </ScopeTab>
+          <ScopeTab href={buildHref(searchParams, 'all')} active={!isMine}>
+            All items
+          </ScopeTab>
+        </div>
+      ) : null}
 
-      {/* Two-column layout: rail tree on the left, content grid on
-          the right. The rail is only the navigation surface for
-          folders; the grid never shows folders in the global view
-          (ItemsView filters type=folder out). See docs/folders.md. */}
       <div className="flex flex-col gap-6 md:flex-row">
-        <FolderRail folders={folders} />
+        <FolderRail
+          folders={folders}
+          activeFolderId={folderId ?? undefined}
+        />
         <div className="flex-1 min-w-0">
+          {activeFolder ? (
+            <nav
+              aria-label="Folder breadcrumb"
+              className="mb-3 flex flex-wrap items-center gap-1 text-sm"
+            >
+              <Link
+                href="/items"
+                className="text-muted hover:text-ink-1 hover:underline"
+              >
+                All items
+              </Link>
+              {breadcrumb.map((hop, idx) => {
+                const isLast = idx === breadcrumb.length - 1;
+                return (
+                  <span
+                    key={hop.id}
+                    className="inline-flex items-center gap-1"
+                  >
+                    <ChevronRight className="h-3.5 w-3.5 text-muted/60" />
+                    <FolderIcon className="h-3.5 w-3.5 text-amber-700" />
+                    {isLast ? (
+                      <span className="font-medium text-ink-1">
+                        {hop.title}
+                      </span>
+                    ) : (
+                      <Link
+                        href={`/items?folder=${hop.id}`}
+                        className="text-muted hover:text-ink-1 hover:underline"
+                      >
+                        {hop.title}
+                      </Link>
+                    )}
+                  </span>
+                );
+              })}
+              <span className="ml-2 text-xs text-muted">
+                <Link
+                  href={`/items/${activeFolder.id}`}
+                  className="hover:text-ink-1 hover:underline"
+                >
+                  Folder details →
+                </Link>
+              </span>
+            </nav>
+          ) : null}
           {items.length === 0 ? (
             <EmptyState
               icon={<Layers className="h-5 w-5" />}
-              title={isMine ? 'No items yet' : 'Nothing shared with you yet'}
+              title={
+                activeFolder
+                  ? `${activeFolder.title} is empty`
+                  : isMine
+                    ? 'No items yet'
+                    : 'Nothing shared with you yet'
+              }
               description={
-                isMine
-                  ? 'Create your first web map, form, or feature service to get started.'
-                  : 'When a teammate shares content with you or your group, it will show up here.'
+                activeFolder
+                  ? 'Use "Add items" on the folder details page or drag items here from the all-items view.'
+                  : isMine
+                    ? 'Create your first web map, form, or feature service to get started.'
+                    : 'When a teammate shares content with you or your group, it will show up here.'
               }
               action={
-                isMine ? (
+                isMine && !activeFolder ? (
                   <Link
                     href="/items/new"
                     className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground shadow-card hover:opacity-90"
@@ -131,7 +233,11 @@ export default async function ItemsPage({ searchParams }: Props) {
               }
             />
           ) : (
-            <ItemsView items={items} currentUser={me} folders={folders} />
+            <ItemsView
+              items={items}
+              currentUser={me}
+              folders={folders}
+            />
           )}
         </div>
       </div>
