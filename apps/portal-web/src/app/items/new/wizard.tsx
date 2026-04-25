@@ -45,6 +45,7 @@ import {
   type ArcgisServiceDescription,
 } from '@/lib/arcgis-rest';
 import { DataLayerBuilder } from './data-layer-builder';
+import { MetadataXmlImporter } from './metadata-xml-importer';
 
 /**
  * Two-step "Create a new item" wizard:
@@ -499,6 +500,20 @@ export function NewItemWizard() {
           established before diving into schema. Matches the user's
           mental model: "I'm creating a <thing> called <name>" reads
           left-to-right instead of schema-first. */}
+
+      <MetadataXmlImporter
+        onApply={({ title: t, description: d, tags: ts }) => {
+          if (t) {
+            setTitle(t);
+            userEditedTitleRef.current = true;
+          }
+          if (d) {
+            setDescription(d);
+            userEditedDescRef.current = true;
+          }
+          if (ts && ts.length > 0) setTagsText(ts.join(', '));
+        }}
+      />
 
       <section>
         <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted">
