@@ -291,10 +291,26 @@ export function ShareGeoLimitDialog({
               </select>
             </label>
             <p className="mt-1 text-[11px] text-muted">
-              The share stores a reference to the boundary item. Edits to
-              the boundary&apos;s geometry flow through to every share that
-              points at it without re-saving.
+              The share stores a reference to the boundary item. Edits
+              to the boundary&apos;s geometry flow through to every
+              share that points at it without re-saving.
             </p>
+            {boundaries.length === 0 ? (
+              <p className="mt-2 rounded-md border border-dashed border-border bg-surface-0 px-2 py-1.5 text-[11px] text-muted">
+                Need to draw one?{' '}
+                <a
+                  href="/items/new"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-accent hover:underline"
+                >
+                  Create a Boundary item
+                </a>
+                . Its editor has a Draw tab that lets you trace a
+                polygon directly on a map. Save it and it&apos;ll show
+                up here.
+              </p>
+            ) : null}
           </div>
         ) : mode === 'geojson' ? (
           <div>

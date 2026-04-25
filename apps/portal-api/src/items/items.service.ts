@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { SharingService } from './sharing.service.js';
 import { DataSnapshotService } from './data-snapshot.service.js';
+import { itemBbox } from './item-bbox.js';
 import {
   extractDependencies,
   normalizeArcgisUrl,
@@ -319,6 +320,7 @@ export class ItemsService {
           )) as Prisma.InputJsonValue)
         : input.data;
 
+    const bbox = itemBbox(input.type, resolvedData);
     const row = await this.prisma.item.create({
       data: {
         orgId: user.orgId,
@@ -329,6 +331,7 @@ export class ItemsService {
         tags: input.tags ?? [],
         data: resolvedData,
         access: input.access ?? 'private',
+        bbox: bbox ?? [],
         ...(input.thumbnailUrl ? { thumbnailUrl: input.thumbnailUrl } : {}),
         ...(input.license !== undefined && input.license !== null ? { license: input.license } : {}),
       },
@@ -434,6 +437,11 @@ export class ItemsService {
     if (input.data !== undefined && item.type === 'data_layer') {
       await this.snapshots.snapshot(id, user.id, 'pre-update');
     }
+    // Recompute the cached extent when the data blob changes; leave
+    // it untouched on metadata-only edits so we don't churn the
+    // index for no reason.
+    const nextBbox =
+      input.data !== undefined ? itemBbox(item.type, input.data) : null;
     const updated = await this.prisma.item.update({
       where: { id },
       data: {
@@ -444,6 +452,7 @@ export class ItemsService {
         ...(input.access !== undefined && { access: input.access }),
         ...(input.thumbnailUrl !== undefined && { thumbnailUrl: input.thumbnailUrl }),
         ...(input.license !== undefined && { license: input.license }),
+        ...(input.data !== undefined && { bbox: nextBbox ?? [] }),
       },
     });
     // v3: reconcile layer tables against the updated schema. prev lets

@@ -224,6 +224,15 @@ model Item {
   updatedAt    DateTime   @updatedAt @map("updated_at")
   // Soft-delete. See Group.deletedAt for rationale.
   deletedAt    DateTime?  @map("deleted_at")
+  /// Cached spatial extent in EPSG:4326 as [west, south, east, north].
+  /// Recomputed by ItemsService on every create/update from the
+  /// item's data_json content (see itemBbox()). Null when the item
+  /// type doesn't have a spatial footprint or the content is empty
+  /// (no features, no geometry yet, etc.). Drives the geographic
+  /// search filter (#24) without crawling each item's PostGIS
+  /// feature tables on every list query.
+  bbox         Float[]    @default([])
+  bboxSrs      String?    @default("EPSG:4326") @map("bbox_srs")
 
   org         Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
   owner       User                @relation("ItemOwner", fields: [ownerId], references: [id])
