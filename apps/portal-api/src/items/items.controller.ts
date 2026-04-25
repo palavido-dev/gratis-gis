@@ -269,12 +269,17 @@ export class ItemsController {
     @Param('id') id: string,
     @Query('bbox') bbox?: string,
     @Query('at') at?: string,
+    @Query('clip') clip?: string,
   ) {
     // Use conditional spread (not `undefined` values) to play nicely
     // with exactOptionalPropertyTypes; the destructure also narrows
     // parts[0..3] from `number | undefined` down to `number`, which
     // is what the service signature needs.
-    const opts: { bbox?: [number, number, number, number]; at?: string } = {};
+    const opts: {
+      bbox?: [number, number, number, number];
+      at?: string;
+      boundaryClipId?: string;
+    } = {};
     if (bbox) {
       const parts = bbox.split(',').map(Number);
       if (parts.length === 4 && parts.every((n) => !isNaN(n))) {
@@ -283,6 +288,11 @@ export class ItemsController {
       }
     }
     if (at) opts.at = at;
+    // Layer-level boundary clip (#34). Same semantics as the v3
+    // controller's ?clip=: the map author's per-layer content
+    // scope. Bypasses per-user authz on the boundary item; missing
+    // / wrong-type / no-geometry is treated as no clip.
+    if (clip) opts.boundaryClipId = clip;
     return this.items.getGeoJson(user, id, opts);
   }
 

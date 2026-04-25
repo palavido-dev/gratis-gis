@@ -850,11 +850,19 @@ export class ItemsService {
    * Handles both v1 (inline JSON) and v2 (PostGIS table) storage transparently.
    *
    * Accepts an optional bbox filter for v2; v1 always returns all features.
+   * Optional `boundaryClipId` (#34) names a geo_boundary item whose
+   * polygon clips the result set; honored on both v1 (in-memory clip
+   * via bbox prefilter; full polygon intersect skipped because v1 is
+   * inline JSON without PostGIS) and v2 (ST_Intersects in SQL).
    */
   async getGeoJson(
     user: AuthUser,
     id: string,
-    opts: { bbox?: [number, number, number, number]; at?: string } = {},
+    opts: {
+      bbox?: [number, number, number, number];
+      at?: string;
+      boundaryClipId?: string;
+    } = {},
   ): Promise<{ type: 'FeatureCollection'; features: unknown[] }> {
     const item = await this.get(user, id);
     if (item.type !== 'data_layer') {
@@ -866,6 +874,24 @@ export class ItemsService {
       version?: number;
       data?: unknown;
     } | null;
+
+    // Resolve the boundary clip once up front so both v1 and v2
+    // branches can use it. Bypasses per-user authz on the boundary
+    // (see V3FeaturesController.resolveBoundaryGeometry for the
+    // rationale).
+    let boundaryGeom: unknown | null = null;
+    if (opts.boundaryClipId) {
+      const row = await this.prisma.item.findFirst({
+        where: {
+          id: opts.boundaryClipId,
+          type: 'geo_boundary',
+          deletedAt: null,
+        },
+        select: { data: true },
+      });
+      const g = (row?.data as { geometry?: unknown } | null)?.geometry;
+      if (g && typeof g === 'object') boundaryGeom = g;
+    }
 
     if (data?.storageType === 'postgis') {
       // v2: query the PostGIS table.
@@ -892,6 +918,17 @@ export class ItemsService {
         const b = params.length;
         conditions.push(
           `geom IS NOT NULL AND ST_Intersects(geom, ST_MakeEnvelope($${b - 3}, $${b - 2}, $${b - 1}, $${b}, 4326))`,
+        );
+      }
+
+      if (boundaryGeom) {
+        // Layer-level boundary clip (#34). Same shape the v3 service
+        // emits: ST_GeomFromGeoJSON over a JSON-encoded GeoJSON
+        // geometry, with explicit SRID 4326 to match the column.
+        params.push(JSON.stringify(boundaryGeom));
+        const b = params.length;
+        conditions.push(
+          `geom IS NOT NULL AND ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON($${b}::text), 4326))`,
         );
       }
 

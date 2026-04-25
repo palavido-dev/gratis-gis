@@ -26,6 +26,7 @@ import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { ItemsService } from '../items/items.service.js';
 import { SharingService } from '../items/sharing.service.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 import { V3FeaturesService } from './v3-features.service.js';
 
 class AppendFeatureDto {
@@ -65,6 +66,7 @@ export class V3FeaturesController {
     private readonly items: ItemsService,
     private readonly sharing: SharingService,
     private readonly v3: V3FeaturesService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Get('features')
@@ -74,6 +76,7 @@ export class V3FeaturesController {
     @Param('layerId') layerId: string,
     @Query('bbox') bbox?: string,
     @Query('at') at?: string,
+    @Query('clip') clip?: string,
   ) {
     const { geoLimit, rowScope } = await this.assertV3Layer(
       user,
@@ -85,6 +88,7 @@ export class V3FeaturesController {
       bbox?: [number, number, number, number];
       at?: string;
       geoLimit?: unknown;
+      boundaryClip?: unknown;
       ownRowsOnly?: { userId: string };
     } = {};
     if (bbox) {
@@ -95,6 +99,19 @@ export class V3FeaturesController {
     }
     if (at) opts.at = at;
     if (geoLimit) opts.geoLimit = geoLimit;
+    // Layer-level boundary clip (#34). Resolves the geo_boundary
+    // item id supplied by the client to its geometry. We bypass
+    // per-user authz on the boundary itself: the clip is content
+    // scope set by the map author for THIS layer, not access. A
+    // viewer who can see the data_layer should see it clipped to
+    // the boundary even if they cannot see the boundary item
+    // directly. Missing / wrong-type / no-geometry boundary is
+    // treated as "no clip" so a deleted boundary cannot silently
+    // expand or shrink the result set in unexpected ways.
+    if (clip) {
+      const geom = await this.resolveBoundaryGeometry(clip);
+      if (geom) opts.boundaryClip = geom;
+    }
     if (rowScope === 'own') opts.ownRowsOnly = { userId: user.id };
     return this.v3.listFeatures(itemId, layerId, opts);
   }
@@ -109,8 +126,37 @@ export class V3FeaturesController {
     @Param('layerId') layerId: string,
     @Query('bbox') bbox?: string,
     @Query('at') at?: string,
+    @Query('clip') clip?: string,
   ) {
-    return this.listFeatures(user, itemId, layerId, bbox, at);
+    return this.listFeatures(user, itemId, layerId, bbox, at, clip);
+  }
+
+  /**
+   * Look up a geo_boundary item by id and return its geometry. Used
+   * by the layer-level clip path (#34). Bypasses per-user authz
+   * because the clip is layer-content scope, not access (see the
+   * docstring on MapLayer.boundaryFilterItemId in shared-types).
+   * Returns null when the item is missing, soft-deleted, the wrong
+   * type, or has no geometry yet -- all of which the caller treats
+   * as "no clip applied" rather than an error so a stale layer
+   * config never blocks the map from rendering.
+   */
+  private async resolveBoundaryGeometry(
+    boundaryItemId: string,
+  ): Promise<unknown | null> {
+    if (!boundaryItemId) return null;
+    const row = await this.prisma.item.findFirst({
+      where: {
+        id: boundaryItemId,
+        type: 'geo_boundary',
+        deletedAt: null,
+      },
+      select: { data: true },
+    });
+    if (!row) return null;
+    const geom = (row.data as { geometry?: unknown } | null)?.geometry;
+    if (!geom || typeof geom !== 'object') return null;
+    return geom;
   }
 
   @Post('features')

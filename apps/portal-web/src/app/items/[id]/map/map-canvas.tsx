@@ -2023,7 +2023,18 @@ function sourceData(layer: MapLayer): GeoJSON.FeatureCollection | string | null 
   if (layer.source.kind === 'data-layer') {
     // The server-side API endpoint emits the GeoJSON directly; see
     // apps/portal-api/src/items/items.controller.ts `@Get(':id/geojson')`.
-    return `/api/portal/items/${layer.source.itemId}/geojson`;
+    // Layer-level boundary clip (#34) is forwarded via ?clip=<id>;
+    // the server resolves the geo_boundary and ANDs an ST_Intersects
+    // into the SELECT so the wire payload is already trimmed. Honored
+    // for data-layer sources only -- external sources (geojson-url,
+    // arcgis-rest) are out of our control and would need a client-
+    // side MapLibre filter for the same effect.
+    const base = `/api/portal/items/${layer.source.itemId}/geojson`;
+    if (layer.boundaryFilterItemId) {
+      const qs = new URLSearchParams({ clip: layer.boundaryFilterItemId });
+      return `${base}?${qs}`;
+    }
+    return base;
   }
   if (layer.source.kind === 'arcgis-rest') {
     // Start with an empty collection. The camera-driven refetch

@@ -58,6 +58,19 @@ export class V3FeaturesService {
       at?: string;
       geoLimit?: unknown;
       /**
+       * Layer-level boundary clip (#34). GeoJSON geometry that
+       * narrows the SELECT to features intersecting the polygon.
+       * Distinct from `geoLimit` (which is per-share access scope):
+       * this is the map author's "show only features in this region
+       * for this layer" content scope. ANDs with geoLimit when both
+       * are present. Unlike geoLimit, null-geom features are NOT
+       * leaked through this clip -- a layer-content clip applies
+       * to spatial features only, and an attribute-only row in a
+       * layer that has a boundary clip set is ambiguous; we err on
+       * the side of less data rather than more.
+       */
+      boundaryClip?: unknown;
+      /**
        * When set, the SELECT is narrowed to features the named user
        * created (`created_by = userId`). Pairs with the share-level
        * rowScope='own' (#40) and the layer-level editingPolicy
@@ -96,6 +109,17 @@ export class V3FeaturesService {
       const n = params.length;
       whereClauses.push(
         `(geom IS NULL OR ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON($${n}), 4326)))`,
+      );
+    }
+    if (opts.boundaryClip) {
+      // Layer-content clip (#34). Strictly requires a geometry that
+      // intersects -- attribute-only rows are excluded so the map
+      // author's "render only features in this region" intent is
+      // honored even for tables with mixed spatial/non-spatial rows.
+      params.push(JSON.stringify(opts.boundaryClip));
+      const n = params.length;
+      whereClauses.push(
+        `geom IS NOT NULL AND ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON($${n}), 4326))`,
       );
     }
     if (opts.ownRowsOnly) {
