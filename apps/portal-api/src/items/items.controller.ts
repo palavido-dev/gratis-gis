@@ -89,11 +89,22 @@ class ShareDto {
 @IsUUID('loose') principalId!: string;
   @IsOptional() @IsEnum(['view', 'edit', 'admin']) permission?: SharePermission;
   /**
-   * Optional GeoJSON polygon (EPSG:4326) that clips what this
-   * principal can see on the item. Pass `null` to clear. Omit the
-   * field to leave the existing limit untouched.
+   * Inline GeoJSON polygon (EPSG:4326) that clips what this principal
+   * can see on the item. Pass `null` to clear. Omit the field to
+   * leave the existing limit untouched. Mutually exclusive with
+   * `geoBoundaryId` at the service layer.
    */
   @IsOptional() geoLimit?: unknown | null;
+  /**
+   * UUID of a geo_boundary item whose geometry supplies the clip.
+   * Pass `null` to clear; omit to leave untouched. Mutually
+   * exclusive with `geoLimit`. Caller is responsible for ensuring
+   * the referenced item is a `geo_boundary` and visible to the
+   * grantee; the sharing service does not validate at write time
+   * but a missing / wrong-typed target is treated as "no clip" at
+   * read time so a deleted boundary cannot silently expand access.
+   */
+  @IsOptional() @IsUUID('loose') geoBoundaryId?: string | null;
 }
 
 @ApiTags('items')

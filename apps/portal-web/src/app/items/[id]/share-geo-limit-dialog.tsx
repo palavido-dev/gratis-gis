@@ -1,44 +1,77 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { AlertTriangle, Check, Loader2, MapPin, Save, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  AlertTriangle,
+  Check,
+  Loader2,
+  MapPin,
+  Save,
+  Shapes,
+  Trash2,
+} from 'lucide-react';
 
 /**
  * Per-share "Restrict to area" editor.
  *
  * Shown from the sharing panel's row action menu. Lets an admin
- * associate a GeoJSON polygon with a share — after save, that
- * principal only sees features whose geometry intersects the polygon
- * (and items whose bbox does).
+ * associate a geographic clip with a share. After save, the principal
+ * only sees features whose geometry intersects the clip (and items
+ * whose bbox does).
  *
- * Two input paths:
- *   - Paste a GeoJSON Polygon / MultiPolygon / Feature / FeatureCollection
- *   - Enter a bounding box (minLng, minLat, maxLng, maxLat) and we
- *     synthesize a rectangular polygon from it
+ * Three input paths:
+ *   - **Boundary**: pick an existing geo_boundary item from the org's
+ *     library. The share stores the item id; the API resolves the
+ *     polygon at request time. Best when the same region recurs
+ *     across many shares (the curated boundary stays the source of
+ *     truth, even when an admin edits its geometry later).
+ *   - **GeoJSON**: paste a Polygon / MultiPolygon / Feature /
+ *     FeatureCollection. The share stores the polygon inline.
+ *   - **Bounding box**: enter west / south / east / north; we
+ *     synthesize a rectangular polygon and store it inline.
  *
- * A proper map-based polygon drawing tool is on the follow-up list;
- * this text-first UI is enough to validate the model end-to-end and
- * authors are almost always pasting existing regional boundaries
- * anyway.
+ * Inline geometry and the boundary reference are mutually exclusive
+ * at the API layer; the dialog's Save sends both fields and the
+ * service writes whichever is non-null while clearing the other.
  */
+export interface ShareGeoLimitSave {
+  geoLimit: unknown | null;
+  geoBoundaryId: string | null;
+}
+
+export interface BoundaryOption {
+  id: string;
+  title: string;
+}
+
 interface Props {
   principalLabel: string;
   initialGeoLimit: unknown | null;
+  initialGeoBoundaryId: string | null;
+  /** Pulled by the sharing panel from /api/items?type=geo_boundary. */
+  boundaries: BoundaryOption[];
   saving: boolean;
-  onSave: (geoLimit: unknown | null) => Promise<void> | void;
+  onSave: (next: ShareGeoLimitSave) => Promise<void> | void;
   onClose: () => void;
 }
 
-type Mode = 'geojson' | 'bbox';
+type Mode = 'boundary' | 'geojson' | 'bbox';
 
 export function ShareGeoLimitDialog({
   principalLabel,
   initialGeoLimit,
+  initialGeoBoundaryId,
+  boundaries,
   saving,
   onSave,
   onClose,
 }: Props) {
-  const [mode, setMode] = useState<Mode>('geojson');
+  // Default mode: 'boundary' if the share already references one,
+  // else 'geojson' (covers both fresh shares and shares with an
+  // inline polygon, because paste is the more familiar entry point).
+  const [mode, setMode] = useState<Mode>(
+    initialGeoBoundaryId ? 'boundary' : 'geojson',
+  );
   const [text, setText] = useState(() =>
     initialGeoLimit ? JSON.stringify(initialGeoLimit, null, 2) : '',
   );
@@ -46,16 +79,54 @@ export function ShareGeoLimitDialog({
   const [minLat, setMinLat] = useState('');
   const [maxLng, setMaxLng] = useState('');
   const [maxLat, setMaxLat] = useState('');
+  const [boundaryId, setBoundaryId] = useState<string>(
+    initialGeoBoundaryId ?? '',
+  );
   const [error, setError] = useState<string | null>(null);
 
-  const hasExisting = initialGeoLimit !== null && initialGeoLimit !== undefined;
+  // If the parent passes a fresh list and the current pick isn't in it
+  // (boundary deleted, etc.), reset to the empty selection so the
+  // Save button correctly disables until the admin picks something.
+  useEffect(() => {
+    if (
+      boundaryId &&
+      !boundaries.some((b) => b.id === boundaryId)
+    ) {
+      setBoundaryId('');
+    }
+  }, [boundaries, boundaryId]);
+
+  const hasExisting =
+    (initialGeoLimit !== null && initialGeoLimit !== undefined) ||
+    !!initialGeoBoundaryId;
 
   // Parse and validate whatever the user has in the active input.
+  // The dialog produces either an inline geometry or a boundary id;
+  // the discriminator on the result tells `save` which API field to
+  // populate. `null` here means "nothing entered yet" and disables
+  // the Save button.
   const validated = useMemo<
-    | { ok: true; geometry: unknown; summary: string }
+    | { ok: true; kind: 'inline'; geometry: unknown; summary: string }
+    | { ok: true; kind: 'boundary'; boundaryId: string; summary: string }
     | { ok: false; error: string }
     | null
   >(() => {
+    if (mode === 'boundary') {
+      if (!boundaryId) return null;
+      const picked = boundaries.find((b) => b.id === boundaryId);
+      if (!picked) {
+        return {
+          ok: false,
+          error: 'Selected boundary is not in your visible library.',
+        };
+      }
+      return {
+        ok: true,
+        kind: 'boundary',
+        boundaryId,
+        summary: `Boundary: ${picked.title}`,
+      };
+    }
     if (mode === 'geojson') {
       if (!text.trim()) return null;
       try {
@@ -68,7 +139,12 @@ export function ShareGeoLimitDialog({
               'Expected a GeoJSON Polygon, MultiPolygon, Feature, or FeatureCollection containing one.',
           };
         }
-        return { ok: true, geometry: geom, summary: describeGeometry(geom) };
+        return {
+          ok: true,
+          kind: 'inline',
+          geometry: geom,
+          summary: describeGeometry(geom),
+        };
       } catch (err) {
         return { ok: false, error: `Invalid JSON: ${(err as Error).message}` };
       }
@@ -103,27 +179,32 @@ export function ShareGeoLimitDialog({
     };
     return {
       ok: true,
+      kind: 'inline',
       geometry: polygon,
       summary: `Rectangle · ${(e - w).toFixed(3)}° × ${(n - s).toFixed(3)}°`,
     };
-  }, [mode, text, minLng, minLat, maxLng, maxLat]);
+  }, [mode, text, minLng, minLat, maxLng, maxLat, boundaryId, boundaries]);
 
   async function save() {
     setError(null);
     if (!validated) {
-      setError('Enter a polygon or a bounding box.');
+      setError('Pick a boundary, paste a polygon, or enter a bounding box.');
       return;
     }
     if (!validated.ok) {
       setError(validated.error);
       return;
     }
-    await onSave(validated.geometry);
+    if (validated.kind === 'boundary') {
+      await onSave({ geoLimit: null, geoBoundaryId: validated.boundaryId });
+    } else {
+      await onSave({ geoLimit: validated.geometry, geoBoundaryId: null });
+    }
   }
 
   async function clear() {
     setError(null);
-    await onSave(null);
+    await onSave({ geoLimit: null, geoBoundaryId: null });
   }
 
   return (
@@ -151,6 +232,18 @@ export function ShareGeoLimitDialog({
         <div className="inline-flex rounded border border-border bg-surface-2 p-0.5 text-xs">
           <button
             type="button"
+            onClick={() => setMode('boundary')}
+            className={`inline-flex items-center gap-1 rounded px-2 py-0.5 ${
+              mode === 'boundary'
+                ? 'bg-accent text-accent-foreground'
+                : 'text-muted hover:text-ink-1'
+            }`}
+          >
+            <Shapes className="h-3 w-3" />
+            Boundary
+          </button>
+          <button
+            type="button"
             onClick={() => setMode('geojson')}
             className={`rounded px-2 py-0.5 ${
               mode === 'geojson'
@@ -173,7 +266,37 @@ export function ShareGeoLimitDialog({
           </button>
         </div>
 
-        {mode === 'geojson' ? (
+        {mode === 'boundary' ? (
+          <div>
+            <label className="block text-xs">
+              <span className="mb-1 block uppercase tracking-wide text-muted">
+                Boundary
+              </span>
+              <select
+                value={boundaryId}
+                onChange={(e) => setBoundaryId(e.target.value)}
+                disabled={boundaries.length === 0}
+                className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
+              >
+                <option value="">
+                  {boundaries.length === 0
+                    ? 'No boundaries you can see'
+                    : 'Pick a boundary...'}
+                </option>
+                {boundaries.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="mt-1 text-[11px] text-muted">
+              The share stores a reference to the boundary item. Edits to
+              the boundary&apos;s geometry flow through to every share that
+              points at it without re-saving.
+            </p>
+          </div>
+        ) : mode === 'geojson' ? (
           <div>
             <label className="block text-xs">
               <span className="mb-1 block uppercase tracking-wide text-muted">

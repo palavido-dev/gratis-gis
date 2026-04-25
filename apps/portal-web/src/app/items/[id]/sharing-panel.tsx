@@ -23,7 +23,11 @@ import {
   PrincipalPicker,
   type PrincipalOption,
 } from '@/components/principal-picker';
-import { ShareGeoLimitDialog } from './share-geo-limit-dialog';
+import {
+  ShareGeoLimitDialog,
+  type BoundaryOption,
+  type ShareGeoLimitSave,
+} from './share-geo-limit-dialog';
 
 interface Props {
   itemId: string;
@@ -212,16 +216,44 @@ export function SharingPanel({
   );
   const [geoLimitSaving, setGeoLimitSaving] = useState(false);
 
+  // Org's geo_boundary item library, populated lazily the first time
+  // the dialog opens. Lets the admin pick a curated boundary instead
+  // of pasting GeoJSON. Empty array is the default and renders an
+  // appropriate "no boundaries" hint inside the dialog.
+  const [boundaries, setBoundaries] = useState<BoundaryOption[]>([]);
+  const [boundariesLoaded, setBoundariesLoaded] = useState(false);
+
+  useEffect(() => {
+    if (editingGeoLimit && !boundariesLoaded) {
+      void (async () => {
+        try {
+          const res = await fetch('/api/portal/items?type=geo_boundary');
+          if (!res.ok) return;
+          const items = (await res.json()) as Array<{
+            id: string;
+            title: string;
+          }>;
+          setBoundaries(
+            items.map((i) => ({ id: i.id, title: i.title })),
+          );
+        } finally {
+          setBoundariesLoaded(true);
+        }
+      })();
+    }
+  }, [editingGeoLimit, boundariesLoaded]);
+
   async function saveGeoLimit(
     share: ItemShare,
-    geoLimit: unknown | null,
+    next: ShareGeoLimitSave,
   ) {
     setError(null);
     setGeoLimitSaving(true);
     try {
       // The share endpoint is idempotent on (itemId, principalType,
       // principalId), so re-POSTing with the existing permission and
-      // the new geoLimit updates only the polygon. Null clears it.
+      // the new clip values updates only those columns. Null on either
+      // field clears it; the API enforces mutual exclusivity.
       const res = await fetch(`/api/portal/items/${itemId}/share`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -229,7 +261,8 @@ export function SharingPanel({
           principalType: share.principalType,
           principalId: share.principalId,
           permission: share.permission,
-          geoLimit,
+          geoLimit: next.geoLimit,
+          geoBoundaryId: next.geoBoundaryId,
         }),
       });
       if (!res.ok) {
@@ -510,13 +543,13 @@ export function SharingPanel({
                     onClick={() => setEditingGeoLimit(share)}
                     disabled={pending}
                     title={
-                      share.geoLimit
+                      share.geoLimit || share.geoBoundaryId
                         ? 'Edit geographic restriction'
                         : 'Restrict to a geographic area'
                     }
                     aria-label="Restrict to area"
                     className={`inline-flex h-8 w-8 items-center justify-center rounded-md disabled:opacity-50 ${
-                      share.geoLimit
+                      share.geoLimit || share.geoBoundaryId
                         ? 'bg-accent/10 text-accent hover:bg-accent/15'
                         : 'text-muted hover:bg-surface-2 hover:text-ink-1'
                     }`}
@@ -549,9 +582,11 @@ export function SharingPanel({
                 editingGeoLimit.principalId.slice(0, 8))
           }
           initialGeoLimit={editingGeoLimit.geoLimit ?? null}
+          initialGeoBoundaryId={editingGeoLimit.geoBoundaryId ?? null}
+          boundaries={boundaries}
           saving={geoLimitSaving}
           onClose={() => setEditingGeoLimit(null)}
-          onSave={(geoLimit) => saveGeoLimit(editingGeoLimit, geoLimit)}
+          onSave={(next) => saveGeoLimit(editingGeoLimit, next)}
         />
       ) : null}
 

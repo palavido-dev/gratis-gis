@@ -48,13 +48,20 @@ export interface ShareItemInput {
   principalId: string;
   permission?: SharePermission | undefined;
   /**
-   * Optional geographic restriction. When present, the share's
+   * Inline geographic restriction. When present, the share's
    * grantee only sees features that intersect this polygon (plus
    * items whose bbox does). Pass `null` to explicitly clear a
    * previously-set limit; omit the field to leave it untouched.
-   * GeoJSON in EPSG:4326 — no coordinate transform is applied.
+   * GeoJSON in EPSG:4326. Mutually exclusive with `geoBoundaryId`:
+   * the service writes one and clears the other on each update.
    */
   geoLimit?: unknown | null;
+  /**
+   * Reference to a geo_boundary item whose geometry supplies the
+   * clip. Pass `null` to clear; omit to leave untouched.
+   * Mutually exclusive with `geoLimit`.
+   */
+  geoBoundaryId?: string | null | undefined;
 }
 
 @Injectable()
@@ -731,14 +738,24 @@ export class ItemsService {
       throw new ForbiddenException('Only the owner or an org admin can change sharing');
     }
     await this.assertPrincipalExists(input.principalType, input.principalId);
-    // Build the update payload conditionally so `geoLimit: undefined`
-    // doesn't overwrite a previously-set polygon. `null` is the
-    // explicit "clear" signal and DOES pass through to Prisma.
+    // Build the update payload conditionally so an undefined field
+    // doesn't overwrite a previously-set value. `null` is the explicit
+    // "clear" signal and DOES pass through to Prisma.
+    //
+    // geoLimit and geoBoundaryId are mutually exclusive: setting one
+    // to a non-null value clears the other on the same update so the
+    // share never carries a stale partner column. Either field can be
+    // explicitly cleared with `null` independently.
     const update: Record<string, unknown> = {
       permission: input.permission ?? 'view',
     };
+    if (input.geoBoundaryId !== undefined) {
+      update.geoBoundaryId = input.geoBoundaryId;
+      if (input.geoBoundaryId !== null) update.geoLimit = null;
+    }
     if (input.geoLimit !== undefined) {
       update.geoLimit = input.geoLimit;
+      if (input.geoLimit !== null) update.geoBoundaryId = null;
     }
     const create: Record<string, unknown> = {
       itemId: id,
@@ -748,6 +765,12 @@ export class ItemsService {
     };
     if (input.geoLimit !== undefined && input.geoLimit !== null) {
       create.geoLimit = input.geoLimit;
+    }
+    if (
+      input.geoBoundaryId !== undefined &&
+      input.geoBoundaryId !== null
+    ) {
+      create.geoBoundaryId = input.geoBoundaryId;
     }
     return this.prisma.itemShare.upsert({
       where: {

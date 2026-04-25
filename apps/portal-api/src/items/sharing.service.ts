@@ -41,56 +41,92 @@ export class SharingService {
 
   /**
    * Resolve the geographic restriction that applies to `user` on
-   * `item`. Returns a GeoJSON geometry (Polygon or MultiPolygon) when
-   * the user is limited to a sub-region, or `null` when they have
-   * unrestricted access.
+   * `item`. Returns a GeoJSON geometry (Polygon, MultiPolygon, or
+   * GeometryCollection) when the user is limited to a sub-region, or
+   * `null` when they have unrestricted access.
    *
    * Semantics (matches the product-level design in docs/data-model.md):
    *   - Owners, admins, and anyone reading via `access: public` or
-   *     `access: org` bypass geo limits entirely — those access paths
+   *     `access: org` bypass geo limits entirely; those access paths
    *     are not share rows, so there's nothing to attach a polygon to.
    *   - When reading via an explicit `ItemShare`, the user's effective
    *     access is the UNION of every matching share's geo polygon. If
    *     any matching share has no polygon, the user has full access
    *     (the unrestricted share wins).
+   *   - A matching share's clip is whichever of its two columns is
+   *     populated: the inline `geoLimit` GeoJSON, or the geometry of
+   *     the `geoBoundaryId` it references. If the referenced boundary
+   *     no longer exists (or is the wrong item type, or has no
+   *     geometry yet), that share is treated as unrestricted so a
+   *     deleted boundary cannot silently expand access through some
+   *     other matching share's polygon.
    *
    * Callers compose the result into SQL via `ST_GeomFromGeoJSON` +
-   * `ST_Intersects`. The result is GeoJSON in EPSG:4326 so no
-   * coordinate transform is needed before matching against feature
-   * tables (which also use 4326).
+   * `ST_Intersects`. Result is GeoJSON in EPSG:4326 so no coordinate
+   * transform is needed before matching against feature tables.
+   *
+   * Async because the boundary reference path requires a DB lookup.
    */
-  geoLimitFor(
+  async geoLimitFor(
     user: AuthUser,
     item: Item,
     shares: ItemShare[] = [],
-  ): unknown | null {
+  ): Promise<unknown | null> {
     if (item.ownerId === user.id) return null;
     if (user.orgRole === 'admin' && item.orgId === user.orgId) return null;
     if (item.access === 'public') return null;
     if (item.access === 'org' && item.orgId === user.orgId) return null;
 
     const matching = shares.filter((s) => this.shareMatches(user, s));
-    if (matching.length === 0) return null; // no access at all — caller already handled
+    if (matching.length === 0) return null;
 
-    // An unrestricted matching share dominates — the user has full
-    // access via that path regardless of any other limited shares.
-    const hasUnrestricted = matching.some(
-      (s) => !(s as ItemShare & { geoLimit?: unknown }).geoLimit,
-    );
+    // Look up every distinct geoBoundary referenced by any matching
+    // share in a single round-trip; per-share resolution then reads
+    // from this map. A boundary that doesn't exist (or isn't a
+    // geo_boundary item, or has no geometry yet) just doesn't end
+    // up in the map and the share that referenced it is treated as
+    // unrestricted below.
+    const boundaryIds = new Set<string>();
+    for (const s of matching) {
+      const ref = (s as ItemShare & { geoBoundaryId?: string | null })
+        .geoBoundaryId;
+      if (typeof ref === 'string' && ref.length > 0) boundaryIds.add(ref);
+    }
+    const boundaryGeoms = new Map<string, unknown>();
+    if (boundaryIds.size > 0) {
+      const rows = await this.prisma.item.findMany({
+        where: {
+          id: { in: Array.from(boundaryIds) },
+          type: 'geo_boundary',
+          deletedAt: null,
+        },
+        select: { id: true, data: true },
+      });
+      for (const r of rows) {
+        const geom = (r.data as { geometry?: unknown } | null)?.geometry;
+        if (geom && typeof geom === 'object') boundaryGeoms.set(r.id, geom);
+      }
+    }
+
+    let hasUnrestricted = false;
+    const polygons: unknown[] = [];
+    for (const s of matching) {
+      const ref = (s as ItemShare & { geoBoundaryId?: string | null })
+        .geoBoundaryId;
+      if (typeof ref === 'string' && ref.length > 0) {
+        const geom = boundaryGeoms.get(ref);
+        if (geom) polygons.push(geom);
+        else hasUnrestricted = true; // boundary missing / wrong type / no geometry
+        continue;
+      }
+      const inline = (s as ItemShare & { geoLimit?: unknown }).geoLimit;
+      if (inline && typeof inline === 'object') polygons.push(inline);
+      else hasUnrestricted = true;
+    }
     if (hasUnrestricted) return null;
-
-    // Everyone matching is limited. Union their polygons into a
-    // single GeometryCollection; PostGIS handles the union at query
-    // time so we don't have to bring in a JS geometry lib here.
-    const polygons = matching
-      .map((s) => (s as ItemShare & { geoLimit?: unknown }).geoLimit)
-      .filter((g): g is object => typeof g === 'object' && g !== null);
     if (polygons.length === 0) return null;
     if (polygons.length === 1) return polygons[0];
-    return {
-      type: 'GeometryCollection',
-      geometries: polygons,
-    };
+    return { type: 'GeometryCollection', geometries: polygons };
   }
 
   private shareMatches(user: AuthUser, share: ItemShare): boolean {

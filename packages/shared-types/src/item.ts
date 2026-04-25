@@ -41,13 +41,19 @@ export interface ItemShare {
   permission: SharePermission;
   createdAt: ISODateString;
   /**
-   * Optional GeoJSON polygon / multipolygon (EPSG:4326) that restricts
-   * what this principal sees on the item. Null / undefined = no
-   * geographic restriction. When present, feature queries clip to rows
-   * whose geometry intersects it, and items whose bbox doesn't touch
-   * it are hidden from the grantee's list view.
+   * Optional inline GeoJSON polygon / multipolygon (EPSG:4326) that
+   * restricts what this principal sees on the item. Null / undefined
+   * means "no inline polygon". Mutually exclusive with `geoBoundaryId`
+   * at the API layer.
    */
   geoLimit?: unknown | null;
+  /**
+   * Optional reference to a geo_boundary item whose geometry supplies
+   * the clip. Mutually exclusive with `geoLimit`. The API resolves the
+   * geometry at request time so edits to the boundary flow through
+   * to every share that points at it without re-saving.
+   */
+  geoBoundaryId?: string | null;
 }
 
 /**

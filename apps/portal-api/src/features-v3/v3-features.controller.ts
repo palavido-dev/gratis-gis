@@ -189,7 +189,7 @@ export class V3FeaturesController {
     let geoLimit: unknown | null = null;
     if (mode === 'read') {
       const withShares = item as typeof item & { shares?: ItemShare[] };
-      geoLimit = this.sharing.geoLimitFor(
+      geoLimit = await this.sharing.geoLimitFor(
         user,
         item,
         withShares.shares ?? [],

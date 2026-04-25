@@ -393,13 +393,27 @@ model ItemShare {
   /// only see features whose geometry intersects this polygon, and
   /// items whose bbox intersects it. Stored as GeoJSON (EPSG:4326)
   /// so the frontend can draw / edit without a coordinate transform.
-  /// Null = no geographic restriction (full share grant).
+  /// Null = no geographic restriction (full share grant). Mutually
+  /// exclusive with `geoBoundaryId` at the API layer; only one of
+  /// the two ever holds a value.
   geoLimit Json? @map("geo_limit")
+  /// Optional reference to a geo_boundary item whose geometry
+  /// supplies the clip. Lets one curated boundary serve many
+  /// shares without copying coordinates. The sharing service
+  /// dereferences this at request time and treats a missing target
+  /// (boundary deleted, etc.) as "no clip" so a deleted boundary
+  /// can never silently expand access. We do NOT add a Prisma
+  /// relation here because basemap items + geo_boundary items
+  /// share the `item` table and Prisma cannot enforce a partial FK
+  /// on `item.type = geo_boundary`; the service layer does the
+  /// type check on dereference.
+  geoBoundaryId String? @map("geo_boundary_id") @db.Uuid
 
   item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   @@id([itemId, principalType, principalId])
   @@index([principalType, principalId])
+  @@index([geoBoundaryId])
   @@map("item_share")
 }
 
