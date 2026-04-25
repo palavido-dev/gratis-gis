@@ -1,10 +1,42 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import {
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  Max,
+  Min,
+} from 'class-validator';
 
 import { AdminGuard } from './admin.guard.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { HousekeepingService } from './housekeeping.service.js';
+import {
+  HousekeepingScheduleService,
+  type HousekeepingScheduleMode,
+} from './housekeeping-schedule.service.js';
+
+class HousekeepingConfigDto {
+  @IsOptional() @IsBoolean() autoTrashEnabled?: boolean;
+  @IsOptional() @IsInt() @Min(1) @Max(3650) autoTrashDays?: number | null;
+  @IsOptional() @IsBoolean() autoDisableEnabled?: boolean;
+  @IsOptional() @IsInt() @Min(1) @Max(3650) autoDisableDays?: number | null;
+  @IsOptional() @IsEnum(['off', 'daily', 'weekly'])
+  scheduleMode?: HousekeepingScheduleMode;
+  @IsOptional() @IsInt() @Min(0) @Max(23) scheduleHour?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(59) scheduleMinute?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(6) scheduleDayOfWeek?: number | null;
+}
 
 /**
  * Admin-only housekeeping dashboard. Pure read endpoints — the
@@ -19,7 +51,10 @@ import { HousekeepingService } from './housekeeping.service.js';
 @UseGuards(AdminGuard)
 @Controller('admin/housekeeping')
 export class HousekeepingController {
-  constructor(private readonly housekeeping: HousekeepingService) {}
+  constructor(
+    private readonly housekeeping: HousekeepingService,
+    private readonly schedule: HousekeepingScheduleService,
+  ) {}
 
   @Get('summary')
   summary(@CurrentUser() user: AuthUser) {
@@ -39,5 +74,33 @@ export class HousekeepingController {
   @Get('large-items')
   largeItems(@CurrentUser() user: AuthUser) {
     return this.housekeeping.largeItems(user.orgId);
+  }
+
+  // -------------------------------------------------------------
+  // #67: scheduled housekeeping config + run history
+  // -------------------------------------------------------------
+
+  @Get('config')
+  getConfig() {
+    return this.schedule.getConfig();
+  }
+
+  @Patch('config')
+  updateConfig(@Body() dto: HousekeepingConfigDto) {
+    return this.schedule.updateConfig(dto);
+  }
+
+  @Get('runs')
+  listRuns(@Query('limit') limit?: string) {
+    const n = Number(limit);
+    return this.schedule.listRuns(Number.isFinite(n) && n > 0 ? n : 25);
+  }
+
+  @Post('run')
+  runNow(@CurrentUser() user: AuthUser) {
+    return this.schedule.runOnce({
+      trigger: 'manual',
+      startedBy: user.id,
+    });
   }
 }

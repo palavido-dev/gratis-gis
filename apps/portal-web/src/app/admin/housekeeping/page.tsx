@@ -3,6 +3,11 @@ import { redirect } from 'next/navigation';
 import { ArrowLeft, Sparkles } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { HousekeepingView, type HousekeepingBundle } from './housekeeping-view';
+import {
+  HousekeepingScheduleCard,
+  type HousekeepingConfig,
+  type HousekeepingRun,
+} from './housekeeping-schedule-card';
 
 /**
  * Admin-only housekeeping dashboard: surfaces the items + users
@@ -22,23 +27,32 @@ export default async function AdminHousekeepingPage() {
   if (me.orgRole !== 'admin') redirect('/items');
 
   let bundle: HousekeepingBundle | null = null;
+  let scheduleConfig: HousekeepingConfig | null = null;
+  let scheduleRuns: HousekeepingRun[] = [];
   let error: string | null = null;
   try {
-    const [summary, staleItems, staleUsers, largeItems] = await Promise.all([
-      apiFetch<HousekeepingBundle['summary']>(
-        '/api/admin/housekeeping/summary',
-      ),
-      apiFetch<HousekeepingBundle['staleItems']>(
-        '/api/admin/housekeeping/stale-items',
-      ),
-      apiFetch<HousekeepingBundle['staleUsers']>(
-        '/api/admin/housekeeping/stale-users',
-      ),
-      apiFetch<HousekeepingBundle['largeItems']>(
-        '/api/admin/housekeeping/large-items',
-      ),
-    ]);
+    const [summary, staleItems, staleUsers, largeItems, config, runs] =
+      await Promise.all([
+        apiFetch<HousekeepingBundle['summary']>(
+          '/api/admin/housekeeping/summary',
+        ),
+        apiFetch<HousekeepingBundle['staleItems']>(
+          '/api/admin/housekeeping/stale-items',
+        ),
+        apiFetch<HousekeepingBundle['staleUsers']>(
+          '/api/admin/housekeeping/stale-users',
+        ),
+        apiFetch<HousekeepingBundle['largeItems']>(
+          '/api/admin/housekeeping/large-items',
+        ),
+        apiFetch<HousekeepingConfig>('/api/admin/housekeeping/config'),
+        apiFetch<HousekeepingRun[]>(
+          '/api/admin/housekeeping/runs?limit=10',
+        ),
+      ]);
     bundle = { summary, staleItems, staleUsers, largeItems };
+    scheduleConfig = config;
+    scheduleRuns = runs;
   } catch (err) {
     error = err instanceof Error ? err.message : 'Could not load housekeeping data.';
   }
@@ -63,7 +77,7 @@ export default async function AdminHousekeepingPage() {
           </h1>
           <p className="mt-0.5 text-sm text-muted">
             Items and accounts that look like they could be reviewed
-            or retired. Everything here is a suggestion — click
+            or retired. Everything below is a suggestion: click
             through to decide.
           </p>
         </div>
@@ -73,6 +87,15 @@ export default async function AdminHousekeepingPage() {
         <div className="mb-6 rounded-lg border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
           <p className="font-medium">Could not load housekeeping data</p>
           <p className="mt-1 text-danger/90">{error}</p>
+        </div>
+      ) : null}
+
+      {scheduleConfig ? (
+        <div className="mb-6">
+          <HousekeepingScheduleCard
+            initialConfig={scheduleConfig}
+            initialRuns={scheduleRuns}
+          />
         </div>
       ) : null}
 

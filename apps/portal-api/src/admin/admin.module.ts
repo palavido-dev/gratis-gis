@@ -6,6 +6,8 @@ import { AdminCapabilitiesController } from './admin-capabilities.controller.js'
 import { AdminGuard } from './admin.guard.js';
 import { HousekeepingController } from './housekeeping.controller.js';
 import { HousekeepingService } from './housekeeping.service.js';
+import { HousekeepingScheduleService } from './housekeeping-schedule.service.js';
+import { HousekeepingCronService } from './housekeeping-cron.service.js';
 import { KeycloakAdminService } from './keycloak-admin.service.js';
 
 /**
@@ -27,7 +29,13 @@ import { KeycloakAdminService } from './keycloak-admin.service.js';
     AdminCapabilitiesController,
     HousekeepingController,
   ],
-  providers: [KeycloakAdminService, AdminGuard, HousekeepingService],
+  providers: [
+    KeycloakAdminService,
+    AdminGuard,
+    HousekeepingService,
+    HousekeepingScheduleService,
+    HousekeepingCronService,
+  ],
   exports: [KeycloakAdminService],
 })
 export class AdminModule {}

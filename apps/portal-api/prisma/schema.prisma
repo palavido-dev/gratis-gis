@@ -383,6 +383,77 @@ model BackupRun {
   @@map("backup_run")
 }
 
+/// Singleton row holding admin-editable scheduled-housekeeping
+/// settings (task #67). When auto-trash is enabled, the cron walks
+/// the same stale-item heuristic the housekeeping page surfaces and
+/// soft-deletes anything beyond the threshold. When auto-disable is
+/// enabled, it disables sign-in for users matching the quiet-user
+/// heuristic. Both are off by default; the admin must opt in
+/// explicitly so a fresh portal never silently destroys content.
+///
+/// Thresholds default to env-driven values when null (mirrors how
+/// HOUSEKEEPING_STALE_ITEM_DAYS and HOUSEKEEPING_STALE_USER_DAYS
+/// already work for the manual surface).
+model HousekeepingConfig {
+  id String @id @default(uuid()) @db.Uuid
+
+  autoTrashEnabled    Boolean @default(false) @map("auto_trash_enabled")
+  /// Days of inactivity before an item is auto-trashed. Null falls
+  /// back to HOUSEKEEPING_STALE_ITEM_DAYS env (default 90).
+  autoTrashDays       Int?    @map("auto_trash_days")
+
+  autoDisableEnabled  Boolean @default(false) @map("auto_disable_enabled")
+  /// Days of inactivity before a user is auto-disabled. Null falls
+  /// back to HOUSEKEEPING_STALE_USER_DAYS env (default 180).
+  autoDisableDays     Int?    @map("auto_disable_days")
+
+  /// 'off' | 'daily' | 'weekly'. Matches BackupConfig structure but
+  /// without the monthly / custom modes (housekeeping cadence is
+  /// never high-frequency in practice).
+  scheduleMode  String @default("off") @map("schedule_mode")
+  scheduleHour  Int    @default(3)     @map("schedule_hour")
+  scheduleMinute Int   @default(0)     @map("schedule_minute")
+  /// Used when mode=weekly. 0 (Sunday) through 6 (Saturday).
+  scheduleDayOfWeek Int? @map("schedule_day_of_week")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("housekeeping_config")
+}
+
+enum HousekeepingStatus {
+  running
+  succeeded
+  failed
+}
+
+model HousekeepingRun {
+  id         String             @id @default(uuid()) @db.Uuid
+  startedAt  DateTime           @default(now()) @map("started_at")
+  finishedAt DateTime?          @map("finished_at")
+  status     HousekeepingStatus @default(running)
+
+  /// 'manual' or 'scheduled'. Mirrors BackupRun's trigger column so
+  /// the admin UI can distinguish ad-hoc Run-now invocations from
+  /// cron-driven ones.
+  trigger String @default("manual")
+
+  /// User id who kicked off a manual run; null for scheduled.
+  startedBy String? @map("started_by") @db.Uuid
+
+  /// Counts of what each pass did. Both default to 0 so a
+  /// "succeeded with nothing to do" run reads correctly.
+  itemsTrashed  Int @default(0) @map("items_trashed")
+  usersDisabled Int @default(0) @map("users_disabled")
+
+  /// Short error summary (first 500 chars).
+  error String?
+
+  @@index([startedAt])
+  @@map("housekeeping_run")
+}
+
 model ItemShare {
   itemId        String          @map("item_id") @db.Uuid
   principalType PrincipalType   @map("principal_type")
