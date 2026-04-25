@@ -8,6 +8,7 @@ import {
   EyeOff,
   Filter,
   Folder,
+  FolderMinus,
   GripVertical,
   MousePointerClick,
   Palette,
@@ -117,6 +118,74 @@ export function LayerPanel({
     );
   }
 
+  /**
+   * Ungroup (#48). Drops the group header but keeps its children
+   * as top-level layers in their current document order. Each
+   * child's `groupId` is cleared so the panel renders them flat.
+   * Distinct from removeGroup, which deletes everything; ungroup
+   * is the "I no longer want them collected" path.
+   *
+   * Under exactOptionalPropertyTypes the groupId field has to be
+   * OMITTED rather than set to undefined; we use a destructure +
+   * rest pattern to drop it cleanly.
+   */
+  function ungroup(groupId: string) {
+    onChange(
+      layers
+        .filter((l) => l.id !== groupId)
+        .map((l) => {
+          if (l.groupId !== groupId) return l;
+          const { groupId: _drop, ...rest } = l;
+          return rest as MapLayer;
+        }),
+    );
+  }
+
+  /**
+   * Reorder + (re)assign group membership in one operation (#48).
+   * Used by drag-drop onto a panel row:
+   *   - moveTo  : the row currently at this index becomes the
+   *               position the dragged layer occupies post-move.
+   *   - groupId : nullable. When set, the dragged layer joins
+   *               that group; when null, the layer leaves any
+   *               group it was in. Lets a user drag a top-level
+   *               layer into a group (and back out) by aiming
+   *               at a group child vs. a non-group row.
+   *
+   * If the source layer is itself a group header, we treat the
+   * drop as a plain reorder and leave its children attached --
+   * dragging a header should move the whole bundle.
+   */
+  function moveAndRegroup(
+    from: number,
+    to: number,
+    groupId: string | null,
+  ) {
+    if (from < 0 || to < 0) return;
+    const next = [...layers];
+    const moved = next[from];
+    if (!moved) return;
+    next.splice(from, 1);
+    // Adjust target index for the splice we just did.
+    const adjustedTo = to > from ? to - 1 : to;
+    const isHeader = moved.source.kind === 'group';
+    let updated: MapLayer;
+    if (isHeader) {
+      updated = moved;
+    } else if (groupId) {
+      updated = { ...moved, groupId };
+    } else if (moved.groupId) {
+      // Leave the group: omit groupId rather than set to undefined
+      // (exactOptionalPropertyTypes rejects the latter).
+      const { groupId: _drop, ...rest } = moved;
+      updated = rest as MapLayer;
+    } else {
+      updated = moved;
+    }
+    next.splice(adjustedTo, 0, updated);
+    onChange(next);
+  }
+
   return (
     <div className="flex h-full flex-col border-r border-border bg-surface-1">
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
@@ -189,6 +258,17 @@ export function LayerPanel({
                     onOpacity={(n) => setGroupOpacity(layer.id, n)}
                     onRemove={() => removeGroup(layer.id)}
                     onRename={(title) => updateLayer(layer.id, { title })}
+                    onUngroup={() => ungroup(layer.id)}
+                    // Drag-into-group support (#48). Dropping a
+                    // layer onto a group header parks it at the
+                    // FIRST child slot of the group (right after
+                    // the header) so the user sees their drop
+                    // land where they aimed. Skip self-drops:
+                    // dragging the header onto itself is a no-op.
+                    onDropOnHeader={(sourceIdx) => {
+                      if (sourceIdx === i) return;
+                      moveAndRegroup(sourceIdx, i + 1, layer.id);
+                    }}
                   />,
                 );
                 kids.forEach((k) => {
@@ -221,7 +301,12 @@ export function LayerPanel({
                           setDragOver(null);
                         }}
                         onDragEnter={() => setDragOver(ki)}
-                        onDrop={(sourceIdx) => moveLayer(sourceIdx, ki)}
+                        // Dropping onto a group child: dragged
+                        // layer joins this group (#48). The
+                        // child's groupId is the header's id.
+                        onDrop={(sourceIdx) =>
+                          moveAndRegroup(sourceIdx, ki, k.groupId ?? null)
+                        }
                         onToggle={() =>
                           updateLayer(k.id, { visible: !k.visible })
                         }
@@ -258,7 +343,14 @@ export function LayerPanel({
                     setDragOver(null);
                   }}
                   onDragEnter={() => setDragOver(i)}
-                  onDrop={(sourceIdx) => moveLayer(sourceIdx, i)}
+                  // Dropping onto a non-grouped row: dragged
+                  // layer leaves any group it was in (#48). When
+                  // the row IS a group child shown via the
+                  // children branch above, that branch handles
+                  // it; this path is only top-level rows.
+                  onDrop={(sourceIdx) =>
+                    moveAndRegroup(sourceIdx, i, layer.groupId ?? null)
+                  }
                   onToggle={() =>
                     updateLayer(layer.id, { visible: !layer.visible })
                   }
@@ -967,6 +1059,12 @@ interface GroupHeaderRowProps {
   onOpacity: (n: number) => void;
   onRemove: () => void;
   onRename: (title: string) => void;
+  /** Ungroup (#48): drop the header, keep children as top-level. */
+  onUngroup: () => void;
+  /** Drop a dragged layer onto the header to park it as the first
+   *  child of this group (#48). Receives the source row index;
+   *  payload is the same DRAG_MIME the row drag uses. */
+  onDropOnHeader: (sourceIdx: number) => void;
 }
 
 function GroupHeaderRow({
@@ -977,11 +1075,43 @@ function GroupHeaderRow({
   onOpacity,
   onRemove,
   onRename,
+  onUngroup,
+  onDropOnHeader,
 }: GroupHeaderRowProps) {
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(layer.title);
+  const [dragOverHeader, setDragOverHeader] = useState(false);
   return (
-    <li className="border-b border-border bg-amber-50/50 px-2 py-1.5">
+    <li
+      className={`border-b border-border bg-amber-50/50 px-2 py-1.5 transition-colors ${
+        dragOverHeader ? 'ring-1 ring-amber-500 ring-inset' : ''
+      }`}
+      onDragOver={
+        canEdit
+          ? (e) => {
+              const types = Array.from(e.dataTransfer.types);
+              if (!types.includes(DRAG_MIME)) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+              if (!dragOverHeader) setDragOverHeader(true);
+            }
+          : undefined
+      }
+      onDragLeave={canEdit ? () => setDragOverHeader(false) : undefined}
+      onDrop={
+        canEdit
+          ? (e) => {
+              const raw = e.dataTransfer.getData(DRAG_MIME);
+              if (!raw) return;
+              const sourceIdx = Number(raw);
+              if (Number.isNaN(sourceIdx)) return;
+              e.preventDefault();
+              setDragOverHeader(false);
+              onDropOnHeader(sourceIdx);
+            }
+          : undefined
+      }
+    >
       <div className="flex items-center gap-2">
         <button
           type="button"
@@ -1031,15 +1161,26 @@ function GroupHeaderRow({
           </button>
         )}
         {canEdit ? (
-          <button
-            type="button"
-            onClick={onRemove}
-            aria-label="Remove group and its layers"
-            title="Remove this group and every layer inside"
-            className="inline-flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-danger/5 hover:text-danger"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={onUngroup}
+              aria-label="Ungroup"
+              title="Drop the group header but keep the layers inside"
+              className="inline-flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-1"
+            >
+              <FolderMinus className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={onRemove}
+              aria-label="Remove group and its layers"
+              title="Remove this group and every layer inside"
+              className="inline-flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-danger/5 hover:text-danger"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </>
         ) : null}
       </div>
       {canEdit ? (
