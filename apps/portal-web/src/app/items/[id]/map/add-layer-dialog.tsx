@@ -63,14 +63,13 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
   const [portalItems, setPortalItems] = useState<Item[]>([]);
   const [portalLoading, setPortalLoading] = useState(false);
   // When the user picks an arcgis_service item that exposes more than
-  // one sublayer, we surface this follow-up prompt asking whether to
-  // bundle the sublayers under a group header (the recommended
-  // default) or add them as separate top-level layers. Stored as the
-  // pending item itself so the modal can render the service name and
-  // sublayer count without re-derivation.
+  // one sublayer, we surface this follow-up prompt: pick which of
+  // the available sublayers to add (#45) and whether to bundle them
+  // under a group header. Carries the resolved, ordered sublayer
+  // list so the modal can render checkboxes without re-deriving.
   const [pendingSublayerChoice, setPendingSublayerChoice] = useState<{
     item: Item;
-    count: number;
+    sublayers: Array<{ id: number; name?: string; geometryType?: string }>;
   } | null>(null);
 
   // Curated tab state: search narrows the curated list.
@@ -321,13 +320,18 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
     const ordered = orderedSublayersForPortalItem(hydrated);
     if (ordered === null) return;
     if (ordered.length > 1) {
-      // Defer the actual add to the inline modal. The modal calls
-      // addArcgisPortalItem with the user's chosen mode against the
-      // already-hydrated copy so we don't re-fetch.
-      setPendingSublayerChoice({ item: hydrated, count: ordered.length });
+      // Defer the actual add to the inline modal. The modal lets the
+      // user pick a subset (#45) and choose group vs flat, then calls
+      // addArcgisPortalItem against the hydrated copy without a re-
+      // fetch.
+      setPendingSublayerChoice({ item: hydrated, sublayers: ordered });
       return;
     }
-    addArcgisPortalItem(hydrated, 'flat');
+    addArcgisPortalItem(
+      hydrated,
+      'flat',
+      new Set(ordered.map((l) => l.id)),
+    );
   }
 
   /**
@@ -396,11 +400,21 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
 
   /**
    * Commit an arcgis_service item to the layer panel using the
-   * caller's chosen group / flat mode. Group mode emits a parent
-   * header layer (kind=group) followed by N children whose groupId
-   * references it; flat mode emits N independent siblings.
+   * caller's chosen group / flat mode and selected sublayer subset
+   * (#45). Group mode emits a parent header layer (kind=group)
+   * followed by N children whose groupId references it; flat mode
+   * emits N independent siblings. `selectedIds` lets the user opt
+   * out of layers they don't want -- a common case when an ArcGIS
+   * service exposes a giant catalog and the map only needs one or
+   * two of them. Empty selection is treated as "no-op" (cancel-
+   * equivalent) so the user doesn't end up with a stray group
+   * header and no children.
    */
-  function addArcgisPortalItem(item: Item, mode: 'group' | 'flat') {
+  function addArcgisPortalItem(
+    item: Item,
+    mode: 'group' | 'flat',
+    selectedIds: Set<number>,
+  ) {
     const d = (item.data ?? {}) as {
       url?: string;
       serviceType?: 'MapServer' | 'FeatureServer';
@@ -411,17 +425,26 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
     };
     const ordered = orderedSublayersForPortalItem(item);
     if (ordered === null) return;
+    const picked = ordered.filter((l) => selectedIds.has(l.id));
+    if (picked.length === 0) {
+      // No-op: every sublayer was unchecked. Reset and close so the
+      // user lands back at the dialog instead of staring at a half-
+      // committed group with nothing inside it.
+      reset();
+      onClose();
+      return;
+    }
     let groupId: string | undefined;
-    if (mode === 'group') {
+    if (mode === 'group' && picked.length > 1) {
       const header = makeLayer(item.title, { kind: 'group' });
       groupId = header.id;
       onAdd(header);
     }
-    for (const l of ordered) {
+    for (const l of picked) {
       const override = d.layerConfig?.[String(l.id)];
       const subName = l.name ?? `Layer ${l.id}`;
       const title =
-        override?.label ?? (ordered.length === 1 ? item.title : subName);
+        override?.label ?? (picked.length === 1 ? item.title : subName);
       const layer = makeLayer(title, {
         kind: 'arcgis-rest',
         url: d.url!,
@@ -933,11 +956,11 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
       {pendingSublayerChoice ? (
         <SublayerChoiceModal
           item={pendingSublayerChoice.item}
-          count={pendingSublayerChoice.count}
-          onPick={(mode) => {
+          sublayers={pendingSublayerChoice.sublayers}
+          onPick={(mode, selectedIds) => {
             const item = pendingSublayerChoice.item;
             setPendingSublayerChoice(null);
-            addArcgisPortalItem(item, mode);
+            addArcgisPortalItem(item, mode, selectedIds);
           }}
           onCancel={() => setPendingSublayerChoice(null)}
         />
@@ -948,25 +971,46 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
 
 /**
  * Inline follow-up dialog shown after the user picks an
- * arcgis_service item that exposes more than one sublayer. The
- * group choice is the recommended default; flat is offered for
- * users who want each sublayer as an independent panel entry. The
- * modal sits above the parent Add Layer dialog (shared backdrop
- * via the parent's z-30) so the click-to-close on the backdrop
- * doesn't punch through; we intercept the click here and route to
- * onCancel instead.
+ * arcgis_service item that exposes more than one sublayer. Lets
+ * the user (#45) pick which sublayers to include via checkboxes,
+ * and (#46) choose whether to bundle them under a group header
+ * or add as separate top-level layers.
+ *
+ * Defaults: every sublayer checked, "Add as a group" highlighted.
+ * The modal sits above the parent Add Layer dialog; we intercept
+ * the backdrop click so it closes only the modal, not both.
  */
 function SublayerChoiceModal({
   item,
-  count,
+  sublayers,
   onPick,
   onCancel,
 }: {
   item: Item;
-  count: number;
-  onPick: (mode: 'group' | 'flat') => void;
+  sublayers: Array<{ id: number; name?: string; geometryType?: string }>;
+  onPick: (mode: 'group' | 'flat', selectedIds: Set<number>) => void;
   onCancel: () => void;
 }) {
+  // All sublayers selected by default -- the most common case is
+  // "give me everything, like the old behaviour." Users who want to
+  // narrow can untick before clicking Add.
+  const [selected, setSelected] = useState<Set<number>>(
+    () => new Set(sublayers.map((l) => l.id)),
+  );
+  const allChecked = selected.size === sublayers.length;
+  const noneChecked = selected.size === 0;
+  function toggle(id: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function toggleAll() {
+    if (allChecked) setSelected(new Set());
+    else setSelected(new Set(sublayers.map((l) => l.id)));
+  }
   return (
     <div
       role="dialog"
@@ -976,24 +1020,66 @@ function SublayerChoiceModal({
       onClick={onCancel}
     >
       <div
-        className="w-full max-w-md rounded-lg border border-border bg-surface-1 shadow-overlay"
+        className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-lg border border-border bg-surface-1 shadow-overlay"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="border-b border-border px-4 py-3">
+        <div className="shrink-0 border-b border-border px-4 py-3">
           <h3 className="text-base font-semibold">
             Add &ldquo;{item.title}&rdquo;
           </h3>
           <p className="mt-1 text-sm text-muted">
-            This service exposes <strong>{count} sublayers</strong>. How would
-            you like to add them?
+            This service exposes <strong>{sublayers.length} sublayers</strong>.
+            Pick which to include, then choose how to add them.
           </p>
         </div>
-        <div className="space-y-2 px-4 py-4">
+        <div className="flex-1 overflow-y-auto px-4 py-3">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted">
+              Sublayers
+            </span>
+            <button
+              type="button"
+              onClick={toggleAll}
+              className="text-xs text-accent hover:underline"
+            >
+              {allChecked ? 'Deselect all' : 'Select all'}
+            </button>
+          </div>
+          <ul className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-1">
+            {sublayers.map((l) => {
+              const checked = selected.has(l.id);
+              const subName = l.name ?? `Layer ${l.id}`;
+              const geom = geometryShort(l.geometryType);
+              return (
+                <li key={l.id}>
+                  <label
+                    className="flex cursor-pointer items-center gap-3 px-3 py-2 transition-colors hover:bg-surface-2"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggle(l.id)}
+                      className="h-4 w-4 shrink-0 rounded border-border text-accent focus:ring-accent"
+                    />
+                    <span className="min-w-0 flex-1 truncate text-sm text-ink-0">
+                      {subName}
+                    </span>
+                    <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted">
+                      {geom}
+                    </span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+        <div className="shrink-0 space-y-2 border-t border-border px-4 py-3">
           <button
             type="button"
             autoFocus
-            onClick={() => onPick('group')}
-            className="flex w-full items-start gap-3 rounded-md border border-border bg-surface-1 px-3 py-3 text-left transition-colors hover:border-accent hover:bg-accent/5"
+            disabled={noneChecked}
+            onClick={() => onPick('group', selected)}
+            className="flex w-full items-start gap-3 rounded-md border border-border bg-surface-1 px-3 py-3 text-left transition-colors hover:border-accent hover:bg-accent/5 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-surface-1"
           >
             <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent/10 text-accent">
               <Layers className="h-4 w-4" />
@@ -1001,39 +1087,39 @@ function SublayerChoiceModal({
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-ink-0">
-                  Add as a group
+                  Add {selected.size > 1 ? `${selected.size} ` : ''}as a group
                 </span>
                 <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-accent">
                   Recommended
                 </span>
               </div>
               <p className="mt-0.5 text-xs text-muted">
-                One parent header. Toggle visibility, opacity, and removal for
-                all sublayers at once. You can still expand to tweak any one
-                of them.
+                One parent header that controls visibility, opacity, and
+                removal for every sublayer at once.
               </p>
             </div>
           </button>
           <button
             type="button"
-            onClick={() => onPick('flat')}
-            className="flex w-full items-start gap-3 rounded-md border border-border bg-surface-1 px-3 py-3 text-left transition-colors hover:border-accent hover:bg-accent/5"
+            disabled={noneChecked}
+            onClick={() => onPick('flat', selected)}
+            className="flex w-full items-start gap-3 rounded-md border border-border bg-surface-1 px-3 py-3 text-left transition-colors hover:border-accent hover:bg-accent/5 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-surface-1"
           >
             <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-2 text-muted">
               <Database className="h-4 w-4" />
             </div>
             <div className="min-w-0 flex-1">
               <span className="text-sm font-medium text-ink-0">
-                Add as separate layers
+                Add {selected.size > 1 ? `${selected.size} ` : ''}as separate layers
               </span>
               <p className="mt-0.5 text-xs text-muted">
-                {count} independent top-level entries in the layer panel. Best
-                if you plan to mix them with other map content.
+                Independent top-level entries. Best if you plan to mix them
+                with other map content.
               </p>
             </div>
           </button>
         </div>
-        <div className="flex items-center justify-end border-t border-border px-4 py-3">
+        <div className="flex shrink-0 items-center justify-end border-t border-border px-4 py-3">
           <button
             type="button"
             onClick={onCancel}
