@@ -4,7 +4,11 @@ import { useRef, useState } from 'react';
 import { Loader2, Trash2, Upload } from 'lucide-react';
 import { EntityBadge, type BadgeRounded, type BadgeSize } from '@gratis-gis/ui';
 
-export type AssetKind = 'item-thumb' | 'group-thumb' | 'user-avatar';
+export type AssetKind =
+  | 'item-thumb'
+  | 'group-thumb'
+  | 'user-avatar'
+  | 'org-hero';
 
 interface Props {
   /** What kind of asset this uploader produces; shapes the storage path. */
@@ -18,6 +22,13 @@ interface Props {
   label: string;
   size?: BadgeSize;
   rounded?: BadgeRounded;
+  /**
+   * Override the helper line under the upload button. Defaults to a
+   * thumbnail-shaped hint ("Square images work best"); pass something
+   * different for a hero / banner uploader where wide aspects are the
+   * norm.
+   */
+  hint?: string;
 }
 
 const PRESIGN_ENDPOINT = '/api/portal/storage/presign-upload';
@@ -42,6 +53,7 @@ export function ImageUploader({
   label,
   size = 'xl',
   rounded = 'md',
+  hint,
 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -148,7 +160,8 @@ export function ImageUploader({
           ) : null}
         </div>
         <p className="text-xs text-muted">
-          PNG, JPEG, WebP, or GIF. Up to {MAX_MB} MB. Square images work best.
+          {hint ??
+            `PNG, JPEG, WebP, or GIF. Up to ${MAX_MB} MB. Square images work best.`}
         </p>
         {error ? (
           <p role="alert" className="text-xs text-danger">

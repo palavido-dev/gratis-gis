@@ -11,6 +11,7 @@ const ASSET_KINDS: AssetKind[] = [
   'item-thumb',
   'group-thumb',
   'user-avatar',
+  'org-hero',
   'feature-attachment',
 ];
 

@@ -20,6 +20,7 @@ export type AssetKind =
   | 'item-thumb'
   | 'group-thumb'
   | 'user-avatar'
+  | 'org-hero'
   | 'feature-attachment';
 
 const ALLOWED_CONTENT_TYPES = new Set([

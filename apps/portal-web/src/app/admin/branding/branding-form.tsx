@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import type { BrandingConfig } from './page';
 import { FeaturedItemsPicker } from './featured-items-picker';
+import { ImageUploader } from '@/components/image-uploader';
 
 /**
  * Admin form for the five Organization landing-page knobs.
@@ -29,8 +30,8 @@ export function BrandingForm({ initial }: Props) {
   const router = useRouter();
   const [title, setTitle] = useState(initial.landingTitle ?? '');
   const [subtitle, setSubtitle] = useState(initial.landingSubtitle ?? '');
-  const [heroImageUrl, setHeroImageUrl] = useState(
-    initial.landingHeroImageUrl ?? '',
+  const [heroImageUrl, setHeroImageUrl] = useState<string | null>(
+    initial.landingHeroImageUrl ?? null,
   );
   const [showPublicItems, setShowPublicItems] = useState(
     initial.landingShowPublicItems,
@@ -54,8 +55,7 @@ export function BrandingForm({ initial }: Props) {
     if ((title.trim() || null) !== (initial.landingTitle ?? null)) return true;
     if ((subtitle.trim() || null) !== (initial.landingSubtitle ?? null))
       return true;
-    if ((heroImageUrl.trim() || null) !== (initial.landingHeroImageUrl ?? null))
-      return true;
+    if (heroImageUrl !== (initial.landingHeroImageUrl ?? null)) return true;
     if (showPublicItems !== initial.landingShowPublicItems) return true;
     const saved = initial.landingFeaturedItemIds;
     if (featuredIds.length !== saved.length) return true;
@@ -79,7 +79,7 @@ export function BrandingForm({ initial }: Props) {
       const body: Record<string, unknown> = {
         landingTitle: title.trim() || null,
         landingSubtitle: subtitle.trim() || null,
-        landingHeroImageUrl: heroImageUrl.trim() || null,
+        landingHeroImageUrl: heroImageUrl,
         landingShowPublicItems: showPublicItems,
         // The picker only emits ids it resolved against the public
         // items list, so per-row UUID validation isn't needed here
@@ -150,26 +150,19 @@ export function BrandingForm({ initial }: Props) {
         </div>
 
         <div>
-          <label
-            htmlFor="landing-hero"
-            className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted"
-          >
-            Hero image URL
-          </label>
-          <input
-            id="landing-hero"
-            type="url"
-            value={heroImageUrl}
-            onChange={(e) => setHeroImageUrl(e.target.value)}
-            placeholder="https://…"
-            maxLength={2048}
-            className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
-          />
-          <p className="mt-1 text-[11px] text-muted">
-            Full image URL (aim for 1920x640 or larger, jpg/png). Paste
-            from your own hosting. Dedicated uploader lands in a later
-            release. Leave blank for a muted fill.
+          <p className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted">
+            Hero image
           </p>
+          <ImageUploader
+            kind="org-hero"
+            value={heroImageUrl}
+            onChange={setHeroImageUrl}
+            seed={initial.id}
+            label="Landing page hero"
+            size="xl"
+            rounded="md"
+            hint="Wide images work best (think 1920x640 or larger, jpg/png/webp/gif). Up to 5 MB. Leave empty for a muted fill."
+          />
         </div>
       </section>
 
