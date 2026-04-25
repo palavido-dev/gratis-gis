@@ -128,6 +128,36 @@ export class ItemsService {
     const where: Prisma.ItemWhereInput = opts.mine
       ? { ownerId: user.id, deletedAt: null }
       : this.sharing.visibleWhere(user);
+
+    // Folder-share inheritance for the all-items view (#44 phase
+    // 1c slice 3b). Items the caller doesn't have direct visibility
+    // on but that sit inside a folder they can see (or any
+    // descendant of one) are surfaced via this OR. Only applies in
+    // the non-mine path (the "mine" path is intentionally narrow:
+    // user's own items only). Owner / admin / public-org bypass
+    // already handles itself in visibleWhere.
+    if (!opts.mine) {
+      const inheritedIds =
+        await this.sharing.itemIdsAccessibleViaFolderShares(user);
+      if (inheritedIds.length > 0) {
+        // Wrap the original visibleWhere predicate so it stays
+        // intact, then OR in the inherited ids. The wrapper has to
+        // preserve `deletedAt: null` so trashed items don't leak in
+        // through the inheritance grant.
+        const direct = where;
+        const inherited: Prisma.ItemWhereInput = {
+          id: { in: inheritedIds },
+          deletedAt: null,
+        };
+        // Empty the original where and use OR at the top level. Any
+        // other narrowing filters (type, owner, q, bbox) get added
+        // below and will AND with this OR.
+        Object.keys(where).forEach(
+          (k) => delete (where as Record<string, unknown>)[k],
+        );
+        where.OR = [direct, inherited];
+      }
+    }
     if (opts.type) where.type = opts.type;
     if (opts.ownerId && opts.ownerId !== user.id && user.orgRole !== 'admin') {
       // Non-admins can only filter to their own items.

@@ -165,6 +165,72 @@ export class SharingService {
   }
 
   /**
+   * Return the set of item ids the caller can access via folder
+   * inheritance (#44 phase 1c slice 3b). Walks downward from every
+   * folder directly shared with the caller through any descendant
+   * folder where inheritsParentShares is not explicitly false; the
+   * descendant chain stops at the first opt-out folder. Items
+   * sitting directly in any reachable folder are returned.
+   *
+   * Used by `list()` to widen visibility so a teammate who got a
+   * folder share also sees the items the folder contains in the
+   * flat all-items view, not just when they navigate into the
+   * folder.
+   *
+   * Implementation: single recursive CTE; safe even at thousands of
+   * folders / shares because the chain depth is bounded by the
+   * folder hierarchy depth (typically 2-4).
+   */
+  async itemIdsAccessibleViaFolderShares(
+    user: AuthUser,
+  ): Promise<string[]> {
+    if (user.orgRole === 'admin') return [];
+    const groupIds = user.groupIds ?? [];
+    type Row = { item_id: string };
+    // The CTE:
+    //   1. seed: folders the user is directly shared on (user share
+    //      OR group share). Those are the "granted" folders.
+    //   2. recurse: any folder whose UUID appears in a granted
+    //      folder's data.childItemIds AND that has
+    //      inheritsParentShares != false is also granted.
+    //   3. flatten: every UUID in any granted folder's childItemIds
+    //      is an accessible item.
+    // jsonb operator `?` checks if a string is in a top-level array
+    // OR a key in an object; for childItemIds (string[]) it does the
+    // right thing.
+    const rows = await this.prisma.$queryRaw<Row[]>`
+      WITH RECURSIVE granted AS (
+        SELECT i.id, i.data
+        FROM "item" i
+        WHERE i.type = 'folder'::"ItemType"
+          AND i."deleted_at" IS NULL
+          AND EXISTS (
+            SELECT 1 FROM "item_share" s
+            WHERE s."item_id" = i.id
+              AND (
+                (s."principal_type" = 'user' AND s."principal_id" = ${user.id}::uuid)
+                OR (s."principal_type" = 'group' AND s."principal_id" = ANY(${groupIds}::uuid[]))
+              )
+          )
+        UNION
+        SELECT child.id, child.data
+        FROM "item" child
+        JOIN granted parent
+          ON parent.data->'childItemIds' ? child.id::text
+        WHERE child.type = 'folder'::"ItemType"
+          AND child."deleted_at" IS NULL
+          AND COALESCE((child.data->>'inheritsParentShares')::boolean, true) = true
+      )
+      SELECT DISTINCT child_id::uuid::text AS item_id
+      FROM granted gf
+      CROSS JOIN LATERAL jsonb_array_elements_text(
+        COALESCE(gf.data->'childItemIds', '[]'::jsonb)
+      ) AS child_id
+    `;
+    return rows.map((r) => r.item_id);
+  }
+
+  /**
    * Walk the folder ancestry of `folderId` and union in shares from
    * every ancestor folder where `data.inheritsParentShares` is not
    * explicitly false. Stops at the first folder that opts out.
