@@ -165,6 +165,64 @@ export class SharingService {
   }
 
   /**
+   * Walk the folder ancestry of `folderId` and union in shares from
+   * every ancestor folder where `data.inheritsParentShares` is not
+   * explicitly false. Stops at the first folder that opts out.
+   * Returns the merged share list (the folder's own shares first,
+   * then ancestor shares in order of distance).
+   *
+   * Pairs with FolderData.inheritsParentShares (#44 phase 1c slice
+   * 3). Used by listFolderContents to decide whether a caller who
+   * lacks direct visibility on a child item should still see it
+   * because they have access to a containing folder.
+   *
+   * Multi-parent folders (a folder appearing in more than one
+   * parent's childItemIds) walk only the first parent encountered,
+   * matching the rail tree's first-render behaviour. A more
+   * principled multi-parent merge can come in a follow-up if the
+   * use case appears.
+   *
+   * Cycle-safe via the visited set.
+   */
+  async inheritedSharesForFolder(
+    folderId: string,
+  ): Promise<ItemShare[]> {
+    const collected: ItemShare[] = [];
+    const visited = new Set<string>();
+    let cur: string | null = folderId;
+    while (cur && !visited.has(cur)) {
+      visited.add(cur);
+      const row: { data: unknown; shares: ItemShare[] } | null =
+        await this.prisma.item.findFirst({
+          where: { id: cur, type: 'folder', deletedAt: null },
+          select: { data: true, shares: true },
+        });
+      if (!row) break;
+      // The folder's own shares always count.
+      collected.push(...row.shares);
+      // Stop walking if this folder explicitly opts out of inheritance.
+      const data = row.data as
+        | { inheritsParentShares?: unknown }
+        | null;
+      if (data && data.inheritsParentShares === false) break;
+      // Find the first parent folder that claims this id. Tolerates
+      // the multi-parent DAG by picking one parent (first match);
+      // good enough for v1.
+      const parentRow: { id: string } | null = await this.prisma.$queryRaw<
+        Array<{ id: string }>
+      >`
+        SELECT id FROM "item"
+        WHERE type = 'folder'::"ItemType"
+          AND "deleted_at" IS NULL
+          AND data @> jsonb_build_object('childItemIds', jsonb_build_array(${cur}::text))
+        LIMIT 1
+      `.then((rows) => rows[0] ?? null);
+      cur = parentRow?.id ?? null;
+    }
+    return collected;
+  }
+
+  /**
    * Compute the effective row scope for a caller against an item's
    * features (#40). Returns `'all'` when the caller is the owner, an
    * org admin, or holds at least one matching share with rowScope

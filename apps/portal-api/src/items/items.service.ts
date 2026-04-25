@@ -1076,15 +1076,49 @@ export class ItemsService {
       : [];
     if (ids.length === 0) return [];
 
-    const visible = this.sharing.visibleWhere(user);
+    // Folder-share inheritance (#44 phase 1c slice 3a). If the
+    // caller has access to this folder via inheritance from a
+    // parent folder's shares, treat that as a folder-level grant
+    // that lets them see ALL children regardless of per-item
+    // visibility. This matches the user mental model: "I shared
+    // Project A with Bob, so Bob sees everything in Project A."
+    //
+    // Owner / admin / public / org-public callers already have
+    // unrestricted access via visibleWhere; only narrowly-shared
+    // callers need the inheritance lift. We compute "does the
+    // caller have folder-level access?" by walking the ancestry
+    // and looking for any matching share.
+    const callerHasFolderAccess = await (async () => {
+      // Owner / admin / public / org-public bypass via visibleWhere.
+      if (folder.ownerId === user.id) return true;
+      if (user.orgRole === 'admin' && folder.orgId === user.orgId)
+        return true;
+      if (folder.access === 'public') return true;
+      if (folder.access === 'org' && folder.orgId === user.orgId) return true;
+      const inherited = await this.sharing.inheritedSharesForFolder(
+        folder.id,
+      );
+      return inherited.some(
+        (s) =>
+          (s.principalType === 'user' && s.principalId === user.id) ||
+          (s.principalType === 'group' &&
+            user.groupIds.includes(s.principalId)),
+      );
+    })();
+
+    const baseAnd: Prisma.ItemWhereInput[] = [
+      { id: { in: ids } },
+      { deletedAt: null },
+    ];
+    // When the caller has folder-level access via inheritance, skip
+    // the per-item visibility check -- the folder grant covers
+    // everything inside. Otherwise the regular visibleWhere applies
+    // (matches existing behaviour for direct-shared callers).
+    if (!callerHasFolderAccess) {
+      baseAnd.unshift(this.sharing.visibleWhere(user));
+    }
     const rows = await this.prisma.item.findMany({
-      where: {
-        AND: [
-          visible,
-          { id: { in: ids } },
-          { deletedAt: null },
-        ],
-      },
+      where: { AND: baseAnd },
       include: {
         shares: true,
         owner: {

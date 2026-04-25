@@ -24,11 +24,31 @@ export interface FolderData {
    * by the API resolution layer at view time.
    */
   childItemIds: string[];
+  /**
+   * Whether this folder inherits shares from its parent folder
+   * (#44 phase 1c, slice 3). When true (default), every share on
+   * any folder ancestor that has inheritsParentShares=true grants
+   * access to this folder's contents. When false, the inheritance
+   * chain breaks here -- only the folder's own direct shares apply
+   * downward.
+   *
+   * Resolution semantics: walking from a folder up to the root, we
+   * collect shares from every folder where inheritsParentShares is
+   * true. The first folder with inheritsParentShares=false stops
+   * the walk; its own shares still count, but no further ancestors
+   * contribute. Owner / admin / public-org bypass survive (the
+   * safety-valve invariant). See docs/folders.md.
+   *
+   * Optional with `true` semantics when absent so existing folders
+   * keep working unchanged after this field lands.
+   */
+  inheritsParentShares?: boolean;
 }
 
 export const DEFAULT_FOLDER: FolderData = {
   version: 1,
   childItemIds: [],
+  inheritsParentShares: true,
 };
 
 export function isFolderData(value: unknown): value is FolderData {
