@@ -79,6 +79,22 @@ export function extractDependencies(
     }
   }
 
+  if (item.type === 'folder') {
+    // A folder claims a list of item UUIDs (childItemIds). Each one
+    // is a hard dependency: the folder "depends on" the items it
+    // contains so that purging an item can cascade-splice the now-
+    // gone UUID out of every folder that referenced it. The reverse
+    // edge ("Used by: this folder") shows up on each child's detail
+    // page so authors can see what folders an item lives in.
+    // See docs/folders.md.
+    const children = (data as { childItemIds?: unknown }).childItemIds;
+    if (Array.isArray(children)) {
+      for (const c of children) {
+        if (typeof c === 'string' && c.length > 0) itemIds.add(c);
+      }
+    }
+  }
+
   if (item.type === 'data_layer') {
     // v3 multi-layer: walk each layer's fields and collect pick-list
     // refs (domain type === 'coded-value-ref'). v1/v2 items store
@@ -143,4 +159,4 @@ export function normalizeArcgisUrl(u: string): string {
 
 /** Item types that can reference other items. If we expand this,
  *  update the service's dependents scan to include the new types. */
-export const REFERENCER_TYPES: ItemType[] = ['map', 'data_layer'];
+export const REFERENCER_TYPES: ItemType[] = ['map', 'data_layer', 'folder'];

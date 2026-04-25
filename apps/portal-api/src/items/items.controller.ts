@@ -176,6 +176,22 @@ export class ItemsController {
     return this.items.listDependencies(user, id);
   }
 
+  /**
+   * Resolve a folder's children into the visible item rows. Drops:
+   *  - items the caller cannot see (per-item authz)
+   *  - items in the trash (deletedAt set)
+   *  - dangling references to items that no longer exist
+   * Returns the surviving items in the order specified by the folder's
+   * childItemIds. See docs/folders.md.
+   */
+  @Get(':id/folder-contents')
+  folderContents(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ) {
+    return this.items.listFolderContents(user, id);
+  }
+
   /** Items that reference THIS one. Pass ?transitive=true to walk
    *  further (e.g. a layer used by a map used by a dashboard). */
   @Get(':id/dependents')

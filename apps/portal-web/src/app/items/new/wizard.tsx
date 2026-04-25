@@ -9,6 +9,7 @@ import {
   ExternalLink,
   FileText,
   FlaskConical,
+  Folder as FolderIcon,
   Globe,
   Globe2,
   LayoutDashboard,
@@ -40,6 +41,7 @@ import {
   DEFAULT_MAP,
   DEFAULT_WMS_SERVICE,
   DEFAULT_WFS_SERVICE,
+  DEFAULT_FOLDER,
 } from '@gratis-gis/shared-types';
 import { ImageUploader } from '@/components/image-uploader';
 import {
@@ -118,6 +120,12 @@ const TYPE_OPTIONS: TypeOption[] = [
     label: 'Basemap',
     desc: 'A reusable background layer (style URL, tile template, or WMS) for maps.',
     Icon: Globe,
+  },
+  {
+    value: 'folder',
+    label: 'Folder',
+    desc: 'A curated grouping of items. Sharing a folder shares the arrangement; per-item access still applies.',
+    Icon: FolderIcon,
   },
   {
     value: 'form',
@@ -392,6 +400,10 @@ export function NewItemWizard() {
       data = DEFAULT_WMS_SERVICE;
     } else if (type === 'wfs_service') {
       data = DEFAULT_WFS_SERVICE;
+    } else if (type === 'folder') {
+      // Empty folder; the detail page handles adding children via the
+      // "Add to folder" multi-select and drag-drop in Phase 1b.
+      data = DEFAULT_FOLDER;
     } else {
       data = {};
     }

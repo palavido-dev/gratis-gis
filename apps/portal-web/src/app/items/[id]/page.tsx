@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import type {
   BasemapData,
+  FolderData,
   Item,
   ItemShare,
   Group,
@@ -26,6 +27,7 @@ import type {
 import {
   DEFAULT_ARCGIS_SERVICE,
   DEFAULT_DATA_LAYER,
+  DEFAULT_FOLDER,
   DEFAULT_GEO_BOUNDARY,
   DEFAULT_PICK_LIST,
   DEFAULT_MAP,
@@ -98,6 +100,7 @@ import { DataLayerV3SchemaEditor } from './data-layer/v3-schema-editor';
 import { ArcgisServiceEditor } from './arcgis-service/editor';
 import { PickListEditor } from './pick-list/editor';
 import { GeoBoundaryEditor } from './geo-boundary/editor';
+import { FolderDetail } from './folder/folder-detail';
 import { DataLayerProvenance } from './data-layer/provenance-panel';
 import { DataLayerSchema } from './data-layer/schema-panel';
 import { VersionHistoryPanel } from './data-layer/version-history-panel';
@@ -178,6 +181,19 @@ export default async function ItemDetailPage({ params }: Props) {
           `/api/items/${mapData.defaultExtentBoundaryId}`,
         ).catch(() => null)
       : null;
+
+  // For folder items, server-fetch the resolved children (visible to
+  // this caller, in the folder's authoritative order) so the detail
+  // page lands ready to render. The endpoint applies authz / trash /
+  // orphan filters; we don't need to re-filter on the client. Failure
+  // is non-fatal: an empty list renders the folder's empty state and
+  // surfaces the error inline. See docs/folders.md.
+  const folderChildren =
+    item.type === 'folder'
+      ? await apiFetch<ItemWithShares[]>(
+          `/api/items/${item.id}/folder-contents`,
+        ).catch(() => [])
+      : [];
 
   // Geo-boundary library for the map editor's "Default extent" picker
   // (#31 follow-on to #53). The picker shows every boundary the caller
@@ -446,6 +462,19 @@ export default async function ItemDetailPage({ params }: Props) {
           }}
           canEdit={canManage}
         />
+      ) : item.type === 'folder' ? (
+        <section className="mb-6">
+          <FolderDetail
+            itemId={item.id}
+            initial={{
+              ...DEFAULT_FOLDER,
+              ...((item.data ?? {}) as Partial<FolderData>),
+            }}
+            initialChildren={folderChildren as Parameters<typeof FolderDetail>[0]['initialChildren']}
+            canEdit={canManage}
+            canCreate={me.orgRole !== 'viewer'}
+          />
+        </section>
       ) : (
         <section className="mb-6">
           <ComingSoon type={item.type} data={item.data} />

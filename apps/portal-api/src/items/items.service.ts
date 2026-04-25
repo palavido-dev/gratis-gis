@@ -484,6 +484,21 @@ export class ItemsService {
     if (!this.sharing.canEdit(user, item, shares)) {
       throw new ForbiddenException('You do not have edit permission on this item');
     }
+    // Cycle detection for folder updates. If this update changes the
+    // folder's childItemIds, walk every child's reachable graph and
+    // fail the save if any descendant points back at this folder. See
+    // docs/folders.md.
+    if (item.type === 'folder' && input.data !== undefined) {
+      const next = (input.data as { childItemIds?: unknown }).childItemIds;
+      if (Array.isArray(next)) {
+        await this.assertNoFolderCycle(
+          id,
+          (next as unknown[]).filter(
+            (x): x is string => typeof x === 'string',
+          ),
+        );
+      }
+    }
     const prevLayers =
       item.type === 'data_layer' ? readV3Layers(item.data) : null;
     // If this update replaces the data blob, snapshot what was there
@@ -588,7 +603,85 @@ export class ItemsService {
         await this.v3Tables.dropAll(id, v3Layers.map((l) => l.id));
       }
     }
+    // Cascade folder cleanup: any folder whose data.childItemIds
+    // references the now-purged UUID gets that UUID spliced out.
+    // Soft-delete deliberately does NOT do this (so trash restoration
+    // restores folder membership too); cleanup only runs at hard-delete
+    // when the item is gone for good. See docs/folders.md.
+    await this.spliceFromFolders(id);
     await this.prisma.item.delete({ where: { id } });
+  }
+
+  /**
+   * Refuse a folder update that would introduce a cycle. Walks the
+   * folder graph breadth-first starting from every UUID in the
+   * proposed `childItemIds`; if any reachable folder's id matches
+   * `selfId`, the save would create a cycle (folder A references B
+   * which references A). Non-folder children are leaves and stop the
+   * walk early. See docs/folders.md.
+   */
+  private async assertNoFolderCycle(
+    selfId: string,
+    nextChildItemIds: string[],
+  ): Promise<void> {
+    if (nextChildItemIds.length === 0) return;
+    if (nextChildItemIds.includes(selfId)) {
+      throw new BadRequestException(
+        'A folder cannot contain itself.',
+      );
+    }
+    const visited = new Set<string>();
+    let frontier = Array.from(new Set(nextChildItemIds));
+    while (frontier.length > 0) {
+      const rows = await this.prisma.item.findMany({
+        where: { id: { in: frontier }, type: 'folder', deletedAt: null },
+        select: { id: true, data: true },
+      });
+      const nextFrontier: string[] = [];
+      for (const row of rows) {
+        if (visited.has(row.id)) continue;
+        visited.add(row.id);
+        const data = row.data as { childItemIds?: unknown } | null;
+        if (!data || !Array.isArray(data.childItemIds)) continue;
+        for (const child of data.childItemIds) {
+          if (typeof child !== 'string') continue;
+          if (child === selfId) {
+            throw new BadRequestException(
+              'This change would create a folder cycle.',
+            );
+          }
+          if (!visited.has(child)) nextFrontier.push(child);
+        }
+      }
+      frontier = nextFrontier;
+    }
+  }
+
+  /**
+   * Remove a now-purged item id from every folder's childItemIds list.
+   * Runs inside the purge path; not exposed publicly. Uses a JSONB
+   * filter to find candidate folders so we don't have to load every
+   * folder in the org. See docs/folders.md.
+   */
+  private async spliceFromFolders(deletedItemId: string): Promise<void> {
+    const candidates = await this.prisma.$queryRaw<Array<{ id: string; data: unknown }>>`
+      SELECT id, data
+      FROM "Item"
+      WHERE type = 'folder'::"ItemType"
+        AND data @> jsonb_build_object('childItemIds', jsonb_build_array(${deletedItemId}::text))
+    `;
+    for (const row of candidates) {
+      const data = row.data as { version?: number; childItemIds?: unknown } | null;
+      if (!data || !Array.isArray(data.childItemIds)) continue;
+      const next = (data.childItemIds as unknown[]).filter(
+        (id) => id !== deletedItemId,
+      );
+      if (next.length === data.childItemIds.length) continue;
+      await this.prisma.item.update({
+        where: { id: row.id },
+        data: { data: { ...data, childItemIds: next } as Prisma.InputJsonValue },
+      });
+    }
   }
 
   /**
@@ -895,6 +988,64 @@ export class ItemsService {
    * simply doesn't appear in the list (instead of 403'ing, which
    * would leak the existence of a hidden dependency).
    */
+  /**
+   * Resolve a folder's children into the visible item rows. Drops:
+   *  - items the caller cannot see (per-item authz, including org /
+   *    public scope and per-share grants),
+   *  - items in the trash (deletedAt set),
+   *  - dangling references to items that no longer exist.
+   * Returns the surviving items in `childItemIds` order; the API
+   * response is therefore identical in shape to a regular items list
+   * (same `include` projection) so the client can reuse its existing
+   * card / row components. See docs/folders.md.
+   */
+  async listFolderContents(user: AuthUser, id: string) {
+    const folder = await this.get(user, id);
+    if (folder.type !== 'folder') {
+      throw new BadRequestException('Item is not a folder');
+    }
+    const data = folder.data as { childItemIds?: unknown } | null;
+    const ids = Array.isArray(data?.childItemIds)
+      ? (data!.childItemIds as unknown[]).filter(
+          (x): x is string => typeof x === 'string' && x.length > 0,
+        )
+      : [];
+    if (ids.length === 0) return [];
+
+    const visible = this.sharing.visibleWhere(user);
+    const rows = await this.prisma.item.findMany({
+      where: {
+        AND: [
+          visible,
+          { id: { in: ids } },
+          { deletedAt: null },
+        ],
+      },
+      include: {
+        shares: true,
+        owner: {
+          select: {
+            id: true,
+            username: true,
+            fullName: true,
+            avatarUrl: true,
+          },
+        },
+      },
+    });
+    // Preserve the folder's authoritative ordering. Items the caller
+    // cannot see / trashed / orphaned simply do not appear; we don't
+    // expose a count hint either way (information leak).
+    const order = new Map<string, number>();
+    ids.forEach((rid, i) => order.set(rid, i));
+    rows.sort(
+      (a, b) =>
+        (order.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+        (order.get(b.id) ?? Number.MAX_SAFE_INTEGER),
+    );
+    return rows;
+  }
+
   async listDependencies(user: AuthUser, id: string) {
     const item = await this.get(user, id);
     const { itemIds, urls } = extractDependencies(item);

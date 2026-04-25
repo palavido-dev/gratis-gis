@@ -27,6 +27,7 @@ export const ITEM_TYPES = [
   'basemap',
   'wms_service',
   'wfs_service',
+  'folder',
 ] as const;
 
 export type ItemType = (typeof ITEM_TYPES)[number];

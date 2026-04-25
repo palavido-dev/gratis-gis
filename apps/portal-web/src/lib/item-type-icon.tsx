@@ -3,6 +3,7 @@ import {
   ClipboardList,
   FileText,
   File as FileIcon,
+  Folder as FolderIcon,
   Globe,
   Inbox,
   Layers,
@@ -48,6 +49,7 @@ const ITEM_TYPE_ICONS: Record<ItemType, LucideIcon> = {
   basemap: Globe,
   wms_service: Plug,
   wfs_service: Plug,
+  folder: FolderIcon,
 };
 
 /**
@@ -77,6 +79,7 @@ const ITEM_TYPE_LABELS: Record<ItemType, string> = {
   basemap: 'Basemap',
   wms_service: 'WMS service',
   wfs_service: 'WFS service',
+  folder: 'Folder',
 };
 
 export function getItemTypeLabel(t: ItemType): string {
@@ -106,6 +109,7 @@ const ITEM_TYPE_ACCENT: Record<ItemType, string> = {
   basemap: 'text-slate-600',
   wms_service: 'text-cyan-700',
   wfs_service: 'text-cyan-800',
+  folder: 'text-amber-700',
 };
 
 /** Tailwind class combos for the tile background used in compact
@@ -130,6 +134,7 @@ const ITEM_TYPE_TILE: Record<ItemType, string> = {
   basemap: 'bg-slate-600/90 text-white',
   wms_service: 'bg-cyan-700/90 text-white',
   wfs_service: 'bg-cyan-800/90 text-white',
+  folder: 'bg-amber-600/90 text-white',
 };
 
 export function getItemTypeIcon(type: ItemType): LucideIcon {

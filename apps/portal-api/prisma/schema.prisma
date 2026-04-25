@@ -68,6 +68,7 @@ enum ItemType {
   basemap
   wms_service                @map("wms-service")
   wfs_service                @map("wfs-service")
+  folder
 }
 
 // ---------- Tables ----------
