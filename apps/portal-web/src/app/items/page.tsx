@@ -42,6 +42,11 @@ export default async function ItemsPage({ searchParams }: Props) {
 
   const folderId = searchParams.folder ?? null;
 
+  // Need `me` early so the rail's per-row canEdit flag (owner or
+  // org admin) can be computed when shaping the FolderRailNode set.
+  const meEarly = await apiFetch<{ id: string; orgRole: string }>(
+    '/api/users/me',
+  );
   // Pull every folder the caller can see in this org so the rail
   // tree can render top-level eagerly. Failure is non-fatal -- the
   // rail simply renders empty.
@@ -57,6 +62,8 @@ export default async function ItemsPage({ searchParams }: Props) {
               (x): x is string => typeof x === 'string',
             ))
           : [],
+        canEdit:
+          r.ownerId === meEarly.id || meEarly.orgRole === 'admin',
       })),
     )
     .catch(() => []);
@@ -93,7 +100,7 @@ export default async function ItemsPage({ searchParams }: Props) {
     );
   }
 
-  const me = await apiFetch<{ id: string; orgRole: string }>('/api/users/me');
+  const me = meEarly;
 
   // Breadcrumbs from the visible folder set: walks the parent chain
   // back to a top-level ancestor. Multi-parent folders pick the

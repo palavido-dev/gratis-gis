@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ChevronRight, Folder as FolderIcon, FolderOpen } from 'lucide-react';
+import { FolderRowMenu } from './folder-row-menu';
 
 /**
  * Lightweight folder representation passed in from the server. We only
@@ -16,6 +17,10 @@ export interface FolderRailNode {
    *  folders show up as expandable nodes; non-folder children are
    *  not rendered in the rail (they belong in the items grid). */
   childItemIds: string[];
+  /** Whether the caller can edit this folder (rename, share, trash,
+   *  reorder children). Computed server-side from ownership +
+   *  org-role; the rail uses it to gate the kebab-menu Trash item. */
+  canEdit: boolean;
 }
 
 interface Props {
@@ -167,13 +172,31 @@ function FolderNode({
         {/* Click filters the items grid to this folder's contents
             instead of navigating to a separate detail page. The
             file-explorer model: rail = navigation, grid = content.
-            Right-click / kebab on the row will surface "Open
-            details", "Share", etc. (Phase 1c slice 2).
+            Right-click anywhere on the row OR click the kebab to
+            get "Open details", "Share", "New subfolder", "Trash".
             See docs/folders.md. */}
         <Link
           href={`/items?folder=${folder.id}`}
           className="flex flex-1 items-center gap-1.5 truncate"
           title={folder.title}
+          onContextMenu={(e) => {
+            // Forward right-click to the row menu. The menu component
+            // catches the event on its kebab button too; we replicate
+            // here so a click anywhere on the row works.
+            const btn = e.currentTarget.parentElement?.querySelector(
+              `button[aria-label^="Actions for"]`,
+            ) as HTMLButtonElement | null;
+            if (btn) {
+              e.preventDefault();
+              btn.dispatchEvent(
+                new MouseEvent('contextmenu', {
+                  bubbles: false,
+                  clientX: e.clientX,
+                  clientY: e.clientY,
+                }),
+              );
+            }
+          }}
         >
           {isOpen ? (
             <FolderOpen className="h-3.5 w-3.5 shrink-0 text-amber-700" />
@@ -182,6 +205,11 @@ function FolderNode({
           )}
           <span className="truncate">{folder.title}</span>
         </Link>
+        <FolderRowMenu
+          folderId={folder.id}
+          folderTitle={folder.title}
+          canEdit={folder.canEdit}
+        />
       </div>
       {isOpen && hasSubs ? (
         <ul className="space-y-0.5">
