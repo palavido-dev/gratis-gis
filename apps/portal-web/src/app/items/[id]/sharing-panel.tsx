@@ -207,6 +207,58 @@ export function SharingPanel({
     startTransition(() => router.refresh());
   }
 
+  /**
+   * Toggle a share between rowScope='all' and rowScope='own' (#40).
+   * Same optimistic-update + revert-on-failure pattern as
+   * updateSharePermission. The server's effectiveRowScope helper
+   * respects this column for non-owner / non-admin callers.
+   */
+  async function updateShareRowScope(
+    share: ItemShare,
+    nextRowScope: 'all' | 'own',
+  ) {
+    const current =
+      (share as ItemShare & { rowScope?: 'all' | 'own' }).rowScope ?? 'all';
+    if (nextRowScope === current) return;
+    const k = keyOf(share);
+    setRowState((m) => ({ ...m, [k]: 'saving' }));
+    setShares((cur) =>
+      cur.map((s) =>
+        keyOf(s) === k
+          ? ({ ...s, rowScope: nextRowScope } as ItemShare)
+          : s,
+      ),
+    );
+    const res = await fetch(`/api/portal/items/${itemId}/share`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        principalType: share.principalType,
+        principalId: share.principalId,
+        permission: share.permission,
+        rowScope: nextRowScope,
+      }),
+    });
+    if (!res.ok) {
+      setRowState((m) => ({ ...m, [k]: 'error' }));
+      setShares((cur) =>
+        cur.map((s) =>
+          keyOf(s) === k
+            ? ({ ...s, rowScope: current } as ItemShare)
+            : s,
+        ),
+      );
+      setError(`Update failed: ${res.status} ${await res.text()}`);
+      return;
+    }
+    setRowState((m) => ({ ...m, [k]: 'saved' }));
+    setTimeout(
+      () => setRowState((m) => (m[k] === 'saved' ? { ...m, [k]: 'idle' } : m)),
+      1500,
+    );
+    startTransition(() => router.refresh());
+  }
+
   // Per-share geo-limit editor dialog state. `editingGeoLimit` is the
   // share currently open in the restrict-to-area dialog (null when
   // the dialog is closed). `geoLimitSaving` gates the save button
@@ -529,6 +581,31 @@ export function SharingPanel({
                     <option value="edit">can edit</option>
                     <option value="admin">can admin</option>
                   </select>
+                  {/* Row scope (#40). Narrows the share to features
+                      the principal themselves created. Hidden for
+                      'admin' permission since admins always see
+                      everything anyway and the picker would be
+                      misleading. */}
+                  {share.permission !== 'admin' ? (
+                    <select
+                      value={
+                        (share as ItemShare & { rowScope?: 'all' | 'own' }).rowScope ?? 'all'
+                      }
+                      onChange={(e) =>
+                        updateShareRowScope(
+                          share,
+                          e.target.value as 'all' | 'own',
+                        )
+                      }
+                      disabled={pending}
+                      aria-label="Row scope"
+                      title="What can they see / edit?"
+                      className="h-8 rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
+                    >
+                      <option value="all">all features</option>
+                      <option value="own">only theirs</option>
+                    </select>
+                  ) : null}
                   <span
                     className="inline-flex h-5 w-5 items-center justify-center"
                     aria-live="polite"
