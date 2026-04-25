@@ -147,8 +147,15 @@ export function ItemsView({ items, currentUser }: Props) {
 
   // Effective dataset: spatial-filter results when active, otherwise
   // the full server-rendered list. Type filtering and sorting always
-  // run client-side over whichever set is in play.
-  const sourceItems = spatialActive && spatialItems ? spatialItems : items;
+  // run client-side over whichever set is in play. Folders are
+  // intentionally hidden from the grid; they surface only through
+  // the FolderRail tree on the left so the grid stays a content
+  // surface rather than mixing organization and content. See
+  // docs/folders.md.
+  const sourceItems = (spatialActive && spatialItems
+    ? spatialItems
+    : items
+  ).filter((it) => it.type !== 'folder');
 
   // Present-in-data type counts, sorted by descending count so the
   // most common types sit at the front of the filter bar. Counts

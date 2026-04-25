@@ -4,6 +4,7 @@ import type { ItemWithShares } from '@gratis-gis/shared-types';
 import { apiFetch } from '@/lib/api';
 import { EmptyState } from '@/components/empty-state';
 import { ItemsView } from './items-view';
+import { FolderRail, type FolderRailNode } from './folder-rail';
 
 interface Props {
   searchParams: { scope?: string; mine?: string; q?: string };
@@ -47,10 +48,31 @@ export default async function ItemsPage({ searchParams }: Props) {
   const me = await apiFetch<{ id: string; orgRole: string }>(
     '/api/users/me',
   );
+  // Pull every folder the caller can see in this org so the rail
+  // tree on the left can render top-level folders eagerly without a
+  // second round-trip. Non-folder items in this list are hidden by
+  // ItemsView's grid filter; folders surface only through the rail.
+  // Failure is non-fatal -- the rail simply renders empty. See
+  // docs/folders.md.
+  const folders = await apiFetch<ItemWithShares[]>('/api/items?type=folder')
+    .then((rows) =>
+      rows.map<FolderRailNode>((r) => ({
+        id: r.id,
+        title: r.title,
+        childItemIds: Array.isArray(
+          (r.data as { childItemIds?: unknown } | null)?.childItemIds,
+        )
+          ? ((r.data as { childItemIds: unknown[] }).childItemIds.filter(
+              (x): x is string => typeof x === 'string',
+            ))
+          : [],
+      })),
+    )
+    .catch(() => []);
   const isMine = scope === 'mine';
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 py-10">
+    <div className="mx-auto w-full max-w-7xl px-6 py-10">
       <header className="mb-4 flex items-end justify-between gap-4">
         <div>
           <p className="text-sm text-muted">Content</p>
@@ -80,30 +102,39 @@ export default async function ItemsPage({ searchParams }: Props) {
         </ScopeTab>
       </div>
 
-      {items.length === 0 ? (
-        <EmptyState
-          icon={<Layers className="h-5 w-5" />}
-          title={isMine ? 'No items yet' : 'Nothing shared with you yet'}
-          description={
-            isMine
-              ? 'Create your first web map, form, or feature service to get started.'
-              : 'When a teammate shares content with you or your group, it will show up here.'
-          }
-          action={
-            isMine ? (
-              <Link
-                href="/items/new"
-                className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground shadow-card hover:opacity-90"
-              >
-                <Plus className="h-4 w-4" />
-                Create an item
-              </Link>
-            ) : null
-          }
-        />
-      ) : (
-        <ItemsView items={items} currentUser={me} />
-      )}
+      {/* Two-column layout: rail tree on the left, content grid on
+          the right. The rail is only the navigation surface for
+          folders; the grid never shows folders in the global view
+          (ItemsView filters type=folder out). See docs/folders.md. */}
+      <div className="flex flex-col gap-6 md:flex-row">
+        <FolderRail folders={folders} />
+        <div className="flex-1 min-w-0">
+          {items.length === 0 ? (
+            <EmptyState
+              icon={<Layers className="h-5 w-5" />}
+              title={isMine ? 'No items yet' : 'Nothing shared with you yet'}
+              description={
+                isMine
+                  ? 'Create your first web map, form, or feature service to get started.'
+                  : 'When a teammate shares content with you or your group, it will show up here.'
+              }
+              action={
+                isMine ? (
+                  <Link
+                    href="/items/new"
+                    className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground shadow-card hover:opacity-90"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Create an item
+                  </Link>
+                ) : null
+              }
+            />
+          ) : (
+            <ItemsView items={items} currentUser={me} />
+          )}
+        </div>
+      </div>
     </div>
   );
 }
