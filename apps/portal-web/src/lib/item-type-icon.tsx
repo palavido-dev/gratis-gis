@@ -46,6 +46,8 @@ const ITEM_TYPE_ICONS: Record<ItemType, LucideIcon> = {
   pick_list: ListChecks,
   geo_boundary: MapPin,
   basemap: Globe,
+  wms_service: Plug,
+  wfs_service: Plug,
 };
 
 /**
@@ -73,6 +75,8 @@ const ITEM_TYPE_LABELS: Record<ItemType, string> = {
   pick_list: 'Pick list',
   geo_boundary: 'Boundary',
   basemap: 'Basemap',
+  wms_service: 'WMS service',
+  wfs_service: 'WFS service',
 };
 
 export function getItemTypeLabel(t: ItemType): string {
@@ -100,6 +104,8 @@ const ITEM_TYPE_ACCENT: Record<ItemType, string> = {
   pick_list: 'text-lime-600',
   geo_boundary: 'text-orange-600',
   basemap: 'text-slate-600',
+  wms_service: 'text-cyan-700',
+  wfs_service: 'text-cyan-800',
 };
 
 /** Tailwind class combos for the tile background used in compact
@@ -122,6 +128,8 @@ const ITEM_TYPE_TILE: Record<ItemType, string> = {
   pick_list: 'bg-lime-500/90 text-white',
   geo_boundary: 'bg-orange-500/90 text-white',
   basemap: 'bg-slate-600/90 text-white',
+  wms_service: 'bg-cyan-700/90 text-white',
+  wfs_service: 'bg-cyan-800/90 text-white',
 };
 
 export function getItemTypeIcon(type: ItemType): LucideIcon {

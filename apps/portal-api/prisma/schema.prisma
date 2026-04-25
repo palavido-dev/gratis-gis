@@ -66,6 +66,8 @@ enum ItemType {
   pick_list                  @map("pick-list")
   geo_boundary               @map("geo-boundary")
   basemap
+  wms_service                @map("wms-service")
+  wfs_service                @map("wfs-service")
 }
 
 // ---------- Tables ----------

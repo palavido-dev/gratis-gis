@@ -38,6 +38,8 @@ import {
   DEFAULT_GEO_BOUNDARY,
   DEFAULT_PICK_LIST,
   DEFAULT_MAP,
+  DEFAULT_WMS_SERVICE,
+  DEFAULT_WFS_SERVICE,
 } from '@gratis-gis/shared-types';
 import { ImageUploader } from '@/components/image-uploader';
 import {
@@ -85,6 +87,18 @@ const TYPE_OPTIONS: TypeOption[] = [
     value: 'arcgis_service',
     label: 'ArcGIS service',
     desc: 'Live pointer at a MapServer or FeatureServer.',
+    Icon: Plug,
+  },
+  {
+    value: 'wms_service',
+    label: 'WMS service',
+    desc: 'Live pointer at a WMS GetMap endpoint.',
+    Icon: Plug,
+  },
+  {
+    value: 'wfs_service',
+    label: 'WFS service',
+    desc: 'Live pointer at a WFS feature service.',
     Icon: Plug,
   },
   {
@@ -371,6 +385,13 @@ export function NewItemWizard() {
       // The detail-page editor (shipped separately) lets the user pick
       // a style-url / tile-url / wms source and paste the URL.
       data = DEFAULT_BASEMAP;
+    } else if (type === 'wms_service') {
+      // Start with the empty WMS scaffold; URL + protocol version
+      // get filled in on the detail page (#35 v1 ships the type
+      // structurally; the inline probe / capabilities flow follows).
+      data = DEFAULT_WMS_SERVICE;
+    } else if (type === 'wfs_service') {
+      data = DEFAULT_WFS_SERVICE;
     } else {
       data = {};
     }

@@ -25,6 +25,8 @@ export const ITEM_TYPES = [
   'pick_list',
   'geo_boundary',
   'basemap',
+  'wms_service',
+  'wfs_service',
 ] as const;
 
 export type ItemType = (typeof ITEM_TYPES)[number];
