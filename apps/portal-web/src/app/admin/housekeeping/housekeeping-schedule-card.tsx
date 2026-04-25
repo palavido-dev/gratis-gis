@@ -140,20 +140,20 @@ export function HousekeepingScheduleCard({
         <h2 className="text-base font-semibold tracking-tight">
           Scheduled cleanup
         </h2>
-        <span className="ml-auto text-xs text-muted">
+        <span
+          className="ml-auto text-xs text-muted"
+          title={config.effectiveCron ?? undefined}
+        >
           {config.scheduleSummary}
-          {config.effectiveCron ? (
-            <span className="ml-2 font-mono text-[10px] text-muted">
-              ({config.effectiveCron})
-            </span>
-          ) : null}
         </span>
       </header>
       <p className="mb-4 text-xs text-muted">
-        Off by default. Opt in to either auto-trash or auto-disable
-        and pick a cadence; the cron job runs both passes back to back
-        on the schedule. Manual bulk-actions on the lists below keep
-        working regardless.
+        Have the portal tidy up on its own. Off until you turn it
+        on. Pick which kind of cleanup you want, how long
+        something has to sit around before it gets cleaned up, and
+        when the portal should run the cleanup. The lists below
+        keep showing the same things you can clean up by hand
+        whenever you want.
       </p>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -165,10 +165,11 @@ export function HousekeepingScheduleCard({
               onChange={(e) => set('autoTrashEnabled', e.target.checked)}
               className="h-4 w-4 rounded border-border text-accent focus:ring-accent/30"
             />
-            Auto-trash stale items
+            Trash items nobody is using
           </label>
           <label className="block text-xs text-ink-1">
-            Items with no edits and no shares older than{' '}
+            Move items to the trash if no one has edited or shared
+            them in the last{' '}
             <input
               type="number"
               min={1}
@@ -180,7 +181,8 @@ export function HousekeepingScheduleCard({
               disabled={!config.autoTrashEnabled}
               className="inline h-7 w-20 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
             />{' '}
-            days. Soft-deleted; restorable from the trash.
+            days. They aren&apos;t deleted right away: trashed items
+            stay in Recently deleted and can be put back at any time.
           </label>
         </fieldset>
 
@@ -192,10 +194,11 @@ export function HousekeepingScheduleCard({
               onChange={(e) => set('autoDisableEnabled', e.target.checked)}
               className="h-4 w-4 rounded border-border text-accent focus:ring-accent/30"
             />
-            Auto-disable quiet users
+            Pause sign-in for inactive accounts
           </label>
           <label className="block text-xs text-ink-1">
-            Non-admin users not seen for{' '}
+            Stop letting people sign in if they haven&apos;t signed
+            in for at least{' '}
             <input
               type="number"
               min={1}
@@ -207,7 +210,9 @@ export function HousekeepingScheduleCard({
               disabled={!config.autoDisableEnabled}
               className="inline h-7 w-20 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
             />{' '}
-            days. Reversible from /admin/users.
+            days. Their account isn&apos;t deleted: anything they
+            owned stays put, and you can turn sign-in back on for
+            them later from the Users page. Admins are skipped.
           </label>
         </fieldset>
       </div>
@@ -215,7 +220,7 @@ export function HousekeepingScheduleCard({
       <fieldset className="mt-4 grid gap-2 rounded-md border border-border p-3 md:grid-cols-4">
         <label className="text-xs">
           <span className="mb-1 block uppercase tracking-wide text-muted">
-            Cadence
+            How often
           </span>
           <select
             value={config.scheduleMode}
@@ -227,9 +232,9 @@ export function HousekeepingScheduleCard({
             }
             className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
           >
-            <option value="off">Off</option>
-            <option value="daily">Daily</option>
-            <option value="weekly">Weekly</option>
+            <option value="off">Don&apos;t run automatically</option>
+            <option value="daily">Every day</option>
+            <option value="weekly">Once a week</option>
           </select>
         </label>
         <label className="text-xs">
@@ -272,7 +277,7 @@ export function HousekeepingScheduleCard({
         </label>
         <label className="text-xs">
           <span className="mb-1 block uppercase tracking-wide text-muted">
-            Day (weekly)
+            Day of week
           </span>
           <select
             value={config.scheduleDayOfWeek ?? 1}
@@ -341,7 +346,7 @@ export function HousekeepingScheduleCard({
       {runs.length > 0 ? (
         <div className="mt-4 border-t border-border pt-3">
           <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">
-            Recent runs
+            Recent cleanups
           </h3>
           <ul className="space-y-1">
             {runs.map((r) => (
@@ -354,10 +359,11 @@ export function HousekeepingScheduleCard({
                 </span>
                 <StatusPill status={r.status} />
                 <span className="text-muted">
-                  ({r.trigger})
+                  ({r.trigger === 'manual' ? 'you ran it' : 'on schedule'})
                 </span>
                 <span>
-                  trashed: {r.itemsTrashed}, disabled: {r.usersDisabled}
+                  Items trashed: {r.itemsTrashed}. Sign-in paused
+                  for: {r.usersDisabled}.
                 </span>
                 {r.error ? (
                   <span
@@ -377,6 +383,12 @@ export function HousekeepingScheduleCard({
 }
 
 function StatusPill({ status }: { status: HousekeepingRun['status'] }) {
+  const label =
+    status === 'succeeded'
+      ? 'Done'
+      : status === 'failed'
+        ? 'Hit a problem'
+        : 'Working';
   const cls =
     status === 'succeeded'
       ? 'bg-success/15 text-success'
@@ -387,7 +399,7 @@ function StatusPill({ status }: { status: HousekeepingRun['status'] }) {
     <span
       className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${cls}`}
     >
-      {status}
+      {label}
     </span>
   );
 }
