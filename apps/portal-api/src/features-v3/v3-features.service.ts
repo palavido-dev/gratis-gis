@@ -227,10 +227,22 @@ function rowToFeature(row: V3Row): V3FeatureOut {
       geometry = null;
     }
   }
+  // Inline editor-tracking columns as underscore-prefixed properties
+  // so popups, attribute tables, and v3 feature browsers all surface
+  // them without a second round-trip. Underscore prefix marks them as
+  // system metadata; the popup 'all' renderer skips underscore keys
+  // by default and the dedicated metadata footer formats them
+  // explicitly. See task #39.
   return {
     type: 'Feature',
     id: row.global_id,
     geometry,
-    properties: row.properties,
+    properties: {
+      ...row.properties,
+      _created_by: row.created_by,
+      _created_at: row.created_at?.toISOString?.() ?? row.created_at,
+      _edited_by: row.edited_by,
+      _edited_at: row.edited_at?.toISOString?.() ?? row.edited_at,
+    },
   };
 }

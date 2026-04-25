@@ -105,6 +105,17 @@
   font-style: italic;
   font-size: 12px;
 }
+/* Editor-tracking footer (#39). Quiet under the body so it reads as
+   provenance rather than data, and uses muted color + smaller text
+   so it never competes with attributes for attention. */
+.gg-popup-meta {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid hsl(var(--border));
+  color: hsl(var(--muted));
+  font-size: 11px;
+  line-height: 1.35;
+}
 
 /* Dual-thumb range slider used for layer scale/visibility ranges.
    Two stacked <input type="range"> elements share a track; only the

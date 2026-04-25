@@ -2009,7 +2009,10 @@ function renderPopupHtml(
 
   // Body shape depends on mode. Template mode passes through author
   // markup with values HTML-escaped; picked / all render as a
-  // definition list so unstyled layers still look decent.
+  // definition list so unstyled layers still look decent. The 'all'
+  // path filters out underscore-prefixed properties (system metadata
+  // like _created_by, _edited_at) so they don't pollute the body --
+  // the dedicated metadata footer renders them explicitly.
   let body: string;
   if (layer.popup.mode === 'template' && layer.popup.bodyTemplate) {
     body = `<div class="gg-popup-body">${renderTemplate(
@@ -2020,7 +2023,9 @@ function renderPopupHtml(
     const keys =
       layer.popup.mode === 'picked'
         ? layer.popup.fields
-        : Object.keys(props).sort();
+        : Object.keys(props)
+            .filter((k) => !k.startsWith('_'))
+            .sort();
     const rows = keys
       .map((k) => {
         const v = props[k];
@@ -2037,12 +2042,66 @@ function renderPopupHtml(
     body = `<dl>${rows || '<div class="gg-popup-empty">No properties</div>'}</dl>`;
   }
 
+  // Editor-tracking footer (#39). Renders only when at least one of
+  // the four metadata fields is present on the feature, so plain
+  // (non-PostGIS) layers and external services don't get an empty
+  // footer. Created-by and edited-by show as user ids today; a
+  // follow-up can resolve them to display names.
+  const metaFooter = renderEditorFooter(props);
+
   return `
     <div class="gg-popup">
       <div class="gg-popup-title">${escapeHtml(title)}</div>
       ${body}
+      ${metaFooter}
     </div>
   `;
+}
+
+/**
+ * Build the "Created by X on Y, last edited by Z on W" footer from
+ * the underscore-prefixed editor metadata that v2 / v3 features
+ * surface. Returns an empty string when none of the four fields are
+ * present so the popup stays compact for layers that don't have
+ * editor tracking.
+ */
+function renderEditorFooter(props: Record<string, unknown>): string {
+  const createdBy = props._created_by;
+  const createdAt = props._created_at;
+  const editedBy = props._edited_by;
+  const editedAt = props._edited_at;
+  if (!createdBy && !createdAt && !editedBy && !editedAt) return '';
+
+  const parts: string[] = [];
+  if (createdBy || createdAt) {
+    const who = createdBy ? escapeHtml(String(createdBy)) : 'unknown';
+    const when = createdAt ? formatPopupDate(createdAt) : 'unknown';
+    parts.push(`Created by ${who} on ${when}`);
+  }
+  // Only show "last edited" when the timestamps differ -- if a row
+  // has only ever been created (created_at === edited_at), surfacing
+  // the same line twice is noise.
+  if (
+    (editedBy || editedAt) &&
+    !(editedAt === createdAt && editedBy === createdBy)
+  ) {
+    const who = editedBy ? escapeHtml(String(editedBy)) : 'unknown';
+    const when = editedAt ? formatPopupDate(editedAt) : 'unknown';
+    parts.push(`Last edited by ${who} on ${when}`);
+  }
+
+  return `<div class="gg-popup-meta">${parts.join('<br />')}</div>`;
+}
+
+function formatPopupDate(value: unknown): string {
+  if (typeof value !== 'string') return escapeHtml(String(value));
+  try {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return escapeHtml(value);
+    return escapeHtml(d.toLocaleString());
+  } catch {
+    return escapeHtml(value);
+  }
 }
 
 /**

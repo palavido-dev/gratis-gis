@@ -7,6 +7,7 @@ import {
   ArrowUpDown,
   Filter as FilterIcon,
   Focus,
+  History,
   Search,
   Table,
   X,
@@ -75,6 +76,13 @@ export function AttributeTable({
   const [sortBy, setSortBy] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [query, setQuery] = useState('');
+  // Editor tracking columns toggle (#39). Off by default so the
+  // table reads as the layer's actual schema; flip on when the
+  // author wants to audit who-touched-what. The four columns are
+  // sourced from underscore-prefixed properties (_created_by,
+  // _created_at, _edited_by, _edited_at) the API surfaces alongside
+  // the user-defined attributes.
+  const [showEditorTracking, setShowEditorTracking] = useState(false);
 
   // Only layers the viewer is allowed to query belong in the table.
   // `effective.query === false` is the server's signal (from the
@@ -274,6 +282,24 @@ export function AttributeTable({
             {visibleIndexes.length.toLocaleString()} rows
             {activeSelection.size > 0 ? ` · ${activeSelection.size} selected` : ''}
           </span>
+          <button
+            type="button"
+            onClick={() => setShowEditorTracking((v) => !v)}
+            aria-pressed={showEditorTracking}
+            title={
+              showEditorTracking
+                ? 'Hide who-edited-when columns'
+                : 'Show who-edited-when columns'
+            }
+            className={`inline-flex h-7 items-center gap-1 rounded border px-2 text-[11px] transition-colors ${
+              showEditorTracking
+                ? 'border-accent bg-accent/10 text-accent'
+                : 'border-border bg-surface-1 text-muted hover:text-ink-1'
+            }`}
+          >
+            <History className="h-3 w-3" />
+            Track edits
+          </button>
         </div>
         <button
           type="button"
@@ -341,6 +367,29 @@ export function AttributeTable({
                     </span>
                   </th>
                 ))}
+                {showEditorTracking
+                  ? EDITOR_TRACKING_COLUMNS.map((col) => (
+                      <th
+                        key={col.key}
+                        onClick={() => onHeaderClick(col.key)}
+                        className="cursor-pointer border-b border-border bg-surface-1 px-3 py-1.5 text-left font-medium italic text-muted hover:text-ink-1"
+                        title={col.tooltip}
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          {col.label}
+                          {sortBy === col.key ? (
+                            sortDir === 'asc' ? (
+                              <ArrowUp className="h-3 w-3" />
+                            ) : (
+                              <ArrowDown className="h-3 w-3" />
+                            )
+                          ) : (
+                            <ArrowUpDown className="h-3 w-3 text-muted/50" />
+                          )}
+                        </span>
+                      </th>
+                    ))
+                  : null}
               </tr>
             </thead>
             <tbody>
@@ -381,6 +430,16 @@ export function AttributeTable({
                         </td>
                       );
                     })}
+                    {showEditorTracking
+                      ? EDITOR_TRACKING_COLUMNS.map((col) => (
+                          <td
+                            key={col.key}
+                            className="whitespace-nowrap px-3 py-1 text-muted italic"
+                          >
+                            {col.format(props[col.key])}
+                          </td>
+                        ))
+                      : null}
                   </tr>
                 );
               })}
@@ -412,6 +471,57 @@ function formatCell(v: unknown): string {
   if (v === null || v === undefined) return '';
   if (typeof v === 'object') return JSON.stringify(v);
   return String(v);
+}
+
+/**
+ * Optional columns rendered when the user toggles "Track edits".
+ * Sourced from underscore-prefixed properties the API surfaces on
+ * every PostGIS-backed feature (#39). When the layer is not backed
+ * by PostGIS (raw GeoJSON, ArcGIS service), these cells render
+ * empty: harmless, not an error.
+ */
+const EDITOR_TRACKING_COLUMNS: Array<{
+  key: string;
+  label: string;
+  tooltip: string;
+  format: (v: unknown) => string;
+}> = [
+  {
+    key: '_created_by',
+    label: 'Created by',
+    tooltip: 'User id of the row creator',
+    format: (v) => (v ? String(v) : ''),
+  },
+  {
+    key: '_created_at',
+    label: 'Created',
+    tooltip: 'Timestamp the row was first inserted',
+    format: formatTimestamp,
+  },
+  {
+    key: '_edited_by',
+    label: 'Edited by',
+    tooltip: 'User id of the most recent editor',
+    format: (v) => (v ? String(v) : ''),
+  },
+  {
+    key: '_edited_at',
+    label: 'Edited',
+    tooltip: 'Timestamp of the most recent edit',
+    format: formatTimestamp,
+  },
+];
+
+function formatTimestamp(v: unknown): string {
+  if (v === null || v === undefined) return '';
+  if (typeof v !== 'string') return String(v);
+  try {
+    const d = new Date(v);
+    if (Number.isNaN(d.getTime())) return v;
+    return d.toLocaleString();
+  } catch {
+    return v;
+  }
 }
 
 /**

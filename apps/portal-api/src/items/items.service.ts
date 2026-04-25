@@ -736,9 +736,31 @@ export class ItemsService {
 
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
-      type RawRow = { global_id: string; geom: string | null; properties: Record<string, unknown> };
+      // Editor-tracking columns are inlined as `_created_by`,
+      // `_created_at`, `_edited_by`, `_edited_at` on each feature's
+      // properties so popups, the attribute table, and any custom
+      // template UI surface them without an extra round-trip. The
+      // underscore prefix marks them as system metadata (the popup
+      // 'all' renderer skips underscore-prefixed keys by default;
+      // the dedicated metadata footer formats them properly). See
+      // docs/folders.md and the editor-tracking task #39.
+      type RawRow = {
+        global_id: string;
+        geom: string | null;
+        properties: Record<string, unknown>;
+        created_by: string | null;
+        created_at: Date | string | null;
+        edited_by: string | null;
+        edited_at: Date | string | null;
+      };
       const rows = await this.prisma.$queryRawUnsafe<RawRow[]>(
-        `SELECT global_id, ST_AsGeoJSON(geom) AS geom, properties
+        `SELECT global_id,
+                ST_AsGeoJSON(geom) AS geom,
+                properties,
+                created_by,
+                created_at,
+                edited_by,
+                edited_at
            FROM "${tbl}"
           ${where}
           ORDER BY gid
@@ -752,7 +774,19 @@ export class ItemsService {
           type: 'Feature',
           id: r.global_id,
           geometry: r.geom ? JSON.parse(r.geom) : null,
-          properties: r.properties,
+          properties: {
+            ...r.properties,
+            _created_by: r.created_by,
+            _created_at:
+              r.created_at instanceof Date
+                ? r.created_at.toISOString()
+                : r.created_at,
+            _edited_by: r.edited_by,
+            _edited_at:
+              r.edited_at instanceof Date
+                ? r.edited_at.toISOString()
+                : r.edited_at,
+          },
         })),
       };
     }
