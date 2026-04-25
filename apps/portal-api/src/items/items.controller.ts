@@ -105,6 +105,15 @@ class ShareDto {
    * read time so a deleted boundary cannot silently expand access.
    */
   @IsOptional() @IsUUID('loose') geoBoundaryId?: string | null;
+  /**
+   * Row-level scope for this share (#40). `'all'` (default) means
+   * the principal sees every row in the layer; `'own'` narrows to
+   * features they themselves created (`created_by = principal.id`).
+   * Pairs with geoLimit / geoBoundaryId so a single share can be
+   * "edit only your features in your county". Admins / item owner
+   * are exempt regardless. Omit to leave existing scope untouched.
+   */
+  @IsOptional() @IsEnum(['all', 'own']) rowScope?: 'all' | 'own';
 }
 
 @ApiTags('items')

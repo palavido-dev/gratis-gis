@@ -49,6 +49,17 @@ enum PrincipalType {
   group
 }
 
+/// Row-level scope on a share. 'all' = the principal sees / edits
+/// every feature in the layer (default; matches behaviour before
+/// #40). 'own' = the principal only sees and edits features where
+/// `created_by` matches their own user id. Admins and the item
+/// owner are exempt from row scoping at the service layer
+/// regardless of this column.
+enum ShareRowScope {
+  all
+  own
+}
+
 enum ItemType {
   map
   data_layer                 @map("data-layer")
@@ -492,6 +503,16 @@ model ItemShare {
   /// on `item.type = geo_boundary`; the service layer does the
   /// type check on dereference.
   geoBoundaryId String? @map("geo_boundary_id") @db.Uuid
+
+  /// Row-level scope. 'all' = the principal sees / edits every
+  /// feature in the layer (default; matches behaviour before #40).
+  /// 'own' = the principal only sees / edits features where
+  /// created_by matches their own user id. Admins and the item
+  /// owner are exempt regardless. Pairs with geoLimit / geoBoundaryId
+  /// so a field worker can be given permission='edit',
+  /// geoLimit=county, rowScope='own' for "edit only your features
+  /// in your county" in one indexed query.
+  rowScope ShareRowScope @default(all) @map("row_scope")
 
   item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
 

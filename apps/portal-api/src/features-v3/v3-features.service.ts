@@ -57,6 +57,15 @@ export class V3FeaturesService {
       bbox?: [number, number, number, number];
       at?: string;
       geoLimit?: unknown;
+      /**
+       * When set, the SELECT is narrowed to features the named user
+       * created (`created_by = userId`). Pairs with the share-level
+       * rowScope='own' (#40) and the layer-level editingPolicy
+       * 'own-rows-only' (#41). Owner / admin / org-public callers
+       * never reach this path; the controller bypasses scoping for
+       * them at assertV3Layer time.
+       */
+      ownRowsOnly?: { userId: string };
     } = {},
   ): Promise<{ type: 'FeatureCollection'; features: V3FeatureOut[] }> {
     const tbl = toV3TableName(itemId, layerId);
@@ -88,6 +97,14 @@ export class V3FeaturesService {
       whereClauses.push(
         `(geom IS NULL OR ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON($${n}), 4326)))`,
       );
+    }
+    if (opts.ownRowsOnly) {
+      // Row-scope filter (#40). Only features the caller created
+      // pass through. Indexed on created_by since #23 reconciles a
+      // btree on the column when the layer is provisioned.
+      params.push(opts.ownRowsOnly.userId);
+      const n = params.length;
+      whereClauses.push(`created_by = $${n}`);
     }
     const sql = `
       SELECT gid, global_id, ST_AsGeoJSON(geom) AS geom, properties,
@@ -145,6 +162,7 @@ export class V3FeaturesService {
     featureId: string,
     patch: { geometry?: unknown; properties?: Record<string, unknown> },
     user: AuthUser,
+    opts: { ownRowsOnly?: boolean } = {},
   ): Promise<V3FeatureOut> {
     const tbl = toV3TableName(itemId, layerId);
     return this.prisma.$transaction(async (tx) => {
@@ -159,6 +177,14 @@ export class V3FeaturesService {
         featureId,
       );
       if (!cur.length) throw new NotFoundException('Feature not found');
+      // Row-scope guard (#40). When the caller is restricted to
+      // their own rows, refuse the edit if this feature was created
+      // by anyone else. Surface as NotFound rather than Forbidden so
+      // we don't leak the row's existence; that matches the pattern
+      // the rest of the API uses for items the caller cannot see.
+      if (opts.ownRowsOnly && cur[0]!.created_by !== user.id) {
+        throw new NotFoundException('Feature not found');
+      }
       const now = new Date();
       await tx.$executeRawUnsafe(
         `UPDATE "${tbl}" SET valid_to = $1, edited_by = $2, edited_at = $1 WHERE gid = $3`,
@@ -201,18 +227,25 @@ export class V3FeaturesService {
     layerId: string,
     featureId: string,
     user: AuthUser,
+    opts: { ownRowsOnly?: boolean } = {},
   ): Promise<void> {
     const tbl = toV3TableName(itemId, layerId);
     const now = new Date();
+    // Row-scope guard (#40). The UPDATE narrows by created_by when
+    // the caller is restricted to their own rows; if zero rows are
+    // affected we surface NotFound just like a missing feature.
+    const ownClause = opts.ownRowsOnly ? ' AND created_by = $4' : '';
+    const ownParams = opts.ownRowsOnly ? [user.id] : [];
     const affected = await this.prisma.$executeRawUnsafe(
       `
       UPDATE "${tbl}"
          SET valid_to = $1, edited_by = $2, edited_at = $1
-       WHERE global_id = $3 AND valid_to IS NULL
+       WHERE global_id = $3 AND valid_to IS NULL${ownClause}
       `,
       now,
       user.id,
       featureId,
+      ...ownParams,
     );
     if (affected === 0) throw new NotFoundException('Feature not found');
   }

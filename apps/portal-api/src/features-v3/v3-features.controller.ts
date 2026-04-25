@@ -75,11 +75,17 @@ export class V3FeaturesController {
     @Query('bbox') bbox?: string,
     @Query('at') at?: string,
   ) {
-    const { geoLimit } = await this.assertV3Layer(user, itemId, layerId, 'read');
+    const { geoLimit, rowScope } = await this.assertV3Layer(
+      user,
+      itemId,
+      layerId,
+      'read',
+    );
     const opts: {
       bbox?: [number, number, number, number];
       at?: string;
       geoLimit?: unknown;
+      ownRowsOnly?: { userId: string };
     } = {};
     if (bbox) {
       const parts = bbox.split(',').map(Number);
@@ -89,6 +95,7 @@ export class V3FeaturesController {
     }
     if (at) opts.at = at;
     if (geoLimit) opts.geoLimit = geoLimit;
+    if (rowScope === 'own') opts.ownRowsOnly = { userId: user.id };
     return this.v3.listFeatures(itemId, layerId, opts);
   }
 
@@ -125,11 +132,18 @@ export class V3FeaturesController {
     @Param('fid') featureId: string,
     @Body() body: UpdateFeatureBodyDto,
   ) {
-    await this.assertV3Layer(user, itemId, layerId, 'write');
+    const { rowScope } = await this.assertV3Layer(
+      user,
+      itemId,
+      layerId,
+      'write',
+    );
     const patch: { geometry?: unknown; properties?: Record<string, unknown> } = {};
     if (body.geometry !== undefined) patch.geometry = body.geometry;
     if (body.properties !== undefined) patch.properties = body.properties;
-    return this.v3.updateFeature(itemId, layerId, featureId, patch, user);
+    return this.v3.updateFeature(itemId, layerId, featureId, patch, user, {
+      ownRowsOnly: rowScope === 'own',
+    });
   }
 
   @Delete('features/:fid')
@@ -140,8 +154,15 @@ export class V3FeaturesController {
     @Param('layerId') layerId: string,
     @Param('fid') featureId: string,
   ) {
-    await this.assertV3Layer(user, itemId, layerId, 'write');
-    await this.v3.deleteFeature(itemId, layerId, featureId, user);
+    const { rowScope } = await this.assertV3Layer(
+      user,
+      itemId,
+      layerId,
+      'write',
+    );
+    await this.v3.deleteFeature(itemId, layerId, featureId, user, {
+      ownRowsOnly: rowScope === 'own',
+    });
   }
 
   /** Verify the item exists, is a v3 data_layer, the caller can
@@ -156,7 +177,7 @@ export class V3FeaturesController {
     itemId: string,
     layerId: string,
     mode: 'read' | 'write',
-  ): Promise<{ geoLimit: unknown | null }> {
+  ): Promise<{ geoLimit: unknown | null; rowScope: 'all' | 'own' }> {
     const item = await this.items.get(user, itemId);
     if (item.type !== 'data_layer') {
       throw new NotFoundException('Not a data_layer item');
@@ -187,14 +208,16 @@ export class V3FeaturesController {
     // share's polygon to build the union. Owners / admins return
     // null (no restriction).
     let geoLimit: unknown | null = null;
+    const withShares = item as typeof item & { shares?: ItemShare[] };
+    const shares = withShares.shares ?? [];
     if (mode === 'read') {
-      const withShares = item as typeof item & { shares?: ItemShare[] };
-      geoLimit = await this.sharing.geoLimitFor(
-        user,
-        item,
-        withShares.shares ?? [],
-      );
+      geoLimit = await this.sharing.geoLimitFor(user, item, shares);
     }
-    return { geoLimit };
+    // Row-scope applies to BOTH reads and writes (#40). On reads it
+    // narrows the SELECT; on writes it gates the per-row update /
+    // delete to features the caller created. Owner / admin / public
+    // / org-public bypass the scope inside SharingService.
+    const rowScope = this.sharing.effectiveRowScope(user, item, shares);
+    return { geoLimit, rowScope };
   }
 }

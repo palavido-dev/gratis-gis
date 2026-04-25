@@ -165,6 +165,53 @@ export class SharingService {
   }
 
   /**
+   * Compute the effective row scope for a caller against an item's
+   * features (#40). Returns `'all'` when the caller is the owner, an
+   * org admin, or holds at least one matching share with rowScope
+   * 'all'; returns `'own'` only when every matching share narrows to
+   * the caller's own rows. Pairs with the layer-level
+   * `editingPolicy` (#41) which can tighten further but never loosen.
+   *
+   * The semantics are deliberately permissive: any single 'all'
+   * grant beats every 'own' grant the user might also have, so a
+   * user who has both a narrow per-team share AND a broader
+   * org-level read is not accidentally locked into 'own'.
+   *
+   * Caller-supplied `shares` should be the item's full share list;
+   * filtering down to matches happens here.
+   */
+  effectiveRowScope(
+    user: AuthUser,
+    item: Item,
+    shares: ItemShare[] = [],
+  ): 'all' | 'own' {
+    // Owner / admin / public / org-public all bypass row scoping
+    // entirely. This matches the geoLimitFor exemptions and keeps
+    // the safety-valve invariant: admins always see everything.
+    if (item.ownerId === user.id) return 'all';
+    if (user.orgRole === 'admin' && item.orgId === user.orgId) return 'all';
+    if (item.access === 'public') return 'all';
+    if (item.access === 'org' && item.orgId === user.orgId) return 'all';
+
+    const matching = shares.filter((s) => this.shareMatches(user, s));
+    if (matching.length === 0) {
+      // No matching share + non-public + non-org. Caller cannot see
+      // the item at all; the visibility check upstream should have
+      // rejected before we got here. Return 'own' as the safest
+      // fallback: the SQL filter will then yield zero rows for any
+      // caller-id mismatch.
+      return 'own';
+    }
+    // Any single matching share with rowScope 'all' (default)
+    // upgrades the effective scope to 'all'.
+    for (const s of matching) {
+      const sc = (s as ItemShare & { rowScope?: 'all' | 'own' }).rowScope;
+      if (!sc || sc === 'all') return 'all';
+    }
+    return 'own';
+  }
+
+  /**
    * Build a Prisma `where` clause selecting only items the user can see.
    * Used for list queries so we don't fetch + filter in memory.
    *

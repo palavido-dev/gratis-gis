@@ -73,6 +73,12 @@ export interface ShareItemInput {
    * Mutually exclusive with `geoLimit`.
    */
   geoBoundaryId?: string | null | undefined;
+  /**
+   * Row-level scope (#40). `'all'` (default for new shares) lets the
+   * principal see every feature; `'own'` narrows to features they
+   * created. Admins / item owner bypass at the service layer.
+   */
+  rowScope?: 'all' | 'own' | undefined;
 }
 
 @Injectable()
@@ -949,6 +955,9 @@ export class ItemsService {
       update.geoLimit = input.geoLimit;
       if (input.geoLimit !== null) update.geoBoundaryId = null;
     }
+    if (input.rowScope !== undefined) {
+      update.rowScope = input.rowScope;
+    }
     const create: Record<string, unknown> = {
       itemId: id,
       principalType: input.principalType,
@@ -963,6 +972,9 @@ export class ItemsService {
       input.geoBoundaryId !== null
     ) {
       create.geoBoundaryId = input.geoBoundaryId;
+    }
+    if (input.rowScope !== undefined) {
+      create.rowScope = input.rowScope;
     }
     return this.prisma.itemShare.upsert({
       where: {
