@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PublicController } from './public.controller.js';
 import { PublicOgcController } from './public-ogc.controller.js';
+import { PublicCswController } from './public-csw.controller.js';
 import { V3FeaturesModule } from '../features-v3/v3-features.module.js';
 
 /**
@@ -11,6 +12,6 @@ import { V3FeaturesModule } from '../features-v3/v3-features.module.js';
  */
 @Module({
   imports: [V3FeaturesModule],
-  controllers: [PublicController, PublicOgcController],
+  controllers: [PublicController, PublicOgcController, PublicCswController],
 })
 export class PublicModule {}
