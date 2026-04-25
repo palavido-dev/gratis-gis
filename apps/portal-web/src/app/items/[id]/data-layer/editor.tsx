@@ -26,6 +26,7 @@ import {
   type SpatialFormat,
   type SpatialImportResult,
 } from '@/lib/spatial-import';
+import { DataLayerBboxPreview } from './bbox-preview';
 
 interface Props {
   itemId: string;
@@ -67,7 +68,7 @@ export function DataLayerEditor({ itemId, initial, canEdit }: Props) {
   const v2 = isV2(initial);
   const v3 = isV3(initial);
 
-  // v3 is multi-layer — this single-layer editor surfaces aggregated
+  // v3 is multi-layer: this single-layer editor surfaces aggregated
   // stats and the fields of the first layer. The dedicated multi-layer
   // editor (Phase B+) is the proper home for v3 editing; this block is
   // a compatibility bridge so the existing ingest flows still compile.
@@ -117,7 +118,7 @@ export function DataLayerEditor({ itemId, initial, canEdit }: Props) {
   }
 
   /**
-   * Server-side GDAL ingest — handles File Geodatabase and other formats
+   * Server-side GDAL ingest: handles File Geodatabase and other formats
    * that have no in-browser parser. The ingest endpoint now writes directly
    * to PostGIS (provisioning the table on first use) and returns v2 metadata.
    */
@@ -268,6 +269,11 @@ export function DataLayerEditor({ itemId, initial, canEdit }: Props) {
               the Schema section below already lists every field
               with type / domain / constraints, so the chips were
               just duplicating that. Removed in #27. */}
+          {currentBbox ? (
+            <div className="mt-3">
+              <DataLayerBboxPreview bbox={currentBbox} />
+            </div>
+          ) : null}
         </section>
       )}
 
