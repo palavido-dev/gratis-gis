@@ -29,7 +29,7 @@ import { ReassignOwnerDialog } from '@/components/reassign-owner-dialog';
  *
  * Invite flow: POST to /api/admin/users with sendSetupEmail:true.
  * Keycloak sends the UPDATE_PASSWORD + VERIFY_EMAIL email. The
- * invitee establishes their password via that link — we never
+ * invitee establishes their password via that link: we never
  * handle raw passwords.
  */
 type OrgRole = 'viewer' | 'contributor' | 'admin';
@@ -83,7 +83,7 @@ export function AdminUsersView({ initialUsers }: Props) {
       const rows = (await res.json()) as AdminUserRow[];
       setUsers(rows);
     } catch {
-      /* non-fatal — the list stays as-is */
+      /* non-fatal: the list stays as-is */
     }
   }
 
@@ -135,7 +135,7 @@ export function AdminUsersView({ initialUsers }: Props) {
   }
 
   /**
-   * Actual delete call — assumes the caller has already verified the
+   * Actual delete call: assumes the caller has already verified the
    * user has no owned items (or has reassigned them). Called either
    * directly (clean path) or from the reassign-and-delete flow below.
    */
@@ -157,7 +157,7 @@ export function AdminUsersView({ initialUsers }: Props) {
   async function removeUser(user: AdminUserRow) {
     setError(null);
     // Preflight: does this user own anything? If so, refuse to delete
-    // until the admin reassigns — otherwise their items would lose
+    // until the admin reassigns: otherwise their items would lose
     // their owner pointer (FK is set-null-deferred in Prisma, but
     // "orphaned content" is a worse UX than "please pick a new owner").
     setWorking(user.id);
@@ -343,7 +343,7 @@ export function AdminUsersView({ initialUsers }: Props) {
                     </td>
                     <td className="px-3 py-2 text-xs text-ink-1">
                       {u.email ?? (
-                        <span className="text-muted italic">—</span>
+                        <span className="text-muted italic">-</span>
                       )}
                       {u.emailVerified ? (
                         <span className="ml-1 inline-flex items-center gap-0.5 text-[10px] text-success">
@@ -538,7 +538,7 @@ function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
         </div>
         <p className="text-xs text-muted">
           We&apos;ll send a password-setup email from the portal. The user
-          establishes their own password through that link —{' '}
+          establishes their own password through that link -{' '}
           <span className="font-medium">no passwords are set here</span>.
         </p>
 
@@ -601,9 +601,9 @@ function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
             onChange={(e) => setOrgRole(e.target.value as OrgRole)}
             className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
           >
-            <option value="viewer">viewer — read content they have access to</option>
-            <option value="contributor">contributor — can create/edit content</option>
-            <option value="admin">admin — full access, including this page</option>
+            <option value="viewer">viewer: read content they have access to</option>
+            <option value="contributor">contributor: can create/edit content</option>
+            <option value="admin">admin: full access, including this page</option>
           </select>
         </label>
 
@@ -650,7 +650,7 @@ interface EditDialogProps {
 
 /**
  * Inline edit dialog for admin-side user mutations. Username is
- * intentionally immutable — Keycloak supports renames but downstream
+ * intentionally immutable: Keycloak supports renames but downstream
  * item.createdById references are keyed by user id anyway, and letting
  * admins rename usernames invites impersonation footguns. Email and
  * display name are the common "please update my record" fields.
@@ -691,7 +691,7 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
     if (enabled !== Boolean(user.enabled)) patch.enabled = enabled;
 
     if (Object.keys(patch).length === 0) {
-      // Nothing to save — just close. Avoids spurious PATCH round-trips
+      // Nothing to save: just close. Avoids spurious PATCH round-trips
       // that would re-render the row with an identical "updated" flash.
       onClose();
       return;
@@ -738,7 +738,7 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
         <p className="text-xs text-muted">
           Editing{' '}
           <span className="font-mono text-ink-1">{user.username}</span>. Username
-          can&apos;t be changed here — it&apos;s used as the stable identifier
+          can&apos;t be changed here: it&apos;s used as the stable identifier
           for content this user created.
         </p>
 
@@ -780,7 +780,7 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
           />
           {user.emailVerified && email.trim() !== (user.email ?? '') ? (
             <span className="mt-1 block text-[11px] text-warning">
-              Changing the email will reset the verified flag — the user will
+              Changing the email will reset the verified flag: the user will
               need to re-verify.
             </span>
           ) : null}

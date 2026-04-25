@@ -430,7 +430,7 @@ function BBoxField({
  *   - Polygon / MultiPolygon geometry directly
  *   - Feature with such a geometry
  *   - FeatureCollection with one or more polygon features (unioned
- *     into a MultiPolygon at the call site — today we just pull the
+ *     into a MultiPolygon at the call site: today we just pull the
  *     first feature's geometry if there's exactly one, otherwise
  *     reject with a clear message)
  */

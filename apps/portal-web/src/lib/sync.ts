@@ -6,7 +6,7 @@
  *   2. Replay queued writes against the portal API when online (pushPending).
  *   3. Pull delta changes from the server using the ?since= cursor (pullDelta).
  *
- * The service worker handles Background Sync — it calls /api/portal/items/:id/...
+ * The service worker handles Background Sync: it calls /api/portal/items/:id/...
  * for queued ops. This module handles the same logic from the main thread for
  * browsers that don't support the Background Sync API and for immediate pushes
  * on reconnect.
@@ -135,7 +135,7 @@ export async function pushPending(): Promise<PushResult> {
  * tombstones. The cursor is advanced to NOW() on success.
  *
  * On first pull (no cursor), fetches up to 2 000 current features as a
- * baseline — callers should page if needed for very large datasets.
+ * baseline: callers should page if needed for very large datasets.
  */
 export async function pullDelta(itemId: string): Promise<DeltaResult> {
   const cursor = await getCursor(itemId);
@@ -164,7 +164,7 @@ export async function pullDelta(itemId: string): Promise<DeltaResult> {
   for (const f of fc.features ?? []) {
     const isExpired = f._meta?.validTo != null;
     if (isExpired) {
-      // Tombstone: feature was deleted or superseded — remove from local cache.
+      // Tombstone: feature was deleted or superseded: remove from local cache.
       await deleteCachedFeature(itemId, f.id);
       removed++;
     } else {

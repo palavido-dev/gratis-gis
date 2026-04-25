@@ -10,7 +10,7 @@ import { StorageModule } from '../storage/storage.module.js';
 /**
  * v3 feature CRUD + attachments. Depends on ItemsModule (auth / gate
  * checks) and StorageModule (attachment cleanup on delete). Does NOT
- * depend on V3TablesModule — tables are provisioned upstream by
+ * depend on V3TablesModule: tables are provisioned upstream by
  * ItemsService; this module just reads / writes rows and attachment
  * metadata against whatever's already there.
  */

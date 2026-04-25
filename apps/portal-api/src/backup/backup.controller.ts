@@ -55,7 +55,7 @@ class RestoreConfirmDto {
 }
 
 class UpdateConfigDto {
-  // archiveDirectory: string | null — empty string / null clears the
+  // archiveDirectory: string | null: empty string / null clears the
   // override so the env BACKUP_DIR default comes back into play.
   @IsOptional()
   @ValidateIf((_, v) => v !== null)
@@ -127,7 +127,7 @@ export class BackupController {
   async listRuns() {
     // BigInt doesn't JSON.stringify natively; cast sizeBytes to
     // string here so the admin page can format it without a runtime
-    // surprise. (Keeping BigInt in the DB is still worth it — it's
+    // surprise. (Keeping BigInt in the DB is still worth it: it's
     // the right domain type for "bytes of a backup archive".)
     const runs = await this.backup.listRuns();
     return runs.map((r) => ({
@@ -171,7 +171,7 @@ export class BackupController {
   }
 
   // ---------------------------------------------------------------
-  // Restore — separate namespace to keep the finger-memory hazard
+  // Restore: separate namespace to keep the finger-memory hazard
   // ("I meant Delete, not Restore") away from the normal flow.
   // ---------------------------------------------------------------
 
@@ -188,7 +188,7 @@ export class BackupController {
 
   /**
    * Execute the destructive restore. Admin must pass the current
-   * org slug as `confirmSlug` — if it doesn't match, we refuse
+   * org slug as `confirmSlug`: if it doesn't match, we refuse
    * before even reading the archive.
    */
   @Post('runs/:id/restore')

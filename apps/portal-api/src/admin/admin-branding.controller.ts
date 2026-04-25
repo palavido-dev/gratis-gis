@@ -21,12 +21,12 @@ import { PrismaService } from '../prisma/prisma.service.js';
  * handful of branding fields an admin might touch a few times in
  * the lifetime of an org.
  *
- * - landingTitle        — short org-facing title (defaults to org.name)
- * - landingSubtitle     — one-line tagline
- * - landingHeroImageUrl — optional hero band image; empty falls back to a
+ * - landingTitle       : short org-facing title (defaults to org.name)
+ * - landingSubtitle    : one-line tagline
+ * - landingHeroImageUrl: optional hero band image; empty falls back to a
  *                         muted fill
- * - landingShowPublicItems — toggle the content grid
- * - landingFeaturedItemIds — ordered ids to feature ahead of the rest
+ * - landingShowPublicItems: toggle the content grid
+ * - landingFeaturedItemIds: ordered ids to feature ahead of the rest
  *
  * GET returns the current config so the editor can prefill. PATCH
  * accepts any subset of the five fields; omitted keys are left

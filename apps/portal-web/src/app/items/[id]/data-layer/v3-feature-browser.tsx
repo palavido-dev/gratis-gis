@@ -26,14 +26,14 @@ import { V3FeatureAttachments } from './v3-feature-attachments';
  * Reads from /items/:id/layers/:layerId/features, renders a compact
  * table of all fields (plus a stable `fid` column), and offers per-row
  * edit / delete via the controller's PATCH / DELETE endpoints. New
- * rows are appended via POST with an empty geometry — the layer's
+ * rows are appended via POST with an empty geometry: the layer's
  * geometry gets filled in later via the map editor, or left null for
  * attribute-only related tables.
  *
  * Design notes:
  *  - Editing is property-only for v1. Geometry editing stays in the
  *    map editor where there's a real map canvas to click on.
- *  - We load the whole feature list on open — same assumption v2's
+ *  - We load the whole feature list on open: same assumption v2's
  *    geojson endpoint made. If layers get large (>10k rows) we'll
  *    paginate here; for now "load all" keeps the code simple and
  *    matches author expectations for schema-authoring workflows.
@@ -131,7 +131,7 @@ export function V3FeatureBrowser({
   async function remove(feature: FeatureRecord) {
     if (
       !confirm(
-        `Delete this feature? This writes a tombstone (soft delete) — the feature disappears from current queries but history is preserved.`,
+        `Delete this feature? This writes a tombstone (soft delete): the feature disappears from current queries but history is preserved.`,
       )
     )
       return;
@@ -152,7 +152,7 @@ export function V3FeatureBrowser({
     setAdding(true);
     setError(null);
     try {
-      // Blank geometry + empty properties — authors fill in fields in
+      // Blank geometry + empty properties: authors fill in fields in
       // the row's edit view, and the geometry via the map editor if
       // the layer is spatial.
       const res = await fetch(
@@ -471,7 +471,7 @@ function FieldEditor({
 
   if (kind === 'date') {
     // Accept both date-only (YYYY-MM-DD) and full ISO. Keep whatever
-    // precision the backend already stored — parse/serialize naively.
+    // precision the backend already stored: parse/serialize naively.
     const dateVal =
       typeof value === 'string' ? value.slice(0, 10) : '';
     return (
@@ -492,7 +492,7 @@ function FieldEditor({
         onChange={(e) => onChange(e.target.value || null)}
         className="h-6 rounded border border-border bg-surface-1 px-1 text-[11px] focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
       >
-        <option value="">—</option>
+        <option value="">-</option>
         {field.domain.values.map((v) => (
           <option key={String(v.code)} value={String(v.code)}>
             {v.label || String(v.code)}
@@ -514,7 +514,7 @@ function FieldEditor({
 }
 
 function formatCellValue(v: unknown): string {
-  if (v === null || v === undefined) return '—';
+  if (v === null || v === undefined) return '-';
   if (typeof v === 'boolean') return v ? 'true' : 'false';
   if (typeof v === 'object') return JSON.stringify(v);
   const s = String(v);

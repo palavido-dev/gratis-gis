@@ -73,7 +73,7 @@ export function HousekeepingView({ bundle }: Props) {
   const router = useRouter();
   const { summary, staleItems, staleUsers, largeItems } = bundle;
 
-  // One selection set per table — items and users live in different
+  // One selection set per table: items and users live in different
   // domains so mixing them would make the bulk-action copy
   // ambiguous. Each set is the id of a ticked row.
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
@@ -82,7 +82,7 @@ export function HousekeepingView({ bundle }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
 
-  // Users who own items can still be ticked — clicking "Disable
+  // Users who own items can still be ticked: clicking "Disable
   // sign-in" pops the reassign dialog so the admin picks a new owner
   // (defaulting to themselves), we reassign in bulk, and then disable
   // all selected accounts. Matches the existing "delete user with
@@ -260,7 +260,7 @@ export function HousekeepingView({ bundle }: Props) {
       <Section
         icon={<Clock className="h-4 w-4" />}
         title={`Items nobody's touched for ${summary.staleItemDays}+ days`}
-        empty="No stale items — every item in your org has been updated recently or is still being shared."
+        empty="No stale items: every item in your org has been updated recently or is still being shared."
         caption={
           <>
             {staleItems.length === 0
@@ -316,7 +316,7 @@ export function HousekeepingView({ bundle }: Props) {
         icon={<Users className="h-4 w-4" />}
         title={`Users quiet for ${summary.staleUserDays}+ days`}
         empty="Nobody looks idle. Admins are deliberately excluded from this check so a break-glass account never shows up."
-        caption="Admins are excluded. Ticking a user who still owns items is fine — when you click Disable, we'll ask who to reassign their items to (defaults to you) before disabling the account."
+        caption="Admins are excluded. Ticking a user who still owns items is fine: when you click Disable, we'll ask who to reassign their items to (defaults to you) before disabling the account."
         bulkBar={
           selectedUsers.size > 0 ? (
             <BulkBar
@@ -365,7 +365,7 @@ export function HousekeepingView({ bundle }: Props) {
             const lines = pendingDisable.ownersWithItems
               .map((o) => `${o.label}: ${o.itemCount}`)
               .join(' · ');
-            return `Items to reassign — ${lines}. Everything transfers to the new owner; the original users lose sign-in.`;
+            return `Items to reassign: ${lines}. Everything transfers to the new owner; the original users lose sign-in.`;
           })()}
           excludeUserIds={pendingDisable.userIds}
           saving={busy === 'users'}
@@ -396,7 +396,7 @@ export function HousekeepingView({ bundle }: Props) {
 /**
  * Run a function over a list of ids with a concurrency cap. We
  * await each batch before starting the next so a slow server
- * doesn't stack N requests in flight. No retry on failure — first
+ * doesn't stack N requests in flight. No retry on failure: first
  * error throws and the caller decides what to do.
  */
 async function runBatched<T>(

@@ -1,5 +1,5 @@
 /**
- * Shared geographic boundary — a named, authoritative polygon (or
+ * Shared geographic boundary: a named, authoritative polygon (or
  * multipolygon) that other items can reference as a geographic
  * filter, default extent, region tag, etc. Mirrors the pick_list
  * pattern: define the geometry once, reference it from many shares,
@@ -35,7 +35,7 @@ export interface GeoBoundaryData {
   /** Optional author-facing note. Not shown to end users. */
   note?: string;
   /**
-   * Service-level summary — area in km² plus the geometry's bbox —
+   * Service-level summary: area in km² plus the geometry's bbox
    * populated on save so the detail page doesn't have to recompute
    * from every consumer's perspective. Both are optional: absent
    * when geometry is null.
@@ -47,7 +47,7 @@ export interface GeoBoundaryData {
 /**
  * The geometry subset we allow as a boundary payload. Polygon for
  * simple regions; MultiPolygon for islands / disjoint areas.
- * GeometryCollection is deliberately not supported — a collection
+ * GeometryCollection is deliberately not supported: a collection
  * of heterogeneous geometries doesn't cleanly answer 'is point X
  * inside this boundary?', which is the core consumer question.
  */
@@ -62,7 +62,7 @@ export const DEFAULT_GEO_BOUNDARY: GeoBoundaryData = {
 };
 
 /**
- * Lenient runtime check — accepts any object that looks roughly
+ * Lenient runtime check: accepts any object that looks roughly
  * right. The caller is responsible for validating coordinates if
  * they need precision (PostGIS will reject truly malformed geoms
  * on any downstream ST_Intersects call anyway).

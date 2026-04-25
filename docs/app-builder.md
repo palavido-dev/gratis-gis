@@ -9,10 +9,10 @@ without writing code.
 
 Three-pane layout:
 
-- **Canvas** — the app as the end user will see it.
-- **Palette** — drag-droppable widgets (map, layer list, chart, legend,
+- **Canvas**: the app as the end user will see it.
+- **Palette**: drag-droppable widgets (map, layer list, chart, legend,
   header, markdown, link, image).
-- **Inspector** — props of the selected widget.
+- **Inspector**: props of the selected widget.
 
 Editor state is a normalized tree (root → widgets → config) stored in
 the item's `dataJson`. Save is explicit; the canvas always renders the
@@ -49,9 +49,9 @@ field-app, and the reporting renderer.
 
 ## Rendering modes
 
-- **Edit** — the builder UI, with drag handles and inspector.
-- **View** — the published app, rendered for sharing, no editing chrome.
-- **Embed** — a stripped viewer meant to be iframed into third-party
+- **Edit**: the builder UI, with drag handles and inspector.
+- **View**: the published app, rendered for sharing, no editing chrome.
+- **Embed**: a stripped viewer meant to be iframed into third-party
   pages. Locks navigation to the app itself.
 
 ## Not yet decided

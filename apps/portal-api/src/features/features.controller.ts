@@ -40,7 +40,7 @@ import {
 
 class FeatureGeometryDto {
   @IsString() type!: string;
-  // coordinates can be any nested array — left loose intentionally.
+  // coordinates can be any nested array: left loose intentionally.
   coordinates!: unknown;
 }
 
@@ -186,7 +186,7 @@ export class FeaturesController {
 
   /**
    * Append one or more features to the service. Does NOT replace existing
-   * features — use POST /import to replace all.
+   * features: use POST /import to replace all.
    */
   @Post()
   async append(
@@ -297,9 +297,9 @@ export class FeaturesController {
    * List child records related to a specific parent feature.
    *
    * URL: GET /items/:id/features/:fid/related/:childItemId
-   *   :id         — parent feature-service item
-   *   :fid        — parent feature global_id
-   *   :childItemId — child feature-service item
+   *   :id        : parent feature-service item
+   *   :fid       : parent feature global_id
+   *   :childItemId: child feature-service item
    *
    * Query: ?fkColumn=parent_global_id (defaults to "parent_global_id")
    *        ?at=<ISO timestamp>

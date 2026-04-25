@@ -19,7 +19,7 @@ import type { Item, PickListEntry } from '@gratis-gis/shared-types';
  * closes.
  */
 interface Props {
-  /** Seed entries — typically the inline values being promoted. */
+  /** Seed entries: typically the inline values being promoted. */
   seedEntries?: PickListEntry[];
   /** Default title (e.g. field label + " options"). */
   defaultTitle?: string;
@@ -78,7 +78,7 @@ export function CreateSharedPickListDialog({
       if (!res.ok) {
         const body = await res.text().catch(() => '');
         setError(
-          `Create failed: ${res.status}${body ? ` — ${body}` : ''}`,
+          `Create failed: ${res.status}${body ? `: ${body}` : ''}`,
         );
         return;
       }

@@ -33,7 +33,7 @@ interface Props {
  * saved together so the item's data is always internally consistent
  * (url, serviceType, and layer list all come from the same probe).
  *
- * No feature payload lives here — arcgis_service is a live pointer,
+ * No feature payload lives here: arcgis_service is a live pointer,
  * so the runtime (web-map viewer) is what actually calls the service.
  */
 export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
@@ -80,7 +80,7 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
           return base;
         }),
         ...(probeResult.bbox ? { bbox: probeResult.bbox } : {}),
-        // defaultLayerId only included when resolved — the shared
+        // defaultLayerId only included when resolved: the shared
         // type has it as optional, and exactOptionalPropertyTypes
         // means we need to omit rather than pass `undefined`.
         ...(stagedDefault !== undefined

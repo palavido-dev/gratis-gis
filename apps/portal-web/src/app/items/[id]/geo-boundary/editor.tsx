@@ -58,7 +58,7 @@ const PREVIEW_BASEMAP_STYLE: maplibregl.StyleSpecification = {
  *      region.
  *   2. Paste GeoJSON text (Polygon, MultiPolygon, Feature, or
  *      FeatureCollection). Same extraction path as the upload.
- *   3. Manual editing of the note + "clear geometry" — a
+ *   3. Manual editing of the note + "clear geometry": a
  *      starting-from-scratch state.
  *
  * Draw-on-map polygon authoring is a deliberate follow-up; it
@@ -70,7 +70,7 @@ const PREVIEW_BASEMAP_STYLE: maplibregl.StyleSpecification = {
  * Unit of work is the whole item.data blob. We patch /items/:id
  * with `{ data: { ...GeoBoundaryData } }` and let the server
  * snapshot the prior state the same way data_layer replaces
- * are snapshotted — so an admin can un-revert if someone pastes
+ * are snapshotted: so an admin can un-revert if someone pastes
  * garbage over a good boundary.
  */
 interface Props {
@@ -108,7 +108,7 @@ export function GeoBoundaryEditor({ itemId, initial, canEdit }: Props) {
         ...(summary
           ? { areaKm2: summary.areaKm2, bbox: summary.bbox }
           : (() => {
-              // Geometry got cleared — drop the stale summary.
+              // Geometry got cleared: drop the stale summary.
               const { areaKm2: _a, bbox: _b, ...rest } = draft;
               return rest;
             })()),
@@ -147,7 +147,7 @@ export function GeoBoundaryEditor({ itemId, initial, canEdit }: Props) {
         <h2 className="text-sm font-medium text-ink-0">Boundary geometry</h2>
         <p className="text-xs text-muted">
           Define the polygon (or multi-polygon) that represents this
-          boundary. Other items — shares, maps, filters — can
+          boundary. Other items: shares, maps, filters: can
           reference this boundary once saved.
         </p>
       </header>
@@ -250,7 +250,7 @@ export function GeoBoundaryEditor({ itemId, initial, canEdit }: Props) {
 }
 
 // ---------------------------------------------------------------
-// Map preview — read-only; auto-fits to the current geometry and
+// Map preview: read-only; auto-fits to the current geometry and
 // renders a translucent fill + outline so the shape reads clearly
 // on any basemap.
 // ---------------------------------------------------------------
@@ -351,7 +351,7 @@ function BoundaryPreview({ geometry }: { geometry: GeoBoundaryGeometry | null })
 }
 
 // ---------------------------------------------------------------
-// Draw panel — same map as BoundaryPreview, with terra-draw on top
+// Draw panel: same map as BoundaryPreview, with terra-draw on top
 // for interactive polygon authoring.
 // ---------------------------------------------------------------
 
@@ -792,7 +792,7 @@ function computeBBox(
 /**
  * Rough spherical-polygon area in kmAï¿½, adequate for operator-facing
  * "this boundary covers N kmAï¿½" summaries. Not a replacement for
- * PostGIS on the server — the API still computes its own answer for
+ * PostGIS on the server: the API still computes its own answer for
  * anywhere that needs precision.
  */
 function polygonAreaKm2(rings: GeoJSON.Position[][]): number {
@@ -823,7 +823,7 @@ function polygonAreaKm2(rings: GeoJSON.Position[][]): number {
     }
     return Math.abs(sum) * R * R;
   };
-  // Outer ring positive, holes subtract. Guard the outer ring too —
+  // Outer ring positive, holes subtract. Guard the outer ring too
   // noUncheckedIndexedAccess treats `rings[0]` as possibly undefined.
   const outer = rings[0];
   if (!outer) return 0;

@@ -3,10 +3,10 @@
  *
  * Two storage strategies exist:
  *
- * **v1** — inline GeoJSON in `item.data.data`. Works for demos and small
+ * **v1**: inline GeoJSON in `item.data.data`. Works for demos and small
  * datasets; hard cap around 25 MB upload / a few MB parsed JSON.
  *
- * **v2** — PostGIS table per item. `item.data` holds only metadata
+ * **v2**: PostGIS table per item. `item.data` holds only metadata
  * (field schema, feature count, bbox, updatedAt). The actual geometry
  * and properties live in a table named `fs_<uuid_no_dashes>` in the
  * database. `GET /api/items/:id/geojson` streams from PostGIS with
@@ -53,8 +53,8 @@ export type FieldDomain =
 
 /**
  * Optional storage hints attached to a field. None of these are
- * required — PostgreSQL's TEXT and NUMERIC are loose enough to carry
- * anything — but they let authors capture Esri-style declarations
+ * required: PostgreSQL's TEXT and NUMERIC are loose enough to carry
+ * anything: but they let authors capture Esri-style declarations
  * (field widths, integer vs decimal) that come in handy when exporting
  * to shapefile / File GDB or doing client-side validation. The
  * backend applies them when provisioning the PostGIS table:
@@ -100,7 +100,7 @@ export interface FeatureField {
  * Provenance of the data currently on a feature-service item. Stamped
  * when features are uploaded or bulk-replaced so authors can see at a
  * glance what the dataset was built from. Absent on items whose data
- * was inlined by hand or created before the field was added — the UI
+ * was inlined by hand or created before the field was added: the UI
  * renders "Source not recorded" in that case rather than fabricating
  * a value.
  */
@@ -178,7 +178,7 @@ export interface DataLayerDataV2 {
  * and may participate in zero or more parent/child relationships with
  * other layers in the same item.
  *
- * Persistence (Phase C — not yet wired):
+ * Persistence (Phase C: not yet wired):
  * - Each layer maps to a PostGIS table `fs_<itemIdNoDashes>_<layerId>`.
  * - Per-layer feature CRUD lives at `/items/:id/layers/:layerId/features`.
  * - Relationships are enforced by a FK column on the child layer's
@@ -280,7 +280,7 @@ export interface FeatureCollection {
 /** Body for POST /items/:id/features (append one or more features). */
 export interface AppendFeaturesInput {
   features: Array<{
-    /** Client-generated UUID — provide for offline-created features so
+    /** Client-generated UUID: provide for offline-created features so
      *  parent/child GUIDs established offline survive the sync. */
     globalId?: string;
     geometry?: unknown;
@@ -307,7 +307,7 @@ export interface UpdateFeatureInput {
  * references the parent feature's global_id.
  */
 export interface FeatureRelationship {
-  /** Stable UUID for this relationship — used in API paths. */
+  /** Stable UUID for this relationship: used in API paths. */
   id: string;
   /** Display name shown in map popups and forms. */
   label: string;
@@ -333,7 +333,7 @@ export interface ChildRelationshipRef {
   relationshipId: string;
 }
 
-/** Body for POST /items/:id/relationships — register a new relationship. */
+/** Body for POST /items/:id/relationships: register a new relationship. */
 export interface CreateRelationshipInput {
   label: string;
   /** Item ID of the child feature service. */

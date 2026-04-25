@@ -203,7 +203,7 @@ function ItemCard({ item }: { item: LandingData['items'][number] }) {
         className="flex h-full flex-col overflow-hidden rounded-lg border border-border bg-surface-1 shadow-card transition-all hover:-translate-y-0.5 hover:shadow-raised"
       >
         {item.thumbnailUrl ? (
-          // Hosted thumbnail path — MinIO-backed, origin-safe.
+          // Hosted thumbnail path: MinIO-backed, origin-safe.
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={item.thumbnailUrl}

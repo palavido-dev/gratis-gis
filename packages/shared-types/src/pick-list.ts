@@ -1,5 +1,5 @@
 /**
- * Shared pick list — a named, authoritative list of coded values that
+ * Shared pick list: a named, authoritative list of coded values that
  * can be referenced from feature-service field domains, form choices,
  * dashboard filters, etc. Versioned on the data blob so future shape
  * changes can be detected without inspecting keys.
@@ -12,7 +12,7 @@
  *    this at write time; do not rely on consumers to de-dupe.
  *  - `sort` is the stable display order. Adding a row appends to the
  *    end; drag-reorder rewrites the whole sequence. Reordering doesn't
- *    alter the list's identity — downstream references still resolve.
+ *    alter the list's identity: downstream references still resolve.
  *  - We intentionally skip hierarchy (parent/child cascading) for v1.
  *    It can slot in later as an optional `parentCode?: string` without
  *    breaking consumers, which was the design goal of pinning a
@@ -46,7 +46,7 @@ export const DEFAULT_PICK_LIST: PickListData = {
 
 /**
  * Narrow unknown JSON to a PickListData if it looks right. Lenient on
- * optional fields and version bumps so older blobs still read — the
+ * optional fields and version bumps so older blobs still read: the
  * UI can then offer a migration on save.
  */
 export function isPickListData(value: unknown): value is PickListData {

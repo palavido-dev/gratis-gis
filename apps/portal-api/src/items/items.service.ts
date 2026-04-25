@@ -102,7 +102,7 @@ export class ItemsService {
        * items whose cached `bbox_geom` (set by ItemsService on save
        * via itemBbox()) intersects the given envelope. EPSG:4326,
        * [west, south, east, north]. Items without a cached bbox are
-       * NOT excluded -- the spatial filter narrows, not gates, so
+       * NOT excluded; the spatial filter narrows, not gates, so
        * non-spatial item types (forms, dashboards, etc.) keep showing
        * up alongside the spatial matches. (#24)
        */
@@ -353,7 +353,7 @@ export class ItemsService {
       out.push({
         ...rest,
         // Preserve the policy so the client knows whether limits
-        // applied, but drop the full entries array — that's who-
+        // applied, but drop the full entries array: that's who-
         // else-sees-what, not something a viewer should enumerate.
         access: { policy: access?.policy ?? 'inherit', entries: [] },
         effective,
@@ -397,7 +397,7 @@ export class ItemsService {
     // $executeRawUnsafe is idempotent; if the item has no layers yet
     // (empty builder), this is a no-op.
     //
-    // If reconcile throws, the item row is already in the DB — we
+    // If reconcile throws, the item row is already in the DB: we
     // roll back by deleting it so the user doesn't end up with an
     // orphaned item they can't recover from. The error message is
     // surfaced back to the caller so they can see WHICH column /
@@ -547,7 +547,7 @@ export class ItemsService {
   async restore(user: AuthUser, id: string) {
     const item = await this.get(user, id, { includeTrashed: true });
     if (!item.deletedAt) {
-      // Not in the trash -- nothing to do, and returning 200 would
+      // Not in the trash, nothing to do, and returning 200 would
       // hide a client bug. 400 is more informative than silently no-op.
       throw new BadRequestException('Item is not in the trash');
     }
@@ -679,7 +679,7 @@ export class ItemsService {
   /**
    * Change the owner of an item. Gated to the current owner + org
    * admins. Optionally adds a `view` share for the previous owner so
-   * they don't lose access entirely — handy for "I'm leaving the
+   * they don't lose access entirely: handy for "I'm leaving the
    * team, please take this from me" and audit-friendly reassigns.
    */
   async reassignOwner(
@@ -697,10 +697,10 @@ export class ItemsService {
       );
     }
     if (input.newOwnerId === item.ownerId) {
-      return item; // no-op — already owned by the target user
+      return item; // no-op: already owned by the target user
     }
     // Target user must exist AND be in the same org. Cross-org
-    // reassignment is out of scope — that would leak content across
+    // reassignment is out of scope: that would leak content across
     // org boundaries.
     const newOwner = await this.prisma.user.findUnique({
       where: { id: input.newOwnerId },
@@ -752,7 +752,7 @@ export class ItemsService {
   /**
    * Count how many items a given user owns. Used by the admin-delete
    * flow to decide whether to force a reassignment step. Respects the
-   * caller's org — the count only includes items in the caller's org
+   * caller's org: the count only includes items in the caller's org
    * so admins don't see cross-org bleed.
    */
   async ownedItemCount(
@@ -883,14 +883,14 @@ export class ItemsService {
   }
 
   // ---------------------------------------------------------------
-  // Dependency tracking — "Used by" / "Depends on"
+  // Dependency tracking: "Used by" / "Depends on"
   // ---------------------------------------------------------------
 
   /**
    * Return the items that THIS item references (forward edges). For a
    * map, that's each layer's data_layer / arcgis_service.
    *
-   * Results are scoped to items the caller can see — if the map
+   * Results are scoped to items the caller can see: if the map
    * references something private that the caller isn't shared on, it
    * simply doesn't appear in the list (instead of 403'ing, which
    * would leak the existence of a hidden dependency).
@@ -973,7 +973,7 @@ export class ItemsService {
   ) {
     // Caller must be able to see the item itself before asking who
     // depends on it. We keep the returned row so downstream logic can
-    // decide how to match — by uuid for most items, by normalized URL
+    // decide how to match: by uuid for most items, by normalized URL
     // when the target is an arcgis_service (whose web-map layer refs
     // are URL-based, not id-based).
     const target = await this.get(user, id);
@@ -985,7 +985,7 @@ export class ItemsService {
       ? normalizeArcgisUrl(targetUrl)
       : null;
 
-    // Pull every referencer-type item in the org — we need their data
+    // Pull every referencer-type item in the org: we need their data
     // to extract refs. We'll filter for visibility when shaping the
     // response.
     const referencers = await this.prisma.item.findMany({

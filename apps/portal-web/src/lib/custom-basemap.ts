@@ -33,7 +33,7 @@ const DEFAULT_GLYPHS =
  *                the row's `config` JSON
  *
  * For `vector-style` we return a sentinel that the caller (MapCanvas)
- * handles specially — MapLibre's setStyle() accepts a URL string in
+ * handles specially: MapLibre's setStyle() accepts a URL string in
  * addition to a StyleSpecification, so we use the string form to let
  * it fetch and parse the JSON itself.
  */
@@ -65,7 +65,7 @@ export function customBasemapToStyle(b: CustomBasemap): CustomStyle {
     };
   }
 
-  // WMS — we treat the URL as the GetMap base and compose a tile URL
+  // WMS: we treat the URL as the GetMap base and compose a tile URL
   // with the standard WMS 1.1.1 / 1.3.0 parameters. Callers populate
   // `config` with `layers` (required), plus optional `format`,
   // `transparent`, `version`, `styles`, `crs`.
@@ -132,7 +132,7 @@ function buildWmsTileUrl(
 
 /**
  * MapLibre's bbox placeholder already includes braces, so we should
- * NOT url-encode it — encoding would break the substitution. Every
+ * NOT url-encode it: encoding would break the substitution. Every
  * other value is safe to encodeURIComponent.
  */
 function encodeWmsParam(v: string): string {

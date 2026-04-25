@@ -58,7 +58,7 @@ export default async function AdminUsersPage() {
       users = await apiFetch<AdminUserRow[]>('/api/admin/users?max=200');
     } catch (err) {
       // Surface the failure instead of silently returning an empty
-      // table — an empty result indistinguishable from "no users yet"
+      // table: an empty result indistinguishable from "no users yet"
       // is exactly the bug report path that sent us here (admin client
       // not live in realm, service account missing a role, etc).
       listError =

@@ -130,7 +130,7 @@ export function PickListEditor({ itemId, initial, canEdit }: Props) {
       }
     }
     updateEntries(next);
-    return `Imported ${rows.length} row${rows.length === 1 ? '' : 's'} — ${added} added, ${replaced} replaced, ${skipped} skipped.`;
+    return `Imported ${rows.length} row${rows.length === 1 ? '' : 's'}: ${added} added, ${replaced} replaced, ${skipped} skipped.`;
   }
 
   async function handleCsvFile(file: File) {
@@ -220,7 +220,7 @@ export function PickListEditor({ itemId, initial, canEdit }: Props) {
 
   async function save() {
     setError(null);
-    // Block saves with empty codes or duplicate codes — the server
+    // Block saves with empty codes or duplicate codes: the server
     // doesn't enforce this today but domain-reference consumers
     // depend on it.
     const codes = new Set<string>();
@@ -272,7 +272,7 @@ export function PickListEditor({ itemId, initial, canEdit }: Props) {
     <div className="space-y-4">
       {!canEdit ? (
         <div className="rounded-md border border-border bg-surface-1 p-3 text-xs text-muted">
-          Read-only view — you don&apos;t have edit access to this pick list.
+          Read-only view: you don&apos;t have edit access to this pick list.
         </div>
       ) : null}
 
@@ -530,7 +530,7 @@ export function PickListEditor({ itemId, initial, canEdit }: Props) {
  *   - Quoted fields with embedded commas and doubled "" escapes
  *   - CRLF or LF line endings
  *
- * Deliberately NOT a full RFC 4180 impl — we don't need escaped newlines
+ * Deliberately NOT a full RFC 4180 impl: we don't need escaped newlines
  * inside quoted fields for the pick-list use case. Imports with that
  * shape can go through the .xlsx path instead.
  */

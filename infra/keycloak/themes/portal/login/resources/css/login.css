@@ -1,9 +1,9 @@
 /*
- * Portal login theme — minimal skin over keycloak.v2 (Keycloak 26 /
+ * Portal login theme: minimal skin over keycloak.v2 (Keycloak 26 /
  * PatternFly 5). We inherit the parent theme's layout entirely and
  * only recolor + typographically nudge things. Layout-level rules
  * (positioning, grid, flex) were removed because Keycloak 26's PF5
- * layout uses a two-column grid on large viewports — forcing flex
+ * layout uses a two-column grid on large viewports: forcing flex
  * on the containers collapses that layout onto itself.
  *
  * Design intent: light page, white card, portal accent on the
@@ -49,7 +49,7 @@
   --pf-v5-global--BorderColor--300: var(--portal-border);
 }
 
-/* Page background — replace keycloak.v2's dark photo with a soft
+/* Page background: replace keycloak.v2's dark photo with a soft
    neutral. Font-family too, so the login surface matches the app. */
 html,
 body {
@@ -66,7 +66,7 @@ body.login-pf,
   min-height: 100vh;
 }
 
-/* Centering the login card — both axes.
+/* Centering the login card: both axes.
  *
  * PF5's login layout is a grid with a dedicated brand column plus
  * internal paddings that reliably push the card off-center when the
@@ -103,7 +103,7 @@ body.login-pf,
    an explicit dark background in some builds; override to the portal
    surface-1 (white) so the slate-900 title reads cleanly. Same for
    the header + body sub-sections since PF5 can set backgrounds per
-   sub-region. !important here only — the PF5 cascade has inline-style
+   sub-region. !important here only: the PF5 cascade has inline-style
    specificity in places we can't rely on. */
 .pf-v5-c-login__main,
 .pf-v5-c-login__main-header,
@@ -137,7 +137,7 @@ body.login-pf,
   border: 1px solid var(--portal-border) !important;
 }
 
-/* Primary button — the bits PF5 tokens don't quite cover. */
+/* Primary button: the bits PF5 tokens don't quite cover. */
 button.pf-v5-c-button.pf-m-primary,
 input[type="submit"].pf-v5-c-button.pf-m-primary,
 #kc-login,
@@ -155,7 +155,7 @@ button[type="submit"].pf-m-primary:hover {
   border-color: var(--portal-accent-hover);
 }
 
-/* Inputs — keep the parent shape, just soften borders + focus ring
+/* Inputs: keep the parent shape, just soften borders + focus ring
    to the portal accent. */
 .pf-v5-c-form-control,
 .pf-v5-c-form-control__input,
@@ -172,7 +172,7 @@ button[type="submit"].pf-m-primary:hover {
   box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.25);
 }
 
-/* Labels — PF5 renders them in a specific color; nudge to our muted
+/* Labels: PF5 renders them in a specific color; nudge to our muted
    shade so they match the app's form labels. */
 .pf-v5-c-form__label-text,
 .pf-v5-c-form__group-label-main,
@@ -211,7 +211,7 @@ label {
   background-repeat: no-repeat;
 }
 
-/* Hide keycloak.v2's own top-of-page brand block — we put the mark
+/* Hide keycloak.v2's own top-of-page brand block: we put the mark
    inside the card instead. */
 .login-pf-page-header,
 #kc-header {
@@ -231,7 +231,7 @@ label {
   text-decoration: underline;
 }
 
-/* Error / alert banners — tint to soft red so they fit the palette. */
+/* Error / alert banners: tint to soft red so they fit the palette. */
 .pf-v5-c-alert.pf-m-danger,
 .alert-error,
 .kc-feedback-text.error {

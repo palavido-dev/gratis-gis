@@ -35,7 +35,7 @@ export class MaintenanceModeMiddleware implements NestMiddleware {
       statusCode: 503,
       error: 'Service Unavailable',
       message:
-        "The portal is temporarily unavailable while an admin is restoring a backup. This usually takes a minute or two — please try again shortly.",
+        "The portal is temporarily unavailable while an admin is restoring a backup. This usually takes a minute or two: please try again shortly.",
       reason: snap.reason,
       startedAt: snap.startedAt,
     });

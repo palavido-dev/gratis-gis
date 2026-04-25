@@ -66,7 +66,7 @@ NOMINATIM_THREADS=2
 
 Monaco imports in under 2 minutes and gives the full pipeline a
 smoke-test without chewing through disk. It is **not** useful for
-actual geocoding — most real queries will return nothing.
+actual geocoding: most real queries will return nothing.
 
 ## Import lifecycle
 
@@ -129,10 +129,10 @@ The next boot will re-download the PBF and re-import from scratch.
 
 Set `NOMINATIM_URL` on portal-web to a different endpoint:
 
-- **Public OSM** (`https://nominatim.openstreetmap.org`) — free, rate-
+- **Public OSM** (`https://nominatim.openstreetmap.org`): free, rate-
   limited to 1 req/sec per their usage policy. Acceptable for demos,
   not for any real user traffic.
-- **Paid providers** — Mapbox Search, MapTiler, LocationIQ, etc.
+- **Paid providers**: Mapbox Search, MapTiler, LocationIQ, etc.
   Usually need an API key; adapt the `/api/geocode` proxy to sign
   requests with that key. A note on top of the proxy makes this a
   10-minute change.

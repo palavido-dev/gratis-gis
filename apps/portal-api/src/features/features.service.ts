@@ -63,7 +63,7 @@ export interface QueryFeaturesOpts {
   offset?: number;
   /** ISO 8601 timestamp: return features valid at this moment */
   at?: string;
-  /** ISO 8601 timestamp: delta-sync mode — return all rows touched since this cursor.
+  /** ISO 8601 timestamp: delta-sync mode: return all rows touched since this cursor.
    *  Includes both current rows (valid_to IS NULL) and rows that were expired/deleted
    *  (valid_to >= since). Forces includeMeta=true so callers can detect tombstones. */
   since?: string;
@@ -141,7 +141,7 @@ function rowToFeature(row: FeatureRow, includeMeta: boolean): GeoJsonFeature {
  * Manages per-item PostGIS feature tables.
  *
  * Each data_layer item owns a dedicated table `fs_<uuid_no_dashes>`.
- * Rows are never overwritten — instead every update expires the old version
+ * Rows are never overwritten: instead every update expires the old version
  * (sets valid_to = NOW()) and inserts a new one (valid_from = NOW(),
  * valid_to = NULL). Deletes likewise only set valid_to. This gives full
  * point-in-time query capability with no separate history table needed.
@@ -160,7 +160,7 @@ export class FeaturesService {
   // -------------------------------------------------------------------------
 
   /**
-   * Create the PostGIS table for a feature service item. Idempotent —
+   * Create the PostGIS table for a feature service item. Idempotent
    * safe to call if the table already exists.
    */
   async provisionTable(itemId: string): Promise<void> {
@@ -199,7 +199,7 @@ export class FeaturesService {
     `);
     // Partial UNIQUE index: at most one current (unexpired) row per
     // global_id. Concurrent updateFeature() / deleteFeature() calls
-    // can't both insert a new live version — the loser hits a unique-
+    // can't both insert a new live version: the loser hits a unique-
     // violation and fails cleanly instead of corrupting the table
     // with two "current" rows for the same feature.
     await this.prisma.$executeRawUnsafe(`
@@ -211,7 +211,7 @@ export class FeaturesService {
 
   /**
    * Drop the feature table for an item. Called when the item is purged.
-   * Idempotent — safe if the table never existed.
+   * Idempotent: safe if the table never existed.
    */
   async dropTable(itemId: string): Promise<void> {
     const tbl = toTableName(itemId);
@@ -368,7 +368,7 @@ export class FeaturesService {
     // Expire + insert has to be atomic: otherwise a concurrent caller
     // can read the same "current" row, both expire it, and both insert
     // new live rows (the partial UNIQUE index from provisionTable then
-    // saves us by rejecting the second INSERT — the transaction lets
+    // saves us by rejecting the second INSERT: the transaction lets
     // us report that cleanly instead of leaking a half-done update).
     // SELECT ... FOR UPDATE serializes concurrent updaters on the gid
     // so only one proceeds to expire + insert.
@@ -476,7 +476,7 @@ export class FeaturesService {
     const conditions: string[] = [];
 
     if (opts.since) {
-      // Delta-sync mode: return all rows touched since the cursor — both new/updated
+      // Delta-sync mode: return all rows touched since the cursor: both new/updated
       // rows (valid_from >= since) and rows that were expired/deleted (valid_to >= since).
       // includeMeta is forced below so callers can identify tombstones via validTo.
       const ts = new Date(opts.since);
@@ -621,7 +621,7 @@ export class FeaturesService {
   // -------------------------------------------------------------------------
 
   /**
-   * Add a UUID foreign-key column to a child feature table. Idempotent —
+   * Add a UUID foreign-key column to a child feature table. Idempotent
    * safe to call if the column already exists. Used when registering a
    * parent-child relationship.
    *

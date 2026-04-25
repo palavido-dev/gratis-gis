@@ -121,7 +121,7 @@ export function SharingPanel({
 
   // Resolve display names for every user principal already in the
   // shares list. Group names come from the `groups` prop the parent
-  // hands us, but user names aren't pre-loaded anywhere — without
+  // hands us, but user names aren't pre-loaded anywhere: without
   // this the row just showed a truncated UUID. Fetched via the same
   // /users?ids= batch endpoint the access matrix uses.
   const [userNames, setUserNames] = useState<Record<string, string>>({});
@@ -155,7 +155,7 @@ export function SharingPanel({
           return next;
         });
       } catch {
-        /* non-fatal — row falls back to short id */
+        /* non-fatal: row falls back to short id */
       }
     })();
     return () => {

@@ -19,13 +19,13 @@ surface must feel crafted and consistent. "Good enough" is not good enough.
    later. Every component has matched light and dark tokens.
 6. **Empty, loading, error, and success states are non-optional.** No page
    ships with just a happy path.
-7. **Visual, guided, or upload — never raw text-entry by default.** When
+7. **Visual, guided, or upload: never raw text-entry by default.** When
    a user needs to provide a non-trivial chunk of input (a polygon, a
    schema, a list of values, a URL, a palette, a set of rows), the
    primary surface must be a direct-manipulation or guided workflow:
    draw on a map, pick from a list, upload a file, choose an existing
    portal item, step through a wizard. Raw paste / typed-JSON / manual
-   coordinate entry is an *advanced fallback* behind a disclosure —
+   coordinate entry is an *advanced fallback* behind a disclosure
    present for power users and for cases the primary path can't handle,
    never the only way in. This rule applies uniformly: a polygon UI
    shows a map-draw first with "Paste GeoJSON" tucked under an advanced

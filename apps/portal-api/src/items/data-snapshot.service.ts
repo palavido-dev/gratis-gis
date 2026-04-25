@@ -52,7 +52,7 @@ export class DataSnapshotService {
         ...(note ? { note } : {}),
       },
     });
-    // Enforce the per-item cap synchronously — if we just pushed the
+    // Enforce the per-item cap synchronously: if we just pushed the
     // 21st snapshot, the 1st drops off now. Cheaper than a periodic
     // sweep because we already know which item we touched.
     await this.enforceCap(itemId);

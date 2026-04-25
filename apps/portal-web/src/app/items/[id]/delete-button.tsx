@@ -16,7 +16,7 @@ interface Props {
  * Soft-delete action. This moves the item to the trash, where it remains
  * recoverable for the retention window before an automated job purges it.
  * Because the action is reversible, we don't require typed-name
- * confirmation anymore -- a simple confirm is enough friction.
+ * confirmation anymore: a simple confirm is enough friction.
  */
 export function DeleteItemButton({ itemId, itemTitle, retentionDays = 30 }: Props) {
   const router = useRouter();

@@ -2,7 +2,7 @@
  * Canonical shape stored in an Item's dataJson when `type = 'arcgis_service'`.
  *
  * An arcgis_service item is a thin pointer at a remote ArcGIS REST
- * MapServer or FeatureServer — no feature data lives in the item
+ * MapServer or FeatureServer: no feature data lives in the item
  * itself. The viewer queries the service live by bounding box each
  * time a map draws the layer, so the item's job is just to persist
  * the minimum metadata a map layer needs (which URL, which sublayer,
@@ -34,7 +34,7 @@ export interface ArcgisServiceLayerSnapshot {
  * Reusable mixin for any item type that points at an external
  * multi-layer service (arcgis_service today, wms_service and
  * wfs_service later). An item carries a subset of the upstream
- * service's layers — the portal's "curated view" on it — plus
+ * service's layers: the portal's "curated view" on it: plus
  * optional per-layer overrides the author can set without round-
  * tripping upstream (display-label rename, default-hidden flag).
  *
@@ -60,7 +60,7 @@ export interface ExternalLayerSelection {
     {
       /** Override the upstream display name. */
       label?: string;
-      /** Start hidden in the default map rendering — the author
+      /** Start hidden in the default map rendering: the author
        *  keeps the layer in the curated set but doesn't draw it by
        *  default. User can toggle on. */
       visible?: boolean;

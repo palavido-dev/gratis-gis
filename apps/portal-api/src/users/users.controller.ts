@@ -19,7 +19,7 @@ class UpdateMeDto {
   avatarUrl?: string | null;
 
   // Identity-adjacent fields that need to go back to Keycloak. All
-  // optional — the PATCH is a sparse update, absent keys are left
+  // optional: the PATCH is a sparse update, absent keys are left
   // untouched. Username is intentionally NOT editable here; it's the
   // stable handle other tables key on.
   @IsOptional() @IsString() @MinLength(1) @MaxLength(60)
@@ -60,7 +60,7 @@ export class UsersController {
     ]);
     // Pull firstName/lastName from Keycloak so the /profile form can
     // prepopulate edit inputs. We tolerate Keycloak unreachability
-    // here — if the admin API isn't configured the profile page still
+    // here: if the admin API isn't configured the profile page still
     // renders, it just falls back to the split-on-space heuristic.
     let firstName: string | undefined;
     let lastName: string | undefined;
@@ -70,7 +70,7 @@ export class UsersController {
         firstName = kcUser.firstName;
         lastName = kcUser.lastName;
       } catch {
-        /* non-fatal — read-only display continues to work */
+        /* non-fatal: read-only display continues to work */
       }
     }
     return {
@@ -185,7 +185,7 @@ export class UsersController {
         // Surface a 503 instead of silently no-op'ing so the user
         // knows why their edit didn't stick.
         throw new Error(
-          'Keycloak admin API is not configured — identity edits are disabled',
+          'Keycloak admin API is not configured: identity edits are disabled',
         );
       }
       await this.kc.updateUser(user.id, identityPatch);

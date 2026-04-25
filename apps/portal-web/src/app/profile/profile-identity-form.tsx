@@ -60,7 +60,7 @@ export function ProfileIdentityForm({ initial }: Props) {
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
-        setError(`Save failed: ${res.status}${text ? ` — ${text}` : ''}`);
+        setError(`Save failed: ${res.status}${text ? `: ${text}` : ''}`);
         return;
       }
       setSaved(true);

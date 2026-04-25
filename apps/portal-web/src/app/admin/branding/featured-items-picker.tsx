@@ -22,7 +22,7 @@ import { getItemTypeAccent, getItemTypeIcon } from '@/lib/item-type-icon';
  *   - Load the org's public items once on mount and keep them in
  *     memory; the list isn't long enough to warrant server-side
  *     search for v1.
- *   - Current featured order is driven by `value` — the parent
+ *   - Current featured order is driven by `value`: the parent
  *     keeps the canonical state, we just emit onChange with the
  *     reordered / filtered id array.
  *   - An "Add featured item" dropdown shows every public item that
@@ -61,7 +61,7 @@ export function FeaturedItemsPicker({ value, onChange }: Props) {
         // The server-side list endpoint filters by visibility, so
         // public items are the intersection of "listed to me" and
         // `access === 'public'`. We fetch the whole visible set and
-        // narrow here — saves needing a new API for a single page.
+        // narrow here: saves needing a new API for a single page.
         const res = await fetch('/api/portal/items');
         if (!res.ok) {
           setLoadError(`Could not load items: ${res.status}`);
@@ -97,7 +97,7 @@ export function FeaturedItemsPicker({ value, onChange }: Props) {
   }, [items]);
 
   // "Featured rows" are rendered in the exact order the parent
-  // owns — we don't reorder by title / date here.
+  // owns: we don't reorder by title / date here.
   const featuredRows = value.map((id) => ({
     id,
     item: itemsById.get(id),
@@ -190,7 +190,7 @@ export function FeaturedItemsPicker({ value, onChange }: Props) {
         </ul>
       )}
 
-      {/* Adder — a popover-style panel. Shown as a collapsible
+      {/* Adder: a popover-style panel. Shown as a collapsible
           chunk rather than a modal so the admin can see the
           already-featured list while picking. */}
       {adding ? (
@@ -245,7 +245,7 @@ function FeaturedRow({
   onRemove: () => void;
 }) {
   // Missing item means the id in `value` no longer matches a public
-  // item — either the item's access was flipped, the item was
+  // item: either the item's access was flipped, the item was
   // deleted, or it's in a different org. Show a soft-warning row
   // rather than silently dropping it, so the admin can clean up.
   if (!item) {

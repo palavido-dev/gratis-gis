@@ -27,7 +27,7 @@ import { keycloakEndSessionBase } from '@/lib/auth';
  */
 export async function GET(req: NextRequest) {
   // getToken's `secret` field is required; fall back to an empty
-  // string if the env is somehow missing so the call type-checks —
+  // string if the env is somehow missing so the call type-checks
   // the worst case is a null token, which we handle gracefully below
   // by relying on client_id alone for the Keycloak round-trip.
   const token = await getToken({

@@ -22,7 +22,7 @@ export default async function AdminBackupPage() {
   }
   if (me.orgRole !== 'admin') redirect('/items');
 
-  // Portal display name is the confirmation phrase on Restore —
+  // Portal display name is the confirmation phrase on Restore
   // plain "Acme Corp" rather than the URL slug "acme-corp". Fetched
   // server-side so the dialog can prefill the prompt without an
   // extra round trip.
@@ -36,7 +36,7 @@ export default async function AdminBackupPage() {
   }
 
   // Load config + runs in parallel. If either fails we still render
-  // the page with an error banner — operators need to be able to see
+  // the page with an error banner: operators need to be able to see
   // the page even when something is broken, since that's exactly
   // when they need it.
   let config: BackupConfig | null = null;
@@ -70,8 +70,8 @@ export default async function AdminBackupPage() {
           <p className="text-xs text-muted">Admin</p>
           <h1 className="text-2xl font-semibold tracking-tight">Backup</h1>
           <p className="mt-0.5 text-sm text-muted">
-            Save a complete snapshot of your portal — all items,
-            uploaded files, sharing, branding, and history — so you can
+            Save a complete snapshot of your portal: all items,
+            uploaded files, sharing, branding, and history: so you can
             recover if something goes wrong. Set a schedule below or
             take one on demand.
           </p>

@@ -6,13 +6,13 @@ also runs as a PWA for offline use on phones and tablets.
 
 ## Two item types
 
-- **form** — the definition of a data collection form. References a
+- **form**: the definition of a data collection form. References a
   target data_layer (where submissions land) and a form schema
   (fields, validation, conditional visibility). The form-schema
   package holds the runtime-parseable descriptor.
-- **form_submission_collection** — a queryable view of submissions
-  against a given form. Not strictly needed as a separate item — a
-  data_layer already is this — but giving it a dedicated item
+- **form_submission_collection**: a queryable view of submissions
+  against a given form. Not strictly needed as a separate item: a
+  data_layer already is this: but giving it a dedicated item
   type makes discoverability better (you can share submissions
   without sharing the form).
 
@@ -28,7 +28,7 @@ Sync protocol candidates:
 
 - Plain REST delta endpoints on feature services (simplest, works
   today).
-- CRDT-based merge for attribute fields (Automerge) — future, for
+- CRDT-based merge for attribute fields (Automerge): future, for
   true concurrent editing.
 
 ## Map + form flow

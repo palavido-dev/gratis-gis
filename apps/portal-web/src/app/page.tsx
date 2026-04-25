@@ -16,7 +16,7 @@ export default async function HomePage() {
 
   // Unauthenticated visitors see a dedicated landing page outside
   // the app-shell. Landing data comes from the portal-api's public
-  // endpoint — no session cookie, no bearer, anyone-on-the-internet
+  // endpoint: no session cookie, no bearer, anyone-on-the-internet
   // can read it.
   if (!session) {
     const data = await loadLandingData();

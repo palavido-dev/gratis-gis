@@ -18,7 +18,7 @@ import type {
  *
  * Renders the same shape for v1/v2 (top-level `source`) and v3 (a
  * source block per layer, one row each). Silently renders nothing
- * when the item has no source block recorded — that's the "legacy /
+ * when the item has no source block recorded: that's the "legacy /
  * hand-seeded / not-recorded" path.
  */
 interface Props {

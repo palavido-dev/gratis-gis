@@ -11,7 +11,7 @@
  *   3. Future-proofs us to add rate limiting, caching, or metering
  *      without touching the client.
  *
- * Auth: a valid session is required. Anonymous callers get a 401 — we
+ * Auth: a valid session is required. Anonymous callers get a 401: we
  * don't want this endpoint doubling as a free geocoder for the world.
  */
 import { getServerSession } from 'next-auth';

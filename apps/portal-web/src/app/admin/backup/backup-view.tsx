@@ -19,7 +19,7 @@ import { RestoreDialog } from './restore-dialog';
 
 /**
  * Effective config as returned by /admin/backup/config. Matches the
- * shape the service emits — presentation-friendly, with the schedule
+ * shape the service emits: presentation-friendly, with the schedule
  * already summarised as English.
  */
 export interface BackupConfig {
@@ -230,7 +230,7 @@ export function BackupView({ initialConfig, initialRuns, orgName }: Props) {
 }
 
 // ---------------------------------------------------------------
-// Settings card — the editable replacement for the old read-only
+// Settings card: the editable replacement for the old read-only
 // config panel. One form, one Save button, optimistic UI on the
 // summary so the cron description updates the instant you tweak a
 // picker rather than after the round trip.
@@ -308,7 +308,7 @@ function SettingsCard({
         <h2 className="text-sm font-medium text-ink-0">Settings</h2>
         <p className="text-xs text-muted">
           Control how often backups run and how many to keep. Changes
-          apply the moment you click Save — no restart needed.
+          apply the moment you click Save: no restart needed.
         </p>
       </header>
 
@@ -497,7 +497,7 @@ function SettingsCard({
                   placeholder="e.g. D:\\gratis-gis-backups"
                 />
                 <p className="mt-1 text-[10px] text-muted">
-                  Moving this doesn't move existing backup files — any
+                  Moving this doesn't move existing backup files: any
                   backups in the old folder stay there (but won't show
                   in the list).
                 </p>
@@ -571,7 +571,7 @@ function RunRow({
   const started = new Date(run.startedAt);
   const finished = run.finishedAt ? new Date(run.finishedAt) : null;
   const durationMs = finished ? finished.getTime() - started.getTime() : null;
-  const size = run.sizeBytes ? formatBytes(BigInt(run.sizeBytes)) : '—';
+  const size = run.sizeBytes ? formatBytes(BigInt(run.sizeBytes)) : '-';
   const triggeredBy = run.trigger === 'scheduled' ? 'Scheduled' : 'Manual';
 
   return (
@@ -580,7 +580,7 @@ function RunRow({
         <span title={started.toISOString()}>{started.toLocaleString()}</span>
       </td>
       <td className="px-4 py-2 text-muted">
-        {durationMs === null ? '—' : formatDuration(durationMs)}
+        {durationMs === null ? '-' : formatDuration(durationMs)}
       </td>
       <td className="px-4 py-2 text-muted">{triggeredBy}</td>
       <td className="px-4 py-2">
@@ -695,12 +695,12 @@ function WhatsIncluded() {
       </header>
       <ul className="list-inside list-disc space-y-1 text-xs text-ink-1">
         <li>
-          <span className="font-medium">All your portal content</span> —
+          <span className="font-medium">All your portal content</span>
           maps, layers, data, forms, groups, sharing settings, basemaps,
           branding, and the full revision history of feature data.
         </li>
         <li>
-          <span className="font-medium">All uploaded files</span> —
+          <span className="font-medium">All uploaded files</span>
           item thumbnails, hero images, and every attachment on a
           feature (photos, PDFs, etc.).
         </li>
@@ -713,14 +713,14 @@ function WhatsIncluded() {
         </li>
         <li>
           <span className="font-medium">Not included:</span> server
-          secrets, SSL material, and Docker configuration — those live
+          secrets, SSL material, and Docker configuration: those live
           in your deployment repo or secret store.
         </li>
       </ul>
       <p className="mt-3 text-[11px] text-muted">
         Each backup is a single <code className="font-mono">.tar.gz</code>{' '}
         file in the folder shown under Advanced settings. You can copy
-        them to external storage, object storage, or a backup service —
+        them to external storage, object storage, or a backup service
         they're portable files.
       </p>
     </section>

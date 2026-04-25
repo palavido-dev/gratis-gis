@@ -12,7 +12,7 @@ import { PrincipalPicker, type PrincipalOption } from './principal-picker';
  *   - bulk reassign from the items list
  *   - admin-user-delete forced reassign
  *
- * The dialog itself is mechanical — it drives a user-picker, asks
+ * The dialog itself is mechanical: it drives a user-picker, asks
  * the caller what access (if any) the previous owner should keep,
  * and calls back with the chosen userId + access option. The parent
  * component is responsible for the actual PATCH / bulk POST and the
@@ -32,7 +32,7 @@ interface Props {
   saving: boolean;
   /**
    * Pre-selected owner shown above the picker. Typical use is "the
-   * admin doing the reassign" — one-click confirmation for the
+   * admin doing the reassign": one-click confirmation for the
    * common case where the admin will take ownership themselves.
    * Null = no default.
    */

@@ -4,7 +4,7 @@
  * handful of known corruption patterns left over from today's big
  * rename passes. We walk the same trees as the mojibake sweep but
  * operate at the byte level because the bad sequences AREN'T mojibake
- * — they're bytes that decode-to-nothing (webpack's swc-loader
+ *: they're bytes that decode-to-nothing (webpack's swc-loader
  * rejects the file outright with "stream did not contain valid UTF-8").
  *
  * Patterns we know about:
@@ -54,8 +54,8 @@ function walk(dir) {
 // JS strings (which would choke on the invalid sequences themselves).
 const REPLACEMENTS = [
   // Longest patterns first so the narrower ones don't eat them.
-  // Every entry here is a byte sequence that a previous pass —
-  // either the rename bulk-replace or the NBSP-strip — half-broke.
+  // Every entry here is a byte sequence that a previous pass
+  // either the rename bulk-replace or the NBSP-strip: half-broke.
   // Safest universal substitute is an ASCII em-dash "-" unless the
   // surrounding text specifically wants an arrow; we pick ascii
   // equivalents so the replacement itself is unambiguously valid.
@@ -73,7 +73,7 @@ const REPLACEMENTS = [
     name: 'broken-arrow-10b-split',
   },
   {
-    // wizard.tsx "—" triple-mojibake (34 bytes) — exact match:
+    // wizard.tsx "-" triple-mojibake (34 bytes): exact match:
     //   C3 83 C6 92 C3 82 C2 A2 C3 83 C2 A2 E2 80 C5 A1
     //   C3 82 C2 AC C3 83 C2 A2 C3 A2 E2 80 9A C2 AC
     //   C3 82 C2 9D
@@ -100,7 +100,7 @@ const REPLACEMENTS = [
   },
 ];
 
-/** Byte-level indexOf — identical semantics to Buffer#indexOf. */
+/** Byte-level indexOf: identical semantics to Buffer#indexOf. */
 function findAll(hay, needle) {
   const hits = [];
   let i = 0;
@@ -165,7 +165,7 @@ for (const root of ROOTS) {
   }
   for (const f of walk(join(ROOT, root))) {
     // The Windows bind-mount in our current sandbox occasionally returns
-    // ENOENT on open() for files that readdir/stat report as present —
+    // ENOENT on open() for files that readdir/stat report as present
     // specifically for some files nested under bracketed Next.js dynamic
     // route dirs like `[id]`. If we can't open, log + skip so the rest
     // of the sweep still runs. (Those files are visible to the host's
@@ -210,7 +210,7 @@ for (const root of ROOTS) {
     if (still.length > 0) {
       // Generic salvage: walk the file as a sequence of "runs".
       // Each ASCII byte passes through unchanged. Each maximal run
-      // of non-ASCII bytes is inspected — if any byte in the run is
+      // of non-ASCII bytes is inspected: if any byte in the run is
       // flagged by scanInvalid, replace the whole run with a single
       // ASCII hyphen; otherwise preserve it byte-for-byte. We lose
       // the original codepoint in bad runs but gain a compilable
@@ -219,7 +219,7 @@ for (const root of ROOTS) {
       // Earlier version tried to push ASCII then "pop back" when it
       // hit a bad byte, but the out-array index diverged from the
       // bytes-array index after the first replacement and later
-      // rewinds popped the wrong elements — corrupting unrelated
+      // rewinds popped the wrong elements: corrupting unrelated
       // regions of the file. The run-based version below does a
       // single forward pass so the two indexes never need to agree.
       const out = [];
@@ -252,7 +252,7 @@ for (const root of ROOTS) {
       if (still.length > 0) {
         unfixable++;
         console.error(
-          `${f}: ${still.length} invalid sequence(s) remain after salvage — first at offset ${still[0]}. Context (hex):`,
+          `${f}: ${still.length} invalid sequence(s) remain after salvage: first at offset ${still[0]}. Context (hex):`,
         );
         const start = Math.max(0, still[0] - 8);
         const end = Math.min(bytes.length, still[0] + 8);

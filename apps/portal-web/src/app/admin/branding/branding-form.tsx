@@ -36,7 +36,7 @@ export function BrandingForm({ initial }: Props) {
   const [showPublicItems, setShowPublicItems] = useState(
     initial.landingShowPublicItems,
   );
-  // Featured-item ordering is the authored list itself — no string
+  // Featured-item ordering is the authored list itself: no string
   // intermediate any more. The picker emits the full array on every
   // change so the dirty check can compare directly.
   const [featuredIds, setFeaturedIds] = useState<string[]>(
@@ -83,7 +83,7 @@ export function BrandingForm({ initial }: Props) {
         landingShowPublicItems: showPublicItems,
         // The picker only emits ids it resolved against the public
         // items list, so per-row UUID validation isn't needed here
-        // any more — invalid pastes can't get into the state.
+        // any more: invalid pastes can't get into the state.
         landingFeaturedItemIds: featuredIds,
       };
       const res = await fetch('/api/portal/admin/branding', {

@@ -23,7 +23,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
  * Not implemented:
  *   - Full ISO 19115 metadata records (gmd:MD_Metadata) -- callers
  *     that need richer metadata can fall back to the JSON catalog.
- *   - Filter / Constraint expressions -- everything is an
+ *   - Filter / Constraint expressions: everything is an
  *     unfiltered list of public items; max=50 by default.
  *   - GetRecordById, DescribeRecord, Transactions: out of scope
  *     for a read-only public surface.

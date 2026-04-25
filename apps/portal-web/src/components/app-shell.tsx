@@ -68,7 +68,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
         <nav className="mt-4 flex flex-col gap-0.5 text-sm">
           <NavLink href="/" icon={<LayoutGrid className="h-4 w-4" />}>Overview</NavLink>
           {/* Single items entry. The My / All toggle lives on the page
-              itself — see apps/portal-web/src/app/items/page.tsx. */}
+              itself: see apps/portal-web/src/app/items/page.tsx. */}
           <NavLink href="/items" icon={<MapIcon className="h-4 w-4" />}>Items</NavLink>
           <NavLink href="/groups" icon={<Users className="h-4 w-4" />}>Groups</NavLink>
           <NavLink href="/recently-deleted" icon={<Trash2 className="h-4 w-4" />}>

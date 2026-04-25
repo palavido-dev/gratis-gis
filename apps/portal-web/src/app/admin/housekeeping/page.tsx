@@ -14,7 +14,7 @@ import {
  * that look like they could be retired or reviewed, with links
  * straight to the detail pages where the admin takes action.
  *
- * All heuristics — none of these lists gate any automatic
+ * All heuristics: none of these lists gate any automatic
  * behaviour. The admin always makes the call.
  */
 export default async function AdminHousekeepingPage() {

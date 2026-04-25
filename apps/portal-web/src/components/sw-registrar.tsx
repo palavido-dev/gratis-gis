@@ -7,7 +7,7 @@ import { listenForOnline } from '@/lib/sync';
  * Registers the GratisGIS service worker and sets up an online-reconnect
  * handler to flush the pending write queue. Renders nothing.
  *
- * Must be a client component — placed in the root layout so it runs once
+ * Must be a client component: placed in the root layout so it runs once
  * per browser session regardless of which page is visited first.
  */
 export function SwRegistrar() {
@@ -18,7 +18,7 @@ export function SwRegistrar() {
     // dev server. Dev chunks under /_next/static/ reuse filenames across
     // restarts, and the SW's cache-first strategy for static assets
     // ends up serving old chunks whose module IDs no longer exist in
-    // the current webpack runtime — that's what produces the recurring
+    // the current webpack runtime: that's what produces the recurring
     // `options.factory undefined` crash after a dev server bounce.
     //
     // In dev, also proactively unregister any SW that a previous session

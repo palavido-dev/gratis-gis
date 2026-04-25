@@ -148,7 +148,7 @@ const accessOptions: Array<{
 ];
 
 /**
- * Create/edit form for item metadata. Data payload is not edited here —
+ * Create/edit form for item metadata. Data payload is not edited here
  * type-specific editors (map authoring, form designer, etc.) ship with
  * their respective pillars. On create, the payload defaults to {}.
  */

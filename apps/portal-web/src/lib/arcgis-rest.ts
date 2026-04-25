@@ -69,7 +69,7 @@ export async function probeService(
     }
   }
   // FeatureServers expose tables separately; surface those too so the
-  // picker shows them (user can pick an attribute-only "layer" — we'll
+  // picker shows them (user can pick an attribute-only "layer": we'll
   // still render an empty map but the table view works).
   if (Array.isArray(json.tables)) {
     for (const t of json.tables) {
@@ -85,7 +85,7 @@ export async function probeService(
   // If the caller passed …/0, bubble that up as the "picked" layer so
   // the dialog can pre-select the right row in the picker.
   if (layerId != null && !layers.some((l) => l.id === layerId)) {
-    // Layer wasn't in the service summary — probe the layer directly
+    // Layer wasn't in the service summary: probe the layer directly
     // so we at least have a display name.
     try {
       const lj = await fetchJson(
@@ -119,7 +119,7 @@ export async function probeService(
  * Respects the server's `maxRecordCount` by walking `resultOffset`
  * until `exceededTransferLimit` is false (or we hit `hardCap`).
  *
- * The returned collection is already in WGS84 (outSR=4326) — the
+ * The returned collection is already in WGS84 (outSR=4326): the
  * geojson output format implies it but we pass it explicitly so
  * servers that honor both don't pick a local CRS.
  */
@@ -191,7 +191,7 @@ async function fetchBBoxPage(
   if (json?.type !== 'FeatureCollection') {
     throw new Error(
       'ArcGIS server did not return GeoJSON. If this is an older ' +
-        'service (pre-10.8) it may only speak Esri JSON — we need a ' +
+        'service (pre-10.8) it may only speak Esri JSON: we need a ' +
         'server-side conversion shim for that case.',
     );
   }
@@ -223,7 +223,7 @@ function splitServiceUrl(raw: string): {
 } {
   const trimmed = raw.replace(/\/$/, '');
   // Matches ".../MapServer/0" or ".../FeatureServer/12" with optional
-  // query string — captures the numeric layer id as the last segment.
+  // query string: captures the numeric layer id as the last segment.
   const m = trimmed.match(
     /^(.*\/(?:MapServer|FeatureServer))\/(\d+)(?:\?.*)?$/i,
   );
@@ -266,7 +266,7 @@ function extentToBbox(
   // Only return the bbox when the spatial reference is WGS84. ArcGIS
   // servers commonly emit Web Mercator extents (wkid 3857/102100);
   // rather than reproject in the browser, we drop the extent in that
-  // case — the layer will still render once the user zooms to it.
+  // case: the layer will still render once the user zooms to it.
   const sr = (e.spatialReference as { wkid?: number } | undefined)?.wkid;
   if (sr && sr !== 4326) return null;
   return [xmin, ymin, xmax, ymax];

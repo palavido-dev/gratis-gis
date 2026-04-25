@@ -49,7 +49,7 @@ interface Props {
   shares: ItemShare[];
   /** Whether the current user has rights to edit sharing (owner/admin). */
   canManage: boolean;
-  /** Self user id — used to hide "shared with you (yourself)" noise. */
+  /** Self user id: used to hide "shared with you (yourself)" noise. */
   currentUserId: string;
   /** Prevents the parent <a> from navigating when the chip is clicked. */
   stopParentLink?: boolean;
@@ -191,7 +191,7 @@ export function ItemSharingIndicator({
     setCurrentShares(shares);
   }, [shares]);
 
-  // Filter out self-shares (if any) — we don't need to tell the user
+  // Filter out self-shares (if any): we don't need to tell the user
   // they shared with themselves.
   const visibleShares = useMemo(
     () =>
@@ -204,7 +204,7 @@ export function ItemSharingIndicator({
   const shareCount = visibleShares.length;
   const meta = ACCESS_META[currentAccess];
 
-  // Load names the first time the popover opens — avoid paying the
+  // Load names the first time the popover opens: avoid paying the
   // cost for cards the user never interacts with.
   const didLoadNames = useRef(false);
   useEffect(() => {

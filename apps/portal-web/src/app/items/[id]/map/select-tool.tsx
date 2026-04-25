@@ -42,7 +42,7 @@ interface Props {
  *   - lasso: freehand drag; release to close. Same centroid test
  *     as polygon once the path is formed.
  *
- * The toolbar owns no selection state — it just tells the canvas
+ * The toolbar owns no selection state: it just tells the canvas
  * which mode is live. The canvas applies selection changes via a
  * setSelection callback so the attribute table + feature-state
  * highlight stay in lockstep.

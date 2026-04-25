@@ -6,9 +6,9 @@
  * the same schema from the main thread with proper TypeScript types.
  *
  * Schema (must stay in sync with sw.js openDb()):
- *   sync_queue    — pending write ops queued while offline
- *   feature_cache — local copy of last-seen features per item
- *   sync_cursors  — per-item delta-sync cursors (ISO timestamps)
+ *   sync_queue   : pending write ops queued while offline
+ *   feature_cache: local copy of last-seen features per item
+ *   sync_cursors : per-item delta-sync cursors (ISO timestamps)
  */
 
 const DB_NAME = 'gratis-gis';
@@ -176,7 +176,7 @@ export async function clearItemCache(itemId: string): Promise<void> {
   const db = await openGratisDb();
   const tx = db.transaction('feature_cache', 'readwrite');
   const idx = tx.objectStore('feature_cache').index('itemId');
-  // Collect keys then delete — IDB cursors don't support delete-while-iterating cleanly.
+  // Collect keys then delete: IDB cursors don't support delete-while-iterating cleanly.
   const keys = await idbReq<IDBValidKey[]>(idx.getAllKeys(IDBKeyRange.only(itemId)));
   for (const key of keys) {
     tx.objectStore('feature_cache').delete(key);

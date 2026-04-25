@@ -19,14 +19,14 @@
  * The encoded image uses MapLibre's SDF convention: the *alpha*
  * channel carries the remap of the signed distance, with values
  * around 192/256 falling on the shape boundary. That matches the
- * contract MapLibre's symbol_sdf shader expects — it samples
+ * contract MapLibre's symbol_sdf shader expects: it samples
  * `texture2D(u_texture, v_tex).a` and thresholds near (256-64)/256
  * = 0.75 to decide inside/outside. RGB is set to white so when
  * MapLibre lerps through the image sampler it doesn't drag color
  * toward black at the edges.
  *
  * Previous iterations wrote the remap to the red channel and left
- * alpha at 255 everywhere — which made MapLibre treat every pixel
+ * alpha at 255 everywhere: which made MapLibre treat every pixel
  * as fully inside the shape, rendering a solid square of the
  * icon-color. Lesson learned: alpha is the payload.
  */
@@ -48,7 +48,7 @@ export function alphaToSdf(
   const buffer = opts.buffer ?? 0;
   // Matches tiny-sdf's default (1/8 of the texture size). A tighter
   // cutoff makes the edge smoothstep span fewer pixels, giving a
-  // sharper icon — min(w,h)/4 was too generous and showed up as a
+  // sharper icon: min(w,h)/4 was too generous and showed up as a
   // visible halo/haze around tinted icons.
   const cutoff = opts.cutoff ?? Math.min(w, h) / 8;
 
@@ -148,7 +148,7 @@ export function alphaToSdf(
 /**
  * Rasterize an SVG onto a canvas filled in black, then feed the
  * alpha mask into the SDF encoder. Used for both built-in and
- * uploaded vector icons — rasterized copies of the same SVG look
+ * uploaded vector icons: rasterized copies of the same SVG look
  * identical regardless of source.
  */
 export async function svgToSdf(svg: string, size: number): Promise<ImageData> {

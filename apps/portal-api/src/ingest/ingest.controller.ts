@@ -166,7 +166,7 @@ export class IngestController {
    * Per-layer ingest for v3 multi-layer items. Accepts a file + the
    * optional name of a source layer inside a multi-layer archive
    * (GDB, shapefile zip with several .shp). Features get bulk-
-   * inserted into the target layer's PostGIS table — which must
+   * inserted into the target layer's PostGIS table: which must
    * already exist (provisioned on item create by ItemsService).
    */
   @Post('items/:id/layers/:layerId/import')

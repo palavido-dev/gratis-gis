@@ -25,7 +25,7 @@ export type ScheduleMode = 'off' | 'daily' | 'weekly' | 'monthly' | 'custom';
 
 /**
  * User-facing config shape the admin page edits. All values are
- * effective values — i.e. the DB row merged over the env defaults —
+ * effective values: i.e. the DB row merged over the env defaults
  * so the UI can show what's actually running without having to
  * know the fallback order.
  */
@@ -127,7 +127,7 @@ export class BackupService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly cfg: ConfigService,
   ) {
-    // Reuse the same MinIO creds StorageService uses — if one works
+    // Reuse the same MinIO creds StorageService uses: if one works
     // the other does, which keeps the admin "backup failed" surface
     // from pointing at two different auth issues.
     const endpoint = cfg.get<string>('MINIO_ENDPOINT', 'http://localhost:9000');
@@ -158,7 +158,7 @@ export class BackupService implements OnModuleInit {
   }
 
   // ---------------------------------------------------------------
-  // Config — DB row merged over env defaults
+  // Config: DB row merged over env defaults
   // ---------------------------------------------------------------
 
   /**
@@ -295,7 +295,7 @@ export class BackupService implements OnModuleInit {
       },
     });
     // Make sure the directory actually exists so the very next run
-    // doesn't need to think about it. Failure here is not fatal —
+    // doesn't need to think about it. Failure here is not fatal
     // the run-time attempt will surface the real error if the
     // operator typed a path the process can't write to.
     const dir =
@@ -442,7 +442,7 @@ export class BackupService implements OnModuleInit {
    * so an admin watching the page can see the run is in flight, then
    * streams pg_dump + MinIO into a staging dir, seals the archive,
    * and finalises the row. On failure, the row is marked failed and
-   * the partial staging dir is removed — we never leave a half-tarred
+   * the partial staging dir is removed: we never leave a half-tarred
    * archive in the target directory.
    *
    * @param trigger 'manual' (user-initiated) or 'scheduled' (cron).
@@ -492,7 +492,7 @@ export class BackupService implements OnModuleInit {
       //    big bucket doesn't pin the whole thing in memory.
       const minioStats = await this.mirrorMinio(path.join(stageDir, 'minio'));
 
-      // 3. Manifest — enough context to drive a restore without
+      // 3. Manifest: enough context to drive a restore without
       //    reopening the dump files.
       const manifest: BackupManifest = {
         version: 1,
@@ -519,7 +519,7 @@ export class BackupService implements OnModuleInit {
       // 4. Seal the archive. tar.c streams directly to gzip + file,
       //    so at no point do we hold the entire archive in memory.
       //    cwd/stage root means the paths inside the tar are relative
-      //    (postgres/..., minio/..., manifest.json) — portable.
+      //    (postgres/..., minio/..., manifest.json): portable.
       await tar.c(
         {
           gzip: true,
@@ -568,7 +568,7 @@ export class BackupService implements OnModuleInit {
       await fs.rm(finalPath, { force: true });
       return this.getRun(run.id);
     } finally {
-      // Stage dir goes away regardless — on success its contents are
+      // Stage dir goes away regardless: on success its contents are
       // already inside the tar; on failure they're orphaned bytes
       // we don't want cluttering BACKUP_DIR.
       await fs.rm(stageDir, { recursive: true, force: true });
@@ -582,7 +582,7 @@ export class BackupService implements OnModuleInit {
   /**
    * Absolute path to the archive on disk for a given run, plus the
    * original filename (for Content-Disposition). Throws if the run
-   * or the file isn't usable — callers (controller) map this to 404.
+   * or the file isn't usable: callers (controller) map this to 404.
    */
   async resolveArchivePath(runId: string) {
     const run = await this.getRun(runId);
@@ -620,7 +620,7 @@ export class BackupService implements OnModuleInit {
 
   /**
    * Keep only the most recent N successful backups. Failed runs are
-   * NOT counted against the cap — operators want to see "these three
+   * NOT counted against the cap: operators want to see "these three
    * in a row failed" while the last 7 successful archives still sit
    * on disk. Called by the scheduler after a successful run.
    */
@@ -674,7 +674,7 @@ export class BackupService implements OnModuleInit {
     const extraArgs = ['-Fc', '--no-owner', '--no-privileges'];
 
     // Host mode: pg_dump takes the URL as the last positional arg.
-    // Docker mode: we `docker exec <c> pg_dump <same args>` — the
+    // Docker mode: we `docker exec <c> pg_dump <same args>`: the
     // container has pg_dump on PATH. We pass the URL via env to avoid
     // leaking it into the process list visible to other container
     // tenants.
@@ -707,7 +707,7 @@ export class BackupService implements OnModuleInit {
       });
     } finally {
       // Ensure the file stream is flushed whether the child succeeded
-      // or not — otherwise the tar step might read a truncated file.
+      // or not: otherwise the tar step might read a truncated file.
       await new Promise<void>((resolve) => out.end(() => resolve()));
     }
   }
@@ -802,7 +802,7 @@ export class BackupService implements OnModuleInit {
     try {
       u = new URL(url);
     } catch {
-      // If the URL is malformed we can't sanitise — return it
+      // If the URL is malformed we can't sanitise: return it
       // untouched so the pg_dump spawn surfaces a clear error.
       return url;
     }
@@ -822,7 +822,7 @@ export class BackupService implements OnModuleInit {
   private readPortalVersion(): string | null {
     // npm / pnpm exposes the running package's version via env at
     // spawn time. If unset (e.g. the process was started by
-    // `node dist/main.js` directly), we just record null — this
+    // `node dist/main.js` directly), we just record null: this
     // field is informational on the manifest and not load-bearing.
     return process.env.npm_package_version ?? null;
   }

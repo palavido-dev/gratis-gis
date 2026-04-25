@@ -8,13 +8,13 @@
  *
  * Patterns covered (longest / most-decoded first so we don't partial-
  * match a longer sequence mid-replacement):
- *   Ã¢â‚¬â€  -> —   (triple-encoded em-dash)
+ *   Ã¢â‚¬â€  ->:   (triple-encoded em-dash)
  *   Ã¢â‚¬â€˜ -> '   (triple-encoded left single quote)
  *   Ã¢â‚¬â€™ -> '   (triple-encoded right single quote)
  *   Ã¢â‚¬â€œ -> –   (triple-encoded en-dash, sometimes collapses here)
  *   Ã¢â‚¬Â¦ -> …   (triple-encoded ellipsis)
- *   â€"    -> —   (double-encoded em-dash)
- *   â€"    -> –   (double-encoded en-dash — identical leading bytes;
+ *   â€"    ->:   (double-encoded em-dash)
+ *   â€"    -> –   (double-encoded en-dash: identical leading bytes;
  *                  our rule emits em-dash since source usage is 10x
  *                  more common; spot-fix the few true en-dashes later)
  *   â€¦    -> …
@@ -29,7 +29,7 @@
  *   Ã¼     -> ü
  *
  * We intentionally don't try to fix EVERY possible double-encoded
- * accented letter — just the handful actually present in our source.
+ * accented letter: just the handful actually present in our source.
  * A grep after the sweep will catch any leftovers.
  */
 
@@ -55,7 +55,7 @@ const RULES = [
   // Some files were re-saved enough times that the mojibake cycled
   // once more. Do these FIRST because their prefixes will otherwise
   // be rewritten by the shorter Ãƒ / Ã² rules and we lose information.
-  ['ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â', '—'],       // em-dash, 4x
+  ['ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â', '-'],       // em-dash, 4x
   ['ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢', "'"],        // right single quote, 4x
   ['ÃƒÂ¢Ã¢â€šÂ¬ÃÅ"', '"'],            // left double quote, 4x
   ['ÃƒÂ¢Ã¢â€šÂ¬Ã', '"'],              // right double quote, 4x (ends partial)
@@ -71,8 +71,8 @@ const RULES = [
   // survived as a U+009D control and re-encoded (â€ + C2 9D, trimmed
   // visually to â€) or was re-read as cp1252's U+201D (") and stayed
   // visible. Cover both.
-  ['Ã¢â‚¬”', '—'],   // em-dash, trailing " (U+201D)
-  ['Ã¢â‚¬â€', '—'],  // em-dash, trailing â€ (control-9D stripped)
+  ['Ã¢â‚¬”', '-'],   // em-dash, trailing " (U+201D)
+  ['Ã¢â‚¬â€', '-'],  // em-dash, trailing â€ (control-9D stripped)
   ['Ã¢â‚¬™', "'"],   // right single quote, trailing ™ (U+2122)
   ['Ã¢â‚¬â€™', "'"], // right single quote, other form
   ['Ã¢â‚¬˜', "'"],   // left single quote
@@ -83,7 +83,7 @@ const RULES = [
   ['Ã¢Å““', '✓'],   // check mark
 
   // --- Double-encoded (â€ lead) ---
-  ['â€"', '—'],
+  ['â€"', '-'],
   ['â€¦', '…'],
   ['â€™', "'"],
   ['â€˜', "'"],
@@ -115,12 +115,12 @@ const RULES = [
 
   // --- More UTF-8-as-CP1252 sequences seen in this codebase ---
   // Black-circle bullet (●, U+25CF) used as a "required" indicator
-  // got mangled to `â—` (3-byte UTF-8 0xE2 0x97 0x8F read as 1252:
+  // got mangled to `â-` (3-byte UTF-8 0xE2 0x97 0x8F read as 1252:
   // â + em-dash + control). The trailing 0x8F is unprintable, so
-  // we match `â—` (or `â—□` when the control rendered as tofu)
+  // we match `â-` (or `â-□` when the control rendered as tofu)
   // and emit the original ● back.
-  ['â—□', '●'],
-  ['â—', '●'],
+  ['â-□', '●'],
+  ['â-', '●'],
   // Heavy check (✓, U+2713) and ballot box (☐ U+2610) are likely
   // candidates if more icons get mangled later; add as they show up.
 

@@ -164,14 +164,14 @@ export interface MapLayer {
    * Per-layer scale visibility. `null` on either bound means
    * "unconstrained"; MapLibre's min/maxzoom properties clamp to
    * 0 / 24 at the extremes. Zoom is stored rather than scale
-   * denominator so the shape matches MapLibre directly — the editor
+   * denominator so the shape matches MapLibre directly: the editor
    * surfaces a human-readable scale hint next to each slider.
    */
   scale: MapLayerScale;
   /**
    * Per-layer access policy. Default `policy: 'inherit'` means the
    * underlying item's sharing decides everything. `'custom'` enables
-   * the matrix — each principal the webmap is shared with gets an
+   * the matrix: each principal the webmap is shared with gets an
    * entry with explicit view / query / edit flags. Server enforcement
    * always caps by item-level access: the matrix can subtract (hide
    * a layer from a specific principal on this map) but can never
@@ -180,7 +180,7 @@ export interface MapLayer {
   access: MapLayerAccess;
   /**
    * Server-computed permissions for the current viewer. Only present
-   * on responses the server filtered for a non-editor viewer — the
+   * on responses the server filtered for a non-editor viewer: the
    * editor's view of the webmap sees full `access.entries` and no
    * `effective` field. Client honors `effective.query === false` by
    * disabling popups / attribute access for the layer.
@@ -209,7 +209,7 @@ export interface MapLayerAccessEntry {
 export interface MapLayerAccess {
   /**
    * `'inherit'`: no per-layer restriction beyond item-level sharing.
-   * `'custom'`: apply `entries` — a principal not listed (and not a
+   * `'custom'`: apply `entries`: a principal not listed (and not a
    * member of a listed group) defaults to the layer being hidden for
    * them. Authors flip to `'custom'` the first time they adjust the
    * matrix; until then, everyone who can see the webmap can see
@@ -308,7 +308,7 @@ export interface MapLayerFilter {
  * Layer data sources.
  *   - `geojson-url`: pulls from a public URL at load time.
  *   - `geojson-inline`: stores the GeoJSON body directly in the item
- *     (small datasets only — it lives in dataJson).
+ *     (small datasets only: it lives in dataJson).
  *   - `feature-service`: references a portal item and will light up
  *     once that pillar ships.
  *   - `arcgis-rest`: points at a layer inside an ArcGIS Server
@@ -328,7 +328,7 @@ export type MapLayerSource =
       url: string;
       /** Sub-layer id inside the service (usually a small integer). */
       layerId: number;
-      /** MapServer or FeatureServer — persisted so we skip a probe. */
+      /** MapServer or FeatureServer: persisted so we skip a probe. */
       serviceType: 'MapServer' | 'FeatureServer';
       /**
        * Optional back-reference to the arcgis_service portal item the
@@ -399,7 +399,7 @@ export interface MapLayerStyle {
  * layer entirely.
  *
  * `mode` picks how the body is rendered:
- *   - `all`: show every property on the feature (the default — zero-
+ *   - `all`: show every property on the feature (the default: zero-
  *     config for "just give me a popup").
  *   - `picked`: only show fields in `fields`, in that exact order.
  *   - `template`: render `bodyTemplate` as a Handlebars-lite string.
@@ -432,7 +432,7 @@ export interface MapLayerInteractions {
    * When true (the default), features on this layer can be picked via
    * the attribute table checkboxes, map click/rectangle/lasso/polygon
    * tools, and programmatic selection. When false, the layer is
-   * effectively read-only for selection purposes — useful for
+   * effectively read-only for selection purposes: useful for
    * basemap-style overlays that shouldn't compete for attention.
    */
   selectable: boolean;
@@ -579,7 +579,7 @@ export const DEFAULT_LAYER_ACCESS: MapLayerAccess = {
 
 /**
  * MapLibre's widest permissible zoom range. We use these when a
- * layer's scale bound is `null` — MapLibre's default min/maxzoom
+ * layer's scale bound is `null`: MapLibre's default min/maxzoom
  * props have the same effect but being explicit keeps the emitted
  * layer spec easy to diff.
  */

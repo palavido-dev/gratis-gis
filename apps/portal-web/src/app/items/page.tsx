@@ -10,7 +10,7 @@ interface Props {
 }
 
 /**
- * Items page — single entry point for all content.
+ * Items page: single entry point for all content.
  *
  * Scope toggle: ?scope=mine (default) vs ?scope=all. We deliberately
  * default to 'mine' so a user's own content leads the page; one click

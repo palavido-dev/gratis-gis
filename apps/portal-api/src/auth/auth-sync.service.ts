@@ -48,7 +48,7 @@ export class AuthSyncService {
     // with an invalid enum value. Safe to remove after every user has
     // signed out + back in at least once against the updated realm.
     // Cast to string for the comparison because the claim type no
-    // longer lists 'publisher' — if the runtime value matches we
+    // longer lists 'publisher': if the runtime value matches we
     // still want to coerce it.
     const rawRole = claims.org_role as string | undefined;
     const normalisedRole: OrgRole =
@@ -112,7 +112,7 @@ export class AuthSyncService {
 
     // Exclude memberships whose group is in the trash. Otherwise an item
     // shared to a soft-deleted group would still match this user's
-    // effective groupIds and grant read access -- which would defeat
+    // effective groupIds and grant read access, which would defeat
     // the purpose of moving the group to the recycle bin.
     const memberships = await this.prisma.groupMember.findMany({
       where: { userId: user.id, group: { deletedAt: null } },

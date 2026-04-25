@@ -11,9 +11,9 @@ step performed on an already-trashed item.
 
 The recycle-bin pattern is applied to first-class, user-owned content:
 
-- `item` — maps, feature services, forms, apps, dashboards, notebooks,
+- `item`: maps, feature services, forms, apps, dashboards, notebooks,
   tools, widgets, files, report templates.
-- `group` — sharing principals, so deleting a group preserves the
+- `group`: sharing principals, so deleting a group preserves the
   possibility of undoing it along with the shares that referenced it.
 
 Tables that are structural or derivative are *not* soft-deleted. Removing

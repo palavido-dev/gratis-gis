@@ -57,7 +57,7 @@ export interface ArchiveManifest {
  *      between "admin clicked Restore" and "pg_restore starts" must
  *      also be blocked).
  *   2. This method is deliberately synchronous from the caller's
- *      perspective — one admin clicking Restore blocks on the
+ *      perspective: one admin clicking Restore blocks on the
  *      request until the system is back up. No job queue. No async
  *      handoff. That keeps the behaviour model simple: if the HTTP
  *      call succeeds, you're restored; if it fails, you see why.
@@ -166,7 +166,7 @@ export class BackupRestoreService {
       // debugs BACKUP_DIR.
       await fs.rm(stageDir, { recursive: true, force: true });
       // We cannot write the audit row on the "pre-restore" DB when
-      // we failed mid-restore — pg_restore may have partially
+      // we failed mid-restore: pg_restore may have partially
       // rewritten the schema. Best we can do is log + return.
       throw new Error(msg);
     };
@@ -385,7 +385,7 @@ export class BackupRestoreService {
   // Helpers
   // ---------------------------------------------------------------
 
-  /** Minimal URL sanitiser — same rationale as BackupService's. */
+  /** Minimal URL sanitiser: same rationale as BackupService's. */
   private sanitizeDbUrl(url: string): string {
     try {
       const u = new URL(url);

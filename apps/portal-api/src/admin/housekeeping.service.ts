@@ -13,10 +13,10 @@ import { PrismaService } from '../prisma/prisma.service.js';
  *   2. Which users haven't signed in for a long time? (lastSeenAt
  *      far in the past, or never)
  *   3. Which items are disproportionately large? (big data blobs
- *      or many attachments — the "your org's database is slow"
+ *      or many attachments: the "your org's database is slow"
  *      suspects)
  *
- * All heuristics — not load-bearing for any automatic decision.
+ * All heuristics: not load-bearing for any automatic decision.
  * The admin makes the call on whether to act; this service just
  * surfaces the candidates. Thresholds are env-configurable with
  * reasonable defaults so operators can tune without a redeploy.
@@ -46,7 +46,7 @@ export class HousekeepingService {
   }
 
   /**
-   * Summary the admin page renders at the top — thresholds plus the
+   * Summary the admin page renders at the top: thresholds plus the
    * counts in each bucket, so the admin gets a sense of size before
    * scrolling into any individual list.
    */
@@ -73,7 +73,7 @@ export class HousekeepingService {
    * cares about this item). Dependency tracking in GratisGIS is
    * computed on the fly from `item.data` rather than stored in a
    * table, so we don't fold "is anyone depending on this" into
-   * the query — the admin should glance at the item detail page
+   * the query: the admin should glance at the item detail page
    * before deleting, where the dependents panel lives.
    */
   async staleItems(orgId: string) {
@@ -117,7 +117,7 @@ export class HousekeepingService {
    * Users who haven't been seen in a long time. Heuristic:
    * lastSeenAt older than `staleUserDays`, OR lastSeenAt is null
    * and createdAt older than `staleUserDays` (i.e. the seeded /
-   * imported user who never signed in). We exclude admins — they
+   * imported user who never signed in). We exclude admins: they
    * might be a break-glass account that legitimately sits idle.
    */
   async staleUsers(orgId: string) {
@@ -168,7 +168,7 @@ export class HousekeepingService {
   async largeItems(orgId: string) {
     // pg_column_size accounts for compression; octet_length of the
     // JSON text is closer to "bytes the client saw". Close enough
-    // for housekeeping — we just want a sortable proxy.
+    // for housekeeping: we just want a sortable proxy.
     const rows = await this.prisma.$queryRaw<
       Array<{
         id: string;
@@ -207,7 +207,7 @@ export class HousekeepingService {
   }
 
   // ---------------------------------------------------------------
-  // Count-only helpers used by summary() — skip the expensive
+  // Count-only helpers used by summary(): skip the expensive
   // filter-in-memory step by joining on aggregate zero.
   // ---------------------------------------------------------------
 

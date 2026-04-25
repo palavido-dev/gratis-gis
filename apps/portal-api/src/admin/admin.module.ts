@@ -17,7 +17,7 @@ import { KeycloakAdminService } from './keycloak-admin.service.js';
  * (instance-scoped via @UseGuards).
  *
  * KeycloakAdminService is safe to instantiate even when the admin
- * credentials aren't configured — it throws a descriptive 503 on
+ * credentials aren't configured: it throws a descriptive 503 on
  * first call instead of crashing app bootstrap. That keeps the
  * base portal running for operators who haven't enabled user
  * management yet.

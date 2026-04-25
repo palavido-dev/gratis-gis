@@ -1,5 +1,5 @@
 /**
- * Canonical impl lives at `@/lib/arcgis-rest` — moved out of the
+ * Canonical impl lives at `@/lib/arcgis-rest`: moved out of the
  * bracketed route segment so callers from outside `items/[id]/...` can
  * import it without Next.js's webpack choking on the relative `[id]`.
  *

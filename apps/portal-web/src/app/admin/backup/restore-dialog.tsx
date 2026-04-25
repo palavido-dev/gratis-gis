@@ -218,7 +218,7 @@ export function RestoreDialog({ runId, filename, orgName, onClose }: Props) {
         <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
           <AlertTriangle className="mr-1 inline h-3 w-3" />
           While the restore is running, the portal will be temporarily
-          unavailable to everyone — other people will see a
+          unavailable to everyone: other people will see a
           "maintenance mode" message for a minute or two. Ask your
           team to stop editing before you click below, because any
           changes in progress right now will be overwritten.

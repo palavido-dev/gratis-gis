@@ -291,7 +291,7 @@ export class ItemsController {
   /**
    * List data-replace snapshots for an item. The payload doesn't
    * include the full data blob (just metadata) so the history
-   * panel can render cheaply. Caller must have edit access —
+   * panel can render cheaply. Caller must have edit access
    * snapshots are authorship history, not public.
    */
   @Get(':id/snapshots')
@@ -308,7 +308,7 @@ export class ItemsController {
    * state as a fresh snapshot first, so un-revert is possible for
    * the retention window. Caller must have edit access.
    *
-   * The snapshotId must belong to the item in the URL — we don't want
+   * The snapshotId must belong to the item in the URL: we don't want
    * /items/A/snapshots/{snap-from-B}/revert to quietly mutate B just
    * because the caller happens to have edit access on A.
    */

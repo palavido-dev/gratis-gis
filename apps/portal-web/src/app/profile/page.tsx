@@ -23,7 +23,7 @@ export const metadata = { title: 'Profile' };
  *
  * Identity-editable fields (firstName, lastName, email) are PATCHed
  * through to Keycloak via `/api/users/me`. Username and org/role are
- * admin-managed — shown read-only so the user can always see what
+ * admin-managed: shown read-only so the user can always see what
  * they are without having to ask an admin.
  */
 export default async function ProfilePage() {

@@ -40,7 +40,7 @@ class CreateRelationshipDto {
  *   List relationships for a feature service (both parent and child roles).
  *
  * DELETE /items/:id/relationships/:relId
- *   Remove a registered relationship. Does NOT drop the FK column — that
+ *   Remove a registered relationship. Does NOT drop the FK column: that
  *   would destroy data. The column becomes unmanaged.
  */
 @ApiTags('relationships')

@@ -5,7 +5,7 @@
  * MapLibre's symbol layer can consume them via `addImage()`.
  *
  * Icons are deliberately monochrome and paired with `stroke-based`
- * lucide originals — that way color tinting via a future SDF pass
+ * lucide originals: that way color tinting via a future SDF pass
  * can light up without touching the asset list. For now they render
  * in black-ish, which reads well on every basemap we ship.
  *
@@ -13,7 +13,7 @@
  * appears inside the `<svg>` element). Names should be kebab-case
  * and match lucide's naming so future upgrades auto-align.
  *
- * Licensing: lucide is ISC-licensed — bundling is fine. If you want
+ * Licensing: lucide is ISC-licensed: bundling is fine. If you want
  * a richer library (Noun Project, Maki, etc.), upload custom SVGs
  * per-org once that flow ships.
  */

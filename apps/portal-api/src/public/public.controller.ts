@@ -11,7 +11,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
  * token. Keep it narrow: public item metadata, org landing config,
  * public feeds.
  *
- * All responses deliberately carry a lean projection — no shares
+ * All responses deliberately carry a lean projection: no shares
  * list, no dependent lookups, nothing that would leak private
  * content through a public endpoint. If in doubt, do not expose it
  * here.
@@ -65,14 +65,14 @@ export class PublicController {
 
   /**
    * DCAT-lite machine-readable catalog of every public item. Shape
-   * follows the W3C Data Catalog Vocabulary loosely — each item
+   * follows the W3C Data Catalog Vocabulary loosely: each item
    * becomes a dcat:Dataset with the license, description, tags, and
    * a landing URL back at the portal. Downstream consumers (open-data
    * aggregators, search crawlers, internal tooling) can crawl this to
    * discover what's shareable.
    *
    * The spec-strict DCAT feed (turtle / JSON-LD with full @context)
-   * lands in #66 — this is the Phase-1 JSON version, which is enough
+   * lands in #66: this is the Phase-1 JSON version, which is enough
    * for most aggregators that just want a list of URLs + metadata.
    */
   @Public()

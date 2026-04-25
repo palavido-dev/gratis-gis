@@ -15,7 +15,7 @@ export class SharingService {
 
   canRead(user: AuthUser, item: Item, shares: ItemShare[] = []): boolean {
     if (item.ownerId === user.id) return true;
-    // Org admins see everything in their org — including private items
+    // Org admins see everything in their org: including private items
     // owned by other users. Mirrors the admin behaviour in canEdit /
     // canAdmin so the read path isn't strictly narrower than the
     // write path (which would be surprising).

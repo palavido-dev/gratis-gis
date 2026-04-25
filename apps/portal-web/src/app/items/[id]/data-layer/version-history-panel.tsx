@@ -17,7 +17,7 @@ import {
  * replace (wizard re-upload, schema save, bulk import, revert).
  * This panel renders those snapshots newest-first and lets an
  * editor revert to one. The revert endpoint takes a fresh
- * snapshot of the current state FIRST — so un-revert is always
+ * snapshot of the current state FIRST: so un-revert is always
  * possible within the retention window.
  *
  * Retention on the API side:
@@ -25,7 +25,7 @@ import {
  *   - Cap: 20 per item (default; ITEM_SNAPSHOT_CAP_PER_ITEM)
  * A nightly maintenance cron drops rows past either gate.
  *
- * Visibility: API requires edit access — viewers won't see
+ * Visibility: API requires edit access: viewers won't see
  * snapshots, which matches 'authorship history, not public.'
  * We only mount this panel when `canEdit` is true anyway, so the
  * 403 case is mostly defensive.
@@ -71,7 +71,7 @@ export function VersionHistoryPanel({ itemId, canEdit, userNames }: Props) {
     }
   }, [itemId]);
 
-  // Only fetch on first open — if a user never expands the panel
+  // Only fetch on first open: if a user never expands the panel
   // we shouldn't pay the round-trip. Reload on subsequent opens is
   // fine: history changes rarely relative to how often the panel
   // is clicked, and a stale list is easy enough to refresh.
@@ -161,7 +161,7 @@ export function VersionHistoryPanel({ itemId, canEdit, userNames }: Props) {
             <>
               <p className="mb-2 text-[11px] text-muted">
                 Each row is a point-in-time copy of this item's data.
-                Reverting restores that copy — and snapshots the
+                Reverting restores that copy: and snapshots the
                 current data first, so you can un-revert if needed.
                 History is retained for 30 days or the last 20
                 versions, whichever comes first.

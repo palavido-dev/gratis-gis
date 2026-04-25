@@ -39,7 +39,7 @@ class HousekeepingConfigDto {
 }
 
 /**
- * Admin-only housekeeping dashboard. Pure read endpoints — the
+ * Admin-only housekeeping dashboard. Pure read endpoints: the
  * admin takes action on individual items / users through the
  * existing detail pages (reassign, delete, disable). Keeping the
  * actions scoped there means the audit log and permissions model
