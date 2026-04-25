@@ -125,6 +125,13 @@ export class ItemsService {
       bufferKm?: number;
     } = {},
   ) {
+    // Lightweight per-call timing log behind the ITEMS_LIST_TIMING env
+    // flag so a slow load can be diagnosed without hand-instrumenting
+    // every request. Overhead is one Date.now() per phase so it is
+    // safe to leave on in production if needed.
+    const traceTiming = process.env.ITEMS_LIST_TIMING === '1';
+    const tStart = traceTiming ? Date.now() : 0;
+
     const where: Prisma.ItemWhereInput = opts.mine
       ? { ownerId: user.id, deletedAt: null }
       : this.sharing.visibleWhere(user);
@@ -136,9 +143,11 @@ export class ItemsService {
     // the non-mine path (the "mine" path is intentionally narrow:
     // user's own items only). Owner / admin / public-org bypass
     // already handles itself in visibleWhere.
+    let tInheritDone = 0;
     if (!opts.mine) {
       const inheritedIds =
         await this.sharing.itemIdsAccessibleViaFolderShares(user);
+      if (traceTiming) tInheritDone = Date.now();
       if (inheritedIds.length > 0) {
         // Wrap the original visibleWhere predicate so it stays
         // intact, then OR in the inherited ids. The wrapper has to
@@ -223,7 +232,8 @@ export class ItemsService {
     // and far better than N+1 fetches on the client.
     // Also include a lean owner projection (username, fullName, avatar)
     // so the Owner column can render without N+1 lookups.
-    return this.prisma.item.findMany({
+    if (traceTiming && tInheritDone === 0) tInheritDone = Date.now();
+    const rows = await this.prisma.item.findMany({
       where,
       include: {
         shares: true,
@@ -238,6 +248,18 @@ export class ItemsService {
       },
       orderBy: { updatedAt: 'desc' },
     });
+    if (traceTiming) {
+      const tFindDone = Date.now();
+      // eslint-disable-next-line no-console
+      console.log(
+        `[items.list] type=${opts.type ?? 'any'} mine=${opts.mine ?? false} ` +
+          `q=${opts.q ?? ''} rows=${rows.length} ` +
+          `inherit=${tInheritDone - tStart}ms ` +
+          `findMany=${tFindDone - tInheritDone}ms ` +
+          `total=${tFindDone - tStart}ms`,
+      );
+    }
+    return rows;
   }
 
   /**
