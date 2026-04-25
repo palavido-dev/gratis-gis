@@ -6,13 +6,18 @@ import { useRouter } from 'next/navigation';
 import {
   ChevronRight,
   Crosshair,
+  FolderPlus,
   Grid3x3,
   List as ListIcon,
   UserRound,
   X,
 } from 'lucide-react';
 import { ItemCard } from '@gratis-gis/ui';
-import type { ItemType, ItemWithShares } from '@gratis-gis/shared-types';
+import type {
+  FolderData,
+  ItemType,
+  ItemWithShares,
+} from '@gratis-gis/shared-types';
 import {
   getItemTypeAccent,
   getItemTypeIcon,
@@ -21,6 +26,8 @@ import {
 import { ItemSharingIndicator } from '@/components/item-sharing-indicator';
 import { ReassignOwnerDialog } from '@/components/reassign-owner-dialog';
 import { AreaSearchPanel } from './area-search-panel';
+import { AddToFolderDialog } from './add-to-folder-dialog';
+import type { FolderRailNode } from './folder-rail';
 
 /**
  * Client-side wrapper around the items list. Owns three bits of UI
@@ -43,6 +50,14 @@ import { AreaSearchPanel } from './area-search-panel';
 interface Props {
   items: ItemWithShares[];
   currentUser: { id: string; orgRole: string };
+  /**
+   * Folders the user can pick as targets for the "Add to folder"
+   * bulk action. Server-fetched alongside items so the picker
+   * dialog renders without a round-trip. Default empty so the
+   * component still works in contexts that haven't wired folders
+   * yet (e.g. tests).
+   */
+  folders?: FolderRailNode[];
 }
 
 type ViewMode = 'card' | 'list';
@@ -74,7 +89,7 @@ const ACCESS_LABELS: Record<string, string> = {
   public: 'Public',
 };
 
-export function ItemsView({ items, currentUser }: Props) {
+export function ItemsView({ items, currentUser, folders = [] }: Props) {
   const [viewMode, setViewMode] = useState<ViewMode>('card');
   const [groupBy, setGroupBy] = useState<GroupBy>('none');
   const [sortBy, setSortBy] = useState<SortBy>('updated-desc');
@@ -87,6 +102,11 @@ export function ItemsView({ items, currentUser }: Props) {
   const [showReassign, setShowReassign] = useState(false);
   const [bulkSaving, setBulkSaving] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
+  // "Add to folder" dialog. Distinct from the reassign flow because
+  // the saving state and target picker shape differ; sharing one
+  // generic dialog would have ended up with too many branches.
+  const [showAddToFolder, setShowAddToFolder] = useState(false);
+  const [folderSaving, setFolderSaving] = useState(false);
   // Spatial-filter state (#24 + #29). When `spatialActive` is set, the
   // page renders `spatialItems` instead of the server-rendered `items`.
   // The fetch is fired by AreaSearchPanel's "Use this area" button. We
@@ -228,6 +248,62 @@ export function ItemsView({ items, currentUser }: Props) {
     setSpatialError(null);
   }
 
+  /**
+   * Append the currently-selected items to the chosen folder. The
+   * server's cycle-detection runs on save; we de-dupe on the client
+   * so the request body is the smallest reasonable payload. Existing
+   * memberships stay untouched (an item already in the folder is a
+   * no-op rather than an error).
+   */
+  async function handleAddToFolder(folderId: string) {
+    setFolderSaving(true);
+    setBulkError(null);
+    try {
+      // Fetch the current folder so we know the existing childItemIds
+      // and don't have to trust the rail snapshot to be up to date.
+      const fres = await fetch(`/api/portal/items/${folderId}`);
+      if (!fres.ok) {
+        throw new Error(`Could not load folder: HTTP ${fres.status}`);
+      }
+      const folder = (await fres.json()) as { data: FolderData | null };
+      const existing = Array.isArray(folder.data?.childItemIds)
+        ? folder.data!.childItemIds
+        : [];
+      const seen = new Set(existing);
+      const toAdd = Array.from(selected).filter((id) => !seen.has(id));
+      if (toAdd.length === 0) {
+        setShowAddToFolder(false);
+        setSelected(new Set());
+        return;
+      }
+      const next: FolderData = {
+        version: 1,
+        childItemIds: [...existing, ...toAdd],
+      };
+      const pres = await fetch(`/api/portal/items/${folderId}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ data: next }),
+      });
+      if (!pres.ok) {
+        const body = await pres.json().catch(() => ({}));
+        const msg =
+          (body as { message?: string | string[] }).message ??
+          `HTTP ${pres.status}`;
+        throw new Error(Array.isArray(msg) ? msg.join('; ') : msg);
+      }
+      setShowAddToFolder(false);
+      setSelected(new Set());
+      // Keep the user on the items page; the rail tree will reflect
+      // the new membership on the next refresh.
+      router.refresh();
+    } catch (e) {
+      setBulkError(e instanceof Error ? e.message : 'Add to folder failed');
+    } finally {
+      setFolderSaving(false);
+    }
+  }
+
   // Items the user can manage (toggle into the selection). Admins can
   // manage everything; everyone else only their own. Bulk ops act
   // exclusively on this subset so the action bar can't trigger a 403
@@ -352,6 +428,9 @@ export function ItemsView({ items, currentUser }: Props) {
         <BulkActionBar
           count={selected.size}
           onReassign={() => setShowReassign(true)}
+          onAddToFolder={
+            folders.length > 0 ? () => setShowAddToFolder(true) : undefined
+          }
           onClear={clearSelection}
         />
       ) : null}
@@ -379,6 +458,20 @@ export function ItemsView({ items, currentUser }: Props) {
           onSubmit={handleBulkReassign}
         />
       ) : null}
+      {showAddToFolder ? (
+        <AddToFolderDialog
+          folders={folders}
+          itemIds={Array.from(selected)}
+          saving={folderSaving}
+          onSubmit={handleAddToFolder}
+          onClose={() => {
+            if (!folderSaving) {
+              setShowAddToFolder(false);
+              setBulkError(null);
+            }
+          }}
+        />
+      ) : null}
       {bulkError ? (
         <div className="fixed bottom-4 right-4 max-w-md rounded-md border border-danger/40 bg-danger/5 px-3 py-2 text-xs text-danger shadow-raised">
           {bulkError}
@@ -394,10 +487,12 @@ export function ItemsView({ items, currentUser }: Props) {
 function BulkActionBar({
   count,
   onReassign,
+  onAddToFolder,
   onClear,
 }: {
   count: number;
   onReassign: () => void;
+  onAddToFolder?: (() => void) | undefined;
   onClear: () => void;
 }) {
   return (
@@ -419,6 +514,16 @@ function BulkActionBar({
         </button>
       </div>
       <div className="flex items-center gap-2">
+        {onAddToFolder ? (
+          <button
+            type="button"
+            onClick={onAddToFolder}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 py-1 text-xs font-medium text-ink-1 hover:bg-surface-2"
+          >
+            <FolderPlus className="h-3.5 w-3.5" />
+            Add to folder
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={onReassign}

@@ -131,7 +131,7 @@ export default async function ItemsPage({ searchParams }: Props) {
               }
             />
           ) : (
-            <ItemsView items={items} currentUser={me} />
+            <ItemsView items={items} currentUser={me} folders={folders} />
           )}
         </div>
       </div>
