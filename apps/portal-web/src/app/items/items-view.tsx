@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ChevronRight,
   Crosshair,
@@ -107,6 +107,17 @@ export function ItemsView({ items, currentUser, folders = [] }: Props) {
   // generic dialog would have ended up with too many branches.
   const [showAddToFolder, setShowAddToFolder] = useState(false);
   const [folderSaving, setFolderSaving] = useState(false);
+  // ?addToFolder=<id> query param flips this view into "pick items
+  // to add to a specific folder" mode. The user got here from the
+  // folder detail page's "Add items" button; we know the target
+  // folder up front, so the bulk action skips the picker dialog
+  // entirely and goes straight to "Add to <folder name>". After
+  // success we send the user back to the folder detail page.
+  const searchParams = useSearchParams();
+  const addToFolderId = searchParams?.get('addToFolder') ?? null;
+  const targetFolder = addToFolderId
+    ? folders.find((f) => f.id === addToFolderId) ?? null
+    : null;
   // Spatial-filter state (#24 + #29). When `spatialActive` is set, the
   // page renders `spatialItems` instead of the server-rendered `items`.
   // The fetch is fired by AreaSearchPanel's "Use this area" button. We
@@ -254,6 +265,11 @@ export function ItemsView({ items, currentUser, folders = [] }: Props) {
    * so the request body is the smallest reasonable payload. Existing
    * memberships stay untouched (an item already in the folder is a
    * no-op rather than an error).
+   *
+   * In add-to-folder mode (?addToFolder=<id>), success redirects
+   * back to the folder detail page so the user lands inside the
+   * folder they just curated. Outside that mode the user stays on
+   * the items list.
    */
   async function handleAddToFolder(folderId: string) {
     setFolderSaving(true);
@@ -294,9 +310,15 @@ export function ItemsView({ items, currentUser, folders = [] }: Props) {
       }
       setShowAddToFolder(false);
       setSelected(new Set());
-      // Keep the user on the items page; the rail tree will reflect
-      // the new membership on the next refresh.
-      router.refresh();
+      // In targeted add-to-folder mode, send the user back to the
+      // folder detail page so they land where the new contents are
+      // visible. Otherwise stay on the items page (the rail will
+      // reflect the new membership on next refresh).
+      if (addToFolderId === folderId) {
+        router.push(`/items/${folderId}`);
+      } else {
+        router.refresh();
+      }
     } catch (e) {
       setBulkError(e instanceof Error ? e.message : 'Add to folder failed');
     } finally {
@@ -387,6 +409,25 @@ export function ItemsView({ items, currentUser, folders = [] }: Props) {
 
   return (
     <div>
+      {targetFolder ? (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-accent/40 bg-accent/5 px-3 py-2 text-sm">
+          <div className="flex items-center gap-2 text-ink-1">
+            <FolderPlus className="h-4 w-4 text-accent" />
+            <span>
+              Adding items to:{' '}
+              <span className="font-medium">{targetFolder.title}</span>.
+              Tick items below and click "Add to {targetFolder.title}".
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => router.push(`/items/${targetFolder.id}`)}
+            className="inline-flex h-7 items-center rounded-md border border-border bg-surface-1 px-2.5 text-xs text-ink-1 hover:bg-surface-2"
+          >
+            Cancel
+          </button>
+        </div>
+      ) : null}
       <Toolbar
         viewMode={viewMode}
         onViewMode={persistView}
@@ -431,6 +472,13 @@ export function ItemsView({ items, currentUser, folders = [] }: Props) {
           onAddToFolder={
             folders.length > 0 ? () => setShowAddToFolder(true) : undefined
           }
+          targetFolder={targetFolder}
+          onAddToTargetFolder={
+            targetFolder
+              ? () => handleAddToFolder(targetFolder.id)
+              : undefined
+          }
+          targetFolderSaving={folderSaving}
           onClear={clearSelection}
         />
       ) : null}
@@ -488,11 +536,20 @@ function BulkActionBar({
   count,
   onReassign,
   onAddToFolder,
+  targetFolder,
+  onAddToTargetFolder,
+  targetFolderSaving,
   onClear,
 }: {
   count: number;
   onReassign: () => void;
   onAddToFolder?: (() => void) | undefined;
+  /** When set, the user came here via ?addToFolder= and we offer a
+   *  one-click "Add to <folder>" button instead of the generic
+   *  picker dialog. */
+  targetFolder?: FolderRailNode | null;
+  onAddToTargetFolder?: (() => void) | undefined;
+  targetFolderSaving?: boolean;
   onClear: () => void;
 }) {
   return (
@@ -514,24 +571,40 @@ function BulkActionBar({
         </button>
       </div>
       <div className="flex items-center gap-2">
-        {onAddToFolder ? (
+        {targetFolder && onAddToTargetFolder ? (
           <button
             type="button"
-            onClick={onAddToFolder}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 py-1 text-xs font-medium text-ink-1 hover:bg-surface-2"
+            onClick={onAddToTargetFolder}
+            disabled={!!targetFolderSaving}
+            className="inline-flex items-center gap-1.5 rounded-md border border-accent bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <FolderPlus className="h-3.5 w-3.5" />
-            Add to folder
+            {targetFolderSaving
+              ? 'Adding...'
+              : `Add to ${targetFolder.title}`}
           </button>
-        ) : null}
-        <button
-          type="button"
-          onClick={onReassign}
-          className="inline-flex items-center gap-1.5 rounded-md border border-accent bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent/90"
-        >
-          <UserRound className="h-3.5 w-3.5" />
-          Reassign owner
-        </button>
+        ) : (
+          <>
+            {onAddToFolder ? (
+              <button
+                type="button"
+                onClick={onAddToFolder}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 py-1 text-xs font-medium text-ink-1 hover:bg-surface-2"
+              >
+                <FolderPlus className="h-3.5 w-3.5" />
+                Add to folder
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={onReassign}
+              className="inline-flex items-center gap-1.5 rounded-md border border-accent bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent/90"
+            >
+              <UserRound className="h-3.5 w-3.5" />
+              Reassign owner
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

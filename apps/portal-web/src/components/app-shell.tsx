@@ -71,7 +71,12 @@ export async function AppShell({ children }: { children: ReactNode }) {
           {/* Single items entry. The My / All toggle lives on the page
               itself: see apps/portal-web/src/app/items/page.tsx. */}
           <NavLink href="/items" icon={<MapIcon className="h-4 w-4" />}>Items</NavLink>
-          <NavLink href="/folders" icon={<FolderIcon className="h-4 w-4" />}>
+          {/* "Folders" links to the same items page so the user sees
+              the rail tree (the actual folder navigation surface).
+              Folders aren't a separate destination -- they're how
+              you organize items, so the link drops you where you
+              can see and use them. */}
+          <NavLink href="/items" icon={<FolderIcon className="h-4 w-4" />}>
             Folders
           </NavLink>
           <NavLink href="/groups" icon={<Users className="h-4 w-4" />}>Groups</NavLink>
