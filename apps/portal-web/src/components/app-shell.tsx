@@ -4,6 +4,7 @@ import { getServerSession } from 'next-auth';
 import {
   Archive,
   Compass,
+  Folder as FolderIcon,
   LayoutGrid,
   Map as MapIcon,
   Paintbrush,
@@ -102,6 +103,12 @@ export async function AppShell({ children }: { children: ReactNode }) {
                 icon={<Sparkles className="h-4 w-4" />}
               >
                 Housekeeping
+              </NavLink>
+              <NavLink
+                href="/admin/folders"
+                icon={<FolderIcon className="h-4 w-4" />}
+              >
+                Folders
               </NavLink>
             </>
           ) : null}
