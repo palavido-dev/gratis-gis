@@ -8,6 +8,7 @@ import {
   Clipboard,
   Info,
   Loader2,
+  Pencil,
   Save,
   Trash2,
   Upload as UploadIcon,
@@ -17,6 +18,12 @@ import type {
   GeoBoundaryGeometry,
 } from '@gratis-gis/shared-types';
 import { importSpatialFile } from '@/lib/spatial-import';
+import {
+  TerraDraw,
+  TerraDrawPolygonMode,
+  TerraDrawSelectMode,
+} from 'terra-draw';
+import { TerraDrawMapLibreGLAdapter } from 'terra-draw-maplibre-gl-adapter';
 
 /**
  * Minimal raster OSM style used as the preview backdrop. The geo-
@@ -72,11 +79,15 @@ interface Props {
   canEdit: boolean;
 }
 
-type TabKind = 'upload' | 'paste';
+type TabKind = 'draw' | 'upload' | 'paste';
 
 export function GeoBoundaryEditor({ itemId, initial, canEdit }: Props) {
   const [draft, setDraft] = useState<GeoBoundaryData>(initial);
-  const [tab, setTab] = useState<TabKind>('upload');
+  // Default the authoring tab to Draw when the user can edit; that is
+  // the most direct path for someone who doesn't already have a
+  // GeoJSON file or pasted blob ready. Read-only viewers never see
+  // the tab strip at all.
+  const [tab, setTab] = useState<TabKind>('draw');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedNotice, setSavedNotice] = useState(false);
@@ -141,15 +152,30 @@ export function GeoBoundaryEditor({ itemId, initial, canEdit }: Props) {
         </p>
       </header>
 
-      <BoundaryPreview geometry={draft.geometry} />
+      {canEdit && tab === 'draw' ? (
+        <DrawPanel
+          geometry={draft.geometry}
+          onApply={applyGeometry}
+        />
+      ) : (
+        <BoundaryPreview geometry={draft.geometry} />
+      )}
 
       {canEdit ? (
         <>
           <Tabs current={tab} onChange={setTab} />
           {tab === 'upload' ? (
             <UploadPanel onApply={applyGeometry} />
-          ) : (
+          ) : tab === 'paste' ? (
             <PastePanel onApply={applyGeometry} />
+          ) : (
+            // Draw tab uses the map preview itself for input; no
+            // extra panel below the tabs.
+            <p className="text-[11px] text-muted">
+              Click the map to drop polygon vertices. Double-click the
+              last point or close the ring back on the first vertex
+              to finish. Use the trash icon to clear and start over.
+            </p>
           )}
 
           <NoteField
@@ -215,9 +241,9 @@ export function GeoBoundaryEditor({ itemId, initial, canEdit }: Props) {
 
       <p className="rounded-md border border-dashed border-border bg-surface-0 px-3 py-2 text-[11px] text-muted">
         <Info className="mr-1 inline h-3 w-3" />
-        Draw-on-map polygon authoring is a planned follow-up. For now
-        you can author in ArcGIS Pro / QGIS / geojson.io and bring the
-        result here via upload or paste.
+        Need fancier authoring (rings, holes, multipart edits)? Author
+        in ArcGIS Pro / QGIS / geojson.io and bring the result back
+        here through Upload or Paste.
       </p>
     </section>
   );
@@ -325,6 +351,167 @@ function BoundaryPreview({ geometry }: { geometry: GeoBoundaryGeometry | null })
 }
 
 // ---------------------------------------------------------------
+// Draw panel — same map as BoundaryPreview, with terra-draw on top
+// for interactive polygon authoring.
+// ---------------------------------------------------------------
+
+function DrawPanel({
+  geometry,
+  onApply,
+}: {
+  geometry: GeoBoundaryGeometry | null;
+  onApply: (geom: GeoBoundaryGeometry | null) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<maplibregl.Map | null>(null);
+  // Holding a ref to the TerraDraw instance keeps the start/stop
+  // lifecycle paired with the map's lifecycle. Only one instance
+  // per mounted map.
+  const drawRef = useRef<TerraDraw | null>(null);
+
+  // Map init. Mirrors BoundaryPreview's setup. We don't share a map
+  // because TerraDraw owns its own source / layers; mounting and
+  // tearing down the entire map when the user toggles between Draw
+  // and the other tabs is simpler than juggling state.
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const m = new maplibregl.Map({
+      container: containerRef.current,
+      style: PREVIEW_BASEMAP_STYLE,
+      center: [-98, 39],
+      zoom: 3,
+      attributionControl: { compact: true },
+    });
+    mapRef.current = m;
+    m.addControl(new maplibregl.NavigationControl({ visualizePitch: false }));
+
+    let cancelled = false;
+    const onLoad = () => {
+      if (cancelled) return;
+      const draw = new TerraDraw({
+        adapter: new TerraDrawMapLibreGLAdapter({ map: m }),
+        modes: [new TerraDrawPolygonMode(), new TerraDrawSelectMode()],
+      });
+      draw.start();
+      drawRef.current = draw;
+
+      // Seed with any existing geometry so the user can see what's
+      // there and either delete + redraw, or finish without changes.
+      // TerraDraw stores Polygon features only, so a MultiPolygon
+      // gets split into N Polygon features that the user can edit
+      // independently. We rejoin them on finish.
+      if (geometry) {
+        try {
+          const polys: number[][][][] =
+            geometry.type === 'Polygon'
+              ? [geometry.coordinates as unknown as number[][][]]
+              : (geometry.coordinates as unknown as number[][][][]);
+          draw.addFeatures(
+            polys.map((coords, i) => ({
+              id: `existing-${i}`,
+              type: 'Feature' as const,
+              geometry: {
+                type: 'Polygon' as const,
+                coordinates: coords,
+              },
+              properties: { mode: 'polygon' },
+            })),
+          );
+        } catch {
+          // Bad shape coming from the DB shouldn't crash the editor;
+          // worst case the user just draws fresh.
+        }
+        draw.setMode('select');
+      } else {
+        draw.setMode('polygon');
+      }
+
+      // On finish, snapshot all currently-drawn features and merge
+      // them into a single geometry payload that GeoBoundaryData
+      // accepts (Polygon for one ring, MultiPolygon for multiple).
+      // TerraDraw narrows the snapshot type to its supported store
+      // geometries; we treat each entry as plain GeoJSON-shaped and
+      // pull coordinates out by string-tag.
+      draw.on('finish', () => {
+        const snap = draw.getSnapshot() as Array<{
+          geometry: { type: string; coordinates: unknown };
+        }>;
+        const polys: number[][][][] = [];
+        for (const f of snap) {
+          if (!f.geometry) continue;
+          if (f.geometry.type === 'Polygon') {
+            polys.push(f.geometry.coordinates as number[][][]);
+          } else if (f.geometry.type === 'MultiPolygon') {
+            polys.push(
+              ...(f.geometry.coordinates as number[][][][]),
+            );
+          }
+        }
+        if (polys.length === 0) {
+          onApply(null);
+          return;
+        }
+        if (polys.length === 1) {
+          onApply({
+            type: 'Polygon',
+            coordinates: polys[0]!,
+          } as GeoBoundaryGeometry);
+        } else {
+          onApply({
+            type: 'MultiPolygon',
+            coordinates: polys,
+          } as GeoBoundaryGeometry);
+        }
+      });
+    };
+    if (m.isStyleLoaded()) onLoad();
+    else m.once('load', onLoad);
+
+    return () => {
+      cancelled = true;
+      try {
+        drawRef.current?.stop();
+      } catch {
+        /* noop */
+      }
+      drawRef.current = null;
+      m.remove();
+      mapRef.current = null;
+    };
+    // We intentionally only init from the initial geometry; subsequent
+    // applyGeometry calls update parent state but the user is the
+    // source of truth in draw mode.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function clearAndDraw() {
+    const draw = drawRef.current;
+    if (!draw) return;
+    draw.clear();
+    draw.setMode('polygon');
+    onApply(null);
+  }
+
+  return (
+    <div className="relative">
+      <div
+        ref={containerRef}
+        className="h-[360px] w-full overflow-hidden rounded-md border border-border bg-surface-0"
+      />
+      <button
+        type="button"
+        onClick={clearAndDraw}
+        title="Clear the polygon and start a new one"
+        className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-md border border-border bg-surface-1/95 px-2 py-1 text-[11px] font-medium text-ink-1 shadow-card hover:bg-surface-2"
+      >
+        <Trash2 className="h-3 w-3" />
+        Clear and start over
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------
 // Authoring tabs
 // ---------------------------------------------------------------
 
@@ -337,6 +524,7 @@ function Tabs({
 }) {
   const tabs: Array<{ kind: TabKind; label: string; icon: typeof UploadIcon }> =
     [
+      { kind: 'draw', label: 'Draw on map', icon: Pencil },
       { kind: 'upload', label: 'Upload file', icon: UploadIcon },
       { kind: 'paste', label: 'Paste GeoJSON', icon: Clipboard },
     ];
