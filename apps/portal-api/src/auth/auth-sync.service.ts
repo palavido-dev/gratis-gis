@@ -36,6 +36,27 @@ export interface AuthUser {
 export class AuthSyncService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * Per-process cache of orgs we've already confirmed have all the
+   * built-in basemap seeds. Once a process has verified an org once,
+   * we skip the SELECT on every subsequent request from that org's
+   * users. Reset on process restart so a freshly-introduced seed in
+   * BUILTIN_BASEMAP_SEEDS gets seeded the next deploy.
+   */
+  private readonly basemapSeedChecked = new Set<string>();
+
+  /**
+   * Per-process cache of `userId -> last time we wrote lastSeenAt`.
+   * Throttles the UPDATE to once per LAST_SEEN_THROTTLE_MS so the
+   * stable-state cost of an authenticated request is one SELECT
+   * (the user upsert) and not one UPDATE every time. The user's
+   * actual freshness signal is bounded above by this throttle, which
+   * is fine for housekeeping (we measure stale users in days, not
+   * seconds).
+   */
+  private readonly lastSeenWrittenAt = new Map<string, number>();
+  private static readonly LAST_SEEN_THROTTLE_MS = 60_000;
+
   async upsertFromClaims(claims: KeycloakClaims): Promise<AuthUser> {
     const orgSlug = claims.org;
     if (!orgSlug) {
@@ -76,6 +97,19 @@ export class AuthSyncService {
     // working basemap library without a separate admin step.
     // We run it AFTER the user upsert below so the owner assignment
     // can reference a real user.
+    // Decide whether we should refresh `lastSeenAt` on this request.
+    // We rate-limit it to once per LAST_SEEN_THROTTLE_MS per user so
+    // hot-path auth doesn't write to the user row on every API call.
+    // The `findUnique` + `update` split lets us skip the UPDATE when
+    // the throttle is active; the user upsert otherwise still happens
+    // unconditionally since a brand-new user always needs to be
+    // created and a returning user occasionally needs a profile sync
+    // (email / name / role changed in Keycloak).
+    const now = Date.now();
+    const lastWrite = this.lastSeenWrittenAt.get(claims.sub) ?? 0;
+    const writeLastSeen =
+      now - lastWrite >= AuthSyncService.LAST_SEEN_THROTTLE_MS;
+
     const user = await this.prisma.user.upsert({
       where: { username: claims.preferred_username },
       update: {
@@ -83,13 +117,12 @@ export class AuthSyncService {
         fullName: claims.name,
         orgRole: normalisedRole,
         orgId: org.id,
-        // Every authenticated request touches this record so the
-        // housekeeping page can tell "user who last signed in 8
-        // months ago" apart from "user who's active this week".
-        // Writing on every request is cheap (same upsert that was
-        // already happening) and simpler than a separate heartbeat
-        // path.
-        lastSeenAt: new Date(),
+        // Throttled per-process: most requests skip writing this and
+        // just leave the previous timestamp in place. The housekeeping
+        // page measures staleness in days so a 60s lag is irrelevant
+        // there but cuts ~1 UPDATE per request out of the auth hot
+        // path. lastSeenAt is still ALWAYS set on the create branch.
+        ...(writeLastSeen ? { lastSeenAt: new Date() } : {}),
       },
       create: {
         // New users (not seeded) adopt Keycloak's sub as their local id, so
@@ -103,12 +136,29 @@ export class AuthSyncService {
         lastSeenAt: new Date(),
       },
     });
+    if (writeLastSeen) {
+      // Record the write so the throttle holds for the next minute.
+      // We also record a write on the create path so a brand-new user
+      // doesn't get a redundant update on their second request.
+      this.lastSeenWrittenAt.set(user.id, now);
+    } else if (lastWrite === 0) {
+      // First time we've seen this user in this process: seed the
+      // throttle map so any prior write counts forward. The DB write
+      // happened (see upsert update branch above gated on the same
+      // condition), so set to now.
+      this.lastSeenWrittenAt.set(user.id, now);
+    }
 
-    // Seed built-in basemap items if this org is missing any. Cheap
-    // guard: only inserts for seededKey markers that are not already
-    // present, so the common case (org already seeded) is one SELECT
-    // that returns five rows and no writes.
-    await this.ensureBuiltinBasemaps(org.id, user.id);
+    // Seed built-in basemap items if this org is missing any. We
+    // cache "this org has been verified this process lifetime" in
+    // memory so the SELECT only fires once per org per process; this
+    // turns ensureBuiltinBasemaps into a no-op for every authenticated
+    // request after the first one. New seeds added in a deploy are
+    // picked up automatically because the cache is per-process.
+    if (!this.basemapSeedChecked.has(org.id)) {
+      await this.ensureBuiltinBasemaps(org.id, user.id);
+      this.basemapSeedChecked.add(org.id);
+    }
 
     // Exclude memberships whose group is in the trash. Otherwise an item
     // shared to a soft-deleted group would still match this user's

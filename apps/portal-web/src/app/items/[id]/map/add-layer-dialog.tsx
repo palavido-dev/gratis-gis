@@ -62,6 +62,16 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
   const [portalQ, setPortalQ] = useState('');
   const [portalItems, setPortalItems] = useState<Item[]>([]);
   const [portalLoading, setPortalLoading] = useState(false);
+  // When the user picks an arcgis_service item that exposes more than
+  // one sublayer, we surface this follow-up prompt asking whether to
+  // bundle the sublayers under a group header (the recommended
+  // default) or add them as separate top-level layers. Stored as the
+  // pending item itself so the modal can render the service name and
+  // sublayer count without re-derivation.
+  const [pendingSublayerChoice, setPendingSublayerChoice] = useState<{
+    item: Item;
+    count: number;
+  } | null>(null);
 
   // Curated tab state: search narrows the curated list.
   const [curatedQ, setCuratedQ] = useState('');
@@ -88,14 +98,17 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
     arcgisAbortRef.current?.abort();
     arcgisAbortRef.current = null;
     setError(null);
+    setPendingSublayerChoice(null);
   }, []);
 
-  // Load portal items when the portal tab activates or the query changes.
-  // Fetch both layer-bearing item types in parallel and merge by
-  // recency. Uses Promise.allSettled so one failing fetch (common
-  // right after introducing a new item type: the API server may
-  // still be serving a pre-migration Prisma client) doesn't blank
-  // out the other type's results.
+  // Load portal items when the portal tab activates or the query
+  // changes. One fetch (?type=data_layer,arcgis_service&lite=1)
+  // covers both supported types; lite mode strips the heavy data
+  // JSONB from each row so the wire payload is small and the
+  // backend skips serialising hundreds of KB of layer metadata
+  // per arcgis_service. The badge count comes from the derived
+  // `_subLayerCount` field the server attaches in lite mode. Full
+  // `data` is fetched lazily when the user clicks an item below.
   useEffect(() => {
     if (!open || tab !== 'portal') return;
     let cancelled = false;
@@ -103,27 +116,20 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
     const handle = setTimeout(async () => {
       try {
         const q = portalQ.trim();
-        const fetchType = (t: string) => {
-          const qs = new URLSearchParams({ type: t });
-          if (q) qs.set('q', q);
-          return fetch(`/api/portal/items?${qs}`).then((r) => {
-            if (!r.ok) throw new Error(`${t}: HTTP ${r.status}`);
-            return r.json() as Promise<Item[]>;
-          });
-        };
-        const settled = await Promise.allSettled([
-          fetchType('data_layer'),
-          fetchType('arcgis_service'),
-        ]);
-        if (cancelled) return;
-        const items: Item[] = [];
-        for (const s of settled) {
-          if (s.status === 'fulfilled') items.push(...s.value);
-          else {
-            // eslint-disable-next-line no-console
-            console.warn('[portal] fetch failed:', s.reason);
-          }
+        const qs = new URLSearchParams({
+          type: 'data_layer,arcgis_service',
+          lite: '1',
+        });
+        if (q) qs.set('q', q);
+        const res = await fetch(`/api/portal/items?${qs}`);
+        if (!res.ok) {
+          // eslint-disable-next-line no-console
+          console.warn('[portal] fetch failed:', res.status);
+          if (!cancelled) setPortalItems([]);
+          return;
         }
+        const items = (await res.json()) as Item[];
+        if (cancelled) return;
         items.sort((a, b) => {
           const at = new Date(a.updatedAt ?? 0).getTime();
           const bt = new Date(b.updatedAt ?? 0).getTime();
@@ -267,117 +273,143 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
     onClose();
   }
 
-  function submitPortalItem(item: Item) {
-    // arcgis_service items carry the URL + sublayer directly in their
-    // dataJson, so we plumb them through as an arcgis-rest source
-    // rather than routing through the feature-service machinery.
-    // Feature-service items still go through /api/portal/items/:id/geojson.
-    if (item.type === 'arcgis_service') {
-      const d = (item.data ?? {}) as {
-        url?: string;
-        serviceType?: 'MapServer' | 'FeatureServer';
-        defaultLayerId?: number;
-        selectedLayerIds?: Array<string | number>;
-        layerConfig?: Record<
-          string,
-          { label?: string; visible?: boolean }
-        >;
-        layers?: Array<{ id: number; name?: string; geometryType?: string }>;
-      };
-      if (!d.url) {
-        setError(
-          `${item.title} has no service URL yet. Open it and paste one.`,
-        );
-        return;
-      }
+  /**
+   * Adds the selected portal item's layer(s) to the map. For
+   * arcgis_service items with more than one sublayer, this defers
+   * to a follow-up inline modal to decide group vs flat; otherwise
+   * it commits immediately. Splitting the function lets the inline
+   * modal call back in with the chosen mode without re-running any
+   * of the lookup logic.
+   *
+   * The list is fetched in lite mode (#52) so the row's `data` is
+   * absent. We hydrate the full item here on click so all the
+   * downstream logic (URL, sublayer ordering, label overrides)
+   * keeps reading from `item.data` without caring how the list
+   * arrived. data_layer items don't need `data` at all (they pass
+   * just `itemId` to the layer source) so they skip the hydrate.
+   */
+  async function submitPortalItem(item: Item) {
+    if (item.type !== 'arcgis_service') {
+      onAdd(makeLayer(item.title, { kind: 'data-layer', itemId: item.id }));
+      reset();
+      onClose();
+      return;
+    }
+    const hydrated = await hydratePortalItem(item);
+    if (hydrated === null) return; // setError already fired
+    const ordered = orderedSublayersForPortalItem(hydrated);
+    if (ordered === null) return;
+    if (ordered.length > 1) {
+      // Defer the actual add to the inline modal. The modal calls
+      // addArcgisPortalItem with the user's chosen mode against the
+      // already-hydrated copy so we don't re-fetch.
+      setPendingSublayerChoice({ item: hydrated, count: ordered.length });
+      return;
+    }
+    addArcgisPortalItem(hydrated, 'flat');
+  }
 
-      // Resolve the curated subset this item exposes. Items that
-      // predate multi-layer selection lack selectedLayerIds; treat
-      // 'absent' as 'all probed layers' for backward compatibility.
-      const allLayers = d.layers ?? [];
-      const curated = d.selectedLayerIds
-        ? allLayers.filter((l) =>
-            d.selectedLayerIds!.map(String).includes(String(l.id)),
-          )
-        : allLayers;
-
-      if (curated.length === 0) {
-        setError(
-          `${item.title} has no layers selected for web-map use. Open the item and pick at least one layer.`,
-        );
-        return;
+  /**
+   * Hydrate a lite-mode portal item by fetching its full record
+   * (including `data`) by id. Returns the hydrated item, or null
+   * if the fetch failed (setError populated). Items already
+   * carrying `data` (e.g. from a non-lite caller) short-circuit.
+   */
+  async function hydratePortalItem(item: Item): Promise<Item | null> {
+    if (item.data && Object.keys(item.data as object).length > 0) {
+      return item;
+    }
+    try {
+      const res = await fetch(`/api/portal/items/${item.id}`);
+      if (!res.ok) {
+        setError(`Could not load ${item.title} (HTTP ${res.status}).`);
+        return null;
       }
-
-      // Put the default layer first so the map's layer panel reads
-      // in a sensible order. Other selected layers follow in probe
-      // order.
-      const ordered = [
-        ...curated.filter((l) => l.id === d.defaultLayerId),
-        ...curated.filter((l) => l.id !== d.defaultLayerId),
-      ];
-      // For multi-sublayer services, ask the user whether to bundle
-      // them under a group header. Three options:
-      //   - OK + grouped: one group header layer (kind=group) named
-      //     after the service, with N children whose groupId points
-      //     at the header.
-      //   - OK + ungrouped: N independent siblings (legacy behaviour).
-      //   - Cancel: bail.
-      // Single-sublayer services skip the prompt entirely.
-      let mode: 'group' | 'flat' = 'flat';
-      if (ordered.length > 1) {
-        const choice = window.prompt(
-          `"${item.title}" contains ${ordered.length} layers.\n\n` +
-            `Type "g" to add them under a group layer (recommended; one parent header collapses them all), ` +
-            `or "f" to add them as ${ordered.length} separate top-level layers.\n\n` +
-            `Press Cancel to bail.`,
-          'g',
-        );
-        if (choice === null) return;
-        const c = choice.trim().toLowerCase();
-        if (c === 'g' || c === 'group' || c === '') mode = 'group';
-        else if (c === 'f' || c === 'flat' || c === 'separate') mode = 'flat';
-        else {
-          // Unrecognised input: treat as flat with a courtesy notice
-          // so the user gets feedback rather than a silent default.
-          // eslint-disable-next-line no-alert
-          window.alert(
-            `Didn't recognise "${choice}", adding as separate layers.`,
-          );
-          mode = 'flat';
-        }
-      }
-
-      // Group mode: emit the parent header first; children carry
-      // groupId pointing at it. The header has source.kind='group'
-      // so the canvas skips it.
-      let groupId: string | undefined;
-      if (mode === 'group') {
-        const header = makeLayer(item.title, { kind: 'group' });
-        groupId = header.id;
-        onAdd(header);
-      }
-
-      for (const l of ordered) {
-        const override = d.layerConfig?.[String(l.id)];
-        // Title comes from the SUBLAYER name only -- no parent
-        // prefix or parent suffix.
-        const subName = l.name ?? `Layer ${l.id}`;
-        const title =
-          override?.label ?? (ordered.length === 1 ? item.title : subName);
-        const layer = makeLayer(title, {
-          kind: 'arcgis-rest',
-          url: d.url,
-          layerId: l.id,
-          serviceType: d.serviceType ?? 'MapServer',
-          sourceItemId: item.id,
-        });
-        if (groupId) layer.groupId = groupId;
-        onAdd(layer);
-      }
-    } else {
-      onAdd(
-        makeLayer(item.title, { kind: 'data-layer', itemId: item.id }),
+      return (await res.json()) as Item;
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : `Could not load ${item.title}.`,
       );
+      return null;
+    }
+  }
+
+  /**
+   * Pull the curated, ordered sublayer list out of an arcgis_service
+   * item's data blob. Returns null if the item is missing a URL or
+   * has no curated layers selected; in those cases setError has
+   * already populated the right message for the dialog footer.
+   */
+  function orderedSublayersForPortalItem(
+    item: Item,
+  ): Array<{ id: number; name?: string; geometryType?: string }> | null {
+    const d = (item.data ?? {}) as {
+      url?: string;
+      defaultLayerId?: number;
+      selectedLayerIds?: Array<string | number>;
+      layers?: Array<{ id: number; name?: string; geometryType?: string }>;
+    };
+    if (!d.url) {
+      setError(`${item.title} has no service URL yet. Open it and paste one.`);
+      return null;
+    }
+    const allLayers = d.layers ?? [];
+    const curated = d.selectedLayerIds
+      ? allLayers.filter((l) =>
+          d.selectedLayerIds!.map(String).includes(String(l.id)),
+        )
+      : allLayers;
+    if (curated.length === 0) {
+      setError(
+        `${item.title} has no layers selected for web-map use. Open the item and pick at least one layer.`,
+      );
+      return null;
+    }
+    return [
+      ...curated.filter((l) => l.id === d.defaultLayerId),
+      ...curated.filter((l) => l.id !== d.defaultLayerId),
+    ];
+  }
+
+  /**
+   * Commit an arcgis_service item to the layer panel using the
+   * caller's chosen group / flat mode. Group mode emits a parent
+   * header layer (kind=group) followed by N children whose groupId
+   * references it; flat mode emits N independent siblings.
+   */
+  function addArcgisPortalItem(item: Item, mode: 'group' | 'flat') {
+    const d = (item.data ?? {}) as {
+      url?: string;
+      serviceType?: 'MapServer' | 'FeatureServer';
+      defaultLayerId?: number;
+      selectedLayerIds?: Array<string | number>;
+      layerConfig?: Record<string, { label?: string; visible?: boolean }>;
+      layers?: Array<{ id: number; name?: string; geometryType?: string }>;
+    };
+    const ordered = orderedSublayersForPortalItem(item);
+    if (ordered === null) return;
+    let groupId: string | undefined;
+    if (mode === 'group') {
+      const header = makeLayer(item.title, { kind: 'group' });
+      groupId = header.id;
+      onAdd(header);
+    }
+    for (const l of ordered) {
+      const override = d.layerConfig?.[String(l.id)];
+      const subName = l.name ?? `Layer ${l.id}`;
+      const title =
+        override?.label ?? (ordered.length === 1 ? item.title : subName);
+      const layer = makeLayer(title, {
+        kind: 'arcgis-rest',
+        url: d.url!,
+        layerId: l.id,
+        serviceType: d.serviceType ?? 'MapServer',
+        sourceItemId: item.id,
+      });
+      if (groupId) layer.groupId = groupId;
+      onAdd(layer);
     }
     reset();
     onClose();
@@ -621,20 +653,30 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
               ) : (
                 <ul className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-1">
                   {portalItems.map((item) => {
-                    // Pre-compute the sublayer count for arcgis_service
-                    // items so the row badge tells the user up front
-                    // how many layers a click will add to the map.
+                    // The list is fetched in lite mode (#52) so
+                    // `data` is omitted from the row payload; the
+                    // server attaches a derived `_subLayerCount` for
+                    // arcgis_service rows. Fall back to the legacy
+                    // `data`-derived count if a non-lite caller ever
+                    // re-uses this same list component.
                     let sublayerCount = 0;
                     if (item.type === 'arcgis_service') {
-                      const d = (item.data ?? {}) as {
-                        selectedLayerIds?: Array<string | number>;
-                        layers?: Array<unknown>;
-                      };
-                      sublayerCount = d.selectedLayerIds
-                        ? d.selectedLayerIds.length
-                        : Array.isArray(d.layers)
-                          ? d.layers.length
-                          : 0;
+                      const fromLite = (item as Item & {
+                        _subLayerCount?: number;
+                      })._subLayerCount;
+                      if (typeof fromLite === 'number') {
+                        sublayerCount = fromLite;
+                      } else {
+                        const d = (item.data ?? {}) as {
+                          selectedLayerIds?: Array<string | number>;
+                          layers?: Array<unknown>;
+                        };
+                        sublayerCount = d.selectedLayerIds
+                          ? d.selectedLayerIds.length
+                          : Array.isArray(d.layers)
+                            ? d.layers.length
+                            : 0;
+                      }
                     }
                     return (
                     <li key={item.id}>
@@ -866,6 +908,119 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
             </button>
           </div>
         )}
+      </div>
+      {pendingSublayerChoice ? (
+        <SublayerChoiceModal
+          item={pendingSublayerChoice.item}
+          count={pendingSublayerChoice.count}
+          onPick={(mode) => {
+            const item = pendingSublayerChoice.item;
+            setPendingSublayerChoice(null);
+            addArcgisPortalItem(item, mode);
+          }}
+          onCancel={() => setPendingSublayerChoice(null)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Inline follow-up dialog shown after the user picks an
+ * arcgis_service item that exposes more than one sublayer. The
+ * group choice is the recommended default; flat is offered for
+ * users who want each sublayer as an independent panel entry. The
+ * modal sits above the parent Add Layer dialog (shared backdrop
+ * via the parent's z-30) so the click-to-close on the backdrop
+ * doesn't punch through; we intercept the click here and route to
+ * onCancel instead.
+ */
+function SublayerChoiceModal({
+  item,
+  count,
+  onPick,
+  onCancel,
+}: {
+  item: Item;
+  count: number;
+  onPick: (mode: 'group' | 'flat') => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Add sublayers"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4"
+      onClick={onCancel}
+    >
+      <div
+        className="w-full max-w-md rounded-lg border border-border bg-surface-1 shadow-overlay"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="border-b border-border px-4 py-3">
+          <h3 className="text-base font-semibold">
+            Add &ldquo;{item.title}&rdquo;
+          </h3>
+          <p className="mt-1 text-sm text-muted">
+            This service exposes <strong>{count} sublayers</strong>. How would
+            you like to add them?
+          </p>
+        </div>
+        <div className="space-y-2 px-4 py-4">
+          <button
+            type="button"
+            autoFocus
+            onClick={() => onPick('group')}
+            className="flex w-full items-start gap-3 rounded-md border border-border bg-surface-1 px-3 py-3 text-left transition-colors hover:border-accent hover:bg-accent/5"
+          >
+            <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent/10 text-accent">
+              <Layers className="h-4 w-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-ink-0">
+                  Add as a group
+                </span>
+                <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-accent">
+                  Recommended
+                </span>
+              </div>
+              <p className="mt-0.5 text-xs text-muted">
+                One parent header. Toggle visibility, opacity, and removal for
+                all sublayers at once. You can still expand to tweak any one
+                of them.
+              </p>
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => onPick('flat')}
+            className="flex w-full items-start gap-3 rounded-md border border-border bg-surface-1 px-3 py-3 text-left transition-colors hover:border-accent hover:bg-accent/5"
+          >
+            <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-2 text-muted">
+              <Database className="h-4 w-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <span className="text-sm font-medium text-ink-0">
+                Add as separate layers
+              </span>
+              <p className="mt-0.5 text-xs text-muted">
+                {count} independent top-level entries in the layer panel. Best
+                if you plan to mix them with other map content.
+              </p>
+            </div>
+          </button>
+        </div>
+        <div className="flex items-center justify-end border-t border-border px-4 py-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="h-9 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-1 hover:bg-surface-2"
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
   );

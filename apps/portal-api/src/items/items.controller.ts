@@ -129,26 +129,47 @@ export class ItemsController {
   list(
     @CurrentUser() user: AuthUser,
     @Query('mine') mine?: string,
-    @Query('type') type?: ItemType,
+    @Query('type') type?: string,
     @Query('q') q?: string,
     @Query('ownerId') ownerId?: string,
     @Query('bbox') bbox?: string,
     @Query('buffer') buffer?: string,
+    @Query('lite') lite?: string,
   ) {
     // Build opts without explicit-undefined keys so `exactOptionalPropertyTypes`
     // is satisfied. Passing `{ type: undefined }` is not the same as omitting it.
     const opts: {
       mine?: boolean;
-      type?: ItemType;
+      type?: ItemType | ItemType[];
       q?: string;
       ownerId?: string;
       bbox?: [number, number, number, number];
       bufferKm?: number;
+      lite?: boolean;
     } = {};
     if (mine === 'true') opts.mine = true;
-    if (type !== undefined) opts.type = type;
+    // ?type accepts a single ItemType or a comma-separated list.
+    // Multi-type lets callers (e.g. the Add Layer dialog) pull both
+    // data_layer and arcgis_service in one round-trip instead of
+    // firing two parallel requests that each pay the auth-sync cost.
+    // Each token is validated against ITEM_TYPES so a malformed
+    // query stays an empty filter (Prisma rejects bad enum values).
+    if (type !== undefined) {
+      const tokens = type
+        .split(',')
+        .map((t) => t.trim())
+        .filter((t) => t.length > 0);
+      const valid = tokens.filter(
+        (t): t is ItemType => (ITEM_TYPES as readonly string[]).includes(t),
+      );
+      if (valid.length === 1) opts.type = valid[0]!;
+      else if (valid.length > 1) opts.type = valid;
+      // empty / all-invalid: leave opts.type unset; the caller gets the
+      // unfiltered list back, which matches the no-?type behaviour.
+    }
     if (q !== undefined) opts.q = q;
     if (ownerId !== undefined) opts.ownerId = ownerId;
+    if (lite === '1' || lite === 'true') opts.lite = true;
     if (bbox !== undefined) {
       const parts = bbox.split(',').map(Number);
       if (

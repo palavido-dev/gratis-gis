@@ -94,7 +94,13 @@ export class ItemsService {
     user: AuthUser,
     opts: {
       mine?: boolean;
-      type?: ItemType;
+      /**
+       * Single ItemType or array of types. The controller normalises
+       * a comma-separated `?type=` query into one or the other so a
+       * caller fetching both data_layer and arcgis_service can do it
+       * in one round-trip.
+       */
+      type?: ItemType | ItemType[];
       q?: string;
       /**
        * Filter to items owned by a specific user. Intended for the
@@ -123,6 +129,16 @@ export class ItemsService {
        * survey-grade query.
        */
       bufferKm?: number;
+      /**
+       * Slim projection: when true, the response omits the heavy
+       * `data` JSONB blob and instead attaches a `_subLayerCount`
+       * derived field on arcgis_service items so the Add Layer
+       * dialog can still render the "+N layers" badge without
+       * shipping hundreds of KB of layer metadata per row. Callers
+       * that need the full payload (the items page, item detail
+       * fetches) leave this off. (#52)
+       */
+      lite?: boolean;
     } = {},
   ) {
     // Lightweight per-call timing log behind the ITEMS_LIST_TIMING env
@@ -167,7 +183,9 @@ export class ItemsService {
         where.OR = [direct, inherited];
       }
     }
-    if (opts.type) where.type = opts.type;
+    if (opts.type) {
+      where.type = Array.isArray(opts.type) ? { in: opts.type } : opts.type;
+    }
     if (opts.ownerId && opts.ownerId !== user.id && user.orgRole !== 'admin') {
       // Non-admins can only filter to their own items.
       throw new ForbiddenException(
@@ -232,34 +250,101 @@ export class ItemsService {
     // and far better than N+1 fetches on the client.
     // Also include a lean owner projection (username, fullName, avatar)
     // so the Owner column can render without N+1 lookups.
+    //
+    // Lite mode (#52): omit the heavy data_json blob from the
+    // response. The list view doesn't need most of what's in there;
+    // arcgis_service items get a derived `_subLayerCount` attached
+    // below so the dialog can still render the "+N layers" badge.
     if (traceTiming && tInheritDone === 0) tInheritDone = Date.now();
-    const rows = await this.prisma.item.findMany({
-      where,
-      include: {
-        shares: true,
-        owner: {
-          select: {
-            id: true,
-            username: true,
-            fullName: true,
-            avatarUrl: true,
-          },
+    const baseSelect = {
+      id: true,
+      orgId: true,
+      ownerId: true,
+      type: true,
+      title: true,
+      description: true,
+      tags: true,
+      thumbnailUrl: true,
+      license: true,
+      storageRef: true,
+      access: true,
+      createdAt: true,
+      updatedAt: true,
+      deletedAt: true,
+      bbox: true,
+      bboxSrs: true,
+      shares: true,
+      owner: {
+        select: {
+          id: true,
+          username: true,
+          fullName: true,
+          avatarUrl: true,
         },
       },
-      orderBy: { updatedAt: 'desc' },
-    });
+    } as const;
+    const rows = opts.lite
+      ? await this.prisma.item.findMany({
+          where,
+          select: baseSelect,
+          orderBy: { updatedAt: 'desc' },
+        })
+      : await this.prisma.item.findMany({
+          where,
+          select: { ...baseSelect, data: true },
+          orderBy: { updatedAt: 'desc' },
+        });
+
+    let result: unknown[] = rows;
+    if (opts.lite) {
+      // Compute _subLayerCount for arcgis_service rows in one
+      // targeted raw query. Postgres reads only the JSONB path we
+      // care about (selectedLayerIds length, falling back to layers
+      // length, then 0) so the trip back is a couple of integers
+      // per row, not the whole metadata blob. Layered on top of
+      // the slim findMany so the network payload stays small.
+      const arcIds = rows
+        .filter((r) => r.type === 'arcgis_service')
+        .map((r) => r.id);
+      const counts = new Map<string, number>();
+      if (arcIds.length > 0) {
+        const counted = await this.prisma.$queryRaw<
+          Array<{ id: string; sublayer_count: number }>
+        >`
+          SELECT id::text AS id,
+                 COALESCE(
+                   jsonb_array_length(data_json -> 'selectedLayerIds'),
+                   jsonb_array_length(data_json -> 'layers'),
+                   0
+                 )::int AS sublayer_count
+          FROM "item"
+          WHERE id = ANY(${arcIds}::uuid[])
+        `;
+        for (const c of counted) counts.set(c.id, c.sublayer_count);
+      }
+      result = rows.map((r) =>
+        r.type === 'arcgis_service'
+          ? { ...r, _subLayerCount: counts.get(r.id) ?? 0 }
+          : r,
+      );
+    }
+
     if (traceTiming) {
       const tFindDone = Date.now();
+      const typeLabel = Array.isArray(opts.type)
+        ? opts.type.join('|')
+        : (opts.type ?? 'any');
       // eslint-disable-next-line no-console
       console.log(
-        `[items.list] type=${opts.type ?? 'any'} mine=${opts.mine ?? false} ` +
-          `q=${opts.q ?? ''} rows=${rows.length} ` +
+        `[items.list] type=${typeLabel} mine=${opts.mine ?? false} ` +
+          `lite=${opts.lite ?? false} q=${opts.q ?? ''} ` +
+          `rows=${rows.length} ` +
           `inherit=${tInheritDone - tStart}ms ` +
           `findMany=${tFindDone - tInheritDone}ms ` +
           `total=${tFindDone - tStart}ms`,
       );
     }
-    return rows;
+    return result;
   }
 
   /**
