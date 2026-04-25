@@ -99,6 +99,18 @@ export interface MapData {
    * has been deleted.
    */
   basemap: string;
+  /**
+   * Optional reference to a geo_boundary item. When set, the map
+   * editor and viewer fit the camera to this boundary's geometry
+   * on first open, falling back to `center` / `zoom` if the
+   * boundary item is missing or has no geometry yet. Lets one
+   * curated boundary act as the canonical extent for many maps
+   * (#53 geo_boundary reuse). Mutually independent of `bbox` /
+   * `center` / `zoom`: persisted camera state still gets used for
+   * subsequent visits where the user has panned away from the
+   * boundary's footprint.
+   */
+  defaultExtentBoundaryId?: string;
   center: [number, number];
   zoom: number;
   bearing: number;

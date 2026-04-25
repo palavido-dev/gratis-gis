@@ -165,6 +165,20 @@ export default async function ItemDetailPage({ params }: Props) {
           .catch(() => [])
       : [];
 
+  // For maps that reference a geo_boundary as their default extent
+  // (#53), fetch that one item up front so the canvas can fit-bounds
+  // on load without a second round-trip. The boundary may have been
+  // deleted since the map was saved; we silently fall back to the
+  // map's persisted center / zoom in that case.
+  const mapData =
+    item.type === 'map' ? (item.data as MapData | null) : null;
+  const defaultExtentBoundary =
+    mapData?.defaultExtentBoundaryId
+      ? await apiFetch<Item<GeoBoundaryData>>(
+          `/api/items/${mapData.defaultExtentBoundaryId}`,
+        ).catch(() => null)
+      : null;
+
   // Load groups (for the share picker) and any referenced users.
   // Visible-groups are already scoped to this user on the API side.
   const groups = canManage ? await apiFetch<Group[]>('/api/groups') : [];
@@ -333,6 +347,7 @@ export default async function ItemDetailPage({ params }: Props) {
             initial={{ ...DEFAULT_MAP, ...((item.data ?? {}) as Partial<MapData>) }}
             canEdit={canManage}
             basemaps={basemaps}
+            defaultExtentBoundary={defaultExtentBoundary}
           />
         </section>
       ) : item.type === 'data_layer' ? (

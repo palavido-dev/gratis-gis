@@ -54,6 +54,16 @@ interface Props {
    * references a specific one through `MapData.basemap` (UUID).
    */
   basemaps?: CustomBasemap[];
+  /**
+   * Pre-resolved geo_boundary item that the map's
+   * `defaultExtentBoundaryId` (#53) points at. Server-fetched so
+   * the canvas can fit-bounds on first load without a second
+   * round-trip. Null when the map either does not reference one
+   * or the referenced boundary has been deleted.
+   */
+  defaultExtentBoundary?:
+    | { data: { geometry?: unknown; bbox?: unknown } | null; id: string; title: string }
+    | null;
 }
 
 /**
@@ -67,11 +77,50 @@ interface Props {
  * use a fixed-width sidebar and let horizontal scroll handle anything
  * below that.
  */
+/**
+ * Convert a geo_boundary item's geometry / cached bbox into the
+ * camera state the MapData seed uses (#53). Returns null when the
+ * boundary is missing, has no bbox or geometry, or the values
+ * fall outside the WGS84 envelope (we don't try to recover from
+ * obviously-bad data here).
+ */
+function boundaryFitFor(
+  boundary:
+    | { data: { geometry?: unknown; bbox?: unknown } | null }
+    | null
+    | undefined,
+): { center: [number, number]; zoom: number } | null {
+  if (!boundary?.data) return null;
+  const bboxRaw = boundary.data.bbox;
+  let w: number | null = null;
+  let s: number | null = null;
+  let e: number | null = null;
+  let n: number | null = null;
+  if (
+    Array.isArray(bboxRaw) &&
+    bboxRaw.length === 4 &&
+    bboxRaw.every((v) => typeof v === 'number' && Number.isFinite(v))
+  ) {
+    [w, s, e, n] = bboxRaw as [number, number, number, number];
+  }
+  if (w === null || s === null || e === null || n === null) return null;
+  if (w >= e || s >= n) return null;
+  const cx = (w + e) / 2;
+  const cy = (s + n) / 2;
+  // Approximate zoom from the wider edge (degrees). Roughly:
+  // 360deg ~ z=0, halve per zoom level. Clamp to a polite range
+  // so we never zoom out past world or all the way down to street.
+  const span = Math.max(e - w, n - s);
+  const zoom = Math.max(2, Math.min(16, Math.log2(360 / Math.max(span, 0.001)) - 0.5));
+  return { center: [cx, cy], zoom };
+}
+
 export function MapEditor({
   itemId,
   initial,
   canEdit,
   basemaps = [],
+  defaultExtentBoundary = null,
 }: Props) {
   // Hydrate older persisted maps. Each bump in the schema lands a new
   // migrator here; the goal is that any v2.x map still opens cleanly.
@@ -165,7 +214,7 @@ export function MapEditor({
         visible: l.visible ?? true,
       } as MapLayer;
     });
-    return {
+    const merged: MapData = {
       ...DEFAULT_MAP,
       ...initial,
       search: {
@@ -174,7 +223,21 @@ export function MapEditor({
       },
       layers,
     };
-  }, [initial]);
+    // Default extent reference (#53): if the map points at a
+    // geo_boundary, override the seed camera with the boundary's
+    // bbox center + an approximate zoom that fits it. This applies
+    // every load, which means a viewer who pans away will snap
+    // back on next visit -- intentional, since the boundary IS
+    // the canonical extent for this map. Save (which captures the
+    // current camera state) does not clear `defaultExtentBoundaryId`,
+    // so the persistent reference still wins on the next load.
+    const fit = boundaryFitFor(defaultExtentBoundary);
+    if (fit) {
+      merged.center = fit.center;
+      merged.zoom = fit.zoom;
+    }
+    return merged;
+  }, [initial, defaultExtentBoundary]);
   const [map, setMap] = useState<MapData>(seed);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
