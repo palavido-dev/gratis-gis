@@ -64,19 +64,19 @@ class UpdateItemDto {
 class ReassignOwnerDto {
   @IsUUID('loose') newOwnerId!: string;
   // null explicitly clears / skips the courtesy share for the
-  // previous owner; 'view' | 'edit' | 'admin' creates / updates one;
+  // previous owner; 'view' | 'download' | 'edit' | 'admin' creates / updates one;
   // omitted = no courtesy share created.
   @IsOptional()
-  @IsEnum(['view', 'edit', 'admin'])
-  keepPreviousOwnerAccess?: 'view' | 'edit' | 'admin' | null;
+  @IsEnum(['view', 'download', 'edit', 'admin'])
+  keepPreviousOwnerAccess?: 'view' | 'download' | 'edit' | 'admin' | null;
 }
 
 class BulkReassignDto {
   @IsArray() @IsUUID('loose', { each: true }) itemIds!: string[];
   @IsUUID('loose') newOwnerId!: string;
   @IsOptional()
-  @IsEnum(['view', 'edit', 'admin'])
-  keepPreviousOwnerAccess?: 'view' | 'edit' | 'admin' | null;
+  @IsEnum(['view', 'download', 'edit', 'admin'])
+  keepPreviousOwnerAccess?: 'view' | 'download' | 'edit' | 'admin' | null;
 }
 
 class ShareDto {
@@ -87,7 +87,7 @@ class ShareDto {
 // strict v4 validation. The DB-level FK check is our real integrity
 // guarantee via assertPrincipalExists().
 @IsUUID('loose') principalId!: string;
-  @IsOptional() @IsEnum(['view', 'edit', 'admin']) permission?: SharePermission;
+  @IsOptional() @IsEnum(['view', 'download', 'edit', 'admin']) permission?: SharePermission;
   /**
    * Inline GeoJSON polygon (EPSG:4326) that clips what this principal
    * can see on the item. Pass `null` to clear. Omit the field to
@@ -262,7 +262,7 @@ export class ItemsController {
   ) {
     const patch: {
       newOwnerId: string;
-      keepPreviousOwnerAccess?: 'view' | 'edit' | 'admin' | null;
+      keepPreviousOwnerAccess?: 'view' | 'download' | 'edit' | 'admin' | null;
     } = { newOwnerId: dto.newOwnerId };
     if (dto.keepPreviousOwnerAccess !== undefined) {
       patch.keepPreviousOwnerAccess = dto.keepPreviousOwnerAccess;
@@ -318,7 +318,7 @@ export class ItemsController {
     const patch: {
       itemIds: string[];
       newOwnerId: string;
-      keepPreviousOwnerAccess?: 'view' | 'edit' | 'admin' | null;
+      keepPreviousOwnerAccess?: 'view' | 'download' | 'edit' | 'admin' | null;
     } = { itemIds: dto.itemIds, newOwnerId: dto.newOwnerId };
     if (dto.keepPreviousOwnerAccess !== undefined) {
       patch.keepPreviousOwnerAccess = dto.keepPreviousOwnerAccess;

@@ -207,7 +207,7 @@ export function ItemsView({ items, currentUser }: Props) {
 
   async function handleBulkReassign(
     newOwnerId: string,
-    keepPreviousOwnerAccess: 'view' | 'edit' | 'admin' | null,
+    keepPreviousOwnerAccess: 'view' | 'download' | 'edit' | 'admin' | null,
   ) {
     setBulkSaving(true);
     setBulkError(null);

@@ -525,6 +525,7 @@ export function SharingPanel({
                     className="h-8 rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
                   >
                     <option value="view">can view</option>
+                    <option value="download">can download</option>
                     <option value="edit">can edit</option>
                     <option value="admin">can admin</option>
                   </select>

@@ -34,6 +34,35 @@ export class SharingService {
     );
   }
 
+  /**
+   * `canDownload` sits between canRead and canEdit on the privilege
+   * ladder. A user can download bulk data when:
+   *   - they own the item, or are an org admin in its org
+   *   - the item is `access: public` or `access: org` (same scope as
+   *     canRead; public / org access has no meaningful "view but not
+   *     download" middle ground because anyone could screen-scrape)
+   *   - they have an explicit share at `download`, `edit`, or `admin`
+   *
+   * The middle tier is meaningful only for explicit shares: an owner
+   * may share a data_layer with a partner so they can render it on a
+   * map (`view`) without granting bulk extract (`download`). The
+   * GeoJSON dump endpoint is the gate this protects today; future
+   * CSV / Shapefile / GeoPackage exports will share the same gate.
+   */
+  canDownload(user: AuthUser, item: Item, shares: ItemShare[] = []): boolean {
+    if (item.ownerId === user.id) return true;
+    if (user.orgRole === 'admin' && item.orgId === user.orgId) return true;
+    if (item.access === 'public') return true;
+    if (item.access === 'org' && item.orgId === user.orgId) return true;
+    return shares.some(
+      (s) =>
+        (s.permission === 'download' ||
+          s.permission === 'edit' ||
+          s.permission === 'admin') &&
+        this.shareMatches(user, s),
+    );
+  }
+
   canAdmin(user: AuthUser, item: Item): boolean {
     if (item.ownerId === user.id) return true;
     return user.orgRole === 'admin' && item.orgId === user.orgId;

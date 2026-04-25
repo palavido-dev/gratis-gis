@@ -32,7 +32,7 @@ export function ReassignOwnerButton({
 
   async function submit(
     newOwnerId: string,
-    keepPreviousOwnerAccess: 'view' | 'edit' | 'admin' | null,
+    keepPreviousOwnerAccess: 'view' | 'download' | 'edit' | 'admin' | null,
   ) {
     setSaving(true);
     try {

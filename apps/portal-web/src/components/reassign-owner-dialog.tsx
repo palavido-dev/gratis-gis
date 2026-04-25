@@ -40,11 +40,11 @@ interface Props {
   onClose: () => void;
   onSubmit: (
     newOwnerId: string,
-    keepPreviousOwnerAccess: 'view' | 'edit' | 'admin' | null,
+    keepPreviousOwnerAccess: 'view' | 'download' | 'edit' | 'admin' | null,
   ) => Promise<void> | void;
 }
 
-type KeepAccess = 'none' | 'view' | 'edit' | 'admin';
+type KeepAccess = 'none' | 'view' | 'download' | 'edit' | 'admin';
 
 export function ReassignOwnerDialog({
   heading,
@@ -149,19 +149,23 @@ export function ReassignOwnerDialog({
             [
               {
                 value: 'view',
-                label: 'View — previous owner can still see it',
+                label: 'View: previous owner can still see it',
+              },
+              {
+                value: 'download',
+                label: 'Download: previous owner can also export raw data',
               },
               {
                 value: 'edit',
-                label: 'Edit — previous owner can still change it',
+                label: 'Edit: previous owner can still change it',
               },
               {
                 value: 'admin',
-                label: 'Admin — previous owner keeps full control',
+                label: 'Admin: previous owner keeps full control',
               },
               {
                 value: 'none',
-                label: 'None — previous owner loses access',
+                label: 'None: previous owner loses access',
               },
             ] as Array<{ value: KeepAccess; label: string }>
           ).map((opt) => (

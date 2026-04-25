@@ -622,7 +622,7 @@ export class ItemsService {
     id: string,
     input: {
       newOwnerId: string;
-      keepPreviousOwnerAccess?: 'view' | 'edit' | 'admin' | null;
+      keepPreviousOwnerAccess?: 'view' | 'download' | 'edit' | 'admin' | null;
     },
   ) {
     const item = await this.get(user, id);
@@ -714,14 +714,14 @@ export class ItemsService {
     input: {
       itemIds: string[];
       newOwnerId: string;
-      keepPreviousOwnerAccess?: 'view' | 'edit' | 'admin' | null;
+      keepPreviousOwnerAccess?: 'view' | 'download' | 'edit' | 'admin' | null;
     },
   ): Promise<{ reassigned: number }> {
     let reassigned = 0;
     for (const id of input.itemIds) {
       const patch: {
         newOwnerId: string;
-        keepPreviousOwnerAccess?: 'view' | 'edit' | 'admin' | null;
+        keepPreviousOwnerAccess?: 'view' | 'download' | 'edit' | 'admin' | null;
       } = { newOwnerId: input.newOwnerId };
       if (input.keepPreviousOwnerAccess !== undefined) {
         patch.keepPreviousOwnerAccess = input.keepPreviousOwnerAccess;

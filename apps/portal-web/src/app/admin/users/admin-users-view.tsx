@@ -198,7 +198,7 @@ export function AdminUsersView({ initialUsers }: Props) {
    */
   async function reassignAndDelete(
     newOwnerId: string,
-    keepPreviousOwnerAccess: 'view' | 'edit' | 'admin' | null,
+    keepPreviousOwnerAccess: 'view' | 'download' | 'edit' | 'admin' | null,
   ) {
     if (!deleteWithItems) return;
     setError(null);
