@@ -113,6 +113,17 @@ const RULES = [
   ['Ã‚©', '©'],
   ['Ã‚®', '®'],
 
+  // --- More UTF-8-as-CP1252 sequences seen in this codebase ---
+  // Black-circle bullet (●, U+25CF) used as a "required" indicator
+  // got mangled to `â—` (3-byte UTF-8 0xE2 0x97 0x8F read as 1252:
+  // â + em-dash + control). The trailing 0x8F is unprintable, so
+  // we match `â—` (or `â—□` when the control rendered as tofu)
+  // and emit the original ● back.
+  ['â—□', '●'],
+  ['â—', '●'],
+  // Heavy check (✓, U+2713) and ballot box (☐ U+2610) are likely
+  // candidates if more icons get mangled later; add as they show up.
+
   // --- Stage-1 corruption (CP1252 misread of UTF-8 bytes) ---
   // The most common form when a file is opened with the wrong codepage
   // exactly once. Every replacement here is two source chars (`Â` + the

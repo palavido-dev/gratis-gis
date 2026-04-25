@@ -17,7 +17,7 @@ import type {
  * (v1/v2 single-field-set or v3 per-layer) and renders a dense
  * field table: name, type, required, domain summary, storage
  * constraints. Also exposes a "Raw JSON" disclosure for power
- * users who want to see the underlying item.data blob. Read-only —
+ * users who want to see the underlying item.data blob. Read-only:
  * editing schemas happens in the wizard or detail-page builder;
  * this panel is the "what does this service ACTUALLY look like"
  * answer you reach for when debugging or writing client code.
@@ -160,16 +160,16 @@ function SchemaTable({
                   <td className="px-2 py-1 font-mono text-ink-0">{f.name}</td>
                   <td className="px-2 py-1 text-muted">{f.type}</td>
                   <td className="px-2 py-1 text-ink-1">
-                    {f.label || <span className="text-muted">—</span>}
+                    {f.label || <span className="text-muted">-</span>}
                   </td>
                   <td className="px-2 py-1 text-center text-muted">
-                    {f.nullable ? '' : 'â—'}
+                    {f.nullable ? '' : '●'}
                   </td>
                   <td className="px-2 py-1">
-                    {f.domain ? <DomainCell domain={f.domain} /> : <span className="text-muted">—</span>}
+                    {f.domain ? <DomainCell domain={f.domain} /> : <span className="text-muted">-</span>}
                   </td>
                   <td className="px-2 py-1">
-                    {f.storage ? <StorageCell storage={f.storage} /> : <span className="text-muted">—</span>}
+                    {f.storage ? <StorageCell storage={f.storage} /> : <span className="text-muted">-</span>}
                   </td>
                 </tr>
               ))}
@@ -236,6 +236,6 @@ function StorageCell({
   return parts.length > 0 ? (
     <span className="text-ink-1">{parts.join(' · ')}</span>
   ) : (
-    <span className="text-muted">—</span>
+    <span className="text-muted">-</span>
   );
 }
