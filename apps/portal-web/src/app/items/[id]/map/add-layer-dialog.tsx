@@ -315,13 +315,30 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
         ...curated.filter((l) => l.id === d.defaultLayerId),
         ...curated.filter((l) => l.id !== d.defaultLayerId),
       ];
+      // Confirm before adding more than one layer so a click on a
+      // multi-sublayer service ("Riverside County Parcels" with 10
+      // sublayers) doesn't surprise the user with a wall of
+      // identical-looking rows in the layer panel.
+      if (ordered.length > 1) {
+        const ok = window.confirm(
+          `"${item.title}" contains ${ordered.length} layers. Add all ${ordered.length} to this map?`,
+        );
+        if (!ok) return;
+      }
       for (const l of ordered) {
         const override = d.layerConfig?.[String(l.id)];
+        // Lead with the sublayer name so the layer panel rows are
+        // visually distinguishable: a layer panel that truncates
+        // "Riverside County Parcel Data: Parcels" to "Riverside
+        // County Parcel Da..." used to render every sublayer with
+        // an identical-looking title. Putting the sublayer name
+        // first guarantees the unique part is always visible. We
+        // append the service in parentheses for context only when
+        // there's more than one layer.
+        const subName = l.name ?? `Layer ${l.id}`;
         const title =
           override?.label ??
-          (ordered.length === 1
-            ? item.title
-            : `${item.title}: ${l.name ?? `Layer ${l.id}`}`);
+          (ordered.length === 1 ? item.title : `${subName} (${item.title})`);
         onAdd(
           makeLayer(title, {
             kind: 'arcgis-rest',
@@ -581,7 +598,23 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                 </div>
               ) : (
                 <ul className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-1">
-                  {portalItems.map((item) => (
+                  {portalItems.map((item) => {
+                    // Pre-compute the sublayer count for arcgis_service
+                    // items so the row badge tells the user up front
+                    // how many layers a click will add to the map.
+                    let sublayerCount = 0;
+                    if (item.type === 'arcgis_service') {
+                      const d = (item.data ?? {}) as {
+                        selectedLayerIds?: Array<string | number>;
+                        layers?: Array<unknown>;
+                      };
+                      sublayerCount = d.selectedLayerIds
+                        ? d.selectedLayerIds.length
+                        : Array.isArray(d.layers)
+                          ? d.layers.length
+                          : 0;
+                    }
+                    return (
                     <li key={item.id}>
                       <button
                         type="button"
@@ -592,6 +625,14 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                           <div className="min-w-0 flex-1 truncate text-sm font-medium text-ink-0">
                             {item.title}
                           </div>
+                          {sublayerCount > 1 ? (
+                            <span
+                              className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800"
+                              title={`This service exposes ${sublayerCount} sublayers; clicking adds them all.`}
+                            >
+                              +{sublayerCount} layers
+                            </span>
+                          ) : null}
                           <span
                             className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${
                               item.type === 'arcgis_service'
@@ -611,7 +652,8 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                         ) : null}
                       </button>
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               )}
               <p className="text-[11px] text-muted">
