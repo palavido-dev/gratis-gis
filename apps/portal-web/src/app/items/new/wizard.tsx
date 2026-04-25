@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useRef, useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
   Building2,
@@ -42,6 +42,7 @@ import {
   DEFAULT_WMS_SERVICE,
   DEFAULT_WFS_SERVICE,
   DEFAULT_FOLDER,
+  ITEM_TYPES,
 } from '@gratis-gis/shared-types';
 import { ImageUploader } from '@/components/image-uploader';
 import {
@@ -193,8 +194,21 @@ const ACCESS_OPTIONS: Array<{
 
 export function NewItemWizard() {
   const router = useRouter();
-  const [step, setStep] = useState<Step>('pick');
-  const [type, setType] = useState<ItemType | null>(null);
+  const searchParams = useSearchParams();
+  // Optional `?type=<itemType>` query param lets entry points like the
+  // folder rail's "Create one" link, the FolderDetail "+ New
+  // subfolder" button, and any future deep-link skip the picker step
+  // and land directly on the details form. Validated against the
+  // known ItemType set so a stray param can't put the wizard in a
+  // bogus state.
+  const queryType =
+    searchParams && (ITEM_TYPES as readonly string[]).includes(
+      searchParams.get('type') ?? '',
+    )
+      ? ((searchParams.get('type') as ItemType) as ItemType)
+      : null;
+  const [step, setStep] = useState<Step>(queryType ? 'details' : 'pick');
+  const [type, setType] = useState<ItemType | null>(queryType);
 
   // Metadata persists across back/forward between steps so the user
   // doesn't lose typed input when they pop back to change type.
