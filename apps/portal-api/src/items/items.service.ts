@@ -6,6 +6,16 @@ import type { AuthUser } from '../auth/auth-sync.service.js';
 import { SharingService } from './sharing.service.js';
 import { DataSnapshotService } from './data-snapshot.service.js';
 import { itemBbox } from './item-bbox.js';
+
+/**
+ * Coarse degree-equivalent of a kilometer buffer. Good enough for
+ * "show items near this region" search; not for any kind of
+ * geodesic computation. 1 degree of latitude is roughly 111 km;
+ * longitude varies with latitude so we err on the wide side.
+ */
+function degreesFromKm(km: number): number {
+  return Math.min(Math.max(km, 0), 100_000) / 111;
+}
 import {
   extractDependencies,
   normalizeArcgisUrl,
@@ -74,7 +84,7 @@ export class ItemsService {
     private readonly snapshots: DataSnapshotService,
   ) {}
 
-  list(
+  async list(
     user: AuthUser,
     opts: {
       mine?: boolean;
@@ -87,6 +97,26 @@ export class ItemsService {
        * by anyone else's id requires org-admin, enforced below.
        */
       ownerId?: string;
+      /**
+       * Optional spatial filter. When set, the list is restricted to
+       * items whose cached `bbox_geom` (set by ItemsService on save
+       * via itemBbox()) intersects the given envelope. EPSG:4326,
+       * [west, south, east, north]. Items without a cached bbox are
+       * NOT excluded -- the spatial filter narrows, not gates, so
+       * non-spatial item types (forms, dashboards, etc.) keep showing
+       * up alongside the spatial matches. (#24)
+       */
+      bbox?: [number, number, number, number];
+      /**
+       * Buffer (km) expanding the user's bbox before the intersect
+       * check. Lets a user search "around this area" rather than
+       * "strictly inside". Defaults to 0; clamped to [0, 100000] at
+       * the controller. Buffering is done in degrees as a coarse
+       * approximation (deg ~ 111 km at the equator) so we don't
+       * incur a per-row reproject; it's a search heuristic, not a
+       * survey-grade query.
+       */
+      bufferKm?: number;
     } = {},
   ) {
     const where: Prisma.ItemWhereInput = opts.mine
@@ -106,6 +136,32 @@ export class ItemsService {
         { description: { contains: opts.q, mode: 'insensitive' } },
         { tags: { has: opts.q } },
       ];
+    }
+    // Spatial filter via the generated bbox_geom column + GiST
+    // index. Done outside the Prisma `where` because Prisma can't
+    // express geometry operators directly; the result is a SET of
+    // ids that we intersect with the regular where via `id IN`.
+    if (opts.bbox) {
+      const buf = degreesFromKm(opts.bufferKm ?? 0);
+      const [w, s, e, n] = opts.bbox;
+      const ids = await this.prisma.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM "item"
+        WHERE "bbox_geom" IS NOT NULL
+          AND "bbox_geom" && ST_MakeEnvelope(
+            ${w - buf}, ${s - buf}, ${e + buf}, ${n + buf}, 4326
+          )
+      `;
+      const idSet = ids.map((r) => r.id);
+      // Combine with existing where via AND so visibility / type /
+      // ownerId all still apply. Items without a bbox_geom are
+      // intentionally allowed through the spatial filter (see opts
+      // doc): spatial-aware items get filtered down to those whose
+      // bbox intersects, while bbox-less items are unaffected.
+      const orParts: Prisma.ItemWhereInput[] = [
+        { id: { in: idSet } },
+        { bbox: { equals: [] } },
+      ];
+      where.AND = [{ OR: orParts }];
     }
     // Include shares in the list response so the items page can render
     // sharing badges without a second round-trip per item. Most items

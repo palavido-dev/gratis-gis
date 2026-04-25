@@ -123,6 +123,8 @@ export class ItemsController {
     @Query('type') type?: ItemType,
     @Query('q') q?: string,
     @Query('ownerId') ownerId?: string,
+    @Query('bbox') bbox?: string,
+    @Query('buffer') buffer?: string,
   ) {
     // Build opts without explicit-undefined keys so `exactOptionalPropertyTypes`
     // is satisfied. Passing `{ type: undefined }` is not the same as omitting it.
@@ -131,11 +133,27 @@ export class ItemsController {
       type?: ItemType;
       q?: string;
       ownerId?: string;
+      bbox?: [number, number, number, number];
+      bufferKm?: number;
     } = {};
     if (mine === 'true') opts.mine = true;
     if (type !== undefined) opts.type = type;
     if (q !== undefined) opts.q = q;
     if (ownerId !== undefined) opts.ownerId = ownerId;
+    if (bbox !== undefined) {
+      const parts = bbox.split(',').map(Number);
+      if (
+        parts.length === 4 &&
+        parts.every((n) => Number.isFinite(n))
+      ) {
+        const [w, s, e, n] = parts as [number, number, number, number];
+        opts.bbox = [w, s, e, n];
+      }
+    }
+    if (buffer !== undefined) {
+      const km = Number(buffer);
+      if (Number.isFinite(km) && km >= 0) opts.bufferKm = km;
+    }
     return this.items.list(user, opts);
   }
 
