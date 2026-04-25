@@ -250,6 +250,94 @@ export class SharingService {
    *
    * Cycle-safe via the visited set.
    */
+  /**
+   * Resolve inherited shares for ANY item (folder or otherwise),
+   * tagged with the folder they came from. Used by the share
+   * dialog so the UI can surface "Inherited from Project A"
+   * captions on shares the caller didn't set directly.
+   *
+   * Walks up the folder ancestry from any folder that contains the
+   * item, then continues up through parents where
+   * inheritsParentShares is on. Returns the union, deduplicated by
+   * (principalType, principalId) and keeping the closest ancestor
+   * as the source. If a principal appears in multiple ancestors,
+   * the closest wins so the UI can render a single attribution.
+   */
+  async inheritedSharesForItem(
+    itemId: string,
+  ): Promise<
+    Array<
+      ItemShare & {
+        fromFolderId: string;
+        fromFolderTitle: string;
+      }
+    >
+  > {
+    // Find every folder that directly contains this item -- the
+    // first hop. Multi-parent folders are tolerated; we walk each.
+    const directParents = await this.prisma.$queryRaw<
+      Array<{ id: string; title: string }>
+    >`
+      SELECT id, title FROM "item"
+      WHERE type = 'folder'::"ItemType"
+        AND "deleted_at" IS NULL
+        AND data @> jsonb_build_object('childItemIds', jsonb_build_array(${itemId}::text))
+    `;
+    if (directParents.length === 0) return [];
+
+    type Tagged = ItemShare & {
+      fromFolderId: string;
+      fromFolderTitle: string;
+    };
+    const merged = new Map<string, Tagged>();
+    const seen = new Set<string>();
+    // BFS from the direct parents up; each step collects shares from
+    // the visiting folder and stops at folders with
+    // inheritsParentShares=false (they still contribute).
+    const queue: Array<{ id: string; title: string; depth: number }> =
+      directParents.map((p) => ({ ...p, depth: 0 }));
+    while (queue.length > 0) {
+      const node = queue.shift()!;
+      if (seen.has(node.id)) continue;
+      seen.add(node.id);
+      const row = await this.prisma.item.findFirst({
+        where: { id: node.id, type: 'folder', deletedAt: null },
+        select: { id: true, title: true, data: true, shares: true },
+      });
+      if (!row) continue;
+      for (const s of row.shares) {
+        const key = `${s.principalType}:${s.principalId}`;
+        if (!merged.has(key)) {
+          // First (closest) ancestor wins.
+          merged.set(key, {
+            ...s,
+            fromFolderId: row.id,
+            fromFolderTitle: row.title,
+          } as Tagged);
+        }
+      }
+      const data = row.data as
+        | { inheritsParentShares?: unknown }
+        | null;
+      if (data && data.inheritsParentShares === false) continue;
+      // Walk to parents of THIS folder (its ancestors).
+      const parents = await this.prisma.$queryRaw<
+        Array<{ id: string; title: string }>
+      >`
+        SELECT id, title FROM "item"
+        WHERE type = 'folder'::"ItemType"
+          AND "deleted_at" IS NULL
+          AND data @> jsonb_build_object('childItemIds', jsonb_build_array(${row.id}::text))
+      `;
+      for (const p of parents) {
+        if (!seen.has(p.id)) {
+          queue.push({ ...p, depth: node.depth + 1 });
+        }
+      }
+    }
+    return Array.from(merged.values());
+  }
+
   async inheritedSharesForFolder(
     folderId: string,
   ): Promise<ItemShare[]> {

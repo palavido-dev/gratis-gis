@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Building2,
@@ -29,10 +30,26 @@ import {
   type ShareGeoLimitSave,
 } from './share-geo-limit-dialog';
 
+/** Shares cascaded down from a folder ancestor. Read-only on the
+ *  panel; surfaces "Inherited from <Folder>" captions so the user
+ *  understands where the access came from and that it can't be
+ *  edited here (the relevant action is on the folder itself, not
+ *  this item). #44 phase 1c slice 3c. */
+export type InheritedShare = ItemShare & {
+  fromFolderId: string;
+  fromFolderTitle: string;
+};
+
 interface Props {
   itemId: string;
   initialAccess: ItemAccess;
   initialShares: ItemShare[];
+  /**
+   * Shares cascaded from folder ancestors. Rendered as a separate
+   * read-only "Inherited" section above the direct shares. Empty
+   * array (or omitted) hides the section entirely.
+   */
+  inheritedShares?: InheritedShare[];
   groups: Pick<Group, 'id' | 'title'>[];
   /**
    * Name or slug of the owning org; used to label the "everyone in your org"
@@ -57,6 +74,7 @@ export function SharingPanel({
   itemId,
   initialAccess,
   initialShares,
+  inheritedShares = [],
   groups,
   orgLabel = 'Your organization',
 }: Props) {
@@ -525,9 +543,60 @@ export function SharingPanel({
         ) : null}
       </div>
 
+      {/* Inherited shares (#44 phase 1c slice 3c). Read-only --
+          actions on these belong on the originating folder, not
+          here. Section is hidden when there are no inherited
+          shares so the panel stays compact for items not in any
+          folder ancestry. */}
+      {inheritedShares.length > 0 ? (
+        <>
+          <div className="px-4 pt-4">
+            <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
+              Inherited from folder
+            </h3>
+            <p className="mt-1 text-[11px] text-muted">
+              These shares come from a folder this item is in. To
+              change them, open the originating folder.
+            </p>
+          </div>
+          <ul className="divide-y divide-border">
+            {inheritedShares.map((share) => {
+              const groupTitle = groups.find(
+                (g) => g.id === share.principalId,
+              )?.title;
+              return (
+                <li
+                  key={`inherited:${share.principalType}:${share.principalId}`}
+                  className="flex items-center justify-between gap-3 px-4 py-2 text-sm"
+                >
+                  <div className="flex min-w-0 flex-col">
+                    <span className="truncate text-ink-1">
+                      {share.principalType === 'group'
+                        ? groupTitle ?? `Group ${share.principalId.slice(0, 8)}`
+                        : `User ${share.principalId.slice(0, 8)}`}
+                    </span>
+                    <span className="truncate text-[11px] text-muted">
+                      <Link
+                        href={`/items/${share.fromFolderId}`}
+                        className="hover:text-ink-1 hover:underline"
+                      >
+                        Inherited from folder: {share.fromFolderTitle}
+                      </Link>
+                    </span>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
+                    can {share.permission}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      ) : null}
+
       <div className="px-4 pt-4">
         <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
-          Additional shares
+          {inheritedShares.length > 0 ? 'Direct shares' : 'Additional shares'}
         </h3>
       </div>
       {shares.length === 0 ? (

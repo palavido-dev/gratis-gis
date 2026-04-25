@@ -257,6 +257,23 @@ export default async function ItemDetailPage({ params }: Props) {
   // Visible-groups are already scoped to this user on the API side.
   const groups = canManage ? await apiFetch<Group[]>('/api/groups') : [];
 
+  // Inherited shares: shares from any folder that contains this
+  // item (directly or via the parent chain, stopping at folders
+  // that opt out of inheritance), tagged with the originating
+  // folder so the share dialog can render "Inherited from Project A"
+  // captions. Read-only on the dialog. Failure is non-fatal: the
+  // panel just doesn't show the inherited section.
+  // (#44 phase 1c slice 3c)
+  type InheritedShare = ItemShare & {
+    fromFolderId: string;
+    fromFolderTitle: string;
+  };
+  const inheritedShares: InheritedShare[] = canManage
+    ? await apiFetch<InheritedShare[]>(
+        `/api/items/${item.id}/inherited-shares`,
+      ).catch(() => [])
+    : [];
+
   const badgeClass = typeBadge[item.type] ?? 'bg-slate-100 text-slate-800';
   // "Workspace" item types are content-heavy (map, feature service,
   // arcgis service). For those, we collapse the metadata header so the
@@ -545,6 +562,7 @@ export default async function ItemDetailPage({ params }: Props) {
             itemId={item.id}
             initialAccess={item.access}
             initialShares={item.shares}
+            inheritedShares={inheritedShares}
             groups={groups}
             orgLabel="Your organization"
           />

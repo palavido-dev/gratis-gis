@@ -1174,6 +1174,16 @@ export class ItemsService {
     return rows;
   }
 
+  /**
+   * Forwarding wrapper around SharingService.inheritedSharesForItem
+   * so the controller can keep its dependency on ItemsService and
+   * not pull SharingService directly. The caller has already been
+   * authz-checked at the controller. (#44 phase 1c slice 3c)
+   */
+  async listInheritedShares(itemId: string) {
+    return this.sharing.inheritedSharesForItem(itemId);
+  }
+
   async listDependencies(user: AuthUser, id: string) {
     const item = await this.get(user, id);
     const { itemIds, urls } = extractDependencies(item);
