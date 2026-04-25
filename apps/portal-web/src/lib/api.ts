@@ -14,7 +14,16 @@ const API_BASE = process.env.PORTAL_API_URL ?? 'http://localhost:4000';
  * backstop.
  */
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  // Per-call timing log behind the API_FETCH_TIMING flag. The slow
+  // page-mount path on map items has 7+ sequential apiFetch awaits;
+  // the log lets us split each call into "session" (NextAuth cookie
+  // decrypt) vs "upstream" (portal-api round-trip) so we can tell
+  // which hop owns the time when the page is slow.
+  const trace = process.env.API_FETCH_TIMING === '1';
+  const t0 = trace ? Date.now() : 0;
+
   const session = (await getServerSession(authOptions)) as SessionWithToken | null;
+  const tSession = trace ? Date.now() : 0;
   if (!session?.accessToken) {
     redirect('/api/auth/signin');
   }
@@ -27,9 +36,20 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     },
     cache: 'no-store',
   });
+  const tFetch = trace ? Date.now() : 0;
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     throw new Error(`portal-api ${res.status}: ${body}`);
   }
-  return (await res.json()) as T;
+  const json = (await res.json()) as T;
+  if (trace) {
+    const tDone = Date.now();
+    // eslint-disable-next-line no-console
+    console.log(
+      `[apiFetch] ${path} ` +
+        `session=${tSession - t0}ms upstream=${tFetch - tSession}ms ` +
+        `body=${tDone - tFetch}ms total=${tDone - t0}ms`,
+    );
+  }
+  return json;
 }

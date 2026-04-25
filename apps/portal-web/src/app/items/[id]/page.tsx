@@ -132,147 +132,135 @@ const accessIcon = {
 };
 
 export default async function ItemDetailPage({ params }: Props) {
-  let item: ItemWithShares;
-  try {
-    item = await apiFetch<ItemWithShares>(`/api/items/${params.id}`);
-  } catch (err) {
-    // apiFetch throws on non-2xx. 404 from the API means "not found or not
-    // visible to you" (same response to prevent enumeration). Show notFound.
-    if (err instanceof Error && err.message.includes('404')) notFound();
-    throw err;
-  }
-
-  // Fetch the currently-signed-in user so we can show owner/admin-only UI.
-  const me = await apiFetch<{ id: string; orgRole: string }>('/api/users/me');
-  const canManage = me.id === item.ownerId || me.orgRole === 'admin';
-
-  // For web maps, pull the org's basemap item library so the editor's
-  // picker lists them alongside the built-ins. Basemaps are first-class
-  // items (see #72), so we fetch them through the standard items list
-  // and map each item's data_json (BasemapData) into the shape the
-  // MapEditor already consumes (CustomBasemap). Failure is non-fatal;
-  // the canvas falls back to an inline OSM raster style.
-  const basemaps =
-    item.type === 'map'
-      ? await apiFetch<Array<Item<BasemapData>>>(
-          '/api/items?type=basemap',
-        )
-          .then((items) =>
-            items
-              // Skip items that don't have a usable URL yet (e.g. fresh
-              // basemaps created through the wizard that the author
-              // hasn't configured, or Phase 2 composed-map entries).
-              .map(basemapItemToCustomBasemap)
-              .filter((b): b is CustomBasemapRow => b !== null),
-          )
-          .catch(() => [])
-      : [];
-
-  // For maps that reference a geo_boundary as their default extent
-  // (#53), fetch that one item up front so the canvas can fit-bounds
-  // on load without a second round-trip. The boundary may have been
-  // deleted since the map was saved; we silently fall back to the
-  // map's persisted center / zoom in that case.
-  const mapData =
-    item.type === 'map' ? (item.data as MapData | null) : null;
-  const defaultExtentBoundary =
-    mapData?.defaultExtentBoundaryId
-      ? await apiFetch<Item<GeoBoundaryData>>(
-          `/api/items/${mapData.defaultExtentBoundaryId}`,
-        ).catch(() => null)
-      : null;
-
-  // For folder items, server-fetch the resolved children (visible to
-  // this caller, in the folder's authoritative order) so the detail
-  // page lands ready to render. The endpoint applies authz / trash /
-  // orphan filters; we don't need to re-filter on the client. Failure
-  // is non-fatal: an empty list renders the folder's empty state and
-  // surfaces the error inline. See docs/folders.md.
-  const folderChildren =
-    item.type === 'folder'
-      ? await apiFetch<ItemWithShares[]>(
-          `/api/items/${item.id}/folder-contents`,
-        ).catch(() => [])
-      : [];
-
-  // Folder breadcrumb: walk up the parent chain so the detail page
-  // can render "Project A > 2026 Surveys > (this folder)" at the top.
-  // Multi-parent folders pick the first parent encountered, matching
-  // the rail tree's behaviour. We fetch every folder the caller can
-  // see in this org (cheap; folder rows are tiny) and compute the
-  // chain in JS. See docs/folders.md.
-  const folderBreadcrumb: Array<{ id: string; title: string }> = [];
-  if (item.type === 'folder') {
-    try {
-      const allFolders = await apiFetch<ItemWithShares[]>(
-        '/api/items?type=folder',
-      );
-      const byId = new Map<string, ItemWithShares>();
-      for (const f of allFolders) byId.set(f.id, f);
-      const parentOf = new Map<string, string>();
-      for (const f of allFolders) {
-        const children = (f.data as { childItemIds?: unknown } | null)
-          ?.childItemIds;
-        if (!Array.isArray(children)) continue;
-        for (const c of children) {
-          if (typeof c === 'string' && !parentOf.has(c)) {
-            parentOf.set(c, f.id);
-          }
-        }
-      }
-      const chain: Array<{ id: string; title: string }> = [];
-      const seen = new Set<string>();
-      let cur: string | undefined = item.id;
-      while (cur && !seen.has(cur)) {
-        seen.add(cur);
-        const row = byId.get(cur);
-        if (!row) break;
-        chain.unshift({ id: row.id, title: row.title });
-        cur = parentOf.get(cur);
-      }
-      // Drop "this folder" from the chain so the breadcrumb component
-      // can render it as the trailing label rather than a clickable hop.
-      // Empty chain (top-level folder) means no breadcrumb.
-      if (chain.length > 1) {
-        folderBreadcrumb.push(...chain.slice(0, -1));
-      }
-    } catch {
-      /* non-fatal: detail page renders without a breadcrumb */
-    }
-  }
-
-  // Geo-boundary library for the map editor's "Default extent" picker
-  // (#31 follow-on to #53). The picker shows every boundary the caller
-  // can see; clearing the picker drops `defaultExtentBoundaryId` from
-  // the saved MapData so the map falls back to its persisted camera.
-  // Failure is non-fatal -- the picker simply renders an empty list.
-  const geoBoundaries =
-    item.type === 'map'
-      ? await apiFetch<Array<Item<GeoBoundaryData>>>(
-          '/api/items?type=geo_boundary',
-        ).catch(() => [])
-      : [];
-
-  // Load groups (for the share picker) and any referenced users.
-  // Visible-groups are already scoped to this user on the API side.
-  const groups = canManage ? await apiFetch<Group[]>('/api/groups') : [];
-
-  // Inherited shares: shares from any folder that contains this
-  // item (directly or via the parent chain, stopping at folders
-  // that opt out of inheritance), tagged with the originating
-  // folder so the share dialog can render "Inherited from Project A"
-  // captions. Read-only on the dialog. Failure is non-fatal: the
-  // panel just doesn't show the inherited section.
-  // (#44 phase 1c slice 3c)
+  // Phase 1: the two unconditional fetches in parallel. Item is the
+  // only one that can legitimately 404 (item missing / not visible),
+  // so we wrap with try/catch but still fan out alongside `me`.
+  // Without parallelisation the page paid two sequential round-trips
+  // before doing anything else; with it we pay one wall-clock unit
+  // for both. Same for the bigger second batch below.
   type InheritedShare = ItemShare & {
     fromFolderId: string;
     fromFolderTitle: string;
   };
-  const inheritedShares: InheritedShare[] = canManage
-    ? await apiFetch<InheritedShare[]>(
-        `/api/items/${item.id}/inherited-shares`,
-      ).catch(() => [])
-    : [];
+  let item: ItemWithShares;
+  let me: { id: string; orgRole: string };
+  try {
+    [item, me] = await Promise.all([
+      apiFetch<ItemWithShares>(`/api/items/${params.id}`),
+      apiFetch<{ id: string; orgRole: string }>('/api/users/me'),
+    ]);
+  } catch (err) {
+    // apiFetch throws on non-2xx. 404 from the API means "not found
+    // or not visible to you" (same response to prevent enumeration).
+    if (err instanceof Error && err.message.includes('404')) notFound();
+    throw err;
+  }
+  const canManage = me.id === item.ownerId || me.orgRole === 'admin';
+  const isMap = item.type === 'map';
+  const isFolder = item.type === 'folder';
+  const mapData = isMap ? (item.data as MapData | null) : null;
+
+  // Phase 2: fan out every other server-side fetch in one parallel
+  // batch. Each is independent of the others; the only sequential
+  // dependency is "we needed item.type and canManage first," which
+  // is now resolved. Wall-clock cost goes from sum-of-7-fetches to
+  // max-of-7-fetches. Failures are non-fatal per-fetch (same as the
+  // sequential version was).
+  const [
+    basemaps,
+    defaultExtentBoundary,
+    folderChildren,
+    allFoldersForBreadcrumb,
+    geoBoundaries,
+    groups,
+    inheritedShares,
+  ] = await Promise.all([
+    // Web map basemap library.
+    isMap
+      ? apiFetch<Array<Item<BasemapData>>>('/api/items?type=basemap')
+          .then((items) =>
+            items
+              .map(basemapItemToCustomBasemap)
+              .filter((b): b is CustomBasemapRow => b !== null),
+          )
+          .catch(() => [] as CustomBasemapRow[])
+      : Promise.resolve([] as CustomBasemapRow[]),
+    // Resolve the map's default-extent boundary so the canvas can
+    // fit-bounds without a follow-up round-trip. Missing/deleted
+    // boundary -> null -> map falls back to its persisted camera.
+    mapData?.defaultExtentBoundaryId
+      ? apiFetch<Item<GeoBoundaryData>>(
+          `/api/items/${mapData.defaultExtentBoundaryId}`,
+        ).catch(() => null)
+      : Promise.resolve(null),
+    // Folder children resolved server-side with authz / trash filters.
+    isFolder
+      ? apiFetch<ItemWithShares[]>(
+          `/api/items/${item.id}/folder-contents`,
+        ).catch(() => [] as ItemWithShares[])
+      : Promise.resolve([] as ItemWithShares[]),
+    // Every folder the caller can see, used to compute the breadcrumb.
+    isFolder
+      ? apiFetch<ItemWithShares[]>('/api/items?type=folder').catch(
+          () => [] as ItemWithShares[],
+        )
+      : Promise.resolve([] as ItemWithShares[]),
+    // Geo-boundary library for the map editor's "Default extent" picker.
+    isMap
+      ? apiFetch<Array<Item<GeoBoundaryData>>>(
+          '/api/items?type=geo_boundary',
+        ).catch(() => [] as Array<Item<GeoBoundaryData>>)
+      : Promise.resolve([] as Array<Item<GeoBoundaryData>>),
+    // Groups for the share picker. Only managers see the picker, so
+    // skip the fetch otherwise -- saves a round-trip on the read path.
+    canManage
+      ? apiFetch<Group[]>('/api/groups').catch(() => [] as Group[])
+      : Promise.resolve([] as Group[]),
+    // Inherited shares (#44 phase 1c slice 3c). Only managers see
+    // them; same skip-when-not-needed logic as groups.
+    canManage
+      ? apiFetch<InheritedShare[]>(
+          `/api/items/${item.id}/inherited-shares`,
+        ).catch(() => [] as InheritedShare[])
+      : Promise.resolve([] as InheritedShare[]),
+  ]);
+
+  // Folder breadcrumb: walk up the parent chain so the detail page
+  // can render "Project A > 2026 Surveys > (this folder)" at the
+  // top. Multi-parent folders pick the first parent encountered,
+  // matching the rail tree's behaviour. allFoldersForBreadcrumb is
+  // already populated above when isFolder.
+  const folderBreadcrumb: Array<{ id: string; title: string }> = [];
+  if (isFolder && allFoldersForBreadcrumb.length > 0) {
+    const byId = new Map<string, ItemWithShares>();
+    for (const f of allFoldersForBreadcrumb) byId.set(f.id, f);
+    const parentOf = new Map<string, string>();
+    for (const f of allFoldersForBreadcrumb) {
+      const children = (f.data as { childItemIds?: unknown } | null)
+        ?.childItemIds;
+      if (!Array.isArray(children)) continue;
+      for (const c of children) {
+        if (typeof c === 'string' && !parentOf.has(c)) {
+          parentOf.set(c, f.id);
+        }
+      }
+    }
+    const chain: Array<{ id: string; title: string }> = [];
+    const seen = new Set<string>();
+    let cur: string | undefined = item.id;
+    while (cur && !seen.has(cur)) {
+      seen.add(cur);
+      const row = byId.get(cur);
+      if (!row) break;
+      chain.unshift({ id: row.id, title: row.title });
+      cur = parentOf.get(cur);
+    }
+    // Drop "this folder" from the chain so the breadcrumb component
+    // can render it as the trailing label rather than a clickable hop.
+    if (chain.length > 1) {
+      folderBreadcrumb.push(...chain.slice(0, -1));
+    }
+  }
 
   const badgeClass = typeBadge[item.type] ?? 'bg-slate-100 text-slate-800';
   // "Workspace" item types are content-heavy (map, feature service,
