@@ -90,6 +90,28 @@ export function DataLayerEditor({ itemId, initial, canEdit }: Props) {
       ? (initial as DataLayerDataV2).bbox
       : null;
 
+  // Feature-source URLs for the preview (#35). v3 datasets fan out
+  // one source per layer (each layer has its own backing PostGIS
+  // table); v2 datasets ship a single source covering the whole
+  // table. v1 has no server-side endpoint -- the inline-data preview
+  // path could be added later but isn't worth the code today since
+  // v1 layers are tiny and the bbox rectangle suffices. Empty list
+  // -> the preview component falls back to the bbox-rectangle
+  // rendering it always had.
+  const previewSources: Array<{
+    url: string;
+    geometryType?: 'point' | 'line' | 'polygon' | null;
+  }> = v3
+    ? (initial as DataLayerDataV3).layers
+        .filter((l) => (l.featureCount ?? 0) > 0)
+        .map((l) => ({
+          url: `/api/portal/items/${itemId}/layers/${l.id}/geojson`,
+          geometryType: l.geometryType ?? null,
+        }))
+    : v2 && currentFeatureCount > 0
+      ? [{ url: `/api/portal/items/${itemId}/geojson` }]
+      : [];
+
   // Derived fields only needed for v1 (v2/v3 always store explicit fields).
   const v1Features =
     v2 || v3 ? [] : ((initial as DataLayerDataV1).data?.features ?? []);
@@ -271,7 +293,12 @@ export function DataLayerEditor({ itemId, initial, canEdit }: Props) {
               just duplicating that. Removed in #27. */}
           {currentBbox ? (
             <div className="mt-3">
-              <DataLayerBboxPreview bbox={currentBbox} />
+              <DataLayerBboxPreview
+                bbox={currentBbox}
+                {...(previewSources.length > 0
+                  ? { featureSources: previewSources }
+                  : {})}
+              />
             </div>
           ) : null}
         </section>
