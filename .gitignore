@@ -58,4 +58,5 @@ HANDOFF.md
 DECISIONS.md
 docs/handoff/
 .git-commit-msg
-
+# Stray temp files left behind by some Windows tools (#42 followup)
+_tmp_*
