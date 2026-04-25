@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   ChevronRight,
+  Crosshair,
   Grid3x3,
   List as ListIcon,
   UserRound,
@@ -19,16 +20,17 @@ import {
 } from '@/lib/item-type-icon';
 import { ItemSharingIndicator } from '@/components/item-sharing-indicator';
 import { ReassignOwnerDialog } from '@/components/reassign-owner-dialog';
+import { AreaSearchPanel } from './area-search-panel';
 
 /**
  * Client-side wrapper around the items list. Owns three bits of UI
  * state that don't warrant a round-trip to the server:
  *
- *   - view mode (card vs list) — persists via localStorage so the
+ *   - view mode (card vs list): persists via localStorage so the
  *     user's preference sticks between visits
- *   - type filters — one or more item types can be toggled on; empty
+ *   - type filters: one or more item types can be toggled on; empty
  *     means "show all"
- *   - group-by — 'none' (flat list), 'type', 'access'. Owner grouping
+ *   - group-by: 'none' (flat list), 'type', 'access'. Owner grouping
  *     is an obvious future addition but needs a user/name lookup we
  *     don't carry on the list response today.
  *
@@ -80,15 +82,30 @@ export function ItemsView({ items, currentUser }: Props) {
   // Bulk-select state: ids of items the current user has ticked for
   // ownership reassignment. Kept as a Set so toggles are O(1). Only
   // items the user can manage (their own + all for admins) can land
-  // here — gating happens in ItemGrid where each row is rendered.
+  // here: gating happens in ItemGrid where each row is rendered.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showReassign, setShowReassign] = useState(false);
   const [bulkSaving, setBulkSaving] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
+  // Spatial-filter state (#24 + #29). When `spatialActive` is set, the
+  // page renders `spatialItems` instead of the server-rendered `items`.
+  // The fetch is fired by AreaSearchPanel's "Use this area" button. We
+  // keep both the request (for the chip label + repaint on close) and
+  // the result so dismissing the panel doesn't drop the filter.
+  const [areaPanelOpen, setAreaPanelOpen] = useState(false);
+  const [spatialBusy, setSpatialBusy] = useState(false);
+  const [spatialError, setSpatialError] = useState<string | null>(null);
+  const [spatialActive, setSpatialActive] = useState<{
+    bbox: [number, number, number, number];
+    bufferKm: number;
+  } | null>(null);
+  const [spatialItems, setSpatialItems] = useState<ItemWithShares[] | null>(
+    null,
+  );
   const router = useRouter();
 
   // Rehydrate persisted preferences on mount. Running this lazily
-  // (not as a useState initializer) keeps the component SSR-safe —
+  // (not as a useState initializer) keeps the component SSR-safe
   // the first render always matches the server's ("card", "none").
   useEffect(() => {
     try {
@@ -128,25 +145,33 @@ export function ItemsView({ items, currentUser }: Props) {
     }
   }
 
+  // Effective dataset: spatial-filter results when active, otherwise
+  // the full server-rendered list. Type filtering and sorting always
+  // run client-side over whichever set is in play.
+  const sourceItems = spatialActive && spatialItems ? spatialItems : items;
+
   // Present-in-data type counts, sorted by descending count so the
-  // most common types sit at the front of the filter bar.
+  // most common types sit at the front of the filter bar. Counts
+  // reflect the active spatial-search result when one is in play, so
+  // the chips don't promise types the visible set doesn't contain.
   const typeCounts = useMemo(() => {
     const counts = new Map<ItemType, number>();
-    for (const it of items) counts.set(it.type, (counts.get(it.type) ?? 0) + 1);
+    for (const it of sourceItems)
+      counts.set(it.type, (counts.get(it.type) ?? 0) + 1);
     return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
-  }, [items]);
+  }, [sourceItems]);
 
   const filteredItems = useMemo(() => {
     const pool =
       typeFilter.size === 0
-        ? items
-        : items.filter((it) => typeFilter.has(it.type));
+        ? sourceItems
+        : sourceItems.filter((it) => typeFilter.has(it.type));
     // Sort on every filter/sort change. copyWithin keeps the original
     // array intact (it's the server prop).
     const sorted = [...pool];
     sorted.sort((a, b) => compareItems(a, b, sortBy));
     return sorted;
-  }, [items, typeFilter, sortBy]);
+  }, [sourceItems, typeFilter, sortBy]);
 
   function toggleType(t: ItemType) {
     setTypeFilter((prev) => {
@@ -159,6 +184,41 @@ export function ItemsView({ items, currentUser }: Props) {
 
   function clearFilters() {
     setTypeFilter(new Set());
+  }
+
+  async function applyAreaSearch(
+    bbox: [number, number, number, number],
+    bufferKm: number,
+  ) {
+    setSpatialBusy(true);
+    setSpatialError(null);
+    try {
+      const params = new URLSearchParams();
+      params.set('bbox', bbox.join(','));
+      if (bufferKm > 0) params.set('buffer', String(bufferKm));
+      const res = await fetch(`/api/portal/items?${params.toString()}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const msg =
+          (body as { message?: string | string[] }).message ??
+          `HTTP ${res.status}`;
+        throw new Error(Array.isArray(msg) ? msg.join('; ') : msg);
+      }
+      const next = (await res.json()) as ItemWithShares[];
+      setSpatialItems(next);
+      setSpatialActive({ bbox, bufferKm });
+      setAreaPanelOpen(false);
+    } catch (e) {
+      setSpatialError(e instanceof Error ? e.message : 'Search failed');
+    } finally {
+      setSpatialBusy(false);
+    }
+  }
+
+  function clearAreaSearch() {
+    setSpatialActive(null);
+    setSpatialItems(null);
+    setSpatialError(null);
   }
 
   // Items the user can manage (toggle into the selection). Admins can
@@ -255,9 +315,32 @@ export function ItemsView({ items, currentUser }: Props) {
         typeCounts={typeCounts}
         onToggleType={toggleType}
         onClearFilters={clearFilters}
-        totalCount={items.length}
+        totalCount={sourceItems.length}
         filteredCount={filteredItems.length}
+        areaActive={!!spatialActive}
+        areaActiveLabel={
+          spatialActive
+            ? formatAreaLabel(spatialActive.bbox, spatialActive.bufferKm)
+            : null
+        }
+        areaPanelOpen={areaPanelOpen}
+        onToggleAreaPanel={() => setAreaPanelOpen((v) => !v)}
+        onClearAreaSearch={clearAreaSearch}
       />
+      {areaPanelOpen ? (
+        <AreaSearchPanel
+          {...(spatialActive ? { initialBbox: spatialActive.bbox } : {})}
+          {...(spatialActive ? { initialBufferKm: spatialActive.bufferKm } : {})}
+          busy={spatialBusy}
+          onApply={applyAreaSearch}
+          onClose={() => setAreaPanelOpen(false)}
+        />
+      ) : null}
+      {spatialError ? (
+        <div className="mb-3 rounded-md border border-danger/40 bg-danger/5 px-3 py-2 text-xs text-danger">
+          {spatialError}
+        </div>
+      ) : null}
       {selected.size > 0 ? (
         <BulkActionBar
           count={selected.size}
@@ -345,6 +428,28 @@ function BulkActionBar({
 // ---------------------------------------------------------------------------
 
 /**
+ * Render a one-line "Area:" chip subtitle from the captured bbox +
+ * buffer. The bbox alone is too noisy (4 floats) for a chip, so we
+ * collapse it into "centered at lat,lon, ~Wkm wide" plus the buffer
+ * if any. Coordinates rounded to 2 decimals (~1km of precision).
+ */
+function formatAreaLabel(
+  bbox: [number, number, number, number],
+  bufferKm: number,
+): string {
+  const [w, s, e, n] = bbox;
+  const cx = (w + e) / 2;
+  const cy = (s + n) / 2;
+  // Rough width in km: 1 deg lon at the centre's latitude is
+  // 111.32 * cos(lat). Width is in degrees.
+  const latRad = (cy * Math.PI) / 180;
+  const widthKm = Math.max(1, Math.round((e - w) * 111.32 * Math.cos(latRad)));
+  const center = `${cy.toFixed(2)}, ${cx.toFixed(2)}`;
+  const tail = bufferKm > 0 ? `, +${bufferKm}km buffer` : '';
+  return `centered at ${center} (~${widthKm}km wide${tail})`;
+}
+
+/**
  * Comparator shared by every sort mode. Tie-break on id so the ordering
  * is deterministic when two items have the same sort key.
  */
@@ -395,6 +500,11 @@ interface ToolbarProps {
   onClearFilters: () => void;
   totalCount: number;
   filteredCount: number;
+  areaActive: boolean;
+  areaActiveLabel: string | null;
+  areaPanelOpen: boolean;
+  onToggleAreaPanel: () => void;
+  onClearAreaSearch: () => void;
 }
 
 function Toolbar({
@@ -410,6 +520,11 @@ function Toolbar({
   onClearFilters,
   totalCount,
   filteredCount,
+  areaActive,
+  areaActiveLabel,
+  areaPanelOpen,
+  onToggleAreaPanel,
+  onClearAreaSearch,
 }: ToolbarProps) {
   return (
     <div className="mb-4 space-y-3">
@@ -476,12 +591,43 @@ function Toolbar({
           </select>
         </label>
 
+        <button
+          type="button"
+          onClick={onToggleAreaPanel}
+          aria-pressed={areaPanelOpen || areaActive}
+          className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-2 text-xs transition-colors ${
+            areaPanelOpen || areaActive
+              ? 'border-accent bg-accent/10 text-accent'
+              : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
+          }`}
+          title="Search by area"
+        >
+          <Crosshair className="h-3.5 w-3.5" />
+          {areaActive ? 'Area filter on' : 'Search by area'}
+        </button>
+
         <p className="ml-auto text-xs text-muted">
           {filteredCount === totalCount
             ? `${totalCount} item${totalCount === 1 ? '' : 's'}`
             : `${filteredCount} of ${totalCount}`}
         </p>
       </div>
+
+      {areaActive && areaActiveLabel ? (
+        <div className="flex items-center gap-2 rounded-md border border-accent/30 bg-accent/5 px-2.5 py-1.5 text-xs text-ink-1">
+          <Crosshair className="h-3.5 w-3.5 text-accent" />
+          <span className="text-muted">Area:</span>
+          <span className="font-medium">{areaActiveLabel}</span>
+          <button
+            type="button"
+            onClick={onClearAreaSearch}
+            className="ml-auto inline-flex items-center gap-1 text-[11px] text-muted hover:text-ink-1"
+          >
+            <X className="h-3 w-3" />
+            Clear area
+          </button>
+        </div>
+      ) : null}
 
       {/* Filter chips. Only surface types that are actually present
           in the data so a fresh org doesn't see 13 greyed-out chips. */}
@@ -704,7 +850,7 @@ function ItemGrid({
       {/* Header row. Grid template has an extra 1.5rem leading column
           for the checkbox. The "select all visible" checkbox only
           appears when the current user can manage at least one row
-          in this group — otherwise it'd be a no-op. */}
+          in this group: otherwise it'd be a no-op. */}
       <li className="hidden grid-cols-[1.5rem_auto_minmax(0,1fr)_8rem_8rem_7rem_9rem_auto] items-center gap-3 border-b border-border bg-surface-2 px-4 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted sm:grid">
         {manageableIds.size > 0 ? (
           <input
