@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Check,
+  ChevronRight,
   ClipboardPaste,
   FileArchive,
   Loader2,
@@ -237,58 +238,65 @@ export function DataLayerEditor({ itemId, initial, canEdit }: Props) {
           </p>
         </section>
       ) : (
-        <section className="grid gap-4 sm:grid-cols-2">
-          <div className="rounded-lg border border-border bg-surface-1 p-4 shadow-card">
-            <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
-              Features
-            </h3>
-            <p className="mt-1 text-3xl font-semibold tabular-nums">
-              {currentFeatureCount.toLocaleString()}
-            </p>
-            <p className="mt-1 text-xs text-muted">
-              Last updated{' '}
-              {currentUpdatedAt
-                ? new Date(currentUpdatedAt).toLocaleString()
-                : 'never'}
-            </p>
+        <section className="rounded-lg border border-border bg-surface-1 p-4 shadow-card">
+          <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
+            Features
+          </h3>
+          <p className="mt-1 text-3xl font-semibold tabular-nums">
+            {currentFeatureCount.toLocaleString()}
+          </p>
+          <p className="mt-1 text-xs text-muted">
+            Last updated{' '}
+            {currentUpdatedAt
+              ? new Date(currentUpdatedAt).toLocaleString()
+              : 'never'}
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
             {v2 && (
-              <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-medium text-sky-700">
+              <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-medium text-sky-700">
                 <MapPin className="h-3 w-3" />
-                PostGIS · versioned
+                PostGIS, versioned
               </span>
             )}
-          </div>
-          <div className="rounded-lg border border-border bg-surface-1 p-4 shadow-card">
-            <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
-              Fields
-            </h3>
-            <FieldChips
-              fields={currentFields.length > 0 ? currentFields : derivedFields}
-            />
             {v2 && currentBbox ? (
-              <p className="mt-2 text-[11px] text-muted">
+              <span className="text-[11px] text-muted">
                 Extent: {currentBbox.map((n) => n.toFixed(4)).join(', ')}
-              </p>
+              </span>
             ) : null}
           </div>
+          {/* The field list used to live here as a chip row, but
+              the Schema section below already lists every field
+              with type / domain / constraints, so the chips were
+              just duplicating that. Removed in #27. */}
         </section>
       )}
 
       {canEdit ? (
-        <section
+        <details
           id="add-data"
-          className="scroll-mt-20 rounded-lg border border-border bg-surface-1 shadow-card"
+          // Open automatically only when the layer has no data yet
+          // (the user came here to add some) or when an upload is
+          // already staged for review. Otherwise stay collapsed: the
+          // common visit to a data_layer is for inspection, and the
+          // big upload UI used to dominate the fold.
+          open={isEmpty || !!staged}
+          className="scroll-mt-20 rounded-lg border border-border bg-surface-1 shadow-card [&[open]>summary>.add-data-chevron]:rotate-90"
         >
-          <div className="flex items-center justify-between border-b border-border px-4 py-3">
-            <h3 className="text-sm font-medium">
-              {isEmpty ? 'Add data' : 'Replace data'}
-            </h3>
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 border-b border-border px-4 py-3">
+            <span className="flex items-center gap-2">
+              <span className="add-data-chevron text-muted transition-transform">
+                <ChevronRight className="h-4 w-4" />
+              </span>
+              <span className="text-sm font-medium">
+                {isEmpty ? 'Add data' : 'Replace data'}
+              </span>
+            </span>
             <span className="text-[11px] text-muted">
               {isEmpty
-                ? 'Upload a file, paste GeoJSON, or route a File Geodatabase through server-side GDAL.'
-                : 'Whole-dataset replace. Individual feature edits via the API.'}
+                ? 'Upload a file or paste GeoJSON to populate this layer.'
+                : 'Replace the whole dataset. Individual feature edits use the API.'}
             </span>
-          </div>
+          </summary>
 
           <div className="flex gap-0 border-b border-border px-4 pt-2">
             <TabBtn
@@ -358,7 +366,7 @@ export function DataLayerEditor({ itemId, initial, canEdit }: Props) {
               />
             ) : null}
           </div>
-        </section>
+        </details>
       ) : null}
     </div>
   );

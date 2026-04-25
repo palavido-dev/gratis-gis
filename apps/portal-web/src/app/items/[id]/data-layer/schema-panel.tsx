@@ -31,7 +31,11 @@ interface Props {
 }
 
 export function DataLayerSchema({ data }: Props) {
-  const [open, setOpen] = useState(false);
+  // Open by default. The schema is the most useful inspection view
+  // for a data_layer item and used to be tucked behind a closed
+  // disclosure, which made the page feel empty until the user knew
+  // to expand it. The Raw JSON below stays closed by default.
+  const [open, setOpen] = useState(true);
   const [rawOpen, setRawOpen] = useState(false);
   if (!data) return null;
 
