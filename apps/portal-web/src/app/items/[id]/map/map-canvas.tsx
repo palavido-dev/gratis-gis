@@ -1145,14 +1145,58 @@ async function rasterizeSvg(svg: string, size: number): Promise<ImageData> {
 }
 
 /**
+ * Per-map in-flight guard for loadAllIcons. MapLibre's `styledata`
+ * event fires many times during a basemap load and each fire used
+ * to spawn a concurrent loadAllIcons; with hasImage() returning
+ * false during that window, every concurrent call rasterized every
+ * icon, producing thousands of redundant Blob -> ObjectURL ->
+ * Image -> canvas trips that pegged the main thread for tens of
+ * seconds (visible as a flood of blob:http://... GETs in dev tools).
+ *
+ * WeakMap keys on the map instance so multiple maps in the same
+ * page (e.g. data_layer preview thumbnails alongside the editor)
+ * don't share state. Cleared automatically when the map is GC'd.
+ */
+const iconsInFlight = new WeakMap<maplibregl.Map, boolean>();
+
+/**
  * Register every bundled icon (plain + SDF variant) with the map.
  * Idempotent via `hasImage` checks: caller is free to invoke this
  * on every basemap swap or style event without risking duplicates.
  * Failures are per-icon and silent so one bad SVG doesn't kill the
  * whole batch. Module-scoped so the init useEffect and the basemap
  * swap share a single implementation.
+ *
+ * Two short-circuits keep this cheap on hot paths:
+ *   1. If a load is already in flight for this map, return
+ *      immediately. Concurrent callers piggyback off the in-flight
+ *      run instead of doing their own redundant rasterising.
+ *   2. If every icon is already registered, return without firing
+ *      Promise.all. styledata events post-load fall through this
+ *      path so they cost only one Object.keys + N hasImage checks.
  */
 async function loadAllIcons(m: maplibregl.Map): Promise<void> {
+  if (iconsInFlight.get(m)) return;
+  // Fast path: every icon is already registered. Avoids the
+  // Promise.all + per-icon try/catch overhead on every styledata
+  // tick after the initial load.
+  let allLoaded = true;
+  for (const name of Object.keys(MAP_ICONS)) {
+    if (!m.hasImage(iconImageId(name)) || !m.hasImage(iconSdfImageId(name))) {
+      allLoaded = false;
+      break;
+    }
+  }
+  if (allLoaded) return;
+  iconsInFlight.set(m, true);
+  try {
+    await loadAllIconsImpl(m);
+  } finally {
+    iconsInFlight.delete(m);
+  }
+}
+
+async function loadAllIconsImpl(m: maplibregl.Map): Promise<void> {
   await Promise.all(
     Object.keys(MAP_ICONS).map(async (name) => {
       const plainId = iconImageId(name);
