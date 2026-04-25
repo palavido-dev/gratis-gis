@@ -150,9 +150,16 @@ export class ItemsService {
     if (opts.bbox) {
       const buf = degreesFromKm(opts.bufferKm ?? 0);
       const [w, s, e, n] = opts.bbox;
+      // Filter trashed items out of the spatial id set up front. The
+      // visibleWhere AND clause already excludes deletedAt != null
+      // for the non-mine path, but $queryRaw runs against the bare
+      // table so we need to repeat it here for safety. Prevents a
+      // recently-deleted item from sneaking into search results just
+      // because it has a non-null bbox_geom.
       const ids = await this.prisma.$queryRaw<Array<{ id: string }>>`
         SELECT id FROM "item"
         WHERE "bbox_geom" IS NOT NULL
+          AND "deleted_at" IS NULL
           AND "bbox_geom" && ST_MakeEnvelope(
             ${w - buf}, ${s - buf}, ${e + buf}, ${n + buf}, 4326
           )
@@ -163,11 +170,22 @@ export class ItemsService {
       // intentionally allowed through the spatial filter (see opts
       // doc): spatial-aware items get filtered down to those whose
       // bbox intersects, while bbox-less items are unaffected.
+      //
+      // Important: visibleWhere(user) returns `{ AND: [access, { deletedAt: null }] }`
+      // so `where.AND` is already populated. Direct assignment would
+      // overwrite the deletedAt filter (this used to leak trashed
+      // items into spatial search results in the "All items" view).
+      // Preserve the existing AND clauses by appending instead.
       const orParts: Prisma.ItemWhereInput[] = [
         { id: { in: idSet } },
         { bbox: { equals: [] } },
       ];
-      where.AND = [{ OR: orParts }];
+      const existingAnd = Array.isArray(where.AND)
+        ? where.AND
+        : where.AND
+          ? [where.AND]
+          : [];
+      where.AND = [...existingAnd, { OR: orParts }];
     }
     // Include shares in the list response so the items page can render
     // sharing badges without a second round-trip per item. Most items

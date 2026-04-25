@@ -776,21 +776,6 @@ function Toolbar({
           </select>
         </label>
 
-        <button
-          type="button"
-          onClick={onToggleAreaPanel}
-          aria-pressed={areaPanelOpen || areaActive}
-          className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-2 text-xs transition-colors ${
-            areaPanelOpen || areaActive
-              ? 'border-accent bg-accent/10 text-accent'
-              : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
-          }`}
-          title="Search by area"
-        >
-          <Crosshair className="h-3.5 w-3.5" />
-          {areaActive ? 'Area filter on' : 'Search by area'}
-        </button>
-
         <p className="ml-auto text-xs text-muted">
           {filteredCount === totalCount
             ? `${totalCount} item${totalCount === 1 ? '' : 's'}`
@@ -815,46 +800,66 @@ function Toolbar({
       ) : null}
 
       {/* Filter chips. Only surface types that are actually present
-          in the data so a fresh org doesn't see 13 greyed-out chips. */}
-      {typeCounts.length > 1 ? (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
-            Filter
-          </span>
-          {typeCounts.map(([t, count]) => {
-            const active = typeFilter.has(t);
-            const Icon = getItemTypeIcon(t);
-            const accent = getItemTypeAccent(t);
-            return (
-              <button
-                key={t}
-                type="button"
-                onClick={() => onToggleType(t)}
-                aria-pressed={active}
-                className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[11px] transition-colors ${
-                  active
-                    ? 'border-accent bg-accent/10 text-accent'
-                    : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
-                }`}
-              >
-                <Icon className={`h-3 w-3 ${active ? '' : accent}`} />
-                {getItemTypeLabel(t)}
-                <span className="text-muted">({count})</span>
-              </button>
-            );
-          })}
-          {typeFilter.size > 0 ? (
+          in the data so a fresh org doesn't see 13 greyed-out chips.
+          The "Area" chip lives here too -- area is just another
+          filter the user can toggle on/off, not a separate kind of
+          search affordance. */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
+          Filter
+        </span>
+
+        <button
+          type="button"
+          onClick={onToggleAreaPanel}
+          aria-pressed={areaPanelOpen || areaActive}
+          title="Filter by geographic area"
+          className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[11px] transition-colors ${
+            areaPanelOpen || areaActive
+              ? 'border-accent bg-accent/10 text-accent'
+              : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
+          }`}
+        >
+          <Crosshair className="h-3 w-3" />
+          {areaActive ? 'Area' : 'Area...'}
+        </button>
+
+        {typeCounts.map(([t, count]) => {
+          const active = typeFilter.has(t);
+          const Icon = getItemTypeIcon(t);
+          const accent = getItemTypeAccent(t);
+          return (
             <button
+              key={t}
               type="button"
-              onClick={onClearFilters}
-              className="inline-flex h-7 items-center gap-1 rounded-full border border-transparent px-2 text-[11px] text-muted hover:bg-surface-2 hover:text-ink-1"
+              onClick={() => onToggleType(t)}
+              aria-pressed={active}
+              className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[11px] transition-colors ${
+                active
+                  ? 'border-accent bg-accent/10 text-accent'
+                  : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
+              }`}
             >
-              <X className="h-3 w-3" />
-              Clear
+              <Icon className={`h-3 w-3 ${active ? '' : accent}`} />
+              {getItemTypeLabel(t)}
+              <span className="text-muted">({count})</span>
             </button>
-          ) : null}
-        </div>
-      ) : null}
+          );
+        })}
+        {typeFilter.size > 0 || areaActive ? (
+          <button
+            type="button"
+            onClick={() => {
+              if (typeFilter.size > 0) onClearFilters();
+              if (areaActive) onClearAreaSearch();
+            }}
+            className="inline-flex h-7 items-center gap-1 rounded-full border border-transparent px-2 text-[11px] text-muted hover:bg-surface-2 hover:text-ink-1"
+          >
+            <X className="h-3 w-3" />
+            Clear filters
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }
