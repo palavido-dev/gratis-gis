@@ -130,7 +130,7 @@ function SchemaTable({
             </span>
             {typeof layer.featureCount === 'number' ? (
               <span className="text-[11px] text-muted">
-                Â· {layer.featureCount.toLocaleString()} feature
+                · {layer.featureCount.toLocaleString()} feature
                 {layer.featureCount === 1 ? '' : 's'}
               </span>
             ) : null}
@@ -185,7 +185,7 @@ function DomainCell({ domain }: { domain: FieldDomain }) {
   if (domain.type === 'coded-value') {
     return (
       <span className="text-ink-1">
-        pick list Â·{' '}
+        pick list ·{' '}
         <span className="text-muted">
           {domain.values.length} value{domain.values.length === 1 ? '' : 's'}
         </span>
@@ -195,7 +195,7 @@ function DomainCell({ domain }: { domain: FieldDomain }) {
   if (domain.type === 'coded-value-ref') {
     return (
       <span className="inline-flex items-center gap-1 text-ink-1">
-        shared list Â·
+        shared list ·
         <a
           href={`/items/${domain.pickListItemId}`}
           className="inline-flex items-center gap-0.5 underline hover:text-ink-1"
@@ -208,7 +208,7 @@ function DomainCell({ domain }: { domain: FieldDomain }) {
   if (domain.type === 'range') {
     return (
       <span className="text-ink-1">
-        range Â· {domain.min} to {domain.max}
+        range · {domain.min} to {domain.max}
       </span>
     );
   }
@@ -234,7 +234,7 @@ function StorageCell({
     parts.push(`NUMERIC(${storage.precision ?? '?'}, ${storage.scale ?? '?'})`);
   }
   return parts.length > 0 ? (
-    <span className="text-ink-1">{parts.join(' Â· ')}</span>
+    <span className="text-ink-1">{parts.join(' · ')}</span>
   ) : (
     <span className="text-muted">—</span>
   );

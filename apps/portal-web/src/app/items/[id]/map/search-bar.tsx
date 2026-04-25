@@ -257,7 +257,7 @@ export function SearchBar({
                   />
                 ))}
                 <div className="px-3 py-1 text-[10px] text-muted">
-                  Places via Â© OpenStreetMap contributors (Nominatim)
+                  Places via © OpenStreetMap contributors (Nominatim)
                 </div>
               </Section>
             ) : query.trim().length >= 3 && !geocodeLoading ? (
@@ -324,7 +324,7 @@ function ResultRow({
           <span className="block truncate text-ink-0">{result.label}</span>
           <span className="block truncate text-xs text-muted">
             {result.kind === 'feature'
-              ? result.layerTitle + (result.subtitle ? ` Â· ${result.subtitle}` : '')
+              ? result.layerTitle + (result.subtitle ? ` · ${result.subtitle}` : '')
               : result.subtitle}
           </span>
         </span>

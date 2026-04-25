@@ -272,7 +272,7 @@ export function AttributeTable({
           </label>
           <span className="text-[11px] text-muted">
             {visibleIndexes.length.toLocaleString()} rows
-            {activeSelection.size > 0 ? ` Â· ${activeSelection.size} selected` : ''}
+            {activeSelection.size > 0 ? ` · ${activeSelection.size} selected` : ''}
           </span>
         </div>
         <button

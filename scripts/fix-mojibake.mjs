@@ -98,11 +98,36 @@ const RULES = [
   ['Ã¼', 'ü'],
   ['Ã±', 'ñ'],
 
+  // --- Triple-encoded middle-dot & non-breaking markers (Ã‚Â lead) ---
+  // Some files were saved enough times to push the once-mangled `Â` to
+  // `Ã‚Â`. These rules must come BEFORE the shorter `Ã‚` variants so we
+  // don't strip the leading three chars and leave `·` orphaned.
+  ['Ã‚Â·', '·'],
+  ['Ã‚Â ', ' '],
+  ['Ã‚Â©', '©'],
+  ['Ã‚Â®', '®'],
+
   // --- Double-encoded middle-dot & non-breaking markers ---
   ['Ã‚·', '·'],
   ['Ã‚ ', ' '],     // nbsp decoded twice
   ['Ã‚©', '©'],
   ['Ã‚®', '®'],
+
+  // --- Stage-1 corruption (CP1252 misread of UTF-8 bytes) ---
+  // The most common form when a file is opened with the wrong codepage
+  // exactly once. Every replacement here is two source chars (`Â` + the
+  // intended char) collapsing back to a single Unicode codepoint. Run
+  // these LAST so the longer Ã/Ãƒ-prefixed rules above can fire first
+  // when files have stacked corruption layers.
+  ['Â·', '·'],
+  ['Â©', '©'],
+  ['Â®', '®'],
+  ['Â°', '°'],
+  ['Â±', '±'],
+  ['Â½', '½'],
+  ['Â¼', '¼'],
+  ['Â¾', '¾'],
+  ['Â ', ' '],   // CP1252-corrupted non-breaking space
 ];
 
 function walk(dir) {

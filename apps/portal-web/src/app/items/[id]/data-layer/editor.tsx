@@ -254,7 +254,7 @@ export function DataLayerEditor({ itemId, initial, canEdit }: Props) {
             {v2 && (
               <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-medium text-sky-700">
                 <MapPin className="h-3 w-3" />
-                PostGIS Â· versioned
+                PostGIS · versioned
               </span>
             )}
           </div>
@@ -312,11 +312,11 @@ export function DataLayerEditor({ itemId, initial, canEdit }: Props) {
                 <div className="flex flex-wrap gap-1 text-[11px] text-muted">
                   <strong className="font-medium text-ink-1">Accepted:</strong>
                   <span>GeoJSON (.geojson/.json)</span>
-                  <span>Â·</span>
+                  <span>·</span>
                   <span>KML / KMZ</span>
-                  <span>Â·</span>
+                  <span>·</span>
                   <span>Shapefile (.zip bundle)</span>
-                  <span>Â·</span>
+                  <span>·</span>
                   <span>File Geodatabase (server-side GDAL)</span>
                 </div>
               </>

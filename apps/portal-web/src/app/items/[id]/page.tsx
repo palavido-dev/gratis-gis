@@ -281,7 +281,7 @@ export default async function ItemDetailPage({ params }: Props) {
               </span>
               {item.tags.length > 0 ? (
                 <span className="text-muted">
-                  Ã‚Â· {item.tags.length}{' '}
+                  · {item.tags.length}{' '}
                   {item.tags.length === 1 ? 'tag' : 'tags'}
                 </span>
               ) : null}

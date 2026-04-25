@@ -417,7 +417,7 @@ export function AccessMatrix({
                         </div>
                         <div className="text-[11px] text-muted">
                           {layer.access?.policy ?? 'inherit'}
-                          {itemId ? null : ' Â· no backing item'}
+                          {itemId ? null : ' · no backing item'}
                         </div>
                       </td>
                       {principals.map((p) => {
@@ -659,7 +659,7 @@ function AccessDetailDialog({
               {layerTitle}
             </div>
             <div className="text-xs text-muted">
-              {principalType === 'group' ? 'Group' : 'User'} Â· {principalName}
+              {principalType === 'group' ? 'Group' : 'User'} · {principalName}
             </div>
           </div>
           <button

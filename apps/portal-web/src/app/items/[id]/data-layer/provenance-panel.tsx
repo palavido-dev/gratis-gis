@@ -73,7 +73,7 @@ function V3Provenance({
           Data sources
         </h2>
         <span className="text-[11px] text-muted">
-          Â· {stamped.length} of {data.layers.length}{' '}
+          · {stamped.length} of {data.layers.length}{' '}
           {data.layers.length === 1 ? 'layer' : 'layers'} imported
         </span>
       </header>
@@ -150,7 +150,7 @@ function SpatialRefRow({ source }: { source: DataLayerSource }) {
       Storage: EPSG:4326 (WGS 84)
       {wasReprojected ? (
         <span>
-          Â· reprojected from{' '}
+          · reprojected from{' '}
           <a
             href={`https://epsg.io/${srs.replace(/^EPSG:/, '')}`}
             target="_blank"
@@ -163,7 +163,7 @@ function SpatialRefRow({ source }: { source: DataLayerSource }) {
           on ingest
         </span>
       ) : srs === 'CRS:unknown' ? (
-        <span>Â· source file had no declared CRS (assumed 4326)</span>
+        <span>· source file had no declared CRS (assumed 4326)</span>
       ) : null}
     </p>
   );

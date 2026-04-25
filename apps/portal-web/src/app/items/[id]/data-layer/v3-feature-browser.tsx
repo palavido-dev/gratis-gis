@@ -198,7 +198,7 @@ export function V3FeatureBrowser({
       <header className="flex items-center justify-between gap-2 border-b border-border px-3 py-1.5">
         <p className="text-[11px] font-medium uppercase tracking-wide text-muted">
           Features
-          {loading ? '' : ` Â· ${features.length}`}
+          {loading ? '' : ` · ${features.length}`}
         </p>
         <div className="flex items-center gap-1">
           {canEdit ? (

@@ -138,11 +138,11 @@ function LayerRow({ itemId, layer, canEdit }: RowProps) {
             <span className="uppercase">
               {layer.geometryType ?? 'table'}
             </span>
-            {' Â· '}
+            {' · '}
             <span className="font-mono">{layer.name}</span>
             {typeof layer.featureCount === 'number' ? (
               <>
-                {' Â· '}
+                {' · '}
                 {layer.featureCount.toLocaleString()} feature
                 {layer.featureCount === 1 ? '' : 's'}
               </>

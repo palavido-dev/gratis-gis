@@ -1818,7 +1818,7 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
                       {l.geometryType ?? 'table'}
                     </span>
                     <span className="text-[10px] text-muted">
-                      {l.featureCount.toLocaleString()} feat Â·{' '}
+                      {l.featureCount.toLocaleString()} feat ·{' '}
                       {l.fields.length} field{l.fields.length === 1 ? '' : 's'}
                     </span>
                   </label>
@@ -1858,7 +1858,7 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
           <Upload className="h-4 w-4" />
           <span>Drop a spatial file or click to pick one.</span>
           <span className="text-[10px]">
-            GeoJSON Â· KML / KMZ Â· Shapefile (.zip) Â· File Geodatabase (.gdb.zip)
+            GeoJSON · KML / KMZ · Shapefile (.zip) · File Geodatabase (.gdb.zip)
           </span>
           <input
             id="fs-builder-import"

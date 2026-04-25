@@ -113,7 +113,7 @@ export function searchLayers(
             return val ? `${ff}: ${val}` : null;
           })
           .filter(Boolean)
-          .join(' Â· ') || null,
+          .join(' · ') || null,
         bbox: featureBbox(f),
         center: featureCenter(f),
         feature: f,
@@ -246,7 +246,7 @@ export async function searchArcgisLayers(
                     return val ? `${ff}: ${val}` : null;
                   })
                   .filter(Boolean)
-                  .join(' Â· ') || null,
+                  .join(' · ') || null,
               bbox: featureBbox(f),
               center: featureCenter(f),
               feature: f,
@@ -314,7 +314,7 @@ export async function geocode(
       kind: 'place' as const,
       label: row.display_name,
       subtitle: row.class
-        ? `${row.class}${row.type ? ` Â· ${row.type}` : ''}`
+        ? `${row.class}${row.type ? ` · ${row.type}` : ''}`
         : null,
       bbox,
       center: Number.isFinite(lat) && Number.isFinite(lon) ? [lon, lat] : null,
