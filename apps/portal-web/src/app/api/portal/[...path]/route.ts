@@ -13,7 +13,16 @@ import { authOptions, type SessionWithToken } from '@/lib/auth';
 const API_BASE = process.env.PORTAL_API_URL ?? 'http://localhost:4000';
 
 async function forward(req: NextRequest, pathSegments: string[]) {
+  // Per-hop timing log behind the BFF_TIMING flag. Lets us split a
+  // slow page load into "cookie + getServerSession" vs "upstream
+  // fetch to portal-api" vs "body shaping". With ~24 items in the
+  // dev DB, none of those should take more than tens of ms; if the
+  // log shows a 20s+ value on any hop, that's where the time is.
+  const trace = process.env.BFF_TIMING === '1';
+  const t0 = trace ? Date.now() : 0;
+
   const session = (await getServerSession(authOptions)) as SessionWithToken | null;
+  const tSession = trace ? Date.now() : 0;
   if (!session?.accessToken) {
     return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
   }
@@ -42,10 +51,28 @@ async function forward(req: NextRequest, pathSegments: string[]) {
     init.body = await req.arrayBuffer();
   }
 
+  // Forward client aborts upstream. Without this, when the browser
+  // cancels its request the BFF still waits for portal-api to
+  // finish (and portal-api still holds a Prisma connection). On a
+  // slow page-revisit pattern that means each abandoned request
+  // serialises behind the previous one's still-running query.
+  init.signal = req.signal;
+
   const upstream = await fetch(target, init);
+  const tUpstream = trace ? Date.now() : 0;
   // Stream the response body through as bytes so the browser receives
   // exactly what portal-api produced. text() would re-encode.
   const body = await upstream.arrayBuffer();
+  if (trace) {
+    const tDone = Date.now();
+    // eslint-disable-next-line no-console
+    console.log(
+      `[bff] ${req.method} /api/${suffix}${qs} ` +
+        `session=${tSession - t0}ms upstream=${tUpstream - tSession}ms ` +
+        `body=${tDone - tUpstream}ms total=${tDone - t0}ms ` +
+        `bytes=${body.byteLength}`,
+    );
+  }
   return new NextResponse(body, {
     status: upstream.status,
     headers: {

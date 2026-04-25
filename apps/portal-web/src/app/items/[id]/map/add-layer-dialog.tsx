@@ -109,11 +109,21 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
   // per arcgis_service. The badge count comes from the derived
   // `_subLayerCount` field the server attaches in lite mode. Full
   // `data` is fetched lazily when the user clicks an item below.
+  //
+  // The fetch wires through an AbortController so when the user
+  // navigates away mid-load (or types another character) the
+  // cleanup aborts the in-flight request all the way to the
+  // server. Without this, leaving a slow fetch alive holds a
+  // Prisma connection on the API side and serialises the next
+  // visit's request behind it - which is the most likely cause
+  // of "first time fast, second time 30s" on dialog re-open.
   useEffect(() => {
     if (!open || tab !== 'portal') return;
     let cancelled = false;
+    const controller = new AbortController();
     setPortalLoading(true);
     const handle = setTimeout(async () => {
+      const t0 = performance.now();
       try {
         const q = portalQ.trim();
         const qs = new URLSearchParams({
@@ -121,7 +131,9 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
           lite: '1',
         });
         if (q) qs.set('q', q);
-        const res = await fetch(`/api/portal/items?${qs}`);
+        const res = await fetch(`/api/portal/items?${qs}`, {
+          signal: controller.signal,
+        });
         if (!res.ok) {
           // eslint-disable-next-line no-console
           console.warn('[portal] fetch failed:', res.status);
@@ -136,6 +148,14 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
           return bt - at;
         });
         setPortalItems(items);
+        // eslint-disable-next-line no-console
+        console.log(
+          `[portal] loaded ${items.length} items in ${Math.round(performance.now() - t0)}ms`,
+        );
+      } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return;
+        // eslint-disable-next-line no-console
+        console.warn('[portal] fetch error:', err);
       } finally {
         if (!cancelled) setPortalLoading(false);
       }
@@ -143,6 +163,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
     return () => {
       cancelled = true;
       clearTimeout(handle);
+      controller.abort();
     };
   }, [open, tab, portalQ]);
 
