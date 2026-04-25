@@ -27,7 +27,7 @@ import { ItemSharingIndicator } from '@/components/item-sharing-indicator';
 import { ReassignOwnerDialog } from '@/components/reassign-owner-dialog';
 import { AreaSearchPanel } from './area-search-panel';
 import { AddToFolderDialog } from './add-to-folder-dialog';
-import type { FolderRailNode } from './folder-rail';
+import { ITEM_DRAG_MIME, type FolderRailNode } from './folder-rail';
 
 /**
  * Client-side wrapper around the items list. Owns three bits of UI
@@ -980,7 +980,20 @@ function ItemGrid({
             currentUser.id === item.ownerId || currentUser.orgRole === 'admin';
           const Icon = getItemTypeIcon(item.type);
           return (
-            <div key={item.id} className="group relative">
+            <div
+              key={item.id}
+              className="group relative"
+              draggable
+              onDragStart={(e) => {
+                // Drag-into-folder support (#43). The folder rail
+                // listens for this MIME type; non-folder drop
+                // targets get a no-op since browsers ignore unknown
+                // MIME entries on dataTransfer.
+                e.dataTransfer.setData(ITEM_DRAG_MIME, item.id);
+                e.dataTransfer.setData('text/plain', item.title);
+                e.dataTransfer.effectAllowed = 'move';
+              }}
+            >
               {canManage ? (
                 <label
                   // Absolute-positioned checkbox so it sits on top of
@@ -1079,6 +1092,15 @@ function ItemGrid({
           <li
             key={item.id}
             className={`group ${isSelected ? 'bg-accent/5' : ''}`}
+            draggable
+            onDragStart={(e) => {
+              // Mirrors the card-view drag (#43). Same MIME, same
+              // payload shape, so the rail's drop handler doesn't
+              // need to care which view the user dragged from.
+              e.dataTransfer.setData(ITEM_DRAG_MIME, item.id);
+              e.dataTransfer.setData('text/plain', item.title);
+              e.dataTransfer.effectAllowed = 'move';
+            }}
           >
             <div className="grid grid-cols-[1.5rem_auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-2.5 hover:bg-surface-2 sm:grid-cols-[1.5rem_auto_minmax(0,1fr)_8rem_8rem_7rem_9rem_auto]">
               {/* Checkbox: rendered as a label that swallows its own

@@ -2,8 +2,14 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { ChevronRight, Folder as FolderIcon, FolderOpen } from 'lucide-react';
 import { FolderRowMenu } from './folder-row-menu';
+
+/** MIME-style key used to identify an item-card drag payload (#43).
+ *  Kept narrow (`application/x-gratis-item`) so other dragged content
+ *  (text, files) is ignored cleanly by the rail's drop targets. */
+export const ITEM_DRAG_MIME = 'application/x-gratis-item';
 
 /**
  * Lightweight folder representation passed in from the server. We only
@@ -46,6 +52,7 @@ interface Props {
  * See docs/folders.md.
  */
 export function FolderRail({ folders, activeFolderId }: Props) {
+  const router = useRouter();
   const folderById = useMemo(() => {
     const m = new Map<string, FolderRailNode>();
     for (const f of folders) m.set(f.id, f);
@@ -65,6 +72,13 @@ export function FolderRail({ folders, activeFolderId }: Props) {
   }, [folders]);
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // Folder id currently under a drag-over (highlighted as drop
+  // target). Cleared on drop / leave. Lives on the FolderRail so
+  // only one folder is highlighted at a time even when nested
+  // expansions overlap. (#43)
+  const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(
+    null,
+  );
 
   function toggle(id: string) {
     setExpanded((prev) => {
@@ -73,6 +87,51 @@ export function FolderRail({ folders, activeFolderId }: Props) {
       else next.add(id);
       return next;
     });
+  }
+
+  /**
+   * Drop an item into a folder by appending its UUID to the
+   * folder's childItemIds. (#43) Server enforces cycle prevention
+   * (assertNoFolderCycle) so a folder dropped onto its own
+   * descendant 400s rather than corrupting the DAG; we surface a
+   * concise alert for the failure case so the user knows the drop
+   * was rejected. Idempotent: dropping an item that's already in
+   * the folder is a no-op.
+   */
+  async function dropItemIntoFolder(itemId: string, folderId: string) {
+    if (!itemId || !folderId || itemId === folderId) return;
+    try {
+      const res = await fetch(`/api/portal/items/${folderId}`);
+      if (!res.ok) throw new Error(`Could not load folder (${res.status}).`);
+      const folder = (await res.json()) as {
+        data?: { childItemIds?: unknown };
+      };
+      const existing = Array.isArray(folder.data?.childItemIds)
+        ? (folder.data!.childItemIds as unknown[]).filter(
+            (x): x is string => typeof x === 'string',
+          )
+        : [];
+      if (existing.includes(itemId)) return;
+      const next = {
+        ...(folder.data ?? {}),
+        childItemIds: [...existing, itemId],
+      };
+      const patch = await fetch(`/api/portal/items/${folderId}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ data: next }),
+      });
+      if (!patch.ok) {
+        const body = await patch.text().catch(() => '');
+        throw new Error(body || `Drop rejected (${patch.status}).`);
+      }
+      router.refresh();
+    } catch (err) {
+      // eslint-disable-next-line no-alert
+      window.alert(
+        err instanceof Error ? err.message : 'Could not move item.',
+      );
+    }
   }
 
   if (folders.length === 0) {
@@ -113,6 +172,9 @@ export function FolderRail({ folders, activeFolderId }: Props) {
             expanded={expanded}
             onToggle={toggle}
             activeFolderId={activeFolderId}
+            dragOverFolderId={dragOverFolderId}
+            onDragOver={setDragOverFolderId}
+            onDrop={dropItemIntoFolder}
           />
         ))}
       </ul>
@@ -127,6 +189,9 @@ interface NodeProps {
   expanded: Set<string>;
   onToggle: (id: string) => void;
   activeFolderId?: string | undefined;
+  dragOverFolderId: string | null;
+  onDragOver: (id: string | null) => void;
+  onDrop: (itemId: string, folderId: string) => void | Promise<void>;
 }
 
 function FolderNode({
@@ -136,6 +201,9 @@ function FolderNode({
   expanded,
   onToggle,
   activeFolderId,
+  dragOverFolderId,
+  onDragOver,
+  onDrop,
 }: NodeProps) {
   // Children of this folder that are themselves folders (and that
   // the caller can see). Items that are not folders belong in the
@@ -147,14 +215,43 @@ function FolderNode({
   const isOpen = expanded.has(folder.id);
   const isActive = activeFolderId === folder.id;
   const hasSubs = subfolders.length > 0;
+  const isDropTarget = dragOverFolderId === folder.id;
 
   return (
     <li>
       <div
-        className={`group flex items-center gap-1 rounded-md px-2 py-1 ${
-          isActive ? 'bg-accent/10 text-accent' : 'text-ink-1 hover:bg-surface-2'
+        className={`group flex items-center gap-1 rounded-md px-2 py-1 transition-colors ${
+          isDropTarget
+            ? 'bg-accent/20 ring-1 ring-accent ring-inset'
+            : isActive
+              ? 'bg-accent/10 text-accent'
+              : 'text-ink-1 hover:bg-surface-2'
         }`}
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
+        onDragOver={(e) => {
+          // Only respond to item-card drags. Other drag payloads
+          // (text, files) leave the dropEffect at the browser
+          // default so the user gets a 'no-drop' cursor.
+          const types = e.dataTransfer.types;
+          if (
+            (types.includes && types.includes(ITEM_DRAG_MIME)) ||
+            Array.from(types).includes(ITEM_DRAG_MIME)
+          ) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            if (!isDropTarget) onDragOver(folder.id);
+          }
+        }}
+        onDragLeave={() => {
+          if (isDropTarget) onDragOver(null);
+        }}
+        onDrop={(e) => {
+          const itemId = e.dataTransfer.getData(ITEM_DRAG_MIME);
+          if (!itemId) return;
+          e.preventDefault();
+          onDragOver(null);
+          void onDrop(itemId, folder.id);
+        }}
       >
         <button
           type="button"
@@ -222,6 +319,9 @@ function FolderNode({
               expanded={expanded}
               onToggle={onToggle}
               activeFolderId={activeFolderId}
+              dragOverFolderId={dragOverFolderId}
+              onDragOver={onDragOver}
+              onDrop={onDrop}
             />
           ))}
         </ul>
