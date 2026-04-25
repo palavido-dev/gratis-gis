@@ -161,6 +161,18 @@ export interface MapLayer {
    */
   filter: MapLayerFilter | null;
   /**
+   * Optional per-layer geographic clip (#34). UUID of a geo_boundary
+   * item whose geometry intersects every rendered feature. Reuses
+   * the same boundary library admins build for share geo limits and
+   * map default extents. Empty / undefined = no clip. Server-side
+   * enforcement piggy-backs on the existing share geoLimit pipeline:
+   * the API ANDs this boundary with any share-level geoLimit before
+   * issuing the SELECT. Owner / admin do NOT bypass this clip
+   * because it is layer-content scope, not access -- the author
+   * explicitly chose to render only a subset of the underlying data.
+   */
+  boundaryFilterItemId?: string;
+  /**
    * Per-layer scale visibility. `null` on either bound means
    * "unconstrained"; MapLibre's min/maxzoom properties clamp to
    * 0 / 24 at the extremes. Zoom is stored rather than scale
