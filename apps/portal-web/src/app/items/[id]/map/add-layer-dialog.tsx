@@ -327,18 +327,16 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
       }
       for (const l of ordered) {
         const override = d.layerConfig?.[String(l.id)];
-        // Lead with the sublayer name so the layer panel rows are
-        // visually distinguishable: a layer panel that truncates
-        // "Riverside County Parcel Data: Parcels" to "Riverside
-        // County Parcel Da..." used to render every sublayer with
-        // an identical-looking title. Putting the sublayer name
-        // first guarantees the unique part is always visible. We
-        // append the service in parentheses for context only when
-        // there's more than one layer.
+        // Title comes from the SUBLAYER name only -- no parent
+        // prefix or parent suffix. Matt's call: every AGO user
+        // strips "Service: " manually anyway, so don't impose it
+        // in the first place. When group layers ship (#46), the
+        // parent service shows up as the group header instead, so
+        // the visual hierarchy carries the context that the
+        // service name used to.
         const subName = l.name ?? `Layer ${l.id}`;
         const title =
-          override?.label ??
-          (ordered.length === 1 ? item.title : `${subName} (${item.title})`);
+          override?.label ?? (ordered.length === 1 ? item.title : subName);
         onAdd(
           makeLayer(title, {
             kind: 'arcgis-rest',
