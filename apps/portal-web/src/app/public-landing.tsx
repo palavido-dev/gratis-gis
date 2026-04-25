@@ -55,6 +55,17 @@ export function PublicLanding({ data }: Props) {
     <div className="flex min-h-screen flex-col">
       <TopBar orgName={org.name} />
 
+      {/* Schema.org JSON-LD so search engines / open-data
+          aggregators can index this page's public items. Server
+          rendered (this is a server component) so the structured
+          data is in the initial HTML response. See #66. */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(buildLandingJsonLd(data), null, 0),
+        }}
+      />
+
       <Hero
         title={org.title}
         subtitle={org.subtitle}
@@ -222,4 +233,67 @@ function ItemCard({ item }: { item: LandingData['items'][number] }) {
       </Link>
     </li>
   );
+}
+
+// ---------------------------------------------------------------
+// Schema.org JSON-LD for the landing page (#66)
+// ---------------------------------------------------------------
+
+/**
+ * Build a Schema.org `CollectionPage` whose `mainEntity` is an
+ * `ItemList` of every public item rendered on the page. Datasets
+ * (data_layer / arcgis_service / wms_service / wfs_service) get
+ * `Dataset` typing so open-data aggregators recognise them; other
+ * item types fall back to the generic `CreativeWork`. Output is a
+ * single JSON-LD blob the page injects via a server-rendered
+ * <script type="application/ld+json"> tag.
+ *
+ * The portal does not have public item detail pages today, so the
+ * URLs point at /items/<id>. Once the public detail surface lands,
+ * the same shape can be lifted onto each item's own page (one
+ * Dataset per page) without regenerating the structure here.
+ */
+function buildLandingJsonLd(
+  data: LandingData,
+): Record<string, unknown> {
+  const dataLayerLike = new Set<ItemType>([
+    'data_layer',
+    'arcgis_service',
+    'wms_service',
+    'wfs_service',
+  ]);
+
+  const elements = data.items.map((item, index) => {
+    const isDataset = dataLayerLike.has(item.type);
+    const node: Record<string, unknown> = {
+      '@type': isDataset ? 'Dataset' : 'CreativeWork',
+      name: item.title,
+      url: `/items/${item.id}`,
+      dateModified: item.updatedAt,
+    };
+    if (item.description) node.description = item.description;
+    if (item.tags.length > 0) node.keywords = item.tags;
+    if (item.thumbnailUrl) node.image = item.thumbnailUrl;
+    return {
+      '@type': 'ListItem',
+      position: index + 1,
+      item: node,
+    };
+  });
+
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'CollectionPage',
+    name: data.org.title,
+    ...(data.org.subtitle ? { description: data.org.subtitle } : {}),
+    publisher: {
+      '@type': 'Organization',
+      name: data.org.name,
+    },
+    mainEntity: {
+      '@type': 'ItemList',
+      numberOfItems: data.items.length,
+      itemListElement: elements,
+    },
+  };
 }
