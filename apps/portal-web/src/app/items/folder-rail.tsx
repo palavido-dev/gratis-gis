@@ -90,40 +90,104 @@ export function FolderRail({ folders, activeFolderId }: Props) {
   }
 
   /**
-   * Drop an item into a folder by appending its UUID to the
-   * folder's childItemIds. (#43) Server enforces cycle prevention
-   * (assertNoFolderCycle) so a folder dropped onto its own
-   * descendant 400s rather than corrupting the DAG; we surface a
-   * concise alert for the failure case so the user knows the drop
-   * was rejected. Idempotent: dropping an item that's already in
-   * the folder is a no-op.
+   * Drop an item onto a folder. (#43, #42)
+   *
+   * Two semantics, distinguished by whether the items grid is
+   * currently filtered to a folder:
+   *   - `?folder=<A>` and drop onto B: MOVE. Item leaves A, joins
+   *     B. Matches the file-explorer convention where dragging
+   *     from inside a folder relocates the file. (#42)
+   *   - Browsing the all-items view (no `?folder=` filter) and
+   *     drop onto B: ADD. Item joins B; existing parents are
+   *     untouched. Matches the multi-membership DAG model where
+   *     an item can sit in any number of folders.
+   *
+   * Server enforces cycle prevention (assertNoFolderCycle); a
+   * folder dropped onto its own descendant 400s with a clear
+   * message that we surface via window.alert. Idempotent: an
+   * item that's already in the destination folder is a no-op.
    */
   async function dropItemIntoFolder(itemId: string, folderId: string) {
     if (!itemId || !folderId || itemId === folderId) return;
     try {
-      const res = await fetch(`/api/portal/items/${folderId}`);
-      if (!res.ok) throw new Error(`Could not load folder (${res.status}).`);
-      const folder = (await res.json()) as {
+      // Add to the destination folder.
+      const destRes = await fetch(`/api/portal/items/${folderId}`);
+      if (!destRes.ok) {
+        throw new Error(`Could not load folder (${destRes.status}).`);
+      }
+      const dest = (await destRes.json()) as {
         data?: { childItemIds?: unknown };
       };
-      const existing = Array.isArray(folder.data?.childItemIds)
-        ? (folder.data!.childItemIds as unknown[]).filter(
+      const destExisting = Array.isArray(dest.data?.childItemIds)
+        ? (dest.data!.childItemIds as unknown[]).filter(
             (x): x is string => typeof x === 'string',
           )
         : [];
-      if (existing.includes(itemId)) return;
-      const next = {
-        ...(folder.data ?? {}),
-        childItemIds: [...existing, itemId],
-      };
-      const patch = await fetch(`/api/portal/items/${folderId}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ data: next }),
-      });
-      if (!patch.ok) {
-        const body = await patch.text().catch(() => '');
-        throw new Error(body || `Drop rejected (${patch.status}).`);
+      // Build the move-source patch in parallel only when we're in
+      // a "drag from inside folder A" context. activeFolderId
+      // matches the folder the items grid is currently filtered to;
+      // if it's set and != the drop target, the item leaves it.
+      const moveSourceId =
+        activeFolderId && activeFolderId !== folderId ? activeFolderId : null;
+
+      // Skip the dest patch when the item already lives there
+      // (idempotent re-drop). Still process the move-source removal
+      // since the user clearly intended the relocation.
+      const tasks: Array<Promise<Response>> = [];
+      if (!destExisting.includes(itemId)) {
+        const next = {
+          ...(dest.data ?? {}),
+          childItemIds: [...destExisting, itemId],
+        };
+        tasks.push(
+          fetch(`/api/portal/items/${folderId}`, {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ data: next }),
+          }),
+        );
+      }
+      if (moveSourceId) {
+        // Fetch + patch the source folder to splice the item out.
+        // Sequential within this branch because we need the source's
+        // current childItemIds before we can rewrite them; the
+        // outer Promise.all parallelises destination add with
+        // source remove.
+        tasks.push(
+          (async () => {
+            const srcRes = await fetch(
+              `/api/portal/items/${moveSourceId}`,
+            );
+            if (!srcRes.ok) return srcRes;
+            const src = (await srcRes.json()) as {
+              data?: { childItemIds?: unknown };
+            };
+            const before = Array.isArray(src.data?.childItemIds)
+              ? (src.data!.childItemIds as unknown[]).filter(
+                  (x): x is string => typeof x === 'string',
+                )
+              : [];
+            const after = before.filter((x) => x !== itemId);
+            if (after.length === before.length) {
+              // Item wasn't in the source; nothing to remove.
+              return new Response(null, { status: 200 });
+            }
+            return fetch(`/api/portal/items/${moveSourceId}`, {
+              method: 'PATCH',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                data: { ...(src.data ?? {}), childItemIds: after },
+              }),
+            });
+          })(),
+        );
+      }
+      const results = await Promise.all(tasks);
+      for (const r of results) {
+        if (!r.ok) {
+          const body = await r.text().catch(() => '');
+          throw new Error(body || `Drop rejected (${r.status}).`);
+        }
       }
       router.refresh();
     } catch (err) {
