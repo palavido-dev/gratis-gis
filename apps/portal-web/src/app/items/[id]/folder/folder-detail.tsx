@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -11,7 +11,6 @@ import {
   Plus,
   X,
 } from 'lucide-react';
-import { ItemCard } from '@gratis-gis/ui';
 import type { FolderData, ItemWithShares } from '@gratis-gis/shared-types';
 import { DEFAULT_FOLDER } from '@gratis-gis/shared-types';
 import {
@@ -78,12 +77,72 @@ export function FolderDetail({
   const [dragId, setDragId] = useState<string | null>(null);
   const [reordering, setReordering] = useState(false);
 
+  // Re-fetch contents on mount so a navigation that happened while
+  // Next.js's router cache held a stale render (e.g. after the user
+  // added items to this folder via the items-page bulk action and
+  // got pushed back here) shows the up-to-date list. The SSR
+  // `initialChildren` covers first paint; this overwrites with the
+  // current server state shortly after.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/portal/items/${itemId}/folder-contents`,
+          { cache: 'no-store' },
+        );
+        if (!res.ok || cancelled) return;
+        const next = (await res.json()) as ItemWithShares[];
+        setChildren(next);
+        // Also refresh orderedIds so the parent's authoritative order
+        // matches what the server just returned. Drop ids that no
+        // longer point at a visible row (purged, unshared, trashed).
+        const visibleIds = new Set<string>(next.map((c) => String(c.id)));
+        setOrderedIds((prev) => {
+          const merged = prev.filter((id) => visibleIds.has(id));
+          for (const c of next) {
+            const cid = String(c.id);
+            if (!merged.includes(cid)) merged.push(cid);
+          }
+          return merged;
+        });
+      } catch {
+        /* non-fatal: SSR data still rendered */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [itemId]);
+
   // useMemo retained so future filters can derive from orderedIds
   // without invalidating the visibleCount calculation below.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const childIds = useMemo(() => orderedIds.filter(Boolean), [orderedIds]);
   const visibleCount = children.length;
   const totalRefs = childIds.length;
+
+  // Default ordering for the list: subfolders alphabetical first,
+  // then everything else alphabetical. Drag-drop reorder writes to
+  // `orderedIds` and overrides this; once the user has manually
+  // ordered the folder we honour their order. We detect "no manual
+  // order" as "orderedIds matches childItemIds in initial order"
+  // since we never write through reorderChildren without changing
+  // both. For Phase 1c we just always sort -- manual reorder is
+  // tracked separately in childItemIds and survives the sort
+  // because reorderChildren writes to both. Sort applies whenever
+  // the parent's saved order is the default ingest order; users
+  // can opt back into the manual order in a later slice.
+  const sortedChildren = useMemo(() => {
+    const copy = [...children];
+    copy.sort((a, b) => {
+      const af = a.type === 'folder' ? 0 : 1;
+      const bf = b.type === 'folder' ? 0 : 1;
+      if (af !== bf) return af - bf;
+      return a.title.localeCompare(b.title, undefined, { sensitivity: 'base' });
+    });
+    return copy;
+  }, [children]);
 
   async function removeFromFolder(childId: string) {
     setError(null);
@@ -259,71 +318,90 @@ export function FolderDetail({
             : "You can't see any of the items currently in this folder. Ask the folder author to share them with you."}
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {children.map((child) => {
-            const Icon = getItemTypeIcon(child.type);
-            const accent = getItemTypeAccent(child.type);
-            const busy = removing.has(child.id);
-            const dragging = dragId === child.id;
-            return (
-              <div
-                key={child.id}
-                draggable={canEdit && !reordering}
-                onDragStart={(e) => {
-                  if (!canEdit) return;
-                  setDragId(child.id);
-                  e.dataTransfer.effectAllowed = 'move';
-                  // Some browsers require a string payload for the
-                  // drag to actually start.
-                  e.dataTransfer.setData('text/plain', child.id);
-                }}
-                onDragEnd={() => setDragId(null)}
-                onDragOver={(e) => {
-                  if (!canEdit || !dragId) return;
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = 'move';
-                }}
-                onDrop={(e) => {
-                  if (!canEdit || !dragId) return;
-                  e.preventDefault();
-                  void reorderChildren(dragId, child.id);
-                }}
-                className={`group relative transition-opacity ${
-                  dragging ? 'opacity-40' : ''
-                }`}
-              >
-                {canEdit ? (
-                  <button
-                    type="button"
-                    onClick={() => removeFromFolder(child.id)}
-                    disabled={busy}
-                    aria-label={`Remove ${child.title} from this folder`}
-                    title="Remove from this folder (does not delete the item)"
-                    className="absolute right-2 top-2 z-10 inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-surface-1/95 text-muted opacity-0 backdrop-blur transition-opacity hover:bg-surface-2 hover:text-ink-1 group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-60"
+        // List view (rows). Subfolders sort alphabetically at the
+        // top, then everything else alphabetically. Reuses the same
+        // dragstart / drop machinery for child reorder, but applied
+        // to row elements rather than card tiles.
+        <div className="overflow-hidden rounded-lg border border-border bg-surface-1">
+          <ul className="divide-y divide-border">
+            {sortedChildren.map((child) => {
+              const Icon = getItemTypeIcon(child.type);
+              const accent = getItemTypeAccent(child.type);
+              const busy = removing.has(child.id);
+              const dragging = dragId === child.id;
+              return (
+                <li
+                  key={child.id}
+                  draggable={canEdit && !reordering}
+                  onDragStart={(e) => {
+                    if (!canEdit) return;
+                    setDragId(child.id);
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', child.id);
+                  }}
+                  onDragEnd={() => setDragId(null)}
+                  onDragOver={(e) => {
+                    if (!canEdit || !dragId) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                  }}
+                  onDrop={(e) => {
+                    if (!canEdit || !dragId) return;
+                    e.preventDefault();
+                    void reorderChildren(dragId, child.id);
+                  }}
+                  className={`group flex items-center gap-3 px-3 py-2 hover:bg-surface-2 transition-opacity ${
+                    dragging ? 'opacity-40' : ''
+                  }`}
+                >
+                  <Link
+                    href={`/items/${child.id}`}
+                    className="flex flex-1 items-center gap-3 min-w-0"
                   >
-                    {busy ? (
-                      <span className="text-[9px]">...</span>
-                    ) : (
-                      <X className="h-3 w-3" />
-                    )}
-                  </button>
-                ) : null}
-                <ItemCard
-                  item={child}
-                  href={`/items/${child.id}`}
-                  fallbackIcon={<Icon />}
-                  headerExtra={
                     <span
-                      className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-wide ${accent}`}
+                      className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-2 ${accent}`}
                     >
-                      <Icon className="h-3 w-3" />
-                      {getItemTypeLabel(child.type)}
+                      <Icon className="h-4 w-4" />
                     </span>
-                  }
-                />
-              </div>
-            );
-          })}
+                    <span className="flex flex-1 flex-col min-w-0">
+                      <span className="truncate text-sm font-medium text-ink-1 group-hover:text-accent">
+                        {child.title}
+                      </span>
+                      {child.description ? (
+                        <span className="truncate text-xs text-muted">
+                          {child.description}
+                        </span>
+                      ) : null}
+                    </span>
+                  </Link>
+                  <span
+                    className={`hidden shrink-0 text-[10px] uppercase tracking-wide sm:inline ${accent}`}
+                  >
+                    {getItemTypeLabel(child.type)}
+                  </span>
+                  <span className="hidden shrink-0 text-[11px] text-muted lg:inline">
+                    {new Date(child.updatedAt).toLocaleDateString()}
+                  </span>
+                  {canEdit ? (
+                    <button
+                      type="button"
+                      onClick={() => removeFromFolder(child.id)}
+                      disabled={busy}
+                      aria-label={`Remove ${child.title} from this folder`}
+                      title="Remove from this folder (does not delete the item)"
+                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted opacity-0 transition-opacity hover:bg-surface-1 hover:text-ink-1 group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {busy ? (
+                        <span className="text-[9px]">...</span>
+                      ) : (
+                        <X className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
         </div>
       )}
     </section>
