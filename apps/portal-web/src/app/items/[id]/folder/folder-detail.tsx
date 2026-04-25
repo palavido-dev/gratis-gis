@@ -3,7 +3,14 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { FolderPlus, Inbox, Plus, X } from 'lucide-react';
+import {
+  ChevronRight,
+  Folder as FolderIcon,
+  FolderPlus,
+  Inbox,
+  Plus,
+  X,
+} from 'lucide-react';
 import { ItemCard } from '@gratis-gis/ui';
 import type { FolderData, ItemWithShares } from '@gratis-gis/shared-types';
 import { DEFAULT_FOLDER } from '@gratis-gis/shared-types';
@@ -13,11 +20,26 @@ import {
   getItemTypeLabel,
 } from '@/lib/item-type-icon';
 
+/** A single hop in the parent breadcrumb. Server-computed so the
+ *  detail page renders the path without a client round-trip. */
+export interface FolderBreadcrumbHop {
+  id: string;
+  title: string;
+}
+
 interface Props {
   itemId: string;
   initial: FolderData;
   /** Pre-resolved children, in the folder's authoritative order. */
   initialChildren: ItemWithShares[];
+  /**
+   * Parent path from a top-level ancestor down to this folder's
+   * direct parent (NOT including this folder). Empty when this
+   * folder is top-level. Multi-parent folders pick the first parent
+   * encountered server-side; the rail tree shows multi-parent
+   * presentation properly. See docs/folders.md.
+   */
+  breadcrumb: FolderBreadcrumbHop[];
   /** Whether the caller can edit this folder. */
   canEdit: boolean;
   /** Whether the caller can create new items in this org. Used to
@@ -40,6 +62,7 @@ export function FolderDetail({
   itemId,
   initial,
   initialChildren,
+  breadcrumb,
   canEdit,
   canCreate,
 }: Props) {
@@ -169,6 +192,29 @@ export function FolderDetail({
 
   return (
     <section className="space-y-4">
+      {breadcrumb.length > 0 ? (
+        <nav
+          className="flex flex-wrap items-center gap-1 text-xs text-muted"
+          aria-label="Folder breadcrumb"
+        >
+          {breadcrumb.map((hop, idx) => (
+            <span key={hop.id} className="inline-flex items-center gap-1">
+              <FolderIcon className="h-3 w-3 text-amber-700" />
+              <Link
+                href={`/items/${hop.id}`}
+                className="hover:text-ink-1 hover:underline"
+              >
+                {hop.title}
+              </Link>
+              <ChevronRight className="h-3 w-3 text-muted/60" />
+              {idx === breadcrumb.length - 1 ? (
+                <span className="font-medium text-ink-1">(this folder)</span>
+              ) : null}
+            </span>
+          ))}
+        </nav>
+      ) : null}
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="text-sm text-muted">
           {visibleCount === totalRefs

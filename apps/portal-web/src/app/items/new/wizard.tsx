@@ -465,6 +465,53 @@ export function NewItemWizard() {
         startTransition(() => router.push('/items'));
         return;
       }
+      // If the wizard was opened from inside a folder ("+ New
+      // subfolder" on the folder detail page), append the freshly-
+      // created item to that parent folder's childItemIds so the
+      // subfolder actually appears under its parent. Without this
+      // step the new folder is a sibling at top-level and the
+      // parent's contents look unchanged. We do it client-side as a
+      // follow-up PATCH rather than baking it into POST /items so
+      // the API surface stays simple. Failure is surfaced inline
+      // (the new item still exists; the user can manually drag it
+      // into the parent later).
+      const parentFolderId = searchParams?.get('parentFolderId') ?? null;
+      if (parentFolderId) {
+        try {
+          const pr = await fetch(`/api/portal/items/${parentFolderId}`);
+          if (pr.ok) {
+            const parent = (await pr.json()) as {
+              type: string;
+              data: { childItemIds?: unknown } | null;
+            };
+            if (parent.type === 'folder') {
+              const existing = Array.isArray(parent.data?.childItemIds)
+                ? (parent.data!.childItemIds as unknown[]).filter(
+                    (x): x is string => typeof x === 'string',
+                  )
+                : [];
+              if (!existing.includes(saved.id)) {
+                const next = {
+                  version: 1,
+                  childItemIds: [...existing, saved.id],
+                };
+                await fetch(`/api/portal/items/${parentFolderId}`, {
+                  method: 'PATCH',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ data: next }),
+                });
+              }
+            }
+          }
+        } catch (parentErr) {
+          console.error('Could not append to parent folder:', parentErr);
+        }
+        // Land the user back on the parent folder detail page so the
+        // new subfolder is visible in its parent's contents.
+        startTransition(() => router.push(`/items/${parentFolderId}`));
+        return;
+      }
+
       // data_layer still wants the ingest panel front and centre.
       // arcgis_service no longer needs #configure-arcgis because we baked
       // the probed config into dataJson above.

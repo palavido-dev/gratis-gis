@@ -195,6 +195,52 @@ export default async function ItemDetailPage({ params }: Props) {
         ).catch(() => [])
       : [];
 
+  // Folder breadcrumb: walk up the parent chain so the detail page
+  // can render "Project A > 2026 Surveys > (this folder)" at the top.
+  // Multi-parent folders pick the first parent encountered, matching
+  // the rail tree's behaviour. We fetch every folder the caller can
+  // see in this org (cheap; folder rows are tiny) and compute the
+  // chain in JS. See docs/folders.md.
+  const folderBreadcrumb: Array<{ id: string; title: string }> = [];
+  if (item.type === 'folder') {
+    try {
+      const allFolders = await apiFetch<ItemWithShares[]>(
+        '/api/items?type=folder',
+      );
+      const byId = new Map<string, ItemWithShares>();
+      for (const f of allFolders) byId.set(f.id, f);
+      const parentOf = new Map<string, string>();
+      for (const f of allFolders) {
+        const children = (f.data as { childItemIds?: unknown } | null)
+          ?.childItemIds;
+        if (!Array.isArray(children)) continue;
+        for (const c of children) {
+          if (typeof c === 'string' && !parentOf.has(c)) {
+            parentOf.set(c, f.id);
+          }
+        }
+      }
+      const chain: Array<{ id: string; title: string }> = [];
+      const seen = new Set<string>();
+      let cur: string | undefined = item.id;
+      while (cur && !seen.has(cur)) {
+        seen.add(cur);
+        const row = byId.get(cur);
+        if (!row) break;
+        chain.unshift({ id: row.id, title: row.title });
+        cur = parentOf.get(cur);
+      }
+      // Drop "this folder" from the chain so the breadcrumb component
+      // can render it as the trailing label rather than a clickable hop.
+      // Empty chain (top-level folder) means no breadcrumb.
+      if (chain.length > 1) {
+        folderBreadcrumb.push(...chain.slice(0, -1));
+      }
+    } catch {
+      /* non-fatal: detail page renders without a breadcrumb */
+    }
+  }
+
   // Geo-boundary library for the map editor's "Default extent" picker
   // (#31 follow-on to #53). The picker shows every boundary the caller
   // can see; clearing the picker drops `defaultExtentBoundaryId` from
@@ -471,6 +517,7 @@ export default async function ItemDetailPage({ params }: Props) {
               ...((item.data ?? {}) as Partial<FolderData>),
             }}
             initialChildren={folderChildren as Parameters<typeof FolderDetail>[0]['initialChildren']}
+            breadcrumb={folderBreadcrumb}
             canEdit={canManage}
             canCreate={me.orgRole !== 'viewer'}
           />
