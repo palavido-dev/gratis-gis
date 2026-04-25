@@ -1109,8 +1109,10 @@ function readV3Layers(data: unknown): V3LayerShape[] | null {
                 f.type === 'date'
                   ? f.type
                   : 'string';
-              return { name, type };
-     
+              const searchable = f.searchable === true;
+              return searchable
+                ? { name, type, searchable }
+                : { name, type };
             })
             .filter((f) => f.name.length > 0)
         : [];

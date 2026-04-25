@@ -85,6 +85,15 @@ export interface FeatureField {
   domain?: FieldDomain;
   /** Optional storage hints (length, number kind, precision). */
   storage?: FeatureFieldStorage;
+  /**
+   * When true, the portal ensures a btree index on the underlying
+   * PostGIS column when the layer is provisioned (#23 explicit
+   * half). Picks up filter and equality queries the most common
+   * UI surfaces fire (attribute table search, popup-driven feature
+   * lookup, the items-list `q` text filter when it grows
+   * cross-feature). Defaults to false; the layer author opts in.
+   */
+  searchable?: boolean;
 }
 
 /**

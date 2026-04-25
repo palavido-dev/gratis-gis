@@ -22,6 +22,16 @@ export interface V3LayerShape {
   fields?: Array<{
     name: string;
     type: 'string' | 'number' | 'boolean' | 'date';
+    /**
+     * When true, ensure a btree index on the column at provision
+     * time. The index is dropped automatically when the field is
+     * removed from the layer schema (the whole table is rebuilt
+     * by reconcile via DROP + CREATE for column changes). Drives
+     * the explicit half of #23 (smart auto-indexing): a layer
+     * author marks the columns they expect to query on, the
+     * portal makes those queries fast.
+     */
+    searchable?: boolean;
   }>;
   parentFkColumn?: string | undefined;
 }
@@ -99,6 +109,20 @@ export class V3TablesService {
         ALTER TABLE "${tbl}"
           ADD COLUMN IF NOT EXISTS "${col}" ${pg}
       `);
+      // Explicit-trigger half of #23: when the schema marks a
+      // field as searchable, ensure a btree index on it.
+      // CREATE INDEX IF NOT EXISTS is idempotent, so toggling
+      // searchable off and on again does not duplicate the
+      // index; toggling off does NOT drop the index (we'd need
+      // a deliberate drop pass for that, deferred so the index
+      // sticks around even if the layer author makes a typo and
+      // unticks the wrong field).
+      if (f.searchable) {
+        await this.prisma.$executeRawUnsafe(`
+          CREATE INDEX IF NOT EXISTS "${tbl}_${col}_search_idx"
+            ON "${tbl}" ("${col}")
+        `);
+      }
     }
 
     this.log.log(
