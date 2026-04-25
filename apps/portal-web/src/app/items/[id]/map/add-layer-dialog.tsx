@@ -568,7 +568,10 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                 />
               </label>
               {portalLoading ? (
-                <p className="text-xs text-muted">Searching...</p>
+                <div className="flex items-center justify-center gap-2 rounded-md border border-border bg-surface-2 px-4 py-6 text-sm text-muted">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading services from your portal...
+                </div>
               ) : portalItems.length === 0 ? (
                 <div className="rounded-md border border-border bg-surface-2 p-4 text-center text-xs text-muted">
                   <Sparkles className="mx-auto mb-2 h-5 w-5" />

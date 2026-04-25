@@ -186,6 +186,28 @@ export class SharingService {
   ): Promise<string[]> {
     if (user.orgRole === 'admin') return [];
     const groupIds = user.groupIds ?? [];
+    // Fast-path: if no folder share even seeds the recursion, the
+    // CTE is guaranteed to return nothing and we can skip it. This
+    // is the common case for most users (they have no folder
+    // shares pointed at them or their groups), and skipping shaves
+    // tens to hundreds of ms off every items list call (#44 phase
+    // 1c slice 3b perf follow-up).
+    const seedExists = await this.prisma.$queryRaw<
+      Array<{ exists: boolean }>
+    >`
+      SELECT EXISTS(
+        SELECT 1
+        FROM "item_share" s
+        JOIN "item" i ON i.id = s."item_id"
+        WHERE i.type = 'folder'::"ItemType"
+          AND i."deleted_at" IS NULL
+          AND (
+            (s."principal_type" = 'user' AND s."principal_id" = ${user.id}::uuid)
+            OR (s."principal_type" = 'group' AND s."principal_id" = ANY(${groupIds}::uuid[]))
+          )
+      ) AS exists
+    `;
+    if (!seedExists[0]?.exists) return [];
     type Row = { item_id: string };
     // The CTE:
     //   1. seed: folders the user is directly shared on (user share
