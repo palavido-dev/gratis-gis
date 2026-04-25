@@ -42,7 +42,7 @@ type CustomBasemapRow = CustomBasemap;
 /**
  * Map a basemap item (type=basemap, data_json: BasemapData) into the
  * CustomBasemap row shape that MapEditor / MapCanvas already consume.
- * Returns null when the basemap isn't renderable yet — unset URL,
+ * Returns null when the basemap isn't renderable yet: unset URL,
  * unknown kind, or a Phase 2 `composed-map` kind the canvas doesn't
  * handle in Phase 1a.
  */
@@ -178,6 +178,18 @@ export default async function ItemDetailPage({ params }: Props) {
           `/api/items/${mapData.defaultExtentBoundaryId}`,
         ).catch(() => null)
       : null;
+
+  // Geo-boundary library for the map editor's "Default extent" picker
+  // (#31 follow-on to #53). The picker shows every boundary the caller
+  // can see; clearing the picker drops `defaultExtentBoundaryId` from
+  // the saved MapData so the map falls back to its persisted camera.
+  // Failure is non-fatal -- the picker simply renders an empty list.
+  const geoBoundaries =
+    item.type === 'map'
+      ? await apiFetch<Array<Item<GeoBoundaryData>>>(
+          '/api/items?type=geo_boundary',
+        ).catch(() => [])
+      : [];
 
   // Load groups (for the share picker) and any referenced users.
   // Visible-groups are already scoped to this user on the API side.
@@ -348,6 +360,10 @@ export default async function ItemDetailPage({ params }: Props) {
             canEdit={canManage}
             basemaps={basemaps}
             defaultExtentBoundary={defaultExtentBoundary}
+            geoBoundaries={geoBoundaries.map((g) => ({
+              id: g.id,
+              title: g.title,
+            }))}
           />
         </section>
       ) : item.type === 'data_layer' ? (
@@ -436,7 +452,7 @@ export default async function ItemDetailPage({ params }: Props) {
         </section>
       )}
 
-      {/* Dependency panel runs above Sharing for everyone — knowing
+      {/* Dependency panel runs above Sharing for everyone: knowing
           what else will break if you touch this item is the same
           shape of question whether you're the owner or a viewer. */}
       <section className="mb-8">

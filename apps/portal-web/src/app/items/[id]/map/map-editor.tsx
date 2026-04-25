@@ -64,6 +64,14 @@ interface Props {
   defaultExtentBoundary?:
     | { data: { geometry?: unknown; bbox?: unknown } | null; id: string; title: string }
     | null;
+  /**
+   * geo_boundary items (id + title) the caller can see, used to back
+   * the "Default extent" picker (#31 follow-on to #53). When the
+   * picker is set to a boundary, the map persists that id in
+   * `MapData.defaultExtentBoundaryId`; the camera fits to it on next
+   * load. An empty list collapses the picker to a disabled state.
+   */
+  geoBoundaries?: Array<{ id: string; title: string }>;
 }
 
 /**
@@ -73,7 +81,7 @@ interface Props {
  * only persists changes they actually want.
  *
  * Layout: left sidebar with layer panel, right side the map. On narrow
- * viewports the sidebar collapses into a drawer (future) — for v2 we
+ * viewports the sidebar collapses into a drawer (future): for v2 we
  * use a fixed-width sidebar and let horizontal scroll handle anything
  * below that.
  */
@@ -121,6 +129,7 @@ export function MapEditor({
   canEdit,
   basemaps = [],
   defaultExtentBoundary = null,
+  geoBoundaries = [],
 }: Props) {
   // Hydrate older persisted maps. Each bump in the schema lands a new
   // migrator here; the goal is that any v2.x map still opens cleanly.
@@ -227,7 +236,7 @@ export function MapEditor({
     // geo_boundary, override the seed camera with the boundary's
     // bbox center + an approximate zoom that fits it. This applies
     // every load, which means a viewer who pans away will snap
-    // back on next visit -- intentional, since the boundary IS
+    // back on next visit: intentional, since the boundary IS
     // the canonical extent for this map. Save (which captures the
     // current camera state) does not clear `defaultExtentBoundaryId`,
     // so the persistent reference still wins on the next load.
@@ -252,7 +261,7 @@ export function MapEditor({
    * Shared selection state: per-layer set of feature ids. Because
    * every geojson source is added with `generateId: true`, these ids
    * are the same as the feature's array index in the cached
-   * FeatureCollection — which is what the attribute table uses for
+   * FeatureCollection: which is what the attribute table uses for
    * its row selection. That alignment lets one Set serve both the
    * map highlight and the table checkboxes without translation.
    */
@@ -290,7 +299,7 @@ export function MapEditor({
   // For arcgis-rest sources we NOW carry an optional `sourceItemId`
   // back-reference (set when the layer was added from a portal
   // arcgis_service item via the item picker). When present, that's
-  // the backing item the matrix should gate access against — the
+  // the backing item the matrix should gate access against: the
   // ArcGIS service is proxied through the portal, and gaps on the
   // arcgis_service item's shares translate to "this principal can
   // see the web map but not this ArcGIS layer's data". Layers added
@@ -310,7 +319,7 @@ export function MapEditor({
   }, [map.layers]);
 
   async function loadMatrixData() {
-    // Webmap's own shares — drives the principal column list.
+    // Webmap's own shares: drives the principal column list.
     try {
       const res = await fetch(`/api/portal/items/${itemId}`);
       if (res.ok) {
@@ -318,9 +327,9 @@ export function MapEditor({
         setWebmapShares(j.shares ?? []);
       }
     } catch {
-      /* non-fatal — matrix shows empty principals list */
+      /* non-fatal: matrix shows empty principals list */
     }
-    // Each distinct backing item — pulls its shares for gap detection.
+    // Each distinct backing item: pulls its shares for gap detection.
     const uniqItemIds = Array.from(
       new Set(
         Object.values(layerItemIds).filter(
@@ -336,7 +345,7 @@ export function MapEditor({
           const j = (await r.json()) as { shares?: ItemShare[] };
           setItemShares((prev) => ({ ...prev, [id]: j.shares ?? [] }));
         } catch {
-          /* non-fatal — cell falls back to "no warning" */
+          /* non-fatal: cell falls back to "no warning" */
         }
       }),
     );
@@ -351,12 +360,12 @@ export function MapEditor({
         setGroupDirectory(dir);
       }
     } catch {
-      /* non-fatal — groups show as short ids */
+      /* non-fatal: groups show as short ids */
     }
 
     // Users: batch-resolve names + group memberships for every
     // principal on the webmap's share list. One call covers the
-    // whole matrix — avoids a per-row fetch during render.
+    // whole matrix: avoids a per-row fetch during render.
     try {
       // Snapshot webmapShares here; the list was just refreshed at
       // the top of loadMatrixData so whatever's in state now is
@@ -401,7 +410,7 @@ export function MapEditor({
         }
       }
     } catch {
-      /* non-fatal — users show as short ids, memberships empty */
+      /* non-fatal: users show as short ids, memberships empty */
     }
   }
 
@@ -415,7 +424,7 @@ export function MapEditor({
   }, [matrixOpen, itemId]);
 
   // Deduplicate shares into a principal list. Filters to principals
-  // who actually have view-or-better access to the webmap — the
+  // who actually have view-or-better access to the webmap: the
   // matrix exists to narrow their access, not to create new ones.
   const matrixPrincipals = useMemo<MatrixPrincipal[]>(() => {
     return webmapShares.map((s) => {
@@ -455,7 +464,7 @@ export function MapEditor({
         setItemShares((prev) => ({ ...prev, [bitemId]: j.shares ?? [] }));
       }
     } catch {
-      /* non-fatal — matrix may show stale state until close/reopen */
+      /* non-fatal: matrix may show stale state until close/reopen */
     }
   }
 
@@ -498,7 +507,7 @@ export function MapEditor({
   const abortsRef = useRef<Record<string, AbortController>>({});
 
   // Discover metadata for any layer we haven't seen yet. The key here is
-  // layer id + a stable hash of the source — if a user swaps the URL in
+  // layer id + a stable hash of the source: if a user swaps the URL in
   // place we need a fresh fetch, not a stale cache.
   const sourceKeys = map.layers.map(
     (l) => `${l.id}|${JSON.stringify(l.source)}`,
@@ -572,6 +581,28 @@ export function MapEditor({
    *  and attribution. Undefined when the map still has the empty
    *  sentinel basemap or the referenced item has been deleted. */
   const selectedBasemap = basemaps.find((b) => b.id === map.basemap);
+
+  /**
+   * Setter for the default-extent boundary reference (#31). The empty
+   * string from the picker means "no default extent" -- we drop the
+   * key from MapData rather than persist an empty string so the API
+   * payload stays clean. Marks the map dirty so save is enabled.
+   */
+  function setDefaultExtentBoundaryId(value: string) {
+    setMap((m) => {
+      if (!value) {
+        const next = { ...m };
+        delete (next as Partial<MapData>).defaultExtentBoundaryId;
+        return next as MapData;
+      }
+      return { ...m, defaultExtentBoundaryId: value };
+    });
+    markDirty();
+  }
+
+  /** Current default-extent picker value: the boundary item UUID, or
+   *  empty string for "no default extent". */
+  const extentPickerValue = map.defaultExtentBoundaryId ?? '';
 
   function setLayers(next: MapLayer[]) {
     setMap((m) => ({ ...m, layers: next }));
@@ -651,6 +682,28 @@ export function MapEditor({
           <span className="hidden text-xs text-muted sm:inline">
             {selectedBasemap?.description ?? ''}
           </span>
+
+          <label className="ml-3 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted">
+            Default extent
+            <select
+              value={extentPickerValue}
+              onChange={(e) => setDefaultExtentBoundaryId(e.target.value)}
+              disabled={geoBoundaries.length === 0}
+              className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm text-ink-1 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-60"
+              title={
+                geoBoundaries.length === 0
+                  ? 'Create a geo_boundary item to use it here'
+                  : 'Boundary that frames the map on first load'
+              }
+            >
+              <option value="">{'(use saved camera)'}</option>
+              {geoBoundaries.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.title}
+                </option>
+              ))}
+            </select>
+          </label>
 
           <div className="ml-auto flex items-center gap-2">
             <ToolbarToggle
