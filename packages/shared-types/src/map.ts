@@ -142,6 +142,13 @@ export interface MapLayer {
   /** 0-1 multiplier applied to all paint fill / stroke / circle alpha. */
   opacity: number;
   source: MapLayerSource;
+  /**
+   * Optional pointer at a sibling layer whose `source.kind === 'group'`.
+   * When set, this layer renders nested under that group header in the
+   * layer panel. The map canvas ignores groupId entirely -- it just
+   * filters out group-source layers and renders the leaves. See #46.
+   */
+  groupId?: string;
   style: MapLayerStyle;
   /**
    * How to color features: one color for everything, or one color per
@@ -351,7 +358,16 @@ export type MapLayerSource =
        * matching.
        */
       sourceItemId?: string;
-    };
+    }
+  /**
+   * Group "layer" -- a UI-only grouping marker. Group layers do not
+   * render anything to the map; the canvas filters them out. The
+   * layer panel renders them as expandable headers and stacks every
+   * sibling layer with `groupId === this.id` under the header.
+   * Toggling visibility / opacity on the header cascades to the
+   * children. See #46.
+   */
+  | { kind: 'group' };
 
 /**
  * Simple-renderer style vocabulary, one section per geometry family.

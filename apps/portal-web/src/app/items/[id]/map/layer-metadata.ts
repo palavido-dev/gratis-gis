@@ -63,7 +63,10 @@ export async function discoverLayerMetadata(
 ): Promise<LayerMetadata> {
   let raw: unknown;
   try {
-    if (layer.source.kind === 'geojson-inline') {
+    if (layer.source.kind === 'group') {
+      // Group layers are pure UI markers; nothing to discover.
+      return EMPTY;
+    } else if (layer.source.kind === 'geojson-inline') {
       raw = layer.source.geojson;
     } else if (layer.source.kind === 'arcgis-rest') {
       // ArcGIS REST: pull a representative sample (no bbox filter)

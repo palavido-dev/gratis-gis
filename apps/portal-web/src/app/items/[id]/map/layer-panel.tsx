@@ -7,6 +7,7 @@ import {
   Eye,
   EyeOff,
   Filter,
+  Folder,
   GripVertical,
   MousePointerClick,
   Palette,
@@ -84,6 +85,38 @@ export function LayerPanel({
     onChange(next);
   }
 
+  // Group operations cascade to children. Groups (#46) are flat in
+  // the data (a header row with source.kind='group' + N siblings
+  // pointing at the header via groupId); the panel renders them
+  // hierarchically and these helpers ensure the cascade matches the
+  // visual mental model.
+  function toggleGroup(groupId: string) {
+    const header = layers.find((l) => l.id === groupId);
+    if (!header) return;
+    const nextVisible = !header.visible;
+    onChange(
+      layers.map((l) =>
+        l.id === groupId || l.groupId === groupId
+          ? { ...l, visible: nextVisible }
+          : l,
+      ),
+    );
+  }
+  function setGroupOpacity(groupId: string, n: number) {
+    onChange(
+      layers.map((l) =>
+        l.id === groupId || l.groupId === groupId
+          ? { ...l, opacity: n }
+          : l,
+      ),
+    );
+  }
+  function removeGroup(groupId: string) {
+    onChange(
+      layers.filter((l) => l.id !== groupId && l.groupId !== groupId),
+    );
+  }
+
   return (
     <div className="flex h-full flex-col border-r border-border bg-surface-1">
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
@@ -116,37 +149,127 @@ export function LayerPanel({
         </div>
       ) : (
         <ul className="flex-1 overflow-y-auto">
-          {layers.map((layer, i) => (
-            <LayerRow
-              key={layer.id}
-              layer={layer}
-              index={i}
-              metadata={metadata[layer.id] ?? {
-                fields: [],
-                valuesByField: {},
-                sampleProperties: null,
-                featureCollection: null,
-                geometryTypes: new Set(),
-                error: null,
-                loading: true,
-              }}
-              canEdit={canEdit}
-              currentZoom={currentZoom}
-              dragging={dragFrom === i}
-              dropTarget={dragOver === i}
-              onDragStart={() => setDragFrom(i)}
-              onDragEnd={() => {
-                setDragFrom(null);
-                setDragOver(null);
-              }}
-              onDragEnter={() => setDragOver(i)}
-              onDrop={(sourceIdx) => moveLayer(sourceIdx, i)}
-              onToggle={() => updateLayer(layer.id, { visible: !layer.visible })}
-              onOpacity={(n) => updateLayer(layer.id, { opacity: n })}
-              onRemove={() => removeLayer(layer.id)}
-              onPatch={(p) => updateLayer(layer.id, p)}
-            />
-          ))}
+          {(() => {
+            // Group hierarchy (#46). The data is flat; we render
+            // headers (source.kind='group') with their siblings
+            // (groupId === header.id) indented underneath. The
+            // canvas continues to walk every leaf layer; group
+            // headers are filtered out there because their source
+            // doesn't render anything.
+            const headerIds = new Set<string>();
+            for (const l of layers) {
+              if (l.source.kind === 'group') headerIds.add(l.id);
+            }
+            const childrenByGroup = new Map<string, MapLayer[]>();
+            layers.forEach((l) => {
+              if (l.groupId && headerIds.has(l.groupId)) {
+                const arr = childrenByGroup.get(l.groupId) ?? [];
+                arr.push(l);
+                childrenByGroup.set(l.groupId, arr);
+              }
+            });
+            // Walk the layers in document order. When we hit a
+            // group header, also emit its children indented
+            // immediately after. Skip layers that are children of
+            // a known group (they'll be rendered with their parent).
+            const rendered: React.ReactElement[] = [];
+            layers.forEach((layer, i) => {
+              if (layer.groupId && headerIds.has(layer.groupId)) {
+                return; // child, rendered with its header below
+              }
+              if (layer.source.kind === 'group') {
+                const kids = childrenByGroup.get(layer.id) ?? [];
+                rendered.push(
+                  <GroupHeaderRow
+                    key={layer.id}
+                    layer={layer}
+                    childCount={kids.length}
+                    canEdit={canEdit}
+                    onToggle={() => toggleGroup(layer.id)}
+                    onOpacity={(n) => setGroupOpacity(layer.id, n)}
+                    onRemove={() => removeGroup(layer.id)}
+                    onRename={(title) => updateLayer(layer.id, { title })}
+                  />,
+                );
+                kids.forEach((k) => {
+                  const ki = layers.findIndex((l) => l.id === k.id);
+                  rendered.push(
+                    <div
+                      key={k.id}
+                      style={{ paddingLeft: '14px' }}
+                      className="border-l-2 border-amber-200/70"
+                    >
+                      <LayerRow
+                        layer={k}
+                        index={ki}
+                        metadata={metadata[k.id] ?? {
+                          fields: [],
+                          valuesByField: {},
+                          sampleProperties: null,
+                          featureCollection: null,
+                          geometryTypes: new Set(),
+                          error: null,
+                          loading: true,
+                        }}
+                        canEdit={canEdit}
+                        currentZoom={currentZoom}
+                        dragging={dragFrom === ki}
+                        dropTarget={dragOver === ki}
+                        onDragStart={() => setDragFrom(ki)}
+                        onDragEnd={() => {
+                          setDragFrom(null);
+                          setDragOver(null);
+                        }}
+                        onDragEnter={() => setDragOver(ki)}
+                        onDrop={(sourceIdx) => moveLayer(sourceIdx, ki)}
+                        onToggle={() =>
+                          updateLayer(k.id, { visible: !k.visible })
+                        }
+                        onOpacity={(n) => updateLayer(k.id, { opacity: n })}
+                        onRemove={() => removeLayer(k.id)}
+                        onPatch={(p) => updateLayer(k.id, p)}
+                      />
+                    </div>,
+                  );
+                });
+                return;
+              }
+              rendered.push(
+                <LayerRow
+                  key={layer.id}
+                  layer={layer}
+                  index={i}
+                  metadata={metadata[layer.id] ?? {
+                    fields: [],
+                    valuesByField: {},
+                    sampleProperties: null,
+                    featureCollection: null,
+                    geometryTypes: new Set(),
+                    error: null,
+                    loading: true,
+                  }}
+                  canEdit={canEdit}
+                  currentZoom={currentZoom}
+                  dragging={dragFrom === i}
+                  dropTarget={dragOver === i}
+                  onDragStart={() => setDragFrom(i)}
+                  onDragEnd={() => {
+                    setDragFrom(null);
+                    setDragOver(null);
+                  }}
+                  onDragEnter={() => setDragOver(i)}
+                  onDrop={(sourceIdx) => moveLayer(sourceIdx, i)}
+                  onToggle={() =>
+                    updateLayer(layer.id, { visible: !layer.visible })
+                  }
+                  onOpacity={(n) => updateLayer(layer.id, { opacity: n })}
+                  onRemove={() => removeLayer(layer.id)}
+                  onPatch={(p) => updateLayer(layer.id, p)}
+                />,
+              );
+            });
+            return rendered;
+          })()}
         </ul>
       )}
     </div>
@@ -826,4 +949,118 @@ function zoomToScaleLabel(zoom: number): string {
   if (denom >= 1_000_000) return `1:${Math.round(denom / 1_000_000)}M`;
   if (denom >= 1_000) return `1:${Math.round(denom / 1_000)}k`;
   return `1:${Math.round(denom)}`;
+}
+
+// ---------------------------------------------------------------------------
+// GroupHeaderRow: tiny row used for group-layer headers in the panel (#46).
+// Plain title + visibility toggle + opacity slider + remove. Cascades
+// through the layer-panel's group helpers so toggling the header
+// flips every child's visible/opacity, and remove drops the header
+// + every child in one shot.
+// ---------------------------------------------------------------------------
+
+interface GroupHeaderRowProps {
+  layer: MapLayer;
+  childCount: number;
+  canEdit: boolean;
+  onToggle: () => void;
+  onOpacity: (n: number) => void;
+  onRemove: () => void;
+  onRename: (title: string) => void;
+}
+
+function GroupHeaderRow({
+  layer,
+  childCount,
+  canEdit,
+  onToggle,
+  onOpacity,
+  onRemove,
+  onRename,
+}: GroupHeaderRowProps) {
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(layer.title);
+  return (
+    <li className="border-b border-border bg-amber-50/50 px-2 py-1.5">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label={layer.visible ? 'Hide group' : 'Show group'}
+          className="inline-flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-1"
+          title="Toggles every layer in this group"
+        >
+          {layer.visible ? (
+            <Eye className="h-3.5 w-3.5" />
+          ) : (
+            <EyeOff className="h-3.5 w-3.5" />
+          )}
+        </button>
+        {editingTitle && canEdit ? (
+          <input
+            autoFocus
+            type="text"
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onBlur={() => {
+              const t = titleDraft.trim();
+              if (t && t !== layer.title) onRename(t);
+              setEditingTitle(false);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+              if (e.key === 'Escape') {
+                setTitleDraft(layer.title);
+                setEditingTitle(false);
+              }
+            }}
+            className="h-6 flex-1 rounded border border-border bg-surface-1 px-1.5 text-xs"
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => canEdit && setEditingTitle(true)}
+            className="flex flex-1 items-center gap-1.5 truncate text-left text-xs font-semibold uppercase tracking-wide text-amber-900 hover:text-amber-700"
+            title={canEdit ? 'Click to rename' : layer.title}
+          >
+            <Folder className="h-3.5 w-3.5 shrink-0 text-amber-700" />
+            <span className="truncate">{layer.title}</span>
+            <span className="ml-1 shrink-0 rounded-full bg-amber-200/80 px-1.5 text-[10px] font-medium text-amber-900">
+              {childCount}
+            </span>
+          </button>
+        )}
+        {canEdit ? (
+          <button
+            type="button"
+            onClick={onRemove}
+            aria-label="Remove group and its layers"
+            title="Remove this group and every layer inside"
+            className="inline-flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-danger/5 hover:text-danger"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
+      </div>
+      {canEdit ? (
+        <div className="mt-1 flex items-center gap-2 px-1">
+          <span className="text-[10px] uppercase tracking-wide text-muted">
+            Opacity
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={layer.opacity}
+            onChange={(e) => onOpacity(Number(e.target.value))}
+            className="h-1 flex-1"
+          />
+          <span className="text-[10px] tabular-nums text-muted">
+            {Math.round(layer.opacity * 100)}%
+          </span>
+        </div>
+      ) : null}
+    </li>
+  );
 }

@@ -315,40 +315,64 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
         ...curated.filter((l) => l.id === d.defaultLayerId),
         ...curated.filter((l) => l.id !== d.defaultLayerId),
       ];
-      // Confirm before adding more than one layer so a click on a
-      // multi-sublayer service ("Riverside County Parcels" with 10
-      // sublayers) doesn't surprise the user with a wall of
-      // identical-looking rows in the layer panel.
+      // For multi-sublayer services, ask the user whether to bundle
+      // them under a group header. Three options:
+      //   - OK + grouped: one group header layer (kind=group) named
+      //     after the service, with N children whose groupId points
+      //     at the header.
+      //   - OK + ungrouped: N independent siblings (legacy behaviour).
+      //   - Cancel: bail.
+      // Single-sublayer services skip the prompt entirely.
+      let mode: 'group' | 'flat' = 'flat';
       if (ordered.length > 1) {
-        const ok = window.confirm(
-          `"${item.title}" contains ${ordered.length} layers. Add all ${ordered.length} to this map?`,
+        const choice = window.prompt(
+          `"${item.title}" contains ${ordered.length} layers.\n\n` +
+            `Type "g" to add them under a group layer (recommended; one parent header collapses them all), ` +
+            `or "f" to add them as ${ordered.length} separate top-level layers.\n\n` +
+            `Press Cancel to bail.`,
+          'g',
         );
-        if (!ok) return;
+        if (choice === null) return;
+        const c = choice.trim().toLowerCase();
+        if (c === 'g' || c === 'group' || c === '') mode = 'group';
+        else if (c === 'f' || c === 'flat' || c === 'separate') mode = 'flat';
+        else {
+          // Unrecognised input: treat as flat with a courtesy notice
+          // so the user gets feedback rather than a silent default.
+          // eslint-disable-next-line no-alert
+          window.alert(
+            `Didn't recognise "${choice}", adding as separate layers.`,
+          );
+          mode = 'flat';
+        }
       }
+
+      // Group mode: emit the parent header first; children carry
+      // groupId pointing at it. The header has source.kind='group'
+      // so the canvas skips it.
+      let groupId: string | undefined;
+      if (mode === 'group') {
+        const header = makeLayer(item.title, { kind: 'group' });
+        groupId = header.id;
+        onAdd(header);
+      }
+
       for (const l of ordered) {
         const override = d.layerConfig?.[String(l.id)];
         // Title comes from the SUBLAYER name only -- no parent
-        // prefix or parent suffix. Matt's call: every AGO user
-        // strips "Service: " manually anyway, so don't impose it
-        // in the first place. When group layers ship (#46), the
-        // parent service shows up as the group header instead, so
-        // the visual hierarchy carries the context that the
-        // service name used to.
+        // prefix or parent suffix.
         const subName = l.name ?? `Layer ${l.id}`;
         const title =
           override?.label ?? (ordered.length === 1 ? item.title : subName);
-        onAdd(
-          makeLayer(title, {
-            kind: 'arcgis-rest',
-            url: d.url,
-            layerId: l.id,
-            serviceType: d.serviceType ?? 'MapServer',
-            // Stash the source item id so the server-side dependency
-            // tracker can resolve this layer back to the portal item
-            // without relying on fragile URL matching.
-            sourceItemId: item.id,
-          }),
-        );
+        const layer = makeLayer(title, {
+          kind: 'arcgis-rest',
+          url: d.url,
+          layerId: l.id,
+          serviceType: d.serviceType ?? 'MapServer',
+          sourceItemId: item.id,
+        });
+        if (groupId) layer.groupId = groupId;
+        onAdd(layer);
       }
     } else {
       onAdd(
