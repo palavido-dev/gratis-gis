@@ -18,6 +18,9 @@ import type { ItemType } from '@prisma/client';
  *   - source.kind === 'geojson-url'      -> (not tracked; external URL)
  *   - source.kind === 'geojson-inline'   -> (not tracked; inline data)
  *
+ * Plus the map's own basemap reference:
+ *   - data.basemap (UUID string)         -> itemIds += data.basemap
+ *
  * Future candidates as those item types ship:
  *   - dashboard.data.panels[].itemId
  *   - form.data.targetItemId
@@ -38,6 +41,17 @@ export function extractDependencies(
   if (!data) return { itemIds: [], urls: [] };
 
   if (item.type === 'map') {
+    // The map's basemap is a basemap item (since #21 / Phase 1c, the
+    // built-ins also live as items), referenced by UUID through
+    // `data.basemap`. Record it so the basemap shows up in the map's
+    // "Depends on" panel and the map shows up in the basemap's "Used
+    // by" panel. The empty-string sentinel from DEFAULT_MAP is
+    // intentionally skipped.
+    const basemapRef = (data as { basemap?: unknown }).basemap;
+    if (typeof basemapRef === 'string' && basemapRef.length > 0) {
+      itemIds.add(basemapRef);
+    }
+
     const layers = Array.isArray((data as { layers?: unknown }).layers)
       ? ((data as { layers: unknown[] }).layers as Array<Record<string, unknown>>)
       : [];
@@ -50,7 +64,7 @@ export function extractDependencies(
         if (typeof id === 'string' && id.length > 0) itemIds.add(id);
       } else if (kind === 'arcgis-rest') {
         // Prefer the direct back-reference when the layer was added
-        // from a portal item — URL matching is brittle (trailing
+        // from a portal item; URL matching is brittle (trailing
         // slashes, alternate hostnames, query strings). Fall back to
         // URL matching for layers added by raw-URL paste.
         const direct = source.sourceItemId;
