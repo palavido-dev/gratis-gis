@@ -851,14 +851,16 @@ export class ItemsService {
    * folder in the org. See docs/folders.md.
    */
   private async spliceFromFolders(deletedItemId: string): Promise<void> {
-    const candidates = await this.prisma.$queryRaw<Array<{ id: string; data: unknown }>>`
-      SELECT id, data
-      FROM "Item"
+    const candidates = await this.prisma.$queryRaw<
+      Array<{ id: string; data_json: unknown }>
+    >`
+      SELECT id, data_json
+      FROM "item"
       WHERE type = 'folder'::"ItemType"
-        AND data @> jsonb_build_object('childItemIds', jsonb_build_array(${deletedItemId}::text))
+        AND data_json @> jsonb_build_object('childItemIds', jsonb_build_array(${deletedItemId}::text))
     `;
     for (const row of candidates) {
-      const data = row.data as { version?: number; childItemIds?: unknown } | null;
+      const data = row.data_json as { version?: number; childItemIds?: unknown } | null;
       if (!data || !Array.isArray(data.childItemIds)) continue;
       const next = (data.childItemIds as unknown[]).filter(
         (id) => id !== deletedItemId,

@@ -303,7 +303,7 @@ export class SharingService {
       SELECT id, title FROM "item"
       WHERE type = 'folder'::"ItemType"
         AND "deleted_at" IS NULL
-        AND data @> jsonb_build_object('childItemIds', jsonb_build_array(${itemId}::text))
+        AND data_json @> jsonb_build_object('childItemIds', jsonb_build_array(${itemId}::text))
     `;
     if (directParents.length === 0) return [];
 
@@ -349,7 +349,7 @@ export class SharingService {
         SELECT id, title FROM "item"
         WHERE type = 'folder'::"ItemType"
           AND "deleted_at" IS NULL
-          AND data @> jsonb_build_object('childItemIds', jsonb_build_array(${row.id}::text))
+          AND data_json @> jsonb_build_object('childItemIds', jsonb_build_array(${row.id}::text))
       `;
       for (const p of parents) {
         if (!seen.has(p.id)) {
@@ -390,7 +390,7 @@ export class SharingService {
         SELECT id FROM "item"
         WHERE type = 'folder'::"ItemType"
           AND "deleted_at" IS NULL
-          AND data @> jsonb_build_object('childItemIds', jsonb_build_array(${cur}::text))
+          AND data_json @> jsonb_build_object('childItemIds', jsonb_build_array(${cur}::text))
         LIMIT 1
       `.then((rows) => rows[0] ?? null);
       cur = parentRow?.id ?? null;

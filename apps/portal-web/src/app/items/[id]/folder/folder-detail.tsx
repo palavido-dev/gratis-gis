@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
+  ChevronDown,
   ChevronRight,
   Folder as FolderIcon,
   FolderPlus,
@@ -745,6 +746,19 @@ function SmartFolderPanel({
     }));
   }
 
+  // Track expand/collapse separately from the smart toggle. Collapsed
+  // by default so the page doesn't surface a giant editor every time
+  // a smart folder is opened; the user expands when they actively
+  // want to tweak the query. Auto-expand once when the user FLIPS
+  // the smart toggle ON so they have somewhere to put their first
+  // query without an extra click.
+  const [expanded, setExpanded] = useState(false);
+  const prevIsSmartRef = useRef(isSmart);
+  useEffect(() => {
+    if (!prevIsSmartRef.current && isSmart) setExpanded(true);
+    prevIsSmartRef.current = isSmart;
+  }, [isSmart]);
+
   return (
     <div className="rounded-md border border-border bg-surface-1 px-3 py-2 text-xs">
       <div className="flex items-center gap-2">
@@ -774,14 +788,36 @@ function SmartFolderPanel({
           -- contents come from a saved query, not a hand-curated list.
         </span>
         {saving ? (
-          <span className="ml-auto text-[10px] uppercase text-muted">
+          <span className="text-[10px] uppercase text-muted">
             Saving...
           </span>
         ) : null}
+        {isSmart ? (
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="ml-auto inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-2 py-0.5 text-[11px] text-ink-1 hover:bg-surface-2"
+            aria-expanded={expanded}
+            aria-controls="smart-folder-form"
+          >
+            {expanded ? (
+              <>
+                <ChevronDown className="h-3 w-3" />
+                Hide query
+              </>
+            ) : (
+              <>
+                <ChevronRight className="h-3 w-3" />
+                Edit query
+              </>
+            )}
+          </button>
+        ) : null}
       </div>
 
-      {isSmart ? (
+      {isSmart && expanded ? (
         <form
+          id="smart-folder-form"
           className="mt-3 space-y-3"
           onSubmit={(e) => {
             e.preventDefault();
