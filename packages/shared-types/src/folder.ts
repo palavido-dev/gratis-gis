@@ -32,12 +32,24 @@ export type FolderDataVersion = 1;
  * what the query says. Per-share access still applies; smart
  * folders can never widen a caller's visible set.
  */
+/** Which fields the smart folder's search-text query targets.
+ *  Default (when absent) is all three -- matches the all-items
+ *  list behaviour. Subset lets the author scope a search to,
+ *  say, just tags ("everything tagged with 'parcels'"). */
+export type FolderSmartSearchField = 'title' | 'description' | 'tags';
+
 export interface FolderSmartQuery {
   /** Comma-tolerant: a single ItemType or several (matches the
    *  controller's multi-type filter shape). */
   type?: string | string[];
-  /** Free-text search across title / description / tags. */
+  /** Free-text search. Targets the fields listed in
+   *  `searchFields`; defaults to all three when omitted. */
   q?: string;
+  /** Restrict the `q` search to a subset of fields. Each entry
+   *  contributes one OR-clause in the SQL; an empty / missing
+   *  list is interpreted as "all three" so an existing static
+   *  smart folder picks up the same behaviour it had before. */
+  searchFields?: FolderSmartSearchField[];
   /** Restrict to items owned by this user UUID. */
   ownerId?: string;
   /** Spatial filter: [west, south, east, north] in EPSG:4326. */

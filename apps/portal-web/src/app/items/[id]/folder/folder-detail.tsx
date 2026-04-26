@@ -15,14 +15,20 @@ import {
 import type {
   FolderData,
   FolderSmartQuery,
+  FolderSmartSearchField,
+  ItemType,
   ItemWithShares,
 } from '@gratis-gis/shared-types';
-import { DEFAULT_FOLDER } from '@gratis-gis/shared-types';
+import { DEFAULT_FOLDER, ITEM_TYPES } from '@gratis-gis/shared-types';
 import {
   getItemTypeAccent,
   getItemTypeIcon,
   getItemTypeLabel,
 } from '@/lib/item-type-icon';
+import {
+  PrincipalPicker,
+  type PrincipalOption,
+} from '@/components/principal-picker';
 
 /** A single hop in the parent breadcrumb. Server-computed so the
  *  detail page renders the path without a client round-trip. */
@@ -574,19 +580,41 @@ export function FolderDetail({
 // module-load path identical to the wizard's shape on first paint.
 export const _FolderDetailDefaults = DEFAULT_FOLDER;
 
+/** All three search-fields keyed for the multi-select. Tuple
+ *  rather than a Set so render order is stable and predictable. */
+const SEARCH_FIELD_OPTIONS: ReadonlyArray<{
+  key: FolderSmartSearchField;
+  label: string;
+}> = [
+  { key: 'title', label: 'Title' },
+  { key: 'description', label: 'Description' },
+  { key: 'tags', label: 'Tags' },
+];
+
 /**
- * Smart-folder editor panel (#38). Compact form with five fields
- * matching FolderSmartQuery: type (multi-select via comma-
- * separated list), free-text q, owner UUID, optional limit.
- * bbox / bufferKm are not surfaced here -- they're awkward to
- * type into a folder editor and the more natural authoring path
- * is "draw a polygon, save as smart folder," which can land in a
- * follow-up. Today the API still honours them when present.
+ * Smart-folder editor panel (#38, #61).
  *
- * Save fires on form submit (Enter or the Save button) so casual
- * typing doesn't hammer PATCH. Toggle off demotes back to a
- * static folder; the parent restores prior childItemIds via the
- * existing PATCH path.
+ * Replaces the original raw-text-input prototype with proper
+ * pickers so end users never need to think about UUIDs or
+ * comma-separated-anything:
+ *
+ *   - Type: multi-select checkbox grid using the human label +
+ *     icon for each ItemType from the central icon helper.
+ *   - Search: free-text input PLUS a row of checkboxes that
+ *     scope which fields the search runs against. Defaults to
+ *     all three (title / description / tags) so existing
+ *     behaviour is preserved if the user doesn't touch them.
+ *   - Owner: PrincipalPicker (the same combobox the share
+ *     dialog and the reassign-owner flow use). Searches
+ *     /api/portal/users by name; the UUID is stored
+ *     internally, the display shows the user's name with a
+ *     "Clear" affordance.
+ *   - Limit: kept as a plain number input -- it's a number,
+ *     no domain-specific knowledge required.
+ *
+ * Save fires on form submit so casual typing doesn't hammer
+ * PATCH. Toggle off demotes back to a static folder via the
+ * parent's existing PATCH path.
  */
 function SmartFolderPanel({
   smartQuery,
@@ -599,27 +627,122 @@ function SmartFolderPanel({
   saving: boolean;
   onChange: (next: FolderSmartQuery | null) => void | Promise<void>;
 }) {
-  const [draftType, setDraftType] = useState<string>(() =>
-    Array.isArray(smartQuery?.type)
-      ? smartQuery!.type.join(',')
-      : (smartQuery?.type ?? ''),
+  // Initial type set: the saved query may have been a single
+  // string, an array, or a comma-separated string from the old
+  // text-input editor. Normalise to a Set for the checkboxes.
+  const initialTypes: Set<string> = (() => {
+    const t = smartQuery?.type;
+    if (Array.isArray(t)) return new Set(t);
+    if (typeof t === 'string' && t.length > 0) {
+      return new Set(t.split(',').map((s) => s.trim()).filter(Boolean));
+    }
+    return new Set();
+  })();
+  const [selectedTypes, setSelectedTypes] = useState<Set<string>>(
+    initialTypes,
   );
   const [draftQ, setDraftQ] = useState<string>(smartQuery?.q ?? '');
-  const [draftOwner, setDraftOwner] = useState<string>(
-    smartQuery?.ownerId ?? '',
-  );
+  const [searchFields, setSearchFields] = useState<
+    Set<FolderSmartSearchField>
+  >(() => {
+    const f = smartQuery?.searchFields;
+    if (Array.isArray(f) && f.length > 0) return new Set(f);
+    return new Set(['title', 'description', 'tags']);
+  });
+  const [ownerId, setOwnerId] = useState<string>(smartQuery?.ownerId ?? '');
+  const [ownerLabel, setOwnerLabel] = useState<string>('');
   const [draftLimit, setDraftLimit] = useState<string>(() =>
     typeof smartQuery?.limit === 'number' ? String(smartQuery!.limit) : '',
   );
 
+  // When mounting with a pre-existing ownerId, fetch the
+  // matching display name so the user sees "Alice" not the
+  // UUID. Bounded one-shot lookup; failure is silent (the
+  // editor falls back to showing the id, but at least the
+  // Clear button still works).
+  useEffect(() => {
+    if (!ownerId || ownerLabel) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/portal/users?ids=${encodeURIComponent(ownerId)}`,
+        );
+        if (!res.ok || cancelled) return;
+        const rows = (await res.json()) as Array<{
+          id: string;
+          fullName?: string | null;
+          username: string;
+        }>;
+        const hit = rows.find((r) => r.id === ownerId);
+        if (hit) {
+          setOwnerLabel(hit.fullName?.trim() || hit.username);
+        }
+      } catch {
+        /* non-fatal: editor still functional without the label */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ownerId]);
+
   function buildQuery(): FolderSmartQuery {
     const next: FolderSmartQuery = {};
-    if (draftType.trim().length > 0) next.type = draftType.trim();
-    if (draftQ.trim().length > 0) next.q = draftQ.trim();
-    if (draftOwner.trim().length > 0) next.ownerId = draftOwner.trim();
+    if (selectedTypes.size > 0) {
+      // Use the array form so the server handles multi-type
+      // cleanly without a parse step.
+      next.type = Array.from(selectedTypes);
+    }
+    if (draftQ.trim().length > 0) {
+      next.q = draftQ.trim();
+      // Only persist searchFields when narrower than the
+      // default (all three). Saves a couple of bytes and keeps
+      // the saved query shape minimal for the common case.
+      if (searchFields.size > 0 && searchFields.size < 3) {
+        next.searchFields = Array.from(searchFields);
+      }
+    }
+    if (ownerId) next.ownerId = ownerId;
     const lim = Number(draftLimit);
     if (Number.isFinite(lim) && lim > 0) next.limit = Math.floor(lim);
     return next;
+  }
+
+  function toggleType(t: string) {
+    setSelectedTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(t)) next.delete(t);
+      else next.add(t);
+      return next;
+    });
+  }
+  function toggleSearchField(f: FolderSmartSearchField) {
+    setSearchFields((prev) => {
+      const next = new Set(prev);
+      if (next.has(f)) next.delete(f);
+      else next.add(f);
+      return next;
+    });
+  }
+
+  async function searchUsers(q: string): Promise<PrincipalOption[]> {
+    const url = `/api/portal/users${q.trim() ? `?q=${encodeURIComponent(q.trim())}` : ''}`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const rows = (await res.json()) as Array<{
+      id: string;
+      username: string;
+      fullName?: string | null;
+      avatarUrl?: string | null;
+    }>;
+    return rows.map((r) => ({
+      id: r.id,
+      title: r.fullName?.trim() || r.username,
+      subtitle: r.fullName?.trim() ? r.username : null,
+      imageUrl: r.avatarUrl ?? null,
+    }));
   }
 
   return (
@@ -631,9 +754,8 @@ function SmartFolderPanel({
           checked={isSmart}
           disabled={saving}
           onChange={(e) => {
-            // Toggle on with whatever drafts the user has typed
-            // so the first save isn't an empty query (which would
-            // resolve to "every item the user can see"). Toggle
+            // Toggle on with whatever drafts the user has set
+            // so the first save isn't an empty query. Toggle
             // off passes null so the parent demotes the folder
             // back to static.
             if (e.target.checked) void onChange(buildQuery());
@@ -660,49 +782,135 @@ function SmartFolderPanel({
 
       {isSmart ? (
         <form
-          className="mt-2 grid gap-2 sm:grid-cols-2"
+          className="mt-3 space-y-3"
           onSubmit={(e) => {
             e.preventDefault();
             void onChange(buildQuery());
           }}
         >
-          <label className="flex flex-col gap-1">
-            <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
-              Type (comma-separated)
+          {/* Type: multi-select checkbox grid. Each row shows
+              the type's icon + human label so authors don't
+              need to know that "feature service" became
+              "data_layer". Empty selection = "any type". */}
+          <fieldset>
+            <legend className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">
+              Item type
+              {selectedTypes.size > 0 ? (
+                <span className="ml-1 normal-case text-muted">
+                  ({selectedTypes.size} selected)
+                </span>
+              ) : (
+                <span className="ml-1 normal-case text-muted">
+                  (any when none selected)
+                </span>
+              )}
+            </legend>
+            <div className="grid grid-cols-2 gap-1 sm:grid-cols-3">
+              {ITEM_TYPES.map((t) => {
+                const Icon = getItemTypeIcon(t as ItemType);
+                const checked = selectedTypes.has(t);
+                return (
+                  <label
+                    key={t}
+                    className={`inline-flex cursor-pointer items-center gap-1.5 rounded border px-2 py-1 text-xs transition-colors ${
+                      checked
+                        ? 'border-accent bg-accent/5 text-ink-0'
+                        : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleType(t)}
+                      className="h-3 w-3"
+                    />
+                    <Icon className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">
+                      {getItemTypeLabel(t as ItemType)}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
+
+          {/* Search text + which fields it targets. Default is
+              all three checked so a user who just types in the
+              search box gets the same behaviour as the items
+              page's plain-text search. */}
+          <div className="space-y-1">
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
+                Search text
+              </span>
+              <input
+                type="text"
+                value={draftQ}
+                onChange={(e) => setDraftQ(e.target.value)}
+                placeholder="word or phrase to look for"
+                className="h-7 rounded border border-border bg-surface-1 px-2 text-xs"
+              />
+            </label>
+            <div className="flex flex-wrap items-center gap-2 pt-0.5 text-[11px]">
+              <span className="text-muted">Search in:</span>
+              {SEARCH_FIELD_OPTIONS.map(({ key, label }) => {
+                const checked = searchFields.has(key);
+                return (
+                  <label
+                    key={key}
+                    className="inline-flex cursor-pointer items-center gap-1 text-ink-1"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleSearchField(key)}
+                      className="h-3 w-3"
+                    />
+                    {label}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Owner: searchable user picker. Stores the UUID
+              internally; the user only ever sees the chosen
+              name + a Clear button. */}
+          <div>
+            <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted">
+              Owner
             </span>
-            <input
-              type="text"
-              value={draftType}
-              onChange={(e) => setDraftType(e.target.value)}
-              placeholder="map, data_layer, ..."
-              className="h-7 rounded border border-border bg-surface-1 px-2 text-xs"
-            />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
-              Search text
-            </span>
-            <input
-              type="text"
-              value={draftQ}
-              onChange={(e) => setDraftQ(e.target.value)}
-              placeholder="title, description, or tag substring"
-              className="h-7 rounded border border-border bg-surface-1 px-2 text-xs"
-            />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
-              Owner UUID
-            </span>
-            <input
-              type="text"
-              value={draftOwner}
-              onChange={(e) => setDraftOwner(e.target.value)}
-              placeholder="optional"
-              className="h-7 rounded border border-border bg-surface-1 px-2 font-mono text-[11px]"
-            />
-          </label>
-          <label className="flex flex-col gap-1">
+            {ownerId ? (
+              <div className="flex items-center gap-2 rounded border border-border bg-surface-1 px-2 py-1 text-xs">
+                <span className="flex-1 truncate text-ink-0">
+                  {ownerLabel || `(user ${ownerId.slice(0, 8)})`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOwnerId('');
+                    setOwnerLabel('');
+                  }}
+                  className="h-6 rounded border border-border bg-surface-1 px-2 text-[11px] text-muted hover:bg-surface-2 hover:text-ink-1"
+                >
+                  Clear
+                </button>
+              </div>
+            ) : (
+              <PrincipalPicker
+                placeholder="Search for a user (optional)"
+                search={searchUsers}
+                onPick={(option) => {
+                  setOwnerId(option.id);
+                  setOwnerLabel(option.title);
+                }}
+                emptyMessage="No matching users."
+                emptyInitialMessage="Start typing a name to search."
+              />
+            )}
+          </div>
+
+          <label className="flex max-w-[12rem] flex-col gap-1">
             <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
               Limit
             </span>
@@ -716,7 +924,8 @@ function SmartFolderPanel({
               className="h-7 rounded border border-border bg-surface-1 px-2 text-xs"
             />
           </label>
-          <div className="sm:col-span-2 flex items-center justify-end gap-2">
+
+          <div className="flex items-center justify-end gap-2 pt-1">
             <button
               type="submit"
               disabled={saving}

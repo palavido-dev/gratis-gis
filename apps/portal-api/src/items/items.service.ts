@@ -109,6 +109,13 @@ export class ItemsService {
       type?: ItemType | ItemType[];
       q?: string;
       /**
+       * Subset of fields the `q` search targets. Defaults to all
+       * three (title, description, tags) when omitted; smart
+       * folders (#38) pass a narrower list when the author wants
+       * to scope the search.
+       */
+      searchFields?: Array<'title' | 'description' | 'tags'>;
+      /**
        * Filter to items owned by a specific user. Intended for the
        * admin 'user delete -> reassign their items' flow. Anyone may
        * filter by their own id (equivalent to `mine: true`); filtering
@@ -200,11 +207,24 @@ export class ItemsService {
     }
     if (opts.ownerId) where.ownerId = opts.ownerId;
     if (opts.q) {
-      where.OR = [
-        { title: { contains: opts.q, mode: 'insensitive' } },
-        { description: { contains: opts.q, mode: 'insensitive' } },
-        { tags: { has: opts.q } },
-      ];
+      // Default search is across title + description + tags.
+      // Smart folders (#38) can narrow to a subset by passing
+      // `searchFields`; every other caller passes nothing and
+      // gets the all-three behaviour unchanged.
+      const fields = opts.searchFields ?? ['title', 'description', 'tags'];
+      const orClauses: Prisma.ItemWhereInput[] = [];
+      if (fields.includes('title')) {
+        orClauses.push({ title: { contains: opts.q, mode: 'insensitive' } });
+      }
+      if (fields.includes('description')) {
+        orClauses.push({
+          description: { contains: opts.q, mode: 'insensitive' },
+        });
+      }
+      if (fields.includes('tags')) {
+        orClauses.push({ tags: { has: opts.q } });
+      }
+      if (orClauses.length > 0) where.OR = orClauses;
     }
     // Spatial filter via the generated bbox_geom column + GiST
     // index. Done outside the Prisma `where` because Prisma can't
@@ -1261,6 +1281,7 @@ export class ItemsService {
     const q = (rawQuery ?? {}) as {
       type?: unknown;
       q?: unknown;
+      searchFields?: unknown;
       ownerId?: unknown;
       bbox?: unknown;
       bufferKm?: unknown;
@@ -1269,6 +1290,7 @@ export class ItemsService {
     const opts: {
       type?: ItemType | ItemType[];
       q?: string;
+      searchFields?: Array<'title' | 'description' | 'tags'>;
       ownerId?: string;
       bbox?: [number, number, number, number];
       bufferKm?: number;
@@ -1295,6 +1317,13 @@ export class ItemsService {
       else if (valid.length > 1) opts.type = valid;
     }
     if (typeof q.q === 'string' && q.q.length > 0) opts.q = q.q;
+    if (Array.isArray(q.searchFields)) {
+      const valid = q.searchFields.filter(
+        (f): f is 'title' | 'description' | 'tags' =>
+          f === 'title' || f === 'description' || f === 'tags',
+      );
+      if (valid.length > 0) opts.searchFields = valid;
+    }
     if (typeof q.ownerId === 'string' && q.ownerId.length > 0) {
       opts.ownerId = q.ownerId;
     }
