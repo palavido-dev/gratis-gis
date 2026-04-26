@@ -11,13 +11,13 @@ import {
   Sparkles,
   Users,
   Bell,
-  Search,
   Shield,
   Trash2,
 } from 'lucide-react';
 import { authOptions } from '@/lib/auth';
 import { apiFetch } from '@/lib/api';
 import { UserMenu } from './user-menu';
+import { TopBarSearch } from './top-bar-search';
 
 /**
  * Top-level chrome shared by every portal page: top bar with brand + search
@@ -120,13 +120,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-10 flex h-14 items-center justify-between border-b border-border bg-surface-0/80 px-4 backdrop-blur">
           <div className="flex flex-1 items-center gap-3">
-            <label className="relative max-w-md flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-              <input
-                placeholder="Search items, groups, people…"
-                className="h-9 w-full rounded-md border border-border bg-surface-1 pl-9 pr-3 text-sm text-ink-1 placeholder:text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
-              />
-            </label>
+            <TopBarSearch />
           </div>
           <div className="flex items-center gap-2">
             <button

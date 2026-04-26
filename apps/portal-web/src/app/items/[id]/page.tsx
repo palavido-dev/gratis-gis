@@ -525,6 +525,8 @@ export default async function ItemDetailPage({ params }: Props) {
             breadcrumb={folderBreadcrumb}
             canEdit={canManage}
             canCreate={me.orgRole !== 'viewer'}
+            folderShares={item.shares}
+            folderAccess={item.access}
           />
         </section>
       ) : (
