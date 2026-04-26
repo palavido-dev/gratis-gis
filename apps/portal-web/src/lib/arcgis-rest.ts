@@ -49,30 +49,56 @@ export async function probeService(
   signal?: AbortSignal,
 ): Promise<ArcgisServiceDescription> {
   const { serviceUrl, layerId } = splitServiceUrl(rawUrl);
-  const serviceType = detectServiceType(serviceUrl);
   const json = await fetchJson(
     appendQuery(serviceUrl, { f: 'json' }),
     signal,
   );
+  return describeArcgisService(rawUrl, json, signal);
+}
+
+/**
+ * Pure ArcGIS-JSON ⇒ ArcgisServiceDescription parser, split out of
+ * probeService (#74) so callers that already have the JSON in hand
+ * (e.g. the wizard's credentialed-probe path that goes through the
+ * server-side proxy) can reuse the same shaping logic. Doing the
+ * (rare) "user pasted /MapServer/0" follow-up fetch is optional;
+ * pass an AbortSignal if the caller wants to keep cancellation
+ * working through it.
+ */
+export async function describeArcgisService(
+  rawUrl: string,
+  json: unknown,
+  signal?: AbortSignal,
+): Promise<ArcgisServiceDescription> {
+  const { serviceUrl, layerId } = splitServiceUrl(rawUrl);
+  const serviceType = detectServiceType(serviceUrl);
+  const obj = (json ?? {}) as {
+    layers?: unknown;
+    tables?: unknown;
+    fullExtent?: unknown;
+    initialExtent?: unknown;
+    mapName?: unknown;
+    serviceDescription?: unknown;
+    description?: unknown;
+  };
 
   const layers: ArcgisServiceLayer[] = [];
-  if (Array.isArray(json.layers)) {
-    for (const l of json.layers) {
-      layers.push({
+  if (Array.isArray(obj.layers)) {
+    for (const l of obj.layers as Array<Record<string, unknown>>) {
+      const row: ArcgisServiceLayer = {
         id: Number(l.id),
         name: String(l.name ?? `Layer ${l.id}`),
-        geometryType: l.geometryType,
-        minScale: l.minScale,
-        maxScale: l.maxScale,
-        parentLayerId: l.parentLayerId,
-      });
+      };
+      if (typeof l.geometryType === 'string') row.geometryType = l.geometryType;
+      if (typeof l.minScale === 'number') row.minScale = l.minScale;
+      if (typeof l.maxScale === 'number') row.maxScale = l.maxScale;
+      if (typeof l.parentLayerId === 'number')
+        row.parentLayerId = l.parentLayerId;
+      layers.push(row);
     }
   }
-  // FeatureServers expose tables separately; surface those too so the
-  // picker shows them (user can pick an attribute-only "layer": we'll
-  // still render an empty map but the table view works).
-  if (Array.isArray(json.tables)) {
-    for (const t of json.tables) {
+  if (Array.isArray(obj.tables)) {
+    for (const t of obj.tables as Array<Record<string, unknown>>) {
       layers.push({
         id: Number(t.id),
         name: `${t.name ?? `Table ${t.id}`} (table)`,
@@ -80,13 +106,9 @@ export async function probeService(
     }
   }
 
-  const bbox = extentToBbox(json.fullExtent ?? json.initialExtent);
+  const bbox = extentToBbox(obj.fullExtent ?? obj.initialExtent);
 
-  // If the caller passed …/0, bubble that up as the "picked" layer so
-  // the dialog can pre-select the right row in the picker.
   if (layerId != null && !layers.some((l) => l.id === layerId)) {
-    // Layer wasn't in the service summary: probe the layer directly
-    // so we at least have a display name.
     try {
       const lj = await fetchJson(
         appendQuery(`${serviceUrl}/${layerId}`, { f: 'json' }),
@@ -104,14 +126,19 @@ export async function probeService(
     }
   }
 
-  return {
+  const out: ArcgisServiceDescription = {
     url: serviceUrl,
     serviceType,
-    name: String(json.mapName ?? json.serviceDescription ?? inferName(serviceUrl)),
-    description: typeof json.description === 'string' ? json.description : undefined,
+    name: String(
+      obj.mapName ?? obj.serviceDescription ?? inferName(serviceUrl),
+    ),
     layers,
     bbox,
   };
+  if (typeof obj.description === 'string') {
+    out.description = obj.description;
+  }
+  return out;
 }
 
 /**

@@ -46,6 +46,7 @@ import {
 } from '@gratis-gis/shared-types';
 import { ImageUploader } from '@/components/image-uploader';
 import {
+  describeArcgisService,
   probeService,
   type ArcgisServiceDescription,
 } from '@/lib/arcgis-rest';
@@ -72,99 +73,138 @@ interface TypeOption {
   Icon: LucideIcon;
 }
 
-// Ordered most-common first. The grid layout handles responsive columns.
-const TYPE_OPTIONS: TypeOption[] = [
+// Item types live in five functional groups (#75): Data, Maps, Apps,
+// Analysis, Organize. Within each group items are alphabetical so a
+// returning user can run their eye to a known option without hunting.
+// Group order follows the typical user journey: load data, make a
+// map, build apps over it, analyze, then organize.
+interface TypeGroup {
+  label: string;
+  options: TypeOption[];
+}
+
+const TYPE_GROUPS: TypeGroup[] = [
   {
-    value: 'map',
-    label: 'Map',
-    desc: 'A basemap with overlay layers and styling.',
-    Icon: MapIcon,
+    label: 'Data',
+    options: [
+      {
+        value: 'arcgis_service',
+        label: 'ArcGIS service',
+        desc: 'Live pointer at a MapServer or FeatureServer.',
+        Icon: Plug,
+      },
+      {
+        value: 'geo_boundary',
+        label: 'Boundary',
+        desc: 'A named region (polygon) reused across shares, maps, and filters.',
+        Icon: MapIcon,
+      },
+      {
+        value: 'data_layer',
+        label: 'Data layer',
+        desc: 'A shareable vector layer backed by PostGIS.',
+        Icon: Layers,
+      },
+      {
+        value: 'file',
+        label: 'File',
+        desc: 'Any uploaded file (PDF, image, zip, etc.).',
+        Icon: FileText,
+      },
+      {
+        value: 'form',
+        label: 'Form',
+        desc: 'A collection form for fieldwork or survey data.',
+        Icon: FileText,
+      },
+      {
+        value: 'pick_list',
+        label: 'Pick list',
+        desc: 'Shared list of codes + labels referenced by fields, forms, and filters.',
+        Icon: ListChecks,
+      },
+      {
+        value: 'wfs_service',
+        label: 'WFS service',
+        desc: 'Live pointer at a WFS feature service.',
+        Icon: Plug,
+      },
+      {
+        value: 'wms_service',
+        label: 'WMS service',
+        desc: 'Live pointer at a WMS GetMap endpoint.',
+        Icon: Plug,
+      },
+    ],
   },
   {
-    value: 'data_layer',
-    label: 'Data layer',
-    desc: 'A shareable vector layer backed by PostGIS.',
-    Icon: Layers,
+    label: 'Maps',
+    options: [
+      {
+        value: 'basemap',
+        label: 'Basemap',
+        desc: 'A reusable background layer (style URL, tile template, or WMS) for maps.',
+        Icon: Globe,
+      },
+      {
+        value: 'map',
+        label: 'Map',
+        desc: 'A basemap with overlay layers and styling.',
+        Icon: MapIcon,
+      },
+    ],
   },
   {
-    value: 'arcgis_service',
-    label: 'ArcGIS service',
-    desc: 'Live pointer at a MapServer or FeatureServer.',
-    Icon: Plug,
+    label: 'Apps',
+    options: [
+      {
+        value: 'dashboard',
+        label: 'Dashboard',
+        desc: 'Live panels showing feature data.',
+        Icon: LayoutDashboard,
+      },
+      {
+        value: 'report_template',
+        label: 'Report template',
+        desc: 'A document template that renders data.',
+        Icon: FileText,
+      },
+      {
+        value: 'web_app',
+        label: 'Web app',
+        desc: 'A configurable app built from widgets.',
+        Icon: Sparkles,
+      },
+    ],
   },
   {
-    value: 'wms_service',
-    label: 'WMS service',
-    desc: 'Live pointer at a WMS GetMap endpoint.',
-    Icon: Plug,
+    label: 'Analysis',
+    options: [
+      {
+        value: 'notebook',
+        label: 'Notebook',
+        desc: 'A Jupyter notebook hosted in the portal.',
+        Icon: Notebook,
+      },
+    ],
   },
   {
-    value: 'wfs_service',
-    label: 'WFS service',
-    desc: 'Live pointer at a WFS feature service.',
-    Icon: Plug,
-  },
-  {
-    value: 'pick_list',
-    label: 'Pick list',
-    desc: 'Shared list of codes + labels referenced by fields, forms, and filters.',
-    Icon: ListChecks,
-  },
-  {
-    value: 'geo_boundary',
-    label: 'Boundary',
-    desc: 'A named region (polygon) reused across shares, maps, and filters.',
-    Icon: MapIcon,
-  },
-  {
-    value: 'basemap',
-    label: 'Basemap',
-    desc: 'A reusable background layer (style URL, tile template, or WMS) for maps.',
-    Icon: Globe,
-  },
-  {
-    value: 'folder',
-    label: 'Folder',
-    desc: 'A curated grouping of items. Sharing a folder shares the arrangement; per-item access still applies.',
-    Icon: FolderIcon,
-  },
-  {
-    value: 'form',
-    label: 'Form',
-    desc: 'A collection form for fieldwork or survey data.',
-    Icon: FileText,
-  },
-  {
-    value: 'dashboard',
-    label: 'Dashboard',
-    desc: 'Live panels showing feature data.',
-    Icon: LayoutDashboard,
-  },
-  {
-    value: 'web_app',
-    label: 'Web app',
-    desc: 'A configurable app built from widgets.',
-    Icon: Sparkles,
-  },
-  {
-    value: 'report_template',
-    label: 'Report template',
-    desc: 'A document template that renders data.',
-    Icon: FileText,
-  },
-  {
-    value: 'notebook',
-    label: 'Notebook',
-    desc: 'A Jupyter notebook hosted in the portal.',
-    Icon: Notebook,
-  },
-  {
-    value: 'file',
-    label: 'File',
-    desc: 'Any uploaded file (PDF, image, zip, etc.).',
-    Icon: FileText,
+    label: 'Organize',
+    options: [
+      {
+        value: 'folder',
+        label: 'Folder',
+        desc: 'A curated grouping of items. Sharing a folder shares the arrangement; per-item access still applies.',
+        Icon: FolderIcon,
+      },
+    ],
   },
 ];
+
+// Flat fallback used by everything-else-on-the-page (the picked-type
+// summary header on step 2, etc.) so we keep the grouped picker
+// the single source of label/desc/icon truth.
+const TYPE_OPTIONS: TypeOption[] = TYPE_GROUPS.flatMap((g) => g.options);
 
 const ACCESS_OPTIONS: Array<{
   value: ItemAccess;
@@ -239,6 +279,31 @@ export function NewItemWizard() {
   const userEditedTitleRef = useRef(false);
   const userEditedDescRef = useRef(false);
 
+  // Credential bootstrap (#74). When the anonymous probe gets a
+  // 401 / 403 / 499 / "Token Required" we surface the credential
+  // form inline instead of failing the wizard. The form drives the
+  // probe-with-credential endpoint server-side, then on Create we
+  // store the same credential payload against the freshly-created
+  // item id so the proxy works without any further setup. The
+  // credential plaintext lives in this component for the duration
+  // of the wizard only.
+  type WizardCredential =
+    | { kind: 'arcgis_token'; token: string }
+    | { kind: 'bearer'; token: string }
+    | { kind: 'basic'; username: string; password: string };
+  const [needsAuth, setNeedsAuth] = useState(false);
+  const [credentialKind, setCredentialKind] = useState<
+    'arcgis_token' | 'bearer' | 'basic'
+  >('arcgis_token');
+  const [credentialToken, setCredentialToken] = useState('');
+  const [credentialUsername, setCredentialUsername] = useState('');
+  const [credentialPassword, setCredentialPassword] = useState('');
+  // Set once a probe-with-credential succeeds. On Create we POST
+  // this to PUT /api/items/:newId/credential so the new item is
+  // immediately useable through the proxy.
+  const [pendingCredential, setPendingCredential] =
+    useState<WizardCredential | null>(null);
+
   // Feature-service builder state. Stays in v3 shape from the start so
   // the POST body can be sent as-is.
   const [featureServiceData, setDataLayerData] =
@@ -259,23 +324,14 @@ export function NewItemWizard() {
     setError(null);
   }, []);
 
-  const runArcgisProbe = useCallback(async () => {
-    const raw = arcgisUrlDraft.trim();
-    if (!raw) {
-      setError('Paste an ArcGIS MapServer or FeatureServer URL.');
-      return;
-    }
-    setError(null);
-    arcgisAbortRef.current?.abort();
-    const controller = new AbortController();
-    arcgisAbortRef.current = controller;
-    setArcgisProbing(true);
-    try {
-      const desc = await probeService(raw, controller.signal);
-      if (controller.signal.aborted) return;
+  /**
+   * Spread a probe result into the wizard's UI state. Shared by
+   * the anonymous and credential-aware probe paths so they stay
+   * in lockstep on auto-fill / default-pick / select-all logic.
+   */
+  const applyProbeResult = useCallback(
+    (desc: ArcgisServiceDescription) => {
       setArcgisProbeResult(desc);
-      // Auto-fill title/description from the service only if the user
-      // hasn't typed anything of their own - never clobber user input.
       if (!userEditedTitleRef.current && !title.trim() && desc.name) {
         setTitle(desc.name);
       }
@@ -286,17 +342,60 @@ export function NewItemWizard() {
       ) {
         setDescription(desc.description);
       }
-      // Pre-pick a sensible default sublayer: first one with geometry,
-      // or the first layer if everything is attribute-only.
       const firstGeom = desc.layers.find((l) => l.geometryType);
       const pick = firstGeom?.id ?? desc.layers[0]?.id ?? null;
       setArcgisDefaultLayerId(pick);
-      // Default selection on probe is 'everything' so the common
-      // 'pull the whole service' case is zero clicks. The user can
-      // uncheck layers they don't want before clicking Create.
       setArcgisSelectedLayerIds(new Set(desc.layers.map((l) => l.id)));
+    },
+    [title, description],
+  );
+
+  /**
+   * Recognise the upstream "needs auth" signal across the various
+   * shapes ArcGIS / WMS / WFS use. ArcGIS can either emit a real
+   * 401/403 or a 200 envelope with code 498/499. WMS/WFS usually
+   * just 401. We fold them all into the same UX path.
+   */
+  function isAuthError(err: unknown): boolean {
+    if (!err) return false;
+    const msg = err instanceof Error ? err.message : String(err);
+    return (
+      /\b(401|403|498|499)\b/.test(msg) ||
+      /token\s*required/i.test(msg) ||
+      /not\s*authorized/i.test(msg) ||
+      /unauthor/i.test(msg)
+    );
+  }
+
+  const runArcgisProbe = useCallback(async () => {
+    const raw = arcgisUrlDraft.trim();
+    if (!raw) {
+      setError('Paste an ArcGIS MapServer or FeatureServer URL.');
+      return;
+    }
+    setError(null);
+    setNeedsAuth(false);
+    setPendingCredential(null);
+    arcgisAbortRef.current?.abort();
+    const controller = new AbortController();
+    arcgisAbortRef.current = controller;
+    setArcgisProbing(true);
+    try {
+      const desc = await probeService(raw, controller.signal);
+      if (controller.signal.aborted) return;
+      applyProbeResult(desc);
     } catch (err) {
       if ((err as Error)?.name === 'AbortError') return;
+      // Auth-shaped failure: switch to the credential form instead
+      // of giving up. The user fills it in and we re-probe through
+      // the server-side endpoint. (#74)
+      if (isAuthError(err)) {
+        setNeedsAuth(true);
+        setError(
+          'This service requires authentication. Pick a credential type and provide the secret to continue.',
+        );
+        return;
+      }
       setError(
         (err as Error).message ||
           'Could not read that service. Check the URL and CORS config.',
@@ -304,7 +403,109 @@ export function NewItemWizard() {
     } finally {
       if (!controller.signal.aborted) setArcgisProbing(false);
     }
-  }, [arcgisUrlDraft, title, description]);
+  }, [arcgisUrlDraft, applyProbeResult]);
+
+  /**
+   * Probe with a user-supplied credential via the server-side
+   * /api/portal/services/probe endpoint. Same response shape as
+   * the anonymous client probe so applyProbeResult reuses the
+   * existing UI logic. Stashes the credential into pendingCredential
+   * so we can save it against the new item id at Create time.
+   */
+  const runArcgisProbeWithCredential = useCallback(async () => {
+    const raw = arcgisUrlDraft.trim();
+    if (!raw) {
+      setError('Paste an ArcGIS MapServer or FeatureServer URL.');
+      return;
+    }
+    let cred: WizardCredential;
+    if (credentialKind === 'arcgis_token' || credentialKind === 'bearer') {
+      const token = credentialToken.trim();
+      if (!token) {
+        setError('Token is required for this credential type.');
+        return;
+      }
+      cred = { kind: credentialKind, token };
+    } else {
+      const u = credentialUsername.trim();
+      const p = credentialPassword;
+      if (!u || !p) {
+        setError('Username and password are required for basic auth.');
+        return;
+      }
+      cred = { kind: 'basic', username: u, password: p };
+    }
+    setError(null);
+    arcgisAbortRef.current?.abort();
+    const controller = new AbortController();
+    arcgisAbortRef.current = controller;
+    setArcgisProbing(true);
+    try {
+      const res = await fetch('/api/portal/services/probe', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ url: raw, credential: cred }),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        setError(
+          `Probe failed: ${res.status}${text ? ` - ${text.slice(0, 200)}` : ''}`,
+        );
+        return;
+      }
+      const wrapped = (await res.json()) as {
+        ok: boolean;
+        status: number;
+        statusText?: string;
+        body?: unknown;
+      };
+      if (controller.signal.aborted) return;
+      if (!wrapped.ok) {
+        setError(
+          wrapped.statusText ||
+            `Upstream returned ${wrapped.status}. Check the credential and try again.`,
+        );
+        return;
+      }
+      // Re-shape the upstream JSON into the same ArcgisServiceDescription
+      // the client probe produces. describeArcgisService is the
+      // pure parser shared with probeService so the two paths stay
+      // in lockstep on layer/table/bbox extraction.
+      let desc: ArcgisServiceDescription;
+      try {
+        desc = await describeArcgisService(
+          raw,
+          wrapped.body,
+          controller.signal,
+        );
+      } catch (parseErr) {
+        setError(
+          (parseErr as Error).message ||
+            'Probe succeeded but the response did not look like an ArcGIS service.',
+        );
+        return;
+      }
+      applyProbeResult(desc);
+      setPendingCredential(cred);
+      setNeedsAuth(false);
+    } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return;
+      setError(
+        (err as Error).message ||
+          'Could not reach the probe endpoint. Try again in a moment.',
+      );
+    } finally {
+      if (!controller.signal.aborted) setArcgisProbing(false);
+    }
+  }, [
+    arcgisUrlDraft,
+    credentialKind,
+    credentialToken,
+    credentialUsername,
+    credentialPassword,
+    applyProbeResult,
+  ]);
 
   async function submit() {
     if (!type) return;
@@ -359,6 +560,11 @@ export function NewItemWizard() {
         ...(effectiveDefault !== null
           ? { defaultLayerId: effectiveDefault }
           : {}),
+        // requiresAuth flips on automatically when a credential was
+        // used during probe. The credential payload is saved against
+        // the new item id immediately after create (#74) so the proxy
+        // works without further setup.
+        requiresAuth: pendingCredential !== null,
         probedAt: new Date().toISOString() as ISODateString,
       };
       data = staged;
@@ -465,6 +671,42 @@ export function NewItemWizard() {
         startTransition(() => router.push('/items'));
         return;
       }
+
+      // Save the credential against the freshly-created item so the
+      // proxy works without manual setup (#74). Best-effort: a failure
+      // here surfaces as an inline warning but the item still
+      // exists, and the credentials card on the detail page can be
+      // used to retry. We don't roll back the item on auth-save
+      // failure -- that would lose the user's other typed metadata
+      // and require restarting the wizard.
+      if (pendingCredential) {
+        try {
+          const credRes = await fetch(
+            `/api/portal/items/${saved.id}/credential`,
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(pendingCredential),
+            },
+          );
+          if (!credRes.ok) {
+            const credText = await credRes.text().catch(() => '');
+            console.error(
+              `Saved item ${saved.id} but credential write failed: ${credRes.status} ${credText}`,
+            );
+            setError(
+              `Item created, but the credential did not save (${credRes.status}). Open the item detail page to set it manually.`,
+            );
+            // Still navigate so the user lands on the new item and
+            // can retry the credential save from its detail page.
+          }
+        } catch (credErr) {
+          console.error('Credential save threw:', credErr);
+          setError(
+            'Item created, but the credential did not save. Open the item detail page to set it manually.',
+          );
+        }
+      }
       // If the wizard was opened from inside a folder ("+ New
       // subfolder" on the folder detail page), append the freshly-
       // created item to that parent folder's childItemIds so the
@@ -531,30 +773,39 @@ export function NewItemWizard() {
 
   if (step === 'pick') {
     return (
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {TYPE_OPTIONS.map((opt) => {
-          const { Icon } = opt;
-          return (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => pickType(opt.value)}
-              className="flex items-start gap-3 rounded-lg border border-border bg-surface-1 p-4 text-left shadow-card transition-colors hover:border-accent/50 hover:bg-surface-2 focus:outline-none focus:ring-2 focus:ring-accent/30"
-            >
-              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-accent/10 text-accent">
-                <Icon className="h-5 w-5" />
-              </span>
-              <span className="min-w-0">
-                <span className="block text-sm font-semibold text-ink-0">
-                  {opt.label}
-                </span>
-                <span className="mt-0.5 block text-xs text-muted">
-                  {opt.desc}
-                </span>
-              </span>
-            </button>
-          );
-        })}
+      <div className="space-y-8">
+        {TYPE_GROUPS.map((group) => (
+          <section key={group.label}>
+            <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-muted">
+              {group.label}
+            </h2>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {group.options.map((opt) => {
+                const { Icon } = opt;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => pickType(opt.value)}
+                    className="flex items-start gap-3 rounded-lg border border-border bg-surface-1 p-4 text-left shadow-card transition-colors hover:border-accent/50 hover:bg-surface-2 focus:outline-none focus:ring-2 focus:ring-accent/30"
+                  >
+                    <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-accent/10 text-accent">
+                      <Icon className="h-5 w-5" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold text-ink-0">
+                        {opt.label}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-muted">
+                        {opt.desc}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ))}
       </div>
     );
   }
@@ -745,7 +996,20 @@ export function NewItemWizard() {
           onDiscardProbe={() => {
             setArcgisProbeResult(null);
             setArcgisSelectedLayerIds(new Set());
+            setNeedsAuth(false);
+            setPendingCredential(null);
           }}
+          needsAuth={needsAuth}
+          credentialKind={credentialKind}
+          onCredentialKindChange={setCredentialKind}
+          credentialToken={credentialToken}
+          onCredentialTokenChange={setCredentialToken}
+          credentialUsername={credentialUsername}
+          onCredentialUsernameChange={setCredentialUsername}
+          credentialPassword={credentialPassword}
+          onCredentialPasswordChange={setCredentialPassword}
+          onProbeWithCredential={runArcgisProbeWithCredential}
+          credentialUsed={pendingCredential !== null}
         />
       ) : null}
 
@@ -804,6 +1068,24 @@ interface ArcgisConfigProps {
   onSelectedLayerIdsChange: (next: Set<number>) => void;
   onProbe: () => void | Promise<void>;
   onDiscardProbe: () => void;
+  /** True when the anonymous probe came back as auth-required and
+   *  the user should fill in a credential to proceed. (#74) */
+  needsAuth: boolean;
+  credentialKind: 'arcgis_token' | 'bearer' | 'basic';
+  onCredentialKindChange: (kind: 'arcgis_token' | 'bearer' | 'basic') => void;
+  credentialToken: string;
+  onCredentialTokenChange: (v: string) => void;
+  credentialUsername: string;
+  onCredentialUsernameChange: (v: string) => void;
+  credentialPassword: string;
+  onCredentialPasswordChange: (v: string) => void;
+  /** Re-runs probe through the server-side endpoint with the
+   *  credential injected. Same response shape as onProbe. (#74) */
+  onProbeWithCredential: () => void | Promise<void>;
+  /** True after a credentialed probe succeeded; the form shows a
+   *  reassurance pill so the user knows the secret is staged for
+   *  save-on-create. (#74) */
+  credentialUsed: boolean;
 }
 
 /**
@@ -822,6 +1104,17 @@ function ArcgisConfigSection({
   onSelectedLayerIdsChange,
   onProbe,
   onDiscardProbe,
+  needsAuth,
+  credentialKind,
+  onCredentialKindChange,
+  credentialToken,
+  onCredentialTokenChange,
+  credentialUsername,
+  onCredentialUsernameChange,
+  credentialPassword,
+  onCredentialPasswordChange,
+  onProbeWithCredential,
+  credentialUsed,
 }: ArcgisConfigProps) {
   const toggleLayer = (id: number) => {
     const next = new Set(selectedLayerIds);
@@ -890,6 +1183,111 @@ function ArcgisConfigSection({
           Probe
         </button>
       </div>
+
+      {/* Credential form (#74). Appears when the anonymous probe came
+          back as auth-required, OR after a credentialed probe has
+          succeeded (so the user can change their mind and re-enter).
+          Plaintext lives in component state for the duration of the
+          wizard; it gets POSTed to the new item's credential endpoint
+          right after Create succeeds. */}
+      {needsAuth || credentialUsed ? (
+        <div className="rounded-md border border-amber-300/50 bg-amber-50/50 p-3">
+          <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-amber-900">
+            <Lock className="h-3.5 w-3.5" />
+            Authentication required
+            {credentialUsed ? (
+              <span className="ml-1 rounded-full border border-success/40 bg-success/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-success">
+                staged
+              </span>
+            ) : null}
+          </div>
+          <p className="mb-2 text-[11px] text-amber-900/80">
+            The credential is stored encrypted on this item once it&apos;s
+            created. Calls from the map go through a server-side proxy
+            so the secret never reaches the browser.
+          </p>
+
+          <div className="mb-2 grid grid-cols-3 gap-1">
+            {(
+              ['arcgis_token', 'bearer', 'basic'] as const
+            ).map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => onCredentialKindChange(k)}
+                className={`rounded border px-2 py-1.5 text-left text-xs ${
+                  credentialKind === k
+                    ? 'border-accent bg-accent/5 text-ink-0 ring-2 ring-accent/30'
+                    : 'border-border bg-surface-1 text-muted hover:bg-surface-2'
+                }`}
+              >
+                <div className="font-medium capitalize">
+                  {k === 'arcgis_token'
+                    ? 'ArcGIS token'
+                    : k === 'bearer'
+                      ? 'Bearer'
+                      : 'Basic'}
+                </div>
+                <div className="text-[10px] text-muted">
+                  {k === 'arcgis_token'
+                    ? '?token=... query param'
+                    : k === 'bearer'
+                      ? 'Authorization: Bearer'
+                      : 'Username + password'}
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {credentialKind === 'basic' ? (
+            <div className="mb-2 grid grid-cols-2 gap-2">
+              <input
+                type="text"
+                autoComplete="off"
+                value={credentialUsername}
+                onChange={(e) => onCredentialUsernameChange(e.target.value)}
+                placeholder="Username"
+                className="h-8 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+              />
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={credentialPassword}
+                onChange={(e) => onCredentialPasswordChange(e.target.value)}
+                placeholder="Password"
+                className="h-8 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+              />
+            </div>
+          ) : (
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={credentialToken}
+              onChange={(e) => onCredentialTokenChange(e.target.value)}
+              placeholder={
+                credentialKind === 'arcgis_token'
+                  ? 'Paste an ArcGIS token (e.g. from generateToken)'
+                  : 'Paste a bearer token'
+              }
+              className="mb-2 h-8 w-full rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+            />
+          )}
+
+          <button
+            type="button"
+            onClick={() => void onProbeWithCredential()}
+            disabled={probing}
+            className="inline-flex h-8 items-center gap-1 rounded-md border border-amber-400 bg-amber-100 px-3 text-xs font-medium text-amber-900 hover:bg-amber-200 disabled:opacity-50"
+          >
+            {probing ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Search className="h-3.5 w-3.5" />
+            )}
+            Probe with credential
+          </button>
+        </div>
+      ) : null}
 
       {probeResult ? (
         <div className="rounded-md border border-success/30 bg-success/5 p-3">
