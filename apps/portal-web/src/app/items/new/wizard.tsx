@@ -695,12 +695,31 @@ export function NewItemWizard() {
             },
           );
           if (!credRes.ok) {
+            // Surface the actual server response so the user (and
+            // logs) can see why the save bounced. Earlier we only
+            // showed the status code which left bugs invisible
+            // (e.g. server-side validation rejecting the payload
+            // shape would just show "(400)" with no clue about
+            // which field). #79
             const credText = await credRes.text().catch(() => '');
+            let reason = '';
+            try {
+              const body = JSON.parse(credText) as {
+                message?: string | string[];
+              };
+              const msg = body.message;
+              if (Array.isArray(msg)) reason = msg.join('; ');
+              else if (typeof msg === 'string') reason = msg;
+            } catch {
+              reason = credText;
+            }
             console.error(
               `Saved item ${saved.id} but credential write failed: ${credRes.status} ${credText}`,
             );
             setError(
-              `Item created, but the credential did not save (${credRes.status}). Open the item detail page to set it manually.`,
+              `Item created, but the credential did not save (${credRes.status}${
+                reason ? `: ${reason.slice(0, 200)}` : ''
+              }). Open the item detail page to set it manually.`,
             );
             // Still navigate so the user lands on the new item and
             // can retry the credential save from its detail page.
@@ -708,7 +727,9 @@ export function NewItemWizard() {
         } catch (credErr) {
           console.error('Credential save threw:', credErr);
           setError(
-            'Item created, but the credential did not save. Open the item detail page to set it manually.',
+            `Item created, but the credential did not save (${
+              credErr instanceof Error ? credErr.message : 'network error'
+            }). Open the item detail page to set it manually.`,
           );
         }
       }
