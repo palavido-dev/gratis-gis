@@ -292,9 +292,14 @@ export function NewItemWizard() {
     | { kind: 'bearer'; token: string }
     | { kind: 'basic'; username: string; password: string };
   const [needsAuth, setNeedsAuth] = useState(false);
+  // Default is Basic (username + password): it's how ArcGIS Online
+  // exposes per-user auth and the most common shape we'll see.
+  // The probe endpoint exchanges Basic for a token under the hood
+  // for ArcGIS REST URLs so the upstream call goes out as a real
+  // token-bearing request (AGO does not honour HTTP Basic). (#76)
   const [credentialKind, setCredentialKind] = useState<
     'arcgis_token' | 'bearer' | 'basic'
-  >('arcgis_token');
+  >('basic');
   const [credentialToken, setCredentialToken] = useState('');
   const [credentialUsername, setCredentialUsername] = useState('');
   const [credentialPassword, setCredentialPassword] = useState('');
@@ -1209,7 +1214,7 @@ function ArcgisConfigSection({
 
           <div className="mb-2 grid grid-cols-3 gap-1">
             {(
-              ['arcgis_token', 'bearer', 'basic'] as const
+              ['basic', 'arcgis_token', 'bearer'] as const
             ).map((k) => (
               <button
                 key={k}

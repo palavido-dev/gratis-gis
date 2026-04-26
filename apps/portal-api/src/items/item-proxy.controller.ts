@@ -17,6 +17,7 @@ import {
   CredentialService,
   type CredentialPayload,
 } from './credential.service.js';
+import { exchangeBasicForArcgisToken } from './arcgis-auth.js';
 
 /**
  * Authenticated upstream proxy for secured external services (#36).
@@ -66,7 +67,39 @@ export class ItemProxyController {
       );
     }
 
-    const credential = await this.credentials.getCredentialForProxy(itemId);
+    let credential = await this.credentials.getCredentialForProxy(itemId);
+
+    // ArcGIS doesn't honour HTTP Basic on data endpoints (#76).
+    // When the stored credential is Basic and the item points at
+    // an ArcGIS REST URL, exchange username + password for a
+    // short-lived token via the service's self-described token
+    // endpoint. The exchange helper caches the token in-process
+    // until it expires so we don't pay the round trip on every
+    // proxied request.
+    if (credential.kind === 'basic' && isArcgisRest(itemUrl)) {
+      try {
+        const token = await exchangeBasicForArcgisToken({
+          serviceUrl: itemUrl,
+          username: credential.username,
+          password: credential.password,
+          cacheKey: itemId,
+        });
+        credential = { kind: 'arcgis_token', token };
+      } catch (err) {
+        this.log.warn(
+          `proxy token-exchange failed for item=${itemId}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+        res.status(401).json({
+          message:
+            err instanceof Error
+              ? err.message
+              : 'Could not exchange credentials for an ArcGIS token.',
+        });
+        return;
+      }
+    }
 
     // The wildcard captures the path AFTER /proxy/. Express puts
     // it on the params object under a numeric key, but it can also
@@ -164,4 +197,21 @@ function composeUpstreamHeaders(
  *  even when an upstream proxy fetch fails. */
 function maskCredential(url: string): string {
   return url.replace(/([?&]token=)[^&]+/gi, '$1***');
+}
+
+/** Heuristic mirror of the probe controller's check: does the
+ *  item's URL look like an ArcGIS REST endpoint that would need
+ *  a token instead of HTTP Basic? Same rules so a credential that
+ *  works in the wizard works through the proxy. (#76) */
+function isArcgisRest(url: string): boolean {
+  try {
+    const u = new URL(url);
+    if (u.hostname === 'arcgis.com' || u.hostname.endsWith('.arcgis.com')) {
+      return true;
+    }
+    if (/\/arcgis\/rest\//i.test(u.pathname)) return true;
+    return false;
+  } catch {
+    return false;
+  }
 }

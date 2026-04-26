@@ -22,6 +22,7 @@ import {
   type AuthKind,
   type CredentialPayload,
 } from './credential.service.js';
+import { exchangeBasicForArcgisToken } from './arcgis-auth.js';
 
 /**
  * Inline service probe with optional ephemeral credential (#74).
@@ -75,6 +76,35 @@ export class ServiceProbeController {
     let credential: CredentialPayload | null = null;
     if (dto.credential) {
       credential = buildCredentialPayload(dto.credential);
+    }
+
+    // ArcGIS doesn't honour HTTP Basic on data endpoints (#76).
+    // When the user gives us a Basic credential, exchange the
+    // username + password for an ArcGIS token via the service's
+    // self-described token endpoint and use that for the actual
+    // upstream call. The ephemeral cache key is the username so
+    // the wizard can re-probe (e.g. layer pick changed) without
+    // a fresh round trip.
+    if (credential && credential.kind === 'basic' && isArcgisRest(dto.url)) {
+      try {
+        const token = await exchangeBasicForArcgisToken({
+          serviceUrl: dto.url,
+          username: credential.username,
+          password: credential.password,
+          cacheKey: `probe|${user.id}`,
+        });
+        credential = { kind: 'arcgis_token', token };
+      } catch (err) {
+        return {
+          ok: false,
+          status: 401,
+          statusText:
+            err instanceof Error
+              ? err.message
+              : 'Could not exchange credentials for an ArcGIS token.',
+          body: '',
+        };
+      }
     }
 
     // Compose the request: headers carry bearer / basic, the URL
@@ -226,6 +256,26 @@ function ensureJsonFormat(url: string): string {
 
 function maskCredential(url: string): string {
   return url.replace(/([?&]token=)[^&]+/gi, '$1***');
+}
+
+/**
+ * Heuristic: does the URL look like an ArcGIS REST endpoint? Used
+ * to decide whether to exchange Basic credentials for an ArcGIS
+ * token (#76). We match either "/arcgis/rest/" anywhere in the
+ * path (the canonical ArcGIS Server context) or any *.arcgis.com
+ * host (covers ArcGIS Online's services{N}.arcgis.com fleet).
+ */
+function isArcgisRest(url: string): boolean {
+  try {
+    const u = new URL(url);
+    if (u.hostname === 'arcgis.com' || u.hostname.endsWith('.arcgis.com')) {
+      return true;
+    }
+    if (/\/arcgis\/rest\//i.test(u.pathname)) return true;
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 async function safeText(res: Response): Promise<string> {
