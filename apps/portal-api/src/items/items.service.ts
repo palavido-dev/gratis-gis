@@ -182,7 +182,16 @@ export class ItemsService {
         // intact, then OR in the inherited ids. The wrapper has to
         // preserve `deletedAt: null` so trashed items don't leak in
         // through the inheritance grant.
-        const direct = where;
+        //
+        // NB: take a shallow CLONE of `where` -- the previous code
+        // captured a reference and then assigned where.OR =
+        // [where, ...], which made where.OR[0] === where (circular).
+        // Prisma's parameter serializer hit that with infinite
+        // recursion and threw "Maximum call stack size exceeded"
+        // for any user who actually had folder shares (admins
+        // bypass via the early return in
+        // itemIdsAccessibleViaFolderShares so they never tripped it).
+        const direct: Prisma.ItemWhereInput = { ...where };
         const inherited: Prisma.ItemWhereInput = {
           id: { in: inheritedIds },
           deletedAt: null,
