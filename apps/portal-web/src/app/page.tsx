@@ -52,12 +52,12 @@ export default async function HomePage() {
           desc="Collaborate with teammates and share content."
           icon={<Users className="h-5 w-5" />}
         />
-        <Tile
-          href="/reports"
-          title="Reports"
-          desc="Turn your data into shareable documents."
-          icon={<FileSpreadsheet className="h-5 w-5" />}
-        />
+        {/* Reports is a planned route (see middleware matcher) but
+            no page lives at /reports yet. Hiding the tile rather
+            than rendering a Link that 404s on prefetch every render
+            -- a stack trace of those 404s came up while debugging
+            sign-out, separate symptom but distracting noise. Bring
+            the tile back when /reports lands. */}
       </section>
     </div>
   );

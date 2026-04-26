@@ -99,6 +99,14 @@ export function UserMenu({ seed, displayName, orgName, avatarUrl }: Props) {
               role="menuitem"
               onClick={(e) => {
                 e.preventDefault();
+                // Diagnostic log so we can confirm in the browser
+                // console whether the click handler is even firing.
+                // If this never logs, the click is being swallowed
+                // before reaching React; if it logs but the
+                // navigation doesn't happen, something else is
+                // stopping window.location.assign.
+                // eslint-disable-next-line no-console
+                console.log('[sign-out] click fired, navigating');
                 window.location.assign('/api/auth/federated-logout');
               }}
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-danger hover:bg-danger/5"
