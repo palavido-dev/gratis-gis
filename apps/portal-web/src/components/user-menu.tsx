@@ -88,20 +88,24 @@ export function UserMenu({ seed, displayName, orgName, avatarUrl }: Props) {
               <UserCircle className="h-4 w-4 text-muted" />
               Profile
             </Link>
-            {/* Plain <a>, NOT a <Link>, so the click does a real
-                browser navigation. Next.js Link is for client-side
-                page transitions; against an /api/* route it
-                intercepts the click without falling through to a
-                hard nav, so Sign out silently no-ops. Hit by Bob
-                today. */}
-            <a
+            {/* Bulletproof sign-out: explicit window.location.assign
+                in an onClick handler, no <Link> or anchor that any
+                framework / SW / accessibility-tree shim could
+                intercept. The plain-<a> variant we tried first
+                still didn't navigate in incognito; this version
+                bypasses every link-handling code path. */}
+            <button
+              type="button"
               role="menuitem"
-              href="/api/auth/federated-logout"
-              className="flex items-center gap-2 px-3 py-2 text-sm text-danger hover:bg-danger/5"
+              onClick={(e) => {
+                e.preventDefault();
+                window.location.assign('/api/auth/federated-logout');
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-danger hover:bg-danger/5"
             >
               <LogOut className="h-4 w-4" />
               Sign out
-            </a>
+            </button>
           </div>
         </div>
       ) : null}
