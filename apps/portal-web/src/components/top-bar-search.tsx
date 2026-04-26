@@ -8,12 +8,19 @@ import { Search } from 'lucide-react';
  * Top-bar global search. Lives in the app shell so every page has
  * the same search affordance.
  *
- * Today: typing + pressing Enter navigates to /items?q=<query> and
- * leans on the items list's existing server-side search (title +
- * description + tags). The dropdown-style unified search
- * (items / groups / people in one autocomplete) is a worthwhile
- * follow-up but a much bigger UX commitment; we ship the obvious
- * useful behaviour first.
+ * Today: typing + pressing Enter navigates to
+ * /items?scope=all&q=<query> and leans on the items list's
+ * existing server-side search (title + description + tags). The
+ * dropdown-style unified search (items / groups / people in one
+ * autocomplete) is a worthwhile follow-up but a much bigger UX
+ * commitment; we ship the obvious useful behaviour first.
+ *
+ * Why scope=all by default: AGO's trap is that search defaults to
+ * "my items" and people get confused when something they know
+ * exists doesn't show up. Defaulting to all items means the
+ * search behaves like the user expects ("find anything I can
+ * see"); narrowing to "My items" is one click away on the items
+ * page itself.
  *
  * Pre-fill: when the user is already on /items with a ?q= param,
  * the input mirrors it so the search isn't lost on subsequent
@@ -38,10 +45,15 @@ export function TopBarSearch() {
     e.preventDefault();
     const q = draft.trim();
     if (q.length === 0) {
+      // Empty submit clears the search. Stay on whatever scope
+      // the items page would otherwise show (don't force-flip
+      // to All when the user just cleared the query).
       router.push('/items');
       return;
     }
-    router.push(`/items?q=${encodeURIComponent(q)}`);
+    router.push(
+      `/items?scope=all&q=${encodeURIComponent(q)}`,
+    );
   }
 
   return (
