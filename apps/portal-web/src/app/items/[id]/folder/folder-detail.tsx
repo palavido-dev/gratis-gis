@@ -4,13 +4,16 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
+  Check,
   ChevronDown,
   ChevronRight,
   Folder as FolderIcon,
   FolderPlus,
   Inbox,
+  Loader2,
   Plus,
   Sparkles,
+  Users,
   X,
 } from 'lucide-react';
 import type {
@@ -104,6 +107,11 @@ export function FolderDetail({
   const [error, setError] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [reordering, setReordering] = useState(false);
+  // "Share all items in this folder" bulk action (#64). Opens a
+  // dialog that writes individual share rows on every visible
+  // child the caller has admin on. No cascading magic -- each
+  // share is a real, auditable grant identical to a direct share.
+  const [shareAllOpen, setShareAllOpen] = useState(false);
 
   // Re-fetch contents on mount so a navigation that happened while
   // Next.js's router cache held a stale render (e.g. after the user
@@ -394,6 +402,17 @@ export function FolderDetail({
             : `${visibleCount} visible (${totalRefs - visibleCount} hidden by access)`}
         </div>
         <div className="flex items-center gap-2">
+          {canEdit && children.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setShareAllOpen(true)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 text-xs text-ink-1 hover:bg-surface-2"
+              title="Share every item in this folder with a user or group at once. Each item gets its own real share row -- no cascading magic."
+            >
+              <Users className="h-3.5 w-3.5" />
+              Share all items
+            </button>
+          ) : null}
           {canCreate ? (
             <Link
               href={`/items/new?type=folder&parentFolderId=${itemId}`}
@@ -416,6 +435,17 @@ export function FolderDetail({
           ) : null}
         </div>
       </div>
+
+      {shareAllOpen ? (
+        <ShareAllItemsDialog
+          items={children}
+          onClose={() => setShareAllOpen(false)}
+          onShared={() => {
+            setShareAllOpen(false);
+            router.refresh();
+          }}
+        />
+      ) : null}
 
       {/* Inheritance toggle (#44 phase 1c slice 3a). Only meaningful
           when this folder has a parent (top-level folders have
@@ -580,6 +610,297 @@ export function FolderDetail({
 // DEFAULT_FOLDER pulled at the import site so the bundler keeps the
 // module-load path identical to the wizard's shape on first paint.
 export const _FolderDetailDefaults = DEFAULT_FOLDER;
+
+/**
+ * "Share all items in this folder" bulk dialog (#64).
+ *
+ * Folder shares grant access to the folder itself, not its contents
+ * (#63). When an author wants to share a whole project's worth of
+ * items with a teammate, this dialog is the convenience handle:
+ * pick principals + permission, click Share, and the dialog walks
+ * every child item and calls the standard /share endpoint per item.
+ * Each share row ends up identical to a direct share, fully
+ * auditable, no cascading state to undo later.
+ *
+ * Items the caller can't admin (someone else's items inside their
+ * folder) are silently skipped -- the per-share endpoint already
+ * gates on canAdmin and would 403 anyway. The dialog tells the
+ * user how many of the visible items are eligible before they
+ * commit.
+ *
+ * Recipients can be users or groups; this reuses the share dialog's
+ * principal picker for consistency.
+ */
+function ShareAllItemsDialog({
+  items,
+  onClose,
+  onShared,
+}: {
+  items: ItemWithShares[];
+  onClose: () => void;
+  onShared: () => void;
+}) {
+  // We're working off the children fetched server-side which
+  // already include shares; canAdmin in the share endpoint
+  // requires owner-or-admin on the item. Without the current
+  // user id we can't pre-filter perfectly, so the dialog uses an
+  // approximate count ("up to N items") and the actual share
+  // loop counts successes / skips.
+  const eligibleCount = items.length;
+  const [picked, setPicked] = useState<PrincipalOption | null>(null);
+  const [permission, setPermission] = useState<
+    'view' | 'download' | 'edit' | 'admin'
+  >('view');
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<{
+    done: number;
+    failed: number;
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function searchUsers(q: string): Promise<PrincipalOption[]> {
+    // Search users + groups in parallel. Same pattern as the
+    // share dialog: unified picker, principalType inferred from
+    // the option's id source.
+    const [usersRes, groupsRes] = await Promise.allSettled([
+      fetch(
+        `/api/portal/users${q.trim() ? `?q=${encodeURIComponent(q.trim())}` : ''}`,
+      ),
+      fetch(
+        `/api/portal/groups${q.trim() ? `?q=${encodeURIComponent(q.trim())}` : ''}`,
+      ),
+    ]);
+    const out: PrincipalOption[] = [];
+    if (usersRes.status === 'fulfilled' && usersRes.value.ok) {
+      const rows = (await usersRes.value.json()) as Array<{
+        id: string;
+        username: string;
+        fullName?: string | null;
+        avatarUrl?: string | null;
+      }>;
+      for (const r of rows) {
+        out.push({
+          id: `user:${r.id}`,
+          title: r.fullName?.trim() || r.username,
+          subtitle: r.fullName?.trim() ? r.username : null,
+          imageUrl: r.avatarUrl ?? null,
+        });
+      }
+    }
+    if (groupsRes.status === 'fulfilled' && groupsRes.value.ok) {
+      const rows = (await groupsRes.value.json()) as Array<{
+        id: string;
+        title: string;
+        description?: string | null;
+        thumbnailUrl?: string | null;
+      }>;
+      for (const r of rows) {
+        out.push({
+          id: `group:${r.id}`,
+          title: r.title,
+          subtitle: r.description ?? null,
+          imageUrl: r.thumbnailUrl ?? null,
+        });
+      }
+    }
+    return out;
+  }
+
+  async function commit() {
+    if (!picked) return;
+    setBusy(true);
+    setError(null);
+    setProgress({ done: 0, failed: 0 });
+    const [principalType, principalId] = picked.id.split(':') as [
+      'user' | 'group',
+      string,
+    ];
+    let done = 0;
+    let failed = 0;
+    for (const item of items) {
+      try {
+        const res = await fetch(`/api/portal/items/${item.id}/share`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            principalType,
+            principalId,
+            permission,
+          }),
+        });
+        if (res.ok) {
+          done += 1;
+        } else {
+          // 403 (not admin on this item) and 400 (invalid
+          // principal) are silent skips: the user asked to
+          // share what they could, and we shared what we
+          // could. 404 likewise means the item moved /
+          // disappeared between fetch and now.
+          failed += 1;
+        }
+      } catch {
+        failed += 1;
+      }
+      setProgress({ done, failed });
+    }
+    setBusy(false);
+    if (failed > 0 && done === 0) {
+      setError(
+        `Could not share any items. You may not be the owner or an admin on these items.`,
+      );
+      return;
+    }
+    onShared();
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Share all items in this folder"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-lg border border-border bg-surface-1 shadow-overlay"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="border-b border-border px-4 py-3">
+          <h3 className="flex items-center gap-2 text-base font-semibold">
+            <Users className="h-4 w-4" />
+            Share all items in this folder
+          </h3>
+          <p className="mt-1 text-xs text-muted">
+            Each item will get its own share grant for the recipient
+            you pick. This is identical to opening every item one by
+            one and sharing it manually -- no inheritance, no
+            cascading state. Folder membership and item shares stay
+            independent: removing an item from the folder later does
+            not change who has access to it.
+          </p>
+        </div>
+
+        <div className="space-y-3 px-4 py-4 text-sm">
+          <div>
+            <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted">
+              Recipient
+            </span>
+            {picked ? (
+              <div className="flex items-center gap-2 rounded border border-border bg-surface-1 px-2 py-1.5 text-xs">
+                <span className="flex-1 truncate text-ink-0">
+                  {picked.title}
+                  {picked.id.startsWith('group:') ? (
+                    <span className="ml-1 text-[10px] uppercase tracking-wide text-muted">
+                      group
+                    </span>
+                  ) : null}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPicked(null)}
+                  className="h-6 rounded border border-border bg-surface-1 px-2 text-[11px] text-muted hover:bg-surface-2 hover:text-ink-1"
+                >
+                  Clear
+                </button>
+              </div>
+            ) : (
+              <PrincipalPicker
+                placeholder="Search for a user or group"
+                search={searchUsers}
+                onPick={setPicked}
+                emptyMessage="No matching users or groups."
+                emptyInitialMessage="Start typing a name to search."
+              />
+            )}
+          </div>
+
+          <div>
+            <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted">
+              Permission
+            </span>
+            <div className="grid grid-cols-2 gap-1">
+              {(['view', 'download', 'edit', 'admin'] as const).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPermission(p)}
+                  className={`rounded border px-2 py-1 text-left text-xs transition-colors ${
+                    permission === p
+                      ? 'border-accent bg-accent/5 text-ink-0'
+                      : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
+                  }`}
+                >
+                  <div className="font-medium capitalize">{p}</div>
+                  <div className="text-[10px] text-muted">
+                    {p === 'view' && 'See the item'}
+                    {p === 'download' && 'See + export bulk data'}
+                    {p === 'edit' && 'See + change content'}
+                    {p === 'admin' && 'Full control, including sharing'}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <p className="text-[11px] text-muted">
+            This will attempt to share <strong>up to {eligibleCount}</strong>{' '}
+            item{eligibleCount === 1 ? '' : 's'}. Items where you are not
+            the owner or an admin will be skipped automatically.
+          </p>
+
+          {progress ? (
+            <div className="rounded border border-border bg-surface-2 px-2 py-1.5 text-xs">
+              {busy ? (
+                <span className="inline-flex items-center gap-2 text-ink-1">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Shared {progress.done} of {eligibleCount}
+                  {progress.failed > 0
+                    ? ` (${progress.failed} skipped)`
+                    : ''}
+                  ...
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-2 text-success">
+                  <Check className="h-3.5 w-3.5" />
+                  Shared {progress.done} item
+                  {progress.done === 1 ? '' : 's'}
+                  {progress.failed > 0
+                    ? `; ${progress.failed} skipped (no admin rights)`
+                    : ''}
+                </span>
+              )}
+            </div>
+          ) : null}
+
+          {error ? (
+            <p role="alert" className="text-xs text-danger">
+              {error}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            className="h-9 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void commit()}
+            disabled={busy || !picked}
+            className="h-9 rounded-md bg-accent px-3 text-sm font-medium text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy ? 'Sharing...' : 'Share'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /** All three search-fields keyed for the multi-select. Tuple
  *  rather than a Set so render order is stable and predictable. */

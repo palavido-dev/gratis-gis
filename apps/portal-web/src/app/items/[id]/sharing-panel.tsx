@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Building2,
@@ -543,60 +542,24 @@ export function SharingPanel({
         ) : null}
       </div>
 
-      {/* Inherited shares (#44 phase 1c slice 3c). Read-only --
-          actions on these belong on the originating folder, not
-          here. Section is hidden when there are no inherited
-          shares so the panel stays compact for items not in any
-          folder ancestry. */}
-      {inheritedShares.length > 0 ? (
-        <>
-          <div className="px-4 pt-4">
-            <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
-              Inherited from folder
-            </h3>
-            <p className="mt-1 text-[11px] text-muted">
-              These shares come from a folder this item is in. To
-              change them, open the originating folder.
-            </p>
-          </div>
-          <ul className="divide-y divide-border">
-            {inheritedShares.map((share) => {
-              const groupTitle = groups.find(
-                (g) => g.id === share.principalId,
-              )?.title;
-              return (
-                <li
-                  key={`inherited:${share.principalType}:${share.principalId}`}
-                  className="flex items-center justify-between gap-3 px-4 py-2 text-sm"
-                >
-                  <div className="flex min-w-0 flex-col">
-                    <span className="truncate text-ink-1">
-                      {share.principalType === 'group'
-                        ? groupTitle ?? `Group ${share.principalId.slice(0, 8)}`
-                        : `User ${share.principalId.slice(0, 8)}`}
-                    </span>
-                    <span className="truncate text-[11px] text-muted">
-                      <Link
-                        href={`/items/${share.fromFolderId}`}
-                        className="hover:text-ink-1 hover:underline"
-                      >
-                        Inherited from folder: {share.fromFolderTitle}
-                      </Link>
-                    </span>
-                  </div>
-                  <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
-                    can {share.permission}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        </>
-      ) : null}
+      {/* Inherited-shares display retired 2026-04-26.
+          Folder shares no longer cascade to child items (#63);
+          surfacing an "Inherited from <folder>" caption would
+          describe a grant that doesn't take effect. The
+          inheritedShares prop and InheritedShare type are still
+          accepted by the API for now so external callers don't
+          break, but nothing is rendered. The "Share all items in
+          this folder" bulk action on the folder page (#64) is
+          how authors apply a single grant to many items at once;
+          each item ends up with its own real share row that
+          appears in the regular shares list below.
+          The `inheritedShares` prop is intentionally still in the
+          signature so tests / callers don't have to update at the
+          same beat as the dialog change. */}
 
       <div className="px-4 pt-4">
         <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
-          {inheritedShares.length > 0 ? 'Direct shares' : 'Additional shares'}
+          Shares
         </h3>
       </div>
       {shares.length === 0 ? (
