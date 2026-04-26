@@ -43,7 +43,7 @@ import { FilterEditor } from './filter-editor';
 import { PopupEditor } from './popup-editor';
 import { LabelsEditor } from './labels-editor';
 import { makeEmptyGroupLayer, uniqueGroupTitle } from './group-factory';
-import type { LayerMetadata } from './layer-metadata';
+import { isTableLayer, type LayerMetadata } from './layer-metadata';
 
 interface Props {
   layers: MapLayer[];
@@ -63,11 +63,13 @@ interface Props {
    * rename is initiated here once the layer lands.
    */
   onAddGroup: () => void;
-  /** Open the attribute table panel (#72). Per-layer "Open
-   *  attribute table" in the kebab menu calls this; the table
-   *  lists every layer with feature data, focusing the first by
-   *  default. */
-  onOpenAttributeTable: () => void;
+  /** Open the attribute table panel (#72). When called from the
+   *  per-layer kebab the row passes its own id so the parent can
+   *  focus that layer in the table. Called without an id from any
+   *  global "open table" affordance (currently the toolbar
+   *  toggle), which preserves the default-first-visible behavior.
+   *  (#73) */
+  onOpenAttributeTable: (focusLayerId?: string) => void;
   /** Fly the camera to a layer's feature extent (#72). The
    *  bounding box is computed in the LayerPanel from cached
    *  metadata, then handed to MapCanvas via this callback. */
@@ -553,7 +555,9 @@ export function LayerPanel({
                       }
                       onRemove={() => removeLayer(layer.id)}
                       onPatch={(p) => updateLayer(layer.id, p)}
-                      onOpenAttributeTable={onOpenAttributeTable}
+                      onOpenAttributeTable={() =>
+                        onOpenAttributeTable(layer.id)
+                      }
                       onZoomToExtent={() => onZoomToLayer(layer.id)}
                       groupOptions={groupOptionsFor(layer)}
                       onMoveToGroup={(gid) =>
@@ -598,7 +602,7 @@ interface RowProps {
   onOpacity: (n: number) => void;
   onRemove: () => void;
   onPatch: (patch: Partial<MapLayer>) => void;
-  /** Open the attribute table panel (#72). */
+  /** Open the attribute table panel, focused on this layer (#73). */
   onOpenAttributeTable: () => void;
   /** Fly the camera to this layer's feature extent (#72). */
   onZoomToExtent: () => void;
@@ -646,6 +650,13 @@ function LayerRow({
   onMoveToNewGroup,
 }: RowProps) {
   const [expanded, setExpanded] = useState(false);
+  // Table layers (non-spatial sublayers from arcgis services) carry
+  // attribute data but no geometry, so the cartographic editors
+  // (symbology, labels, filters, popups, interactions, scale) and
+  // the legend's geometry swatches are not meaningful. We detect
+  // them once metadata has loaded and suppress the irrelevant UI.
+  // (#73)
+  const isTable = isTableLayer(metadata);
   const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>({
     symbology: true,
     labels: false,
@@ -844,33 +855,40 @@ function LayerRow({
                     onOpenAttributeTable();
                   }}
                 />
-                <MenuItem
-                  Icon={Tag}
-                  label={
-                    layer.labels.enabled ? 'Hide labels' : 'Show labels'
-                  }
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onPatch({
-                      labels: {
-                        ...layer.labels,
-                        enabled: !layer.labels.enabled,
-                      },
-                    });
-                  }}
-                />
-                <MenuItem
-                  Icon={Focus}
-                  label="Zoom to layer extent"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onZoomToExtent();
-                  }}
-                  disabled={
-                    !metadata.featureCollection ||
-                    metadata.featureCollection.features.length === 0
-                  }
-                />
+                {/* Labels and zoom-to-extent are geometry-bound:
+                    suppress them on table layers since they would
+                    have no effect. (#73) */}
+                {!isTable ? (
+                  <>
+                    <MenuItem
+                      Icon={Tag}
+                      label={
+                        layer.labels.enabled ? 'Hide labels' : 'Show labels'
+                      }
+                      onClick={() => {
+                        setMenuOpen(false);
+                        onPatch({
+                          labels: {
+                            ...layer.labels,
+                            enabled: !layer.labels.enabled,
+                          },
+                        });
+                      }}
+                    />
+                    <MenuItem
+                      Icon={Focus}
+                      label="Zoom to layer extent"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        onZoomToExtent();
+                      }}
+                      disabled={
+                        !metadata.featureCollection ||
+                        metadata.featureCollection.features.length === 0
+                      }
+                    />
+                  </>
+                ) : null}
                 {/* Move to group: nested submenu, opened inline so
                     we don't need a floating-element library. List
                     the layer's existing parent at the top so the
@@ -973,24 +991,38 @@ function LayerRow({
 
       {expanded ? (
         <div className="space-y-0 border-t border-border bg-surface-2">
-          <div className="px-3 py-3">
-            <label className="flex items-center justify-between text-[10px] uppercase tracking-wide text-muted">
-              <span>Opacity</span>
-              <span className="tabular-nums">{Math.round(layer.opacity * 100)}%</span>
-            </label>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={layer.opacity}
-              disabled={!canEdit}
-              onChange={(e) => onOpacity(Number(e.target.value))}
-              className="mt-1 w-full accent-accent disabled:opacity-50"
-            />
-          </div>
+          {/* Tables (no geometry) skip the cartographic editors:
+              opacity / symbology / labels / filters / popups /
+              interactions / scale all manipulate something visual,
+              and a table never renders. Show an unobtrusive hint
+              instead so the user knows where to look. (#73) */}
+          {isTable ? (
+            <div className="px-3 py-3 text-xs text-muted">
+              This is a non-spatial table. Open the attribute table
+              from the kebab menu to view its records.
+            </div>
+          ) : (
+            <div className="px-3 py-3">
+              <label className="flex items-center justify-between text-[10px] uppercase tracking-wide text-muted">
+                <span>Opacity</span>
+                <span className="tabular-nums">
+                  {Math.round(layer.opacity * 100)}%
+                </span>
+              </label>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={layer.opacity}
+                disabled={!canEdit}
+                onChange={(e) => onOpacity(Number(e.target.value))}
+                className="mt-1 w-full accent-accent disabled:opacity-50"
+              />
+            </div>
+          )}
 
-          {canEdit ? (
+          {canEdit && !isTable ? (
             <>
               <Section
                 Icon={Palette}

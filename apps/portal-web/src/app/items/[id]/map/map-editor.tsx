@@ -256,6 +256,12 @@ export function MapEditor({
   const [addOpen, setAddOpen] = useState(false);
   const [legendOpen, setLegendOpen] = useState(false);
   const [tableOpen, setTableOpen] = useState(false);
+  // Layer id chosen by the per-layer kebab's "Open attribute table"
+  // action (#73). Cleared when the table closes so reopening from
+  // the toolbar lands on the default-first-visible behavior.
+  const [tableFocusLayerId, setTableFocusLayerId] = useState<string | null>(
+    null,
+  );
   const canvasRef = useRef<MapCanvasHandle | null>(null);
 
   /**
@@ -732,7 +738,13 @@ export function MapEditor({
               Icon={Table}
               label="Attributes"
               active={tableOpen}
-              onClick={() => setTableOpen((v) => !v)}
+              onClick={() => {
+              // Toolbar toggle is the unfocused path: clear any
+              // per-layer focus so the table defaults to the
+              // first-visible queryable layer. (#73)
+              setTableFocusLayerId(null);
+              setTableOpen((v) => !v);
+            }}
             />
             <ToolbarToggle
               Icon={ShieldCheck}
@@ -774,7 +786,13 @@ export function MapEditor({
             Icon={Table}
             label="Attributes"
             active={tableOpen}
-            onClick={() => setTableOpen((v) => !v)}
+            onClick={() => {
+              // Toolbar toggle is the unfocused path: clear any
+              // per-layer focus so the table defaults to the
+              // first-visible queryable layer. (#73)
+              setTableFocusLayerId(null);
+              setTableOpen((v) => !v);
+            }}
           />
         </div>
       )}
@@ -788,7 +806,10 @@ export function MapEditor({
             currentZoom={map.zoom}
             onOpenAdd={() => setAddOpen(true)}
             onAddGroup={addEmptyGroup}
-            onOpenAttributeTable={() => setTableOpen(true)}
+            onOpenAttributeTable={(layerId) => {
+              setTableFocusLayerId(layerId ?? null);
+              setTableOpen(true);
+            }}
             onZoomToLayer={(layerId) => {
               // Compute the bbox from the layer's cached feature
               // collection. Metadata is populated as the canvas
@@ -888,7 +909,13 @@ export function MapEditor({
             canEdit={canEdit}
             selection={selection}
             setSelection={setSelection}
-            onClose={() => setTableOpen(false)}
+            focusLayerId={tableFocusLayerId}
+            onClose={() => {
+              setTableOpen(false);
+              // Clear the focus pick on close so re-opening from
+              // the toolbar lands on the default-first-visible.
+              setTableFocusLayerId(null);
+            }}
             onZoomTo={(bbox) => canvasRef.current?.zoomTo(bbox)}
             onPatchLayer={(layerId, patch) => {
               setLayers(

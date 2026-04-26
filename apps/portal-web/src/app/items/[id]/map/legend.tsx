@@ -2,6 +2,7 @@
 
 import { List, X } from 'lucide-react';
 import type { MapLayer } from '@gratis-gis/shared-types';
+import { isTableLayer } from './layer-metadata';
 import type { GeometryFamily, LayerMetadata } from './layer-metadata';
 import { renderIconSvg } from './map-icons';
 
@@ -26,7 +27,15 @@ interface Props {
 export function Legend({ open, layers, metadata, onClose }: Props) {
   if (!open) return null;
 
-  const visible = layers.filter((l) => l.visible);
+  // Group headers and non-spatial tables don't render anything on
+  // the map, so they don't belong in the legend either. (#73)
+  const visible = layers.filter((l) => {
+    if (!l.visible) return false;
+    if (l.source.kind === 'group') return false;
+    const meta = metadata[l.id];
+    if (meta && isTableLayer(meta)) return false;
+    return true;
+  });
 
   return (
     <div className="absolute right-4 top-4 z-10 flex max-h-[60%] w-72 flex-col overflow-hidden rounded-lg border border-border bg-surface-1/95 shadow-raised backdrop-blur">

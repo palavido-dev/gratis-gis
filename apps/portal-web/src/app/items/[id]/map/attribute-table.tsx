@@ -42,6 +42,14 @@ interface Props {
   onZoomTo: (bbox: [number, number, number, number]) => void;
   /** Replace the layer filter (used by "convert selection to filter"). */
   onPatchLayer: (layerId: string, patch: Partial<MapLayer>) => void;
+  /**
+   * When the parent calls "Open attribute table" from the per-layer
+   * kebab (#72), this prop carries the chosen layer id. The table
+   * focuses that layer instead of defaulting to the first visible
+   * one. Resetting to null between opens is the parent's job; we
+   * react to changes via useEffect.
+   */
+  focusLayerId?: string | null;
 }
 
 type SortDir = 'asc' | 'desc';
@@ -70,6 +78,7 @@ export function AttributeTable({
   onClose,
   onZoomTo,
   onPatchLayer,
+  focusLayerId,
 }: Props) {
   const [activeLayerId, setActiveLayerId] = useState<string | null>(null);
   const [lastPicked, setLastPicked] = useState<number | null>(null);
@@ -87,12 +96,17 @@ export function AttributeTable({
   // Only layers the viewer is allowed to query belong in the table.
   // `effective.query === false` is the server's signal (from the
   // access matrix) that this layer's attributes are off-limits for
-  // the current user. Filtering at the picker level keeps both the
-  // dropdown and the auto-selected "first visible" layer honest.
+  // the current user. Group rows are excluded outright -- a group
+  // is a UI-only organising header with no features, so listing it
+  // in the picker would only frustrate the user. Filtering at the
+  // picker level keeps both the dropdown and the auto-selected
+  // "first visible" layer honest.
   const queryableLayers = useMemo(
     () =>
       layers.filter(
-        (l) => l.effective === undefined || l.effective.query !== false,
+        (l) =>
+          l.source.kind !== 'group' &&
+          (l.effective === undefined || l.effective.query !== false),
       ),
     [layers],
   );
@@ -105,8 +119,19 @@ export function AttributeTable({
   // changes. Also resets the active layer if the currently-active one
   // just had its query permission revoked (e.g. matrix edit on an
   // editor-side map viewer refresh).
+  // When the parent passes `focusLayerId` (the per-layer kebab's
+  // "Open attribute table" action, #72) we honour that pick first.
   useEffect(() => {
     if (!open) return;
+    if (
+      focusLayerId &&
+      queryableLayers.some((l) => l.id === focusLayerId)
+    ) {
+      setActiveLayerId(focusLayerId);
+      setLastPicked(null);
+      setSortBy(null);
+      return;
+    }
     if (
       activeLayerId &&
       queryableLayers.some((l) => l.id === activeLayerId)
@@ -121,7 +146,7 @@ export function AttributeTable({
     setQuery('');
     // Note: we deliberately don't clear the shared selection here
     // switching layers should preserve the picks on other layers.
-  }, [open, queryableLayers, activeLayerId]);
+  }, [open, queryableLayers, activeLayerId, focusLayerId]);
 
   /** Replace the active layer's slice; leave other layers untouched. */
   function updateActiveSelection(next: Set<number>) {

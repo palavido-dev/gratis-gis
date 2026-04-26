@@ -167,6 +167,27 @@ export async function discoverLayerMetadata(
   return out;
 }
 
+/**
+ * True when the layer has finished loading and turned out to carry no
+ * geometry: a "table" sublayer (#73). ArcGIS feature services often
+ * include non-spatial tables alongside their spatial layers; the user
+ * may want them on the map's data side for the attribute table even
+ * though they don't render. The cartographic editors and the legend
+ * use this signal to suppress controls that would never apply.
+ *
+ * Distinct from "still loading" (geometryTypes empty because we
+ * haven't fetched yet): we check that the feature collection is
+ * resolved AND geometryTypes is empty. While loading we err toward
+ * showing controls so the editor doesn't flicker.
+ */
+export function isTableLayer(metadata: LayerMetadata): boolean {
+  return (
+    !metadata.loading &&
+    metadata.featureCollection !== null &&
+    metadata.geometryTypes.size === 0
+  );
+}
+
 function geometryFamily(type?: string): GeometryFamily | null {
   switch (type) {
     case 'Point':
