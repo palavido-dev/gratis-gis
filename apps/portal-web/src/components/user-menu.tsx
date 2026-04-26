@@ -88,14 +88,20 @@ export function UserMenu({ seed, displayName, orgName, avatarUrl }: Props) {
               <UserCircle className="h-4 w-4 text-muted" />
               Profile
             </Link>
-            <Link
+            {/* Plain <a>, NOT a <Link>, so the click does a real
+                browser navigation. Next.js Link is for client-side
+                page transitions; against an /api/* route it
+                intercepts the click without falling through to a
+                hard nav, so Sign out silently no-ops. Hit by Bob
+                today. */}
+            <a
               role="menuitem"
               href="/api/auth/federated-logout"
               className="flex items-center gap-2 px-3 py-2 text-sm text-danger hover:bg-danger/5"
             >
               <LogOut className="h-4 w-4" />
               Sign out
-            </Link>
+            </a>
           </div>
         </div>
       ) : null}
