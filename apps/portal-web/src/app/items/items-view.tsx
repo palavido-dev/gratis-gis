@@ -20,6 +20,7 @@ import {
   PrincipalPicker,
   type PrincipalOption,
 } from '@/components/principal-picker';
+import { DependentsWarning } from '@/components/dependents-warning';
 import { ItemCard } from '@gratis-gis/ui';
 import type {
   FolderData,
@@ -658,6 +659,7 @@ export function ItemsView({ items, currentUser, folders = [] }: Props) {
       {showBulkTrash ? (
         <BulkTrashDialog
           count={selected.size}
+          itemIds={Array.from(selected)}
           saving={bulkSaving}
           onConfirm={handleBulkTrash}
           onClose={() => {
@@ -978,11 +980,16 @@ function BulkShareDialog({
  */
 function BulkTrashDialog({
   count,
+  itemIds,
   saving,
   onConfirm,
   onClose,
 }: {
   count: number;
+  /** Selection ids passed through to the dependents warning (#78)
+   *  so the dialog can show what will lose its reference if the
+   *  user confirms. */
+  itemIds: string[];
   saving: boolean;
   onConfirm: () => void | Promise<void>;
   onClose: () => void;
@@ -1015,6 +1022,11 @@ function BulkTrashDialog({
             Items where you are not the owner or an admin are skipped
             automatically.
           </p>
+          {/* Aggregated warning: any other items in the org that
+              reference one or more of the selection. The component
+              filters out dependents that are themselves in the
+              selection (those are trashing too). (#78) */}
+          <DependentsWarning itemIds={itemIds} />
         </div>
         <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
           <button

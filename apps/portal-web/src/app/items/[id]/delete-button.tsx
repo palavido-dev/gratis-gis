@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Trash2 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { DependentsWarning } from '@/components/dependents-warning';
 
 interface Props {
   itemId: string;
@@ -52,7 +53,12 @@ export function DeleteItemButton({ itemId, itemTitle, retentionDays = 30 }: Prop
         title={`Move "${itemTitle}" to trash?`}
         description={`The item will stop appearing in lists and searches and every share attached to it will stop granting access. You can restore it from Trash within ${retentionDays} days; after that it is permanently deleted.`}
         confirmLabel="Move to trash"
-      />
+      >
+        {/* Surface anything that references this item so the user
+            isn't surprised when (e.g.) a map loses one of its
+            layers after the trash. (#78) */}
+        {open ? <DependentsWarning itemIds={[itemId]} /> : null}
+      </ConfirmDialog>
       {error ? (
         <p role="alert" className="mt-2 text-xs text-danger">
           {error}

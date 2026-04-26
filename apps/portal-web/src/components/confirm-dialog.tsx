@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 
 export interface ConfirmDialogProps {
@@ -19,6 +19,10 @@ export interface ConfirmDialogProps {
   cancelLabel?: string;
   /** 'danger' paints the confirm button red; 'primary' uses the accent color. */
   tone?: 'danger' | 'primary';
+  /** Optional extra body content rendered between the description
+   *  and the typed-confirmation/buttons row. Used by delete dialogs
+   *  to show the dependents warning (#78). */
+  children?: ReactNode;
 }
 
 /**
@@ -38,6 +42,7 @@ export function ConfirmDialog({
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
   tone = 'danger',
+  children,
 }: ConfirmDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [typed, setTyped] = useState('');
@@ -94,6 +99,7 @@ export function ConfirmDialog({
             {description ? (
               <p className="mt-1 text-sm text-muted">{description}</p>
             ) : null}
+            {children}
           </div>
         </div>
 
