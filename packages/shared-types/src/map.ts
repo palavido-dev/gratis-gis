@@ -358,6 +358,17 @@ export type MapLayerSource =
        * matching.
        */
       sourceItemId?: string;
+      /**
+       * Route the live bbox query through the portal-api proxy at
+       * `/api/portal/items/:id/proxy` instead of `url` directly
+       * (#36). Set when the source item is a credentialed
+       * arcgis_service item (data.requiresAuth === true). The
+       * proxy resolves the stored credential server-side and
+       * forwards to the upstream URL; the browser never sees the
+       * secret. `url` stays as the human-readable upstream URL so
+       * "open service page" links still work.
+       */
+      proxyUrl?: string;
     }
   /**
    * Group "layer" -- a UI-only grouping marker. Group layers do not

@@ -251,12 +251,45 @@ model Item {
   shares      ItemShare[]
   attachments FeatureAttachment[]
   snapshots   ItemDataSnapshot[]
+  credential  ItemCredential?
 
   @@index([orgId, access])
   @@index([ownerId])
   @@index([type])
   @@index([deletedAt])
   @@map("item")
+}
+
+/// Per-item stored credential for secured external services (#36).
+/// Used by arcgis_service / wms_service / wfs_service items that
+/// require auth to fetch from the upstream provider. The browser
+/// hits our proxy instead of carrying the token; the credential
+/// never leaves the server.
+///
+/// Ciphertext is AES-256-GCM via Node's crypto, with the master key
+/// in CREDENTIAL_ENCRYPTION_KEY (base64 32-byte). The IV is stored
+/// per-row (12 bytes, base64). item_id is used as additional
+/// authenticated data so a row can't be moved between items.
+model ItemCredential {
+  id               String   @id @default(uuid()) @db.Uuid
+  itemId           String   @unique @map("item_id") @db.Uuid
+  /// 'bearer', 'basic', 'arcgis_token'. Plain string rather than an
+  /// enum so adding a new auth scheme doesn't require a schema
+  /// migration. Validated in the service layer.
+  authKind         String   @map("auth_kind")
+  /// AES-256-GCM ciphertext, base64 encoded.
+  encryptedPayload String   @map("encrypted_payload")
+  /// AES-GCM IV, base64 encoded (12 bytes pre-encode).
+  iv               String
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  /// Last user to set / change the credential.
+  updatedBy        String   @map("updated_by") @db.Uuid
+
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId])
+  @@map("item_credential")
 }
 
 /// A share row grants access to an item for a single principal (either a

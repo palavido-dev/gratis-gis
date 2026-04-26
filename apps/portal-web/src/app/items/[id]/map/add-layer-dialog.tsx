@@ -422,7 +422,17 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
       selectedLayerIds?: Array<string | number>;
       layerConfig?: Record<string, { label?: string; visible?: boolean }>;
       layers?: Array<{ id: number; name?: string; geometryType?: string }>;
+      requiresAuth?: boolean;
     };
+    // When the source item is configured for proxied auth (#36),
+    // every layer-source bbox query goes through the portal-api
+    // proxy so the stored credential stays server-side. The
+    // proxy URL is the same shape the BFF expects, including the
+    // /api/portal prefix that the Next route rewrites to /api on
+    // the API side.
+    const proxyUrl = d.requiresAuth
+      ? `/api/portal/items/${item.id}/proxy`
+      : null;
     const ordered = orderedSublayersForPortalItem(item);
     if (ordered === null) return;
     const picked = ordered.filter((l) => selectedIds.has(l.id));
@@ -451,6 +461,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
         layerId: l.id,
         serviceType: d.serviceType ?? 'MapServer',
         sourceItemId: item.id,
+        ...(proxyUrl ? { proxyUrl } : {}),
       });
       if (groupId) layer.groupId = groupId;
       onAdd(layer);

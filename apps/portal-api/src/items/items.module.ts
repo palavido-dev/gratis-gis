@@ -3,12 +3,29 @@ import { ItemsController } from './items.controller.js';
 import { ItemsService } from './items.service.js';
 import { SharingService } from './sharing.service.js';
 import { DataSnapshotService } from './data-snapshot.service.js';
+import { CredentialService } from './credential.service.js';
+import { ItemCredentialController } from './credential.controller.js';
+import { ItemProxyController } from './item-proxy.controller.js';
 import { V3TablesModule } from '../features-v3/v3-tables.module.js';
 
 @Module({
   imports: [V3TablesModule],
-  controllers: [ItemsController],
-  providers: [ItemsService, SharingService, DataSnapshotService],
-  exports: [ItemsService, SharingService, DataSnapshotService],
+  controllers: [
+    ItemsController,
+    ItemCredentialController,
+    ItemProxyController,
+  ],
+  providers: [
+    ItemsService,
+    SharingService,
+    DataSnapshotService,
+    CredentialService,
+  ],
+  exports: [
+    ItemsService,
+    SharingService,
+    DataSnapshotService,
+    CredentialService,
+  ],
 })
 export class ItemsModule {}

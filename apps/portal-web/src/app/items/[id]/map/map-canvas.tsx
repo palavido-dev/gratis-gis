@@ -548,8 +548,16 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
           kind: 'arcgis-rest';
           url: string;
           layerId: number;
+          /** Proxy URL from #36 when the source item requires auth. */
+          proxyUrl?: string;
         };
-        fetchLayerBBox(arc.url, arc.layerId, bbox, {
+        // Route through the portal-api proxy when the source item is
+        // credentialed (#36); fall back to the direct upstream URL
+        // for public services. Both shapes accept the same /<layerId>
+        // /query?... sub-path: the proxy treats everything after
+        // /proxy/ as the path appended to item.data.url server-side.
+        const queryUrl = arc.proxyUrl ?? arc.url;
+        fetchLayerBBox(queryUrl, arc.layerId, bbox, {
           signal: controller.signal,
         })
           .then(({ featureCollection }) => {

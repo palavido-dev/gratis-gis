@@ -279,6 +279,37 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
         ) : null}
       </div>
 
+      <CredentialsCard
+        itemId={itemId}
+        canEdit={canEdit}
+        requiresAuth={!!data.requiresAuth}
+        onToggleRequiresAuth={async (next) => {
+          // Persist the flag against the item's data so the layer
+          // source reads it when constructing the fetch URL.
+          // Optimistic local state with rollback on failure.
+          const prev = data.requiresAuth;
+          setData((d) => ({ ...d, requiresAuth: next }));
+          try {
+            const res = await fetch(`/api/portal/items/${itemId}`, {
+              method: 'PATCH',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                data: { ...data, requiresAuth: next },
+              }),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            startTransition(() => router.refresh());
+          } catch (err) {
+            setData((d) => ({ ...d, requiresAuth: prev ?? false }));
+            setError(
+              err instanceof Error
+                ? err.message
+                : 'Could not toggle proxy auth.',
+            );
+          }
+        }}
+      />
+
       {staged.layers.length > 0 ? (
         <div className="rounded-lg border border-border bg-surface-1 p-4">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -450,6 +481,308 @@ function geometryShort(g?: string): string {
   if (!g) return 'table';
   const m = g.match(/esriGeometry(\w+)/);
   return (m?.[1] ?? g).toLowerCase();
+}
+
+/**
+ * Stored-credentials editor for an arcgis_service item (#36).
+ *
+ * Two layers:
+ *   - "Use proxied auth" toggle on the item itself (writes
+ *     ArcgisServiceData.requiresAuth). When on, layer-source
+ *     fetches go through /api/items/:id/proxy/... server-side
+ *     instead of the upstream URL directly.
+ *   - Credential editor: kind dropdown + per-kind fields (token,
+ *     or username + password). Saves via PUT /credential. The
+ *     plaintext NEVER round-trips back from the server -- once
+ *     stored, the editor only knows whether a credential is
+ *     configured ("hasSecret: true") and offers to overwrite or
+ *     clear it.
+ */
+function CredentialsCard({
+  itemId,
+  canEdit,
+  requiresAuth,
+  onToggleRequiresAuth,
+}: {
+  itemId: string;
+  canEdit: boolean;
+  requiresAuth: boolean;
+  onToggleRequiresAuth: (next: boolean) => void | Promise<void>;
+}) {
+  type Meta = {
+    kind: 'bearer' | 'basic' | 'arcgis_token';
+    hasSecret: true;
+    updatedAt: string;
+    updatedBy: string;
+  } | { hasSecret: false };
+  const [meta, setMeta] = useState<Meta | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [kindDraft, setKindDraft] = useState<
+    'bearer' | 'basic' | 'arcgis_token'
+  >('bearer');
+  const [tokenDraft, setTokenDraft] = useState('');
+  const [usernameDraft, setUsernameDraft] = useState('');
+  const [passwordDraft, setPasswordDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setErr(null);
+    try {
+      const res = await fetch(`/api/portal/items/${itemId}/credential`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setMeta((await res.json()) as Meta);
+    } catch (e) {
+      setErr(
+        e instanceof Error ? e.message : 'Could not load credential state.',
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [itemId]);
+
+  // Load on mount + whenever the toggle flips on (the flip is a
+  // signal that the user is actively configuring auth and the
+  // metadata may have changed via another tab).
+  if (canEdit && meta === null && !loading) {
+    void refresh();
+  }
+
+  async function saveCredential() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const body: Record<string, unknown> = { kind: kindDraft };
+      if (kindDraft === 'bearer' || kindDraft === 'arcgis_token') {
+        if (!tokenDraft) throw new Error('Token is required.');
+        body.token = tokenDraft;
+      } else {
+        if (!usernameDraft || !passwordDraft) {
+          throw new Error('Username and password are required.');
+        }
+        body.username = usernameDraft;
+        body.password = passwordDraft;
+      }
+      const res = await fetch(`/api/portal/items/${itemId}/credential`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(text || `HTTP ${res.status}`);
+      }
+      // Clear drafts so a screenshot of the editor right after save
+      // doesn't surface the secret. Server doesn't echo the plaintext
+      // back, but the local state could.
+      setTokenDraft('');
+      setPasswordDraft('');
+      setEditorOpen(false);
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Save failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function clearCredential() {
+    if (!window.confirm('Remove the stored credential for this item?')) {
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch(`/api/portal/items/${itemId}/credential`, {
+        method: 'DELETE',
+      });
+      if (!res.ok && res.status !== 204) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Delete failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const hasSecret = meta?.hasSecret === true;
+
+  return (
+    <div className="rounded-lg border border-border bg-surface-1 p-4">
+      <h3 className="mb-1 text-sm font-semibold">Authentication</h3>
+      <p className="mb-3 text-xs text-muted">
+        Some ArcGIS services require a token or username/password. When
+        enabled, the portal stores the credential server-side (encrypted
+        at rest) and proxies layer requests through it -- the browser
+        never sees the secret.
+      </p>
+      <label className="mb-3 flex items-center gap-2 text-xs">
+        <input
+          type="checkbox"
+          checked={requiresAuth}
+          disabled={!canEdit}
+          onChange={(e) => void onToggleRequiresAuth(e.target.checked)}
+          className="h-3.5 w-3.5 rounded border-border"
+        />
+        <span className="text-ink-1">Use proxied auth</span>
+        <span className="text-muted">
+          -- when on, layer fetches route through{' '}
+          <code className="rounded bg-surface-2 px-1">
+            /api/items/{itemId.slice(0, 8)}.../proxy
+          </code>
+          .
+        </span>
+      </label>
+      {requiresAuth ? (
+        <div className="space-y-2 rounded-md border border-border bg-surface-0 p-3 text-xs">
+          {loading ? (
+            <p className="text-muted">Loading credential status...</p>
+          ) : hasSecret && meta && 'kind' in meta ? (
+            <div className="flex items-center gap-2">
+              <Check className="h-3.5 w-3.5 text-success" />
+              <span className="text-ink-1">
+                <strong>{meta.kind}</strong> credential set
+              </span>
+              <span className="text-muted">
+                last updated {new Date(meta.updatedAt).toLocaleString()}
+              </span>
+              {canEdit ? (
+                <div className="ml-auto flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setKindDraft(meta.kind);
+                      setEditorOpen(true);
+                    }}
+                    className="h-7 rounded border border-border bg-surface-1 px-2 text-[11px] text-ink-1 hover:bg-surface-2"
+                  >
+                    Replace
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void clearCredential()}
+                    disabled={busy}
+                    className="h-7 rounded border border-danger/40 bg-surface-1 px-2 text-[11px] text-danger hover:bg-danger/5 disabled:opacity-50"
+                  >
+                    Clear
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="text-muted">No credential configured.</span>
+              {canEdit ? (
+                <button
+                  type="button"
+                  onClick={() => setEditorOpen(true)}
+                  className="ml-auto h-7 rounded border border-accent bg-accent px-2 text-[11px] font-medium text-white hover:bg-accent/90"
+                >
+                  Add credential
+                </button>
+              ) : null}
+            </div>
+          )}
+          {editorOpen && canEdit ? (
+            <div className="space-y-2 rounded border border-border bg-surface-1 p-3">
+              <label className="flex flex-col gap-1">
+                <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
+                  Kind
+                </span>
+                <select
+                  value={kindDraft}
+                  onChange={(e) =>
+                    setKindDraft(e.target.value as typeof kindDraft)
+                  }
+                  className="h-7 rounded border border-border bg-surface-1 px-2 text-xs"
+                >
+                  <option value="bearer">
+                    Bearer token (Authorization header)
+                  </option>
+                  <option value="arcgis_token">
+                    ArcGIS token (?token= URL param)
+                  </option>
+                  <option value="basic">Basic auth (username + password)</option>
+                </select>
+              </label>
+              {kindDraft === 'basic' ? (
+                <>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
+                      Username
+                    </span>
+                    <input
+                      type="text"
+                      value={usernameDraft}
+                      onChange={(e) => setUsernameDraft(e.target.value)}
+                      autoComplete="off"
+                      className="h-7 rounded border border-border bg-surface-1 px-2 text-xs"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
+                      Password
+                    </span>
+                    <input
+                      type="password"
+                      value={passwordDraft}
+                      onChange={(e) => setPasswordDraft(e.target.value)}
+                      autoComplete="new-password"
+                      className="h-7 rounded border border-border bg-surface-1 px-2 text-xs"
+                    />
+                  </label>
+                </>
+              ) : (
+                <label className="flex flex-col gap-1">
+                  <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
+                    Token
+                  </span>
+                  <input
+                    type="password"
+                    value={tokenDraft}
+                    onChange={(e) => setTokenDraft(e.target.value)}
+                    autoComplete="off"
+                    className="h-7 rounded border border-border bg-surface-1 px-2 font-mono text-xs"
+                  />
+                </label>
+              )}
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditorOpen(false);
+                    setTokenDraft('');
+                    setUsernameDraft('');
+                    setPasswordDraft('');
+                  }}
+                  className="h-7 rounded border border-border bg-surface-1 px-2 text-[11px] text-ink-1 hover:bg-surface-2"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void saveCredential()}
+                  disabled={busy}
+                  className="h-7 rounded border border-accent bg-accent px-2 text-[11px] font-medium text-white hover:bg-accent/90 disabled:opacity-50"
+                >
+                  {busy ? 'Saving...' : 'Save credential'}
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {err ? (
+            <p role="alert" className="text-danger">
+              {err}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function formatDate(iso: string): string {

@@ -88,6 +88,15 @@ export interface ArcgisServiceData extends ExternalLayerSelection {
    */
   bbox?: [number, number, number, number];
   probedAt?: ISODateString;
+  /**
+   * Route layer-source fetches through the portal-api proxy at
+   * `/api/items/:id/proxy/...` instead of hitting the upstream
+   * URL directly (#36). When true, the browser never sees the
+   * stored credential -- portal-api injects it server-side via
+   * the configured ItemCredential. False / absent = direct fetch
+   * (the current default for public ArcGIS services).
+   */
+  requiresAuth?: boolean;
 }
 
 export const DEFAULT_ARCGIS_SERVICE: ArcgisServiceData = {
