@@ -1385,49 +1385,27 @@ export class ItemsService {
       : [];
     if (ids.length === 0) return [];
 
-    // Folder-share inheritance (#44 phase 1c slice 3a). If the
-    // caller has access to this folder via inheritance from a
-    // parent folder's shares, treat that as a folder-level grant
-    // that lets them see ALL children regardless of per-item
-    // visibility. This matches the user mental model: "I shared
-    // Project A with Bob, so Bob sees everything in Project A."
+    // Folder share = grant on the folder, not on its contents.
+    // Per-item visibility (visibleWhere) ALWAYS applies to the
+    // children query -- a private item inside a shared folder
+    // stays private. This matches the principle of least surprise:
+    // a teammate shared on a folder can navigate to it and see
+    // which items they have access to inside, but private content
+    // never silently becomes visible just because the container
+    // was shared.
     //
-    // Owner / admin / public / org-public callers already have
-    // unrestricted access via visibleWhere; only narrowly-shared
-    // callers need the inheritance lift. We compute "does the
-    // caller have folder-level access?" by walking the ancestry
-    // and looking for any matching share.
-    const callerHasFolderAccess = await (async () => {
-      // Owner / admin / public / org-public bypass via visibleWhere.
-      if (folder.ownerId === user.id) return true;
-      if (user.orgRole === 'admin' && folder.orgId === user.orgId)
-        return true;
-      if (folder.access === 'public') return true;
-      if (folder.access === 'org' && folder.orgId === user.orgId) return true;
-      const inherited = await this.sharing.inheritedSharesForFolder(
-        folder.id,
-      );
-      return inherited.some(
-        (s) =>
-          (s.principalType === 'user' && s.principalId === user.id) ||
-          (s.principalType === 'group' &&
-            user.groupIds.includes(s.principalId)),
-      );
-    })();
-
-    const baseAnd: Prisma.ItemWhereInput[] = [
-      { id: { in: ids } },
-      { deletedAt: null },
-    ];
-    // When the caller has folder-level access via inheritance, skip
-    // the per-item visibility check -- the folder grant covers
-    // everything inside. Otherwise the regular visibleWhere applies
-    // (matches existing behaviour for direct-shared callers).
-    if (!callerHasFolderAccess) {
-      baseAnd.unshift(this.sharing.visibleWhere(user));
-    }
+    // Earlier slice (#44) had a callerHasFolderAccess bypass that
+    // let folder shares cascade to every child. That confused Bob
+    // testing with Mateo: Bob's private map showed up under a
+    // shared parent folder. Ripped out 2026-04-26.
     const rows = await this.prisma.item.findMany({
-      where: { AND: baseAnd },
+      where: {
+        AND: [
+          this.sharing.visibleWhere(user),
+          { id: { in: ids } },
+          { deletedAt: null },
+        ],
+      },
       include: {
         shares: true,
         owner: {
