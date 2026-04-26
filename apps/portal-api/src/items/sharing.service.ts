@@ -222,7 +222,7 @@ export class SharingService {
     // right thing.
     const rows = await this.prisma.$queryRaw<Row[]>`
       WITH RECURSIVE granted AS (
-        SELECT i.id, i.data
+        SELECT i.id, i.data_json AS data
         FROM "item" i
         WHERE i.type = 'folder'::"ItemType"
           AND i."deleted_at" IS NULL
@@ -235,13 +235,13 @@ export class SharingService {
               )
           )
         UNION
-        SELECT child.id, child.data
+        SELECT child.id, child.data_json AS data
         FROM "item" child
         JOIN granted parent
           ON parent.data->'childItemIds' ? child.id::text
         WHERE child.type = 'folder'::"ItemType"
           AND child."deleted_at" IS NULL
-          AND COALESCE((child.data->>'inheritsParentShares')::boolean, true) = true
+          AND COALESCE((child.data_json->>'inheritsParentShares')::boolean, true) = true
       )
       SELECT DISTINCT child_id::uuid::text AS item_id
       FROM granted gf
