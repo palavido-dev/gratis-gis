@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import type { Item, ItemShare, Prisma } from '@prisma/client';
+import type { Item, ItemShare } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -186,28 +187,31 @@ export class SharingService {
   ): Promise<string[]> {
     if (user.orgRole === 'admin') return [];
     const groupIds = user.groupIds ?? [];
+
     // Fast-path: if no folder share even seeds the recursion, the
-    // CTE is guaranteed to return nothing and we can skip it. This
-    // is the common case for most users (they have no folder
-    // shares pointed at them or their groups), and skipping shaves
-    // tens to hundreds of ms off every items list call (#44 phase
-    // 1c slice 3b perf follow-up).
-    const seedExists = await this.prisma.$queryRaw<
-      Array<{ exists: boolean }>
-    >`
-      SELECT EXISTS(
-        SELECT 1
-        FROM "item_share" s
-        JOIN "item" i ON i.id = s."item_id"
-        WHERE i.type = 'folder'::"ItemType"
-          AND i."deleted_at" IS NULL
-          AND (
-            (s."principal_type" = 'user' AND s."principal_id" = ${user.id}::uuid)
-            OR (s."principal_type" = 'group' AND s."principal_id" = ANY(${groupIds}::uuid[]))
-          )
-      ) AS exists
-    `;
-    if (!seedExists[0]?.exists) return [];
+    // CTE returns nothing and we can skip it. Use Prisma's findMany
+    // API instead of raw -- avoids a runaway-recursion bug in
+    // Prisma 5.22's $queryRaw serializer when the parameter list
+    // includes a non-empty UUID array (`${groupIds}::uuid[]`),
+    // which manifested as "Maximum call stack size exceeded" for
+    // any user who actually had group memberships.
+    const principalConditions: Prisma.ItemShareWhereInput[] = [
+      { principalType: 'user', principalId: user.id },
+    ];
+    if (groupIds.length > 0) {
+      principalConditions.push({
+        principalType: 'group',
+        principalId: { in: groupIds },
+      });
+    }
+    const seedCount = await this.prisma.itemShare.count({
+      where: {
+        OR: principalConditions,
+        item: { type: 'folder', deletedAt: null },
+      },
+    });
+    if (seedCount === 0) return [];
+
     type Row = { item_id: string };
     // The CTE:
     //   1. seed: folders the user is directly shared on (user share
@@ -220,7 +224,19 @@ export class SharingService {
     // jsonb operator `?` checks if a string is in a top-level array
     // OR a key in an object; for childItemIds (string[]) it does the
     // right thing.
-    const rows = await this.prisma.$queryRaw<Row[]>`
+    //
+    // The seed-share clause used to bind groupIds as a uuid[] via
+    // `ANY(${groupIds}::uuid[])`. Same Prisma 5.22 array-binding
+    // recursion bug as above blew up for any user with groups.
+    // Cast the column to text and use IN (Prisma.join(...)) which
+    // serialises each id as its own scalar parameter (skipping the
+    // broken array-binding path entirely). The text cast is fine
+    // because uuid::text round-trips losslessly.
+    const groupSharesClause =
+      groupIds.length > 0
+        ? Prisma.sql`OR (s."principal_type" = 'group' AND s."principal_id"::text IN (${Prisma.join(groupIds)}))`
+        : Prisma.empty;
+    const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
       WITH RECURSIVE granted AS (
         SELECT i.id, i.data_json AS data
         FROM "item" i
@@ -230,8 +246,8 @@ export class SharingService {
             SELECT 1 FROM "item_share" s
             WHERE s."item_id" = i.id
               AND (
-                (s."principal_type" = 'user' AND s."principal_id" = ${user.id}::uuid)
-                OR (s."principal_type" = 'group' AND s."principal_id" = ANY(${groupIds}::uuid[]))
+                (s."principal_type" = 'user' AND s."principal_id"::text = ${user.id})
+                ${groupSharesClause}
               )
           )
         UNION
@@ -248,7 +264,7 @@ export class SharingService {
       CROSS JOIN LATERAL jsonb_array_elements_text(
         COALESCE(gf.data->'childItemIds', '[]'::jsonb)
       ) AS child_id
-    `;
+    `);
     return rows.map((r) => r.item_id);
   }
 
