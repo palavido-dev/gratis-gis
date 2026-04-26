@@ -685,13 +685,23 @@ export function NewItemWizard() {
       // failure -- that would lose the user's other typed metadata
       // and require restarting the wizard.
       if (pendingCredential) {
+        // Snapshot what we're about to send and immediately clear
+        // the in-component plaintext copies (#79). Once it's en
+        // route to the API the wizard has no further use for it,
+        // and not holding it in state means dev tools can't read
+        // it off React internals after Create lands.
+        const credToSend = pendingCredential;
+        setPendingCredential(null);
+        setCredentialToken('');
+        setCredentialUsername('');
+        setCredentialPassword('');
         try {
           const credRes = await fetch(
             `/api/portal/items/${saved.id}/credential`,
             {
               method: 'PUT',
               headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(pendingCredential),
+              body: JSON.stringify(credToSend),
             },
           );
           if (!credRes.ok) {
