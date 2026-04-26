@@ -141,11 +141,18 @@ export class ItemProxyController {
     // subset so we don't accidentally leak server internals
     // (e.g. some upstreams set Set-Cookie or proprietary headers
     // we don't want to bridge into the browser context).
+    //
+    // Don't forward content-length: Node's fetch transparently
+    // decompresses gzip / br, so the upstream's reported byte
+    // count refers to the compressed payload while our buffer
+    // holds the decompressed bytes. Browsers truncate at the
+    // header's count and the JSON parse fails mid-document
+    // ("Expected ',' or '}' at position N"). Letting Express
+    // set the header from the actual body length avoids the
+    // mismatch.
     res.status(upstream.status);
     const ct = upstream.headers.get('content-type');
     if (ct) res.setHeader('content-type', ct);
-    const cl = upstream.headers.get('content-length');
-    if (cl) res.setHeader('content-length', cl);
     const body = Buffer.from(await upstream.arrayBuffer());
     res.end(body);
   }
