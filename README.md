@@ -5,22 +5,35 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)](https://www.typescriptlang.org/)
 [![PostgreSQL + PostGIS](https://img.shields.io/badge/PostgreSQL%20%2B%20PostGIS-16%20%2F%203-336791?logo=postgresql&logoColor=white)](https://postgis.net/)
 
-An open-source platform for geospatial portals, web maps, app building, field
-data collection, and reporting, inspired by ArcGIS Online but built entirely on
-free, sustainable open-source foundations.
-
-**Core promises:**
-
-- A full-featured geospatial portal that a small IT team can stand up on
-  their own infrastructure in **under 30 minutes**, with one command.
-  No license manager, no multi-machine dance, no 300-page install guide.
-- **Genuinely polished, delightful UX.** Open-source GIS has a long history
-  of dated, "engineer-built" interfaces. GratisGIS aims for the opposite:
-  modern typography, considered motion, accessible components, thoughtful
-  empty states, and an overall feel that's on par with the best consumer
-  SaaS. See [docs/design-system.md](./docs/design-system.md).
+A self-hosted, open-source platform for geospatial portals: maps, layers, forms,
+field data collection, dashboards, and reports. Runs on your own infrastructure
+with no per-user fees, no proprietary file formats, and no vendor lock-in.
 
 **Status:** 🚧 Early scaffolding (Phase 0 / Portal MVP in progress)
+
+## Why GratisGIS
+
+GratisGIS exists because operating a geospatial portal shouldn't require
+six-figure annual licenses, named-user seats, or trusting your data to a
+third party's cloud.
+
+- **No per-user pricing.** Stand up one server, add as many users as you
+  need. Adding a contractor for a six-week project doesn't reopen procurement.
+- **Your hardware, your data.** PostGIS for vector data, MinIO for object
+  storage. Both run inside your firewall. No data egress, no foreign
+  jurisdictions, no hidden tenancy boundaries.
+- **Open standards, in and out.** GeoJSON, OGC API Features, CSW / ISO 19115
+  metadata, DCAT catalog, vector tiles. Import without a converter, export
+  without an export window.
+- **No proprietary file formats.** Your layers live in plain Postgres tables.
+  If GratisGIS disappears tomorrow, your data is still queryable with `psql`.
+- **Polished UX, not "engineer-built."** Open-source GIS has a long history of
+  dated interfaces. GratisGIS targets the look and feel of modern consumer
+  SaaS: considered typography, accessible components, motion that respects
+  `prefers-reduced-motion`. See [docs/design-system.md](./docs/design-system.md).
+- **Stand up in under 30 minutes.** A single command on a fresh Ubuntu box
+  installs Docker, generates secrets, obtains a TLS cert, and prints your
+  admin password. No license server, no multi-machine dance.
 
 ## The Seven Pillars
 
@@ -147,11 +160,11 @@ Apache 2.0. Permissive, enterprise-friendly, GPL-compatible.
 
 ## Trademarks
 
-GratisGIS is an independent open-source project. It is not affiliated with,
-endorsed by, or sponsored by Esri Inc. or any other company. Any product
-names, logos, brands, or other trademarks referenced in this repository are
-the property of their respective owners, used here only where necessary for
-descriptive comparison.
+GratisGIS is an independent open-source project, not affiliated with or
+endorsed by any commercial GIS vendor. Any third-party product names, logos,
+or trademarks referenced in this repository (including in code comments,
+issue threads, or documentation) are the property of their respective
+owners and appear only where necessary for descriptive interoperability.
 
 ---
 
