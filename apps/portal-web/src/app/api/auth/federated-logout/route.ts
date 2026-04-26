@@ -60,11 +60,58 @@ export async function GET(req: NextRequest) {
     process.env.KEYCLOAK_CLIENT_ID_WEB ?? 'portal-web',
   );
 
-  const res = NextResponse.redirect(endSession);
+  // Two-step logout. Originally this was a single 307 redirect with
+  // Set-Cookie clears piggy-backing on the same response. Browsers
+  // are inconsistent about applying Set-Cookie on a redirect that
+  // crosses origins (the ALL-IMPORTANT same-origin Set-Cookie WAS
+  // valid, but in practice some browsers + middleware combinations
+  // dropped them). The result was a stale session cookie surviving
+  // the round-trip, so the post-logout / render still saw the user
+  // as authenticated and rendered the personalised home page.
+  //
+  // The robust pattern: respond with a 200 HTML body that carries
+  // the Set-Cookie clears AND a meta-refresh / JS redirect to the
+  // Keycloak end-session URL. The 200 has no cross-origin redirect
+  // to confuse the cookie jar, so the clears land deterministically;
+  // then the browser navigates to Keycloak, which clears its own
+  // SSO session and redirects back to /. By the time / is rendered
+  // the local cookies are gone and the page renders the
+  // unauthenticated landing.
+  const escapedTarget = endSession
+    .toString()
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;');
+  const html = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Signing out...</title>
+<meta http-equiv="refresh" content="0;url=${escapedTarget}" />
+<style>body{font-family:system-ui,sans-serif;color:#475569;padding:2rem;text-align:center}</style>
+</head>
+<body>
+<p>Signing out...</p>
+<p>If you are not redirected automatically, <a href="${escapedTarget}">click here</a>.</p>
+<script>window.location.replace(${JSON.stringify(endSession.toString())});</script>
+</body>
+</html>`;
+
+  const res = new NextResponse(html, {
+    status: 200,
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      // Defence-in-depth: a stale cached version of this page MUST
+      // not survive. If a back-button hit this URL with a cached
+      // body, the script would re-fire and the cookies would have
+      // been re-set in the meantime.
+      'cache-control': 'no-store, no-cache, must-revalidate',
+    },
+  });
 
   // Wipe every NextAuth cookie variant on the way out. The exact
   // cookie name varies by deployment (secure prefix in production,
-  // non-prefixed locally) so we cover both.
+  // non-prefixed locally) so we cover both. These now sit on a
+  // plain 200 response, so the browser unambiguously applies them.
   for (const name of [
     'next-auth.session-token',
     '__Secure-next-auth.session-token',
