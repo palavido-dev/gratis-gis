@@ -222,25 +222,6 @@ export class ItemsController {
     return this.items.listFolderContents(user, id);
   }
 
-  /**
-   * Inherited shares for an item: shares from any folder that
-   * contains this item (directly or transitively, stopping at
-   * folders that opt out of inheritance), tagged with the
-   * originating folder so the share dialog can render
-   * "Inherited from Project A" captions. (#44 phase 1c slice 3c)
-   */
-  @Get(':id/inherited-shares')
-  async inheritedShares(
-    @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
-  ) {
-    // Authz: caller must be able to read the item (which already
-    // covers ownership / public / org / share-grant paths). The
-    // helper itself doesn't gate on the caller; we gate here.
-    await this.items.get(user, id);
-    return this.items.listInheritedShares(id);
-  }
-
   /** Items that reference THIS one. Pass ?transitive=true to walk
    *  further (e.g. a layer used by a map used by a dashboard). */
   @Get(':id/dependents')

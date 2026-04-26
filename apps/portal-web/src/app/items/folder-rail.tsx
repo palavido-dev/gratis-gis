@@ -62,13 +62,19 @@ export function FolderRail({ folders, activeFolderId }: Props) {
   // A folder is "top-level" if no other folder's childItemIds
   // contains its id. We compute this by collecting every id that
   // appears as a child of some folder; anything not in that set is
-  // a root.
+  // a root. Sorted by title (case-insensitive) so the rail order
+  // is predictable regardless of insertion order.
   const topLevel = useMemo(() => {
     const claimed = new Set<string>();
     for (const f of folders) {
       for (const c of f.childItemIds) claimed.add(c);
     }
-    return folders.filter((f) => !claimed.has(f.id));
+    return folders
+      .filter((f) => !claimed.has(f.id))
+      .slice()
+      .sort((a, b) =>
+        a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }),
+      );
   }, [folders]);
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -271,10 +277,16 @@ function FolderNode({
 }: NodeProps) {
   // Children of this folder that are themselves folders (and that
   // the caller can see). Items that are not folders belong in the
-  // grid, not the rail.
+  // grid, not the rail. Sorted by title (case-insensitive); the
+  // folder's authoritative childItemIds order is preserved on the
+  // detail page itself, but the rail wants alphabetical so the
+  // tree reads predictably.
   const subfolders = folder.childItemIds
     .map((id) => folderById.get(id))
-    .filter((f): f is FolderRailNode => !!f);
+    .filter((f): f is FolderRailNode => !!f)
+    .sort((a, b) =>
+      a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }),
+    );
 
   const isOpen = expanded.has(folder.id);
   const isActive = activeFolderId === folder.id;

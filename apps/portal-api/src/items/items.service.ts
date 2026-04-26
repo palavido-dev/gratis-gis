@@ -165,46 +165,17 @@ export class ItemsService {
       ? { ownerId: user.id, deletedAt: null }
       : this.sharing.visibleWhere(user);
 
-    // Folder-share inheritance for the all-items view (#44 phase
-    // 1c slice 3b). Items the caller doesn't have direct visibility
-    // on but that sit inside a folder they can see (or any
-    // descendant of one) are surfaced via this OR. Only applies in
-    // the non-mine path (the "mine" path is intentionally narrow:
-    // user's own items only). Owner / admin / public-org bypass
-    // already handles itself in visibleWhere.
-    let tInheritDone = 0;
-    if (!opts.mine) {
-      const inheritedIds =
-        await this.sharing.itemIdsAccessibleViaFolderShares(user);
-      if (traceTiming) tInheritDone = Date.now();
-      if (inheritedIds.length > 0) {
-        // Wrap the original visibleWhere predicate so it stays
-        // intact, then OR in the inherited ids. The wrapper has to
-        // preserve `deletedAt: null` so trashed items don't leak in
-        // through the inheritance grant.
-        //
-        // NB: take a shallow CLONE of `where` -- the previous code
-        // captured a reference and then assigned where.OR =
-        // [where, ...], which made where.OR[0] === where (circular).
-        // Prisma's parameter serializer hit that with infinite
-        // recursion and threw "Maximum call stack size exceeded"
-        // for any user who actually had folder shares (admins
-        // bypass via the early return in
-        // itemIdsAccessibleViaFolderShares so they never tripped it).
-        const direct: Prisma.ItemWhereInput = { ...where };
-        const inherited: Prisma.ItemWhereInput = {
-          id: { in: inheritedIds },
-          deletedAt: null,
-        };
-        // Empty the original where and use OR at the top level. Any
-        // other narrowing filters (type, owner, q, bbox) get added
-        // below and will AND with this OR.
-        Object.keys(where).forEach(
-          (k) => delete (where as Record<string, unknown>)[k],
-        );
-        where.OR = [direct, inherited];
-      }
-    }
+    // Folder-share cascade was retired 2026-04-26 (#68). Folder
+    // shares grant access to the folder itself (#63), not its
+    // contents. Authors who want a folder's audience to also see
+    // the items inside use the "Apply folder sharing" bulk action
+    // on the folder page (#67), which writes real share rows on
+    // each child item. Cleaner contract: items.list answers from
+    // visibleWhere alone; no inherited-id splicing. tInheritDone
+    // stays in the timing log as a zero-duration step so the log
+    // format doesn't have to change in this commit.
+    const tInheritStart = traceTiming ? Date.now() : 0;
+    let tInheritDone = tInheritStart;
     if (opts.type) {
       where.type = Array.isArray(opts.type) ? { in: opts.type } : opts.type;
     }
@@ -1429,16 +1400,6 @@ export class ItemsService {
         (order.get(b.id) ?? Number.MAX_SAFE_INTEGER),
     );
     return rows;
-  }
-
-  /**
-   * Forwarding wrapper around SharingService.inheritedSharesForItem
-   * so the controller can keep its dependency on ItemsService and
-   * not pull SharingService directly. The caller has already been
-   * authz-checked at the controller. (#44 phase 1c slice 3c)
-   */
-  async listInheritedShares(itemId: string) {
-    return this.sharing.inheritedSharesForItem(itemId);
   }
 
   async listDependencies(user: AuthUser, id: string) {

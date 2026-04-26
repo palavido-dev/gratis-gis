@@ -29,26 +29,10 @@ import {
   type ShareGeoLimitSave,
 } from './share-geo-limit-dialog';
 
-/** Shares cascaded down from a folder ancestor. Read-only on the
- *  panel; surfaces "Inherited from <Folder>" captions so the user
- *  understands where the access came from and that it can't be
- *  edited here (the relevant action is on the folder itself, not
- *  this item). #44 phase 1c slice 3c. */
-export type InheritedShare = ItemShare & {
-  fromFolderId: string;
-  fromFolderTitle: string;
-};
-
 interface Props {
   itemId: string;
   initialAccess: ItemAccess;
   initialShares: ItemShare[];
-  /**
-   * Shares cascaded from folder ancestors. Rendered as a separate
-   * read-only "Inherited" section above the direct shares. Empty
-   * array (or omitted) hides the section entirely.
-   */
-  inheritedShares?: InheritedShare[];
   groups: Pick<Group, 'id' | 'title'>[];
   /**
    * Name or slug of the owning org; used to label the "everyone in your org"
@@ -73,7 +57,6 @@ export function SharingPanel({
   itemId,
   initialAccess,
   initialShares,
-  inheritedShares = [],
   groups,
   orgLabel = 'Your organization',
 }: Props) {
@@ -541,21 +524,6 @@ export function SharingPanel({
           </p>
         ) : null}
       </div>
-
-      {/* Inherited-shares display retired 2026-04-26.
-          Folder shares no longer cascade to child items (#63);
-          surfacing an "Inherited from <folder>" caption would
-          describe a grant that doesn't take effect. The
-          inheritedShares prop and InheritedShare type are still
-          accepted by the API for now so external callers don't
-          break, but nothing is rendered. The "Share all items in
-          this folder" bulk action on the folder page (#64) is
-          how authors apply a single grant to many items at once;
-          each item ends up with its own real share row that
-          appears in the regular shares list below.
-          The `inheritedShares` prop is intentionally still in the
-          signature so tests / callers don't have to update at the
-          same beat as the dialog change. */}
 
       <div className="px-4 pt-4">
         <h3 className="text-xs font-medium uppercase tracking-wide text-muted">

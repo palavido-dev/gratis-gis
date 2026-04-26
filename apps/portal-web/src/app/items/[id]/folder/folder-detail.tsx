@@ -98,13 +98,6 @@ export function FolderDetail({
 }: Props) {
   const router = useRouter();
   const [children, setChildren] = useState<ItemWithShares[]>(initialChildren);
-  // Local mirror of inheritsParentShares so the toggle gives instant
-  // feedback. Defaults to true when the field isn't set (matches the
-  // backend default in shared-types).
-  const [inheritsParentShares, setInheritsParentShares] = useState<boolean>(
-    initial.inheritsParentShares !== false,
-  );
-  const [inheritSaving, setInheritSaving] = useState(false);
   // Local copy of childItemIds so reorder writes don't depend on a
   // server round-trip before the next drop is allowed.
   const [orderedIds, setOrderedIds] = useState<string[]>(
@@ -303,46 +296,6 @@ export function FolderDetail({
   }
 
   /**
-   * Toggle the inheritsParentShares flag (#44 phase 1c slice 3a).
-   * On = ancestor folders' shares cascade down through this folder.
-   * Off = chain breaks here; this folder and its children only
-   * honour their own direct shares plus anything inherited from
-   * folders WITHIN this subtree.
-   */
-  async function toggleInherits() {
-    if (!canEdit) return;
-    const next = !inheritsParentShares;
-    setInheritsParentShares(next);
-    setInheritSaving(true);
-    setError(null);
-    try {
-      const payload: FolderData = {
-        ...initial,
-        inheritsParentShares: next,
-        childItemIds: orderedIds,
-      };
-      const res = await fetch(`/api/portal/items/${itemId}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ data: payload }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        const msg =
-          (body as { message?: string | string[] }).message ??
-          `HTTP ${res.status}`;
-        throw new Error(Array.isArray(msg) ? msg.join('; ') : msg);
-      }
-      router.refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Inheritance toggle failed');
-      setInheritsParentShares(!next);
-    } finally {
-      setInheritSaving(false);
-    }
-  }
-
-  /**
    * Save the smart-folder query (#38). Pass `null` to demote a
    * smart folder back to a static folder; the saved childItemIds
    * survive the round-trip so toggling smart off restores prior
@@ -464,39 +417,6 @@ export function FolderDetail({
             router.refresh();
           }}
         />
-      ) : null}
-
-      {/* Inheritance toggle (#44 phase 1c slice 3a). Only meaningful
-          when this folder has a parent (top-level folders have
-          nothing to inherit from); we render the toggle anyway so
-          the user can flip it on early in case the folder later
-          becomes a subfolder. */}
-      {canEdit ? (
-        <div className="flex items-center gap-2 rounded-md border border-border bg-surface-1 px-3 py-2 text-xs">
-          <input
-            id="inherits-parent-shares"
-            type="checkbox"
-            checked={inheritsParentShares}
-            onChange={toggleInherits}
-            disabled={inheritSaving}
-            className="h-3.5 w-3.5 rounded border-border"
-          />
-          <label
-            htmlFor="inherits-parent-shares"
-            className="cursor-pointer text-ink-1"
-          >
-            Inherit shares from parent folder(s)
-          </label>
-          <span className="text-muted">
-            when on, anyone who can see an ancestor folder also sees
-            this one's contents.
-          </span>
-          {inheritSaving ? (
-            <span className="ml-auto text-[10px] uppercase text-muted">
-              Saving...
-            </span>
-          ) : null}
-        </div>
       ) : null}
 
       {/* Smart-folder editor (#38). Smart folders compute their

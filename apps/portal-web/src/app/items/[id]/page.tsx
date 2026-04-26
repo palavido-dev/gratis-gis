@@ -138,10 +138,6 @@ export default async function ItemDetailPage({ params }: Props) {
   // Without parallelisation the page paid two sequential round-trips
   // before doing anything else; with it we pay one wall-clock unit
   // for both. Same for the bigger second batch below.
-  type InheritedShare = ItemShare & {
-    fromFolderId: string;
-    fromFolderTitle: string;
-  };
   let item: ItemWithShares;
   let me: { id: string; orgRole: string };
   try {
@@ -173,7 +169,6 @@ export default async function ItemDetailPage({ params }: Props) {
     allFoldersForBreadcrumb,
     geoBoundaries,
     groups,
-    inheritedShares,
   ] = await Promise.all([
     // Web map basemap library.
     isMap
@@ -216,13 +211,6 @@ export default async function ItemDetailPage({ params }: Props) {
     canManage
       ? apiFetch<Group[]>('/api/groups').catch(() => [] as Group[])
       : Promise.resolve([] as Group[]),
-    // Inherited shares (#44 phase 1c slice 3c). Only managers see
-    // them; same skip-when-not-needed logic as groups.
-    canManage
-      ? apiFetch<InheritedShare[]>(
-          `/api/items/${item.id}/inherited-shares`,
-        ).catch(() => [] as InheritedShare[])
-      : Promise.resolve([] as InheritedShare[]),
   ]);
 
   // Folder breadcrumb: walk up the parent chain so the detail page
@@ -552,7 +540,6 @@ export default async function ItemDetailPage({ params }: Props) {
             itemId={item.id}
             initialAccess={item.access}
             initialShares={item.shares}
-            inheritedShares={inheritedShares}
             groups={groups}
             orgLabel="Your organization"
           />
