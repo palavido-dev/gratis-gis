@@ -4,14 +4,22 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
+  Check,
   ChevronRight,
   Crosshair,
   FolderPlus,
   Grid3x3,
   List as ListIcon,
+  Loader2,
+  Trash2,
   UserRound,
+  Users as UsersIcon,
   X,
 } from 'lucide-react';
+import {
+  PrincipalPicker,
+  type PrincipalOption,
+} from '@/components/principal-picker';
 import { ItemCard } from '@gratis-gis/ui';
 import type {
   FolderData,
@@ -107,6 +115,14 @@ export function ItemsView({ items, currentUser, folders = [] }: Props) {
   // generic dialog would have ended up with too many branches.
   const [showAddToFolder, setShowAddToFolder] = useState(false);
   const [folderSaving, setFolderSaving] = useState(false);
+  // Bulk Share dialog (#77): pick a principal + permission, fan
+  // out to one share-write per selected item. Items the caller
+  // can't admin are silently skipped server-side.
+  const [showBulkShare, setShowBulkShare] = useState(false);
+  // Bulk Move-to-Trash confirmation (#77). Soft-delete only;
+  // permanent purge stays a per-item action on the recycle-bin
+  // page so a misclick on the items list can't lose data.
+  const [showBulkTrash, setShowBulkTrash] = useState(false);
   // ?addToFolder=<id> query param flips this view into "pick items
   // to add to a specific folder" mode. The user got here from the
   // folder detail page's "Add items" button; we know the target
@@ -370,6 +386,110 @@ export function ItemsView({ items, currentUser, folders = [] }: Props) {
     setSelected(new Set());
   }
 
+  /**
+   * Bulk soft-delete (#77). Iterates the selection and calls
+   * DELETE /items/:id, which the API treats as "move to trash"
+   * (deletedAt set, recoverable from the recycle bin). Items the
+   * caller can't admin 403 silently and we count them as skipped;
+   * the user never has to know which specific row tripped the
+   * gate. router.refresh() reloads the list so the trashed items
+   * disappear without a manual refresh.
+   */
+  async function handleBulkTrash() {
+    setBulkSaving(true);
+    setBulkError(null);
+    let done = 0;
+    let skipped = 0;
+    try {
+      for (const id of selected) {
+        try {
+          const res = await fetch(`/api/portal/items/${id}`, {
+            method: 'DELETE',
+          });
+          if (res.ok || res.status === 204) {
+            done += 1;
+          } else {
+            skipped += 1;
+          }
+        } catch {
+          skipped += 1;
+        }
+      }
+      if (done === 0 && skipped > 0) {
+        setBulkError(
+          'No items moved to trash. You may not have admin rights on the selected items.',
+        );
+      } else if (skipped > 0) {
+        setBulkError(
+          `Moved ${done} item${done === 1 ? '' : 's'} to trash; skipped ${skipped} (no admin rights).`,
+        );
+      }
+      setShowBulkTrash(false);
+      setSelected(new Set());
+      router.refresh();
+    } finally {
+      setBulkSaving(false);
+    }
+  }
+
+  /**
+   * Bulk share (#77). Walks each selected item and POSTs the same
+   * share row (principalType, principalId, permission). 403 on any
+   * single item just means the caller doesn't have admin on that
+   * one; it stays an internal skip rather than aborting the rest.
+   * Re-running is safe: the share endpoint upserts, so the same
+   * principal getting the same permission twice is a no-op.
+   */
+  async function handleBulkShare(
+    principal: PrincipalOption,
+    permission: 'view' | 'download' | 'edit' | 'admin',
+  ) {
+    setBulkSaving(true);
+    setBulkError(null);
+    const [principalType, principalId] = principal.id.split(':') as [
+      'user' | 'group',
+      string,
+    ];
+    let done = 0;
+    let skipped = 0;
+    try {
+      for (const id of selected) {
+        try {
+          const res = await fetch(`/api/portal/items/${id}/share`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              principalType,
+              principalId,
+              permission,
+            }),
+          });
+          if (res.ok) {
+            done += 1;
+          } else {
+            skipped += 1;
+          }
+        } catch {
+          skipped += 1;
+        }
+      }
+      if (done === 0 && skipped > 0) {
+        setBulkError(
+          'No shares were written. You may not have admin rights on the selected items.',
+        );
+      } else if (skipped > 0) {
+        setBulkError(
+          `Shared ${done} item${done === 1 ? '' : 's'}; skipped ${skipped} (no admin rights).`,
+        );
+      }
+      setShowBulkShare(false);
+      setSelected(new Set());
+      router.refresh();
+    } finally {
+      setBulkSaving(false);
+    }
+  }
+
   async function handleBulkReassign(
     newOwnerId: string,
     keepPreviousOwnerAccess: 'view' | 'download' | 'edit' | 'admin' | null,
@@ -469,6 +589,8 @@ export function ItemsView({ items, currentUser, folders = [] }: Props) {
         <BulkActionBar
           count={selected.size}
           onReassign={() => setShowReassign(true)}
+          onShare={() => setShowBulkShare(true)}
+          onTrash={() => setShowBulkTrash(true)}
           onAddToFolder={
             folders.length > 0 ? () => setShowAddToFolder(true) : undefined
           }
@@ -520,6 +642,32 @@ export function ItemsView({ items, currentUser, folders = [] }: Props) {
           }}
         />
       ) : null}
+      {showBulkShare ? (
+        <BulkShareDialog
+          count={selected.size}
+          saving={bulkSaving}
+          onSubmit={handleBulkShare}
+          onClose={() => {
+            if (!bulkSaving) {
+              setShowBulkShare(false);
+              setBulkError(null);
+            }
+          }}
+        />
+      ) : null}
+      {showBulkTrash ? (
+        <BulkTrashDialog
+          count={selected.size}
+          saving={bulkSaving}
+          onConfirm={handleBulkTrash}
+          onClose={() => {
+            if (!bulkSaving) {
+              setShowBulkTrash(false);
+              setBulkError(null);
+            }
+          }}
+        />
+      ) : null}
       {bulkError ? (
         <div className="fixed bottom-4 right-4 max-w-md rounded-md border border-danger/40 bg-danger/5 px-3 py-2 text-xs text-danger shadow-raised">
           {bulkError}
@@ -535,6 +683,8 @@ export function ItemsView({ items, currentUser, folders = [] }: Props) {
 function BulkActionBar({
   count,
   onReassign,
+  onShare,
+  onTrash,
   onAddToFolder,
   targetFolder,
   onAddToTargetFolder,
@@ -543,6 +693,8 @@ function BulkActionBar({
 }: {
   count: number;
   onReassign: () => void;
+  onShare: () => void;
+  onTrash: () => void;
   onAddToFolder?: (() => void) | undefined;
   /** When set, the user came here via ?addToFolder= and we offer a
    *  one-click "Add to <folder>" button instead of the generic
@@ -597,6 +749,22 @@ function BulkActionBar({
             ) : null}
             <button
               type="button"
+              onClick={onShare}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 py-1 text-xs font-medium text-ink-1 hover:bg-surface-2"
+            >
+              <UsersIcon className="h-3.5 w-3.5" />
+              Share
+            </button>
+            <button
+              type="button"
+              onClick={onTrash}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 py-1 text-xs font-medium text-ink-1 hover:bg-danger/5 hover:text-danger"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Move to trash
+            </button>
+            <button
+              type="button"
               onClick={onReassign}
               className="inline-flex items-center gap-1.5 rounded-md border border-accent bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent/90"
             >
@@ -605,6 +773,277 @@ function BulkActionBar({
             </button>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Bulk-share dialog (#77). Mirrors the per-folder "Share all items"
+ * dialog: pick a principal, pick a permission, click Share. The
+ * parent walks the selection and POSTs share rows; this component
+ * just owns the form state.
+ */
+function BulkShareDialog({
+  count,
+  saving,
+  onSubmit,
+  onClose,
+}: {
+  count: number;
+  saving: boolean;
+  onSubmit: (
+    principal: PrincipalOption,
+    permission: 'view' | 'download' | 'edit' | 'admin',
+  ) => void | Promise<void>;
+  onClose: () => void;
+}) {
+  const [picked, setPicked] = useState<PrincipalOption | null>(null);
+  const [permission, setPermission] = useState<
+    'view' | 'download' | 'edit' | 'admin'
+  >('view');
+
+  async function search(q: string): Promise<PrincipalOption[]> {
+    const [usersRes, groupsRes] = await Promise.allSettled([
+      fetch(
+        `/api/portal/users${q.trim() ? `?q=${encodeURIComponent(q.trim())}` : ''}`,
+      ),
+      fetch(
+        `/api/portal/groups${q.trim() ? `?q=${encodeURIComponent(q.trim())}` : ''}`,
+      ),
+    ]);
+    const out: PrincipalOption[] = [];
+    if (usersRes.status === 'fulfilled' && usersRes.value.ok) {
+      const rows = (await usersRes.value.json()) as Array<{
+        id: string;
+        username: string;
+        fullName?: string | null;
+        avatarUrl?: string | null;
+      }>;
+      for (const r of rows) {
+        out.push({
+          id: `user:${r.id}`,
+          title: r.fullName?.trim() || r.username,
+          subtitle: r.fullName?.trim() ? r.username : null,
+          imageUrl: r.avatarUrl ?? null,
+        });
+      }
+    }
+    if (groupsRes.status === 'fulfilled' && groupsRes.value.ok) {
+      const rows = (await groupsRes.value.json()) as Array<{
+        id: string;
+        title: string;
+        description?: string | null;
+        thumbnailUrl?: string | null;
+      }>;
+      for (const r of rows) {
+        out.push({
+          id: `group:${r.id}`,
+          title: r.title,
+          subtitle: r.description ?? null,
+          imageUrl: r.thumbnailUrl ?? null,
+        });
+      }
+    }
+    return out;
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Share selected items"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-lg border border-border bg-surface-1 shadow-overlay"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="border-b border-border px-4 py-3">
+          <h3 className="flex items-center gap-2 text-base font-semibold">
+            <UsersIcon className="h-4 w-4" />
+            Share selected items
+          </h3>
+          <p className="mt-1 text-xs text-muted">
+            Each of the {count} selected item{count === 1 ? '' : 's'} gets
+            its own share grant for the recipient you pick. Items where
+            you are not the owner or an admin are skipped automatically.
+          </p>
+        </div>
+
+        <div className="space-y-3 px-4 py-4 text-sm">
+          <div>
+            <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted">
+              Recipient
+            </span>
+            {picked ? (
+              <div className="flex items-center gap-2 rounded border border-border bg-surface-1 px-2 py-1.5 text-xs">
+                <span className="flex-1 truncate text-ink-0">
+                  {picked.title}
+                  {picked.id.startsWith('group:') ? (
+                    <span className="ml-1 text-[10px] uppercase tracking-wide text-muted">
+                      group
+                    </span>
+                  ) : null}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPicked(null)}
+                  className="h-6 rounded border border-border bg-surface-1 px-2 text-[11px] text-muted hover:bg-surface-2 hover:text-ink-1"
+                >
+                  Clear
+                </button>
+              </div>
+            ) : (
+              <PrincipalPicker
+                placeholder="Search for a user or group"
+                search={search}
+                onPick={setPicked}
+                emptyMessage="No matching users or groups."
+                emptyInitialMessage="Start typing a name to search."
+              />
+            )}
+          </div>
+
+          <div>
+            <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted">
+              Permission
+            </span>
+            <div className="grid grid-cols-2 gap-1">
+              {(['view', 'download', 'edit', 'admin'] as const).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPermission(p)}
+                  className={`rounded border px-2 py-1 text-left text-xs transition-colors ${
+                    permission === p
+                      ? 'border-accent bg-accent/5 text-ink-0'
+                      : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
+                  }`}
+                >
+                  <div className="font-medium capitalize">{p}</div>
+                  <div className="text-[10px] text-muted">
+                    {p === 'view' && 'See the item'}
+                    {p === 'download' && 'See + export bulk data'}
+                    {p === 'edit' && 'See + change content'}
+                    {p === 'admin' && 'Full control, including sharing'}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="h-9 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => picked && void onSubmit(picked, permission)}
+            disabled={saving || !picked}
+            className="h-9 rounded-md bg-accent px-3 text-sm font-medium text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {saving ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Sharing...
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5">
+                <Check className="h-3.5 w-3.5" />
+                Share
+              </span>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Confirmation dialog for the bulk move-to-trash action (#77). The
+ * action is reversible (items go to the recycle bin and stay there
+ * for the retention window) but a confirm step is still warranted
+ * because the items disappear from the live list. The dialog leans
+ * into "you can undo" copy so the user isn't anxious about a
+ * misclick.
+ */
+function BulkTrashDialog({
+  count,
+  saving,
+  onConfirm,
+  onClose,
+}: {
+  count: number;
+  saving: boolean;
+  onConfirm: () => void | Promise<void>;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Move selected items to trash"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-lg border border-border bg-surface-1 shadow-overlay"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="border-b border-border px-4 py-3">
+          <h3 className="flex items-center gap-2 text-base font-semibold">
+            <Trash2 className="h-4 w-4 text-danger" />
+            Move {count} {count === 1 ? 'item' : 'items'} to trash?
+          </h3>
+        </div>
+        <div className="px-4 py-4 text-sm">
+          <p className="text-ink-1">
+            The selected {count === 1 ? 'item' : 'items'} will be moved to
+            the recycle bin. You can restore them from the
+            &quot;Recently deleted&quot; page.
+          </p>
+          <p className="mt-2 text-xs text-muted">
+            Items where you are not the owner or an admin are skipped
+            automatically.
+          </p>
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="h-9 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void onConfirm()}
+            disabled={saving}
+            className="h-9 rounded-md bg-danger px-3 text-sm font-medium text-white hover:bg-danger/90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {saving ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Moving...
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5">
+                <Trash2 className="h-3.5 w-3.5" />
+                Move to trash
+              </span>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );
