@@ -15,6 +15,7 @@ import {
   DEFAULT_ARCGIS_SERVICE,
 } from '@gratis-gis/shared-types';
 import {
+  describeArcgisService,
   probeService,
   type ArcgisServiceDescription,
 } from '@/lib/arcgis-rest';
@@ -181,7 +182,44 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
     abortRef.current = controller;
     setProbing(true);
     try {
-      const desc = await probeService(raw, controller.signal);
+      let desc: ArcgisServiceDescription;
+      if (data.requiresAuth) {
+        // Route through the per-item proxy so the stored
+        // credential is applied server-side. The proxy also
+        // exchanges Basic for an ArcGIS token under the hood
+        // when the upstream is an ArcGIS REST URL (#76, #79).
+        // We hit /proxy?f=json so the proxy lands at the
+        // service root with the JSON format param.
+        const res = await fetch(
+          `/api/portal/items/${itemId}/proxy?f=json`,
+          { signal: controller.signal },
+        );
+        if (!res.ok) {
+          const body = await res.text().catch(() => '');
+          throw new Error(
+            `Proxy returned ${res.status}${body ? `: ${body.slice(0, 200)}` : ''}`,
+          );
+        }
+        const json = (await res.json()) as unknown;
+        // ArcGIS often returns 200 with an error envelope when
+        // the token is invalid or expired. Treat that as a
+        // probe failure so the user gets a clear message.
+        if (
+          json &&
+          typeof json === 'object' &&
+          'error' in (json as Record<string, unknown>)
+        ) {
+          const err = (json as {
+            error?: { message?: unknown; code?: unknown };
+          }).error;
+          const msg =
+            typeof err?.message === 'string' ? err.message : 'ArcGIS error';
+          throw new Error(msg);
+        }
+        desc = await describeArcgisService(raw, json, controller.signal);
+      } else {
+        desc = await probeService(raw, controller.signal);
+      }
       if (controller.signal.aborted) return;
       setProbeResult(desc);
     } catch (err) {
@@ -193,7 +231,7 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
     } finally {
       if (!controller.signal.aborted) setProbing(false);
     }
-  }, [urlDraft]);
+  }, [urlDraft, itemId, data.requiresAuth]);
 
   async function save() {
     setError(null);

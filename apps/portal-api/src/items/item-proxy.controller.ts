@@ -161,6 +161,12 @@ function composeUpstreamUrl(
   let joined: string;
   if (subPath.length === 0) {
     joined = trimmed;
+  } else if (subPath.startsWith('?')) {
+    // subPath is just a query string (e.g. probing the service
+    // root with ?f=json from the detail page's Probe button).
+    // Don't insert a slash before the '?' or we'd produce an
+    // empty path segment that some servers reject.
+    joined = `${trimmed}${subPath}`;
   } else {
     joined = `${trimmed}/${subPath}`;
   }
