@@ -1360,8 +1360,10 @@ function ItemsBody({
     );
   }
 
-  // Group and render a section per bucket. Buckets are ordered by
-  // size descending so the user's most-common bucket leads.
+  // Group and render a section per bucket. Buckets are ordered
+  // alphabetically by their display label so a returning user
+  // can scan to a known group without thinking; the per-group
+  // sort dropdown handles ordering of items inside.
   const buckets = new Map<string, ItemWithShares[]>();
   for (const it of items) {
     const key = groupBy === 'type' ? it.type : it.access;
@@ -1369,17 +1371,20 @@ function ItemsBody({
     arr.push(it);
     buckets.set(key, arr);
   }
-  const ordered = Array.from(buckets.entries()).sort(
-    (a, b) => b[1].length - a[1].length,
+  const labelFor = (key: string) =>
+    groupBy === 'type'
+      ? getItemTypeLabel(key as ItemType)
+      : (ACCESS_LABELS[key] ?? key);
+  const ordered = Array.from(buckets.entries()).sort((a, b) =>
+    labelFor(a[0]).localeCompare(labelFor(b[0]), undefined, {
+      sensitivity: 'base',
+    }),
   );
 
   return (
     <div className="space-y-6">
       {ordered.map(([key, group]) => {
-        const label =
-          groupBy === 'type'
-            ? getItemTypeLabel(key as ItemType)
-            : (ACCESS_LABELS[key] ?? key);
+        const label = labelFor(key);
         return (
           <section key={key}>
             <h2 className="mb-2 flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted">
