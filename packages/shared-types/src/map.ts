@@ -626,6 +626,106 @@ export const ZOOM_MIN = 0;
 export const ZOOM_MAX = 24;
 
 /**
+ * Maximum nesting depth for group layers (#71). One root group plus
+ * two more nested levels (so the deepest leaf has three group
+ * ancestors). Enforced in the editor's "move to group" / "drag into
+ * group" actions; the data model itself is not bounded so a future
+ * relaxation would not require a migration.
+ */
+export const MAX_GROUP_DEPTH = 3;
+
+/**
+ * Walk a layer's group ancestry and intersect the zoom-range fields
+ * of every ancestor group with the layer's own scale (#69). The
+ * result is what the canvas should push onto the underlying MapLibre
+ * layer's minzoom/maxzoom.
+ *
+ * Semantics:
+ *   - minZoom takes the MAX of the layer's bound and every ancestor's
+ *     (the tightest lower bound wins).
+ *   - maxZoom takes the MIN of the layer's bound and every ancestor's
+ *     (the tightest upper bound wins).
+ *   - labelsMinZoom / labelsMaxZoom intersect the same way.
+ *   - scaleWithZoom comes from the leaf only; groups don't override
+ *     individual rendering knobs.
+ *   - Cycle-safe: if the groupId chain ever loops, the visited set
+ *     stops the walk before re-entry.
+ *   - When the intersection produces an empty range
+ *     (effectiveMinZoom > effectiveMaxZoom) the group has zoomed
+ *     past where the leaf is allowed to render; MapLibre handles
+ *     "min greater than max" gracefully by simply never rendering
+ *     the layer, which is the desired behaviour.
+ *
+ * Lookup is by id; the caller passes the full layer list so the
+ * helper can hop through groupId references without an external
+ * map.
+ */
+export function effectiveLayerScale(
+  layer: MapLayer,
+  layers: MapLayer[],
+): MapLayerScale {
+  const own = layer.scale ?? DEFAULT_LAYER_SCALE;
+  let min = own.minZoom;
+  let max = own.maxZoom;
+  let labelsMin = own.labelsMinZoom;
+  let labelsMax = own.labelsMaxZoom;
+  const visited = new Set<string>([layer.id]);
+  let parentId: string | undefined = layer.groupId;
+  while (parentId && !visited.has(parentId)) {
+    visited.add(parentId);
+    const parent = layers.find((l) => l.id === parentId);
+    if (!parent || parent.source.kind !== 'group') break;
+    const ps = parent.scale ?? DEFAULT_LAYER_SCALE;
+    if (ps.minZoom != null) {
+      min = min == null ? ps.minZoom : Math.max(min, ps.minZoom);
+    }
+    if (ps.maxZoom != null) {
+      max = max == null ? ps.maxZoom : Math.min(max, ps.maxZoom);
+    }
+    if (ps.labelsMinZoom != null) {
+      labelsMin =
+        labelsMin == null ? ps.labelsMinZoom : Math.max(labelsMin, ps.labelsMinZoom);
+    }
+    if (ps.labelsMaxZoom != null) {
+      labelsMax =
+        labelsMax == null ? ps.labelsMaxZoom : Math.min(labelsMax, ps.labelsMaxZoom);
+    }
+    parentId = parent.groupId;
+  }
+  return {
+    minZoom: min,
+    maxZoom: max,
+    scaleWithZoom: own.scaleWithZoom,
+    labelsMinZoom: labelsMin,
+    labelsMaxZoom: labelsMax,
+  };
+}
+
+/**
+ * Compute the depth of a group in the layer list (#71). A top-level
+ * group has depth 1; a group whose groupId points at a top-level
+ * group has depth 2; and so on. Non-group layers return 0. Used by
+ * the panel to gate the "Add to group" / drag-into-group actions
+ * against MAX_GROUP_DEPTH.
+ *
+ * Cycle-safe via the visited set.
+ */
+export function groupDepth(layer: MapLayer, layers: MapLayer[]): number {
+  if (layer.source.kind !== 'group') return 0;
+  let depth = 1;
+  const visited = new Set<string>([layer.id]);
+  let parentId: string | undefined = layer.groupId;
+  while (parentId && !visited.has(parentId)) {
+    visited.add(parentId);
+    const parent = layers.find((l) => l.id === parentId);
+    if (!parent || parent.source.kind !== 'group') break;
+    depth += 1;
+    parentId = parent.groupId;
+  }
+  return depth;
+}
+
+/**
  * Palette used to auto-assign colors to unique-value categories. Chosen
  * to be colorblind-aware (Okabe–Ito–style distinctness) and to sit well
  * on both light and dark basemaps. Extend by appending; existing

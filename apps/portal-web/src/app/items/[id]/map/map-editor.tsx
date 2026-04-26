@@ -28,6 +28,7 @@ import {
   DEFAULT_LAYER_STYLE,
   DEFAULT_MAP,
 } from '@gratis-gis/shared-types';
+import { makeEmptyGroupLayer, uniqueGroupTitle } from './group-factory';
 import type { CustomBasemap } from '@/lib/custom-basemap';
 import { MapCanvas, type MapCanvasHandle } from './map-canvas';
 import { LayerPanel } from './layer-panel';
@@ -614,6 +615,21 @@ export function MapEditor({
     markDirty();
   }
 
+  /**
+   * Create an empty group at the top of the layer list (#70). The
+   * factory and title-uniqueness helper live in group-factory.ts so
+   * "Add group" from the panel and "Move to new group" from the
+   * per-layer kebab share one source of truth.
+   */
+  function addEmptyGroup() {
+    setMap((m) => {
+      const title = uniqueGroupTitle(m.layers, 'New group');
+      const group = makeEmptyGroupLayer(title);
+      return { ...m, layers: [group, ...m.layers] };
+    });
+    markDirty();
+  }
+
   // Camera changes from user interaction get folded into the canonical
   // state so Save view captures whatever the user is currently looking at.
   const onCameraChange = useCallback(
@@ -771,6 +787,52 @@ export function MapEditor({
             canEdit={canEdit}
             currentZoom={map.zoom}
             onOpenAdd={() => setAddOpen(true)}
+            onAddGroup={addEmptyGroup}
+            onOpenAttributeTable={() => setTableOpen(true)}
+            onZoomToLayer={(layerId) => {
+              // Compute the bbox from the layer's cached feature
+              // collection. Metadata is populated as the canvas
+              // loads each layer; if it isn't ready yet, the action
+              // is a no-op rather than a flicker. (#72)
+              const meta = metadata[layerId];
+              const fc = meta?.featureCollection ?? null;
+              if (!fc || fc.features.length === 0) return;
+              let minX = Infinity,
+                minY = Infinity,
+                maxX = -Infinity,
+                maxY = -Infinity;
+              const visit = (
+                coords: number[] | number[][] | number[][][] | number[][][][],
+              ) => {
+                if (typeof coords[0] === 'number') {
+                  const c = coords as number[];
+                  if (typeof c[0] === 'number' && typeof c[1] === 'number') {
+                    minX = Math.min(minX, c[0]);
+                    minY = Math.min(minY, c[1]);
+                    maxX = Math.max(maxX, c[0]);
+                    maxY = Math.max(maxY, c[1]);
+                  }
+                  return;
+                }
+                for (const inner of coords as Array<unknown>) {
+                  visit(inner as Parameters<typeof visit>[0]);
+                }
+              };
+              for (const f of fc.features) {
+                if (!f.geometry) continue;
+                if (
+                  'coordinates' in f.geometry &&
+                  Array.isArray((f.geometry as { coordinates: unknown }).coordinates)
+                ) {
+                  visit(
+                    (f.geometry as { coordinates: number[][] }).coordinates,
+                  );
+                }
+              }
+              if (minX !== Infinity && maxX !== -Infinity) {
+                canvasRef.current?.zoomTo([minX, minY, maxX, maxY]);
+              }
+            }}
             onChange={setLayers}
           />
         </div>

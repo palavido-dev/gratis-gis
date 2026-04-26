@@ -1,20 +1,25 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ChevronDown,
   ChevronRight,
   Eye,
   EyeOff,
   Filter,
+  Focus,
   Folder,
   FolderMinus,
+  FolderPlus,
   GripVertical,
+  MoreVertical,
   MousePointerClick,
   Palette,
+  Pencil,
   Plus,
   Search,
   Sparkles,
+  Table as TableIcon,
   Tag,
   Telescope,
   Trash2,
@@ -25,12 +30,19 @@ import type {
   MapLayerScale,
   MapLayerSearch,
 } from '@gratis-gis/shared-types';
-import { DEFAULT_LAYER_SCALE, ZOOM_MAX, ZOOM_MIN } from '@gratis-gis/shared-types';
+import {
+  DEFAULT_LAYER_SCALE,
+  MAX_GROUP_DEPTH,
+  ZOOM_MAX,
+  ZOOM_MIN,
+  groupDepth,
+} from '@gratis-gis/shared-types';
 import { StyleEditor } from './style-editor';
 import { RendererEditor } from './renderer-editor';
 import { FilterEditor } from './filter-editor';
 import { PopupEditor } from './popup-editor';
 import { LabelsEditor } from './labels-editor';
+import { makeEmptyGroupLayer, uniqueGroupTitle } from './group-factory';
 import type { LayerMetadata } from './layer-metadata';
 
 interface Props {
@@ -44,6 +56,22 @@ interface Props {
    */
   currentZoom: number;
   onOpenAdd: () => void;
+  /**
+   * Create a new empty group at the top of the layer list (#70).
+   * The factory lives in map-editor so all the MapLayer field
+   * defaults stay co-located with the wizard's `makeLayer`. Auto-
+   * rename is initiated here once the layer lands.
+   */
+  onAddGroup: () => void;
+  /** Open the attribute table panel (#72). Per-layer "Open
+   *  attribute table" in the kebab menu calls this; the table
+   *  lists every layer with feature data, focusing the first by
+   *  default. */
+  onOpenAttributeTable: () => void;
+  /** Fly the camera to a layer's feature extent (#72). The
+   *  bounding box is computed in the LayerPanel from cached
+   *  metadata, then handed to MapCanvas via this callback. */
+  onZoomToLayer: (layerId: string) => void;
   onChange: (next: MapLayer[]) => void;
 }
 
@@ -66,10 +94,33 @@ export function LayerPanel({
   canEdit,
   currentZoom,
   onOpenAdd,
+  onAddGroup,
+  onOpenAttributeTable,
+  onZoomToLayer,
   onChange,
 }: Props) {
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
+  // Split-button menu (#70). Open when the user clicks the chevron
+  // half of the Add button; closes on outside click. The primary
+  // half still does the most-common thing (Add layer) without
+  // detouring through a menu.
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const addMenuRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!addMenuOpen) return;
+    function onDocClick(e: MouseEvent) {
+      if (
+        addMenuRef.current &&
+        e.target instanceof Node &&
+        !addMenuRef.current.contains(e.target)
+      ) {
+        setAddMenuOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [addMenuOpen]);
 
   function updateLayer(id: string, patch: Partial<MapLayer>) {
     onChange(layers.map((l) => (l.id === id ? { ...l, ...patch } : l)));
@@ -86,55 +137,77 @@ export function LayerPanel({
     onChange(next);
   }
 
-  // Group operations cascade to children. Groups (#46) are flat in
-  // the data (a header row with source.kind='group' + N siblings
-  // pointing at the header via groupId); the panel renders them
-  // hierarchically and these helpers ensure the cascade matches the
-  // visual mental model.
+  // Collect every descendant id of a group (#71). Walks the tree
+  // rooted at `groupId` so cascade helpers (toggle, opacity, remove,
+  // ungroup) handle nested groups correctly: toggling a top-level
+  // group flips every descendant's visibility, even those two levels
+  // deep. Cycle-safe via the visited set; the editor disallows
+  // cycles at edit time but defensive coding here is cheap.
+  function collectDescendants(groupId: string): Set<string> {
+    const found = new Set<string>([groupId]);
+    const queue: string[] = [groupId];
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      for (const l of layers) {
+        if (l.groupId === cur && !found.has(l.id)) {
+          found.add(l.id);
+          // Continue past nested groups too, so their kids get
+          // collected on subsequent passes.
+          queue.push(l.id);
+        }
+      }
+    }
+    return found;
+  }
+
+  // Group operations cascade to children. Groups (#46, #71) live
+  // flat in the data (a header row with source.kind='group' + N
+  // siblings pointing at the header via groupId); the panel renders
+  // them hierarchically and these helpers ensure the cascade matches
+  // the visual mental model. Cascade is recursive after #71 so a
+  // nested group toggle flips every descendant.
   function toggleGroup(groupId: string) {
     const header = layers.find((l) => l.id === groupId);
     if (!header) return;
     const nextVisible = !header.visible;
+    const ids = collectDescendants(groupId);
     onChange(
-      layers.map((l) =>
-        l.id === groupId || l.groupId === groupId
-          ? { ...l, visible: nextVisible }
-          : l,
-      ),
+      layers.map((l) => (ids.has(l.id) ? { ...l, visible: nextVisible } : l)),
     );
   }
   function setGroupOpacity(groupId: string, n: number) {
-    onChange(
-      layers.map((l) =>
-        l.id === groupId || l.groupId === groupId
-          ? { ...l, opacity: n }
-          : l,
-      ),
-    );
+    const ids = collectDescendants(groupId);
+    onChange(layers.map((l) => (ids.has(l.id) ? { ...l, opacity: n } : l)));
   }
   function removeGroup(groupId: string) {
-    onChange(
-      layers.filter((l) => l.id !== groupId && l.groupId !== groupId),
-    );
+    const ids = collectDescendants(groupId);
+    onChange(layers.filter((l) => !ids.has(l.id)));
   }
 
   /**
-   * Ungroup (#48). Drops the group header but keeps its children
-   * as top-level layers in their current document order. Each
-   * child's `groupId` is cleared so the panel renders them flat.
+   * Ungroup (#48, #71). Drops the group header but keeps its
+   * direct children. Each child's `groupId` is reassigned to the
+   * group's own parent (or cleared if the group was top-level), so
+   * a nested-then-ungrouped subgroup's children rejoin the parent
+   * group correctly instead of getting orphaned to the top.
    * Distinct from removeGroup, which deletes everything; ungroup
    * is the "I no longer want them collected" path.
    *
    * Under exactOptionalPropertyTypes the groupId field has to be
    * OMITTED rather than set to undefined; we use a destructure +
-   * rest pattern to drop it cleanly.
+   * rest pattern when clearing.
    */
   function ungroup(groupId: string) {
+    const header = layers.find((l) => l.id === groupId);
+    const parentId = header?.groupId;
     onChange(
       layers
         .filter((l) => l.id !== groupId)
         .map((l) => {
           if (l.groupId !== groupId) return l;
+          if (parentId) {
+            return { ...l, groupId: parentId };
+          }
           const { groupId: _drop, ...rest } = l;
           return rest as MapLayer;
         }),
@@ -142,19 +215,72 @@ export function LayerPanel({
   }
 
   /**
-   * Reorder + (re)assign group membership in one operation (#48).
-   * Used by drag-drop onto a panel row:
+   * Longest chain of nested groups starting at `g` (#71). 1 = group
+   * with no nested subgroups; 2 = group containing one level of
+   * sub-groups; and so on. Used together with groupDepth to gate
+   * drop targets against MAX_GROUP_DEPTH.
+   *
+   * A leaf layer reports 0 because the depth cap is on group
+   * nesting only; leaves can sit at any depth.
+   */
+  function subtreeGroupSpan(g: MapLayer): number {
+    if (g.source.kind !== 'group') return 0;
+    let max = 0;
+    for (const l of layers) {
+      if (l.groupId === g.id && l.source.kind === 'group') {
+        const d = subtreeGroupSpan(l);
+        if (d > max) max = d;
+      }
+    }
+    return 1 + max;
+  }
+
+  /**
+   * Whether `dragged` may be moved under `targetGroup` without
+   * busting the MAX_GROUP_DEPTH cap (#71). Also rejects self-drops
+   * and ancestor cycles (you can't park a parent group inside one
+   * of its own descendants).
+   *
+   * - Leaves: allowed under any group.
+   * - Groups: allowed when groupDepth(target) + subtreeGroupSpan(dragged) <= 3.
+   *   So a leaf-only group can go under a depth-2 group, but a
+   *   group-with-subgroups can only go under a top-level group.
+   */
+  function canMoveInto(dragged: MapLayer, targetGroup: MapLayer): boolean {
+    if (targetGroup.source.kind !== 'group') return false;
+    if (dragged.id === targetGroup.id) return false;
+    // Cycle check: walk targetGroup's groupId chain; if dragged is
+    // an ancestor we'd be creating a cycle.
+    let cursor: string | undefined = targetGroup.groupId;
+    const seen = new Set<string>([targetGroup.id]);
+    while (cursor && !seen.has(cursor)) {
+      if (cursor === dragged.id) return false;
+      seen.add(cursor);
+      const p = layers.find((l) => l.id === cursor);
+      cursor = p?.groupId;
+    }
+    if (dragged.source.kind !== 'group') return true;
+    const tgtDepth = groupDepth(targetGroup, layers);
+    const span = subtreeGroupSpan(dragged);
+    return tgtDepth + span <= MAX_GROUP_DEPTH;
+  }
+
+  /**
+   * Reorder + (re)assign group membership in one operation (#48,
+   * extended in #71 to support group-in-group). Used by drag-drop:
    *   - moveTo  : the row currently at this index becomes the
    *               position the dragged layer occupies post-move.
    *   - groupId : nullable. When set, the dragged layer joins
    *               that group; when null, the layer leaves any
-   *               group it was in. Lets a user drag a top-level
-   *               layer into a group (and back out) by aiming
-   *               at a group child vs. a non-group row.
+   *               group it was in.
    *
-   * If the source layer is itself a group header, we treat the
-   * drop as a plain reorder and leave its children attached --
-   * dragging a header should move the whole bundle.
+   * Group headers can now ride into another group too, taking
+   * their entire subtree along: every descendant has its groupId
+   * left alone so the internal hierarchy is preserved. Drops that
+   * would exceed MAX_GROUP_DEPTH or create a cycle are silently
+   * rejected (the drop target's onDragOver guard already filters
+   * these out, but defensive checks here keep us safe against
+   * keyboard-driven moves we may add later).
    */
   function moveAndRegroup(
     from: number,
@@ -165,14 +291,18 @@ export function LayerPanel({
     const next = [...layers];
     const moved = next[from];
     if (!moved) return;
+    if (groupId) {
+      const target = layers.find((l) => l.id === groupId);
+      if (!target || !canMoveInto(moved, target)) return;
+    }
     next.splice(from, 1);
     // Adjust target index for the splice we just did.
     const adjustedTo = to > from ? to - 1 : to;
-    const isHeader = moved.source.kind === 'group';
     let updated: MapLayer;
-    if (isHeader) {
-      updated = moved;
-    } else if (groupId) {
+    if (groupId) {
+      // Both leaves and group headers can take a new groupId now.
+      // Descendants of a moved group keep their existing groupId
+      // chain so the subtree relocates intact.
       updated = { ...moved, groupId };
     } else if (moved.groupId) {
       // Leave the group: omit groupId rather than set to undefined
@@ -186,6 +316,55 @@ export function LayerPanel({
     onChange(next);
   }
 
+  /**
+   * Move a layer into an existing group (or to top level when
+   * `targetGroupId` is null). Used by the per-layer kebab's
+   * "Move to group" submenu (#72). Drops are silently no-op'd
+   * when the target would exceed the depth cap or create a cycle.
+   */
+  function moveLayerToGroup(layerId: string, targetGroupId: string | null) {
+    const idx = layers.findIndex((l) => l.id === layerId);
+    if (idx < 0) return;
+    if (targetGroupId === null) {
+      // Move to top level. Park at index 0 so the freshly
+      // promoted layer is easy to find.
+      moveAndRegroup(idx, 0, null);
+      return;
+    }
+    const tgtIdx = layers.findIndex((l) => l.id === targetGroupId);
+    if (tgtIdx < 0) return;
+    moveAndRegroup(idx, tgtIdx + 1, targetGroupId);
+  }
+
+  /**
+   * Create a brand-new group at the top level and move this layer
+   * into it as the only child (#72). Reuses the same factory + title
+   * disambiguator the "Add group" menu item uses so the new row's
+   * shape exactly matches an empty group created from scratch.
+   */
+  function createGroupAndMoveLayer(layerId: string) {
+    const layer = layers.find((l) => l.id === layerId);
+    if (!layer) return;
+    const title = uniqueGroupTitle(layers, 'New group');
+    const group = makeEmptyGroupLayer(title);
+    const without = layers.filter((l) => l.id !== layerId);
+    const child: MapLayer = { ...layer, groupId: group.id };
+    onChange([group, child, ...without]);
+  }
+
+  /**
+   * Compute the set of existing groups a leaf layer can be moved
+   * into (#72). Filters by canMoveInto so the kebab menu hides
+   * destinations that would break the depth cap or create a cycle.
+   * The current parent (if any) is shown but disabled in the UI so
+   * users see where the layer is today.
+   */
+  function groupOptionsFor(layer: MapLayer): MapLayer[] {
+    return layers.filter(
+      (l) => l.source.kind === 'group' && canMoveInto(layer, l),
+    );
+  }
+
   return (
     <div className="flex h-full flex-col border-r border-border bg-surface-1">
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
@@ -193,14 +372,63 @@ export function LayerPanel({
           Layers
         </h3>
         {canEdit ? (
-          <button
-            type="button"
-            onClick={onOpenAdd}
-            className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-xs font-medium text-ink-1 shadow-card hover:bg-surface-2"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add layer
-          </button>
+          <div ref={addMenuRef} className="relative inline-flex">
+            {/* Split-button: primary half does the most-common
+                action (Add layer); chevron half opens a tiny menu
+                with the secondary actions (Add group, today). */}
+            <button
+              type="button"
+              onClick={() => {
+                setAddMenuOpen(false);
+                onOpenAdd();
+              }}
+              className="inline-flex h-7 items-center gap-1 rounded-l-md border border-r-0 border-border bg-surface-1 px-2 text-xs font-medium text-ink-1 shadow-card hover:bg-surface-2"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add layer
+            </button>
+            <button
+              type="button"
+              onClick={() => setAddMenuOpen((o) => !o)}
+              aria-haspopup="menu"
+              aria-expanded={addMenuOpen}
+              aria-label="More add options"
+              className="inline-flex h-7 w-6 items-center justify-center rounded-r-md border border-border bg-surface-1 text-xs text-ink-1 shadow-card hover:bg-surface-2"
+            >
+              <ChevronDown className="h-3.5 w-3.5" />
+            </button>
+            {addMenuOpen ? (
+              <div
+                role="menu"
+                className="absolute right-0 top-8 z-20 w-44 overflow-hidden rounded-md border border-border bg-surface-1 text-xs shadow-overlay"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setAddMenuOpen(false);
+                    onOpenAdd();
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-ink-1 hover:bg-surface-2"
+                >
+                  <Plus className="h-3.5 w-3.5 text-muted" />
+                  Add layer
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setAddMenuOpen(false);
+                    onAddGroup();
+                  }}
+                  className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-ink-1 hover:bg-surface-2"
+                >
+                  <FolderPlus className="h-3.5 w-3.5 text-muted" />
+                  Add group
+                </button>
+              </div>
+            ) : null}
+          </div>
         ) : null}
       </div>
 
@@ -219,70 +447,82 @@ export function LayerPanel({
       ) : (
         <ul className="flex-1 overflow-y-auto">
           {(() => {
-            // Group hierarchy (#46). The data is flat; we render
-            // headers (source.kind='group') with their siblings
-            // (groupId === header.id) indented underneath. The
-            // canvas continues to walk every leaf layer; group
-            // headers are filtered out there because their source
-            // doesn't render anything.
+            // Recursive walker (#71). Groups can now contain other
+            // groups, so we render the tree depth-first: each header
+            // emits its row, then we descend into children that name
+            // it as their groupId. Children are rendered in their
+            // document order (the position they sit in `layers`).
             const headerIds = new Set<string>();
             for (const l of layers) {
               if (l.source.kind === 'group') headerIds.add(l.id);
             }
             const childrenByGroup = new Map<string, MapLayer[]>();
-            layers.forEach((l) => {
+            for (const l of layers) {
               if (l.groupId && headerIds.has(l.groupId)) {
                 const arr = childrenByGroup.get(l.groupId) ?? [];
                 arr.push(l);
                 childrenByGroup.set(l.groupId, arr);
               }
-            });
-            // Walk the layers in document order. When we hit a
-            // group header, also emit its children indented
-            // immediately after. Skip layers that are children of
-            // a known group (they'll be rendered with their parent).
-            const rendered: React.ReactElement[] = [];
-            layers.forEach((layer, i) => {
-              if (layer.groupId && headerIds.has(layer.groupId)) {
-                return; // child, rendered with its header below
-              }
-              if (layer.source.kind === 'group') {
-                const kids = childrenByGroup.get(layer.id) ?? [];
-                rendered.push(
-                  <GroupHeaderRow
-                    key={layer.id}
-                    layer={layer}
-                    childCount={kids.length}
-                    canEdit={canEdit}
-                    onToggle={() => toggleGroup(layer.id)}
-                    onOpacity={(n) => setGroupOpacity(layer.id, n)}
-                    onRemove={() => removeGroup(layer.id)}
-                    onRename={(title) => updateLayer(layer.id, { title })}
-                    onUngroup={() => ungroup(layer.id)}
-                    // Drag-into-group support (#48). Dropping a
-                    // layer onto a group header parks it at the
-                    // FIRST child slot of the group (right after
-                    // the header) so the user sees their drop
-                    // land where they aimed. Skip self-drops:
-                    // dragging the header onto itself is a no-op.
-                    onDropOnHeader={(sourceIdx) => {
-                      if (sourceIdx === i) return;
-                      moveAndRegroup(sourceIdx, i + 1, layer.id);
-                    }}
-                  />,
-                );
-                kids.forEach((k) => {
-                  const ki = layers.findIndex((l) => l.id === k.id);
-                  rendered.push(
+            }
+
+            function renderRows(
+              items: MapLayer[],
+              depth: number,
+            ): React.ReactElement[] {
+              const out: React.ReactElement[] = [];
+              for (const layer of items) {
+                const i = layers.findIndex((l) => l.id === layer.id);
+                if (layer.source.kind === 'group') {
+                  const kids = childrenByGroup.get(layer.id) ?? [];
+                  out.push(
                     <div
-                      key={k.id}
-                      style={{ paddingLeft: '14px' }}
-                      className="border-l-2 border-amber-200/70"
+                      key={layer.id}
+                      style={depth > 0 ? { paddingLeft: '14px' } : undefined}
+                      className={
+                        depth > 0 ? 'border-l-2 border-amber-200/70' : ''
+                      }
                     >
-                      <LayerRow
-                        layer={k}
-                        index={ki}
-                        metadata={metadata[k.id] ?? {
+                      <GroupHeaderRow
+                        layer={layer}
+                        childCount={kids.length}
+                        canEdit={canEdit}
+                        currentZoom={currentZoom}
+                        onToggle={() => toggleGroup(layer.id)}
+                        onOpacity={(n) => setGroupOpacity(layer.id, n)}
+                        onRemove={() => removeGroup(layer.id)}
+                        onRename={(title) =>
+                          updateLayer(layer.id, { title })
+                        }
+                        onPatch={(p) => updateLayer(layer.id, p)}
+                        onUngroup={() => ungroup(layer.id)}
+                        onDropOnHeader={(sourceIdx) => {
+                          if (sourceIdx === i) return;
+                          moveAndRegroup(sourceIdx, i + 1, layer.id);
+                        }}
+                      />
+                    </div>,
+                  );
+                  // Recurse into this group's children. Indent one
+                  // more level by passing depth+1; the wrapper div
+                  // adds the visual nesting cue.
+                  const inner = renderRows(kids, depth + 1);
+                  for (const node of inner) out.push(node);
+                  continue;
+                }
+                const ki = i;
+                out.push(
+                  <div
+                    key={layer.id}
+                    style={depth > 0 ? { paddingLeft: '14px' } : undefined}
+                    className={
+                      depth > 0 ? 'border-l-2 border-amber-200/70' : ''
+                    }
+                  >
+                    <LayerRow
+                      layer={layer}
+                      index={ki}
+                      metadata={
+                        metadata[layer.id] ?? {
                           fields: [],
                           valuesByField: {},
                           sampleProperties: null,
@@ -290,77 +530,51 @@ export function LayerPanel({
                           geometryTypes: new Set(),
                           error: null,
                           loading: true,
-                        }}
-                        canEdit={canEdit}
-                        currentZoom={currentZoom}
-                        dragging={dragFrom === ki}
-                        dropTarget={dragOver === ki}
-                        onDragStart={() => setDragFrom(ki)}
-                        onDragEnd={() => {
-                          setDragFrom(null);
-                          setDragOver(null);
-                        }}
-                        onDragEnter={() => setDragOver(ki)}
-                        // Dropping onto a group child: dragged
-                        // layer joins this group (#48). The
-                        // child's groupId is the header's id.
-                        onDrop={(sourceIdx) =>
-                          moveAndRegroup(sourceIdx, ki, k.groupId ?? null)
                         }
-                        onToggle={() =>
-                          updateLayer(k.id, { visible: !k.visible })
-                        }
-                        onOpacity={(n) => updateLayer(k.id, { opacity: n })}
-                        onRemove={() => removeLayer(k.id)}
-                        onPatch={(p) => updateLayer(k.id, p)}
-                      />
-                    </div>,
-                  );
-                });
-                return;
+                      }
+                      canEdit={canEdit}
+                      currentZoom={currentZoom}
+                      dragging={dragFrom === ki}
+                      dropTarget={dragOver === ki}
+                      onDragStart={() => setDragFrom(ki)}
+                      onDragEnd={() => {
+                        setDragFrom(null);
+                        setDragOver(null);
+                      }}
+                      onDragEnter={() => setDragOver(ki)}
+                      onDrop={(sourceIdx) =>
+                        moveAndRegroup(sourceIdx, ki, layer.groupId ?? null)
+                      }
+                      onToggle={() =>
+                        updateLayer(layer.id, { visible: !layer.visible })
+                      }
+                      onOpacity={(n) =>
+                        updateLayer(layer.id, { opacity: n })
+                      }
+                      onRemove={() => removeLayer(layer.id)}
+                      onPatch={(p) => updateLayer(layer.id, p)}
+                      onOpenAttributeTable={onOpenAttributeTable}
+                      onZoomToExtent={() => onZoomToLayer(layer.id)}
+                      groupOptions={groupOptionsFor(layer)}
+                      onMoveToGroup={(gid) =>
+                        moveLayerToGroup(layer.id, gid)
+                      }
+                      onMoveToNewGroup={() =>
+                        createGroupAndMoveLayer(layer.id)
+                      }
+                    />
+                  </div>,
+                );
               }
-              rendered.push(
-                <LayerRow
-                  key={layer.id}
-                  layer={layer}
-                  index={i}
-                  metadata={metadata[layer.id] ?? {
-                    fields: [],
-                    valuesByField: {},
-                    sampleProperties: null,
-                    featureCollection: null,
-                    geometryTypes: new Set(),
-                    error: null,
-                    loading: true,
-                  }}
-                  canEdit={canEdit}
-                  currentZoom={currentZoom}
-                  dragging={dragFrom === i}
-                  dropTarget={dragOver === i}
-                  onDragStart={() => setDragFrom(i)}
-                  onDragEnd={() => {
-                    setDragFrom(null);
-                    setDragOver(null);
-                  }}
-                  onDragEnter={() => setDragOver(i)}
-                  // Dropping onto a non-grouped row: dragged
-                  // layer leaves any group it was in (#48). When
-                  // the row IS a group child shown via the
-                  // children branch above, that branch handles
-                  // it; this path is only top-level rows.
-                  onDrop={(sourceIdx) =>
-                    moveAndRegroup(sourceIdx, i, layer.groupId ?? null)
-                  }
-                  onToggle={() =>
-                    updateLayer(layer.id, { visible: !layer.visible })
-                  }
-                  onOpacity={(n) => updateLayer(layer.id, { opacity: n })}
-                  onRemove={() => removeLayer(layer.id)}
-                  onPatch={(p) => updateLayer(layer.id, p)}
-                />,
-              );
-            });
-            return rendered;
+              return out;
+            }
+
+            // Roots = layers with no parent group (or whose groupId
+            // points at something we don't recognise as a header).
+            const roots = layers.filter(
+              (l) => !l.groupId || !headerIds.has(l.groupId),
+            );
+            return renderRows(roots, 0);
           })()}
         </ul>
       )}
@@ -384,6 +598,21 @@ interface RowProps {
   onOpacity: (n: number) => void;
   onRemove: () => void;
   onPatch: (patch: Partial<MapLayer>) => void;
+  /** Open the attribute table panel (#72). */
+  onOpenAttributeTable: () => void;
+  /** Fly the camera to this layer's feature extent (#72). */
+  onZoomToExtent: () => void;
+  /** Existing groups this layer can validly move into. The list
+   *  is pre-filtered against MAX_GROUP_DEPTH and cycle rules so
+   *  the kebab submenu only shows landing pads that will actually
+   *  accept the drop. (#72) */
+  groupOptions: MapLayer[];
+  /** Move this layer into an existing group (or to top level when
+   *  null). Pairs with `groupOptions` for the submenu. (#72) */
+  onMoveToGroup: (targetGroupId: string | null) => void;
+  /** Create a new group and move this layer into it as its sole
+   *  child. Used by the "+ New group" submenu item. (#72) */
+  onMoveToNewGroup: () => void;
 }
 
 type SectionKey =
@@ -410,6 +639,11 @@ function LayerRow({
   onOpacity,
   onRemove,
   onPatch,
+  onOpenAttributeTable,
+  onZoomToExtent,
+  groupOptions,
+  onMoveToGroup,
+  onMoveToNewGroup,
 }: RowProps) {
   const [expanded, setExpanded] = useState(false);
   const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>({
@@ -423,6 +657,44 @@ function LayerRow({
   function toggle(k: SectionKey) {
     setOpenSections((s) => ({ ...s, [k]: !s[k] }));
   }
+  // Inline rename (#72). Click the title or the kebab's Rename
+  // item to start; commit on blur or Enter, cancel on Escape.
+  // Same pattern as GroupHeaderRow so the two row types feel
+  // identical to the user.
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(layer.title);
+  // Kebab menu (#72). Opens on click of the three-dot button;
+  // closes on outside click or Escape. Holds the move-to-group
+  // submenu state too so we can toggle it inline without a
+  // floating popover library.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [moveSubOpen, setMoveSubOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onDocClick(e: MouseEvent) {
+      if (
+        menuRef.current &&
+        e.target instanceof Node &&
+        !menuRef.current.contains(e.target)
+      ) {
+        setMenuOpen(false);
+        setMoveSubOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setMenuOpen(false);
+        setMoveSubOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [menuOpen]);
 
   // Drag-and-drop: the row itself is the drag source and drop target.
   // We carry the source index in dataTransfer so cross-list drops would
@@ -496,25 +768,206 @@ function LayerRow({
           )}
         </button>
 
-        <div
-          className="min-w-0 flex-1 cursor-pointer truncate text-sm"
-          onClick={() => setExpanded((v) => !v)}
-          title={layer.title}
-        >
-          <span className={layer.visible ? 'text-ink-0' : 'text-muted'}>
-            {layer.title}
-          </span>
-        </div>
+        {editingTitle && canEdit ? (
+          <input
+            autoFocus
+            type="text"
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onBlur={() => {
+              const t = titleDraft.trim();
+              if (t && t !== layer.title) onPatch({ title: t });
+              else setTitleDraft(layer.title);
+              setEditingTitle(false);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+              if (e.key === 'Escape') {
+                setTitleDraft(layer.title);
+                setEditingTitle(false);
+              }
+            }}
+            // Stop the click from bubbling to the row's expand
+            // toggle so typing doesn't accidentally collapse.
+            onClick={(e) => e.stopPropagation()}
+            className="h-6 min-w-0 flex-1 rounded border border-border bg-surface-1 px-1.5 text-sm"
+          />
+        ) : (
+          <div
+            className="min-w-0 flex-1 cursor-pointer truncate text-sm"
+            onClick={() => setExpanded((v) => !v)}
+            onDoubleClick={() => canEdit && setEditingTitle(true)}
+            title={
+              canEdit ? `${layer.title} (double-click to rename)` : layer.title
+            }
+          >
+            <span className={layer.visible ? 'text-ink-0' : 'text-muted'}>
+              {layer.title}
+            </span>
+          </div>
+        )}
 
         {canEdit ? (
-          <button
-            type="button"
-            onClick={onRemove}
-            aria-label="Remove layer"
-            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-danger"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          <div ref={menuRef} className="relative">
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen((o) => !o);
+                setMoveSubOpen(false);
+              }}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              aria-label="Layer actions"
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-1"
+            >
+              <MoreVertical className="h-3.5 w-3.5" />
+            </button>
+            {menuOpen ? (
+              <div
+                role="menu"
+                className="absolute right-0 top-7 z-30 w-56 overflow-visible rounded-md border border-border bg-surface-1 text-xs shadow-overlay"
+              >
+                <MenuItem
+                  Icon={Pencil}
+                  label="Rename"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setTitleDraft(layer.title);
+                    setEditingTitle(true);
+                  }}
+                />
+                <MenuItem
+                  Icon={TableIcon}
+                  label="Open attribute table"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onOpenAttributeTable();
+                  }}
+                />
+                <MenuItem
+                  Icon={Tag}
+                  label={
+                    layer.labels.enabled ? 'Hide labels' : 'Show labels'
+                  }
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onPatch({
+                      labels: {
+                        ...layer.labels,
+                        enabled: !layer.labels.enabled,
+                      },
+                    });
+                  }}
+                />
+                <MenuItem
+                  Icon={Focus}
+                  label="Zoom to layer extent"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onZoomToExtent();
+                  }}
+                  disabled={
+                    !metadata.featureCollection ||
+                    metadata.featureCollection.features.length === 0
+                  }
+                />
+                {/* Move to group: nested submenu, opened inline so
+                    we don't need a floating-element library. List
+                    the layer's existing parent at the top so the
+                    user knows where they are; selecting a different
+                    group calls the parent's reparent helper. */}
+                <div className="border-t border-border">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    aria-haspopup="menu"
+                    aria-expanded={moveSubOpen}
+                    onClick={() => setMoveSubOpen((v) => !v)}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-surface-2"
+                  >
+                    <FolderPlus className="h-3.5 w-3.5 text-muted" />
+                    <span className="flex-1">Move to group</span>
+                    <ChevronRight
+                      className={`h-3.5 w-3.5 text-muted transition-transform ${
+                        moveSubOpen ? 'rotate-90' : ''
+                      }`}
+                    />
+                  </button>
+                  {moveSubOpen ? (
+                    <ul className="border-t border-border bg-surface-2/40">
+                      {layer.groupId ? (
+                        <li>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setMenuOpen(false);
+                              setMoveSubOpen(false);
+                              onMoveToGroup(null);
+                            }}
+                            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-ink-1 hover:bg-surface-2"
+                          >
+                            <FolderMinus className="h-3.5 w-3.5 text-muted" />
+                            Top level
+                          </button>
+                        </li>
+                      ) : null}
+                      <li>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            setMoveSubOpen(false);
+                            onMoveToNewGroup();
+                          }}
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-ink-1 hover:bg-surface-2"
+                        >
+                          <Plus className="h-3.5 w-3.5 text-muted" />
+                          New group
+                        </button>
+                      </li>
+                      {groupOptions.length > 0 ? (
+                        <li className="border-t border-border" />
+                      ) : null}
+                      {groupOptions.map((g) => (
+                        <li key={g.id}>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            disabled={g.id === layer.groupId}
+                            onClick={() => {
+                              setMenuOpen(false);
+                              setMoveSubOpen(false);
+                              onMoveToGroup(g.id);
+                            }}
+                            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-ink-1 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Folder className="h-3.5 w-3.5 text-amber-700" />
+                            <span className="truncate">{g.title}</span>
+                            {g.id === layer.groupId ? (
+                              <span className="ml-auto text-[10px] uppercase tracking-wide text-muted">
+                                current
+                              </span>
+                            ) : null}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+                <MenuItem
+                  Icon={Trash2}
+                  label="Remove"
+                  destructive
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onRemove();
+                  }}
+                />
+              </div>
+            ) : null}
+          </div>
         ) : null}
       </div>
 
@@ -696,6 +1149,46 @@ function Section({
       </button>
       {open ? <div className="px-3 pb-3">{children}</div> : null}
     </div>
+  );
+}
+
+/**
+ * Single item inside the per-layer kebab menu (#72). Thin wrapper
+ * over a button so each menu row stays consistent on icon spacing,
+ * hover state, and the destructive (red) variant for "Remove".
+ */
+function MenuItem({
+  Icon,
+  label,
+  onClick,
+  destructive,
+  disabled,
+}: {
+  Icon: typeof Pencil;
+  label: string;
+  onClick: () => void;
+  destructive?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      disabled={disabled}
+      className={`flex w-full items-center gap-2 px-3 py-2 text-left first:rounded-t-md last:rounded-b-md hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50 ${
+        destructive
+          ? 'text-danger hover:bg-danger/5 hover:text-danger'
+          : 'text-ink-1'
+      }`}
+    >
+      <Icon
+        className={`h-3.5 w-3.5 shrink-0 ${
+          destructive ? 'text-danger' : 'text-muted'
+        }`}
+      />
+      <span className="flex-1 truncate">{label}</span>
+    </button>
   );
 }
 
@@ -1055,10 +1548,17 @@ interface GroupHeaderRowProps {
   layer: MapLayer;
   childCount: number;
   canEdit: boolean;
+  /** Current camera zoom; mirrored from LayerRow so the group's
+   *  scale slider can render the same "you are here" tick. (#69) */
+  currentZoom: number;
   onToggle: () => void;
   onOpacity: (n: number) => void;
   onRemove: () => void;
   onRename: (title: string) => void;
+  /** Generic patch the way LayerRow has it. Used today for the scale
+   *  field; future per-group settings ride on the same channel
+   *  without the parent component growing more callbacks. (#69) */
+  onPatch: (patch: Partial<MapLayer>) => void;
   /** Ungroup (#48): drop the header, keep children as top-level. */
   onUngroup: () => void;
   /** Drop a dragged layer onto the header to park it as the first
@@ -1071,16 +1571,21 @@ function GroupHeaderRow({
   layer,
   childCount,
   canEdit,
+  currentZoom,
   onToggle,
   onOpacity,
   onRemove,
   onRename,
+  onPatch,
   onUngroup,
   onDropOnHeader,
 }: GroupHeaderRowProps) {
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(layer.title);
   const [dragOverHeader, setDragOverHeader] = useState(false);
+  // Group rows are collapsed by default to keep the panel scannable.
+  // Click the chevron to expand the inline scale-range editor (#69).
+  const [scaleOpen, setScaleOpen] = useState(false);
   return (
     <li
       className={`border-b border-border bg-amber-50/50 px-2 py-1.5 transition-colors ${
@@ -1200,6 +1705,43 @@ function GroupHeaderRow({
           <span className="text-[10px] tabular-nums text-muted">
             {Math.round(layer.opacity * 100)}%
           </span>
+        </div>
+      ) : null}
+      {/* Group-level scale range (#69). Same editor as a leaf, but
+          parented to the group header. The canvas intersects this
+          range with each child layer's own range at render time, so
+          a group acts as a soft floor and ceiling for everything
+          inside. Collapsed by default to keep the row tidy. */}
+      {canEdit ? (
+        <div className="mt-1">
+          <button
+            type="button"
+            onClick={() => setScaleOpen((v) => !v)}
+            aria-expanded={scaleOpen}
+            className="flex w-full items-center gap-1.5 rounded px-1 py-1 text-[10px] font-medium uppercase tracking-wide text-muted hover:bg-amber-100/60 hover:text-amber-900"
+          >
+            {scaleOpen ? (
+              <ChevronDown className="h-3 w-3" />
+            ) : (
+              <ChevronRight className="h-3 w-3" />
+            )}
+            <Telescope className="h-3 w-3" />
+            Scale
+          </button>
+          {scaleOpen ? (
+            <div className="rounded border border-amber-200/70 bg-surface-1/70 px-2 py-2">
+              <ScaleEditor
+                value={layer.scale ?? DEFAULT_LAYER_SCALE}
+                currentZoom={currentZoom}
+                onChange={(scale) => onPatch({ scale })}
+              />
+              <p className="mt-2 text-[10px] text-muted">
+                Applies to every layer in this group. A child layer
+                with a tighter range stays tighter; a wider one is
+                clipped to this group&apos;s range.
+              </p>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </li>

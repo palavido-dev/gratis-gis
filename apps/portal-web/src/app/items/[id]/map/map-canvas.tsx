@@ -16,7 +16,11 @@ import type {
   MapLayerFilter,
   MapLayerFilterClause,
 } from '@gratis-gis/shared-types';
-import { DEFAULT_LAYER_SCALE, ZOOM_MAX, ZOOM_MIN } from '@gratis-gis/shared-types';
+import {
+  ZOOM_MAX,
+  ZOOM_MIN,
+  effectiveLayerScale,
+} from '@gratis-gis/shared-types';
 import {
   customBasemapToStyle,
   type CustomBasemap,
@@ -1561,7 +1565,13 @@ function syncOverlays(
     const op = layer.opacity;
     const s = layer.style;
     const hover = layer.interactions.hoverHighlight;
-    const scale = layer.scale ?? DEFAULT_LAYER_SCALE;
+    // Effective scale is the leaf's own MapLayerScale intersected
+    // with every group ancestor's (#69). A group with minZoom 8 will
+    // hide its children below z8 even if a child set its own minZoom
+    // to 4. Same for the upper bound. This matches how AGO authors
+    // expect group visibility ranges to behave: a group is a soft
+    // floor and ceiling for everything inside.
+    const scale = effectiveLayerScale(layer, layers);
     const minzoom = scale.minZoom ?? ZOOM_MIN;
     const maxzoom = scale.maxZoom ?? ZOOM_MAX;
     const labelsMinzoom = scale.labelsMinZoom ?? minzoom;
