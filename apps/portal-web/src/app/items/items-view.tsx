@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Check,
-  ChevronRight,
   Crosshair,
   FolderPlus,
   Grid3x3,
@@ -36,6 +35,8 @@ import { ItemSharingIndicator } from '@/components/item-sharing-indicator';
 import { ReassignOwnerDialog } from '@/components/reassign-owner-dialog';
 import { AreaSearchPanel } from './area-search-panel';
 import { AddToFolderDialog } from './add-to-folder-dialog';
+import { DataPreviewDrawer } from './data-preview-drawer';
+import { ItemRowMenu } from './item-row-menu';
 import { ITEM_DRAG_MIME, type FolderRailNode } from './folder-rail';
 
 /**
@@ -124,6 +125,9 @@ export function ItemsView({ items, currentUser, folders = [] }: Props) {
   // permanent purge stays a per-item action on the recycle-bin
   // page so a misclick on the items list can't lose data.
   const [showBulkTrash, setShowBulkTrash] = useState(false);
+  // Active preview drawer's item (#82). Set from the per-row
+  // kebab's "Preview data" item. Null = drawer hidden.
+  const [previewItem, setPreviewItem] = useState<ItemWithShares | null>(null);
   // ?addToFolder=<id> query param flips this view into "pick items
   // to add to a specific folder" mode. The user got here from the
   // folder detail page's "Add items" button; we know the target
@@ -614,6 +618,21 @@ export function ItemsView({ items, currentUser, folders = [] }: Props) {
         manageableIds={manageableIds}
         onToggleSelected={toggleSelected}
         onToggleAll={selectAllVisible}
+        onPreview={(item) => setPreviewItem(item)}
+        onRowShare={(item) => {
+          // Reuse the existing bulk-share dialog with a one-item
+          // selection so we don't have a second dialog to maintain.
+          setSelected(new Set([item.id]));
+          setShowBulkShare(true);
+        }}
+        onRowMoveToFolder={(item) => {
+          setSelected(new Set([item.id]));
+          setShowAddToFolder(true);
+        }}
+        onRowMoveToTrash={(item) => {
+          setSelected(new Set([item.id]));
+          setShowBulkTrash(true);
+        }}
       />
       {showReassign ? (
         <ReassignOwnerDialog
@@ -674,6 +693,15 @@ export function ItemsView({ items, currentUser, folders = [] }: Props) {
         <div className="fixed bottom-4 right-4 max-w-md rounded-md border border-danger/40 bg-danger/5 px-3 py-2 text-xs text-danger shadow-raised">
           {bulkError}
         </div>
+      ) : null}
+      {/* Quick attribute preview opened from the per-row kebab
+          (#82). Lives at the page root so it overlays the items
+          list cleanly regardless of how deep the row is. */}
+      {previewItem ? (
+        <DataPreviewDrawer
+          item={previewItem}
+          onClose={() => setPreviewItem(null)}
+        />
       ) : null}
     </div>
   );
@@ -1326,6 +1354,12 @@ interface BodyProps {
   manageableIds: Set<string>;
   onToggleSelected: (id: string) => void;
   onToggleAll: () => void;
+  /** Per-row kebab actions (#82). Forwarded all the way down to
+   *  ItemGrid; ItemRowMenu invokes them. */
+  onPreview: (item: ItemWithShares) => void;
+  onRowShare: (item: ItemWithShares) => void;
+  onRowMoveToFolder: (item: ItemWithShares) => void;
+  onRowMoveToTrash: (item: ItemWithShares) => void;
 }
 
 function ItemsBody({
@@ -1337,6 +1371,10 @@ function ItemsBody({
   manageableIds,
   onToggleSelected,
   onToggleAll,
+  onPreview,
+  onRowShare,
+  onRowMoveToFolder,
+  onRowMoveToTrash,
 }: BodyProps) {
   if (items.length === 0) {
     return (
@@ -1356,6 +1394,10 @@ function ItemsBody({
         manageableIds={manageableIds}
         onToggleSelected={onToggleSelected}
         onToggleAll={onToggleAll}
+        onPreview={onPreview}
+        onRowShare={onRowShare}
+        onRowMoveToFolder={onRowMoveToFolder}
+        onRowMoveToTrash={onRowMoveToTrash}
       />
     );
   }
@@ -1399,6 +1441,10 @@ function ItemsBody({
               manageableIds={manageableIds}
               onToggleSelected={onToggleSelected}
               onToggleAll={onToggleAll}
+              onPreview={onPreview}
+              onRowShare={onRowShare}
+              onRowMoveToFolder={onRowMoveToFolder}
+              onRowMoveToTrash={onRowMoveToTrash}
             />
           </section>
         );
@@ -1417,6 +1463,11 @@ interface GridProps {
   manageableIds: Set<string>;
   onToggleSelected: (id: string) => void;
   onToggleAll: () => void;
+  /** Per-row kebab actions (#82). */
+  onPreview: (item: ItemWithShares) => void;
+  onRowShare: (item: ItemWithShares) => void;
+  onRowMoveToFolder: (item: ItemWithShares) => void;
+  onRowMoveToTrash: (item: ItemWithShares) => void;
 }
 
 function ItemGrid({
@@ -1427,6 +1478,10 @@ function ItemGrid({
   manageableIds,
   onToggleSelected,
   onToggleAll,
+  onPreview,
+  onRowShare,
+  onRowMoveToFolder,
+  onRowMoveToTrash,
 }: GridProps) {
   if (viewMode === 'card') {
     return (
@@ -1472,6 +1527,26 @@ function ItemGrid({
                   />
                 </label>
               ) : null}
+              {/* Card-view kebab. Top-right, opacity-on-hover so it
+                  doesn't crowd the card chrome at rest. (#82) */}
+              <div
+                className="absolute right-2 top-2 z-10 rounded bg-surface-1/90 opacity-0 backdrop-blur transition-opacity group-hover:opacity-100"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <ItemRowMenu
+                  itemId={item.id}
+                  itemType={item.type}
+                  canManage={canManage}
+                  onPreview={() => onPreview(item)}
+                  onShare={canManage ? () => onRowShare(item) : undefined}
+                  onMoveToFolder={
+                    canManage ? () => onRowMoveToFolder(item) : undefined
+                  }
+                  onMoveToTrash={
+                    canManage ? () => onRowMoveToTrash(item) : undefined
+                  }
+                />
+              </div>
               <ItemCard
                 item={item}
                 href={`/items/${item.id}`}
@@ -1606,8 +1681,10 @@ function ItemGrid({
                   {new Date(item.updatedAt).toLocaleDateString()}
                 </p>
               </Link>
-              {/* Sharing + chevron sit outside the Link so their click
-                  handlers don't propagate a navigation. */}
+              {/* Sharing + kebab sit outside the Link so their click
+                  handlers don't propagate a navigation. The kebab
+                  replaces the row's old hover-chevron now that
+                  every row has actual actions. (#82) */}
               <div className="hidden sm:block">
                 <ItemSharingIndicator
                   itemId={item.id}
@@ -1619,7 +1696,19 @@ function ItemGrid({
                   stopParentLink
                 />
               </div>
-              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted opacity-0 transition-opacity group-hover:opacity-100" />
+              <ItemRowMenu
+                itemId={item.id}
+                itemType={item.type}
+                canManage={canManage}
+                onPreview={() => onPreview(item)}
+                onShare={canManage ? () => onRowShare(item) : undefined}
+                onMoveToFolder={
+                  canManage ? () => onRowMoveToFolder(item) : undefined
+                }
+                onMoveToTrash={
+                  canManage ? () => onRowMoveToTrash(item) : undefined
+                }
+              />
             </div>
           </li>
         );
