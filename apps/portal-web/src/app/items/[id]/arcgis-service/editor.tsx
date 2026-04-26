@@ -653,10 +653,9 @@ function CredentialsCard({
     <div className="rounded-lg border border-border bg-surface-1 p-4">
       <h3 className="mb-1 text-sm font-semibold">Authentication</h3>
       <p className="mb-3 text-xs text-muted">
-        Some ArcGIS services require a token or username/password. When
-        enabled, the portal stores the credential server-side (encrypted
-        at rest) and proxies layer requests through it -- the browser
-        never sees the secret.
+        Some services require a username and password. Save it here
+        once and the portal uses it whenever it needs to fetch from
+        the service. The password stays on the server.
       </p>
       <label className="mb-3 flex items-center gap-2 text-xs">
         <input
@@ -666,14 +665,7 @@ function CredentialsCard({
           onChange={(e) => void onToggleRequiresAuth(e.target.checked)}
           className="h-3.5 w-3.5 rounded border-border"
         />
-        <span className="text-ink-1">Use proxied auth</span>
-        <span className="text-muted">
-          -- when on, layer fetches route through{' '}
-          <code className="rounded bg-surface-2 px-1">
-            /api/items/{itemId.slice(0, 8)}.../proxy
-          </code>
-          .
-        </span>
+        <span className="text-ink-1">This service needs a password</span>
       </label>
       {requiresAuth ? (
         <div className="space-y-2 rounded-md border border-border bg-surface-0 p-3 text-xs">

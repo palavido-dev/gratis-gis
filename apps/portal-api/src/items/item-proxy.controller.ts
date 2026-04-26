@@ -49,6 +49,21 @@ export class ItemProxyController {
     private readonly credentials: CredentialService,
   ) {}
 
+  // Two routes wired to the same handler so a bare /proxy (no
+  // sub-path, with or without query string) also matches. Nest's
+  // wildcard '*' requires at least one path segment, so the
+  // detail-page Probe call -- /api/items/<id>/proxy?f=json -- was
+  // 404'ing without this companion. (#80)
+  @Get()
+  async proxyRoot(
+    @CurrentUser() user: AuthUser,
+    @Param('id') itemId: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ): Promise<void> {
+    return this.proxy(user, itemId, req, res);
+  }
+
   @Get('*')
   async proxy(
     @CurrentUser() user: AuthUser,
