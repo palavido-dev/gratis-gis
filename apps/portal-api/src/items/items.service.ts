@@ -1,11 +1,17 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import type { ItemAccess, ItemType, PrincipalType, Prisma, SharePermission } from '@prisma/client';
+import { ITEM_TYPES } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { SharingService } from './sharing.service.js';
 import { DataSnapshotService } from './data-snapshot.service.js';
 import { itemBbox } from './item-bbox.js';
+
+/** Allow-list of types a smart folder's saved query can filter to.
+ *  Just the runtime ITEM_TYPES set as a plain string array so we
+ *  can use `.includes()` without a TS narrowing dance. */
+const SMART_FOLDER_TYPES: readonly string[] = ITEM_TYPES;
 
 /**
  * Coarse degree-equivalent of a kilometer buffer. Good enough for
@@ -1237,12 +1243,101 @@ export class ItemsService {
    * (same `include` projection) so the client can reuse its existing
    * card / row components. See docs/folders.md.
    */
+  /**
+   * Resolve a smart folder's saved query to a list of items the
+   * caller can see (#38). Translates the FolderSmartQuery shape
+   * into the opts list() expects, then invokes list() so all the
+   * authz/inheritance/visibility logic stays in one place. The
+   * `lite` mode is left off so the wire shape matches a regular
+   * static-folder response (full Item rows, not slim projections).
+   *
+   * `limit` is clamped server-side to 1000 so a smart folder set
+   * to "everything" doesn't accidentally render a giant grid.
+   */
+  private async resolveSmartFolder(
+    user: AuthUser,
+    rawQuery: unknown,
+  ): Promise<unknown> {
+    const q = (rawQuery ?? {}) as {
+      type?: unknown;
+      q?: unknown;
+      ownerId?: unknown;
+      bbox?: unknown;
+      bufferKm?: unknown;
+      limit?: unknown;
+    };
+    const opts: {
+      type?: ItemType | ItemType[];
+      q?: string;
+      ownerId?: string;
+      bbox?: [number, number, number, number];
+      bufferKm?: number;
+    } = {};
+    // type accepts a single ItemType, an array, or a comma-separated
+    // string. Each token validated against the runtime ITEM_TYPES set
+    // -- a smart folder can never produce items with a bogus type.
+    if (typeof q.type === 'string' && q.type.length > 0) {
+      const tokens = q.type
+        .split(',')
+        .map((t) => t.trim())
+        .filter((t) => t.length > 0);
+      const valid = tokens.filter(
+        (t): t is ItemType => SMART_FOLDER_TYPES.includes(t),
+      );
+      if (valid.length === 1) opts.type = valid[0]!;
+      else if (valid.length > 1) opts.type = valid;
+    } else if (Array.isArray(q.type)) {
+      const valid = q.type.filter(
+        (t): t is ItemType =>
+          typeof t === 'string' && SMART_FOLDER_TYPES.includes(t),
+      );
+      if (valid.length === 1) opts.type = valid[0]!;
+      else if (valid.length > 1) opts.type = valid;
+    }
+    if (typeof q.q === 'string' && q.q.length > 0) opts.q = q.q;
+    if (typeof q.ownerId === 'string' && q.ownerId.length > 0) {
+      opts.ownerId = q.ownerId;
+    }
+    if (
+      Array.isArray(q.bbox) &&
+      q.bbox.length === 4 &&
+      q.bbox.every((n: unknown) => typeof n === 'number' && Number.isFinite(n))
+    ) {
+      opts.bbox = q.bbox as [number, number, number, number];
+    }
+    if (typeof q.bufferKm === 'number' && q.bufferKm >= 0) {
+      opts.bufferKm = q.bufferKm;
+    }
+    const rows = await this.list(user, opts);
+    const limit =
+      typeof q.limit === 'number' && q.limit > 0
+        ? Math.min(Math.floor(q.limit), 1000)
+        : 1000;
+    return Array.isArray(rows) ? rows.slice(0, limit) : rows;
+  }
+
   async listFolderContents(user: AuthUser, id: string) {
     const folder = await this.get(user, id);
     if (folder.type !== 'folder') {
       throw new BadRequestException('Item is not a folder');
     }
-    const data = folder.data as { childItemIds?: unknown } | null;
+    const data = folder.data as {
+      childItemIds?: unknown;
+      smartQuery?: unknown;
+    } | null;
+
+    // Smart-folder branch (#38). When the folder carries a
+    // smartQuery, its contents are computed by running the items
+    // list endpoint with that query's filters. Reuses every authz
+    // path items.list already honors -- per-share access, owner /
+    // admin / public bypass, folder-share inheritance -- so smart
+    // folders never accidentally widen a caller's visible set.
+    // childItemIds is preserved on the row but ignored for
+    // membership while smartQuery is present.
+    if (data?.smartQuery && typeof data.smartQuery === 'object') {
+      return this.resolveSmartFolder(user, data.smartQuery);
+    }
+
     const ids = Array.isArray(data?.childItemIds)
       ? (data!.childItemIds as unknown[]).filter(
           (x): x is string => typeof x === 'string' && x.length > 0,

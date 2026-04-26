@@ -9,9 +9,14 @@ import {
   FolderPlus,
   Inbox,
   Plus,
+  Sparkles,
   X,
 } from 'lucide-react';
-import type { FolderData, ItemWithShares } from '@gratis-gis/shared-types';
+import type {
+  FolderData,
+  FolderSmartQuery,
+  ItemWithShares,
+} from '@gratis-gis/shared-types';
 import { DEFAULT_FOLDER } from '@gratis-gis/shared-types';
 import {
   getItemTypeAccent,
@@ -79,6 +84,15 @@ export function FolderDetail({
   const [orderedIds, setOrderedIds] = useState<string[]>(
     initial.childItemIds,
   );
+  // Smart-folder state (#38). When `smartQuery` is non-null this
+  // folder is "smart": its contents come from the saved query
+  // instead of childItemIds. The saved query is mirrored locally
+  // so the editor gives instant feedback before the PATCH lands.
+  const [smartQuery, setSmartQuery] = useState<FolderSmartQuery | null>(
+    initial.smartQuery ?? null,
+  );
+  const [smartSaving, setSmartSaving] = useState(false);
+  const isSmart = smartQuery !== null;
   const [removing, setRemoving] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
@@ -296,6 +310,51 @@ export function FolderDetail({
     }
   }
 
+  /**
+   * Save the smart-folder query (#38). Pass `null` to demote a
+   * smart folder back to a static folder; the saved childItemIds
+   * survive the round-trip so toggling smart off restores prior
+   * curation. Optimistic local state with rollback on failure.
+   */
+  async function saveSmartQuery(next: FolderSmartQuery | null) {
+    if (!canEdit) return;
+    const prev = smartQuery;
+    setSmartQuery(next);
+    setSmartSaving(true);
+    setError(null);
+    try {
+      // Build the new FolderData. When demoting (next === null),
+      // OMIT smartQuery so exactOptionalPropertyTypes is satisfied
+      // and the resolver's `data.smartQuery` check sees `undefined`
+      // rather than `null` (either works at runtime, but the type
+      // shape only allows omission, not explicit null).
+      const { smartQuery: _drop, ...base } = initial;
+      const payload: FolderData = next
+        ? { ...base, childItemIds: orderedIds, smartQuery: next }
+        : { ...base, childItemIds: orderedIds };
+      const res = await fetch(`/api/portal/items/${itemId}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ data: payload }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const msg =
+          (body as { message?: string | string[] }).message ??
+          `HTTP ${res.status}`;
+        throw new Error(Array.isArray(msg) ? msg.join('; ') : msg);
+      }
+      router.refresh();
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : 'Smart-folder save failed.',
+      );
+      setSmartQuery(prev);
+    } finally {
+      setSmartSaving(false);
+    }
+  }
+
   return (
     <section className="space-y-4">
       {breadcrumb.length > 0 ? (
@@ -384,6 +443,22 @@ export function FolderDetail({
         </div>
       ) : null}
 
+      {/* Smart-folder editor (#38). Smart folders compute their
+          contents from a saved query at view time instead of a
+          curated childItemIds list. Toggle on to convert; the
+          existing childItemIds is preserved so toggling back
+          restores the prior curation. While smart, drag-drop
+          reorder and per-item Remove are hidden because they
+          would no-op against a query-driven membership. */}
+      {canEdit ? (
+        <SmartFolderPanel
+          smartQuery={smartQuery}
+          isSmart={isSmart}
+          saving={smartSaving}
+          onChange={saveSmartQuery}
+        />
+      ) : null}
+
       {error ? (
         <div className="rounded-md border border-danger/40 bg-danger/5 px-3 py-2 text-xs text-danger">
           {error}
@@ -412,21 +487,24 @@ export function FolderDetail({
               return (
                 <li
                   key={child.id}
-                  draggable={canEdit && !reordering}
+                  // Smart folders compute their order from the
+                  // query (#38) so manual reorder is suppressed.
+                  // Static folders keep the existing drag-drop.
+                  draggable={canEdit && !reordering && !isSmart}
                   onDragStart={(e) => {
-                    if (!canEdit) return;
+                    if (!canEdit || isSmart) return;
                     setDragId(child.id);
                     e.dataTransfer.effectAllowed = 'move';
                     e.dataTransfer.setData('text/plain', child.id);
                   }}
                   onDragEnd={() => setDragId(null)}
                   onDragOver={(e) => {
-                    if (!canEdit || !dragId) return;
+                    if (!canEdit || !dragId || isSmart) return;
                     e.preventDefault();
                     e.dataTransfer.dropEffect = 'move';
                   }}
                   onDrop={(e) => {
-                    if (!canEdit || !dragId) return;
+                    if (!canEdit || !dragId || isSmart) return;
                     e.preventDefault();
                     void reorderChildren(dragId, child.id);
                   }}
@@ -462,7 +540,11 @@ export function FolderDetail({
                   <span className="hidden shrink-0 text-[11px] text-muted lg:inline">
                     {new Date(child.updatedAt).toLocaleDateString()}
                   </span>
-                  {canEdit ? (
+                  {canEdit && !isSmart ? (
+                    // Per-item Remove only makes sense on a static
+                    // folder; smart folder membership is computed
+                    // from the saved query so removing a row would
+                    // be a no-op until the query was edited.
                     <button
                       type="button"
                       onClick={() => removeFromFolder(child.id)}
@@ -491,3 +573,160 @@ export function FolderDetail({
 // DEFAULT_FOLDER pulled at the import site so the bundler keeps the
 // module-load path identical to the wizard's shape on first paint.
 export const _FolderDetailDefaults = DEFAULT_FOLDER;
+
+/**
+ * Smart-folder editor panel (#38). Compact form with five fields
+ * matching FolderSmartQuery: type (multi-select via comma-
+ * separated list), free-text q, owner UUID, optional limit.
+ * bbox / bufferKm are not surfaced here -- they're awkward to
+ * type into a folder editor and the more natural authoring path
+ * is "draw a polygon, save as smart folder," which can land in a
+ * follow-up. Today the API still honours them when present.
+ *
+ * Save fires on form submit (Enter or the Save button) so casual
+ * typing doesn't hammer PATCH. Toggle off demotes back to a
+ * static folder; the parent restores prior childItemIds via the
+ * existing PATCH path.
+ */
+function SmartFolderPanel({
+  smartQuery,
+  isSmart,
+  saving,
+  onChange,
+}: {
+  smartQuery: FolderSmartQuery | null;
+  isSmart: boolean;
+  saving: boolean;
+  onChange: (next: FolderSmartQuery | null) => void | Promise<void>;
+}) {
+  const [draftType, setDraftType] = useState<string>(() =>
+    Array.isArray(smartQuery?.type)
+      ? smartQuery!.type.join(',')
+      : (smartQuery?.type ?? ''),
+  );
+  const [draftQ, setDraftQ] = useState<string>(smartQuery?.q ?? '');
+  const [draftOwner, setDraftOwner] = useState<string>(
+    smartQuery?.ownerId ?? '',
+  );
+  const [draftLimit, setDraftLimit] = useState<string>(() =>
+    typeof smartQuery?.limit === 'number' ? String(smartQuery!.limit) : '',
+  );
+
+  function buildQuery(): FolderSmartQuery {
+    const next: FolderSmartQuery = {};
+    if (draftType.trim().length > 0) next.type = draftType.trim();
+    if (draftQ.trim().length > 0) next.q = draftQ.trim();
+    if (draftOwner.trim().length > 0) next.ownerId = draftOwner.trim();
+    const lim = Number(draftLimit);
+    if (Number.isFinite(lim) && lim > 0) next.limit = Math.floor(lim);
+    return next;
+  }
+
+  return (
+    <div className="rounded-md border border-border bg-surface-1 px-3 py-2 text-xs">
+      <div className="flex items-center gap-2">
+        <input
+          id="folder-is-smart"
+          type="checkbox"
+          checked={isSmart}
+          disabled={saving}
+          onChange={(e) => {
+            // Toggle on with whatever drafts the user has typed
+            // so the first save isn't an empty query (which would
+            // resolve to "every item the user can see"). Toggle
+            // off passes null so the parent demotes the folder
+            // back to static.
+            if (e.target.checked) void onChange(buildQuery());
+            else void onChange(null);
+          }}
+          className="h-3.5 w-3.5 rounded border-border"
+        />
+        <label
+          htmlFor="folder-is-smart"
+          className="inline-flex cursor-pointer items-center gap-1.5 text-ink-1"
+        >
+          <Sparkles className="h-3.5 w-3.5 text-accent" />
+          Smart folder
+        </label>
+        <span className="text-muted">
+          -- contents come from a saved query, not a hand-curated list.
+        </span>
+        {saving ? (
+          <span className="ml-auto text-[10px] uppercase text-muted">
+            Saving...
+          </span>
+        ) : null}
+      </div>
+
+      {isSmart ? (
+        <form
+          className="mt-2 grid gap-2 sm:grid-cols-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void onChange(buildQuery());
+          }}
+        >
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
+              Type (comma-separated)
+            </span>
+            <input
+              type="text"
+              value={draftType}
+              onChange={(e) => setDraftType(e.target.value)}
+              placeholder="map, data_layer, ..."
+              className="h-7 rounded border border-border bg-surface-1 px-2 text-xs"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
+              Search text
+            </span>
+            <input
+              type="text"
+              value={draftQ}
+              onChange={(e) => setDraftQ(e.target.value)}
+              placeholder="title, description, or tag substring"
+              className="h-7 rounded border border-border bg-surface-1 px-2 text-xs"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
+              Owner UUID
+            </span>
+            <input
+              type="text"
+              value={draftOwner}
+              onChange={(e) => setDraftOwner(e.target.value)}
+              placeholder="optional"
+              className="h-7 rounded border border-border bg-surface-1 px-2 font-mono text-[11px]"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
+              Limit
+            </span>
+            <input
+              type="number"
+              min={1}
+              max={1000}
+              value={draftLimit}
+              onChange={(e) => setDraftLimit(e.target.value)}
+              placeholder="default 1000"
+              className="h-7 rounded border border-border bg-surface-1 px-2 text-xs"
+            />
+          </label>
+          <div className="sm:col-span-2 flex items-center justify-end gap-2">
+            <button
+              type="submit"
+              disabled={saving}
+              className="h-7 rounded-md border border-accent bg-accent px-3 text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-60"
+            >
+              Save query
+            </button>
+          </div>
+        </form>
+      ) : null}
+    </div>
+  );
+}
