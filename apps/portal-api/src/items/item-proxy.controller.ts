@@ -75,44 +75,57 @@ export class ItemProxyController {
     // before we look at anything else. No credential leak through
     // a bogus item id even if a guess hits a real row.
     const item = await this.items.get(user, itemId);
-    const itemUrl = (item.data as { url?: unknown } | null)?.url;
+    const itemData = item.data as
+      | { url?: unknown; requiresAuth?: unknown }
+      | null;
+    const itemUrl = itemData?.url;
     if (typeof itemUrl !== 'string' || itemUrl.length === 0) {
       throw new BadRequestException(
         'Item has no upstream URL configured for proxying',
       );
     }
 
-    let credential = await this.credentials.getCredentialForProxy(itemId);
+    // Credential lookup is conditional on data.requiresAuth (#83).
+    // Items that don't require auth (most public ArcGIS services)
+    // shouldn't be denied by the proxy just because no credential
+    // was ever stored. We still go through the proxy for those
+    // because it sidesteps browser CORS constraints and gives us
+    // one consistent path for previews and live data fetches.
+    const requiresAuth = itemData?.requiresAuth === true;
+    let credential: CredentialPayload | null = null;
+    if (requiresAuth) {
+      credential = await this.credentials.getCredentialForProxy(itemId);
 
-    // ArcGIS doesn't honour HTTP Basic on data endpoints (#76).
-    // When the stored credential is Basic and the item points at
-    // an ArcGIS REST URL, exchange username + password for a
-    // short-lived token via the service's self-described token
-    // endpoint. The exchange helper caches the token in-process
-    // until it expires so we don't pay the round trip on every
-    // proxied request.
-    if (credential.kind === 'basic' && isArcgisRest(itemUrl)) {
-      try {
-        const token = await exchangeBasicForArcgisToken({
-          serviceUrl: itemUrl,
-          username: credential.username,
-          password: credential.password,
-          cacheKey: itemId,
-        });
-        credential = { kind: 'arcgis_token', token };
-      } catch (err) {
-        this.log.warn(
-          `proxy token-exchange failed for item=${itemId}: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
-        res.status(401).json({
-          message:
-            err instanceof Error
-              ? err.message
-              : 'Could not exchange credentials for an ArcGIS token.',
-        });
-        return;
+      // ArcGIS doesn't honour HTTP Basic on data endpoints (#76).
+      // When the stored credential is Basic and the item points at
+      // an ArcGIS REST URL, exchange username + password for a
+      // short-lived token via the service's self-described token
+      // endpoint. The exchange helper caches the token in-process
+      // until it expires so we don't pay the round trip on every
+      // proxied request.
+      if (credential.kind === 'basic' && isArcgisRest(itemUrl)) {
+        try {
+          const token = await exchangeBasicForArcgisToken({
+            serviceUrl: itemUrl,
+            username: credential.username,
+            password: credential.password,
+            cacheKey: itemId,
+          });
+          credential = { kind: 'arcgis_token', token };
+        } catch (err) {
+          this.log.warn(
+            `proxy token-exchange failed for item=${itemId}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+          res.status(401).json({
+            message:
+              err instanceof Error
+                ? err.message
+                : 'Could not exchange credentials for an ArcGIS token.',
+          });
+          return;
+        }
       }
     }
 
@@ -171,11 +184,12 @@ function extractSubPath(url: string): string {
 /** Compose the final upstream URL: <item.data.url> + '/' +
  *  <subPath>, preserving query params on both sides. arcgis_token
  *  credentials are appended as a query param here so they end up
- *  in the URL the upstream sees. */
+ *  in the URL the upstream sees. Null credential = no token to
+ *  inject (item doesn't require auth). */
 function composeUpstreamUrl(
   base: string,
   subPath: string,
-  credential: CredentialPayload,
+  credential: CredentialPayload | null,
 ): string {
   // Strip a trailing slash on the base so we can join with
   // subPath cleanly without a double slash.
@@ -192,7 +206,7 @@ function composeUpstreamUrl(
   } else {
     joined = `${trimmed}/${subPath}`;
   }
-  if (credential.kind === 'arcgis_token') {
+  if (credential?.kind === 'arcgis_token') {
     const u = new URL(joined);
     u.searchParams.set('token', credential.token);
     return u.toString();
@@ -202,16 +216,17 @@ function composeUpstreamUrl(
 
 /** Compose request headers based on the credential kind. Bearer
  *  and basic ride in Authorization; arcgis_token uses the URL
- *  query param branch above and contributes no header. */
+ *  query param branch above and contributes no header. Null
+ *  credential produces just the accept header (anonymous request). */
 function composeUpstreamHeaders(
-  credential: CredentialPayload,
+  credential: CredentialPayload | null,
 ): Record<string, string> {
   const headers: Record<string, string> = {
     accept: 'application/json, application/octet-stream;q=0.9, */*;q=0.8',
   };
-  if (credential.kind === 'bearer') {
+  if (credential?.kind === 'bearer') {
     headers.authorization = `Bearer ${credential.token}`;
-  } else if (credential.kind === 'basic') {
+  } else if (credential?.kind === 'basic') {
     const encoded = Buffer.from(
       `${credential.username}:${credential.password}`,
       'utf8',

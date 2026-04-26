@@ -220,14 +220,24 @@ export function DataPreviewDrawer({ item, onClose }: Props) {
                 {fields.length > 0 ? ` • ${fields.length} field` : ''}
                 {fields.length === 1 ? '' : fields.length > 0 ? 's' : ''}
               </div>
+              {/* Compact, Excel-ish table: every row is a single
+                  line with overflow ellipsised, so a long
+                  "generalnotes" cell doesn't blow the row up to
+                  six lines tall. table-fixed + per-column max-width
+                  keeps the layout predictable; the user sees more
+                  rows on screen and can hover for the full value
+                  via the title attribute. Zebra rows for
+                  readability. (#83) */}
               <div className="min-h-0 flex-1 overflow-auto">
-                <table className="min-w-full text-xs">
+                <table className="min-w-full table-fixed text-[11px]">
                   <thead className="sticky top-0 z-10 bg-surface-2 text-left">
                     <tr>
                       {fields.map((f) => (
                         <th
                           key={f}
-                          className="border-b border-border px-3 py-1.5 font-medium text-muted"
+                          title={f}
+                          className="truncate border-b border-border px-2 py-1 font-medium text-muted"
+                          style={{ maxWidth: '12rem', minWidth: '6rem' }}
                         >
                           {f}
                         </th>
@@ -238,16 +248,23 @@ export function DataPreviewDrawer({ item, onClose }: Props) {
                     {features.map((feat, i) => (
                       <tr
                         key={i}
-                        className="even:bg-surface-2/40 hover:bg-surface-2"
+                        className={`${
+                          i % 2 === 1 ? 'bg-surface-2/40' : ''
+                        } hover:bg-accent/5`}
                       >
-                        {fields.map((f) => (
-                          <td
-                            key={f}
-                            className="border-b border-border/50 px-3 py-1 align-top text-ink-1"
-                          >
-                            {formatCell(feat.properties?.[f])}
-                          </td>
-                        ))}
+                        {fields.map((f) => {
+                          const value = formatCell(feat.properties?.[f]);
+                          return (
+                            <td
+                              key={f}
+                              title={value}
+                              className="truncate border-b border-border/40 px-2 py-0.5 text-ink-1"
+                              style={{ maxWidth: '12rem', minWidth: '6rem' }}
+                            >
+                              {value}
+                            </td>
+                          );
+                        })}
                       </tr>
                     ))}
                   </tbody>
@@ -356,12 +373,7 @@ function collectFields(features: GeoJSON.Feature[]): string[] {
 
 function formatCell(v: unknown): string {
   if (v === null || v === undefined) return '';
-  if (typeof v === 'string') {
-    // Truncate very long strings so a wall-of-text cell doesn't
-    // explode the column. Hover via title attribute is a future
-    // enhancement.
-    return v.length > 200 ? `${v.slice(0, 200)}...` : v;
-  }
+  if (typeof v === 'string') return v;
   if (typeof v === 'number' || typeof v === 'boolean') return String(v);
   // Dates from ArcGIS come through as epoch millis. We can't tell
   // those apart from arbitrary numbers without schema context, so
