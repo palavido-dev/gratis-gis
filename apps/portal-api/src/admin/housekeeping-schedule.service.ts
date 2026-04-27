@@ -204,6 +204,14 @@ export class HousekeepingScheduleService {
       if (cfg.autoDisableEnabled) {
         usersDisabled = await this.autoDisableQuietUsers(cfg.autoDisableDays);
       }
+      // Auto-disable for users with an explicit auto_disable_at in
+      // the past (#85/#86). Runs unconditionally: the admin set an
+      // explicit end date per-user, so this isn't gated by the
+      // quiet-user heuristic toggle. Counts roll into usersDisabled
+      // for the audit log so "X users disabled" stays one number;
+      // logger output below distinguishes the cause.
+      const expired = await this.autoDisableExpiredUsers();
+      usersDisabled += expired;
       const finished = await this.prisma.housekeepingRun.update({
         where: { id: run.id },
         data: {
@@ -250,6 +258,48 @@ export class HousekeepingScheduleService {
       data: { deletedAt: new Date() },
     });
     return res.count;
+  }
+
+  /**
+   * Disable sign-in for users whose explicit auto_disable_at is in
+   * the past (#85/#86). Always runs in the housekeeping pass, even
+   * when the quiet-user heuristic is off: the admin set a hard end
+   * date per-user, and that contract should hold whether or not
+   * `autoDisableEnabled` is checked. Keycloak's `enabled=false` is
+   * idempotent so re-running the same user is harmless.
+   *
+   * auth-sync rejects the request with 401 the moment the timestamp
+   * passes (see auth-sync.service.ts), so this cron is the second
+   * half of a belt-and-braces gate: Keycloak's enabled flag stops
+   * the SSO refresh-token loop from minting fresh JWTs.
+   */
+  private async autoDisableExpiredUsers(): Promise<number> {
+    const candidates = await this.prisma.user.findMany({
+      where: {
+        orgRole: { not: 'admin' },
+        autoDisableAt: { not: null, lte: new Date() },
+      },
+      select: { id: true, username: true },
+    });
+    let count = 0;
+    for (const u of candidates) {
+      try {
+        await this.keycloak.updateUser(u.id, { enabled: false });
+        count += 1;
+      } catch (err) {
+        this.log.warn(
+          `auto-disable (expired): could not disable ${u.username} (${u.id}): ${
+            err instanceof Error ? err.message : err
+          }`,
+        );
+      }
+    }
+    if (count > 0) {
+      this.log.log(
+        `auto-disable (expired): flipped Keycloak enabled=false on ${count} user(s).`,
+      );
+    }
+    return count;
   }
 
   /**

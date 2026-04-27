@@ -6,11 +6,13 @@ import { useRouter } from 'next/navigation';
 import {
   AlertTriangle,
   Archive,
+  CalendarClock,
   CheckCircle2,
   ChevronRight,
   Clock,
   Database,
   Loader2,
+  Timer,
   Trash2,
   User as UserIcon,
   UserX,
@@ -34,6 +36,10 @@ export interface HousekeepingBundle {
     staleUserCount: number;
     totalItemCount: number;
     totalUserCount: number;
+    /** "Soon to expire" lookahead window (#86), in days. */
+    expiryWindowDays: number;
+    expiringShareCount: number;
+    expiringUserCount: number;
   };
   staleItems: Array<{
     id: string;
@@ -63,6 +69,28 @@ export interface HousekeepingBundle {
     sizeBytes: number;
     updatedAt: string;
   }>;
+  expiringShares: Array<{
+    itemId: string;
+    itemTitle: string;
+    itemType: ItemType;
+    principalType: 'user' | 'group';
+    principalId: string;
+    principalLabel: string;
+    permission: string;
+    expiresAt: string;
+    isExpired: boolean;
+  }>;
+  expiringUsers: Array<{
+    id: string;
+    username: string;
+    fullName: string;
+    email: string;
+    orgRole: string;
+    autoDisableAt: string;
+    lastSeenAt: string | null;
+    ownedItemCount: number;
+    isExpired: boolean;
+  }>;
 }
 
 interface Props {
@@ -71,7 +99,14 @@ interface Props {
 
 export function HousekeepingView({ bundle }: Props) {
   const router = useRouter();
-  const { summary, staleItems, staleUsers, largeItems } = bundle;
+  const {
+    summary,
+    staleItems,
+    staleUsers,
+    largeItems,
+    expiringShares,
+    expiringUsers,
+  } = bundle;
 
   // One selection set per table: items and users live in different
   // domains so mixing them would make the bulk-action copy
@@ -240,6 +275,104 @@ export function HousekeepingView({ bundle }: Props) {
     }
   }
 
+  // ----- Expiring-share / expiring-user actions (#86) -----
+  // Each row ends with quick actions: extend (+30 days), cancel,
+  // or disable now. We hit the existing per-resource endpoints
+  // (POST /items/:id/share, DELETE /items/:id/share, PATCH
+  // /admin/users/:id) so the audit log treats these as if the
+  // admin had used the per-item / per-user surfaces directly.
+  async function extendShare(
+    row: HousekeepingBundle['expiringShares'][number],
+    days: number,
+  ) {
+    setError(null);
+    const next = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+    const res = await fetch(`/api/portal/items/${row.itemId}/share`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        principalType: row.principalType,
+        principalId: row.principalId,
+        permission: row.permission,
+        expiresAt: next,
+      }),
+    });
+    if (!res.ok) {
+      setError(`Could not extend share: HTTP ${res.status}`);
+      return;
+    }
+    setFlash(`Extended share on "${row.itemTitle}" by ${days} days.`);
+    setTimeout(() => setFlash(null), 4000);
+    router.refresh();
+  }
+  async function cancelShare(row: HousekeepingBundle['expiringShares'][number]) {
+    setError(null);
+    const res = await fetch(`/api/portal/items/${row.itemId}/share`, {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        principalType: row.principalType,
+        principalId: row.principalId,
+      }),
+    });
+    if (!res.ok) {
+      setError(`Could not cancel share: HTTP ${res.status}`);
+      return;
+    }
+    setFlash(`Cancelled share on "${row.itemTitle}".`);
+    setTimeout(() => setFlash(null), 4000);
+    router.refresh();
+  }
+  async function extendUser(
+    row: HousekeepingBundle['expiringUsers'][number],
+    days: number,
+  ) {
+    setError(null);
+    const next = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+    const res = await fetch(`/api/portal/admin/users/${row.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ autoDisableAt: next }),
+    });
+    if (!res.ok) {
+      setError(`Could not extend ${row.username}: HTTP ${res.status}`);
+      return;
+    }
+    setFlash(`Extended ${row.username} by ${days} days.`);
+    setTimeout(() => setFlash(null), 4000);
+    router.refresh();
+  }
+  async function clearUserExpiry(row: HousekeepingBundle['expiringUsers'][number]) {
+    setError(null);
+    const res = await fetch(`/api/portal/admin/users/${row.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ autoDisableAt: null }),
+    });
+    if (!res.ok) {
+      setError(`Could not cancel auto-disable: HTTP ${res.status}`);
+      return;
+    }
+    setFlash(`Removed auto-disable from ${row.username}.`);
+    setTimeout(() => setFlash(null), 4000);
+    router.refresh();
+  }
+  async function disableUserNow(row: HousekeepingBundle['expiringUsers'][number]) {
+    setError(null);
+    const res = await fetch(`/api/portal/admin/users/${row.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ enabled: false }),
+    });
+    if (!res.ok) {
+      setError(`Could not disable ${row.username}: HTTP ${res.status}`);
+      return;
+    }
+    setFlash(`Disabled ${row.username} immediately.`);
+    setTimeout(() => setFlash(null), 4000);
+    router.refresh();
+  }
+
   return (
     <div className="space-y-6">
       <SummaryBar summary={summary} />
@@ -256,6 +389,55 @@ export function HousekeepingView({ bundle }: Props) {
           {error}
         </div>
       ) : null}
+
+      {/* Soon-to-expire shares (#86). Mixes already-expired
+          (red) and within-window (amber) rows so the admin can
+          deal with both in one place. Empty list collapses to a
+          friendly note rather than vanishing entirely so the panel
+          location is predictable. */}
+      <Section
+        icon={<CalendarClock className="h-4 w-4" />}
+        title={`Shares expiring in the next ${summary.expiryWindowDays} days`}
+        empty="No shares are scheduled to expire in this window."
+        caption={
+          expiringShares.length === 0
+            ? null
+            : 'Already-expired rows show in red; upcoming ones in amber. Use the row actions to extend, cancel, or open the item.'
+        }
+      >
+        {expiringShares.length === 0 ? null : (
+          <ExpiringSharesTable
+            rows={expiringShares}
+            onExtend={extendShare}
+            onCancel={cancelShare}
+          />
+        )}
+      </Section>
+
+      {/* Soon-to-expire user accounts (#86). Mirror of the share
+          panel; each row's quick actions correspond to the three
+          things an admin typically wants in this moment: keep
+          them around longer, drop the timer entirely, or end it
+          right now. */}
+      <Section
+        icon={<Timer className="h-4 w-4" />}
+        title={`Users auto-disabling in the next ${summary.expiryWindowDays} days`}
+        empty="No users have an auto-disable date in this window."
+        caption={
+          expiringUsers.length === 0
+            ? null
+            : 'These accounts will lose sign-in on their listed date. Extend, cancel the timer, or disable immediately.'
+        }
+      >
+        {expiringUsers.length === 0 ? null : (
+          <ExpiringUsersTable
+            rows={expiringUsers}
+            onExtend={extendUser}
+            onClear={clearUserExpiry}
+            onDisableNow={disableUserNow}
+          />
+        )}
+      </Section>
 
       <Section
         icon={<Clock className="h-4 w-4" />}
@@ -481,7 +663,7 @@ function SummaryBar({
   summary: HousekeepingBundle['summary'];
 }) {
   return (
-    <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+    <section className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-5">
       <StatCard
         icon={<Archive className="h-4 w-4 text-muted" />}
         label="Total items"
@@ -498,6 +680,18 @@ function SummaryBar({
         label={`Quiet users (${summary.staleUserDays}d+ no sign-in)`}
         value={summary.staleUserCount.toLocaleString()}
         tone={summary.staleUserCount > 0 ? 'warn' : 'ok'}
+      />
+      <StatCard
+        icon={<CalendarClock className="h-4 w-4 text-amber-700" />}
+        label={`Shares expiring (next ${summary.expiryWindowDays}d)`}
+        value={summary.expiringShareCount.toLocaleString()}
+        tone={summary.expiringShareCount > 0 ? 'warn' : 'ok'}
+      />
+      <StatCard
+        icon={<Timer className="h-4 w-4 text-amber-700" />}
+        label={`Users auto-disabling (next ${summary.expiryWindowDays}d)`}
+        value={summary.expiringUserCount.toLocaleString()}
+        tone={summary.expiringUserCount > 0 ? 'warn' : 'ok'}
       />
     </section>
   );
@@ -794,6 +988,210 @@ function LargeItemsTable({
       </tbody>
     </table>
   );
+}
+
+// ---------------------------------------------------------------
+// Expiring-share / expiring-user tables (#86)
+// ---------------------------------------------------------------
+
+function ExpiringSharesTable({
+  rows,
+  onExtend,
+  onCancel,
+}: {
+  rows: HousekeepingBundle['expiringShares'];
+  onExtend: (
+    row: HousekeepingBundle['expiringShares'][number],
+    days: number,
+  ) => void;
+  onCancel: (row: HousekeepingBundle['expiringShares'][number]) => void;
+}) {
+  return (
+    <table className="w-full text-sm">
+      <thead className="bg-surface-2 text-left text-[11px] uppercase tracking-wide text-muted">
+        <tr>
+          <th className="px-4 py-2">Item</th>
+          <th className="px-4 py-2">Recipient</th>
+          <th className="px-4 py-2">Permission</th>
+          <th className="px-4 py-2">Expires</th>
+          <th className="px-4 py-2 text-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-border">
+        {rows.map((r) => (
+          <tr key={`${r.itemId}:${r.principalType}:${r.principalId}`}>
+            <td className="px-4 py-2">
+              <Link
+                href={`/items/${r.itemId}`}
+                className="text-ink-0 hover:text-accent"
+              >
+                {r.itemTitle}
+              </Link>
+              <span className="ml-1 text-[11px] text-muted">({r.itemType})</span>
+            </td>
+            <td className="px-4 py-2 text-muted">
+              <span className="mr-1 inline-block rounded bg-surface-2 px-1 text-[10px] font-medium uppercase">
+                {r.principalType}
+              </span>
+              {r.principalLabel}
+            </td>
+            <td className="px-4 py-2 text-muted">{r.permission}</td>
+            <td className="px-4 py-2">
+              <span
+                className={
+                  r.isExpired
+                    ? 'inline-flex items-center gap-1 rounded bg-danger/10 px-1.5 py-0.5 text-[11px] font-medium text-danger'
+                    : 'inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-900'
+                }
+                title={new Date(r.expiresAt).toLocaleString()}
+              >
+                {r.isExpired ? 'Expired' : 'In'} {formatRelativeShort(r.expiresAt)}
+              </span>
+            </td>
+            <td className="px-4 py-2 text-right">
+              <div className="inline-flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => onExtend(r, 30)}
+                  className="rounded border border-border bg-surface-1 px-2 py-0.5 text-[11px] hover:bg-surface-2"
+                  title="Extend by 30 days"
+                >
+                  +30d
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onCancel(r)}
+                  className="rounded border border-danger/40 bg-danger/5 px-2 py-0.5 text-[11px] text-danger hover:bg-danger/10"
+                >
+                  Cancel
+                </button>
+                <Link
+                  href={`/items/${r.itemId}`}
+                  className="ml-1 inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
+                >
+                  Open
+                  <ChevronRight className="h-3 w-3" />
+                </Link>
+              </div>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function ExpiringUsersTable({
+  rows,
+  onExtend,
+  onClear,
+  onDisableNow,
+}: {
+  rows: HousekeepingBundle['expiringUsers'];
+  onExtend: (
+    row: HousekeepingBundle['expiringUsers'][number],
+    days: number,
+  ) => void;
+  onClear: (row: HousekeepingBundle['expiringUsers'][number]) => void;
+  onDisableNow: (row: HousekeepingBundle['expiringUsers'][number]) => void;
+}) {
+  return (
+    <table className="w-full text-sm">
+      <thead className="bg-surface-2 text-left text-[11px] uppercase tracking-wide text-muted">
+        <tr>
+          <th className="px-4 py-2">User</th>
+          <th className="px-4 py-2">Role</th>
+          <th className="px-4 py-2">Auto-disables</th>
+          <th className="px-4 py-2">Owns items</th>
+          <th className="px-4 py-2 text-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-border">
+        {rows.map((r) => (
+          <tr key={r.id}>
+            <td className="px-4 py-2">
+              <div className="flex flex-col">
+                <span className="text-ink-0">
+                  {r.fullName?.trim() || r.username}
+                </span>
+                <span className="text-[11px] text-muted">{r.email}</span>
+              </div>
+            </td>
+            <td className="px-4 py-2 text-muted">{r.orgRole}</td>
+            <td className="px-4 py-2">
+              <span
+                className={
+                  r.isExpired
+                    ? 'inline-flex items-center gap-1 rounded bg-danger/10 px-1.5 py-0.5 text-[11px] font-medium text-danger'
+                    : 'inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-900'
+                }
+                title={new Date(r.autoDisableAt).toLocaleString()}
+              >
+                {r.isExpired ? 'Past due' : 'In'}{' '}
+                {formatRelativeShort(r.autoDisableAt)}
+              </span>
+            </td>
+            <td className="px-4 py-2 text-muted">
+              {r.ownedItemCount > 0 ? (
+                <span className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-900">
+                  {r.ownedItemCount}
+                </span>
+              ) : (
+                '0'
+              )}
+            </td>
+            <td className="px-4 py-2 text-right">
+              <div className="inline-flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => onExtend(r, 30)}
+                  className="rounded border border-border bg-surface-1 px-2 py-0.5 text-[11px] hover:bg-surface-2"
+                  title="Push the auto-disable date out by 30 days"
+                >
+                  +30d
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onClear(r)}
+                  className="rounded border border-border bg-surface-1 px-2 py-0.5 text-[11px] hover:bg-surface-2"
+                  title="Remove the auto-disable date entirely"
+                >
+                  Cancel timer
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDisableNow(r)}
+                  className="rounded border border-danger/40 bg-danger/5 px-2 py-0.5 text-[11px] text-danger hover:bg-danger/10"
+                  title="Disable sign-in immediately"
+                >
+                  Disable now
+                </button>
+              </div>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/**
+ * Compact "in 3d", "in 12h", "23m" relative time. Used by the
+ * expiry chips: a full date is on the title attribute for hover.
+ */
+function formatRelativeShort(iso: string): string {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return iso;
+  const diffMs = t - Date.now();
+  const abs = Math.abs(diffMs);
+  const minutes = Math.floor(abs / 60_000);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 60) return `${days}d`;
+  const months = Math.floor(days / 30);
+  return `${months}mo`;
 }
 
 function formatBytes(n: number): string {

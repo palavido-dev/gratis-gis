@@ -31,26 +31,47 @@ export default async function AdminHousekeepingPage() {
   let scheduleRuns: HousekeepingRun[] = [];
   let error: string | null = null;
   try {
-    const [summary, staleItems, staleUsers, largeItems, config, runs] =
-      await Promise.all([
-        apiFetch<HousekeepingBundle['summary']>(
-          '/api/admin/housekeeping/summary',
-        ),
-        apiFetch<HousekeepingBundle['staleItems']>(
-          '/api/admin/housekeeping/stale-items',
-        ),
-        apiFetch<HousekeepingBundle['staleUsers']>(
-          '/api/admin/housekeeping/stale-users',
-        ),
-        apiFetch<HousekeepingBundle['largeItems']>(
-          '/api/admin/housekeeping/large-items',
-        ),
-        apiFetch<HousekeepingConfig>('/api/admin/housekeeping/config'),
-        apiFetch<HousekeepingRun[]>(
-          '/api/admin/housekeeping/runs?limit=10',
-        ),
-      ]);
-    bundle = { summary, staleItems, staleUsers, largeItems };
+    const [
+      summary,
+      staleItems,
+      staleUsers,
+      largeItems,
+      expiringShares,
+      expiringUsers,
+      config,
+      runs,
+    ] = await Promise.all([
+      apiFetch<HousekeepingBundle['summary']>(
+        '/api/admin/housekeeping/summary',
+      ),
+      apiFetch<HousekeepingBundle['staleItems']>(
+        '/api/admin/housekeeping/stale-items',
+      ),
+      apiFetch<HousekeepingBundle['staleUsers']>(
+        '/api/admin/housekeeping/stale-users',
+      ),
+      apiFetch<HousekeepingBundle['largeItems']>(
+        '/api/admin/housekeeping/large-items',
+      ),
+      apiFetch<HousekeepingBundle['expiringShares']>(
+        '/api/admin/housekeeping/expiring-shares',
+      ),
+      apiFetch<HousekeepingBundle['expiringUsers']>(
+        '/api/admin/housekeeping/expiring-users',
+      ),
+      apiFetch<HousekeepingConfig>('/api/admin/housekeeping/config'),
+      apiFetch<HousekeepingRun[]>(
+        '/api/admin/housekeeping/runs?limit=10',
+      ),
+    ]);
+    bundle = {
+      summary,
+      staleItems,
+      staleUsers,
+      largeItems,
+      expiringShares,
+      expiringUsers,
+    };
     scheduleConfig = config;
     scheduleRuns = runs;
   } catch (err) {

@@ -76,6 +76,36 @@ export class HousekeepingController {
     return this.housekeeping.largeItems(user.orgId);
   }
 
+  /**
+   * "Soon to expire" share rows (#86). `?within=` is the lookahead
+   * window in days; defaults to 30. Already-expired rows are
+   * included with `isExpired: true` so the admin can extend or
+   * cancel them in one place.
+   */
+  @Get('expiring-shares')
+  expiringShares(
+    @CurrentUser() user: AuthUser,
+    @Query('within') within?: string,
+  ) {
+    const days = parseWithin(within, 30);
+    return this.housekeeping.expiringShares(user.orgId, days);
+  }
+
+  /**
+   * Users with an explicit auto-disable date in the next `?within=`
+   * days (or already past). Cron flips Keycloak's enabled flag in
+   * bulk; this list lets the admin extend, cancel, or disable now
+   * before the schedule fires.
+   */
+  @Get('expiring-users')
+  expiringUsers(
+    @CurrentUser() user: AuthUser,
+    @Query('within') within?: string,
+  ) {
+    const days = parseWithin(within, 30);
+    return this.housekeeping.expiringUsers(user.orgId, days);
+  }
+
   // -------------------------------------------------------------
   // #67: scheduled housekeeping config + run history
   // -------------------------------------------------------------
@@ -103,4 +133,15 @@ export class HousekeepingController {
       startedBy: user.id,
     });
   }
+}
+
+/**
+ * Parse the `?within=` window. Clamped to [1, 365] so a typo can't
+ * pull a year-and-a-half of rows out of the DB; defaults when
+ * missing or invalid so the route stays forgiving.
+ */
+function parseWithin(raw: string | undefined, fallback: number): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(365, Math.floor(n));
 }
