@@ -1723,7 +1723,7 @@ function ItemGrid({
           for the checkbox. The "select all visible" checkbox only
           appears when the current user can manage at least one row
           in this group: otherwise it'd be a no-op. */}
-      <li className="hidden grid-cols-[1.5rem_auto_minmax(0,1fr)_8rem_8rem_7rem_9rem_auto] items-center gap-3 border-b border-border bg-surface-2 px-4 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted sm:grid">
+      <li className="hidden grid-cols-[1.5rem_1rem_minmax(0,1fr)_8rem_8rem_7rem_9rem_1.75rem] items-center gap-3 border-b border-border bg-surface-2 px-4 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted sm:grid">
         {manageableIds.size > 0 ? (
           <input
             type="checkbox"
@@ -1771,7 +1771,7 @@ function ItemGrid({
               e.dataTransfer.effectAllowed = 'move';
             }}
           >
-            <div className="grid grid-cols-[1.5rem_auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-2.5 hover:bg-surface-2 sm:grid-cols-[1.5rem_auto_minmax(0,1fr)_8rem_8rem_7rem_9rem_auto]">
+            <div className="grid grid-cols-[1.5rem_1rem_minmax(0,1fr)_1.75rem] items-center gap-3 px-4 py-2.5 hover:bg-surface-2 sm:grid-cols-[1.5rem_1rem_minmax(0,1fr)_8rem_8rem_7rem_9rem_1.75rem]">
               {/* Checkbox: rendered as a label that swallows its own
                   click so the row's Link doesn't fire under it. */}
               {canManage ? (
