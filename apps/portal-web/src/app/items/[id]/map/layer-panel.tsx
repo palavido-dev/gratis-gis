@@ -656,7 +656,7 @@ function LayerRow({
   // the legend's geometry swatches are not meaningful. We detect
   // them once metadata has loaded and suppress the irrelevant UI.
   // (#73)
-  const isTable = isTableLayer(metadata);
+  const isTable = isTableLayer(layer, metadata);
   const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>({
     symbology: true,
     labels: false,

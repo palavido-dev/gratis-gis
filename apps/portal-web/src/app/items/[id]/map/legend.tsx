@@ -29,11 +29,23 @@ export function Legend({ open, layers, metadata, onClose }: Props) {
 
   // Group headers and non-spatial tables don't render anything on
   // the map, so they don't belong in the legend either. (#73)
+  // isTableLayer accepts a metadata-less default so a layer that
+  // hasn't loaded yet still gets the title-suffix shortcut, which
+  // is the only reliable signal for arcgis-rest tables (their
+  // geojson query against a table often fails outright).
+  const emptyMeta = {
+    fields: [] as string[],
+    valuesByField: {} as Record<string, string[]>,
+    sampleProperties: null,
+    featureCollection: null,
+    geometryTypes: new Set<GeometryFamily>(),
+    error: null,
+    loading: false,
+  };
   const visible = layers.filter((l) => {
     if (!l.visible) return false;
     if (l.source.kind === 'group') return false;
-    const meta = metadata[l.id];
-    if (meta && isTableLayer(meta)) return false;
+    if (isTableLayer(l, metadata[l.id] ?? emptyMeta)) return false;
     return true;
   });
 

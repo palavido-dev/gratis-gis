@@ -168,19 +168,34 @@ export async function discoverLayerMetadata(
 }
 
 /**
- * True when the layer has finished loading and turned out to carry no
- * geometry: a "table" sublayer (#73). ArcGIS feature services often
- * include non-spatial tables alongside their spatial layers; the user
- * may want them on the map's data side for the attribute table even
- * though they don't render. The cartographic editors and the legend
- * use this signal to suppress controls that would never apply.
+ * True when the layer is a "table" sublayer with no geometry (#73).
+ * ArcGIS feature services often include non-spatial tables alongside
+ * their spatial layers; the user may want them on the map's data
+ * side for the attribute table even though they don't render. The
+ * cartographic editors and the legend use this signal to suppress
+ * controls that would never apply.
  *
- * Distinct from "still loading" (geometryTypes empty because we
- * haven't fetched yet): we check that the feature collection is
- * resolved AND geometryTypes is empty. While loading we err toward
- * showing controls so the editor doesn't flicker.
+ * Two signals, either is sufficient:
+ *
+ * 1) Title suffix: probeService appends " (table)" to ArcGIS sublayers
+ *    that have no geometry, and the convention has held across the
+ *    Add Layer dialog and the wizard's probe flow. This is the
+ *    reliable signal for arcgis-rest sources because their geojson
+ *    query against a table often fails or returns an empty payload,
+ *    leaving featureCollection null.
+ * 2) Metadata: after a successful load, geometryTypes is still empty.
+ *    Catches data_layer / geojson sources that happen to be
+ *    attribute-only.
+ *
+ * Distinct from "still loading" (signal #2 alone with loading=true):
+ * we err toward showing controls during the load window so the
+ * editor doesn't flicker.
  */
-export function isTableLayer(metadata: LayerMetadata): boolean {
+export function isTableLayer(
+  layer: { title: string },
+  metadata: LayerMetadata,
+): boolean {
+  if (/\(table\)\s*$/i.test(layer.title.trim())) return true;
   return (
     !metadata.loading &&
     metadata.featureCollection !== null &&
