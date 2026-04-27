@@ -108,6 +108,42 @@ export class V3TablesService {
     return any ? [w, s, e, n] : null;
   }
 
+  /**
+   * Most recent feature-level activity across every layer in a v3
+   * data_layer (#95). Returns the latest of edited_at and valid_to
+   * (delete tombstone) over all rows in every layer table; null
+   * when no spatial/table layer has any activity. Used by the
+   * housekeeping stale-item heuristic so a data_layer with active
+   * feature edits doesn't look "stale" just because nobody changed
+   * the item card.
+   */
+  async lastDataActivityAt(
+    itemId: string,
+    layers: V3LayerShape[],
+  ): Promise<Date | null> {
+    let max: Date | null = null;
+    for (const layer of layers) {
+      const tbl = toV3TableName(itemId, layer.id);
+      try {
+        const rows = await this.prisma.$queryRawUnsafe<
+          Array<{ ts: Date | null }>
+        >(
+          `SELECT MAX(GREATEST(edited_at, COALESCE(valid_to, edited_at))) AS ts
+             FROM "${tbl}"`,
+        );
+        const ts = rows[0]?.ts;
+        if (ts && (!max || ts > max)) {
+          max = ts;
+        }
+      } catch {
+        // Missing / unreadable table -- treat as no activity. The
+        // create flow's reconcile() runs DDL idempotently so a
+        // missing table is genuinely a "never populated" signal.
+      }
+    }
+    return max;
+  }
+
   async provisionLayer(itemId: string, layer: V3LayerShape): Promise<void> {
     const tbl = toV3TableName(itemId, layer.id);
     // Narrow via assignment so `isTable ? ... : toPgGeomType(geomType)`

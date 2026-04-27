@@ -1,8 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { ItemType } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { KeycloakAdminService } from './keycloak-admin.service.js';
+import {
+  V3TablesService,
+  type V3LayerShape,
+} from '../features-v3/v3-tables.service.js';
 
 export type HousekeepingScheduleMode = 'off' | 'daily' | 'weekly';
 
@@ -64,6 +69,7 @@ export class HousekeepingScheduleService {
     private readonly prisma: PrismaService,
     private readonly cfg: ConfigService,
     private readonly keycloak: KeycloakAdminService,
+    private readonly v3Tables: V3TablesService,
   ) {}
 
   // ---------------------------------------------------------------
@@ -246,18 +252,53 @@ export class HousekeepingScheduleService {
    * from HousekeepingService.staleItems (no recent edits, zero
    * shares). Item soft-delete is reversible from the trash, so
    * accidental over-trashing is recoverable.
+   *
+   * Per #95, "no recent edits" must include underlying feature
+   * activity, not just item.updatedAt: a data_layer with active
+   * feature edits is fresh even when nobody touched the item card.
+   * We pull candidates by item.updatedAt then filter out anything
+   * whose v3 layer tables show recent activity before trashing.
    */
   private async autoTrashStaleItems(days: number): Promise<number> {
     const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-    const res = await this.prisma.item.updateMany({
+    const candidates = await this.prisma.item.findMany({
       where: {
         deletedAt: null,
         updatedAt: { lt: cutoff },
         shares: { none: {} },
       },
+      select: { id: true, type: true, data: true, updatedAt: true },
+    });
+    const toTrash: string[] = [];
+    for (const c of candidates) {
+      const dataAt = await this.dataActivityAt(c.id, c.type, c.data);
+      const effective = dataAt && dataAt > c.updatedAt ? dataAt : c.updatedAt;
+      if (effective < cutoff) toTrash.push(c.id);
+    }
+    if (toTrash.length === 0) return 0;
+    const res = await this.prisma.item.updateMany({
+      where: { id: { in: toTrash } },
       data: { deletedAt: new Date() },
     });
     return res.count;
+  }
+
+  /**
+   * Most recent feature-level activity for a v3 data_layer; null
+   * for other types (caller falls back to item.updatedAt).
+   * Mirrors HousekeepingService.dataActivityAt; duplicated here so
+   * the auto-trash path doesn't need to depend on the analytics
+   * service.
+   */
+  private async dataActivityAt(
+    itemId: string,
+    type: ItemType,
+    data: unknown,
+  ): Promise<Date | null> {
+    if (type !== 'data_layer') return null;
+    const layers = readV3Layers(data);
+    if (layers === null || layers.length === 0) return null;
+    return this.v3Tables.lastDataActivityAt(itemId, layers);
   }
 
   /**
@@ -375,4 +416,27 @@ export class HousekeepingScheduleService {
       error: r.error,
     };
   }
+}
+
+/** Local mirror of items.service.readV3Layers. Duplicated here to
+ *  avoid a DI cycle (ItemsModule -> AdminModule -> ItemsModule).
+ *  Returns the per-layer shape the v3 tables need to query feature
+ *  activity. */
+function readV3Layers(data: unknown): V3LayerShape[] | null {
+  if (!data || typeof data !== 'object') return null;
+  const v = (data as { version?: unknown }).version;
+  if (v !== 3 && v !== '3') return null;
+  const layers = (data as { layers?: unknown }).layers;
+  if (!Array.isArray(layers)) return null;
+  const out: V3LayerShape[] = [];
+  for (const l of layers) {
+    if (!l || typeof l !== 'object') continue;
+    const id = (l as { id?: unknown }).id;
+    if (typeof id !== 'string' || id.length === 0) continue;
+    const gt = (l as { geometryType?: unknown }).geometryType;
+    const geometryType: V3LayerShape['geometryType'] =
+      gt === 'point' || gt === 'line' || gt === 'polygon' ? gt : null;
+    out.push({ id, geometryType });
+  }
+  return out;
 }

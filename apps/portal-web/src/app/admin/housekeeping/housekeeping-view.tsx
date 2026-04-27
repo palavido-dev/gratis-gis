@@ -47,6 +47,11 @@ export interface HousekeepingBundle {
     type: ItemType;
     access: string;
     updatedAt: string;
+    /** Effective freshness signal -- max of item.updatedAt and
+     *  underlying data activity (e.g. v3 feature edits). When this
+     *  is later than updatedAt, the item card looks old but the
+     *  data underneath isn't. */
+    lastActivityAt: string;
     ownerId: string;
     ownerLabel: string;
   }>;
@@ -507,13 +512,13 @@ export function HousekeepingView({ bundle }: Props) {
 
       <Section
         icon={<Clock className="h-4 w-4" />}
-        title={`Items nobody's touched for ${summary.staleItemDays}+ days`}
-        empty="No stale items: every item in your org has been updated recently or is still being shared."
+        title={`Items with no activity for ${summary.staleItemDays}+ days`}
+        empty="No stale items: every item in your org has been edited or had feature activity recently, or is still being shared."
         caption={
           <>
             {staleItems.length === 0
               ? null
-              : `Showing the ${staleItems.length} oldest untouched items with zero shares. `}
+              : `Showing the ${staleItems.length} items with the oldest activity (item edits + feature edits) and zero shares. `}
             Tick the ones you want to retire and use "Move to trash"
             below. Items go to the recycle bin first (30 day
             retention), so a mistake is easy to undo.
@@ -737,7 +742,7 @@ function SummaryBar({
       />
       <StatCard
         icon={<Clock className="h-4 w-4 text-amber-700" />}
-        label={`Stale (${summary.staleItemDays}d+ no edit, zero shares)`}
+        label={`Stale (${summary.staleItemDays}d+ no activity, zero shares)`}
         value={summary.staleItemCount.toLocaleString()}
         tone={summary.staleItemCount > 0 ? 'warn' : 'ok'}
       />
@@ -863,7 +868,12 @@ function StaleItemsTable({
           <th className="px-4 py-2">Title</th>
           <th className="px-4 py-2">Type</th>
           <th className="px-4 py-2">Owner</th>
-          <th className="px-4 py-2">Last updated</th>
+          <th
+            className="px-4 py-2"
+            title="Most recent activity considered (item card OR feature edits)"
+          >
+            Last activity
+          </th>
           <th className="px-4 py-2" />
         </tr>
       </thead>
@@ -872,6 +882,13 @@ function StaleItemsTable({
           const Icon = getItemTypeIcon(r.type);
           const accent = getItemTypeAccent(r.type);
           const isSelected = selected.has(r.id);
+          // Effective freshness drives the staleness call; if it
+          // diverges from item.updatedAt, surface that so the admin
+          // can see the data-activity tail (e.g. feature edits in
+          // a v3 layer the item card hasn't tracked).
+          const dataNewer =
+            new Date(r.lastActivityAt).getTime() >
+            new Date(r.updatedAt).getTime() + 60_000;
           return (
             <tr key={r.id} className={isSelected ? 'bg-accent/5' : ''}>
               <td className="w-8 px-4 py-2">
@@ -894,8 +911,20 @@ function StaleItemsTable({
               </td>
               <td className="px-4 py-2 text-muted">{r.type}</td>
               <td className="px-4 py-2 text-muted">{r.ownerLabel}</td>
-              <td className="px-4 py-2 text-muted">
-                {new Date(r.updatedAt).toLocaleDateString()}
+              <td
+                className="px-4 py-2 text-muted"
+                title={`Item updated: ${new Date(r.updatedAt).toLocaleString()}${
+                  dataNewer
+                    ? `\nFeature data: ${new Date(r.lastActivityAt).toLocaleString()}`
+                    : ''
+                }`}
+              >
+                {new Date(r.lastActivityAt).toLocaleDateString()}
+                {dataNewer ? (
+                  <span className="ml-1 text-[10px] uppercase text-muted/70">
+                    (data)
+                  </span>
+                ) : null}
               </td>
               <td className="px-4 py-2 text-right">
                 <Link

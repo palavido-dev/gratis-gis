@@ -101,19 +101,27 @@ export class HousekeepingService {
   }
 
   /**
-   * Items the admin might consider retiring. Heuristic: not
-   * updated in `staleItemDays` AND has zero shares (nobody else
-   * cares about this item). Dependency tracking in GratisGIS is
-   * computed on the fly from `item.data` rather than stored in a
-   * table, so we don't fold "is anyone depending on this" into
-   * the query: the admin should glance at the item detail page
-   * before deleting, where the dependents panel lives.
+   * Items the admin might consider retiring. Heuristic: effective
+   * "last activity" older than `staleItemDays` AND zero shares
+   * (nobody else cares about this item). For data_layers, effective
+   * activity is MAX(item.updatedAt, latest feature edit in the v3
+   * layer tables): a layer that's been actively receiving features
+   * is fresh even if nobody touched the item card (#95).
+   *
+   * Dependency tracking in GratisGIS is computed on the fly from
+   * `item.data` rather than stored in a table, so we don't fold
+   * "is anyone depending on this" into the query: the admin should
+   * glance at the item detail page before deleting.
    */
   async staleItems(orgId: string) {
     const cutoff = new Date(
       Date.now() - this.staleItemDays * 24 * 60 * 60 * 1000,
     );
-    const rows = await this.prisma.item.findMany({
+    // Pull a generous candidate set by item.updatedAt only; the
+    // refine step below drops data_layers whose underlying feature
+    // tables have recent activity. Multiplier keeps the displayed
+    // topN populated even when many candidates get filtered out.
+    const candidates = await this.prisma.item.findMany({
       where: {
         orgId,
         deletedAt: null,
@@ -124,26 +132,63 @@ export class HousekeepingService {
         id: true,
         title: true,
         type: true,
+        data: true,
         updatedAt: true,
         ownerId: true,
         access: true,
         owner: { select: { username: true, fullName: true } },
       },
       orderBy: { updatedAt: 'asc' },
-      take: this.topN,
+      take: this.topN * 5,
     });
-    return rows.map((r) => ({
+    const refined: Array<
+      (typeof candidates)[number] & { effectiveActivity: Date }
+    > = [];
+    for (const r of candidates) {
+      const dataAt = await this.dataActivityAt(r.id, r.type, r.data);
+      const effective =
+        dataAt && dataAt > r.updatedAt ? dataAt : r.updatedAt;
+      if (effective < cutoff) {
+        refined.push({ ...r, effectiveActivity: effective });
+      }
+    }
+    refined.sort(
+      (a, b) =>
+        a.effectiveActivity.getTime() - b.effectiveActivity.getTime(),
+    );
+    return refined.slice(0, this.topN).map((r) => ({
       id: r.id,
       title: r.title,
       type: r.type,
       access: r.access,
       updatedAt: r.updatedAt.toISOString(),
+      // Effective activity is what drives the staleness call. Show
+      // both so the admin can tell when the item card is old but
+      // the underlying data was touched recently (or vice versa).
+      lastActivityAt: r.effectiveActivity.toISOString(),
       ownerId: r.ownerId,
       ownerLabel:
         r.owner?.fullName?.trim() ||
         r.owner?.username ||
         r.ownerId.slice(0, 8),
     }));
+  }
+
+  /**
+   * Most recent activity timestamp for an item that's relevant to
+   * the stale heuristic (#95). For v3 data_layers, queries the
+   * feature tables for max edited_at / valid_to. For other types,
+   * returns null (the caller falls back to item.updatedAt).
+   */
+  private async dataActivityAt(
+    itemId: string,
+    type: ItemType,
+    data: unknown,
+  ): Promise<Date | null> {
+    if (type !== 'data_layer') return null;
+    const layers = readV3Layers(data);
+    if (layers === null || layers.length === 0) return null;
+    return this.v3Tables.lastDataActivityAt(itemId, layers);
   }
 
   /**
@@ -353,14 +398,26 @@ export class HousekeepingService {
     const cutoff = new Date(
       Date.now() - this.staleItemDays * 24 * 60 * 60 * 1000,
     );
-    return this.prisma.item.count({
+    // Refine the count the same way staleItems() does so the
+    // headline number matches the list. Doing the data-activity
+    // probe per candidate is cheap because the cheap SQL filter
+    // already narrowed to "no shares + old item.updatedAt".
+    const candidates = await this.prisma.item.findMany({
       where: {
         orgId,
         deletedAt: null,
         updatedAt: { lt: cutoff },
         shares: { none: {} },
       },
+      select: { id: true, type: true, data: true, updatedAt: true },
     });
+    let n = 0;
+    for (const c of candidates) {
+      const dataAt = await this.dataActivityAt(c.id, c.type, c.data);
+      const effective = dataAt && dataAt > c.updatedAt ? dataAt : c.updatedAt;
+      if (effective < cutoff) n += 1;
+    }
+    return n;
   }
 
   private async countStaleUsers(orgId: string): Promise<number> {
