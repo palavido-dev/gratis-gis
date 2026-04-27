@@ -496,9 +496,16 @@ export function LayerPanel({
                     >
                       <GroupHeaderRow
                         layer={layer}
+                        index={i}
                         childCount={kids.length}
                         canEdit={canEdit}
                         currentZoom={currentZoom}
+                        dragging={dragFrom === i}
+                        onDragStart={() => setDragFrom(i)}
+                        onDragEnd={() => {
+                          setDragFrom(null);
+                          setDragOver(null);
+                        }}
                         onToggle={() => toggleGroup(layer.id)}
                         onOpacity={(n) => setGroupOpacity(layer.id, n)}
                         onRemove={() => removeGroup(layer.id)}
@@ -1589,11 +1596,24 @@ function zoomToScaleLabel(zoom: number): string {
 
 interface GroupHeaderRowProps {
   layer: MapLayer;
+  /** Index in the layers array. Sets the drag-payload value so the
+   *  parent panel can move the group + descendants on drop. */
+  index: number;
   childCount: number;
   canEdit: boolean;
   /** Current camera zoom; mirrored from LayerRow so the group's
    *  scale slider can render the same "you are here" tick. (#69) */
   currentZoom: number;
+  /** True when the user is mid-drag on this group header. The row
+   *  goes opacity-50 to telegraph the dragged state, matching the
+   *  visual treatment LayerRow uses. */
+  dragging: boolean;
+  /** Set on dragstart so the parent's dragFrom state tracks which
+   *  row is being moved. Pairs with the existing onDrop on sibling
+   *  rows + onDropOnHeader on group headers. */
+  onDragStart: () => void;
+  /** Clear the parent's dragFrom / dragOver state. */
+  onDragEnd: () => void;
   onToggle: () => void;
   onOpacity: (n: number) => void;
   onRemove: () => void;
@@ -1612,9 +1632,13 @@ interface GroupHeaderRowProps {
 
 function GroupHeaderRow({
   layer,
+  index,
   childCount,
   canEdit,
   currentZoom,
+  dragging,
+  onDragStart,
+  onDragEnd,
   onToggle,
   onOpacity,
   onRemove,
@@ -1633,7 +1657,7 @@ function GroupHeaderRow({
     <li
       className={`border-b border-border bg-amber-50/50 px-2 py-1.5 transition-colors ${
         dragOverHeader ? 'ring-1 ring-amber-500 ring-inset' : ''
-      }`}
+      } ${dragging ? 'opacity-50' : ''}`}
       onDragOver={
         canEdit
           ? (e) => {
@@ -1661,6 +1685,31 @@ function GroupHeaderRow({
       }
     >
       <div className="flex items-center gap-2">
+        {/* Drag-source handle. Mirrors LayerRow's pattern: a tiny
+            GripVertical span with draggable, onDragStart that sets
+            DRAG_MIME with this group's index. The same drop targets
+            (other rows + other group headers) handle a group as
+            source -- moveAndRegroup splices the header alone, and
+            the children's groupId keeps them rendered under the
+            header in its new position. */}
+        {canEdit ? (
+          <span
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.setData(DRAG_MIME, String(index));
+              e.dataTransfer.effectAllowed = 'move';
+              onDragStart();
+            }}
+            onDragEnd={onDragEnd}
+            aria-label="Drag group to reorder"
+            className="inline-flex h-6 w-5 shrink-0 cursor-grab items-center justify-center text-amber-700 hover:text-amber-900 active:cursor-grabbing"
+            title="Drag group to reorder"
+          >
+            <GripVertical className="h-3.5 w-3.5" />
+          </span>
+        ) : (
+          <span className="inline-block h-6 w-5 shrink-0" />
+        )}
         <button
           type="button"
           onClick={onToggle}
