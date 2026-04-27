@@ -114,21 +114,25 @@ export class AdminUsersController {
     if (first !== undefined) opts.first = Number(first);
     if (max !== undefined) opts.max = Number(max);
     const kcUsers = await this.kc.listUsers(opts);
-    // Pull lastSeenAt in one query for the ids we just got back
-    // rather than N+1 per user. Users who have never hit the API
-    // are absent from the map and render as null on the client.
-    const ids = kcUsers
-      .map((u) => u.id)
-      .filter((id): id is string => typeof id === 'string');
-    const local = ids.length
+    // Pull lastSeenAt + autoDisableAt in one query for the
+    // usernames we just got back, rather than N+1 per user. We
+    // join by USERNAME, not id: seeded users carry a different
+    // local user.id than their Keycloak sub (auth-sync upserts
+    // by username and never rewrites the id), so a join by id
+    // misses every seeded account and renders them as "Never"
+    // logged in. Username is stable in both systems.
+    const usernames = kcUsers
+      .map((u) => u.username)
+      .filter((u): u is string => typeof u === 'string');
+    const local = usernames.length
       ? await this.prisma.user.findMany({
-          where: { id: { in: ids } },
-          select: { id: true, lastSeenAt: true, autoDisableAt: true },
+          where: { username: { in: usernames } },
+          select: { username: true, lastSeenAt: true, autoDisableAt: true },
         })
       : [];
-    const byId = new Map(local.map((u) => [u.id, u]));
+    const byUsername = new Map(local.map((u) => [u.username, u]));
     return kcUsers.map((u) => {
-      const row = u.id ? byId.get(u.id) : undefined;
+      const row = u.username ? byUsername.get(u.username) : undefined;
       return {
         ...u,
         lastSeenAt: row?.lastSeenAt?.toISOString() ?? null,
@@ -165,9 +169,10 @@ export class AdminUsersController {
 
   @Patch(':id')
   async update(
+    @CurrentUser() me: AuthUser,
     @Param('id') id: string,
     @Body() dto: UpdateUserDto,
-  ): Promise<KeycloakUserRep> {
+  ): Promise<AdminUserRep> {
     // Drop any undefined optional keys so the service's read-modify-
     // write logic doesn't overwrite existing values with undefined.
     const patch: Parameters<typeof this.kc.updateUser>[1] = {};
@@ -182,10 +187,19 @@ export class AdminUsersController {
     // failure on the Keycloak side doesn't strand the local
     // change. Org admins are refused to avoid lockout: setting
     // an auto-disable on the only admin would brick the org.
+    //
+    // We resolve the local row by username, not by `id`. Seeded
+    // users carry a different local user.id than their Keycloak
+    // sub (auth-sync upserts by username and never rewrites the
+    // id), so a path lookup by Keycloak id misses for any user
+    // whose local row predated Keycloak. Username is stable in
+    // both systems.
     if (dto.autoDisableAt !== undefined) {
+      const kcUser = await this.kc.getUser(id);
+      if (!kcUser?.username) throw new NotFoundException('User not found');
       const localUser = await this.prisma.user.findUnique({
-        where: { id },
-        select: { orgRole: true },
+        where: { username: kcUser.username },
+        select: { id: true, orgRole: true, orgId: true },
       });
       const targetRole = dto.orgRole ?? localUser?.orgRole;
       if (dto.autoDisableAt !== null && targetRole === 'admin') {
@@ -193,15 +207,56 @@ export class AdminUsersController {
           'Auto-disable cannot be set on an org admin. Demote the user first.',
         );
       }
-      await this.prisma.user.update({
-        where: { id },
-        data: {
-          autoDisableAt:
-            dto.autoDisableAt === null ? null : new Date(dto.autoDisableAt),
-        },
-      });
+      const nextAutoDisable =
+        dto.autoDisableAt === null ? null : new Date(dto.autoDisableAt);
+      if (localUser) {
+        if (localUser.orgId !== me.orgId) {
+          throw new ForbiddenException('User is not in your organization');
+        }
+        await this.prisma.user.update({
+          where: { id: localUser.id },
+          data: { autoDisableAt: nextAutoDisable },
+        });
+      } else {
+        // Genuinely no local row (user has never signed in).
+        // Bootstrap one so the auto-disable timer is persisted;
+        // auth-sync will pick this row up on first login because
+        // it keys on username.
+        const fullName =
+          [kcUser.firstName, kcUser.lastName]
+            .filter((s): s is string => typeof s === 'string' && s.length > 0)
+            .join(' ') || kcUser.username;
+        await this.prisma.user.create({
+          data: {
+            id,
+            orgId: me.orgId,
+            username: kcUser.username,
+            email: kcUser.email ?? '',
+            fullName,
+            orgRole: dto.orgRole ?? 'viewer',
+            autoDisableAt: nextAutoDisable,
+          },
+        });
+      }
     }
-    return this.kc.updateUser(id, patch);
+    const kcUserAfter = await this.kc.updateUser(id, patch);
+    // Enrich with the local-only fields so the FE row update gets a
+    // complete AdminUserRep (matches what /admin/users list returns).
+    // Without this, the dialog's spread merge keeps the stale
+    // autoDisableAt from before the save and the picker re-opens
+    // empty even though the DB has the new value.
+    const username = kcUserAfter.username ?? '';
+    const local = username
+      ? await this.prisma.user.findUnique({
+          where: { username },
+          select: { lastSeenAt: true, autoDisableAt: true },
+        })
+      : null;
+    return {
+      ...kcUserAfter,
+      lastSeenAt: local?.lastSeenAt?.toISOString() ?? null,
+      autoDisableAt: local?.autoDisableAt?.toISOString() ?? null,
+    };
   }
 
   @Delete(':id')
@@ -248,8 +303,16 @@ export class AdminUsersController {
     @Param('id') id: string,
   ): Promise<UserAccessResponse> {
     const MAX_ROWS = 200;
+    // Resolve the local user via Keycloak username, not the path
+    // :id. Seeded accounts have a local user.id that doesn't equal
+    // the Keycloak sub (auth-sync upserts by username and never
+    // rewrites the id), so an id-based lookup misses for any user
+    // who existed before they first signed in. Username is the
+    // stable join key.
+    const kcUser = await this.kc.getUser(id).catch(() => null);
+    if (!kcUser?.username) throw new NotFoundException('User not found');
     const target = await this.prisma.user.findUnique({
-      where: { id },
+      where: { username: kcUser.username },
       select: {
         id: true,
         username: true,
@@ -259,7 +322,33 @@ export class AdminUsersController {
         orgRole: true,
       },
     });
-    if (!target) throw new NotFoundException('User not found');
+    if (!target) {
+      // Genuinely never signed in -- Keycloak has the user but no
+      // local row exists. Return a friendly empty bundle so the UI
+      // can render "no portal activity yet" instead of a 404.
+      const fullName =
+        [kcUser.firstName, kcUser.lastName]
+          .filter((s): s is string => typeof s === 'string' && s.length > 0)
+          .join(' ') || null;
+      return {
+        user: {
+          id,
+          username: kcUser.username,
+          fullName,
+          email: kcUser.email ?? '',
+          orgRole: 'viewer',
+        },
+        owned: [],
+        directShared: [],
+        groupShared: [],
+        orgAccessibleCount: 0,
+        publicAccessibleCount: 0,
+        groups: [],
+        truncated: { owned: false, directShared: false, groupShared: false },
+        maxRows: MAX_ROWS,
+        neverSignedIn: true,
+      };
+    }
     if (target.orgId !== me.orgId) {
       throw new ForbiddenException('User is not in your organization');
     }
@@ -447,6 +536,7 @@ export class AdminUsersController {
         groupShared: groupSharedByItem.size > MAX_ROWS,
       },
       maxRows: MAX_ROWS,
+      neverSignedIn: false,
     };
   }
 }
@@ -520,6 +610,11 @@ export interface UserAccessResponse {
   /** Cap value the controller used; renders as "showing the most
    *  recent N" copy on the UI. */
   maxRows: number;
+  /** True when the target user is in Keycloak but has never signed
+   *  in to the portal. All lists are empty in this case; the UI
+   *  should explain "no portal activity yet" rather than treating
+   *  the empty result as ordinary. */
+  neverSignedIn: boolean;
 }
 
 interface UserAccessItemRow {

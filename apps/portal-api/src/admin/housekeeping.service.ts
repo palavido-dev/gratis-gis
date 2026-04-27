@@ -260,7 +260,7 @@ export class HousekeepingService {
         s.principal_id,
         CASE s.principal_type
           WHEN 'user'  THEN COALESCE(NULLIF(u.full_name, ''), u.username)
-          WHEN 'group' THEN g.name
+          WHEN 'group' THEN g.title
         END AS principal_label,
         s.permission::text AS permission,
         s.expires_at

@@ -25,6 +25,10 @@ import type { ItemType } from '@gratis-gis/shared-types';
  */
 export interface UserAccessBundle {
   user: {
+    /** Local user.id, the join key for item_share.principal_id and
+     *  group_member.user_id. Different from the Keycloak sub for
+     *  seeded users -- always use this for revoke actions, not the
+     *  prop userId we used to fetch the bundle. */
     id: string;
     username: string;
     fullName: string | null;
@@ -52,6 +56,10 @@ export interface UserAccessBundle {
   }>;
   truncated: { owned: boolean; directShared: boolean; groupShared: boolean };
   maxRows: number;
+  /** True when the target user is in Keycloak but has never signed
+   *  in to the portal. All lists are empty and revoke actions are
+   *  inert. */
+  neverSignedIn: boolean;
 }
 
 interface UserAccessItemRow {
@@ -103,6 +111,13 @@ export function UserAccessDialog({ userId, username, onClose }: Props) {
   // the group id so we can highlight + scroll to it.
   const [highlightGroupId, setHighlightGroupId] = useState<string | null>(null);
 
+  // Hide owned items by default. Admin can't revoke ownership from
+  // this dialog (use the reassign flow instead), so the rows are
+  // pure noise for the routine "review and revoke shares" workflow.
+  // Flip on for the troubleshooting case ("why can't user X see Y?")
+  // when seeing every accessible item is what the admin wants.
+  const [showOwned, setShowOwned] = useState(false);
+
   const reload = useMemo(
     () => async () => {
       setLoading(true);
@@ -145,6 +160,10 @@ export function UserAccessDialog({ userId, username, onClose }: Props) {
     setBusy(true);
     setError(null);
     const ids = Array.from(selectedShares);
+    // ItemShare.principalId references the LOCAL user.id, not the
+    // Keycloak sub. The bundle's user.id has been resolved via
+    // username to the canonical local id, so use that here.
+    const localUserId = bundle.user.id;
     try {
       // One DELETE per share. The /items/:id/share endpoint takes
       // the principal in the body, so we call it once per item.
@@ -156,7 +175,7 @@ export function UserAccessDialog({ userId, username, onClose }: Props) {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             principalType: 'user',
-            principalId: userId,
+            principalId: localUserId,
           }),
         });
         if (!r.ok) {
@@ -180,10 +199,13 @@ export function UserAccessDialog({ userId, username, onClose }: Props) {
     setBusy(true);
     setError(null);
     const ids = Array.from(selectedGroups);
+    // GroupMember.userId references the LOCAL user.id; same caveat
+    // as bulkRevokeShares above.
+    const localUserId = bundle.user.id;
     try {
       await runBatched(ids, 4, async (groupId) => {
         const r = await fetch(
-          `/api/portal/groups/${groupId}/members/${userId}`,
+          `/api/portal/groups/${groupId}/members/${localUserId}`,
           { method: 'DELETE' },
         );
         if (!r.ok) {
@@ -260,7 +282,11 @@ export function UserAccessDialog({ userId, username, onClose }: Props) {
             onClick={() => setTab('items')}
             label={
               bundle
-                ? `Items (${bundle.owned.length + bundle.directShared.length + bundle.groupShared.length})`
+                ? `Items (${
+                    (showOwned ? bundle.owned.length : 0) +
+                    bundle.directShared.length +
+                    bundle.groupShared.length
+                  })`
                 : 'Items'
             }
           />
@@ -314,9 +340,18 @@ export function UserAccessDialog({ userId, username, onClose }: Props) {
             </div>
           ) : !bundle ? (
             <p className="text-sm text-muted">No data.</p>
+          ) : bundle.neverSignedIn ? (
+            <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+              This user is in Keycloak but has never signed in to the
+              portal, so there&apos;s no portal activity to show. Once
+              they sign in for the first time, their access will appear
+              here.
+            </p>
           ) : tab === 'items' ? (
             <ItemsTab
               bundle={bundle}
+              showOwned={showOwned}
+              onToggleShowOwned={() => setShowOwned((v) => !v)}
               selected={selectedShares}
               onToggleShare={(id) =>
                 setSelectedShares((s) => {
@@ -355,11 +390,15 @@ export function UserAccessDialog({ userId, username, onClose }: Props) {
 
 function ItemsTab({
   bundle,
+  showOwned,
+  onToggleShowOwned,
   selected,
   onToggleShare,
   onJumpToGroup,
 }: {
   bundle: UserAccessBundle;
+  showOwned: boolean;
+  onToggleShowOwned: () => void;
   selected: Set<string>;
   onToggleShare: (itemId: string) => void;
   onJumpToGroup: (groupId: string) => void;
@@ -380,8 +419,14 @@ function ItemsTab({
         expiresAt: string | null;
         viaGroups: Array<{ id: string; name: string }>;
       });
+  // Owned rows are hidden by default since the admin can't revoke
+  // ownership from this dialog (use the reassign flow). Toggle-on
+  // is for the troubleshooting case where the admin wants to see
+  // every accessible item in one list.
   const rows: Row[] = [
-    ...bundle.owned.map((i) => ({ ...i, via: 'owns' as const })),
+    ...(showOwned
+      ? bundle.owned.map((i) => ({ ...i, via: 'owns' as const }))
+      : []),
     ...bundle.directShared.map((s) => ({ ...s, via: 'share' as const })),
     ...bundle.groupShared.map((g) => ({ ...g, via: 'group' as const })),
   ];
@@ -396,20 +441,35 @@ function ItemsTab({
 
   return (
     <div className="space-y-3">
-      {/* Org / public access summary, since we deliberately don't
-          enumerate those rows. The chip lets the admin understand
-          the full scope without cluttering the list. */}
-      {bundle.orgAccessibleCount + bundle.publicAccessibleCount > 0 ? (
-        <p className="rounded-md border border-border bg-surface-2 px-3 py-2 text-[11px] text-muted">
-          <Globe className="mr-1 inline h-3 w-3" />
-          Plus <strong>{bundle.orgAccessibleCount.toLocaleString()}</strong>{' '}
-          org-wide and{' '}
-          <strong>{bundle.publicAccessibleCount.toLocaleString()}</strong> public
-          item{bundle.publicAccessibleCount === 1 ? '' : 's'} not listed here.
-          These are item-level access settings; per-user revoke isn&apos;t
-          possible.
-        </p>
-      ) : null}
+      {/* Filter strip: owned-items toggle + org/public summary. Owned
+          items are hidden by default since the admin can't revoke
+          ownership from this dialog (use the reassign flow). The
+          count next to the checkbox tells the admin how many extra
+          rows would appear when toggled on. */}
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-surface-2 px-3 py-2 text-[11px] text-muted">
+        <label className="inline-flex cursor-pointer items-center gap-1.5">
+          <input
+            type="checkbox"
+            checked={showOwned}
+            onChange={onToggleShowOwned}
+            className="h-3.5 w-3.5 cursor-pointer"
+          />
+          <span>
+            Show items they own (
+            <strong>{bundle.owned.length.toLocaleString()}</strong>)
+          </span>
+        </label>
+        {bundle.orgAccessibleCount + bundle.publicAccessibleCount > 0 ? (
+          <span>
+            <Globe className="mr-1 inline h-3 w-3" />
+            Plus{' '}
+            <strong>{bundle.orgAccessibleCount.toLocaleString()}</strong>{' '}
+            org-wide and{' '}
+            <strong>{bundle.publicAccessibleCount.toLocaleString()}</strong>{' '}
+            public not listed (item-level setting).
+          </span>
+        ) : null}
+      </div>
 
       {rows.length === 0 ? (
         <p className="rounded-md border border-border bg-surface-1 px-3 py-6 text-center text-sm text-muted">

@@ -23,6 +23,7 @@ import {
 } from '../auth/capabilities.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AdminGuard } from './admin.guard.js';
+import { KeycloakAdminService } from './keycloak-admin.service.js';
 
 class UpsertOverrideDto {
   @IsString() @MaxLength(80) capability!: string;
@@ -56,23 +57,46 @@ interface CapabilityRow {
 @Controller('admin/users/:id/capabilities')
 @UseGuards(AdminGuard)
 export class AdminCapabilitiesController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly kc: KeycloakAdminService,
+  ) {}
+
+  /**
+   * Resolve the local user row for a path :id that's actually a
+   * Keycloak sub. We can't lookup by `id` directly because seeded
+   * accounts have a local user.id that doesn't equal the Keycloak
+   * sub (auth-sync upserts by username and never rewrites the id),
+   * so an id-based lookup misses for any pre-existing account.
+   * Username is stable across both systems.
+   */
+  private async resolveLocalUser(keycloakId: string, actorOrgId: string) {
+    const kcUser = await this.kc.getUser(keycloakId).catch(() => null);
+    if (!kcUser?.username) {
+      throw new NotFoundException('User not found.');
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { username: kcUser.username },
+      select: { id: true, orgId: true, orgRole: true },
+    });
+    if (!user || user.orgId !== actorOrgId) {
+      throw new NotFoundException('User not found in your organization.');
+    }
+    return user;
+  }
 
   @Get()
   async list(
     @Param('id') userId: string,
     @CurrentUser() actor: AuthUser,
   ): Promise<{ rows: CapabilityRow[]; effective: CapabilityKey[] }> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, orgId: true, orgRole: true },
-    });
-    if (!user || user.orgId !== actor.orgId) {
-      throw new NotFoundException('User not found in your organization.');
-    }
+    const user = await this.resolveLocalUser(userId, actor.orgId);
+    // Override lookups below all key on the local user.id; rebind
+    // for clarity.
+    const localId = user.id;
 
     const overrides = await this.prisma.userCapabilityOverride.findMany({
-      where: { userId },
+      where: { userId: localId },
       select: {
         capability: true,
         enabled: true,
@@ -118,17 +142,11 @@ export class AdminCapabilitiesController {
         `Unknown capability "${body.capability}".`,
       );
     }
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, orgId: true },
-    });
-    if (!user || user.orgId !== actor.orgId) {
-      throw new NotFoundException('User not found in your organization.');
-    }
+    const user = await this.resolveLocalUser(userId, actor.orgId);
 
     await this.prisma.userCapabilityOverride.upsert({
       where: {
-        userId_capability: { userId, capability: body.capability },
+        userId_capability: { userId: user.id, capability: body.capability },
       },
       update: {
         enabled: body.enabled,
@@ -137,7 +155,7 @@ export class AdminCapabilitiesController {
         grantedAt: new Date(),
       },
       create: {
-        userId,
+        userId: user.id,
         capability: body.capability,
         enabled: body.enabled,
         note: body.note ?? null,
@@ -157,18 +175,12 @@ export class AdminCapabilitiesController {
     if (!isCapabilityKey(capability)) {
       throw new BadRequestException(`Unknown capability "${capability}".`);
     }
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, orgId: true },
-    });
-    if (!user || user.orgId !== actor.orgId) {
-      throw new NotFoundException('User not found in your organization.');
-    }
+    const user = await this.resolveLocalUser(userId, actor.orgId);
 
     await this.prisma.userCapabilityOverride
       .delete({
         where: {
-          userId_capability: { userId, capability },
+          userId_capability: { userId: user.id, capability },
         },
       })
       .catch(() => {

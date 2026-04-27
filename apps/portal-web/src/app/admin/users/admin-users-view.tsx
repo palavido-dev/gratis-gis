@@ -975,8 +975,14 @@ function CapabilitiesSection({
   // are about to save. (The list endpoint will catch up after Save.)
   const localBaselines = useMemo(() => {
     if (!rows) return null;
+    // Defend against an unknown role string flowing in from a stale
+    // Keycloak attribute (e.g. legacy 'publisher' before #69's
+    // rename). An unknown role has no baselines so we fall back to
+    // an empty set, which keeps `has()` from throwing and lets the
+    // server-supplied row.baseline drive the rendering instead.
+    const baselines = ROLE_BASELINES_LOCAL[role] ?? new Set<string>();
     return new Map(
-      rows.map((r) => [r.capability, ROLE_BASELINES_LOCAL[role].has(r.capability)]),
+      rows.map((r) => [r.capability, baselines.has(r.capability)]),
     );
   }, [rows, role]);
 
