@@ -146,6 +146,27 @@ export function getItemTypeIcon(type: ItemType): LucideIcon {
   return ITEM_TYPE_ICONS[type] ?? FileIcon;
 }
 
+/**
+ * Default click destination for an item of a given type. Most types
+ * land on `/items/<id>` (the standard detail page). Some types have
+ * a richer workspace surface where end users actually USE the item;
+ * for those we deep-link to the workspace by default and let the
+ * detail page be reached via "back to config" from inside it.
+ *
+ *   - editor: goes straight to the workspace runtime
+ *     (`/items/<id>/editor/run`). An editor's whole point is to be
+ *     used; the config page is for owners and they'll go there via
+ *     the "Back to config" link in the runtime or via the Edit
+ *     button on the detail page.
+ *
+ * Add new entries here when a future item type grows a workspace.
+ * Most callers just pass `getItemHref(item)` and forget about it.
+ */
+export function getItemHref(item: { id: string; type: ItemType }): string {
+  if (item.type === 'editor') return `/items/${item.id}/editor/run`;
+  return `/items/${item.id}`;
+}
+
 export function getItemTypeAccent(type: ItemType): string {
   return ITEM_TYPE_ACCENT[type] ?? 'text-slate-600';
 }

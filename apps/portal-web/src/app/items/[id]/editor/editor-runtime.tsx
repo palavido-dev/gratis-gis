@@ -21,6 +21,7 @@ import type {
   EditorData,
   EditorTool,
   MapData,
+  PickListData,
 } from '@gratis-gis/shared-types';
 import type { CustomBasemap } from '@/lib/custom-basemap';
 import { MapCanvas, type MapCanvasHandle } from '../map/map-canvas';
@@ -46,6 +47,11 @@ interface Props {
    *  the list with `layer === null`; the runtime hides them from
    *  Add-tool eligibility. */
   resolvedTargets: ResolvedTarget[];
+  /** Server-resolved pick lists referenced by any target field's
+   *  coded-value-ref domain, indexed by pick_list item id. Lets
+   *  the AttributeForm render a real <select> instead of a raw
+   *  text input for fields backed by a domain. */
+  pickLists: Record<string, PickListData>;
   /**
    * Title of the referenced map, if any. Server resolves this so we
    * can show "Reference map: <title>" in the header without a
@@ -112,6 +118,7 @@ export function EditorRuntime({
   editorTitle,
   editor,
   resolvedTargets,
+  pickLists,
   referencedMapTitle,
   initialMapData,
   targetLayerIds,
@@ -871,10 +878,23 @@ export function EditorRuntime({
                 Editing ({targetLayers.length})
               </div>
               {targetLayers.length === 0 ? (
-                <p className="px-3 pb-3 text-xs text-muted">
-                  No targets configured. Pick layers in the editor's
-                  configuration page.
-                </p>
+                <div className="px-3 pb-3 text-xs">
+                  <p className="text-muted">
+                    No editable layers configured.
+                  </p>
+                  {canEdit ? (
+                    <Link
+                      href={`/items/${editorId}`}
+                      className="mt-2 inline-flex items-center gap-1 rounded-md bg-accent px-2 py-1 text-[11px] font-medium text-white hover:bg-accent/90"
+                    >
+                      Configure this editor
+                    </Link>
+                  ) : (
+                    <p className="mt-1 text-muted">
+                      Ask the owner to add target layers.
+                    </p>
+                  )}
+                </div>
               ) : (
                 <ul>
                   {targetLayers.map((l) => {
@@ -970,6 +990,7 @@ export function EditorRuntime({
         <AttributeForm
           fields={pendingTarget.layer.fields}
           editableFieldNames={editableSet}
+          pickLists={pickLists}
           initial={pendingFeature.initialProperties}
           layerTitle={`${pendingTarget.dataLayerTitle} / ${pendingTarget.layer.label}`}
           submitting={submitting}

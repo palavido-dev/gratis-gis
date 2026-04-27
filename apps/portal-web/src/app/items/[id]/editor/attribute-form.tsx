@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Loader2, X } from 'lucide-react';
-import type { FeatureField } from '@gratis-gis/shared-types';
+import type { FeatureField, PickListData } from '@gratis-gis/shared-types';
 
 interface Props {
   /** Layer schema. Non-system fields drive the form inputs. */
@@ -15,6 +15,15 @@ interface Props {
    * narrowed to just the columns the share allows.
    */
   editableFieldNames: ReadonlySet<string> | null;
+  /**
+   * Resolved pick lists, indexed by item id, used for fields whose
+   * `domain` is a `coded-value-ref`. The runtime fetches these
+   * server-side and passes them in so the form renders a real
+   * <select> with each pick list's entries instead of a raw text
+   * input. Optional: a missing entry falls back to a text input
+   * with a warning, so a stale reference never breaks the form.
+   */
+  pickLists?: Record<string, PickListData>;
   /** Initial values keyed by field name. Empty for Add; pre-filled
    *  for Edit. */
   initial?: Record<string, unknown>;
@@ -61,6 +70,7 @@ interface Props {
 export function AttributeForm({
   fields,
   editableFieldNames,
+  pickLists,
   initial = {},
   layerTitle,
   submitting,
@@ -140,6 +150,7 @@ export function AttributeForm({
                 field={f}
                 value={values[f.name]}
                 editable={editable}
+                pickLists={pickLists}
                 onChange={(v) => set(f.name, v)}
               />
             );
@@ -184,10 +195,17 @@ interface FieldRowProps {
   field: FeatureField;
   value: unknown;
   editable: boolean;
+  pickLists?: Record<string, PickListData> | undefined;
   onChange: (next: unknown) => void;
 }
 
-function FieldRow({ field, value, editable, onChange }: FieldRowProps) {
+function FieldRow({
+  field,
+  value,
+  editable,
+  pickLists,
+  onChange,
+}: FieldRowProps) {
   const label = field.label || field.name;
   const required = !field.nullable && editable;
 
@@ -212,6 +230,88 @@ function FieldRow({ field, value, editable, onChange }: FieldRowProps) {
         </div>
       </div>
     );
+  }
+
+  // Domain-backed fields render as a <select>. coded-value carries
+  // the value list inline; coded-value-ref points at a pick_list
+  // item that the runtime resolved server-side and passed in via
+  // the pickLists map. Numeric range domains aren't yet UI-rendered;
+  // they fall through to the plain numeric input below.
+  if (field.domain && (field.domain.type === 'coded-value' || field.domain.type === 'coded-value-ref')) {
+    let options: Array<{ code: string | number; label: string }> = [];
+    let unresolvedRef = false;
+    if (field.domain.type === 'coded-value') {
+      options = field.domain.values;
+    } else {
+      const list = pickLists?.[field.domain.pickListItemId];
+      if (list) {
+        options = list.entries.map((e) => ({ code: e.code, label: e.label }));
+      } else {
+        unresolvedRef = true;
+      }
+    }
+    if (options.length > 0) {
+      const stringValue =
+        value === null || value === undefined ? '' : String(value);
+      return (
+        <label className="block text-xs">
+          <span className="text-ink-1">
+            {label}
+            {required ? <span className="ml-1 text-danger">*</span> : null}
+          </span>
+          <select
+            value={stringValue}
+            onChange={(e) => {
+              const raw = e.target.value;
+              if (raw === '') {
+                onChange(null);
+                return;
+              }
+              // Preserve original code type: if the inline domain
+              // declared numeric codes, coerce back to number on
+              // submit. Pick-list entries always use string codes.
+              const matched = options.find((o) => String(o.code) === raw);
+              onChange(
+                matched && typeof matched.code === 'number' ? matched.code : raw,
+              );
+            }}
+            className="mt-1 h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+          >
+            <option value="">
+              {field.nullable ? '(none)' : 'Select a value...'}
+            </option>
+            {options.map((o) => (
+              <option key={String(o.code)} value={String(o.code)}>
+                {o.label} ({o.code})
+              </option>
+            ))}
+          </select>
+        </label>
+      );
+    }
+    // Pick list reference resolved to nothing (item missing or not
+    // visible). Fall through to a plain text input but warn so the
+    // user knows the domain isn't being enforced.
+    if (unresolvedRef) {
+      return (
+        <label className="block text-xs">
+          <span className="text-ink-1">
+            {label}
+            {required ? <span className="ml-1 text-danger">*</span> : null}
+          </span>
+          <input
+            type="text"
+            value={value === null || value === undefined ? '' : String(value)}
+            onChange={(e) => onChange(e.target.value || null)}
+            className="mt-1 h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+          />
+          <p className="mt-0.5 text-[11px] text-amber-800">
+            This field references a pick list that could not be loaded.
+            Validation is not enforced here; double-check the value.
+          </p>
+        </label>
+      );
+    }
   }
 
   // Editable input keyed off the field type. We coerce values here

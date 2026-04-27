@@ -7,6 +7,7 @@ import type {
   GeoBoundaryData,
   Item,
   MapData,
+  PickListData,
 } from '@gratis-gis/shared-types';
 import { DEFAULT_EDITOR } from '@gratis-gis/shared-types';
 import type { CustomBasemap } from '@/lib/custom-basemap';
@@ -163,6 +164,30 @@ export default async function EditorRuntimePage({ params }: Props) {
     resolvedTargets,
   });
 
+  // Walk every target's fields and collect unique pick_list ids
+  // referenced via coded-value-ref domains. We resolve each one
+  // here so the AttributeForm can render a select instead of a
+  // raw text input. coded-value (inline) domains don't need a
+  // round-trip; only the by-reference variant does.
+  const pickListItemIds = new Set<string>();
+  for (const t of resolvedTargets) {
+    if (!t.layer) continue;
+    for (const f of t.layer.fields) {
+      if (f.domain && f.domain.type === 'coded-value-ref') {
+        pickListItemIds.add(f.domain.pickListItemId);
+      }
+    }
+  }
+  const pickListItems = await Promise.all(
+    Array.from(pickListItemIds).map((id) =>
+      apiFetch<Item<PickListData>>(`/api/items/${id}`).catch(() => null),
+    ),
+  );
+  const pickLists: Record<string, PickListData> = {};
+  for (const it of pickListItems) {
+    if (it && it.data) pickLists[it.id] = it.data as PickListData;
+  }
+
   const canEdit = me.id === editorItem.ownerId || me.orgRole === 'admin';
 
   return (
@@ -171,6 +196,7 @@ export default async function EditorRuntimePage({ params }: Props) {
       editorTitle={editorItem.title}
       editor={editor}
       resolvedTargets={resolvedTargets}
+      pickLists={pickLists}
       referencedMapTitle={referencedMap?.title ?? null}
       initialMapData={mapData}
       targetLayerIds={targetLayerIds}

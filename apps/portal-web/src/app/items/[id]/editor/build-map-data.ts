@@ -125,6 +125,14 @@ export function buildEditorMapData(args: {
 
   for (const t of resolvedTargets) {
     if (!t.layer) continue;
+    // Skip attribute-only related tables (geometryType === null).
+    // The v3 /geojson endpoint always selects ST_AsGeoJSON(geom),
+    // which crashes with 500 on related tables that have no geom
+    // column. Related tables are still valid Editor targets at
+    // the config level (the runtime surfaces them so users can
+    // add child records via the parent feature's related-records
+    // panel, slice 3b-6) but they have no map-rendering surface.
+    if (t.layer.geometryType === null) continue;
     const id = editorTargetLayerId(t.dataLayerId, t.layerKey);
     targetLayerIds.push(id);
     const url = `/api/portal/items/${t.dataLayerId}/layers/${t.layerKey}/geojson`;

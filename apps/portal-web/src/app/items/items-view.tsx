@@ -28,6 +28,7 @@ import type {
   ItemWithShares,
 } from '@gratis-gis/shared-types';
 import {
+  getItemHref,
   getItemTypeAccent,
   getItemTypeIcon,
   getItemTypeLabel,
@@ -1687,7 +1688,7 @@ function ItemGrid({
               </div>
               <ItemCard
                 item={item}
-                href={`/items/${item.id}`}
+                href={getItemHref(item)}
                 fallbackIcon={<Icon />}
                 headerExtra={
                   <ItemSharingIndicator
@@ -1791,7 +1792,7 @@ function ItemGrid({
                 <span className="h-3.5 w-3.5" aria-hidden="true" />
               )}
               <Link
-                href={`/items/${item.id}`}
+                href={getItemHref(item)}
                 className="contents"
                 aria-label={item.title}
               >
