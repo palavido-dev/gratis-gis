@@ -457,10 +457,17 @@ export class HousekeepingService {
         if (layers !== null) {
           next = await this.v3Tables.aggregateBbox(it.id, layers);
         }
-        // Fall back to whatever data.bbox / data.layers[].bbox carries
-        // when the v3 tables yield nothing (legacy v1/v2, or a v3
-        // layer with no spatial features yet).
+        // Fall back paths in priority order:
+        //   1) the raw stored data.bbox / data.layers[].bbox
+        //   2) walk inline features (v1 data_layers carry their
+        //      GeoJSON FeatureCollection at data.data; itemBbox()
+        //      doesn't peer into features so we do it here)
+        // The walk only kicks in when there's no cached extent yet,
+        // so a single recompute is enough to seed older fixtures
+        // and per-feature edits will keep it fresh once we wire
+        // post-CRUD recompute hooks.
         if (!next) next = itemBbox(it.type, it.data);
+        if (!next) next = walkInlineFeatureBbox(it.data);
       } else if (it.type === 'map') {
         // Aggregate from referenced items' freshly-recomputed bboxes.
         const refs = collectMapItemRefs(it.data);
@@ -584,6 +591,62 @@ function readV3Layers(data: unknown): V3LayerShape[] | null {
     out.push({ id, geometryType });
   }
   return out;
+}
+
+/** v1 data_layer fallback: peer into the inline FeatureCollection
+ *  at data.data and compute the envelope of every feature's
+ *  geometry. itemBbox() only reads data.bbox, so this catches the
+ *  case where a v1 layer has features but the cached bbox was
+ *  never populated. Walks Multi* geometries via their flattened
+ *  coordinate arrays; ignores GeometryCollection (rare in this
+ *  shape) to keep the helper small. */
+function walkInlineFeatureBbox(
+  data: unknown,
+): [number, number, number, number] | null {
+  if (!data || typeof data !== 'object') return null;
+  const inner = (data as { data?: unknown }).data;
+  if (!inner || typeof inner !== 'object') return null;
+  const fc = inner as { type?: unknown; features?: unknown };
+  if (fc.type !== 'FeatureCollection' || !Array.isArray(fc.features)) {
+    return null;
+  }
+  let w = Infinity;
+  let s = Infinity;
+  let e = -Infinity;
+  let n = -Infinity;
+  let any = false;
+  const visit = (xy: unknown) => {
+    if (
+      Array.isArray(xy) &&
+      xy.length >= 2 &&
+      typeof xy[0] === 'number' &&
+      typeof xy[1] === 'number'
+    ) {
+      w = Math.min(w, xy[0]);
+      e = Math.max(e, xy[0]);
+      s = Math.min(s, xy[1]);
+      n = Math.max(n, xy[1]);
+      any = true;
+    }
+  };
+  const walk = (coords: unknown) => {
+    if (!Array.isArray(coords)) return;
+    if (
+      coords.length > 0 &&
+      typeof coords[0] === 'number' &&
+      typeof coords[1] === 'number'
+    ) {
+      visit(coords);
+      return;
+    }
+    for (const c of coords) walk(c);
+  };
+  for (const f of fc.features as Array<{ geometry?: unknown }>) {
+    const g = f?.geometry as { type?: unknown; coordinates?: unknown } | null;
+    if (!g || typeof g !== 'object') continue;
+    walk(g.coordinates);
+  }
+  return any ? [w, s, e, n] : null;
 }
 
 /** Walk a map's data.layers[] and return the underlying portal item
