@@ -1380,8 +1380,20 @@ export class ItemsService {
     // folders never accidentally widen a caller's visible set.
     // childItemIds is preserved on the row but ignored for
     // membership while smartQuery is present.
-    if (data?.smartQuery && typeof data.smartQuery === 'object') {
-      return this.resolveSmartFolder(user, data.smartQuery);
+    //
+    // Empty smartQuery ({}) falls through to the regular folder
+    // path. Older folder editors persist an empty smart-query
+    // shell on save (#101 follow-up); without this guard, those
+    // folders run a filter-less items.list and return every
+    // item in the org -- which the user sees as "Project B is
+    // showing all 13 items even though it only has 2 children".
+    const sq = data?.smartQuery;
+    if (
+      sq &&
+      typeof sq === 'object' &&
+      Object.keys(sq as Record<string, unknown>).length > 0
+    ) {
+      return this.resolveSmartFolder(user, sq);
     }
 
     const ids = Array.isArray(data?.childItemIds)
