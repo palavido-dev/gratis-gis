@@ -142,13 +142,23 @@ pnpm dev
 
 ## Documentation
 
+For new collaborators, start with these two:
+
+- [docs/SETUP.md](./docs/SETUP.md): step-by-step local dev setup (Mac-focused, also covers Linux / WSL)
+- [docs/walkthrough.md](./docs/walkthrough.md): quick orientation to the features that exist today, with AGO ↔ GratisGIS vocabulary mapping
+
+Deeper design references:
+
 - [ARCHITECTURE.md](./ARCHITECTURE.md): system design, services, boundaries
 - [ROADMAP.md](./ROADMAP.md): phased delivery plan, milestones
 - [docs/data-model.md](./docs/data-model.md): item, group, and sharing model
 - [docs/sharing-granularity.md](./docs/sharing-granularity.md): per-user + column/row-level sharing design
 - [docs/auth-model.md](./docs/auth-model.md): authentication and RBAC
-- [docs/notebooks.md](./docs/notebooks.md): notebook environment integration
-- [docs/tool-builder.md](./docs/tool-builder.md): visual tool/widget builder
+- [docs/editing-and-collection.md](./docs/editing-and-collection.md): the Editor item type design
+- [docs/folders.md](./docs/folders.md): folders + smart folders
+- [docs/web-maps.md](./docs/web-maps.md): map composition + per-layer access matrix
+- [docs/notebooks.md](./docs/notebooks.md): notebook environment integration (planned)
+- [docs/tool-builder.md](./docs/tool-builder.md): visual tool/widget builder (planned)
 - [docs/design-system.md](./docs/design-system.md): UI principles, tokens, components
 - [docs/deployment.md](./docs/deployment.md): how admins install and operate
 - [docs/discoverability.md](./docs/discoverability.md): repo tags, badges, launch targets

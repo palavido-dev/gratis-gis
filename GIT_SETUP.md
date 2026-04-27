@@ -148,6 +148,12 @@ pnpm dev
 
 You should then be able to:
 
-- Sign in at http://localhost:3000 as `alice` / `devpassword` (via Keycloak)
+- Sign in at http://localhost:3000 as `bob` / `devpassword` (admin)
+  or `mateo` / `devpassword` (contributor) via Keycloak
 - Hit http://localhost:4000/docs for the Swagger UI
-- See the seeded Acme org, group, and item
+- See the seeded Acme org, the Field Team group, and a few example
+  items
+
+For more detail on the local dev environment, see
+[docs/SETUP.md](./docs/SETUP.md). For a quick orientation to the
+features that exist today, see [docs/walkthrough.md](./docs/walkthrough.md).
