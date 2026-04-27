@@ -22,12 +22,21 @@ export interface UpdateGroupInput {
 export class GroupsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Groups visible to the caller: their own + org-visible + public. */
+  /** Groups visible to the caller: owner OR member OR org-visible
+   *  OR public. The ownerId clause is critical (#102): in our model
+   *  group ownership lives on the group row separate from
+   *  group_member, so a curator-not-participant pattern is valid --
+   *  e.g. a manager creates a group for a team they don't belong
+   *  to, or removes their own membership while keeping ownership.
+   *  Without this clause, an owner who's not a member of a private
+   *  group would lose visibility into the group from their own
+   *  groups list. */
   listVisible(user: AuthUser) {
     return this.prisma.group.findMany({
       where: {
         deletedAt: null,
         OR: [
+          { ownerId: user.id },
           { members: { some: { userId: user.id } } },
           { orgId: user.orgId, access: { in: ['org', 'public'] } },
           { access: 'public' },

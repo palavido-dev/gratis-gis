@@ -19,6 +19,13 @@ interface Props {
   groupId: string;
   initialMembers: MemberWithUser[];
   canManage: boolean;
+  /** Caller id; lets us detect "removing self" and show a more
+   *  detailed confirm than the generic remove-member flow (#102). */
+  currentUserId: string;
+  /** Whether the caller is the group's owner. Drives the extra
+   *  warning copy when the owner removes themselves -- they keep
+   *  ownership but lose member-only visibility. */
+  isOwner: boolean;
 }
 
 /**
@@ -34,7 +41,13 @@ interface Props {
  *   POST   /api/groups/:id/members      { userId, role? }
  *   DELETE /api/groups/:id/members/:userId
  */
-export function MembersPanel({ groupId, initialMembers, canManage }: Props) {
+export function MembersPanel({
+  groupId,
+  initialMembers,
+  canManage,
+  currentUserId,
+  isOwner,
+}: Props) {
   const router = useRouter();
   const [members, setMembers] = useState(initialMembers);
   const [pending, startTransition] = useTransition();
@@ -90,19 +103,60 @@ export function MembersPanel({ groupId, initialMembers, canManage }: Props) {
       return;
     }
     const added: GroupMember = await res.json();
+    // The POST returns just the GroupMember row with no joined user
+    // metadata, so a naive append rendered the row as "bbbbbbbb"
+    // (userId.slice(0,8)) until router.refresh() round-tripped the
+    // joined shape. Synthesize the user fields here from the picker's
+    // option so the new row paints with the right name immediately.
+    // Username is in `subtitle`; fullName lives in `title` (the
+    // picker's display label is fullName || username).
+    const enriched: MemberWithUser = {
+      ...added,
+      user: {
+        id: pick.id as User['id'],
+        username: pick.subtitle ?? pick.title,
+        fullName: pick.title,
+        avatarUrl: pick.imageUrl ?? null,
+      },
+    };
     setMembers((cur) => {
       const filtered = cur.filter((m) => String(m.userId) !== String(added.userId));
-      return [...filtered, added as MemberWithUser];
+      return [...filtered, enriched];
     });
-    // router.refresh pulls the server-joined user metadata so the row
-    // updates from `bbbbbb` → `Alice Example` once the server round-
-    // trips. The briefly-raw name is acceptable; bypasses UserId
-    // branded-type complexity we'd hit constructing a shim locally.
+    // Still refresh so any other server-joined data (added timestamp
+    // formatting, etc) catches up; the row label is correct as soon
+    // as setMembers commits.
     startTransition(() => router.refresh());
   }
 
   async function removeMember(member: MemberWithUser) {
     setError(null);
+    // Self-removal warning (#102). Different copy depending on
+    // whether the user owns the group: the owner keeps a lot of
+    // capability after removing themselves, but loses member-only
+    // visibility, and that combination needs to be explicit so they
+    // don't wonder months later why their access feels off. For
+    // someone removing a teammate, no special copy -- the parent
+    // already gates the trash button on canManage.
+    const removingSelf = String(member.userId) === currentUserId;
+    if (removingSelf) {
+      const message = isOwner
+        ? 'Remove yourself from this group?\n\n' +
+          'You\'ll keep:\n' +
+          '  - Ownership of the group\n' +
+          '  - The ability to add/remove members and edit it\n' +
+          '  - The ability to share items TO the group\n' +
+          '\n' +
+          'You\'ll lose:\n' +
+          '  - Visibility into items shared TO the group through\n' +
+          '    your personal access (member-only path).\n' +
+          '\n' +
+          'You can re-add yourself at any time.'
+        : 'Remove yourself from this group?\n\n' +
+          'You\'ll lose access to items shared with this group.\n' +
+          'A group admin will need to re-add you to get back in.';
+      if (!confirm(message)) return;
+    }
     const res = await fetch(
       `/api/portal/groups/${groupId}/members/${member.userId}`,
       { method: 'DELETE' },

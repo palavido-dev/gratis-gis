@@ -34,6 +34,15 @@ export default async function GroupDetailPage({ params }: Props) {
 
   const me = await apiFetch<{ id: string; orgRole: string }>('/api/users/me');
   const canManage = me.id === group.ownerId || me.orgRole === 'admin';
+  // Owner-not-member badge (#102): an owner can remove their own
+  // membership while keeping the group; the badge reminds them of
+  // that state so 5 months later it's not a mystery why their
+  // access feels different. Only computed for the actual owner --
+  // an org admin who isn't the owner just sees the regular owner
+  // line.
+  const isOwner = group.ownerId === me.id;
+  const isMember = members.some((m) => m.userId === me.id);
+  const ownerNotMember = isOwner && !isMember;
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 py-10">
@@ -69,8 +78,33 @@ export default async function GroupDetailPage({ params }: Props) {
                 {group.description}
               </p>
             ) : null}
-            <div className="mt-3 text-xs text-muted">
-              Owner: {group.ownerId === me.id ? 'you' : group.ownerId.slice(0, 8)}
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted">
+              <span>
+                Owner:{' '}
+                {group.ownerId === me.id ? 'you' : group.ownerId.slice(0, 8)}
+              </span>
+              {/* Persistent reminder when the owner has removed
+                  their own membership (#102). Hovering the chip
+                  spells out exactly what's different about this
+                  state, so 5 months from now they don't wonder why
+                  the group looks weird. */}
+              {ownerNotMember ? (
+                <span
+                  title={
+                    'You own this group but aren’t a member of it.\n' +
+                    'You can still:\n' +
+                    '  - Manage the group (rename, edit access, add/remove members)\n' +
+                    '  - Share items TO the group\n' +
+                    '\n' +
+                    'You won’t see:\n' +
+                    '  - Items shared to the group through your personal access\n' +
+                    '    (that’s a member-only path; add yourself back to see them)'
+                  }
+                  className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-900"
+                >
+                  Owner, not a member
+                </span>
+              ) : null}
             </div>
           </div>
         </div>
@@ -97,6 +131,8 @@ export default async function GroupDetailPage({ params }: Props) {
           groupId={group.id}
           initialMembers={members}
           canManage={canManage}
+          currentUserId={me.id}
+          isOwner={isOwner}
         />
       </section>
     </div>
