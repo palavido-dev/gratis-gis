@@ -599,6 +599,18 @@ and is Phase 3, demand-driven.
   customers who run Cityworks / Cartegraph / Lucity, the OGC API
   Features endpoint plus a webhook on Data Collection submission is
   the bridge.
+- **Email notifications.** First-class. Survey123 forces customers
+  to plumb email through Make / IFTTT / 3rd-party extensions, which
+  is a constant pain point. Bake email into Data Collection from
+  the start: per-collection notification rules ("email these
+  addresses when a new submission lands", "email these addresses
+  when submission.<field> matches <value>"), with optional
+  auto-generated report attachments rendered from a report_template
+  item bound to the form's schema. The portal already has SMTP
+  config in deployment.md so this is mostly a rules engine + mail-
+  render queue, not new infrastructure. Same pattern is reusable
+  by Editor for "edited a feature on this layer" alerts and by
+  housekeeping for stale-item digests.
 
 ### Phase 3 (demand-driven)
 

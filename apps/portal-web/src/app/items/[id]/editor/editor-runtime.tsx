@@ -1,16 +1,10 @@
-'use client';
+﻿'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import type maplibregl from 'maplibre-gl';
 import {
   ArrowLeft,
-  ChevronDown,
-  ChevronUp,
-  Eye,
-  EyeOff,
-  Folder as FolderIcon,
-  Layers,
   MousePointer2,
   PencilRuler,
   Plus,
@@ -21,6 +15,8 @@ import {
   Wand2,
   X,
 } from 'lucide-react';
+import { LayerPanel } from '../map/layer-panel';
+import type { LayerMetadata } from '../map/layer-metadata';
 import type {
   EditorData,
   EditorTool,
@@ -130,6 +126,9 @@ export function EditorRuntime({
   canEdit,
 }: Props) {
   const [mapData, setMapData] = useState<MapData>(initialMapData);
+  // Track the camera's current zoom so LayerPanel can render the
+  // "current view" tick under each layer's scale-range slider.
+  const [currentZoom, setCurrentZoom] = useState<number>(initialMapData.zoom);
 
   const canvasRef = useRef<MapCanvasHandle | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -214,96 +213,34 @@ export function EditorRuntime({
       );
   }, [editor.targets, targetByKey]);
 
-  // Layer split for the side panel: target layers (purple, editable)
-  // vs reference layers (read-only context). Reference layers
-  // include group "layers" (source.kind === 'group') so the legend
-  // can render them as section headers with their children
-  // recursively nested underneath -- same convention #46 uses.
-  //
-  // We render the tree depth-first by collecting children-by-group
-  // into an index, then walking ONLY top-level layers (no groupId,
-  // or groupId points at a missing/non-group header). When a top-
-  // level layer is a group, the renderer recurses into its
-  // children. Crucially this means a group's children can sit
-  // ANYWHERE in the array -- before or after the header -- and
-  // still render under the header, which is how the underlying
-  // map data actually stores them (#71's drag-into-group keeps
-  // children's array position rather than co-locating them with
-  // the header).
-  const { targetTree, referenceTree, allLayerOrder } = useMemo(() => {
+  // Top-level target layer count (for the toolbar's "N editable
+  // layer(s)" label). LayerPanel handles its own tree rendering so
+  // we don't need a full split anymore -- just count how many
+  // editor-target layers landed in the synthesized MapData.
+  const targetCount = useMemo(() => {
     const targetSet = new Set(targetLayerIds);
-    const headerIds = new Set<string>();
-    for (const l of mapData.layers) {
-      if (l.source.kind === 'group') headerIds.add(l.id);
-    }
-    // Index of children by their group id. Only count an entry as
-    // "child of X" when X is actually a known group header in this
-    // mapData; an orphan groupId (header was deleted, or pointed at
-    // a non-group) renders as top-level.
-    const kidsByGroup = new Map<string, typeof mapData.layers>();
-    for (const l of mapData.layers) {
-      if (l.groupId && headerIds.has(l.groupId)) {
-        const arr = kidsByGroup.get(l.groupId) ?? [];
-        arr.push(l);
-        kidsByGroup.set(l.groupId, arr);
-      }
-    }
-    // Top-level layers per section. A target layer is always top
-    // level since targets are synthesized into the layers array
-    // without a groupId (build-map-data doesn't put targets into
-    // groups). Reference layers are top-level when their groupId
-    // is missing or points at a non-existent header.
-    const targetTopLevel = mapData.layers.filter((l) => targetSet.has(l.id));
-    const refTopLevel = mapData.layers.filter(
-      (l) =>
-        !targetSet.has(l.id) &&
-        (!l.groupId || !headerIds.has(l.groupId)),
-    );
-    return {
-      targetTree: { topLevel: targetTopLevel, kidsByGroup },
-      referenceTree: { topLevel: refTopLevel, kidsByGroup },
-      // Map of layer id -> array index, used by reorder buttons
-      // to know whether a layer can move up / down.
-      allLayerOrder: new Map(
-        mapData.layers.map((l, i) => [l.id, i] as const),
-      ),
-    };
+    return mapData.layers.filter((l) => targetSet.has(l.id)).length;
   }, [mapData.layers, targetLayerIds]);
 
-  // Toggle a layer's `visible` flag. Single layer click; child layers
-  // and group headers behave the same way. MapCanvas's blunt sync
-  // re-runs and flips the layer in/out of the rendered set on its
-  // own; we just mutate state.
-  const toggleLayerVisible = useCallback((layerId: string) => {
-    setMapData((cur) => ({
-      ...cur,
-      layers: cur.layers.map((l) =>
-        l.id === layerId ? { ...l, visible: !l.visible } : l,
-      ),
-    }));
-  }, []);
-
-  // Move a layer up or down within mapData.layers. The order in the
-  // array drives stacking order on the canvas + display order in the
-  // legend. We allow any move within bounds; group / child rules are
-  // advisory (the user can always reorder back if they break the
-  // grouping). MapLibre paints layers in array order, so a downward
-  // move pushes the layer further toward the back.
-  const moveLayer = useCallback(
-    (layerId: string, direction: 'up' | 'down') => {
-      setMapData((cur) => {
-        const idx = cur.layers.findIndex((l) => l.id === layerId);
-        if (idx === -1) return cur;
-        const target = direction === 'up' ? idx - 1 : idx + 1;
-        if (target < 0 || target >= cur.layers.length) return cur;
-        const next = cur.layers.slice();
-        const [removed] = next.splice(idx, 1);
-        next.splice(target, 0, removed!);
-        return { ...cur, layers: next };
-      });
+  // LayerPanel emits a fresh layers array on every mutation
+  // (visibility toggle, drag-reorder, opacity, kebab actions); we
+  // just splice it back into mapData. MapCanvas's blunt sync
+  // picks up the change and re-paints.
+  const onLayersChange = useCallback(
+    (next: typeof mapData.layers) => {
+      setMapData((cur) => ({ ...cur, layers: next }));
     },
     [],
   );
+
+  // Basemap switcher. The runtime allows the user to swap the
+  // basemap for THEIR session view; the change does not persist
+  // back to the editor item. Always-on; even view-only users get
+  // the picker so they can pick a basemap that suits the task at
+  // hand (satellite for context, plain for legibility, etc).
+  const onBasemapChange = useCallback((id: string) => {
+    setMapData((cur) => ({ ...cur, basemap: id }));
+  }, []);
 
   // Refresh a target layer's source by appending a fresh _ts param
   // to its geojson URL. MapCanvas's blunt sync tears down + rebuilds
@@ -846,9 +783,27 @@ export function EditorRuntime({
           ) : null}
         </div>
         <div className="flex items-center gap-3 text-xs text-muted">
+          <label className="inline-flex items-center gap-1">
+            <span className="font-medium uppercase tracking-wide">
+              Basemap
+            </span>
+            <select
+              value={mapData.basemap || ''}
+              onChange={(e) => onBasemapChange(e.target.value)}
+              className="h-7 rounded-md border border-border bg-surface-1 px-2 text-xs text-ink-1 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            >
+              {basemaps.length === 0 ? (
+                <option value="">No basemaps</option>
+              ) : null}
+              {basemaps.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <span>
-            {targetTree.topLevel.length} editable layer
-            {targetTree.topLevel.length === 1 ? '' : 's'}
+            {targetCount} editable layer{targetCount === 1 ? '' : 's'}
           </span>
           {canEdit ? (
             <Link
@@ -862,10 +817,65 @@ export function EditorRuntime({
         </div>
       </header>
 
-      <div className="relative flex flex-1 overflow-hidden">
-        <div className="pointer-events-none absolute inset-0 z-10">
-          {/* Tool palette: floats over the canvas in the top-left. */}
-          <div className="pointer-events-auto absolute left-3 top-3 flex flex-col gap-1 rounded-md border border-border bg-surface-1 p-1 shadow-card">
+      {/* Body: docked LayerPanel (left rail) + map canvas (right).
+          Same layout the map editor uses for parity. The editing
+          tool palette + active-mode chips + coming-soon toast all
+          float as overlays over the canvas. */}
+      <div className="flex flex-1 overflow-hidden">
+        <div className="w-72 shrink-0">
+          <LayerPanel
+            layers={mapData.layers}
+            metadata={EMPTY_LAYER_METADATA}
+            canEdit={canEdit}
+            currentZoom={currentZoom}
+            onOpenAdd={() => {
+              /* Add-layer is suppressed in the runtime; the layer
+                 set is fixed by the editor's configuration + the
+                 referenced map. Owners use the editor's Configure
+                 page (in the toolbar) to add or remove targets. */
+            }}
+            onAddGroup={() => {
+              /* Same: groups are inherited from the referenced
+                 map; no group authoring inside the runtime. */
+            }}
+            onOpenAttributeTable={() => {
+              setToast('Attribute table lands in a follow-up slice.');
+              scheduleToastClear();
+            }}
+            onZoomToLayer={(layerId) => {
+              const layer = mapData.layers.find((l) => l.id === layerId);
+              const bbox = layer
+                ? null /* MapCanvas doesn't expose a bbox helper here yet */
+                : null;
+              if (bbox) canvasRef.current?.zoomTo(bbox);
+            }}
+            onChange={onLayersChange}
+            showAddLayer={false}
+          />
+        </div>
+
+        <div className="relative min-w-0 flex-1">
+          <MapCanvas
+            ref={canvasRef}
+            map={mapData}
+            basemaps={basemaps}
+            onCameraChange={(next) => {
+              setMapData((cur) => ({ ...cur, ...next }));
+              if (typeof next.zoom === 'number') setCurrentZoom(next.zoom);
+            }}
+            selection={{}}
+            selectTool="off"
+            onSelectionChange={() => {
+              /* selection-tool wiring lands with the attribute
+                 table's "select on map" affordance in a follow-up. */
+            }}
+            onMapReady={(m) => setMapInstance(m)}
+          />
+
+          {/* Tool palette overlay. Top-left of the canvas. Renders
+              only the tools the author enabled in the editor's
+              config; disabled when canEdit is false. */}
+          <div className="pointer-events-auto absolute left-3 top-3 z-10 flex flex-col gap-1 rounded-md border border-border bg-surface-1 p-1 shadow-card">
             {ALL_TOOLS.filter((t) => editor.tools.includes(t.key)).map((t) => {
               const isActive = activeTool === t.key;
               return (
@@ -887,14 +897,12 @@ export function EditorRuntime({
             })}
           </div>
 
-          {/* Active-target chip / banner (only while a write tool is
-              the active one). Add mode shows a target dropdown so
-              the author can switch which layer they're drawing into
-              without dropping out of the tool. Edit mode shows a
-              "click any feature" banner because the target is
-              chosen by the click, not upfront. */}
+          {/* Active-mode chip / banner overlay. Add shows a target
+              dropdown; Edit shows a "click any feature" prompt;
+              Delete shows the same in rose to telegraph the
+              destructive nature. */}
           {activeTool === 'add' ? (
-            <div className="pointer-events-auto absolute left-16 top-3 flex items-center gap-2 rounded-md border border-purple-300 bg-purple-50 px-3 py-1.5 text-xs text-purple-900 shadow-card">
+            <div className="pointer-events-auto absolute left-16 top-3 z-10 flex items-center gap-2 rounded-md border border-purple-300 bg-purple-50 px-3 py-1.5 text-xs text-purple-900 shadow-card">
               <span className="font-medium">Drawing into:</span>
               <select
                 value={activeTargetKey ?? ''}
@@ -904,8 +912,9 @@ export function EditorRuntime({
                 <option value="">pick a layer...</option>
                 {eligibleAddTargets.map((e) => (
                   <option key={e.key} value={e.key}>
-                    {e.resolved?.dataLayerTitle} / {e.resolved?.layer?.label}{' '}
-                    ({e.resolved?.layer?.geometryType})
+                    {e.resolved?.dataLayerTitle} /{' '}
+                    {e.resolved?.layer?.label} (
+                    {e.resolved?.layer?.geometryType})
                   </option>
                 ))}
               </select>
@@ -928,9 +937,11 @@ export function EditorRuntime({
               </button>
             </div>
           ) : activeTool === 'edit' ? (
-            <div className="pointer-events-auto absolute left-16 top-3 flex items-center gap-2 rounded-md border border-purple-300 bg-purple-50 px-3 py-1.5 text-xs text-purple-900 shadow-card">
+            <div className="pointer-events-auto absolute left-16 top-3 z-10 flex items-center gap-2 rounded-md border border-purple-300 bg-purple-50 px-3 py-1.5 text-xs text-purple-900 shadow-card">
               <span className="font-medium">Edit mode:</span>
-              <span>click any feature on a target layer to edit its attributes</span>
+              <span>
+                click any feature on a target layer to edit its attributes
+              </span>
               <button
                 type="button"
                 onClick={() => {
@@ -945,9 +956,12 @@ export function EditorRuntime({
               </button>
             </div>
           ) : activeTool === 'delete' ? (
-            <div className="pointer-events-auto absolute left-16 top-3 flex items-center gap-2 rounded-md border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs text-rose-900 shadow-card">
+            <div className="pointer-events-auto absolute left-16 top-3 z-10 flex items-center gap-2 rounded-md border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs text-rose-900 shadow-card">
               <span className="font-medium">Delete mode:</span>
-              <span>click a feature to remove it (you'll confirm before it's gone)</span>
+              <span>
+                click a feature to remove it (you'll confirm before it's
+                gone)
+              </span>
               <button
                 type="button"
                 onClick={() => {
@@ -963,101 +977,11 @@ export function EditorRuntime({
             </div>
           ) : null}
 
-          {/* Layer panel. Same shape as 3b-1; we now also show the
-              currently-active target with a highlight ring. */}
-          <aside className="pointer-events-auto absolute right-3 top-3 flex max-h-[calc(100%-1.5rem)] w-72 flex-col overflow-hidden rounded-md border border-border bg-surface-1 shadow-card">
-            <div className="border-b border-border px-3 py-2">
-              <h2 className="flex items-center gap-1.5 text-xs font-semibold text-ink-0">
-                <Layers className="h-3.5 w-3.5 text-muted" />
-                Layers
-              </h2>
-            </div>
-            <div className="overflow-auto">
-              <div className="px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-muted">
-                Editing ({targetTree.topLevel.length})
-              </div>
-              {targetTree.topLevel.length === 0 ? (
-                <div className="px-3 pb-3 text-xs">
-                  <p className="text-muted">
-                    No editable layers configured.
-                  </p>
-                  {canEdit ? (
-                    <Link
-                      href={`/items/${editorId}`}
-                      className="mt-2 inline-flex items-center gap-1 rounded-md bg-accent px-2 py-1 text-[11px] font-medium text-white hover:bg-accent/90"
-                    >
-                      Configure this editor
-                    </Link>
-                  ) : (
-                    <p className="mt-1 text-muted">
-                      Ask the owner to add target layers.
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <ul>
-                  {renderLegendTree({
-                    topLevel: targetTree.topLevel,
-                    kidsByGroup: targetTree.kidsByGroup,
-                    depth: 0,
-                    accent: 'target',
-                    activeTargetKey,
-                    allLayerOrder,
-                    totalLayers: mapData.layers.length,
-                    onToggleVisible: toggleLayerVisible,
-                    onMove: moveLayer,
-                  })}
-                </ul>
-              )}
-              <div className="border-t border-border px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-muted">
-                Reference ({mapData.layers.length - targetTree.topLevel.length})
-              </div>
-              {referenceTree.topLevel.length === 0 ? (
-                <p className="px-3 pb-3 text-xs text-muted">
-                  {referencedMapTitle
-                    ? 'The referenced map has no overlay layers.'
-                    : 'No reference map. Pick one on the config page to add context layers here.'}
-                </p>
-              ) : (
-                <ul>
-                  {renderLegendTree({
-                    topLevel: referenceTree.topLevel,
-                    kidsByGroup: referenceTree.kidsByGroup,
-                    depth: 0,
-                    accent: 'reference',
-                    activeTargetKey: null,
-                    allLayerOrder,
-                    totalLayers: mapData.layers.length,
-                    onToggleVisible: toggleLayerVisible,
-                    onMove: moveLayer,
-                  })}
-                </ul>
-              )}
-            </div>
-          </aside>
-
           {toast ? (
-            <div className="pointer-events-auto absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border border-border bg-surface-1 px-3 py-1.5 text-xs text-ink-1 shadow-card">
+            <div className="pointer-events-auto absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full border border-border bg-surface-1 px-3 py-1.5 text-xs text-ink-1 shadow-card">
               {toast}
             </div>
           ) : null}
-        </div>
-
-        <div className="absolute inset-0">
-          <MapCanvas
-            ref={canvasRef}
-            map={mapData}
-            basemaps={basemaps}
-            onCameraChange={(next) =>
-              setMapData((cur) => ({ ...cur, ...next }))
-            }
-            selection={{}}
-            selectTool="off"
-            onSelectionChange={() => {
-              /* selection-tool wiring lands in slice 3b-3 (Edit) */
-            }}
-            onMapReady={(m) => setMapInstance(m)}
-          />
         </div>
       </div>
 
@@ -1120,166 +1044,16 @@ export function EditorRuntime({
 }
 
 /**
- * Render a tree of legend rows depth-first, starting from the
- * provided top-level layers. When a layer is a group header
- * (source.kind === 'group') we recurse into its children from the
- * kidsByGroup index; non-group layers render as leaf rows. Mirrors
- * the existing layer-panel.tsx pattern (#46, #71) so the editor
- * runtime's legend stays consistent with the map editor's panel.
+ * LayerPanel expects a per-layer metadata object (cached fields,
+ * geometryTypes, sample features) that the map editor builds from
+ * its feature-loading machinery. The editor runtime hasn't grown
+ * that probe layer yet so we pass an empty record; LayerPanel's
+ * fallback rendering kicks in (swatches use layer.style alone,
+ * fields lists in style / popup editors come up empty). Slice 3b-x
+ * will wire the v3 + arcgis-rest probe through to populate this so
+ * the runtime's symbology and field pickers light up properly.
  */
-function renderLegendTree(args: {
-  topLevel: import('@gratis-gis/shared-types').MapLayer[];
-  kidsByGroup: Map<string, import('@gratis-gis/shared-types').MapLayer[]>;
-  depth: number;
-  accent: 'target' | 'reference';
-  activeTargetKey: string | null;
-  allLayerOrder: Map<string, number>;
-  totalLayers: number;
-  onToggleVisible: (id: string) => void;
-  onMove: (id: string, dir: 'up' | 'down') => void;
-}): React.ReactElement[] {
-  const out: React.ReactElement[] = [];
-  for (const l of args.topLevel) {
-    const isGroup = l.source.kind === 'group';
-    const idx = args.allLayerOrder.get(l.id) ?? -1;
-    const stripped = l.id.startsWith(EDITOR_TARGET_LAYER_PREFIX)
-      ? l.id.slice(EDITOR_TARGET_LAYER_PREFIX.length)
-      : l.id;
-    const isActive = stripped === args.activeTargetKey;
-    out.push(
-      <LegendRow
-        key={l.id}
-        layerId={l.id}
-        title={l.title}
-        visible={l.visible}
-        depth={args.depth}
-        isGroup={isGroup}
-        isActive={isActive}
-        canMoveUp={idx > 0}
-        canMoveDown={idx >= 0 && idx < args.totalLayers - 1}
-        accent={args.accent}
-        onToggleVisible={args.onToggleVisible}
-        onMove={args.onMove}
-      />,
-    );
-    if (isGroup) {
-      const kids = args.kidsByGroup.get(l.id) ?? [];
-      if (kids.length > 0) {
-        out.push(
-          ...renderLegendTree({
-            ...args,
-            topLevel: kids,
-            depth: args.depth + 1,
-          }),
-        );
-      }
-    }
-  }
-  return out;
-}
-
-interface LegendRowProps {
-  layerId: string;
-  title: string;
-  visible: boolean;
-  depth: number;
-  isGroup: boolean;
-  isActive: boolean;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
-  accent: 'target' | 'reference';
-  onToggleVisible: (id: string) => void;
-  onMove: (id: string, dir: 'up' | 'down') => void;
-}
-
-/**
- * One legend row. Same shape for target and reference layers; the
- * `accent` prop just swaps the leading marker (purple square for
- * targets, eye / folder for reference). Reorder chevrons appear on
- * hover at the right; visibility eye toggles between Eye and
- * EyeOff. Group rows ('source.kind === group') stay editable too --
- * toggling a group hides its children at the canvas level.
- */
-function LegendRow({
-  layerId,
-  title,
-  visible,
-  depth,
-  isGroup,
-  isActive,
-  canMoveUp,
-  canMoveDown,
-  accent,
-  onToggleVisible,
-  onMove,
-}: LegendRowProps) {
-  const indent = { paddingLeft: 12 + depth * 12 };
-  return (
-    <li
-      className={`group flex items-center gap-1 py-1.5 pr-1 text-xs ${
-        isActive
-          ? 'bg-purple-50'
-          : isGroup
-            ? 'font-medium text-ink-0'
-            : 'text-ink-1'
-      }`}
-      style={indent}
-    >
-      <button
-        type="button"
-        onClick={() => onToggleVisible(layerId)}
-        className="rounded-md p-0.5 text-muted hover:bg-surface-2 hover:text-ink-1"
-        aria-label={visible ? 'Hide layer' : 'Show layer'}
-        title={visible ? 'Hide layer' : 'Show layer'}
-      >
-        {visible ? (
-          <Eye className="h-3 w-3" />
-        ) : (
-          <EyeOff className="h-3 w-3" />
-        )}
-      </button>
-      {accent === 'target' ? (
-        <span
-          className={`h-2.5 w-2.5 shrink-0 rounded-sm ${
-            isActive
-              ? 'bg-purple-600 ring-2 ring-purple-300'
-              : 'bg-purple-500'
-          }`}
-        />
-      ) : isGroup ? (
-        <FolderIcon className="h-3 w-3 shrink-0 text-muted" />
-      ) : null}
-      <span
-        className={`flex-1 truncate ${visible ? '' : 'text-muted line-through'}`}
-        title={title}
-      >
-        {title}
-      </span>
-      <div className="flex shrink-0 opacity-0 transition-opacity group-hover:opacity-100">
-        <button
-          type="button"
-          onClick={() => onMove(layerId, 'up')}
-          disabled={!canMoveUp}
-          className="rounded-md p-0.5 text-muted hover:bg-surface-2 hover:text-ink-1 disabled:cursor-not-allowed disabled:opacity-30"
-          aria-label="Move layer up"
-          title="Move up"
-        >
-          <ChevronUp className="h-3 w-3" />
-        </button>
-        <button
-          type="button"
-          onClick={() => onMove(layerId, 'down')}
-          disabled={!canMoveDown}
-          className="rounded-md p-0.5 text-muted hover:bg-surface-2 hover:text-ink-1 disabled:cursor-not-allowed disabled:opacity-30"
-          aria-label="Move layer down"
-          title="Move down"
-        >
-          <ChevronDown className="h-3 w-3" />
-        </button>
-      </div>
-    </li>
-  );
-}
+const EMPTY_LAYER_METADATA: Record<string, LayerMetadata> = {};
 
 const TOOL_LABELS: Record<EditorTool, string> = {
   select: 'Select',
