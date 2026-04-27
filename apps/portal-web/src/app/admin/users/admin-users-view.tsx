@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Check,
+  Eye,
   KeyRound,
   Loader2,
   MailPlus,
@@ -20,6 +21,7 @@ import {
 import type { AdminUserRow } from './page';
 import { ReassignOwnerDialog } from '@/components/reassign-owner-dialog';
 import { ShareExpiryPicker } from '@/components/share-expiry-picker';
+import { UserAccessDialog } from './user-access-dialog';
 
 /**
  * Admin-side users table.
@@ -44,6 +46,9 @@ export function AdminUsersView({ initialUsers }: Props) {
   const [query, setQuery] = useState('');
   const [inviteOpen, setInviteOpen] = useState(false);
   const [editing, setEditing] = useState<AdminUserRow | null>(null);
+  // "View access" dialog target (#89). Separate from `editing` so
+  // an admin can have one of each open without contention.
+  const [viewingAccess, setViewingAccess] = useState<AdminUserRow | null>(null);
   const [working, setWorking] = useState<string | null>(null); // keyed by user id
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -391,6 +396,16 @@ export function AdminUsersView({ initialUsers }: Props) {
                       <div className="flex items-center justify-end gap-1">
                         <button
                           type="button"
+                          onClick={() => setViewingAccess(u)}
+                          disabled={busy}
+                          title="See everything this user has access to"
+                          className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-[11px] text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+                        >
+                          <Eye className="h-3 w-3" />
+                          Access
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => setEditing(u)}
                           disabled={busy}
                           title="Edit name / email"
@@ -453,6 +468,14 @@ export function AdminUsersView({ initialUsers }: Props) {
           user={editing}
           onClose={() => setEditing(null)}
           onSaved={onEdited}
+        />
+      ) : null}
+
+      {viewingAccess ? (
+        <UserAccessDialog
+          userId={viewingAccess.id}
+          username={viewingAccess.username}
+          onClose={() => setViewingAccess(null)}
         />
       ) : null}
 
