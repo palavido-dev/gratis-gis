@@ -30,6 +30,13 @@ interface Props {
    * Defaults to "Save".
    */
   submitLabel?: string;
+  /**
+   * Heading shown above the layer subtitle. Defaults to "New
+   * feature attributes" for the create flow; the edit flow passes
+   * "Edit feature attributes" so the user is never confused about
+   * which action they're confirming.
+   */
+  title?: string;
 }
 
 /**
@@ -61,6 +68,7 @@ export function AttributeForm({
   onCancel,
   onSubmit,
   submitLabel = 'Save',
+  title = 'New feature attributes',
 }: Props) {
   const [values, setValues] = useState<Record<string, unknown>>(() => {
     const seed: Record<string, unknown> = {};
@@ -101,9 +109,7 @@ export function AttributeForm({
       <div className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-lg border border-border bg-surface-1 shadow-overlay">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <div>
-            <h2 className="text-sm font-semibold text-ink-0">
-              New feature attributes
-            </h2>
+            <h2 className="text-sm font-semibold text-ink-0">{title}</h2>
             <p className="truncate text-xs text-muted">{layerTitle}</p>
           </div>
           <button

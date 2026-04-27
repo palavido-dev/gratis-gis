@@ -129,12 +129,17 @@ export function EditorRuntime({
   const [activeTool, setActiveTool] = useState<EditorTool | 'off'>('off');
   const [activeTargetKey, setActiveTargetKey] = useState<string | null>(null);
 
-  // Pending feature waiting for attribute submission. Set by the
-  // terra-draw 'finish' callback; cleared on submit success or
-  // cancel. While this is set the AttributeForm modal is open.
+  // Pending feature waiting for attribute submission. For Add (mode
+  // 'create'), set by terra-draw 'finish'; for Edit ('update'), set
+  // by the click-to-pick handler with the feature's existing
+  // properties prefilled. featureId is null for create and the
+  // global_id (UUID) for update.
   const [pendingFeature, setPendingFeature] = useState<{
+    mode: 'create' | 'update';
     geometry: unknown;
     targetKey: string;
+    featureId: string | null;
+    initialProperties: Record<string, unknown>;
   } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -302,7 +307,13 @@ export function EditorRuntime({
       // internal store so the sketch doesn't linger after the
       // attribute form opens. The real feature lands on the layer's
       // geojson source after submit + refresh.
-      setPendingFeature({ geometry: f.geometry, targetKey });
+      setPendingFeature({
+        mode: 'create',
+        geometry: f.geometry,
+        targetKey,
+        featureId: null,
+        initialProperties: {},
+      });
       draw.clear();
       // Park the draw in select mode so click events go back to
       // MapCanvas's popup handler while the attribute form is up.
@@ -349,10 +360,29 @@ export function EditorRuntime({
     draw.setMode(mode);
   }, [activeTool, activeTargetKey, targetByKey]);
 
-  // Tool-button handler. Add wires up the active-target picker
-  // when there's more than one eligible target; with exactly one
-  // we auto-select it so the user can immediately start drawing.
-  // Other tools surface the coming-soon toast.
+  // Eligible-edit predicate. A target is editable when its resolved
+  // layer is non-null, the layer is editingEnabled, and the editor
+  // target itself allows attribute or geometry edits. We don't gate
+  // on geometry-type here because attribute-only related tables can
+  // still have their fields edited in slice 3b-3 even though
+  // geometry editing requires a geometry-bearing layer.
+  const editableTargetKeys = useMemo(() => {
+    const out = new Set<string>();
+    for (const t of editor.targets) {
+      const key = `${t.dataLayerId}:${t.layerKey}`;
+      const r = targetByKey.get(key);
+      if (!r?.layer) continue;
+      if (r.layer.editingEnabled === false) continue;
+      if (!t.canEditAttributes && !t.canEditGeometry) continue;
+      out.add(key);
+    }
+    return out;
+  }, [editor.targets, targetByKey]);
+
+  // Tool-button handler. Add wires up the active-target picker;
+  // Edit activates click-to-pick mode (handled via map click below);
+  // Select drops back to off. Other tools surface the coming-soon
+  // toast until their slices ship.
   function onToolClick(tool: EditorTool) {
     if (!canEdit) return;
     if (tool === 'add') {
@@ -371,6 +401,18 @@ export function EditorRuntime({
       }
       return;
     }
+    if (tool === 'edit') {
+      if (editableTargetKeys.size === 0) {
+        setToast(
+          'No editable target layers. Turn on attribute or geometry editing on a target in the config.',
+        );
+        scheduleToastClear();
+        return;
+      }
+      setActiveTool('edit');
+      setActiveTargetKey(null);
+      return;
+    }
     if (tool === 'select') {
       setActiveTool('off');
       setActiveTargetKey(null);
@@ -380,17 +422,102 @@ export function EditorRuntime({
     scheduleToastClear();
   }
 
+  // Edit-mode click handler. Listens for clicks on the MapLibre map
+  // when activeTool === 'edit'; queries rendered features at the
+  // click point, filters to ones in editor-target sources, and
+  // opens the AttributeForm pre-filled with the topmost hit's
+  // properties. The global_id we need for PATCH lives in
+  // properties._global_id (the API layer inlines it because
+  // MapCanvas's generateId: true overwrites feature.id).
+  useEffect(() => {
+    const m = mapInstance;
+    if (!m) return;
+    if (activeTool !== 'edit') return;
+    const handler = (e: maplibregl.MapMouseEvent) => {
+      // Only consider hits on editor-target sources. The source id
+      // pattern from MapCanvas is "gg:<layer.id>"; our target
+      // layer ids start with EDITOR_TARGET_LAYER_PREFIX.
+      const features = m.queryRenderedFeatures(e.point);
+      const hit = features.find((f) => {
+        const sid = f.source as string | undefined;
+        return (
+          typeof sid === 'string' &&
+          sid.startsWith(`gg:${EDITOR_TARGET_LAYER_PREFIX}`)
+        );
+      });
+      if (!hit) return;
+      const sid = hit.source as string;
+      // Recover (dataLayerId, layerKey) from "gg:editor-target:<dl>:<lk>".
+      const stripped = sid.slice(`gg:${EDITOR_TARGET_LAYER_PREFIX}`.length);
+      const sep = stripped.lastIndexOf(':');
+      if (sep === -1) return;
+      const dataLayerId = stripped.slice(0, sep);
+      const layerKey = stripped.slice(sep + 1);
+      const targetKey = `${dataLayerId}:${layerKey}`;
+      if (!editableTargetKeys.has(targetKey)) {
+        setToast('That layer is not editable in this editor.');
+        scheduleToastClear();
+        return;
+      }
+      const props = (hit.properties ?? {}) as Record<string, unknown>;
+      const featureId =
+        typeof props['_global_id'] === 'string'
+          ? (props['_global_id'] as string)
+          : null;
+      if (!featureId) {
+        setToast(
+          'Couldn\'t recover the feature id. Refresh the page and try again.',
+        );
+        scheduleToastClear();
+        return;
+      }
+      // Strip system metadata before seeding the form so the user
+      // sees only their own columns. The geometry on `hit.geometry`
+      // is what came back from queryRenderedFeatures; for attribute-
+      // only edits we don't change it, but pass it through so the
+      // submit can include it if the user later toggles geometry
+      // editing (slice 3b-3b).
+      const initialProps: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(props)) {
+        if (k.startsWith('_')) continue;
+        initialProps[k] = v;
+      }
+      setActiveTargetKey(targetKey);
+      setPendingFeature({
+        mode: 'update',
+        geometry: hit.geometry as unknown,
+        targetKey,
+        featureId,
+        initialProperties: initialProps,
+      });
+    };
+    m.on('click', handler);
+    return () => {
+      try {
+        m.off('click', handler);
+      } catch {
+        /* map may have torn down */
+      }
+    };
+  }, [mapInstance, activeTool, editableTargetKeys]);
+
   function scheduleToastClear() {
     if (typeof window !== 'undefined') {
       window.setTimeout(() => setToast(null), 2500);
     }
   }
 
-  // Submit the pending feature to the v3 features POST endpoint.
+  // Submit the pending feature. POST for create, PATCH for update.
   // The server stamps editor-tracking columns (created_by /
-  // created_at) and assigns a global_id. On success we close the
-  // form, drop back to 'select' tool, and refresh the layer's
-  // source URL so the new feature appears.
+  // created_at on insert; edited_by / edited_at on update). On
+  // success we clear the form, drop the active tool back to off
+  // (so the user can pick a fresh action), and refresh the layer's
+  // source URL so the new or edited feature paints.
+  //
+  // For update we send `properties` only -- attribute-only edits
+  // are slice 3b-3 scope. Geometry editing via terra-draw select
+  // mode is a follow-up commit; the existing geometry is left
+  // untouched server-side because the PATCH body omits geometry.
   async function submitPending(values: Record<string, unknown>) {
     if (!pendingFeature) return;
     const target = targetByKey.get(pendingFeature.targetKey);
@@ -398,9 +525,10 @@ export function EditorRuntime({
     setSubmitError(null);
     setSubmitting(true);
     try {
-      const res = await fetch(
-        `/api/portal/items/${target.dataLayerId}/layers/${target.layerKey}/features`,
-        {
+      const baseUrl = `/api/portal/items/${target.dataLayerId}/layers/${target.layerKey}/features`;
+      let res: Response;
+      if (pendingFeature.mode === 'create') {
+        res = await fetch(baseUrl, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
@@ -411,10 +539,23 @@ export function EditorRuntime({
               },
             ],
           }),
-        },
-      );
+        });
+      } else {
+        if (!pendingFeature.featureId) {
+          setSubmitError(
+            'Missing feature id; cannot update. Refresh the page and try again.',
+          );
+          return;
+        }
+        res = await fetch(`${baseUrl}/${pendingFeature.featureId}`, {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ properties: values }),
+        });
+      }
       if (!res.ok) {
-        setSubmitError(`Save failed: ${res.status} ${await res.text()}`);
+        const verb = pendingFeature.mode === 'create' ? 'Save' : 'Update';
+        setSubmitError(`${verb} failed: ${res.status} ${await res.text()}`);
         return;
       }
       // Success: clear pending, refresh layer, return to select.
@@ -518,11 +659,12 @@ export function EditorRuntime({
             })}
           </div>
 
-          {/* Active-target chip + picker (only while Add is the
-              active tool). With exactly one eligible target we
-              auto-pick; with more than one, we surface a small
-              dropdown so the author can switch which layer they
-              are drawing into without dropping out of Add mode. */}
+          {/* Active-target chip / banner (only while a write tool is
+              the active one). Add mode shows a target dropdown so
+              the author can switch which layer they're drawing into
+              without dropping out of the tool. Edit mode shows a
+              "click any feature" banner because the target is
+              chosen by the click, not upfront. */}
           {activeTool === 'add' ? (
             <div className="pointer-events-auto absolute left-16 top-3 flex items-center gap-2 rounded-md border border-purple-300 bg-purple-50 px-3 py-1.5 text-xs text-purple-900 shadow-card">
               <span className="font-medium">Drawing into:</span>
@@ -553,6 +695,23 @@ export function EditorRuntime({
                 className="rounded-md p-0.5 text-purple-900 hover:bg-purple-100"
                 aria-label="Exit add mode"
                 title="Exit add mode"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : activeTool === 'edit' ? (
+            <div className="pointer-events-auto absolute left-16 top-3 flex items-center gap-2 rounded-md border border-purple-300 bg-purple-50 px-3 py-1.5 text-xs text-purple-900 shadow-card">
+              <span className="font-medium">Edit mode:</span>
+              <span>click any feature on a target layer to edit its attributes</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTool('off');
+                  setActiveTargetKey(null);
+                }}
+                className="rounded-md p-0.5 text-purple-900 hover:bg-purple-100"
+                aria-label="Exit edit mode"
+                title="Exit edit mode"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -672,12 +831,20 @@ export function EditorRuntime({
         <AttributeForm
           fields={pendingTarget.layer.fields}
           editableFieldNames={editableSet}
+          initial={pendingFeature.initialProperties}
           layerTitle={`${pendingTarget.dataLayerTitle} / ${pendingTarget.layer.label}`}
           submitting={submitting}
           errorMessage={submitError}
           onCancel={cancelPending}
           onSubmit={submitPending}
-          submitLabel="Save feature"
+          submitLabel={
+            pendingFeature.mode === 'create' ? 'Save feature' : 'Update feature'
+          }
+          title={
+            pendingFeature.mode === 'create'
+              ? 'New feature attributes'
+              : 'Edit feature attributes'
+          }
         />
       ) : null}
     </div>

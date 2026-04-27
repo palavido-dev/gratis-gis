@@ -296,6 +296,14 @@ function rowToFeature(row: V3Row): V3FeatureOut {
     geometry,
     properties: {
       ...row.properties,
+      // _global_id duplicates the top-level Feature.id so callers can
+      // recover it after MapLibre's generateId rewrites the id slot
+      // (the map renderer sets generateId: true on the source so its
+      // selection machinery has a stable integer id; v3 PATCH/DELETE
+      // need the original UUID, which we read out of properties from
+      // queryRenderedFeatures). Same underscore-prefix convention as
+      // editor tracking; popup 'all' mode skips underscore keys.
+      _global_id: row.global_id,
       _created_by: row.created_by,
       _created_at: row.created_at?.toISOString?.() ?? row.created_at,
       _edited_by: row.edited_by,
