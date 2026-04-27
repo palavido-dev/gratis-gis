@@ -113,9 +113,49 @@ export function HousekeepingView({ bundle }: Props) {
   // ambiguous. Each set is the id of a ticked row.
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
-  const [busy, setBusy] = useState<'items' | 'users' | null>(null);
+  const [busy, setBusy] = useState<'items' | 'users' | 'extents' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
+
+  /**
+   * Recompute every spatial item's cached bbox (#90). Walks all
+   * data_layers / maps / boundaries / *_services and rewrites
+   * item.bbox from the most accurate source available (PostGIS
+   * feature extent for v3 data_layers, aggregated references for
+   * maps, etc). Surfaces the per-type updated count so the admin
+   * can see which categories actually moved.
+   */
+  async function recomputeExtents() {
+    setBusy('extents');
+    setError(null);
+    try {
+      const r = await fetch('/api/portal/admin/housekeeping/recompute-extents', {
+        method: 'POST',
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const result = (await r.json()) as {
+        scanned: number;
+        updated: number;
+        perType: Record<string, number>;
+      };
+      const breakdown = Object.entries(result.perType)
+        .map(([t, n]) => `${n} ${t.replace(/_/g, ' ')}`)
+        .join(', ');
+      setFlash(
+        `Recomputed extents for ${result.updated} of ${result.scanned} items${
+          breakdown ? ` (${breakdown})` : ''
+        }.`,
+      );
+      setTimeout(() => setFlash(null), 5000);
+      router.refresh();
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : 'Could not recompute extents.',
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
 
   // Users who own items can still be ticked: clicking "Disable
   // sign-in" pops the reassign dialog so the admin picks a new owner
@@ -376,6 +416,32 @@ export function HousekeepingView({ bundle }: Props) {
   return (
     <div className="space-y-6">
       <SummaryBar summary={summary} />
+
+      {/* Maintenance bar (#90): one-click recompute of every spatial
+          item's cached bbox. Useful after a bulk import / fixture
+          load when item.bbox wasn't populated; usually a no-op
+          afterwards. Lives at the top of the page so admins can
+          run it before sorting through the lists below. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface-2 px-3 py-2 text-xs">
+        <span className="text-muted">
+          Recompute spatial extents (item.bbox) for every map / data
+          layer / boundary / external service in your org. Run after
+          bulk imports if the area filter looks off.
+        </span>
+        <button
+          type="button"
+          onClick={recomputeExtents}
+          disabled={busy === 'extents'}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 py-1 text-xs font-medium hover:bg-surface-2 disabled:opacity-50"
+        >
+          {busy === 'extents' ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Database className="h-3.5 w-3.5" />
+          )}
+          Recompute extents
+        </button>
+      </div>
 
       {flash ? (
         <div className="rounded-md border border-emerald-400 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">

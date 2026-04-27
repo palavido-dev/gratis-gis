@@ -1,7 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { ItemType } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { itemBbox } from '../items/item-bbox.js';
+import {
+  V3TablesService,
+  type V3LayerShape,
+} from '../features-v3/v3-tables.service.js';
 
 /**
  * Heuristics-based analytics for the /admin/housekeeping page.
@@ -26,6 +32,7 @@ export class HousekeepingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cfg: ConfigService,
+    private readonly v3Tables: V3TablesService,
   ) {}
 
   private get staleItemDays(): number {
@@ -389,4 +396,217 @@ export class HousekeepingService {
       },
     });
   }
+
+  /**
+   * Recompute item.bbox for every spatial item in the org (#90).
+   * Walks data_layers, maps, geo_boundaries, and *_service items
+   * and recomputes their cached extent from the most accurate
+   * source we can reach without leaving the local DB:
+   *
+   *   - data_layer (v3): aggregate ST_Extent across the per-layer
+   *     PostGIS tables (this is the actual feature footprint, not
+   *     whatever was guessed at create time)
+   *   - map: aggregate from referenced data_layer / arcgis_service
+   *     items' bboxes (after they've been recomputed in the same
+   *     pass; we order data_layers first so maps see fresh data)
+   *   - geo_boundary, *_service, fallback: itemBbox(type, data)
+   *
+   * Returns counts so the admin UI can render "X items updated".
+   * Skipping the network round-trip to ArcGIS upstreams keeps this
+   * fast and predictable; admins can re-probe individual services
+   * via the wizard if they need a true feature extent there.
+   */
+  async recomputeExtents(orgId: string): Promise<{
+    scanned: number;
+    updated: number;
+    perType: Record<string, number>;
+  }> {
+    const items = await this.prisma.item.findMany({
+      where: {
+        orgId,
+        deletedAt: null,
+        type: {
+          in: [
+            'data_layer',
+            'map',
+            'arcgis_service',
+            'wms_service',
+            'wfs_service',
+            'geo_boundary',
+          ],
+        },
+      },
+      select: { id: true, type: true, data: true },
+    });
+    // Recompute data_layer / boundary / service extents first so the
+    // map pass below sees the freshest referenced bboxes when it
+    // aggregates. Maps come last.
+    const ordered = [...items].sort((a, b) => typeOrder(a.type) - typeOrder(b.type));
+
+    const perType: Record<string, number> = {};
+    let updated = 0;
+    // Cache of just-recomputed bboxes keyed by item id; lets the
+    // map pass aggregate from the freshly-stored values without
+    // re-reading the row from the DB.
+    const freshById = new Map<string, [number, number, number, number] | null>();
+
+    for (const it of ordered) {
+      let next: [number, number, number, number] | null = null;
+      if (it.type === 'data_layer') {
+        const layers = readV3Layers(it.data);
+        if (layers !== null) {
+          next = await this.v3Tables.aggregateBbox(it.id, layers);
+        }
+        // Fall back to whatever data.bbox / data.layers[].bbox carries
+        // when the v3 tables yield nothing (legacy v1/v2, or a v3
+        // layer with no spatial features yet).
+        if (!next) next = itemBbox(it.type, it.data);
+      } else if (it.type === 'map') {
+        // Aggregate from referenced items' freshly-recomputed bboxes.
+        const refs = collectMapItemRefs(it.data);
+        if (refs.length > 0) {
+          next = await this.aggregateFromReferenced(refs, freshById);
+        }
+        if (!next) next = itemBbox(it.type, it.data);
+      } else {
+        next = itemBbox(it.type, it.data);
+      }
+      freshById.set(it.id, next);
+
+      // Skip the write when the value didn't change (saves a write
+      // amplification round on every recompute even when nothing
+      // moved). Compare element-by-element since [] !== [] in JS.
+      const existing = await this.prisma.item.findUnique({
+        where: { id: it.id },
+        select: { bbox: true },
+      });
+      if (bboxEqual(existing?.bbox as number[] | null | undefined, next)) {
+        continue;
+      }
+      await this.prisma.item.update({
+        where: { id: it.id },
+        data: { bbox: next ?? [] },
+      });
+      updated += 1;
+      perType[it.type] = (perType[it.type] ?? 0) + 1;
+    }
+    return { scanned: items.length, updated, perType };
+  }
+
+  /**
+   * Aggregate bboxes from a list of referenced item ids (used by
+   * the map pass). Reads from the in-memory freshById cache when
+   * present, falls back to the DB row when the map references an
+   * item we didn't recompute (different org, deleted, etc.).
+   */
+  private async aggregateFromReferenced(
+    refs: string[],
+    freshById: Map<string, [number, number, number, number] | null>,
+  ): Promise<[number, number, number, number] | null> {
+    let w = Infinity;
+    let s = Infinity;
+    let e = -Infinity;
+    let n = -Infinity;
+    let any = false;
+    const missing: string[] = [];
+    for (const id of refs) {
+      const cached = freshById.has(id) ? freshById.get(id) : undefined;
+      if (cached === undefined) {
+        missing.push(id);
+        continue;
+      }
+      if (!cached) continue;
+      w = Math.min(w, cached[0]);
+      s = Math.min(s, cached[1]);
+      e = Math.max(e, cached[2]);
+      n = Math.max(n, cached[3]);
+      any = true;
+    }
+    if (missing.length > 0) {
+      const rows = await this.prisma.item.findMany({
+        where: { id: { in: missing }, deletedAt: null },
+        select: { bbox: true },
+      });
+      for (const row of rows) {
+        const b = row.bbox as number[] | null;
+        if (Array.isArray(b) && b.length === 4) {
+          w = Math.min(w, b[0]!);
+          s = Math.min(s, b[1]!);
+          e = Math.max(e, b[2]!);
+          n = Math.max(n, b[3]!);
+          any = true;
+        }
+      }
+    }
+    return any ? [w, s, e, n] : null;
+  }
+}
+
+/** Ordering for the recompute pass: deepest dependencies first. */
+function typeOrder(t: ItemType): number {
+  if (t === 'map') return 99; // last, depends on others
+  return 0;
+}
+
+/** Whether two stored bbox values are equivalent. Treat null and
+ *  the empty-array sentinel as equal (both = "no extent"). */
+function bboxEqual(
+  a: number[] | null | undefined,
+  b: [number, number, number, number] | null,
+): boolean {
+  const aHas = Array.isArray(a) && a.length === 4;
+  const bHas = b !== null;
+  if (!aHas && !bHas) return true;
+  if (!aHas || !bHas) return false;
+  return (
+    a![0] === b![0] && a![1] === b![1] && a![2] === b![2] && a![3] === b![3]
+  );
+}
+
+/** Lightweight shape probe for v3 layers without pulling
+ *  ItemsService here (would create a DI cycle). Mirrors the
+ *  behaviour of items.service.readV3Layers for the fields we
+ *  actually need. */
+function readV3Layers(data: unknown): V3LayerShape[] | null {
+  if (!data || typeof data !== 'object') return null;
+  const v = (data as { version?: unknown; layers?: unknown }).version;
+  if (v !== 3 && v !== '3') return null;
+  const layers = (data as { layers?: unknown }).layers;
+  if (!Array.isArray(layers)) return null;
+  const out: V3LayerShape[] = [];
+  for (const l of layers) {
+    if (!l || typeof l !== 'object') continue;
+    const id = (l as { id?: unknown }).id;
+    if (typeof id !== 'string' || id.length === 0) continue;
+    const gt = (l as { geometryType?: unknown }).geometryType;
+    const geometryType: V3LayerShape['geometryType'] =
+      gt === 'point' || gt === 'line' || gt === 'polygon' ? gt : null;
+    out.push({ id, geometryType });
+  }
+  return out;
+}
+
+/** Walk a map's data.layers[] and return the underlying portal item
+ *  ids the layers reference (data_layer source.itemId, plus
+ *  arcgis-rest source.sourceItemId when set). Other source kinds
+ *  contribute no portal-stored bbox. */
+function collectMapItemRefs(data: unknown): string[] {
+  if (!data || typeof data !== 'object') return [];
+  const layers = (data as { layers?: unknown }).layers;
+  if (!Array.isArray(layers)) return [];
+  const out = new Set<string>();
+  for (const l of layers) {
+    if (!l || typeof l !== 'object') continue;
+    const src = (l as { source?: unknown }).source;
+    if (!src || typeof src !== 'object') continue;
+    const kind = (src as { kind?: unknown }).kind;
+    if (kind === 'data-layer') {
+      const id = (src as { itemId?: unknown }).itemId;
+      if (typeof id === 'string') out.add(id);
+    } else if (kind === 'arcgis-rest') {
+      const id = (src as { sourceItemId?: unknown }).sourceItemId;
+      if (typeof id === 'string') out.add(id);
+    }
+  }
+  return Array.from(out);
 }

@@ -42,6 +42,72 @@ export class V3TablesService {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * Aggregate the feature-extent of every spatial layer in a v3
+   * data_layer into a single [w,s,e,n] envelope (#90). Tables for
+   * non-spatial layers (geometryType === null) carry no geom column
+   * so we skip them. Missing tables (layer provisioned but never
+   * populated) are tolerated and contribute nothing. Returns null
+   * when no layer in the set yields a usable extent: the caller
+   * stores that as `bbox = []` so the area filter correctly excludes
+   * the item from "what's in this area?" results until features land.
+   */
+  async aggregateBbox(
+    itemId: string,
+    layers: V3LayerShape[],
+  ): Promise<[number, number, number, number] | null> {
+    let w = Infinity;
+    let s = Infinity;
+    let e = -Infinity;
+    let n = -Infinity;
+    let any = false;
+    for (const layer of layers) {
+      if (layer.geometryType === null) continue;
+      const tbl = toV3TableName(itemId, layer.id);
+      try {
+        const rows = await this.prisma.$queryRawUnsafe<
+          Array<{
+            minx: number | null;
+            miny: number | null;
+            maxx: number | null;
+            maxy: number | null;
+          }>
+        >(
+          `SELECT
+             ST_XMin(ST_Extent(geom))::float8 AS minx,
+             ST_YMin(ST_Extent(geom))::float8 AS miny,
+             ST_XMax(ST_Extent(geom))::float8 AS maxx,
+             ST_YMax(ST_Extent(geom))::float8 AS maxy
+           FROM "${tbl}"
+           WHERE valid_to IS NULL`,
+        );
+        const r = rows[0];
+        if (
+          r?.minx != null &&
+          r.miny != null &&
+          r.maxx != null &&
+          r.maxy != null
+        ) {
+          w = Math.min(w, r.minx);
+          s = Math.min(s, r.miny);
+          e = Math.max(e, r.maxx);
+          n = Math.max(n, r.maxy);
+          any = true;
+        }
+      } catch (err) {
+        // Table missing or unreadable -- log but continue. Most often
+        // means the layer has been declared but never provisioned;
+        // that's fine for "compute the extent of what we have".
+        this.log.debug(
+          `aggregateBbox: could not read ${tbl}: ${
+            err instanceof Error ? err.message : err
+          }`,
+        );
+      }
+    }
+    return any ? [w, s, e, n] : null;
+  }
+
   async provisionLayer(itemId: string, layer: V3LayerShape): Promise<void> {
     const tbl = toV3TableName(itemId, layer.id);
     // Narrow via assignment so `isTable ? ... : toPgGeomType(geomType)`

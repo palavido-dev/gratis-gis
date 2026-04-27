@@ -133,6 +133,19 @@ export class HousekeepingController {
       startedBy: user.id,
     });
   }
+
+  /**
+   * Recompute the cached bbox on every spatial item in the org
+   * (#90). Use this after seeding fixtures, or when an upgrade
+   * adds a new bbox source: each data_layer aggregates its current
+   * PostGIS feature footprint, and maps re-aggregate from the
+   * freshly-recomputed referenced items. Returns counts so the UI
+   * can confirm the pass actually did something.
+   */
+  @Post('recompute-extents')
+  async recomputeExtents(@CurrentUser() user: AuthUser) {
+    return this.housekeeping.recomputeExtents(user.orgId);
+  }
 }
 
 /**
