@@ -261,6 +261,32 @@ export function EditorRuntime({
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
+  // Geometry-edit state. Drives terra-draw's select mode + the
+  // floating action bar that lets the author commit / cancel /
+  // hop into attribute editing. originalGeometry stays around so
+  // Cancel can put the on-canvas overlay back where it started
+  // (terra-draw mutates currentGeometry as the user drags). The
+  // featureId is the global_id (uuid); properties are stashed so
+  // the user can switch over to attribute editing without losing
+  // their in-flight geometry edit -- the geometry is saved first,
+  // then the attribute form opens with the up-to-date row.
+  const [pendingGeometryEdit, setPendingGeometryEdit] = useState<{
+    dataLayerId: string;
+    layerKey: string;
+    targetKey: string;
+    featureId: string;
+    geometryType: 'point' | 'line' | 'polygon';
+    originalGeometry: GeoJSON.Geometry;
+    currentGeometry: GeoJSON.Geometry;
+    properties: Record<string, unknown>;
+  } | null>(null);
+  const [geomEditSaving, setGeomEditSaving] = useState(false);
+  const [geomEditError, setGeomEditError] = useState<string | null>(null);
+  // Internal terra-draw id for the feature we're editing; held in a
+  // ref so cleanup effects can clear it without re-creating the
+  // setup effect's closure on every render.
+  const tdEditFeatureIdRef = useRef<string | null>(null);
+
   // AttributeTable state. tableOpen drives the bottom-overlay
   // panel; tableFocusLayerId anchors the table to a specific layer
   // when the user opens it from a layer-panel kebab. selection is
@@ -381,7 +407,43 @@ export function EditorRuntime({
           new td.TerraDrawPointMode(),
           new td.TerraDrawLineStringMode(),
           new td.TerraDrawPolygonMode(),
-          new td.TerraDrawSelectMode(),
+          // Select mode is what powers geometry editing. The flags
+          // tell terra-draw which interactions are allowed for each
+          // geometry family the editor exposes:
+          //   - point: drag the whole feature (no vertices to drag
+          //     because a point IS the vertex).
+          //   - linestring / polygon: drag the whole feature, drag
+          //     individual vertices, click midpoints to insert new
+          //     vertices, alt-click a vertex to delete it.
+          // We don't pass a `selectable: false` flag because the
+          // setup effect explicitly calls selectFeature() when
+          // entering geometry edit, then deselects on exit; the
+          // default click-to-select behaviour is fine here too.
+          new td.TerraDrawSelectMode({
+            flags: {
+              point: { feature: { draggable: true } },
+              linestring: {
+                feature: {
+                  draggable: true,
+                  coordinates: {
+                    midpoints: true,
+                    draggable: true,
+                    deletable: true,
+                  },
+                },
+              },
+              polygon: {
+                feature: {
+                  draggable: true,
+                  coordinates: {
+                    midpoints: true,
+                    draggable: true,
+                    deletable: true,
+                  },
+                },
+              },
+            },
+          }),
         ],
       });
       // We don't start() yet; that happens when the user activates
@@ -640,6 +702,43 @@ export function EditorRuntime({
           if (k.startsWith('_')) continue;
           initialProps[k] = v;
         }
+        // Branch on what the target permits. When the target allows
+        // geometry editing AND the clicked feature has geometry,
+        // first enter geometry-edit mode -- vertex handles appear,
+        // a floating toolbar lets the user save / cancel / hop into
+        // attribute editing. Attribute-only targets (or features
+        // without geometry, e.g. a related-table row that snuck
+        // into the click handler) skip straight to the form.
+        const editorTarget = editor.targets.find(
+          (t) =>
+            t.dataLayerId === dataLayerId && t.layerKey === layerKey,
+        );
+        const canEditGeom =
+          editorTarget?.canEditGeometry === true &&
+          targetByKey.get(targetKey)?.layer?.geometryType !== null;
+        if (canEditGeom && hit.geometry) {
+          setActiveTargetKey(targetKey);
+          const layerGeomType =
+            targetByKey.get(targetKey)?.layer?.geometryType ?? 'point';
+          // hit.geometry from queryRenderedFeatures is already a
+          // GeoJSON.Geometry. Clone via JSON to break MapLibre's
+          // internal references; terra-draw reads its own copy.
+          const cloned = JSON.parse(
+            JSON.stringify(hit.geometry),
+          ) as GeoJSON.Geometry;
+          setGeomEditError(null);
+          setPendingGeometryEdit({
+            dataLayerId,
+            layerKey,
+            targetKey,
+            featureId,
+            geometryType: layerGeomType as 'point' | 'line' | 'polygon',
+            originalGeometry: cloned,
+            currentGeometry: cloned,
+            properties: initialProps,
+          });
+          return;
+        }
         setActiveTargetKey(targetKey);
         setPendingFeature({
           mode: 'update',
@@ -695,7 +794,233 @@ export function EditorRuntime({
     editableTargetKeys,
     deletableTargetKeys,
     targetByKey,
+    editor.targets,
   ]);
+
+  // Geometry-edit setup. When pendingGeometryEdit is set, terra-draw
+  // takes over: switch to select mode, push the feature into its
+  // store with a `mode` property matching the geometry family (so
+  // the right flag set applies), then call selectFeature so the
+  // vertex / midpoint handles render immediately.
+  //
+  // The original feature stays rendered on the underlying MapLibre
+  // layer during the edit (we don't filter it out). terra-draw
+  // overlays the editable copy with handles on top, which is enough
+  // to communicate "this is the one being moved" without the
+  // complexity of a transient layer filter. After save, refreshTarget
+  // reloads the layer source and the styled feature snaps to the
+  // new position.
+  //
+  // tdEditFeatureIdRef holds the terra-draw id so the cleanup
+  // function can remove the feature even after the user navigates
+  // away mid-edit.
+  useEffect(() => {
+    const draw = drawRef.current as
+      | {
+          start: () => void;
+          setMode: (m: string) => void;
+          addFeatures: (features: unknown[]) => void;
+          selectFeature: (id: string) => void;
+          deselectFeature: (id: string) => void;
+          removeFeatures: (ids: Array<string | number>) => void;
+        }
+      | null;
+    if (!draw || !pendingGeometryEdit) return;
+
+    try {
+      draw.start();
+    } catch {
+      /* already started */
+    }
+    try {
+      draw.setMode('select');
+    } catch {
+      /* not started */
+    }
+
+    // terra-draw uses `mode` on the feature properties to decide
+    // which flag profile to apply -- we want the per-geometry-type
+    // flags from the constructor above. Map our internal geometry
+    // family ('point' | 'line' | 'polygon') to terra-draw's mode
+    // names ('point' | 'linestring' | 'polygon').
+    const tdMode =
+      pendingGeometryEdit.geometryType === 'line'
+        ? 'linestring'
+        : pendingGeometryEdit.geometryType;
+    const tdId = `gg-edit-${pendingGeometryEdit.featureId}`;
+    tdEditFeatureIdRef.current = tdId;
+
+    try {
+      draw.addFeatures([
+        {
+          id: tdId,
+          type: 'Feature',
+          geometry: pendingGeometryEdit.originalGeometry,
+          properties: { mode: tdMode },
+        },
+      ]);
+      draw.selectFeature(tdId);
+    } catch (err) {
+      // addFeatures rejects when terra-draw can't validate the
+      // geometry. We surface this as the in-modal error so the
+      // user can cancel out cleanly rather than getting stuck.
+      setGeomEditError(
+        err instanceof Error
+          ? `Could not load geometry: ${err.message}`
+          : 'Could not load geometry into the editor.',
+      );
+    }
+
+    return () => {
+      try {
+        draw.deselectFeature(tdId);
+      } catch {
+        /* ignore: race on unmount */
+      }
+      try {
+        draw.removeFeatures([tdId]);
+      } catch {
+        /* ignore: race on unmount */
+      }
+      if (tdEditFeatureIdRef.current === tdId) {
+        tdEditFeatureIdRef.current = null;
+      }
+    };
+    // We deliberately key on the (target, feature) pair so swapping
+    // to a different feature mid-edit cleans up the previous one.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    pendingGeometryEdit?.targetKey,
+    pendingGeometryEdit?.featureId,
+  ]);
+
+  // Watch terra-draw 'change' events while a geometry edit is in
+  // flight. terra-draw emits 'change' on every drag step + every
+  // midpoint insert + every vertex delete; we read the latest
+  // geometry off getSnapshot and drop it into pendingGeometryEdit
+  // so the floating action bar can show "Save changes" enabled
+  // only when the geometry actually differs from the original.
+  useEffect(() => {
+    const draw = drawRef.current as
+      | {
+          on: (ev: 'change', cb: (ids: Array<string | number>) => void) => void;
+          off: (ev: 'change', cb: (ids: Array<string | number>) => void) => void;
+          getSnapshot: () => Array<{
+            id: string | number;
+            geometry: GeoJSON.Geometry;
+          }>;
+        }
+      | null;
+    if (!draw || !pendingGeometryEdit) return;
+
+    const tdId = tdEditFeatureIdRef.current;
+    if (!tdId) return;
+
+    const handleChange = (ids: Array<string | number>) => {
+      if (!ids.includes(tdId)) return;
+      const snap = draw.getSnapshot();
+      const f = snap.find((x) => String(x.id) === tdId);
+      if (!f) return;
+      setPendingGeometryEdit((prev) =>
+        prev ? { ...prev, currentGeometry: f.geometry } : null,
+      );
+    };
+    draw.on('change', handleChange);
+    return () => {
+      try {
+        draw.off('change', handleChange);
+      } catch {
+        /* terra-draw race on unmount; ignore */
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    pendingGeometryEdit?.targetKey,
+    pendingGeometryEdit?.featureId,
+  ]);
+
+  // Save the in-flight geometry edit. PATCH only the geometry; the
+  // server keeps the existing properties. On success we refresh the
+  // target layer's source so the moved feature paints in its new
+  // position, and exit edit mode.
+  async function saveGeometryEdit() {
+    if (!pendingGeometryEdit) return;
+    setGeomEditSaving(true);
+    setGeomEditError(null);
+    try {
+      const url = `/api/portal/items/${pendingGeometryEdit.dataLayerId}/layers/${pendingGeometryEdit.layerKey}/features/${pendingGeometryEdit.featureId}`;
+      const res = await fetch(url, {
+        method: 'PATCH',
+        headers: {
+          'content-type': 'application/json',
+          'x-editor-id': editorId,
+        },
+        body: JSON.stringify({
+          geometry: pendingGeometryEdit.currentGeometry,
+        }),
+      });
+      if (!res.ok) {
+        setGeomEditError(`Save failed: ${res.status} ${await res.text()}`);
+        return;
+      }
+      const dl = pendingGeometryEdit.dataLayerId;
+      const lk = pendingGeometryEdit.layerKey;
+      setPendingGeometryEdit(null);
+      setActiveTool('off');
+      refreshTarget(dl, lk);
+    } catch (err) {
+      setGeomEditError(
+        err instanceof Error
+          ? err.message
+          : 'Network error during geometry save.',
+      );
+    } finally {
+      setGeomEditSaving(false);
+    }
+  }
+
+  function cancelGeometryEdit() {
+    if (geomEditSaving) return;
+    setPendingGeometryEdit(null);
+    setGeomEditError(null);
+  }
+
+  /**
+   * Hop from geometry edit into attribute edit on the same feature.
+   * Saves the in-flight geometry first (so any vertex moves don't
+   * get lost when the form opens), then opens the attribute form
+   * with the same row's properties prefilled. Two-step save -- one
+   * PATCH for geometry, one PATCH for properties when the form
+   * submits -- but it's the simplest contract that doesn't require
+   * stitching the two payloads together client-side.
+   */
+  async function switchToAttributeEdit() {
+    if (!pendingGeometryEdit) return;
+    const moved =
+      JSON.stringify(pendingGeometryEdit.currentGeometry) !==
+      JSON.stringify(pendingGeometryEdit.originalGeometry);
+    if (moved) {
+      // Persist geometry first; if the save fails, stay in geometry
+      // mode so the user can retry rather than silently losing the
+      // edit when the modal opens.
+      await saveGeometryEdit();
+      // saveGeometryEdit already cleared pendingGeometryEdit on
+      // success. If we got here without success, bail.
+      if (geomEditError) return;
+    }
+    const targetKey = pendingGeometryEdit.targetKey;
+    const featureId = pendingGeometryEdit.featureId;
+    const properties = pendingGeometryEdit.properties;
+    setPendingGeometryEdit(null);
+    setActiveTargetKey(targetKey);
+    setPendingFeature({
+      mode: 'update',
+      geometry: pendingGeometryEdit.currentGeometry,
+      targetKey,
+      featureId,
+      initialProperties: properties,
+    });
+  }
 
   // Delete submit. Calls the v3 DELETE endpoint with the captured
   // global_id. The data_layer's own editing.policy gates server-
@@ -1134,13 +1459,15 @@ export function EditorRuntime({
             <div className="pointer-events-auto absolute left-16 top-3 z-10 flex items-center gap-2 rounded-md border border-purple-300 bg-purple-50 px-3 py-1.5 text-xs text-purple-900 shadow-card">
               <span className="font-medium">Edit mode:</span>
               <span>
-                click any feature on a target layer to edit its attributes
+                click a feature to edit its geometry, or open attributes
+                from the floating bar
               </span>
               <button
                 type="button"
                 onClick={() => {
                   setActiveTool('off');
                   setActiveTargetKey(null);
+                  cancelGeometryEdit();
                 }}
                 className="rounded-md p-0.5 text-purple-900 hover:bg-purple-100"
                 aria-label="Exit edit mode"
@@ -1174,6 +1501,68 @@ export function EditorRuntime({
           {toast ? (
             <div className="pointer-events-auto absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full border border-border bg-surface-1 px-3 py-1.5 text-xs text-ink-1 shadow-card">
               {toast}
+            </div>
+          ) : null}
+
+          {/* Geometry-edit floating action bar. Anchored bottom-
+              center of the canvas so it doesn't fight the toolbar
+              (top-left), the active-mode chip (top), or the
+              attribute-table panel (full-width bottom dock). The
+              "Save" button is enabled only when the geometry has
+              actually changed -- a click without a drag is just
+              feature selection and shouldn't fire a PATCH. */}
+          {pendingGeometryEdit ? (
+            <div className="pointer-events-auto absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 flex-col items-stretch gap-1 rounded-md border border-purple-300 bg-white px-3 py-2 text-xs shadow-overlay">
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-medium text-purple-900">
+                  Editing{' '}
+                  {targetByKey.get(pendingGeometryEdit.targetKey)?.layer
+                    ?.label ?? 'feature'}{' '}
+                  geometry
+                </span>
+                <span className="text-[10px] uppercase tracking-wide text-purple-700">
+                  drag vertices · click midpoints to add · alt-click to
+                  delete
+                </span>
+              </div>
+              {geomEditError ? (
+                <p
+                  className="text-[11px] text-danger"
+                  role="alert"
+                >
+                  {geomEditError}
+                </p>
+              ) : null}
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={cancelGeometryEdit}
+                  disabled={geomEditSaving}
+                  className="inline-flex h-7 items-center rounded border border-border bg-surface-1 px-2 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void switchToAttributeEdit()}
+                  disabled={geomEditSaving}
+                  className="inline-flex h-7 items-center rounded border border-purple-300 bg-purple-50 px-2 text-xs font-medium text-purple-900 hover:bg-purple-100 disabled:opacity-50"
+                >
+                  Edit attributes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void saveGeometryEdit()}
+                  disabled={
+                    geomEditSaving ||
+                    JSON.stringify(pendingGeometryEdit.currentGeometry) ===
+                      JSON.stringify(pendingGeometryEdit.originalGeometry)
+                  }
+                  className="inline-flex h-7 items-center gap-1 rounded bg-purple-600 px-3 text-xs font-medium text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {geomEditSaving ? 'Saving...' : 'Save geometry'}
+                </button>
+              </div>
             </div>
           ) : null}
 
