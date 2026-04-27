@@ -1213,7 +1213,13 @@ export function EditorRuntime({
               }));
             }}
             focusLayerId={tableFocusLayerId}
-            onPatchFeature={canEdit ? onInlineEditFeature : undefined}
+            // exactOptionalPropertyTypes treats `prop?: T` as
+            // "may be omitted" rather than "may be undefined", so
+            // we conditionally spread the prop instead of passing
+            // `undefined` through it. canEdit=false editors omit
+            // it entirely and inherit the read-only path the map
+            // editor uses.
+            {...(canEdit ? { onPatchFeature: onInlineEditFeature } : {})}
             editableLayerIds={inlineEditableLayerIds}
             editableFieldsByLayer={inlineEditableFieldsByLayer}
           />

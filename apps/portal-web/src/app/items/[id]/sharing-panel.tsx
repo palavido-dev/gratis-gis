@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { useRouter } from 'next/navigation';
 import {
+  AlertTriangle,
   Building2,
   Check,
   Globe2,
@@ -43,7 +44,7 @@ import {
   type EditorDependencyNode,
 } from '@/lib/editor-dependencies';
 import { getItemTypeLabel } from '@/lib/item-type-icon';
-import { AlertTriangle, Loader2 } from 'lucide-react';
+import { ItemAccessMatrix } from '@/components/item-access-matrix';
 
 interface Props {
   itemId: string;
@@ -157,6 +158,25 @@ export function SharingPanel({
     null,
   );
 
+  // Editor sharing slice 3. Mounts the ItemAccessMatrix to audit
+  // pre-existing shares that were created before slice 2 (or
+  // before a target was added to the editor). depChainSnapshot is
+  // the materialized chain used by the matrix; we keep it in
+  // state separately from depChainRef.current.chain so React re-
+  // renders when the chain refreshes after a grant. Memberships
+  // are batch-loaded for every user principal on the editor's
+  // share list when the surface mounts.
+  const [matrixOpen, setMatrixOpen] = useState(false);
+  const [depChainSnapshot, setDepChainSnapshot] = useState<
+    EditorDependencyNode[] | null
+  >(null);
+  const [matrixMemberships, setMatrixMemberships] = useState<
+    Record<string, string[]>
+  >({});
+  const [matrixPrincipalNames, setMatrixPrincipalNames] = useState<
+    Record<string, string>
+  >({});
+
   const keyOf = (s: Pick<ItemShare, 'principalType' | 'principalId'>) =>
     `${s.principalType}:${s.principalId}`;
 
@@ -220,6 +240,161 @@ export function SharingPanel({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userIdsKey]);
+
+  // Editor-only: load the dependency chain + group memberships +
+  // user names for every principal already on the editor's share
+  // list. Drives the inline gap-badge and the ItemAccessMatrix
+  // surface (slice 3). Re-runs whenever the editor's share list
+  // changes so a freshly-added share's gap state shows up
+  // immediately without a full page refresh.
+  const userPrincipalKey = useMemo(
+    () =>
+      shares
+        .filter((s) => s.principalType === 'user')
+        .map((s) => s.principalId)
+        .sort()
+        .join(','),
+    [shares],
+  );
+  useEffect(() => {
+    if (itemType !== 'editor') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { nodes } = await loadEditorDependencyChain(itemId);
+        if (cancelled) return;
+        depChainRef.current.chain = nodes;
+        setDepChainSnapshot(nodes);
+      } catch {
+        /* non-fatal: badge won't render but the panel still works */
+      }
+      const userIds = userPrincipalKey
+        ? userPrincipalKey.split(',').filter(Boolean)
+        : [];
+      if (userIds.length > 0) {
+        try {
+          const r = await fetch(
+            `/api/portal/users?ids=${encodeURIComponent(userIds.join(','))}`,
+          );
+          if (r.ok && !cancelled) {
+            const rows = (await r.json()) as Array<{
+              id: string;
+              username: string;
+              fullName: string | null;
+              groupIds?: string[];
+            }>;
+            const memberships: Record<string, string[]> = {};
+            const names: Record<string, string> = {};
+            for (const u of rows) {
+              memberships[u.id] = u.groupIds ?? [];
+              names[u.id] = u.fullName || u.username;
+            }
+            setMatrixMemberships(memberships);
+            setMatrixPrincipalNames((prev) => ({ ...prev, ...names }));
+          }
+        } catch {
+          /* non-fatal: gaps over-count when memberships missing */
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [itemId, itemType, userPrincipalKey]);
+
+  // Pre-built principal list for the matrix. One row per share on
+  // the editor; the principal's display name comes from
+  // matrixPrincipalNames (users) or the groups prop (groups).
+  // Self-shares are filtered out of the matrix the same way
+  // ItemSharingIndicator filters them: nothing to grant to
+  // yourself.
+  const matrixPrincipals = useMemo(() => {
+    return shares.map((s) => {
+      const fallback = `${s.principalType} ${s.principalId.slice(0, 8)}`;
+      let name: string;
+      if (s.principalType === 'user') {
+        name = matrixPrincipalNames[s.principalId] ?? fallback;
+      } else {
+        name =
+          groups.find((g) => g.id === s.principalId)?.title ?? fallback;
+      }
+      return {
+        type: s.principalType as 'user' | 'group',
+        id: s.principalId,
+        name,
+      };
+    });
+  }, [shares, matrixPrincipalNames, groups]);
+
+  // hasAccess closure for the matrix. Memoized so the matrix's
+  // own useMemo of `gaps` doesn't churn on unrelated re-renders.
+  const matrixHasAccess = useCallback(
+    (depItemId: string, principal: { type: 'user' | 'group'; id: string }) => {
+      const node = depChainSnapshot?.find((n) => n.id === depItemId);
+      if (!node) return true; // unknown dep: no badge, no fix
+      return principalHasItemAccess(node, principal, matrixMemberships);
+    },
+    [depChainSnapshot, matrixMemberships],
+  );
+
+  // Total open gaps. Drives the inline badge above the share list
+  // ("3 sharees can't see all dependencies") and the prompt to
+  // open the matrix.
+  const dependencyGapCount = useMemo(() => {
+    if (!depChainSnapshot || matrixPrincipals.length === 0) return 0;
+    let total = 0;
+    for (const dep of depChainSnapshot) {
+      for (const p of matrixPrincipals) {
+        if (!principalHasItemAccess(dep, p, matrixMemberships)) total += 1;
+      }
+    }
+    return total;
+  }, [depChainSnapshot, matrixPrincipals, matrixMemberships]);
+
+  // Grant view permission on a dependency item. Used by the
+  // ItemAccessMatrix's per-cell + bulk-grant actions. On success
+  // we splice the new share into the local snapshot so the cell
+  // flips to ✓ without re-fetching the whole chain.
+  const grantDependencyAccess = useCallback(
+    async (
+      depItemId: string,
+      principal: { type: 'user' | 'group'; id: string; name: string },
+    ) => {
+      const res = await fetch(`/api/portal/items/${depItemId}/share`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          principalType: principal.type,
+          principalId: principal.id,
+          permission: 'view',
+        }),
+      });
+      if (!res.ok) {
+        throw new Error(
+          `${res.status} ${(await res.text()) || 'grant failed'}`,
+        );
+      }
+      const added = (await res.json()) as ItemShare;
+      setDepChainSnapshot((prev) => {
+        if (!prev) return prev;
+        return prev.map((node) => {
+          if (node.id !== depItemId) return node;
+          // Replace any pre-existing row for the same principal,
+          // then append. Same dedupe shape as the editor's own
+          // share-list update.
+          const filtered = node.shares.filter(
+            (s) =>
+              !(
+                s.principalType === added.principalType &&
+                s.principalId === added.principalId
+              ),
+          );
+          return { ...node, shares: [...filtered, added] };
+        });
+      });
+    },
+    [],
+  );
 
   async function updateSharePermission(
     share: ItemShare,
@@ -720,6 +895,60 @@ export function SharingPanel({
 
   return (
     <div className="rounded-lg border border-border bg-surface-1 shadow-card">
+      {itemType === 'editor' &&
+      depChainSnapshot &&
+      matrixPrincipals.length > 0 ? (
+        <div
+          className={`flex items-center justify-between gap-3 border-b px-4 py-2.5 ${
+            dependencyGapCount > 0
+              ? 'border-amber-200 bg-amber-50'
+              : 'border-emerald-200 bg-emerald-50'
+          }`}
+        >
+          <div className="flex items-start gap-2 text-xs">
+            <AlertTriangle
+              className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${
+                dependencyGapCount > 0 ? 'text-amber-700' : 'text-emerald-700'
+              }`}
+            />
+            <div>
+              <div
+                className={`font-medium ${
+                  dependencyGapCount > 0 ? 'text-amber-900' : 'text-emerald-900'
+                }`}
+              >
+                {dependencyGapCount > 0
+                  ? `${dependencyGapCount} dependency access gap${
+                      dependencyGapCount === 1 ? '' : 's'
+                    } across ${matrixPrincipals.length} sharee${
+                      matrixPrincipals.length === 1 ? '' : 's'
+                    }`
+                  : 'All sharees can see every dependency'}
+              </div>
+              <div
+                className={
+                  dependencyGapCount > 0 ? 'text-amber-800' : 'text-emerald-800'
+                }
+              >
+                {dependencyGapCount > 0
+                  ? 'Sharees missing access on a dependency item will hit a broken runtime when they open this editor.'
+                  : 'The referenced map, basemap, layer items, and target data layers are all visible to your sharees.'}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setMatrixOpen(true)}
+            className={`shrink-0 rounded border px-2 py-1 text-xs font-medium ${
+              dependencyGapCount > 0
+                ? 'border-amber-300 bg-white text-amber-900 hover:bg-amber-100'
+                : 'border-emerald-300 bg-white text-emerald-900 hover:bg-emerald-100'
+            }`}
+          >
+            {dependencyGapCount > 0 ? 'Review and grant' : 'Open access matrix'}
+          </button>
+        </div>
+      ) : null}
       <div className="border-b border-border p-4">
         <div className="mb-2 flex items-center justify-between">
           <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
@@ -999,6 +1228,26 @@ export function SharingPanel({
           </p>
         ) : null}
       </div>
+
+      {itemType === 'editor' && depChainSnapshot ? (
+        <ItemAccessMatrix
+          open={matrixOpen}
+          title="Editor item access"
+          items={depChainSnapshot.map((node) => ({
+            id: node.id,
+            title: node.title,
+            type: node.type,
+            rationale: node.rationale,
+          }))}
+          principals={matrixPrincipals}
+          hasAccess={(itemId, p) => matrixHasAccess(itemId, p)}
+          onGrantItemAccess={async (depItemId, principal) => {
+            await grantDependencyAccess(depItemId, principal);
+          }}
+          onClose={() => setMatrixOpen(false)}
+          canManage
+        />
+      ) : null}
 
       {pendingShare ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
