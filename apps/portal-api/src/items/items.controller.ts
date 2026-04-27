@@ -24,11 +24,14 @@ import {
 import type { ItemAccess, ItemType, Prisma, PrincipalType, SharePermission } from '@prisma/client';
 import { ITEM_TYPES } from '@gratis-gis/shared-types';
 
+import { Logger } from '@nestjs/common';
+
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import type { CreateItemInput, UpdateItemInput } from './items.service.js';
 import { ItemsService } from './items.service.js';
 import { DataSnapshotService } from './data-snapshot.service.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 
 class CreateItemDto {
   @IsEnum(ITEM_TYPES) type!: ItemType;
@@ -129,9 +132,21 @@ class ShareDto {
 @ApiBearerAuth()
 @Controller('items')
 export class ItemsController {
+  private readonly log = new Logger(ItemsController.name);
+
+  /**
+   * Per-process throttle for the lastUsageAt stamp on item-detail
+   * GET (#99). Mirrors the proxy controller's pattern from #96.
+   * 60s window keeps the DB write off the hot path when a busy
+   * map page revalidates the item detail many times per minute.
+   */
+  private readonly lastUsageWrittenAt = new Map<string, number>();
+  private static readonly USAGE_THROTTLE_MS = 60_000;
+
   constructor(
     private readonly items: ItemsService,
     private readonly snapshots: DataSnapshotService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Get()
@@ -204,8 +219,34 @@ export class ItemsController {
   }
 
   @Get(':id')
-  get(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.items.get(user, id);
+  async get(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const item = await this.items.get(user, id);
+    // Stamp lastUsageAt on direct item-detail GET (#99). Covers
+    // map opens, pick_list browses, dashboard views -- anything
+    // that doesn't go through the proxy. Throttled per-process so
+    // a busy detail page doesn't write per request, fire-and-
+    // forget so a slow write can't tail-latency the response.
+    // Internal callers (housekeeping, items.service.* helpers)
+    // hit ItemsService.get directly and bypass this stamp, so
+    // system reads correctly don't bump the counter.
+    const now = Date.now();
+    const last = this.lastUsageWrittenAt.get(id) ?? 0;
+    if (now - last >= ItemsController.USAGE_THROTTLE_MS) {
+      this.lastUsageWrittenAt.set(id, now);
+      this.prisma.item
+        .update({
+          where: { id },
+          data: { lastUsageAt: new Date(now) },
+        })
+        .catch((err) => {
+          this.log.warn(
+            `lastUsageAt stamp failed for item=${id}: ${
+              err instanceof Error ? err.message : err
+            }`,
+          );
+        });
+    }
+    return item;
   }
 
   /** Items that THIS item references (e.g. feature services powering
