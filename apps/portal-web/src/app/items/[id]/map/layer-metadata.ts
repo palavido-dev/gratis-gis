@@ -1,4 +1,5 @@
 import type { MapLayer } from '@gratis-gis/shared-types';
+import { prefetchUserNames } from '@/lib/user-name-cache';
 
 export type GeometryFamily = 'point' | 'line' | 'polygon';
 
@@ -199,6 +200,12 @@ export async function discoverLayerMetadata(
   const geometryTypes = new Set<GeometryFamily>();
 
   const sampleSlice = features.slice(0, FEATURE_SAMPLE_CAP);
+  // Editor-tracking UUIDs we encounter while sampling. We queue
+  // them for batch resolution at the end so the popup renderer can
+  // surface display names instead of raw uuids when a feature is
+  // clicked. One de-duplicated set per probe; the cache itself
+  // dedupes across probes.
+  const editorUserIds = new Set<string>();
   for (const f of sampleSlice) {
     const fam = geometryFamily(f.geometry?.type);
     if (fam) geometryTypes.add(fam);
@@ -216,7 +223,16 @@ export async function discoverLayerMetadata(
       }
       if (set.size < VALUES_PER_FIELD_CAP) set.add(s);
     }
+    const createdBy = props['_created_by'];
+    const editedBy = props['_edited_by'];
+    if (typeof createdBy === 'string' && createdBy) {
+      editorUserIds.add(createdBy);
+    }
+    if (typeof editedBy === 'string' && editedBy) {
+      editorUserIds.add(editedBy);
+    }
   }
+  if (editorUserIds.size > 0) prefetchUserNames(editorUserIds);
 
   const fields = [...fieldSet].sort();
   const withProps = features.find(

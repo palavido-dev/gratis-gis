@@ -17,6 +17,7 @@ import type {
   MapLayerFilter,
 } from '@gratis-gis/shared-types';
 import type { LayerMetadata } from './layer-metadata';
+import { getCachedUserName } from '@/lib/user-name-cache';
 
 interface Props {
   open: boolean;
@@ -862,8 +863,12 @@ const EDITOR_TRACKING_COLUMNS: Array<{
   {
     key: '_created_by',
     label: 'Created by',
-    tooltip: 'User id of the row creator',
-    format: (v) => (v ? String(v) : ''),
+    tooltip: 'User who created the row',
+    // Resolved via the module-level user-name cache populated by
+    // the metadata probe; falls back to a truncated uuid when the
+    // resolver hasn't filled the cache yet (rare; the probe runs
+    // at layer load).
+    format: (v) => (typeof v === 'string' && v ? getCachedUserName(v) : ''),
   },
   {
     key: '_created_at',
@@ -874,8 +879,8 @@ const EDITOR_TRACKING_COLUMNS: Array<{
   {
     key: '_edited_by',
     label: 'Edited by',
-    tooltip: 'User id of the most recent editor',
-    format: (v) => (v ? String(v) : ''),
+    tooltip: 'User who last edited the row',
+    format: (v) => (typeof v === 'string' && v ? getCachedUserName(v) : ''),
   },
   {
     key: '_edited_at',

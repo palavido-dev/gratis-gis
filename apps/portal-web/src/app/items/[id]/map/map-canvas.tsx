@@ -25,6 +25,7 @@ import {
   customBasemapToStyle,
   type CustomBasemap,
 } from '@/lib/custom-basemap';
+import { getCachedUserName } from '@/lib/user-name-cache';
 
 /**
  * Absolute fallback MapLibre style. Used only when the map references a
@@ -2169,7 +2170,9 @@ function renderEditorFooter(props: Record<string, unknown>): string {
 
   const parts: string[] = [];
   if (createdBy || createdAt) {
-    const who = createdBy ? escapeHtml(String(createdBy)) : 'unknown';
+    const who = createdBy
+      ? escapeHtml(resolveUserDisplay(createdBy))
+      : 'unknown';
     const when = createdAt ? formatPopupDate(createdAt) : 'unknown';
     parts.push(`Created by ${who} on ${when}`);
   }
@@ -2180,12 +2183,28 @@ function renderEditorFooter(props: Record<string, unknown>): string {
     (editedBy || editedAt) &&
     !(editedAt === createdAt && editedBy === createdBy)
   ) {
-    const who = editedBy ? escapeHtml(String(editedBy)) : 'unknown';
+    const who = editedBy ? escapeHtml(resolveUserDisplay(editedBy)) : 'unknown';
     const when = editedAt ? formatPopupDate(editedAt) : 'unknown';
     parts.push(`Last edited by ${who} on ${when}`);
   }
 
   return `<div class="gg-popup-meta">${parts.join('<br />')}</div>`;
+}
+
+/**
+ * Best-effort UUID-to-display-name resolution for editor-tracking
+ * principals. Hits the module-level cache populated by the metadata
+ * probe (and by this very call's prefetch side effect inside
+ * getCachedUserName). Returns the cached name when known, otherwise
+ * a short fallback that signals "this is an id we couldn't resolve"
+ * without spilling the full UUID into the popup. Non-string values
+ * pass through stringified, matching the prior behavior so
+ * non-PostGIS layers don't blow up on whatever the source put in
+ * those fields.
+ */
+function resolveUserDisplay(value: unknown): string {
+  if (typeof value !== 'string') return String(value);
+  return getCachedUserName(value);
 }
 
 function formatPopupDate(value: unknown): string {
