@@ -485,6 +485,21 @@ export class AdminUsersController {
       }
     }
 
+    // Per-item de-duplication: an item should only appear once,
+    // under its strongest access path. Order: owner > direct share
+    // > group share. A user who owns an item gains nothing from a
+    // group share or a direct share to themselves -- showing those
+    // redundant rows just clutters the dialog and confuses the
+    // "what does revoking this share/group do?" mental model.
+    const ownedIds = new Set(owned.map((i) => i.id));
+    const directIds = new Set(directShared.map((s) => s.item.id));
+    const filteredDirectShared = directShared.filter(
+      (s) => !ownedIds.has(s.item.id),
+    );
+    const filteredGroupShared = Array.from(groupSharedByItem.values()).filter(
+      (g) => !ownedIds.has(g.item.id) && !directIds.has(g.item.id),
+    );
+
     return {
       user: {
         id: target.id,
@@ -500,7 +515,7 @@ export class AdminUsersController {
         access: i.access,
         updatedAt: i.updatedAt.toISOString(),
       })),
-      directShared: directShared.slice(0, MAX_ROWS).map((s) => ({
+      directShared: filteredDirectShared.slice(0, MAX_ROWS).map((s) => ({
         id: s.item.id,
         title: s.item.title,
         type: s.item.type,
@@ -509,18 +524,16 @@ export class AdminUsersController {
         permission: s.permission,
         expiresAt: s.expiresAt?.toISOString() ?? null,
       })),
-      groupShared: Array.from(groupSharedByItem.values())
-        .slice(0, MAX_ROWS)
-        .map((g) => ({
-          id: g.item.id,
-          title: g.item.title,
-          type: g.item.type,
-          access: g.item.access,
-          updatedAt: g.item.updatedAt.toISOString(),
-          permission: g.permission,
-          expiresAt: g.expiresAt?.toISOString() ?? null,
-          viaGroups: g.viaGroups,
-        })),
+      groupShared: filteredGroupShared.slice(0, MAX_ROWS).map((g) => ({
+        id: g.item.id,
+        title: g.item.title,
+        type: g.item.type,
+        access: g.item.access,
+        updatedAt: g.item.updatedAt.toISOString(),
+        permission: g.permission,
+        expiresAt: g.expiresAt?.toISOString() ?? null,
+        viaGroups: g.viaGroups,
+      })),
       orgAccessibleCount: orgCount,
       publicAccessibleCount: publicCount,
       groups: memberships.map((m) => ({
@@ -532,8 +545,8 @@ export class AdminUsersController {
       })),
       truncated: {
         owned: owned.length > MAX_ROWS,
-        directShared: directShared.length > MAX_ROWS,
-        groupShared: groupSharedByItem.size > MAX_ROWS,
+        directShared: filteredDirectShared.length > MAX_ROWS,
+        groupShared: filteredGroupShared.length > MAX_ROWS,
       },
       maxRows: MAX_ROWS,
       neverSignedIn: false,
