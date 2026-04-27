@@ -18,6 +18,7 @@ import {
   type CredentialPayload,
 } from './credential.service.js';
 import { exchangeBasicForArcgisToken } from './arcgis-auth.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 
 /**
  * Authenticated upstream proxy for secured external services (#36).
@@ -44,9 +45,21 @@ import { exchangeBasicForArcgisToken } from './arcgis-auth.js';
 export class ItemProxyController {
   private readonly log = new Logger(ItemProxyController.name);
 
+  /**
+   * Per-process cache of the last time we wrote `lastUsageAt` for
+   * each item. Throttles the UPDATE so a busy map tile spew (one
+   * request per pan / per tile) doesn't translate into one DB
+   * write per request. Matches the auth-sync lastSeenAt pattern
+   * (#50). Reset on process restart so a freshly-deployed server
+   * is willing to write the first hit immediately.
+   */
+  private readonly lastUsageWrittenAt = new Map<string, number>();
+  private static readonly USAGE_THROTTLE_MS = 60_000;
+
   constructor(
     private readonly items: ItemsService,
     private readonly credentials: CredentialService,
+    private readonly prisma: PrismaService,
   ) {}
 
   // Two routes wired to the same handler so a bare /proxy (no
@@ -168,6 +181,33 @@ export class ItemProxyController {
     if (ct) res.setHeader('content-type', ct);
     const body = Buffer.from(await upstream.arrayBuffer());
     res.end(body);
+
+    // Stamp lastUsageAt for the stale heuristic (#96). Only on a
+    // successful upstream fetch -- a 4xx / 5xx upstream isn't real
+    // usage, and counting failed requests would mask a dead service
+    // as "still active". Throttled per-process so the inevitable
+    // pan/zoom storm doesn't blow up DB writes; matches the
+    // auth-sync lastSeenAt pattern (#50). Fire-and-forget so a slow
+    // write can't tail-latency a successful response.
+    if (upstream.ok) {
+      const now = Date.now();
+      const last = this.lastUsageWrittenAt.get(itemId) ?? 0;
+      if (now - last >= ItemProxyController.USAGE_THROTTLE_MS) {
+        this.lastUsageWrittenAt.set(itemId, now);
+        this.prisma.item
+          .update({
+            where: { id: itemId },
+            data: { lastUsageAt: new Date(now) },
+          })
+          .catch((err) => {
+            this.log.warn(
+              `lastUsageAt stamp failed for item=${itemId}: ${
+                err instanceof Error ? err.message : err
+              }`,
+            );
+          });
+      }
+    }
   }
 }
 

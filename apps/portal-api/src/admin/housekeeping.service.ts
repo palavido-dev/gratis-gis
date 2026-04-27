@@ -126,6 +126,15 @@ export class HousekeepingService {
         orgId,
         deletedAt: null,
         updatedAt: { lt: cutoff },
+        // Items recently accessed via the proxy can't be stale by
+        // definition; filter them out at the SQL layer so we don't
+        // pay the per-item refine cost. NULL lastUsageAt passes
+        // through (means "never touched via proxy" -- no signal
+        // either way; the refinement step below handles it).
+        OR: [
+          { lastUsageAt: null },
+          { lastUsageAt: { lt: cutoff } },
+        ],
         shares: { none: {} },
       },
       select: {
@@ -134,6 +143,7 @@ export class HousekeepingService {
         type: true,
         data: true,
         updatedAt: true,
+        lastUsageAt: true,
         ownerId: true,
         access: true,
         owner: { select: { username: true, fullName: true } },
@@ -146,8 +156,11 @@ export class HousekeepingService {
     > = [];
     for (const r of candidates) {
       const dataAt = await this.dataActivityAt(r.id, r.type, r.data);
-      const effective =
-        dataAt && dataAt > r.updatedAt ? dataAt : r.updatedAt;
+      const effective = pickEffectiveActivity(
+        r.updatedAt,
+        dataAt,
+        r.lastUsageAt,
+      );
       if (effective < cutoff) {
         refined.push({ ...r, effectiveActivity: effective });
       }
@@ -156,22 +169,35 @@ export class HousekeepingService {
       (a, b) =>
         a.effectiveActivity.getTime() - b.effectiveActivity.getTime(),
     );
-    return refined.slice(0, this.topN).map((r) => ({
-      id: r.id,
-      title: r.title,
-      type: r.type,
-      access: r.access,
-      updatedAt: r.updatedAt.toISOString(),
-      // Effective activity is what drives the staleness call. Show
-      // both so the admin can tell when the item card is old but
-      // the underlying data was touched recently (or vice versa).
-      lastActivityAt: r.effectiveActivity.toISOString(),
-      ownerId: r.ownerId,
-      ownerLabel:
-        r.owner?.fullName?.trim() ||
-        r.owner?.username ||
-        r.ownerId.slice(0, 8),
-    }));
+    return refined.slice(0, this.topN).map((r) => {
+      const dataAt = null; // already folded into effectiveActivity
+      void dataAt;
+      const source = whichActivity(
+        r.updatedAt,
+        // re-derive: not stored on the row, but
+        // effectiveActivity matches one of these by construction
+        r.lastUsageAt,
+        r.effectiveActivity,
+      );
+      return {
+        id: r.id,
+        title: r.title,
+        type: r.type,
+        access: r.access,
+        updatedAt: r.updatedAt.toISOString(),
+        // Effective activity is what drives the staleness call. The
+        // source label tells the admin which signal won so they
+        // know whether it was item edits, feature edits, or live
+        // user requests.
+        lastActivityAt: r.effectiveActivity.toISOString(),
+        lastActivitySource: source,
+        ownerId: r.ownerId,
+        ownerLabel:
+          r.owner?.fullName?.trim() ||
+          r.owner?.username ||
+          r.ownerId.slice(0, 8),
+      };
+    });
   }
 
   /**
@@ -401,20 +427,32 @@ export class HousekeepingService {
     // Refine the count the same way staleItems() does so the
     // headline number matches the list. Doing the data-activity
     // probe per candidate is cheap because the cheap SQL filter
-    // already narrowed to "no shares + old item.updatedAt".
+    // already narrowed to "no shares + old item.updatedAt + no
+    // recent proxy usage".
     const candidates = await this.prisma.item.findMany({
       where: {
         orgId,
         deletedAt: null,
         updatedAt: { lt: cutoff },
+        OR: [{ lastUsageAt: null }, { lastUsageAt: { lt: cutoff } }],
         shares: { none: {} },
       },
-      select: { id: true, type: true, data: true, updatedAt: true },
+      select: {
+        id: true,
+        type: true,
+        data: true,
+        updatedAt: true,
+        lastUsageAt: true,
+      },
     });
     let n = 0;
     for (const c of candidates) {
       const dataAt = await this.dataActivityAt(c.id, c.type, c.data);
-      const effective = dataAt && dataAt > c.updatedAt ? dataAt : c.updatedAt;
+      const effective = pickEffectiveActivity(
+        c.updatedAt,
+        dataAt,
+        c.lastUsageAt,
+      );
       if (effective < cutoff) n += 1;
     }
     return n;
@@ -688,6 +726,38 @@ export class HousekeepingService {
     }
     return any ? [w, s, e, n] : null;
   }
+}
+
+/**
+ * Combine the three freshness signals an item carries (#95, #96)
+ * into a single effective activity timestamp. Each signal can be
+ * null when the item type doesn't produce one (e.g. arcgis_service
+ * has no underlying feature edits; basemap items are never proxied
+ * so lastUsageAt stays null). Picks whichever is most recent.
+ */
+function pickEffectiveActivity(
+  updatedAt: Date,
+  dataAt: Date | null,
+  usageAt: Date | null,
+): Date {
+  let max = updatedAt;
+  if (dataAt && dataAt > max) max = dataAt;
+  if (usageAt && usageAt > max) max = usageAt;
+  return max;
+}
+
+/**
+ * Which signal won the freshness race? Used purely for UI labels
+ * so the admin can tell what's keeping an item alive.
+ */
+function whichActivity(
+  updatedAt: Date,
+  usageAt: Date | null,
+  effective: Date,
+): 'item' | 'data' | 'usage' {
+  if (usageAt && usageAt.getTime() === effective.getTime()) return 'usage';
+  if (effective.getTime() === updatedAt.getTime()) return 'item';
+  return 'data';
 }
 
 /** Ordering for the recompute pass: deepest dependencies first. */

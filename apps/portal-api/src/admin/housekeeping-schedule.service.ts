@@ -265,14 +265,27 @@ export class HousekeepingScheduleService {
       where: {
         deletedAt: null,
         updatedAt: { lt: cutoff },
+        // Mirror staleItems(): an item recently hit through the
+        // proxy can't be auto-trashed regardless of how stale the
+        // item card looks. NULL lastUsageAt means "never used via
+        // proxy"; the per-item refine still applies.
+        OR: [{ lastUsageAt: null }, { lastUsageAt: { lt: cutoff } }],
         shares: { none: {} },
       },
-      select: { id: true, type: true, data: true, updatedAt: true },
+      select: {
+        id: true,
+        type: true,
+        data: true,
+        updatedAt: true,
+        lastUsageAt: true,
+      },
     });
     const toTrash: string[] = [];
     for (const c of candidates) {
       const dataAt = await this.dataActivityAt(c.id, c.type, c.data);
-      const effective = dataAt && dataAt > c.updatedAt ? dataAt : c.updatedAt;
+      let effective = c.updatedAt;
+      if (dataAt && dataAt > effective) effective = dataAt;
+      if (c.lastUsageAt && c.lastUsageAt > effective) effective = c.lastUsageAt;
       if (effective < cutoff) toTrash.push(c.id);
     }
     if (toTrash.length === 0) return 0;

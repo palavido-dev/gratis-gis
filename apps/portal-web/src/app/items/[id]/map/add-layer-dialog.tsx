@@ -424,15 +424,23 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
       layers?: Array<{ id: number; name?: string; geometryType?: string }>;
       requiresAuth?: boolean;
     };
-    // When the source item is configured for proxied auth (#36),
-    // every layer-source bbox query goes through the portal-api
-    // proxy so the stored credential stays server-side. The
-    // proxy URL is the same shape the BFF expects, including the
-    // /api/portal prefix that the Next route rewrites to /api on
-    // the API side.
-    const proxyUrl = d.requiresAuth
-      ? `/api/portal/items/${item.id}/proxy`
-      : null;
+    // Every arcgis-rest layer goes through the portal-api proxy,
+    // not just secured ones (#96). Three reasons:
+    //   1. Usage tracking: the proxy stamps item.lastUsageAt on
+    //      each successful fetch. Routing public services direct
+    //      from the browser would leave them invisible to the
+    //      stale-item heuristic.
+    //   2. CORS: many public arcgis services don't set permissive
+    //      CORS headers, so a browser-direct fetch fails on
+    //      cross-origin queries. The proxy sidesteps the issue.
+    //   3. Consistency: one path for previews, bbox queries, and
+    //      attribute fetches whether the service is secured or
+    //      not. The original requiresAuth-only routing came from
+    //      #36 when the proxy's only job was to inject creds.
+    // Bandwidth cost is real -- our server pays the egress for
+    // every tile / query -- but tracking + CORS coverage is worth
+    // it for the typical small-team self-hosted deployment.
+    const proxyUrl = `/api/portal/items/${item.id}/proxy`;
     const ordered = orderedSublayersForPortalItem(item);
     if (ordered === null) return;
     const picked = ordered.filter((l) => selectedIds.has(l.id));

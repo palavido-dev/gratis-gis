@@ -47,11 +47,14 @@ export interface HousekeepingBundle {
     type: ItemType;
     access: string;
     updatedAt: string;
-    /** Effective freshness signal -- max of item.updatedAt and
-     *  underlying data activity (e.g. v3 feature edits). When this
-     *  is later than updatedAt, the item card looks old but the
-     *  data underneath isn't. */
+    /** Effective freshness signal -- max of item.updatedAt,
+     *  underlying data activity (v3 feature edits), and last
+     *  user-initiated proxy request. The source flag tells the
+     *  admin which signal is keeping the item alive. */
     lastActivityAt: string;
+    /** 'item' = item card edited; 'data' = features edited;
+     *  'usage' = someone hit it via the proxy. */
+    lastActivitySource: 'item' | 'data' | 'usage';
     ownerId: string;
     ownerLabel: string;
   }>;
@@ -915,14 +918,18 @@ function StaleItemsTable({
                 className="px-4 py-2 text-muted"
                 title={`Item updated: ${new Date(r.updatedAt).toLocaleString()}${
                   dataNewer
-                    ? `\nFeature data: ${new Date(r.lastActivityAt).toLocaleString()}`
+                    ? `\n${
+                        r.lastActivitySource === 'usage'
+                          ? 'Last user request'
+                          : 'Feature data activity'
+                      }: ${new Date(r.lastActivityAt).toLocaleString()}`
                     : ''
                 }`}
               >
                 {new Date(r.lastActivityAt).toLocaleDateString()}
-                {dataNewer ? (
+                {dataNewer && r.lastActivitySource !== 'item' ? (
                   <span className="ml-1 text-[10px] uppercase text-muted/70">
-                    (data)
+                    ({r.lastActivitySource})
                   </span>
                 ) : null}
               </td>

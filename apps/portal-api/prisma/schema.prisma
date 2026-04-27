@@ -252,6 +252,16 @@ model Item {
   /// feature tables on every list query.
   bbox         Float[]    @default([])
   bboxSrs      String?    @default("EPSG:4326") @map("bbox_srs")
+  /// Most recent user-initiated request through the item proxy
+  /// (#96). Stamped by ItemProxyController on every successful
+  /// fetch (with a 60s in-process throttle so we don't write on
+  /// every map-render request). System processes (recompute
+  /// extents, future heartbeat checks) bypass the proxy with
+  /// direct HTTP, so they correctly don't bump this. Drives the
+  /// stale-item heuristic alongside item.updatedAt and underlying
+  /// feature activity: an arcgis_service that's being actively
+  /// rendered stays fresh even if nobody edits its item card.
+  lastUsageAt  DateTime?  @map("last_usage_at")
 
   org         Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
   owner       User                @relation("ItemOwner", fields: [ownerId], references: [id])
