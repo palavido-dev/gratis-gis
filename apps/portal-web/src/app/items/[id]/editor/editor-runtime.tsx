@@ -21,6 +21,7 @@ import {
   type LayerMetadata,
 } from '../map/layer-metadata';
 import { SearchBar } from '../map/search-bar';
+import { AttributeTable } from '../map/attribute-table';
 import type {
   EditorData,
   EditorTool,
@@ -259,6 +260,18 @@ export function EditorRuntime({
   } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // AttributeTable state. tableOpen drives the bottom-overlay
+  // panel; tableFocusLayerId anchors the table to a specific layer
+  // when the user opens it from a layer-panel kebab. selection is
+  // shared with MapCanvas + AttributeTable so highlighting a row
+  // also highlights the feature on the canvas (and vice versa).
+  // Same shape map-editor uses.
+  const [tableOpen, setTableOpen] = useState(false);
+  const [tableFocusLayerId, setTableFocusLayerId] = useState<string | null>(
+    null,
+  );
+  const [selection, setSelection] = useState<Record<string, Set<number>>>({});
 
   // Index resolvedTargets by key so the picker / panel / submit
   // path can look up O(1).
@@ -915,9 +928,9 @@ export function EditorRuntime({
               /* Same: groups are inherited from the referenced
                  map; no group authoring inside the runtime. */
             }}
-            onOpenAttributeTable={() => {
-              setToast('Attribute table lands in a follow-up slice.');
-              scheduleToastClear();
+            onOpenAttributeTable={(focusLayerId) => {
+              setTableFocusLayerId(focusLayerId ?? null);
+              setTableOpen(true);
             }}
             onZoomToLayer={(layerId) => {
               const layer = mapData.layers.find((l) => l.id === layerId);
@@ -940,12 +953,9 @@ export function EditorRuntime({
               setMapData((cur) => ({ ...cur, ...next }));
               if (typeof next.zoom === 'number') setCurrentZoom(next.zoom);
             }}
-            selection={{}}
+            selection={selection}
             selectTool="off"
-            onSelectionChange={() => {
-              /* selection-tool wiring lands with the attribute
-                 table's "select on map" affordance in a follow-up. */
-            }}
+            onSelectionChange={setSelection}
             onMapReady={(m) => setMapInstance(m)}
           />
 
@@ -1088,6 +1098,39 @@ export function EditorRuntime({
               {toast}
             </div>
           ) : null}
+
+          {/* AttributeTable bottom-overlay. Same component the map
+              editor uses; pulls from the same featuresByLayer
+              cache. Open via the layer-panel kebab's "Open
+              attribute table" item; close with the panel's X.
+              onPatchLayer mutates the layer client-side (used for
+              filter / column reorder / similar attr-table-driven
+              edits). Inline row editing for the editor's targets
+              is a follow-up commit -- the current AttributeTable
+              shows attributes read-only, with a footer note. */}
+          <AttributeTable
+            open={tableOpen}
+            layers={mapData.layers}
+            featuresByLayer={featuresByLayer}
+            metadata={metadata}
+            canEdit={canEdit}
+            selection={selection}
+            setSelection={setSelection}
+            onClose={() => {
+              setTableOpen(false);
+              setTableFocusLayerId(null);
+            }}
+            onZoomTo={(bbox) => canvasRef.current?.zoomTo(bbox)}
+            onPatchLayer={(layerId, patch) => {
+              setMapData((cur) => ({
+                ...cur,
+                layers: cur.layers.map((l) =>
+                  l.id === layerId ? { ...l, ...patch } : l,
+                ),
+              }));
+            }}
+            focusLayerId={tableFocusLayerId}
+          />
         </div>
       </div>
 
