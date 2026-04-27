@@ -5,7 +5,10 @@ import Link from 'next/link';
 import type maplibregl from 'maplibre-gl';
 import {
   ArrowLeft,
+  ChevronDown,
+  ChevronUp,
   Eye,
+  EyeOff,
   Folder as FolderIcon,
   Layers,
   MousePointer2,
@@ -245,6 +248,41 @@ export function EditorRuntime({
       .map((l) => ({ layer: l, depth: depthOf(l) }));
     return { targetLayers: targets, referenceLayers: references };
   }, [mapData.layers, targetLayerIds]);
+
+  // Toggle a layer's `visible` flag. Single layer click; child layers
+  // and group headers behave the same way. MapCanvas's blunt sync
+  // re-runs and flips the layer in/out of the rendered set on its
+  // own; we just mutate state.
+  const toggleLayerVisible = useCallback((layerId: string) => {
+    setMapData((cur) => ({
+      ...cur,
+      layers: cur.layers.map((l) =>
+        l.id === layerId ? { ...l, visible: !l.visible } : l,
+      ),
+    }));
+  }, []);
+
+  // Move a layer up or down within mapData.layers. The order in the
+  // array drives stacking order on the canvas + display order in the
+  // legend. We allow any move within bounds; group / child rules are
+  // advisory (the user can always reorder back if they break the
+  // grouping). MapLibre paints layers in array order, so a downward
+  // move pushes the layer further toward the back.
+  const moveLayer = useCallback(
+    (layerId: string, direction: 'up' | 'down') => {
+      setMapData((cur) => {
+        const idx = cur.layers.findIndex((l) => l.id === layerId);
+        if (idx === -1) return cur;
+        const target = direction === 'up' ? idx - 1 : idx + 1;
+        if (target < 0 || target >= cur.layers.length) return cur;
+        const next = cur.layers.slice();
+        const [removed] = next.splice(idx, 1);
+        next.splice(target, 0, removed!);
+        return { ...cur, layers: next };
+      });
+    },
+    [],
+  );
 
   // Refresh a target layer's source by appending a fresh _ts param
   // to its geojson URL. MapCanvas's blunt sync tears down + rebuilds
@@ -938,34 +976,28 @@ export function EditorRuntime({
               ) : (
                 <ul>
                   {targetLayers.map(({ layer: l }) => {
-                    // Recover (dataLayerId, layerKey) from the
-                    // synthetic layer id so we can match the active
-                    // target.
                     const stripped = l.id.startsWith(EDITOR_TARGET_LAYER_PREFIX)
                       ? l.id.slice(EDITOR_TARGET_LAYER_PREFIX.length)
                       : l.id;
                     const isActive = stripped === activeTargetKey;
+                    const idx = mapData.layers.findIndex(
+                      (m) => m.id === l.id,
+                    );
                     return (
-                      <li
+                      <LegendRow
                         key={l.id}
-                        className={`flex items-center gap-2 px-3 py-1.5 text-xs ${
-                          isActive ? 'bg-purple-50' : ''
-                        }`}
-                      >
-                        <span
-                          className={`h-2.5 w-2.5 rounded-sm ${
-                            isActive
-                              ? 'bg-purple-600 ring-2 ring-purple-300'
-                              : 'bg-purple-500'
-                          }`}
-                        />
-                        <span
-                          className="truncate text-ink-1"
-                          title={l.title}
-                        >
-                          {l.title}
-                        </span>
-                      </li>
+                        layerId={l.id}
+                        title={l.title}
+                        visible={l.visible}
+                        depth={0}
+                        isGroup={false}
+                        isActive={isActive}
+                        canMoveUp={idx > 0}
+                        canMoveDown={idx >= 0 && idx < mapData.layers.length - 1}
+                        accent="target"
+                        onToggleVisible={toggleLayerVisible}
+                        onMove={moveLayer}
+                      />
                     );
                   })}
                 </ul>
@@ -983,29 +1015,24 @@ export function EditorRuntime({
                 <ul>
                   {referenceLayers.map(({ layer: l, depth }) => {
                     const isGroup = l.source.kind === 'group';
-                    // Indentation step matches the map editor's nested
-                    // layer panel pattern (#46): 12px per depth level.
-                    // Group headers are bold + folder icon; leaves are
-                    // plain rows with the eye icon used elsewhere for
-                    // read-only layers.
-                    const indent = depth > 0 ? { paddingLeft: 12 + depth * 12 } : undefined;
+                    const idx = mapData.layers.findIndex(
+                      (m) => m.id === l.id,
+                    );
                     return (
-                      <li
+                      <LegendRow
                         key={l.id}
-                        className={`flex items-center gap-2 py-1.5 pr-3 text-xs ${
-                          isGroup ? 'font-medium text-ink-0' : 'text-ink-1'
-                        }`}
-                        style={indent ?? { paddingLeft: 12 }}
-                      >
-                        {isGroup ? (
-                          <FolderIcon className="h-3 w-3 shrink-0 text-muted" />
-                        ) : (
-                          <Eye className="h-3 w-3 shrink-0 text-muted" />
-                        )}
-                        <span className="truncate" title={l.title}>
-                          {l.title}
-                        </span>
-                      </li>
+                        layerId={l.id}
+                        title={l.title}
+                        visible={l.visible}
+                        depth={depth}
+                        isGroup={isGroup}
+                        isActive={false}
+                        canMoveUp={idx > 0}
+                        canMoveDown={idx >= 0 && idx < mapData.layers.length - 1}
+                        accent="reference"
+                        onToggleVisible={toggleLayerVisible}
+                        onMove={moveLayer}
+                      />
                     );
                   })}
                 </ul>
@@ -1093,6 +1120,109 @@ export function EditorRuntime({
         ) : null}
       </ConfirmDialog>
     </div>
+  );
+}
+
+interface LegendRowProps {
+  layerId: string;
+  title: string;
+  visible: boolean;
+  depth: number;
+  isGroup: boolean;
+  isActive: boolean;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  accent: 'target' | 'reference';
+  onToggleVisible: (id: string) => void;
+  onMove: (id: string, dir: 'up' | 'down') => void;
+}
+
+/**
+ * One legend row. Same shape for target and reference layers; the
+ * `accent` prop just swaps the leading marker (purple square for
+ * targets, eye / folder for reference). Reorder chevrons appear on
+ * hover at the right; visibility eye toggles between Eye and
+ * EyeOff. Group rows ('source.kind === group') stay editable too --
+ * toggling a group hides its children at the canvas level.
+ */
+function LegendRow({
+  layerId,
+  title,
+  visible,
+  depth,
+  isGroup,
+  isActive,
+  canMoveUp,
+  canMoveDown,
+  accent,
+  onToggleVisible,
+  onMove,
+}: LegendRowProps) {
+  const indent = { paddingLeft: 12 + depth * 12 };
+  return (
+    <li
+      className={`group flex items-center gap-1 py-1.5 pr-1 text-xs ${
+        isActive
+          ? 'bg-purple-50'
+          : isGroup
+            ? 'font-medium text-ink-0'
+            : 'text-ink-1'
+      }`}
+      style={indent}
+    >
+      <button
+        type="button"
+        onClick={() => onToggleVisible(layerId)}
+        className="rounded-md p-0.5 text-muted hover:bg-surface-2 hover:text-ink-1"
+        aria-label={visible ? 'Hide layer' : 'Show layer'}
+        title={visible ? 'Hide layer' : 'Show layer'}
+      >
+        {visible ? (
+          <Eye className="h-3 w-3" />
+        ) : (
+          <EyeOff className="h-3 w-3" />
+        )}
+      </button>
+      {accent === 'target' ? (
+        <span
+          className={`h-2.5 w-2.5 shrink-0 rounded-sm ${
+            isActive
+              ? 'bg-purple-600 ring-2 ring-purple-300'
+              : 'bg-purple-500'
+          }`}
+        />
+      ) : isGroup ? (
+        <FolderIcon className="h-3 w-3 shrink-0 text-muted" />
+      ) : null}
+      <span
+        className={`flex-1 truncate ${visible ? '' : 'text-muted line-through'}`}
+        title={title}
+      >
+        {title}
+      </span>
+      <div className="flex shrink-0 opacity-0 transition-opacity group-hover:opacity-100">
+        <button
+          type="button"
+          onClick={() => onMove(layerId, 'up')}
+          disabled={!canMoveUp}
+          className="rounded-md p-0.5 text-muted hover:bg-surface-2 hover:text-ink-1 disabled:cursor-not-allowed disabled:opacity-30"
+          aria-label="Move layer up"
+          title="Move up"
+        >
+          <ChevronUp className="h-3 w-3" />
+        </button>
+        <button
+          type="button"
+          onClick={() => onMove(layerId, 'down')}
+          disabled={!canMoveDown}
+          className="rounded-md p-0.5 text-muted hover:bg-surface-2 hover:text-ink-1 disabled:cursor-not-allowed disabled:opacity-30"
+          aria-label="Move layer down"
+          title="Move down"
+        >
+          <ChevronDown className="h-3 w-3" />
+        </button>
+      </div>
+    </li>
   );
 }
 
