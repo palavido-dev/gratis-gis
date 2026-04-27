@@ -825,6 +825,84 @@ export function EditorRuntime({
   const pendingTarget = pendingFeature
     ? targetByKey.get(pendingFeature.targetKey)
     : undefined;
+  // Synthetic-layer id allowlist for AttributeTable inline edit.
+  // For each editor target with attribute editing turned on, map
+  // (dataLayerId, layerKey) back to the editor-target layer id we
+  // injected into mapData. Reference-map layers never land here, so
+  // double-clicking a cell on a reference layer can never trigger
+  // a write -- the UX gate matches the server policy.
+  const inlineEditableLayerIds = useMemo(() => {
+    const out = new Set<string>();
+    for (const t of editor.targets) {
+      const r = targetByKey.get(`${t.dataLayerId}:${t.layerKey}`);
+      if (!r?.layer) continue;
+      if (r.layer.editingEnabled === false) continue;
+      if (!t.canEditAttributes) continue;
+      out.add(editorTargetLayerId(t.dataLayerId, t.layerKey));
+    }
+    return out;
+  }, [editor.targets, targetByKey]);
+
+  // Per-layer field allowlist. Mirrors the AttributeForm's
+  // editableFields gate: when the target stores a non-null list,
+  // only those fields are inline-editable; null means "all fields"
+  // and the table reads `editableFieldsByLayer[layerId]` as
+  // undefined to allow everything. Underscore-prefixed editor-
+  // tracking columns are excluded inside AttributeTable, not here.
+  const inlineEditableFieldsByLayer = useMemo(() => {
+    const out: Record<string, Set<string>> = {};
+    for (const t of editor.targets) {
+      if (!t.canEditAttributes) continue;
+      if (t.editableFields === null) continue;
+      const id = editorTargetLayerId(t.dataLayerId, t.layerKey);
+      out[id] = new Set(t.editableFields);
+    }
+    return out;
+  }, [editor.targets]);
+
+  // PATCH a single feature's properties from the AttributeTable's
+  // inline-edit cell. Resolves the synthetic editor-target layer id
+  // back to its (dataLayerId, layerKey) pair, hits the v3 PATCH
+  // endpoint with the x-editor-id header so EditorPolicyService can
+  // re-validate the write against the editor's per-target rules,
+  // then bumps the layer's URL so MapCanvas and the metadata probe
+  // pick up the new value. AttributeTable handles its own error
+  // surfacing; we re-throw so it can show the server message.
+  const onInlineEditFeature = useCallback(
+    async (
+      layerId: string,
+      featureId: string,
+      properties: Record<string, unknown>,
+    ) => {
+      if (!layerId.startsWith(EDITOR_TARGET_LAYER_PREFIX)) {
+        throw new Error('Inline edit is only allowed on editor target layers.');
+      }
+      const stripped = layerId.slice(EDITOR_TARGET_LAYER_PREFIX.length);
+      const sep = stripped.lastIndexOf(':');
+      if (sep === -1) {
+        throw new Error('Could not resolve editor target from layer id.');
+      }
+      const dataLayerId = stripped.slice(0, sep);
+      const layerKey = stripped.slice(sep + 1);
+      const res = await fetch(
+        `/api/portal/items/${dataLayerId}/layers/${layerKey}/features/${featureId}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'content-type': 'application/json',
+            'x-editor-id': editorId,
+          },
+          body: JSON.stringify({ properties }),
+        },
+      );
+      if (!res.ok) {
+        throw new Error(`${res.status} ${await res.text()}`);
+      }
+      refreshTarget(dataLayerId, layerKey);
+    },
+    [editorId, refreshTarget],
+  );
+
   const editableSet = useMemo(() => {
     if (!pendingTarget) return null;
     const ed = editor.targets.find(
@@ -1105,9 +1183,14 @@ export function EditorRuntime({
               attribute table" item; close with the panel's X.
               onPatchLayer mutates the layer client-side (used for
               filter / column reorder / similar attr-table-driven
-              edits). Inline row editing for the editor's targets
-              is a follow-up commit -- the current AttributeTable
-              shows attributes read-only, with a footer note. */}
+              edits). Inline row editing is wired here for the
+              editor's targets only -- the editableLayerIds set is
+              built from each target's canEditAttributes flag,
+              and editableFieldsByLayer narrows further when the
+              target carries a non-null editableFields allowlist.
+              Reference-map layers stay read-only because they are
+              not in the editable set, and the v3 PATCH server-
+              side gate still enforces this anyway. */}
           <AttributeTable
             open={tableOpen}
             layers={mapData.layers}
@@ -1130,6 +1213,9 @@ export function EditorRuntime({
               }));
             }}
             focusLayerId={tableFocusLayerId}
+            onPatchFeature={canEdit ? onInlineEditFeature : undefined}
+            editableLayerIds={inlineEditableLayerIds}
+            editableFieldsByLayer={inlineEditableFieldsByLayer}
           />
         </div>
       </div>
