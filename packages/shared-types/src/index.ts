@@ -21,3 +21,4 @@ export * from './geo-boundary';
 export * from './basemap';
 export * from './wms-service';
 export * from './folder';
+export * from './editor';

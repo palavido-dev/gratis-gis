@@ -13,6 +13,7 @@ import {
   MapPin,
   Notebook,
   Package,
+  PencilRuler,
   Plug,
   Sparkles,
   Wrench,
@@ -50,6 +51,7 @@ const ITEM_TYPE_ICONS: Record<ItemType, LucideIcon> = {
   wms_service: Plug,
   wfs_service: Plug,
   folder: FolderIcon,
+  editor: PencilRuler,
 };
 
 /**
@@ -80,6 +82,7 @@ const ITEM_TYPE_LABELS: Record<ItemType, string> = {
   wms_service: 'WMS service',
   wfs_service: 'WFS service',
   folder: 'Folder',
+  editor: 'Editor',
 };
 
 export function getItemTypeLabel(t: ItemType): string {
@@ -110,6 +113,7 @@ const ITEM_TYPE_ACCENT: Record<ItemType, string> = {
   wms_service: 'text-cyan-700',
   wfs_service: 'text-cyan-800',
   folder: 'text-amber-700',
+  editor: 'text-purple-600',
 };
 
 /** Tailwind class combos for the tile background used in compact
@@ -135,6 +139,7 @@ const ITEM_TYPE_TILE: Record<ItemType, string> = {
   wms_service: 'bg-cyan-700/90 text-white',
   wfs_service: 'bg-cyan-800/90 text-white',
   folder: 'bg-amber-600/90 text-white',
+  editor: 'bg-purple-500/90 text-white',
 };
 
 export function getItemTypeIcon(type: ItemType): LucideIcon {

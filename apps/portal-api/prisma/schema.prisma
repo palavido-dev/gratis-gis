@@ -80,6 +80,7 @@ enum ItemType {
   wms_service                @map("wms-service")
   wfs_service                @map("wfs-service")
   folder
+  editor
 }
 
 // ---------- Tables ----------

@@ -19,6 +19,7 @@ import {
   Lock,
   Map as MapIcon,
   Notebook,
+  PencilRuler,
   Plug,
   Search,
   Sparkles,
@@ -42,6 +43,7 @@ import {
   DEFAULT_WMS_SERVICE,
   DEFAULT_WFS_SERVICE,
   DEFAULT_FOLDER,
+  DEFAULT_EDITOR,
   ITEM_TYPES,
 } from '@gratis-gis/shared-types';
 import { ImageUploader } from '@/components/image-uploader';
@@ -162,6 +164,12 @@ const TYPE_GROUPS: TypeGroup[] = [
         label: 'Dashboard',
         desc: 'Live panels showing feature data.',
         Icon: LayoutDashboard,
+      },
+      {
+        value: 'editor',
+        label: 'Editor',
+        desc: 'Online workspace for adding, editing, and deleting features in one or more data layers.',
+        Icon: PencilRuler,
       },
       {
         value: 'report_template',
@@ -629,6 +637,12 @@ export function NewItemWizard() {
       // Empty folder; the detail page handles adding children via the
       // "Add to folder" multi-select and drag-drop in Phase 1b.
       data = DEFAULT_FOLDER;
+    } else if (type === 'editor') {
+      // Empty editor scaffold; the detail page handles target-layer
+      // configuration and template authoring. The runtime renders
+      // an empty-state prompt until the first target is added. See
+      // docs/editing-and-collection.md.
+      data = DEFAULT_EDITOR;
     } else {
       data = {};
     }

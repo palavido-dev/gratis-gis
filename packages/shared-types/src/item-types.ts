@@ -28,6 +28,7 @@ export const ITEM_TYPES = [
   'wms_service',
   'wfs_service',
   'folder',
+  'editor',
 ] as const;
 
 export type ItemType = (typeof ITEM_TYPES)[number];
