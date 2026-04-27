@@ -530,6 +530,7 @@ export function LayerPanel({
                           sampleProperties: null,
                           featureCollection: null,
                           geometryTypes: new Set(),
+                          isTable: false,
                           error: null,
                           loading: true,
                         }

@@ -547,6 +547,7 @@ export function MapEditor({
           sampleProperties: prev[layer.id]?.sampleProperties ?? null,
           featureCollection: prev[layer.id]?.featureCollection ?? null,
           geometryTypes: prev[layer.id]?.geometryTypes ?? new Set(),
+          isTable: prev[layer.id]?.isTable ?? false,
           error: null,
           loading: true,
         },

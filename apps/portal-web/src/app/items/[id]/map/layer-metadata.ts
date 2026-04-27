@@ -26,6 +26,17 @@ export interface LayerMetadata {
    * Empty set while metadata is still loading.
    */
   geometryTypes: Set<GeometryFamily>;
+  /**
+   * Authoritative "this layer has no geometry" flag (#87). Set
+   * directly from the layer's canonical metadata when we can read
+   * it (arcgis-rest /N?f=json returns geometryType === null /
+   * undefined for table sublayers). Distinct from
+   * geometryTypes.size === 0 which can mean "no features sampled
+   * yet" or "fetch failed". When true, isTableLayer returns true
+   * regardless of what the user has done to the layer's display
+   * title.
+   */
+  isTable: boolean;
   /** Friendly note the UI can surface when discovery fails. */
   error: string | null;
   /** True while a fetch is in flight. */
@@ -38,6 +49,7 @@ const EMPTY: LayerMetadata = {
   sampleProperties: null,
   featureCollection: null,
   geometryTypes: new Set<GeometryFamily>(),
+  isTable: false,
   error: null,
   loading: false,
 };
@@ -69,12 +81,56 @@ export async function discoverLayerMetadata(
     } else if (layer.source.kind === 'geojson-inline') {
       raw = layer.source.geojson;
     } else if (layer.source.kind === 'arcgis-rest') {
-      // ArcGIS REST: pull a representative sample (no bbox filter)
-      // to light up field/value discovery. We deliberately fetch
-      // outside the map bbox so filters & the attribute table have
-      // something to work with even when the user hasn't panned to
-      // a region with features yet. The live draw path still does
-      // its own bbox queries.
+      // ArcGIS REST: first read the layer's authoritative metadata
+      // (/N?f=json) so we know whether it's a spatial layer or a
+      // non-spatial table BEFORE we try to fetch features. ArcGIS
+      // marks tables with `geometryType` missing or
+      // `esriGeometryNull`, which is the most reliable signal for
+      // suppressing symbology / legend / etc. The features query
+      // for a table often errors out on `f=geojson` so we skip it
+      // entirely when we know it's a table. (#87)
+      const descUrl = `${layer.source.url}/${layer.source.layerId}?f=json`;
+      const descInit: RequestInit = {};
+      if (signal) descInit.signal = signal;
+      type LayerDesc = {
+        geometryType?: string | null;
+        type?: string;
+        fields?: Array<{ name?: unknown }>;
+      };
+      let layerDesc: LayerDesc | null = null;
+      try {
+        const descRes = await fetch(descUrl, descInit);
+        if (descRes.ok) {
+          layerDesc = (await descRes.json()) as LayerDesc;
+        }
+      } catch {
+        // Non-fatal: fall through to the features query path. If
+        // the upstream is unreachable, the features query will
+        // fail too and surface a real error then.
+      }
+      const isArcgisTable =
+        layerDesc !== null &&
+        (layerDesc.type === 'Table' ||
+          !layerDesc.geometryType ||
+          layerDesc.geometryType === 'esriGeometryNull');
+      if (isArcgisTable) {
+        // Skip the features query: ArcGIS often refuses
+        // f=geojson against a table. We still want fields though,
+        // so hit the description's fields list if present, or
+        // leave it empty -- the attribute table can fetch lazily.
+        const fieldsRaw = layerDesc?.fields;
+        const fieldNames = Array.isArray(fieldsRaw)
+          ? fieldsRaw
+              .map((f) => (typeof f.name === 'string' ? f.name : null))
+              .filter((n): n is string => n !== null)
+          : [];
+        return {
+          ...EMPTY,
+          fields: fieldNames.sort(),
+          isTable: true,
+          loading: false,
+        };
+      }
       const params = new URLSearchParams({
         where: '1=1',
         outFields: '*',
@@ -153,6 +209,12 @@ export async function discoverLayerMetadata(
     raw && typeof raw === 'object' && (raw as { type?: string }).type === 'FeatureCollection'
       ? (raw as GeoJSON.FeatureCollection)
       : null;
+  // Loaded successfully but no geometry showed up: this is a
+  // table, even if the source isn't arcgis-rest. Catches the
+  // geojson-url case where someone hands us an attribute-only
+  // FeatureCollection (rare but possible).
+  const isTable =
+    featureCollection !== null && geometryTypes.size === 0;
   const out: LayerMetadata = {
     fields,
     valuesByField: Object.fromEntries(
@@ -161,6 +223,7 @@ export async function discoverLayerMetadata(
     sampleProperties: withProps?.properties ?? null,
     featureCollection,
     geometryTypes,
+    isTable,
     error: null,
     loading: false,
   };
@@ -168,39 +231,21 @@ export async function discoverLayerMetadata(
 }
 
 /**
- * True when the layer is a "table" sublayer with no geometry (#73).
- * ArcGIS feature services often include non-spatial tables alongside
- * their spatial layers; the user may want them on the map's data
- * side for the attribute table even though they don't render. The
- * cartographic editors and the legend use this signal to suppress
- * controls that would never apply.
+ * True when the layer is a "table" with no geometry (#73, #87).
+ * Reads the canonical isTable flag set by the metadata fetcher
+ * from the layer's authoritative description (e.g. ArcGIS REST
+ * /N?f=json's geometryType). This is independent of the layer's
+ * editable display title -- renaming "PARCELS (table)" to just
+ * "PARCELS" doesn't change whether it has geometry.
  *
- * Two signals, either is sufficient:
- *
- * 1) Title suffix: probeService appends " (table)" to ArcGIS sublayers
- *    that have no geometry, and the convention has held across the
- *    Add Layer dialog and the wizard's probe flow. This is the
- *    reliable signal for arcgis-rest sources because their geojson
- *    query against a table often fails or returns an empty payload,
- *    leaving featureCollection null.
- * 2) Metadata: after a successful load, geometryTypes is still empty.
- *    Catches data_layer / geojson sources that happen to be
- *    attribute-only.
- *
- * Distinct from "still loading" (signal #2 alone with loading=true):
- * we err toward showing controls during the load window so the
- * editor doesn't flicker.
+ * Layer arg kept for the call sites that want to forward extra
+ * info in the future (geo_boundary, file, etc.); unused here.
  */
 export function isTableLayer(
-  layer: { title: string },
+  _layer: { title: string },
   metadata: LayerMetadata,
 ): boolean {
-  if (/\(table\)\s*$/i.test(layer.title.trim())) return true;
-  return (
-    !metadata.loading &&
-    metadata.featureCollection !== null &&
-    metadata.geometryTypes.size === 0
-  );
+  return metadata.isTable;
 }
 
 function geometryFamily(type?: string): GeometryFamily | null {

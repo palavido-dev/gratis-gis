@@ -39,6 +39,7 @@ export function Legend({ open, layers, metadata, onClose }: Props) {
     sampleProperties: null,
     featureCollection: null,
     geometryTypes: new Set<GeometryFamily>(),
+    isTable: false,
     error: null,
     loading: false,
   };
