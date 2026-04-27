@@ -20,6 +20,7 @@ import type {
   User as UserT,
   ArcgisServiceData,
   DataLayerData,
+  EditorData,
   GeoBoundaryData,
   PickListData,
   MapData,
@@ -27,6 +28,7 @@ import type {
 import {
   DEFAULT_ARCGIS_SERVICE,
   DEFAULT_DATA_LAYER,
+  DEFAULT_EDITOR,
   DEFAULT_FOLDER,
   DEFAULT_GEO_BOUNDARY,
   DEFAULT_PICK_LIST,
@@ -101,6 +103,7 @@ import { ArcgisServiceEditor } from './arcgis-service/editor';
 import { PickListEditor } from './pick-list/editor';
 import { GeoBoundaryEditor } from './geo-boundary/editor';
 import { FolderDetail } from './folder/folder-detail';
+import { EditorDetail } from './editor/editor-detail';
 import { DataLayerProvenance } from './data-layer/provenance-panel';
 import { DataLayerSchema } from './data-layer/schema-panel';
 import { VersionHistoryPanel } from './data-layer/version-history-panel';
@@ -123,6 +126,7 @@ const typeBadge: Record<string, string> = {
   file: 'bg-slate-100 text-slate-800',
   notebook: 'bg-fuchsia-100 text-fuchsia-800',
   tool: 'bg-teal-100 text-teal-800',
+  editor: 'bg-purple-100 text-purple-800',
 };
 
 const accessIcon = {
@@ -515,6 +519,17 @@ export default async function ItemDetailPage({ params }: Props) {
             canCreate={me.orgRole !== 'viewer'}
             folderShares={item.shares}
             folderAccess={item.access}
+          />
+        </section>
+      ) : item.type === 'editor' ? (
+        <section className="mb-6">
+          <EditorDetail
+            itemId={item.id}
+            initial={{
+              ...DEFAULT_EDITOR,
+              ...((item.data ?? {}) as Partial<EditorData>),
+            }}
+            canEdit={canManage}
           />
         </section>
       ) : (
