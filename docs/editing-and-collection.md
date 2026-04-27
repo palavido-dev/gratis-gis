@@ -95,6 +95,40 @@ Nothing new to learn.
 An online, tool-driven workspace that exposes one or more data_layers
 to a configured audience for create / edit / delete operations.
 
+### Reference layers come via mapId
+
+A common editing workflow needs read-only context: snap to existing
+parcels while drawing buildings, trace aerial imagery, scope to a
+project boundary, see the road network for orientation. The Editor
+does not maintain its own reference-layer list; instead, it inherits
+context from the map it references via `mapId`.
+
+When `mapId` is set:
+
+- **Basemap** comes from the referenced map's basemap.
+- **Default viewport** comes from the map's center/zoom or its
+  `defaultExtentBoundaryId`.
+- **Every layer in the map that is NOT an Editor target** renders as
+  read-only reference context, with its existing symbology and
+  labels intact.
+- **Snapping** can pull to any visible layer (target or reference);
+  the `selfSnap` toggle on the Editor flips between "snap only to
+  the layer being drawn into" and "snap to anything visible".
+
+The author builds a regular map with whatever layers they need for
+context (parcels, roads, imagery, project boundaries), points the
+Editor at it via `mapId`, then uses "Add target" or "Add from map"
+to mark which subset of those layers should be editable. Anything
+in the map that is not a target stays as read-only context.
+
+This keeps the model coherent with our items-reference-items ethos:
+the map item owns "what the world looks like and what is relevant
+for context", and the Editor item only owns "of those layers, here
+is what I let people edit". A v2 enhancement could add an explicit
+`referenceLayers` field for cases where context layers come from
+outside the basemap-reference map; for v1 the answer is "merge into
+one map and reference that".
+
 ### Item shape (proposed)
 
 ```jsonc

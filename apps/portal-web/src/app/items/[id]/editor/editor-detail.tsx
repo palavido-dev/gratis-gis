@@ -4,11 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ExternalLink,
+  Layers,
   Loader2,
+  Map as MapIcon,
   PencilRuler,
   Plus,
   Trash2,
   Wrench,
+  X,
 } from 'lucide-react';
 import Link from 'next/link';
 import type {
@@ -21,6 +24,8 @@ import type {
 } from '@gratis-gis/shared-types';
 import { DEFAULT_EDITOR_TOOLS } from '@gratis-gis/shared-types';
 import { AddTargetDialog } from './add-target-dialog';
+import { AddFromMapDialog } from './add-from-map-dialog';
+import { PickMapDialog } from './pick-map-dialog';
 
 interface Props {
   itemId: string;
@@ -69,6 +74,45 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [pickingMap, setPickingMap] = useState(false);
+  const [addingFromMap, setAddingFromMap] = useState(false);
+
+  // Resolved title for the referenced map (for the reference-map
+  // chip). Fetched once when mapId changes; the editor stores only
+  // the id, not a denormalized title, so a rename of the map flows
+  // through automatically.
+  const [mapTitle, setMapTitle] = useState<string | null>(null);
+  const [mapMissing, setMapMissing] = useState(false);
+  useEffect(() => {
+    if (!editor.mapId) {
+      setMapTitle(null);
+      setMapMissing(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/portal/items/${editor.mapId}`);
+        if (cancelled) return;
+        if (!res.ok) {
+          setMapTitle(null);
+          setMapMissing(true);
+          return;
+        }
+        const item = (await res.json()) as Item;
+        setMapTitle(item.title);
+        setMapMissing(false);
+      } catch {
+        if (!cancelled) {
+          setMapTitle(null);
+          setMapMissing(true);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [editor.mapId]);
 
   // Cache of resolved (item, sublayer) per target. Lets us render
   // human-readable names + warn when a target points at a layer
@@ -206,6 +250,77 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
     markDirty();
   }
 
+  /**
+   * Bulk-add targets from a referenced map's data_layer-backed
+   * layers (#103 / Option C). Each entry coming back from the
+   * dialog is already de-duped against the current `existingKeys`
+   * (the dialog disables already-target sublayers), but we still
+   * filter defensively here so a stale dialog state cannot
+   * insert a duplicate. Defaults match the "Add target" single-
+   * pick path: canCreate, canEditGeometry tied to geometry-type
+   * presence, attributes and delete on by default, editableFields
+   * starts as null = "all", rowScope respects own-rows-only
+   * binding.
+   */
+  function bulkAddFromMap(
+    additions: Array<{
+      dataLayerId: string;
+      layerKey: string;
+      layer: DataLayerSublayer;
+      dataLayerTitle: string;
+    }>,
+  ) {
+    if (additions.length === 0) return;
+    const seen = new Set(
+      editor.targets.map((t) => `${t.dataLayerId}:${t.layerKey}`),
+    );
+    const newTargets: EditorTarget[] = [];
+    const newResolved: typeof resolved = { ...resolved };
+    for (const a of additions) {
+      const key = `${a.dataLayerId}:${a.layerKey}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      newTargets.push({
+        dataLayerId: a.dataLayerId,
+        layerKey: a.layerKey,
+        canCreate: true,
+        canEditGeometry: a.layer.geometryType !== null,
+        canEditAttributes: true,
+        canDelete: true,
+        editableFields: null,
+        rowScope: a.layer.editingPolicy === 'own-rows-only' ? 'own' : 'all',
+        templates: [],
+      });
+      newResolved[key] = {
+        item: {
+          id: a.dataLayerId,
+          title: a.dataLayerTitle,
+        } as unknown as Item,
+        layer: a.layer,
+      };
+    }
+    if (newTargets.length === 0) return;
+    setEditor((cur) => ({ ...cur, targets: [...cur.targets, ...newTargets] }));
+    setResolved(newResolved);
+    markDirty();
+  }
+
+  /**
+   * Set the Editor's referenced map (basemap + reference-context
+   * source). Storing only the id keeps the link live: if the map
+   * is renamed or its layers change later, the editor picks that
+   * up on the next render. Pass null to clear.
+   */
+  function pickMap(mapId: string | null) {
+    setEditor((cur) => {
+      const next = { ...cur };
+      if (mapId === null) delete next.mapId;
+      else next.mapId = mapId;
+      return next;
+    });
+    markDirty();
+  }
+
   function toggleTool(tool: EditorTool, on: boolean) {
     setEditor((cur) => {
       const set = new Set(cur.tools);
@@ -304,11 +419,91 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
         </div>
       ) : null}
 
-      {/* Targets section. Each card is the per-layer policy editor. */}
+      {/* Reference map. The editor inherits this map's basemap,
+          viewport, and reference-layer context. Layers in the map
+          that aren't editor targets render as read-only context
+          (with their map symbology) when the runtime ships in
+          slice 3b. Snap targets and tracing layers come from
+          here. See docs/editing-and-collection.md "Desktop GIS
+          Integration" / reference layers. */}
       <section className="rounded-lg border border-border bg-surface-1 shadow-card">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <div>
-            <h2 className="text-sm font-semibold text-ink-0">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-ink-0">
+              <MapIcon className="h-4 w-4 text-emerald-600" />
+              Reference map
+            </h2>
+            <p className="text-xs text-muted">
+              The editor opens against this map's basemap and viewport. Any of
+              its layers that are not editor targets render as read-only
+              reference context (snap targets, tracing aids, work-area
+              boundaries).
+            </p>
+          </div>
+          {canEdit ? (
+            <button
+              type="button"
+              onClick={() => setPickingMap(true)}
+              className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-sm font-medium hover:bg-surface-2"
+            >
+              {editor.mapId ? 'Change map' : 'Pick map'}
+            </button>
+          ) : null}
+        </div>
+        <div className="px-4 py-3 text-sm">
+          {editor.mapId ? (
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-2">
+                <MapIcon className="h-4 w-4 shrink-0 text-emerald-600" />
+                <span className="truncate font-medium text-ink-0">
+                  {mapTitle ?? (
+                    <span className="text-muted">Loading...</span>
+                  )}
+                </span>
+                {mapMissing ? (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-900">
+                    <AlertTriangle className="h-3 w-3" />
+                    Map not found
+                  </span>
+                ) : null}
+                {!mapMissing && mapTitle ? (
+                  <Link
+                    href={`/items/${editor.mapId}`}
+                    className="inline-flex items-center gap-1 text-xs text-muted hover:text-accent"
+                  >
+                    Open <ExternalLink className="h-3 w-3" />
+                  </Link>
+                ) : null}
+              </div>
+              {canEdit ? (
+                <button
+                  type="button"
+                  onClick={() => pickMap(null)}
+                  className="inline-flex items-center gap-1 rounded-md p-1 text-muted hover:bg-surface-2 hover:text-danger"
+                  aria-label="Clear reference map"
+                  title="Clear reference map"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <p className="text-muted">
+              No reference map.{' '}
+              {canEdit
+                ? 'Without one, the editor opens on a default basemap with no reference context.'
+                : ''}
+            </p>
+          )}
+        </div>
+      </section>
+
+      {/* Targets section. Each card is the per-layer policy editor. */}
+      <section className="rounded-lg border border-border bg-surface-1 shadow-card">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
+          <div>
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-ink-0">
+              <Layers className="h-4 w-4 text-sky-600" />
               Target layers
             </h2>
             <p className="text-xs text-muted">
@@ -317,14 +512,25 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
             </p>
           </div>
           {canEdit ? (
-            <button
-              type="button"
-              onClick={() => setAdding(true)}
-              className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-sm font-medium hover:bg-surface-2"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add target
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setAddingFromMap(true)}
+                className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-sm font-medium hover:bg-surface-2"
+                title="Bulk-import editable layers from a map"
+              >
+                <MapIcon className="h-3.5 w-3.5" />
+                Add from map
+              </button>
+              <button
+                type="button"
+                onClick={() => setAdding(true)}
+                className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-sm font-medium hover:bg-surface-2"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add target
+              </button>
+            </div>
           ) : null}
         </div>
         {editor.targets.length === 0 ? (
@@ -457,6 +663,20 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
         onClose={() => setAdding(false)}
         existingTargets={existingKeys}
         onAdd={addTarget}
+      />
+
+      <AddFromMapDialog
+        open={addingFromMap}
+        onClose={() => setAddingFromMap(false)}
+        existingTargets={existingKeys}
+        defaultMapId={editor.mapId}
+        onAdd={bulkAddFromMap}
+      />
+
+      <PickMapDialog
+        open={pickingMap}
+        onClose={() => setPickingMap(false)}
+        onPick={(m) => pickMap(m.id)}
       />
     </div>
   );
