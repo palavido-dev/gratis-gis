@@ -217,10 +217,29 @@ export function ItemsView({
   // the FolderRail tree on the left so the grid stays a content
   // surface rather than mixing organization and content. See
   // docs/folders.md.
-  const sourceItems = (spatialActive && spatialItems
-    ? spatialItems
-    : items
-  ).filter((it) => it.type !== 'folder');
+  //
+  // Folder + spatial intersection (#101): when the user is browsing
+  // inside a folder AND has an active area filter, narrow the
+  // spatial result to items that are also in the folder's children.
+  // Without this, the spatial query (which is server-fetched against
+  // the org without folder context) blew past the folder scope and
+  // showed every spatially-matching item in the org -- which was
+  // also why an empty folder appeared to show "all items" once a
+  // user opened the area filter.
+  const sourceItems = (() => {
+    let pool: ItemWithShares[];
+    if (spatialActive && spatialItems) {
+      if (activeFolder) {
+        const allowed = new Set(items.map((it) => it.id));
+        pool = spatialItems.filter((it) => allowed.has(it.id));
+      } else {
+        pool = spatialItems;
+      }
+    } else {
+      pool = items;
+    }
+    return pool.filter((it) => it.type !== 'folder');
+  })();
 
   // Present-in-data type counts, sorted by descending count so the
   // most common types sit at the front of the filter bar. Counts
