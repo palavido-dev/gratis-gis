@@ -75,6 +75,15 @@ interface Props {
    *  metadata, then handed to MapCanvas via this callback. */
   onZoomToLayer: (layerId: string) => void;
   onChange: (next: MapLayer[]) => void;
+  /**
+   * Whether to render the "Add layer" / "Add group" split button at
+   * the top of the panel. Defaults to true for the map editor's
+   * normal authoring experience. Use cases like the Editor item
+   * runtime, where the layer list is fixed by the editor's
+   * configuration + referenced map, pass false to hide the
+   * authoring affordance entirely.
+   */
+  showAddLayer?: boolean;
 }
 
 const DRAG_MIME = 'application/x-gg-layer';
@@ -100,6 +109,7 @@ export function LayerPanel({
   onOpenAttributeTable,
   onZoomToLayer,
   onChange,
+  showAddLayer = true,
 }: Props) {
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
@@ -373,7 +383,7 @@ export function LayerPanel({
         <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
           Layers
         </h3>
-        {canEdit ? (
+        {canEdit && showAddLayer ? (
           <div ref={addMenuRef} className="relative inline-flex">
             {/* Split-button: primary half does the most-common
                 action (Add layer); chevron half opens a tiny menu
