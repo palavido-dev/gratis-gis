@@ -4,7 +4,6 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -191,15 +190,17 @@ export function ItemSharingIndicator({
     setCurrentShares(shares);
   }, [shares]);
 
-  // Filter out self-shares (if any): we don't need to tell the user
-  // they shared with themselves.
-  const visibleShares = useMemo(
-    () =>
-      currentShares.filter(
-        (s) => !(s.principalType === 'user' && s.principalId === currentUserId),
-      ),
-    [currentShares, currentUserId],
-  );
+  // Show every share row, including a share whose principal is the
+  // current viewer. Previously we filtered self-shares out as
+  // "don't tell the user they shared with themselves" -- but that
+  // filter mis-fires for sharees: when Mateo (not the owner) opens
+  // the popover on Bob's item, the share row TO Mateo is exactly
+  // what's granting him visibility, and hiding it made the popover
+  // read "0 shares" while the chip count agreed and lied. We keep
+  // the row visible and tag it "(you)" inside SharingRow; the
+  // remove button is hidden for self-shares regardless of
+  // canManage so users don't accidentally yank their own access.
+  const visibleShares = currentShares;
 
   const shareCount = visibleShares.length;
   const meta = ACCESS_META[currentAccess];
@@ -403,6 +404,10 @@ export function ItemSharingIndicator({
                         : principalMeta.groups[s.principalId]
                     }
                     canManage={canManage}
+                    isSelf={
+                      s.principalType === 'user' &&
+                      s.principalId === currentUserId
+                    }
                     saving={saving === `${s.principalType}:${s.principalId}`}
                     onRemove={() => void removeShare(s)}
                   />
@@ -473,14 +478,27 @@ interface SharingRowProps {
   share: ItemShare;
   meta: PrincipalMeta | undefined;
   canManage: boolean;
+  /** True when the share's principal is the current viewer. The row
+   *  renders a "(you)" tag and suppresses the remove button so users
+   *  cannot accidentally yank their own access; admins/owners can
+   *  still remove via the full Manage sharing page. */
+  isSelf: boolean;
   saving: boolean;
   onRemove: () => void;
 }
 
-function SharingRow({ share, meta, canManage, saving, onRemove }: SharingRowProps) {
+function SharingRow({
+  share,
+  meta,
+  canManage,
+  isSelf,
+  saving,
+  onRemove,
+}: SharingRowProps) {
   const Icon = share.principalType === 'group' ? UsersIcon : UserRound;
-  const label =
+  const baseLabel =
     meta?.label ?? `${share.principalType} ${share.principalId.slice(0, 8)}`;
+  const label = isSelf ? `${baseLabel} (you)` : baseLabel;
   const sublabel = meta?.sublabel;
   const perm: SharePermission = share.permission;
 
@@ -498,7 +516,7 @@ function SharingRow({ share, meta, canManage, saving, onRemove }: SharingRowProp
       <span className="shrink-0 rounded bg-surface-2 px-1 py-0.5 text-[9px] uppercase tracking-wide text-muted">
         {perm}
       </span>
-      {canManage ? (
+      {canManage && !isSelf ? (
         <button
           type="button"
           onClick={onRemove}
