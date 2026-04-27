@@ -1846,6 +1846,12 @@ function ItemGrid({
                 onMoveToTrash={
                   canManage ? () => onRowMoveToTrash(item) : undefined
                 }
+                onRemoveFromFolder={
+                  canManage && onRowRemoveFromFolder
+                    ? () => onRowRemoveFromFolder(item)
+                    : undefined
+                }
+                folderTitle={activeFolderTitle}
               />
             </div>
           </li>
