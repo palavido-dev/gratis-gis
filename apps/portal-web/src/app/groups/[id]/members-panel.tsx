@@ -8,6 +8,7 @@ import {
   PrincipalPicker,
   type PrincipalOption,
 } from '@/components/principal-picker';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 
 type MemberWithUser = GroupMember & {
   user?: Pick<User, 'id' | 'username' | 'fullName'> & {
@@ -53,6 +54,12 @@ export function MembersPanel({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [addingRole, setAddingRole] = useState<'member' | 'admin'>('member');
+  // Self-removal confirm dialog state (#102). Holds the row the
+  // user clicked the trash button on; the dialog only renders
+  // when this is set so the rich tailored copy doesn't trigger
+  // for ordinary "remove someone else" flows.
+  const [confirmingSelfRemoval, setConfirmingSelfRemoval] =
+    useState<MemberWithUser | null>(null);
 
   const memberIds = useMemo(
     () => new Set<string>(members.map((m) => String(m.userId))),
@@ -129,34 +136,21 @@ export function MembersPanel({
     startTransition(() => router.refresh());
   }
 
-  async function removeMember(member: MemberWithUser) {
+  function removeMember(member: MemberWithUser) {
     setError(null);
-    // Self-removal warning (#102). Different copy depending on
-    // whether the user owns the group: the owner keeps a lot of
-    // capability after removing themselves, but loses member-only
-    // visibility, and that combination needs to be explicit so they
-    // don't wonder months later why their access feels off. For
-    // someone removing a teammate, no special copy -- the parent
-    // already gates the trash button on canManage.
+    // Self-removal opens the styled confirm dialog (#102). Removing
+    // someone else is a single-click action; only the "remove
+    // myself" path needs the rich tailored explanation.
     const removingSelf = String(member.userId) === currentUserId;
     if (removingSelf) {
-      const message = isOwner
-        ? 'Remove yourself from this group?\n\n' +
-          'You\'ll keep:\n' +
-          '  - Ownership of the group\n' +
-          '  - The ability to add/remove members and edit it\n' +
-          '  - The ability to share items TO the group\n' +
-          '\n' +
-          'You\'ll lose:\n' +
-          '  - Visibility into items shared TO the group through\n' +
-          '    your personal access (member-only path).\n' +
-          '\n' +
-          'You can re-add yourself at any time.'
-        : 'Remove yourself from this group?\n\n' +
-          'You\'ll lose access to items shared with this group.\n' +
-          'A group admin will need to re-add you to get back in.';
-      if (!confirm(message)) return;
+      setConfirmingSelfRemoval(member);
+      return;
     }
+    void performRemoveMember(member);
+  }
+
+  async function performRemoveMember(member: MemberWithUser) {
+    setError(null);
     const res = await fetch(
       `/api/portal/groups/${groupId}/members/${member.userId}`,
       { method: 'DELETE' },
@@ -246,6 +240,55 @@ export function MembersPanel({
           ) : null}
         </div>
       ) : null}
+
+      {/* Self-removal confirm (#102). Styled dialog with copy
+          tailored to whether the caller owns the group: owners
+          keep a lot after removing themselves and need to know
+          exactly what changes; non-owner members get a shorter
+          warning. */}
+      <ConfirmDialog
+        open={confirmingSelfRemoval !== null}
+        onCancel={() => setConfirmingSelfRemoval(null)}
+        onConfirm={async () => {
+          const m = confirmingSelfRemoval;
+          if (!m) return;
+          setConfirmingSelfRemoval(null);
+          await performRemoveMember(m);
+        }}
+        title="Remove yourself from this group?"
+        confirmLabel="Remove me"
+        tone="danger"
+      >
+        {isOwner ? (
+          <div className="space-y-3 text-sm text-ink-1">
+            <div>
+              <p className="mb-1 font-medium">You&apos;ll keep:</p>
+              <ul className="list-disc space-y-0.5 pl-5 text-muted">
+                <li>Ownership of the group</li>
+                <li>The ability to add/remove members and edit it</li>
+                <li>The ability to share items TO the group</li>
+              </ul>
+            </div>
+            <div>
+              <p className="mb-1 font-medium">You&apos;ll lose:</p>
+              <ul className="list-disc space-y-0.5 pl-5 text-muted">
+                <li>
+                  Visibility into items shared TO the group through your
+                  personal access (member-only path).
+                </li>
+              </ul>
+            </div>
+            <p className="text-xs text-muted">
+              You can re-add yourself at any time.
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm text-ink-1">
+            You&apos;ll lose access to items shared with this group. A
+            group admin will need to re-add you to get back in.
+          </p>
+        )}
+      </ConfirmDialog>
     </div>
   );
 }
