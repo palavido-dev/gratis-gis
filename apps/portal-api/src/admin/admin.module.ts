@@ -10,6 +10,7 @@ import { HousekeepingScheduleService } from './housekeeping-schedule.service.js'
 import { HousekeepingCronService } from './housekeeping-cron.service.js';
 import { KeycloakAdminService } from './keycloak-admin.service.js';
 import { V3TablesModule } from '../features-v3/v3-tables.module.js';
+import { ItemsModule } from '../items/items.module.js';
 
 /**
  * Wires the admin surfaces: Keycloak integration (users +
@@ -24,7 +25,7 @@ import { V3TablesModule } from '../features-v3/v3-tables.module.js';
  * management yet.
  */
 @Module({
-  imports: [V3TablesModule],
+  imports: [V3TablesModule, ItemsModule],
   controllers: [
     AdminUsersController,
     AdminBrandingController,

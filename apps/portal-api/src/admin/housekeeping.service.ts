@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ItemType } from '@prisma/client';
 
@@ -8,6 +8,12 @@ import {
   V3TablesService,
   type V3LayerShape,
 } from '../features-v3/v3-tables.service.js';
+import {
+  CredentialService,
+  type CredentialPayload,
+} from '../items/credential.service.js';
+import { exchangeBasicForArcgisToken } from '../items/arcgis-auth.js';
+import { probeArcgisExtent } from '../items/arcgis-extent.js';
 
 /**
  * Heuristics-based analytics for the /admin/housekeeping page.
@@ -29,10 +35,13 @@ import {
  */
 @Injectable()
 export class HousekeepingService {
+  private readonly log = new Logger(HousekeepingService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly cfg: ConfigService,
     private readonly v3Tables: V3TablesService,
+    private readonly credentials: CredentialService,
   ) {}
 
   private get staleItemDays(): number {
@@ -475,6 +484,14 @@ export class HousekeepingService {
           next = await this.aggregateFromReferenced(refs, freshById);
         }
         if (!next) next = itemBbox(it.type, it.data);
+      } else if (it.type === 'arcgis_service') {
+        // Probe the upstream for the actual feature extent of every
+        // sublayer. Cheaper than the proxy for our purposes since
+        // we only need the envelope, not the features. Falls back
+        // to whatever's in data.bbox if the probe yields nothing
+        // (network error, all sublayers empty, etc).
+        next = await this.probeArcgisServiceBbox(it.id, it.data);
+        if (!next) next = itemBbox(it.type, it.data);
       } else {
         next = itemBbox(it.type, it.data);
       }
@@ -498,6 +515,73 @@ export class HousekeepingService {
       perType[it.type] = (perType[it.type] ?? 0) + 1;
     }
     return { scanned: items.length, updated, perType };
+  }
+
+  /**
+   * Probe the upstream ArcGIS service for true feature extent
+   * (#94). Walks data.layers[] and asks each sublayer for its
+   * returnExtentOnly response, aggregates the envelopes, and
+   * returns the result in EPSG:4326. Honors data.requiresAuth via
+   * CredentialService + arcgis-token exchange so secured services
+   * work the same as the live proxy. Failures (network, auth,
+   * single-layer 500) are non-fatal -- we log and let the recompute
+   * fall back to data.bbox.
+   */
+  private async probeArcgisServiceBbox(
+    itemId: string,
+    data: unknown,
+  ): Promise<[number, number, number, number] | null> {
+    if (!data || typeof data !== 'object') return null;
+    const d = data as {
+      url?: unknown;
+      requiresAuth?: unknown;
+      layers?: unknown;
+    };
+    const url = typeof d.url === 'string' ? d.url : null;
+    if (!url) return null;
+    const layerIds = collectArcgisLayerIds(d.layers);
+    if (layerIds.length === 0) return null;
+
+    let credential: CredentialPayload | null = null;
+    if (d.requiresAuth === true) {
+      try {
+        credential = await this.credentials.getCredentialForProxy(itemId);
+      } catch (err) {
+        // Without the credential we can't reach a secured service.
+        // Log and bail; the fallback path will keep whatever
+        // data.bbox already had.
+        this.log.warn(
+          `arcgis extent probe: no credential for item=${itemId}: ${
+            err instanceof Error ? err.message : err
+          }`,
+        );
+        return null;
+      }
+      // Mirror the proxy controller: ArcGIS REST won't honor HTTP
+      // Basic on data endpoints (#76), so exchange basic creds for
+      // a token before probing.
+      if (credential.kind === 'basic' && /\/arcgis\/rest\//i.test(url)) {
+        try {
+          const token = await exchangeBasicForArcgisToken({
+            serviceUrl: url,
+            username: credential.username,
+            password: credential.password,
+            cacheKey: itemId,
+          });
+          credential = { kind: 'arcgis_token', token };
+        } catch (err) {
+          this.log.warn(
+            `arcgis extent probe: token exchange failed for item=${itemId}: ${
+              err instanceof Error ? err.message : err
+            }`,
+          );
+          return null;
+        }
+      }
+    }
+    return probeArcgisExtent(url, layerIds, credential, {
+      warn: (msg) => this.log.warn(`arcgis extent (${itemId}): ${msg}`),
+    });
   }
 
   /**
@@ -647,6 +731,22 @@ function walkInlineFeatureBbox(
     walk(g.coordinates);
   }
   return any ? [w, s, e, n] : null;
+}
+
+/** Read the numeric layer ids from an arcgis_service item's
+ *  data.layers[]. Probed by the wizard at create time and persisted
+ *  there so we don't have to round-trip the service root again
+ *  during recompute. */
+function collectArcgisLayerIds(layersData: unknown): number[] {
+  if (!Array.isArray(layersData)) return [];
+  const out: number[] = [];
+  for (const l of layersData) {
+    if (!l || typeof l !== 'object') continue;
+    const id = (l as { id?: unknown }).id;
+    if (typeof id === 'number' && Number.isFinite(id)) out.push(id);
+    else if (typeof id === 'string' && /^\d+$/.test(id)) out.push(Number(id));
+  }
+  return out;
 }
 
 /** Walk a map's data.layers[] and return the underlying portal item
