@@ -7,6 +7,7 @@ import { CredentialService } from './credential.service.js';
 import { ItemCredentialController } from './credential.controller.js';
 import { ItemProxyController } from './item-proxy.controller.js';
 import { ServiceProbeController } from './service-probe.controller.js';
+import { EditorPolicyService } from './editor-policy.service.js';
 import { V3TablesModule } from '../features-v3/v3-tables.module.js';
 
 @Module({
@@ -22,12 +23,14 @@ import { V3TablesModule } from '../features-v3/v3-tables.module.js';
     SharingService,
     DataSnapshotService,
     CredentialService,
+    EditorPolicyService,
   ],
   exports: [
     ItemsService,
     SharingService,
     DataSnapshotService,
     CredentialService,
+    EditorPolicyService,
   ],
 })
 export class ItemsModule {}

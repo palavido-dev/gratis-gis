@@ -591,7 +591,10 @@ export function EditorRuntime({
     try {
       const res = await fetch(
         `/api/portal/items/${pendingDelete.dataLayerId}/layers/${pendingDelete.layerKey}/features/${pendingDelete.featureId}`,
-        { method: 'DELETE' },
+        {
+          method: 'DELETE',
+          headers: { 'x-editor-id': editorId },
+        },
       );
       if (!res.ok && res.status !== 204) {
         setDeleteError(`Delete failed: ${res.status} ${await res.text()}`);
@@ -636,11 +639,20 @@ export function EditorRuntime({
     setSubmitting(true);
     try {
       const baseUrl = `/api/portal/items/${target.dataLayerId}/layers/${target.layerKey}/features`;
+      // x-editor-id tells the API "this write is happening through
+      // an Editor item; apply that item's per-target policy as
+      // additional gate over the existing data_layer share-edit
+      // check". Without the header the existing share-edit gate is
+      // the only enforcement.
+      const writeHeaders: Record<string, string> = {
+        'content-type': 'application/json',
+        'x-editor-id': editorId,
+      };
       let res: Response;
       if (pendingFeature.mode === 'create') {
         res = await fetch(baseUrl, {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: writeHeaders,
           body: JSON.stringify({
             features: [
               {
@@ -659,7 +671,7 @@ export function EditorRuntime({
         }
         res = await fetch(`${baseUrl}/${pendingFeature.featureId}`, {
           method: 'PATCH',
-          headers: { 'content-type': 'application/json' },
+          headers: writeHeaders,
           body: JSON.stringify({ properties: values }),
         });
       }

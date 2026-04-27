@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   NotFoundException,
   Param,
@@ -26,6 +27,7 @@ import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { ItemsService } from '../items/items.service.js';
 import { SharingService } from '../items/sharing.service.js';
+import { EditorPolicyService } from '../items/editor-policy.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { V3FeaturesService } from './v3-features.service.js';
 
@@ -67,6 +69,7 @@ export class V3FeaturesController {
     private readonly sharing: SharingService,
     private readonly v3: V3FeaturesService,
     private readonly prisma: PrismaService,
+    private readonly editorPolicy: EditorPolicyService,
   ) {}
 
   @Get('features')
@@ -165,8 +168,18 @@ export class V3FeaturesController {
     @Param('id') itemId: string,
     @Param('layerId') layerId: string,
     @Body() body: AppendFeaturesBodyDto,
+    @Headers('x-editor-id') editorId?: string,
   ) {
     await this.assertV3Layer(user, itemId, layerId, 'write');
+    if (editorId) {
+      await this.editorPolicy.assertAllows({
+        user,
+        editorId,
+        dataLayerId: itemId,
+        layerKey: layerId,
+        op: 'create',
+      });
+    }
     return this.v3.insertFeatures(itemId, layerId, body.features, user);
   }
 
@@ -177,6 +190,7 @@ export class V3FeaturesController {
     @Param('layerId') layerId: string,
     @Param('fid') featureId: string,
     @Body() body: UpdateFeatureBodyDto,
+    @Headers('x-editor-id') editorId?: string,
   ) {
     const { rowScope } = await this.assertV3Layer(
       user,
@@ -184,6 +198,22 @@ export class V3FeaturesController {
       layerId,
       'write',
     );
+    if (editorId) {
+      await this.editorPolicy.assertAllows({
+        user,
+        editorId,
+        dataLayerId: itemId,
+        layerKey: layerId,
+        op: 'update',
+        patchKinds: {
+          hasGeometry: body.geometry !== undefined,
+          propertyKeys:
+            body.properties !== undefined
+              ? Object.keys(body.properties as Record<string, unknown>)
+              : [],
+        },
+      });
+    }
     const patch: { geometry?: unknown; properties?: Record<string, unknown> } = {};
     if (body.geometry !== undefined) patch.geometry = body.geometry;
     if (body.properties !== undefined) patch.properties = body.properties;
@@ -199,6 +229,7 @@ export class V3FeaturesController {
     @Param('id') itemId: string,
     @Param('layerId') layerId: string,
     @Param('fid') featureId: string,
+    @Headers('x-editor-id') editorId?: string,
   ) {
     const { rowScope } = await this.assertV3Layer(
       user,
@@ -206,6 +237,15 @@ export class V3FeaturesController {
       layerId,
       'write',
     );
+    if (editorId) {
+      await this.editorPolicy.assertAllows({
+        user,
+        editorId,
+        dataLayerId: itemId,
+        layerKey: layerId,
+        op: 'delete',
+      });
+    }
     await this.v3.deleteFeature(itemId, layerId, featureId, user, {
       ownRowsOnly: rowScope === 'own',
     });

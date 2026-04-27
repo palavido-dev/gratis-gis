@@ -39,6 +39,14 @@ async function forward(req: NextRequest, pathSegments: string[]) {
   };
   const ct = req.headers.get('content-type');
   if (ct) headers['content-type'] = ct;
+  // Editor runtime sends `x-editor-id` on every write so the API can
+  // apply the Editor item's per-target policy as a defense-in-depth
+  // gate over the existing data_layer share-edit check. Forward it
+  // through the BFF unchanged. Custom headers are namespaced under
+  // x-* so we keep the allowlist explicit rather than blanket-
+  // forwarding everything.
+  const editorId = req.headers.get('x-editor-id');
+  if (editorId) headers['x-editor-id'] = editorId;
 
   const init: RequestInit = {
     method: req.method,
