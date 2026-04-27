@@ -170,6 +170,7 @@ export default async function EditorRuntimePage({ params }: Props) {
       editorId={editorItem.id}
       editorTitle={editorItem.title}
       editor={editor}
+      resolvedTargets={resolvedTargets}
       referencedMapTitle={referencedMap?.title ?? null}
       initialMapData={mapData}
       targetLayerIds={targetLayerIds}

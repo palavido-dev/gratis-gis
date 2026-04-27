@@ -85,6 +85,15 @@ interface Props {
   onSelectionChange: (
     next: Record<string, Set<number>>,
   ) => void;
+  /**
+   * Optional callback fired with the underlying maplibregl.Map
+   * instance once it is set up, and again with `null` on teardown.
+   * Lets a parent attach overlays that need direct map access -- in
+   * particular the Editor runtime uses this to mount terra-draw on
+   * the same map without invading MapCanvas internals. Most callers
+   * (the Map item editor) leave this unset.
+   */
+  onMapReady?: (map: maplibregl.Map | null) => void;
 }
 
 export interface MapCanvasHandle {
@@ -126,6 +135,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     selection,
     selectTool,
     onSelectionChange,
+    onMapReady,
   }: Props,
   ref,
 ) {
@@ -151,6 +161,12 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
   selectToolRef.current = selectTool;
   const onSelectionChangeRef = useRef(onSelectionChange);
   onSelectionChangeRef.current = onSelectionChange;
+  // Latest onMapReady callback in a ref so it can fire from the
+  // setup effect without forcing the effect to re-run on every
+  // parent re-render. The effect runs once on mount and once on
+  // unmount, which is what we want for terra-draw lifecycle.
+  const onMapReadyRef = useRef(onMapReady);
+  onMapReadyRef.current = onMapReady;
 
   // Select-tool local state. Refs mirror the state so the MapLibre
   // event handlers (which live in a useEffect closure) can read the
@@ -364,8 +380,14 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     kickLoadIfReady();
 
     mapRef.current = m;
+    // Notify the parent that the map is ready, so callers like the
+    // Editor runtime can mount draw overlays (terra-draw) on the
+    // same instance. Read via a ref so a callback identity change
+    // doesn't trigger the setup effect's deps and tear the map down.
+    onMapReadyRef.current?.(m);
     return () => {
       cancelled = true;
+      onMapReadyRef.current?.(null);
       m.remove();
       mapRef.current = null;
     };
