@@ -244,6 +244,11 @@ export default async function ItemsPage({ searchParams }: Props) {
               items={items}
               currentUser={me}
               folders={folders}
+              activeFolder={
+                activeFolder
+                  ? { id: activeFolder.id, title: activeFolder.title }
+                  : null
+              }
             />
           )}
         </div>

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ExternalLink,
   Eye,
+  FolderMinus,
   FolderPlus,
   MoreVertical,
   Trash2,
@@ -36,6 +37,14 @@ interface Props {
   onShare?: (() => void) | undefined;
   onMoveToFolder?: (() => void) | undefined;
   onMoveToTrash?: (() => void) | undefined;
+  /** Only set when the user is currently viewing INSIDE a folder
+   *  (?folder=<id>); shows a "Remove from this folder" menu item
+   *  alongside the rest. Action splices the row's id out of the
+   *  folder's data.childItemIds, doesn't delete the item (#92). */
+  onRemoveFromFolder?: (() => void) | undefined;
+  /** Folder title shown in the menu item label so the admin
+   *  knows which folder they're removing from. */
+  folderTitle?: string | undefined;
 }
 
 export function ItemRowMenu({
@@ -46,6 +55,8 @@ export function ItemRowMenu({
   onShare,
   onMoveToFolder,
   onMoveToTrash,
+  onRemoveFromFolder,
+  folderTitle,
 }: Props) {
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -153,6 +164,25 @@ export function ItemRowMenu({
             >
               <FolderPlus className="h-3.5 w-3.5 text-muted" />
               <span className="flex-1">Move to folder</span>
+            </button>
+          ) : null}
+          {canManage && onRemoveFromFolder ? (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpen(false);
+                onRemoveFromFolder();
+              }}
+              className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-ink-1 hover:bg-surface-2"
+            >
+              <FolderMinus className="h-3.5 w-3.5 text-muted" />
+              <span className="flex-1">
+                {folderTitle
+                  ? `Remove from "${folderTitle}"`
+                  : 'Remove from this folder'}
+              </span>
             </button>
           ) : null}
           {canManage && onMoveToTrash ? (

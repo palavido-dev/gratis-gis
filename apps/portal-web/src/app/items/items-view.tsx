@@ -69,6 +69,13 @@ interface Props {
    * yet (e.g. tests).
    */
   folders?: FolderRailNode[];
+  /**
+   * When viewing inside a specific folder (?folder=<id>), the
+   * server passes the folder item here so per-row kebabs can
+   * offer "Remove from this folder" without a round-trip. Null
+   * when viewing the unfiltered items list (#92).
+   */
+  activeFolder?: { id: string; title: string } | null | undefined;
 }
 
 type ViewMode = 'card' | 'list';
@@ -100,7 +107,12 @@ const ACCESS_LABELS: Record<string, string> = {
   public: 'Public',
 };
 
-export function ItemsView({ items, currentUser, folders = [] }: Props) {
+export function ItemsView({
+  items,
+  currentUser,
+  folders = [],
+  activeFolder = null,
+}: Props) {
   const [viewMode, setViewMode] = useState<ViewMode>('card');
   const [groupBy, setGroupBy] = useState<GroupBy>('none');
   const [sortBy, setSortBy] = useState<SortBy>('updated-desc');
@@ -345,6 +357,55 @@ export function ItemsView({ items, currentUser, folders = [] }: Props) {
       setBulkError(e instanceof Error ? e.message : 'Add to folder failed');
     } finally {
       setFolderSaving(false);
+    }
+  }
+
+  /**
+   * Splice a single item out of activeFolder.data.childItemIds (#92).
+   * Same fetch -> patch shape as handleAddToFolder; the item itself
+   * is untouched. The kebab entry that calls this is only rendered
+   * when activeFolder is non-null, so we guard but expect the
+   * folder ref to be present.
+   */
+  async function handleRemoveFromFolder(itemId: string) {
+    if (!activeFolder) return;
+    setBulkError(null);
+    try {
+      const fres = await fetch(`/api/portal/items/${activeFolder.id}`);
+      if (!fres.ok) {
+        throw new Error(`Could not load folder: HTTP ${fres.status}`);
+      }
+      const folder = (await fres.json()) as { data: FolderData | null };
+      const existing = Array.isArray(folder.data?.childItemIds)
+        ? folder.data!.childItemIds
+        : [];
+      if (!existing.includes(itemId)) {
+        // Already not in the folder; refresh anyway in case the
+        // server has a different view than our row state.
+        router.refresh();
+        return;
+      }
+      const next: FolderData = {
+        version: 1,
+        childItemIds: existing.filter((id) => id !== itemId),
+      };
+      const pres = await fetch(`/api/portal/items/${activeFolder.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ data: next }),
+      });
+      if (!pres.ok) {
+        const body = await pres.json().catch(() => ({}));
+        const msg =
+          (body as { message?: string | string[] }).message ??
+          `HTTP ${pres.status}`;
+        throw new Error(Array.isArray(msg) ? msg.join('; ') : msg);
+      }
+      router.refresh();
+    } catch (e) {
+      setBulkError(
+        e instanceof Error ? e.message : 'Remove from folder failed',
+      );
     }
   }
 
@@ -636,6 +697,13 @@ export function ItemsView({ items, currentUser, folders = [] }: Props) {
           setSelected(new Set([item.id]));
           setShowBulkTrash(true);
         }}
+        {...(activeFolder
+          ? {
+              onRowRemoveFromFolder: (item) =>
+                handleRemoveFromFolder(item.id),
+              activeFolderTitle: activeFolder.title,
+            }
+          : {})}
       />
       {showReassign ? (
         <ReassignOwnerDialog
@@ -1381,6 +1449,11 @@ interface BodyProps {
   onRowShare: (item: ItemWithShares) => void;
   onRowMoveToFolder: (item: ItemWithShares) => void;
   onRowMoveToTrash: (item: ItemWithShares) => void;
+  /** Optional "remove from this folder" action -- only set when
+   *  the user is browsing inside a folder context (#92). */
+  onRowRemoveFromFolder?: ((item: ItemWithShares) => void) | undefined;
+  /** Title of the folder we're inside; used in the kebab label. */
+  activeFolderTitle?: string | undefined;
 }
 
 function ItemsBody({
@@ -1396,6 +1469,8 @@ function ItemsBody({
   onRowShare,
   onRowMoveToFolder,
   onRowMoveToTrash,
+  onRowRemoveFromFolder,
+  activeFolderTitle,
 }: BodyProps) {
   if (items.length === 0) {
     return (
@@ -1419,6 +1494,12 @@ function ItemsBody({
         onRowShare={onRowShare}
         onRowMoveToFolder={onRowMoveToFolder}
         onRowMoveToTrash={onRowMoveToTrash}
+        {...(onRowRemoveFromFolder
+          ? { onRowRemoveFromFolder }
+          : {})}
+        {...(activeFolderTitle
+          ? { activeFolderTitle }
+          : {})}
       />
     );
   }
@@ -1466,6 +1547,10 @@ function ItemsBody({
               onRowShare={onRowShare}
               onRowMoveToFolder={onRowMoveToFolder}
               onRowMoveToTrash={onRowMoveToTrash}
+              {...(onRowRemoveFromFolder
+                ? { onRowRemoveFromFolder }
+                : {})}
+              {...(activeFolderTitle ? { activeFolderTitle } : {})}
             />
           </section>
         );
@@ -1489,6 +1574,11 @@ interface GridProps {
   onRowShare: (item: ItemWithShares) => void;
   onRowMoveToFolder: (item: ItemWithShares) => void;
   onRowMoveToTrash: (item: ItemWithShares) => void;
+  /** Optional remove-from-folder action when browsing inside a
+   *  folder context (#92). */
+  onRowRemoveFromFolder?: ((item: ItemWithShares) => void) | undefined;
+  /** Folder title for the kebab item label. */
+  activeFolderTitle?: string | undefined;
 }
 
 function ItemGrid({
@@ -1503,6 +1593,8 @@ function ItemGrid({
   onRowShare,
   onRowMoveToFolder,
   onRowMoveToTrash,
+  onRowRemoveFromFolder,
+  activeFolderTitle,
 }: GridProps) {
   if (viewMode === 'card') {
     return (
@@ -1566,6 +1658,12 @@ function ItemGrid({
                   onMoveToTrash={
                     canManage ? () => onRowMoveToTrash(item) : undefined
                   }
+                  onRemoveFromFolder={
+                    canManage && onRowRemoveFromFolder
+                      ? () => onRowRemoveFromFolder(item)
+                      : undefined
+                  }
+                  folderTitle={activeFolderTitle}
                 />
               </div>
               <ItemCard
