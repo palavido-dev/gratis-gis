@@ -1806,18 +1806,24 @@ function ItemGrid({
                     </p>
                   ) : null}
                 </div>
-                <p className="hidden truncate text-center text-[11px] text-muted sm:block">
-                  {getItemTypeLabel(item.type)}
-                </p>
-                <p
-                  className="hidden truncate text-center text-[11px] text-muted sm:block"
-                  title={item.owner?.username ?? item.ownerId}
-                >
-                  {ownerLabel}
-                </p>
-                <p className="hidden text-center text-[11px] text-muted sm:block">
-                  {new Date(item.updatedAt).toLocaleDateString()}
-                </p>
+                <div className="hidden min-w-0 sm:flex sm:justify-center">
+                  <p className="truncate text-[11px] text-muted">
+                    {getItemTypeLabel(item.type)}
+                  </p>
+                </div>
+                <div className="hidden min-w-0 sm:flex sm:justify-center">
+                  <p
+                    className="truncate text-[11px] text-muted"
+                    title={item.owner?.username ?? item.ownerId}
+                  >
+                    {ownerLabel}
+                  </p>
+                </div>
+                <div className="hidden sm:flex sm:justify-center">
+                  <p className="text-[11px] text-muted">
+                    {new Date(item.updatedAt).toLocaleDateString()}
+                  </p>
+                </div>
               </Link>
               {/* Sharing + kebab sit outside the Link so their click
                   handlers don't propagate a navigation. The kebab
