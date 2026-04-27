@@ -1737,10 +1737,10 @@ function ItemGrid({
         )}
         <span className="h-4 w-4" aria-hidden="true" />
         <span>Title</span>
-        <span>Type</span>
-        <span>Owner</span>
-        <span>Updated</span>
-        <span>Sharing</span>
+        <span className="text-center">Type</span>
+        <span className="text-center">Owner</span>
+        <span className="text-center">Updated</span>
+        <span className="text-center">Sharing</span>
         <span className="h-3.5 w-3.5" aria-hidden="true" />
       </li>
       {items.map((item) => {
@@ -1806,16 +1806,16 @@ function ItemGrid({
                     </p>
                   ) : null}
                 </div>
-                <p className="hidden truncate text-[11px] text-muted sm:block">
+                <p className="hidden truncate text-center text-[11px] text-muted sm:block">
                   {getItemTypeLabel(item.type)}
                 </p>
                 <p
-                  className="hidden truncate text-[11px] text-muted sm:block"
+                  className="hidden truncate text-center text-[11px] text-muted sm:block"
                   title={item.owner?.username ?? item.ownerId}
                 >
                   {ownerLabel}
                 </p>
-                <p className="hidden text-[11px] text-muted sm:block">
+                <p className="hidden text-center text-[11px] text-muted sm:block">
                   {new Date(item.updatedAt).toLocaleDateString()}
                 </p>
               </Link>
@@ -1823,7 +1823,7 @@ function ItemGrid({
                   handlers don't propagate a navigation. The kebab
                   replaces the row's old hover-chevron now that
                   every row has actual actions. (#82) */}
-              <div className="hidden sm:block">
+              <div className="hidden sm:flex sm:justify-center">
                 <ItemSharingIndicator
                   itemId={item.id}
                   itemTitle={item.title}
