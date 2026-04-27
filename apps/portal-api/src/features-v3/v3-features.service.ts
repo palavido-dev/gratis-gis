@@ -164,7 +164,7 @@ export class V3FeaturesService {
         VALUES
           (COALESCE($1::uuid, gen_random_uuid()),
            CASE WHEN $2::text IS NULL THEN NULL ELSE ST_GeomFromGeoJSON($2) END,
-           $3::jsonb, $4, $5, $5)
+           $3::jsonb, $4, $5::uuid, $5::uuid)
         `,
         f.globalId ?? null,
         f.geometry ? JSON.stringify(f.geometry) : null,
@@ -195,7 +195,7 @@ export class V3FeaturesService {
         SELECT gid, global_id, ST_AsGeoJSON(geom) AS geom, properties,
                valid_from, valid_to, created_by, created_at, edited_by, edited_at
         FROM "${tbl}"
-        WHERE global_id = $1 AND valid_to IS NULL
+        WHERE global_id = $1::uuid AND valid_to IS NULL
         FOR UPDATE
         `,
         featureId,
@@ -211,7 +211,7 @@ export class V3FeaturesService {
       }
       const now = new Date();
       await tx.$executeRawUnsafe(
-        `UPDATE "${tbl}" SET valid_to = $1, edited_by = $2, edited_at = $1 WHERE gid = $3`,
+        `UPDATE "${tbl}" SET valid_to = $1, edited_by = $2::uuid, edited_at = $1 WHERE gid = $3`,
         now,
         user.id,
         cur[0]!.gid,
@@ -229,8 +229,8 @@ export class V3FeaturesService {
         INSERT INTO "${tbl}"
           (global_id, geom, properties, valid_from, created_by, created_at, edited_by, edited_at)
         VALUES
-          ($1, CASE WHEN $2::text IS NULL THEN NULL ELSE ST_GeomFromGeoJSON($2) END,
-           $3::jsonb, $4, $5, $6, $5, $4)
+          ($1::uuid, CASE WHEN $2::text IS NULL THEN NULL ELSE ST_GeomFromGeoJSON($2) END,
+           $3::jsonb, $4, $5::uuid, $6, $5::uuid, $4)
         RETURNING gid, global_id, ST_AsGeoJSON(geom) AS geom, properties,
                   valid_from, valid_to, created_by, created_at, edited_by, edited_at
         `,
@@ -258,13 +258,13 @@ export class V3FeaturesService {
     // Row-scope guard (#40). The UPDATE narrows by created_by when
     // the caller is restricted to their own rows; if zero rows are
     // affected we surface NotFound just like a missing feature.
-    const ownClause = opts.ownRowsOnly ? ' AND created_by = $4' : '';
+    const ownClause = opts.ownRowsOnly ? ' AND created_by = $4::uuid' : '';
     const ownParams = opts.ownRowsOnly ? [user.id] : [];
     const affected = await this.prisma.$executeRawUnsafe(
       `
       UPDATE "${tbl}"
-         SET valid_to = $1, edited_by = $2, edited_at = $1
-       WHERE global_id = $3 AND valid_to IS NULL${ownClause}
+         SET valid_to = $1, edited_by = $2::uuid, edited_at = $1
+       WHERE global_id = $3::uuid AND valid_to IS NULL${ownClause}
       `,
       now,
       user.id,
