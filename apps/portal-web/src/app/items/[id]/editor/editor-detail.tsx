@@ -8,6 +8,7 @@ import {
   Loader2,
   Map as MapIcon,
   PencilRuler,
+  Play,
   Plus,
   Trash2,
   Wrench,
@@ -377,41 +378,56 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
   return (
     <div className="space-y-6">
       {/* Sticky save bar mirrors map-editor's UX: present whenever
-          dirty so the user always knows how to commit. */}
-      {canEdit ? (
-        <div className="sticky top-0 z-10 flex items-center justify-between rounded-md border border-border bg-surface-1 px-4 py-2 shadow-sm">
-          <div className="flex items-center gap-2 text-sm">
-            <PencilRuler className="h-4 w-4 text-purple-600" />
-            <span className="font-medium text-ink-0">Editor configuration</span>
-            {dirty ? (
-              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900">
-                Unsaved changes
-              </span>
-            ) : saved ? (
-              <span className="text-[11px] text-emerald-700">Saved</span>
-            ) : null}
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={cancel}
-              disabled={!dirty || saving}
-              className="rounded-md border border-border bg-surface-1 px-3 py-1.5 text-sm hover:bg-surface-2 disabled:opacity-50"
-            >
-              Discard
-            </button>
-            <button
-              type="button"
-              onClick={() => void save()}
-              disabled={!dirty || saving}
-              className="inline-flex items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
-            >
-              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-              Save
-            </button>
-          </div>
+          dirty so the user always knows how to commit. The "Open in
+          workspace" link is always visible, even when the form is
+          read-only, so a viewer can launch the runtime to see what
+          the configured editor would look like. */}
+      <div className="sticky top-0 z-10 flex items-center justify-between rounded-md border border-border bg-surface-1 px-4 py-2 shadow-sm">
+        <div className="flex items-center gap-2 text-sm">
+          <PencilRuler className="h-4 w-4 text-purple-600" />
+          <span className="font-medium text-ink-0">Editor configuration</span>
+          {canEdit && dirty ? (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900">
+              Unsaved changes
+            </span>
+          ) : canEdit && saved ? (
+            <span className="text-[11px] text-emerald-700">Saved</span>
+          ) : null}
         </div>
-      ) : null}
+        <div className="flex items-center gap-2">
+          <Link
+            href={`/items/${itemId}/editor/run`}
+            className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-sm font-medium hover:bg-surface-2"
+            title="Open this editor in workspace mode"
+          >
+            <Play className="h-3.5 w-3.5" />
+            Open in workspace
+          </Link>
+          {canEdit ? (
+            <>
+              <button
+                type="button"
+                onClick={cancel}
+                disabled={!dirty || saving}
+                className="rounded-md border border-border bg-surface-1 px-3 py-1.5 text-sm hover:bg-surface-2 disabled:opacity-50"
+              >
+                Discard
+              </button>
+              <button
+                type="button"
+                onClick={() => void save()}
+                disabled={!dirty || saving}
+                className="inline-flex items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
+              >
+                {saving ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : null}
+                Save
+              </button>
+            </>
+          ) : null}
+        </div>
+      </div>
 
       {error ? (
         <div className="rounded-md border border-danger/40 bg-danger/5 px-3 py-2 text-sm text-danger" role="alert">
