@@ -310,14 +310,29 @@ export class HousekeepingScheduleService {
       },
       select: {
         id: true,
+        orgId: true,
         type: true,
         data: true,
         updatedAt: true,
         lastUsageAt: true,
       },
     });
+    // Build referenced-set per org so an item depended-on by any
+    // non-trashed sibling stays alive (#98). Cached across the
+    // candidate loop because a single org typically owns many
+    // candidates and the helper does one query per org.
+    const referencedByOrg = new Map<string, Set<string>>();
+    const refSetFor = async (orgId: string): Promise<Set<string>> => {
+      const cached = referencedByOrg.get(orgId);
+      if (cached) return cached;
+      const set = await this.housekeeping.buildReferencedItemSet(orgId);
+      referencedByOrg.set(orgId, set);
+      return set;
+    };
     const toTrash: string[] = [];
     for (const c of candidates) {
+      const referenced = await refSetFor(c.orgId);
+      if (referenced.has(c.id)) continue;
       const dataAt = await this.dataActivityAt(c.id, c.type, c.data);
       let effective = c.updatedAt;
       if (dataAt && dataAt > effective) effective = dataAt;

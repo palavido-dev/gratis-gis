@@ -14,6 +14,10 @@ import {
 } from '../items/credential.service.js';
 import { exchangeBasicForArcgisToken } from '../items/arcgis-auth.js';
 import { probeArcgisExtent } from '../items/arcgis-extent.js';
+import {
+  extractDependencies,
+  normalizeArcgisUrl,
+} from '../items/dependency-extractor.js';
 
 /**
  * Heuristics-based analytics for the /admin/housekeeping page.
@@ -151,10 +155,19 @@ export class HousekeepingService {
       orderBy: { updatedAt: 'asc' },
       take: this.topN * 5,
     });
+    // Referential freshness (#98, conservative version): an item
+    // referenced by any non-trashed item in the org isn't stale,
+    // even if its own activity signals are quiet. A pick_list used
+    // by an active data_layer, a basemap embedded in an active map,
+    // an arcgis_service referenced by a map's layer URL -- all stay
+    // fresh because something depends on them. Built once per
+    // staleItems() call; the per-candidate lookup is just a Set.has.
+    const referenced = await this.buildReferencedItemSet(orgId);
     const refined: Array<
       (typeof candidates)[number] & { effectiveActivity: Date }
     > = [];
     for (const r of candidates) {
+      if (referenced.has(r.id)) continue;
       const dataAt = await this.dataActivityAt(r.id, r.type, r.data);
       const effective = pickEffectiveActivity(
         r.updatedAt,
@@ -445,8 +458,10 @@ export class HousekeepingService {
         lastUsageAt: true,
       },
     });
+    const referenced = await this.buildReferencedItemSet(orgId);
     let n = 0;
     for (const c of candidates) {
+      if (referenced.has(c.id)) continue;
       const dataAt = await this.dataActivityAt(c.id, c.type, c.data);
       const effective = pickEffectiveActivity(
         c.updatedAt,
@@ -456,6 +471,55 @@ export class HousekeepingService {
       if (effective < cutoff) n += 1;
     }
     return n;
+  }
+
+  /**
+   * Reverse index of "what items are referenced by other items"
+   * (#98). Walks every non-trashed item's data, runs the existing
+   * extractDependencies() helper, and gathers the union of all
+   * referenced item ids. URL references (arcgis-rest layer URLs in
+   * a map pointing at an arcgis_service item) are resolved here too:
+   * the arcgis_service item is added when its data.url normalises
+   * to a URL key that any other item references. The resulting Set
+   * is consulted by the stale heuristic; an item id present in the
+   * set is treated as fresh regardless of its own activity signals,
+   * because something else in the org depends on it.
+   */
+  async buildReferencedItemSet(orgId: string): Promise<Set<string>> {
+    const rows = await this.prisma.item.findMany({
+      where: { orgId, deletedAt: null },
+      select: { id: true, type: true, data: true },
+    });
+    const referencedIds = new Set<string>();
+    const referencedUrlKeys = new Set<string>();
+    for (const r of rows) {
+      const deps = extractDependencies({ type: r.type, data: r.data });
+      for (const id of deps.itemIds) referencedIds.add(id);
+      for (const u of deps.urls) referencedUrlKeys.add(u);
+    }
+    if (referencedUrlKeys.size > 0) {
+      // Resolve URL refs to arcgis_service item ids: any service
+      // whose data.url matches a referenced URL key is treated as
+      // depended-on. Cheap because the typical org has a handful
+      // of arcgis_service items.
+      const services = await this.prisma.item.findMany({
+        where: {
+          orgId,
+          deletedAt: null,
+          type: {
+            in: ['arcgis_service', 'wms_service', 'wfs_service'],
+          },
+        },
+        select: { id: true, data: true },
+      });
+      for (const s of services) {
+        const rawUrl = (s.data as { url?: unknown } | null)?.url;
+        if (typeof rawUrl !== 'string' || rawUrl.length === 0) continue;
+        const key = normalizeArcgisUrl(rawUrl);
+        if (referencedUrlKeys.has(key)) referencedIds.add(s.id);
+      }
+    }
+    return referencedIds;
   }
 
   private async countStaleUsers(orgId: string): Promise<number> {
