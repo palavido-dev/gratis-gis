@@ -547,11 +547,21 @@ model ItemShare {
   /// in your county" in one indexed query.
   rowScope ShareRowScope @default(all) @map("row_scope")
 
+  /// Optional expiry timestamp (#84). When non-null and in the
+  /// past, the share no longer grants access -- enforced at
+  /// request time in sharing.service.ts and cleaned up by the
+  /// housekeeping cron sweep. Null = never expires (default).
+  expiresAt DateTime? @map("expires_at")
+
   item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   @@id([itemId, principalType, principalId])
   @@index([principalType, principalId])
   @@index([geoBoundaryId])
+  // expires_at gets a partial index defined in the migration SQL
+  // directly (Prisma doesn't model `WHERE expires_at IS NOT NULL`
+  // partial indexes in the schema). prisma migrate dev introspects
+  // it as raw SQL and leaves it alone.
   @@map("item_share")
 }
 

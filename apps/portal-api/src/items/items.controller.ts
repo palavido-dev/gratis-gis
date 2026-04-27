@@ -12,6 +12,7 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   IsArray,
+  IsDateString,
   IsEnum,
   IsObject,
   IsOptional,
@@ -114,6 +115,14 @@ class ShareDto {
    * are exempt regardless. Omit to leave existing scope untouched.
    */
   @IsOptional() @IsEnum(['all', 'own']) rowScope?: 'all' | 'own';
+  /**
+   * Time-bounded share (#84). ISO date string, or null to clear,
+   * or omit to leave untouched. After the timestamp the share is
+   * filtered out at request time and eventually swept by the
+   * housekeeping cron. Past dates are allowed but produce a
+   * share that grants nothing -- handy for testing the filter.
+   */
+  @IsOptional() @IsDateString() expiresAt?: string | null;
 }
 
 @ApiTags('items')

@@ -23,6 +23,7 @@ import {
   PrincipalPicker,
   type PrincipalOption,
 } from '@/components/principal-picker';
+import { ShareExpiryPicker } from '@/components/share-expiry-picker';
 import {
   ShareGeoLimitDialog,
   type BoundaryOption,
@@ -200,6 +201,58 @@ export function SharingPanel({
     }
     setRowState((m) => ({ ...m, [k]: 'saved' }));
     // Fade the saved indicator after a moment.
+    setTimeout(
+      () => setRowState((m) => (m[k] === 'saved' ? { ...m, [k]: 'idle' } : m)),
+      1500,
+    );
+    startTransition(() => router.refresh());
+  }
+
+  /**
+   * Set / clear a share's expires_at (#84). Same optimistic-update
+   * pattern. Pass null to clear, an ISO date string to set. After
+   * the timestamp the share is filtered out at request time and
+   * eventually swept by housekeeping cron.
+   */
+  async function updateShareExpiry(
+    share: ItemShare,
+    nextExpiresAt: string | null,
+  ) {
+    const current =
+      (share as ItemShare & { expiresAt?: string | null }).expiresAt ?? null;
+    if (nextExpiresAt === current) return;
+    const k = keyOf(share);
+    setRowState((m) => ({ ...m, [k]: 'saving' }));
+    setShares((cur) =>
+      cur.map((s) =>
+        keyOf(s) === k
+          ? ({ ...s, expiresAt: nextExpiresAt } as ItemShare)
+          : s,
+      ),
+    );
+    const res = await fetch(`/api/portal/items/${itemId}/share`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        principalType: share.principalType,
+        principalId: share.principalId,
+        permission: share.permission,
+        expiresAt: nextExpiresAt,
+      }),
+    });
+    if (!res.ok) {
+      setRowState((m) => ({ ...m, [k]: 'error' }));
+      setShares((cur) =>
+        cur.map((s) =>
+          keyOf(s) === k
+            ? ({ ...s, expiresAt: current } as ItemShare)
+            : s,
+        ),
+      );
+      setError(`Update failed: ${res.status} ${await res.text()}`);
+      return;
+    }
+    setRowState((m) => ({ ...m, [k]: 'saved' }));
     setTimeout(
       () => setRowState((m) => (m[k] === 'saved' ? { ...m, [k]: 'idle' } : m)),
       1500,
@@ -616,6 +669,14 @@ export function SharingPanel({
                       <Check className="h-3.5 w-3.5 text-success" />
                     ) : null}
                   </span>
+                  <ShareExpiryPicker
+                    value={
+                      (share as ItemShare & { expiresAt?: string | null })
+                        .expiresAt ?? null
+                    }
+                    onChange={(next) => void updateShareExpiry(share, next)}
+                    disabled={pending}
+                  />
                   <button
                     type="button"
                     onClick={() => setEditingGeoLimit(share)}

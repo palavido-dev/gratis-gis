@@ -54,6 +54,13 @@ export interface ItemShare {
    * to every share that points at it without re-saving.
    */
   geoBoundaryId?: string | null;
+  /**
+   * Optional expiry timestamp (#84). Null / undefined means the
+   * share never expires (default). When set and in the past, the
+   * share is filtered out at request time and eventually swept by
+   * the housekeeping cron. ISO date string on the wire.
+   */
+  expiresAt?: ISODateString | null;
 }
 
 /**

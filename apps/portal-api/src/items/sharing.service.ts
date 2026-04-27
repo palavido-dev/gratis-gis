@@ -160,9 +160,24 @@ export class SharingService {
   }
 
   private shareMatches(user: AuthUser, share: ItemShare): boolean {
+    // Expired shares grant nothing (#84). The cron sweep eventually
+    // deletes them, but request-time enforcement here means even a
+    // delayed sweep doesn't leak access.
+    if (this.isShareExpired(share)) return false;
     if (share.principalType === 'user') return share.principalId === user.id;
     if (share.principalType === 'group') return user.groupIds.includes(share.principalId);
     return false;
+  }
+
+  /** True when the share has an `expires_at` in the past. Shares
+   *  with no expiry (the default) always return false. */
+  private isShareExpired(share: ItemShare): boolean {
+    const expiresAt = (
+      share as ItemShare & { expiresAt?: Date | string | null }
+    ).expiresAt;
+    if (!expiresAt) return false;
+    const t = expiresAt instanceof Date ? expiresAt : new Date(expiresAt);
+    return t.getTime() <= Date.now();
   }
 
   /**
@@ -242,6 +257,10 @@ export class SharingService {
       return { AND: [adminAccess, { deletedAt: null }] };
     }
 
+    // Build the per-share match predicate, then AND in the
+    // not-expired filter so a share with `expires_at <= now()`
+    // doesn't grant access (#84). Null expiresAt means "never
+    // expires" and is the common case, so the OR keeps it cheap.
     const principalConditions: Prisma.ItemShareWhereInput[] = [
       { principalType: 'user', principalId: user.id },
     ];
@@ -251,12 +270,19 @@ export class SharingService {
         principalId: { in: user.groupIds },
       });
     }
+    const notExpired: Prisma.ItemShareWhereInput = {
+      OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+    };
     const access: Prisma.ItemWhereInput = {
       OR: [
         { ownerId: user.id },
         { access: 'public' },
         { access: 'org', orgId: user.orgId },
-        { shares: { some: { OR: principalConditions } } },
+        {
+          shares: {
+            some: { AND: [{ OR: principalConditions }, notExpired] },
+          },
+        },
       ],
     };
     if (opts.includeTrashed) return access;

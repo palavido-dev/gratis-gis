@@ -85,6 +85,14 @@ export interface ShareItemInput {
    * created. Admins / item owner bypass at the service layer.
    */
   rowScope?: 'all' | 'own' | undefined;
+  /**
+   * Optional expiry timestamp (#84). Pass an ISO date string (or a
+   * Date) to set a hard end-time for the share; pass `null` to
+   * clear a previously-set expiry; omit the field to leave it
+   * untouched. After the timestamp the share is filtered out at
+   * request time and eventually swept by housekeeping cron.
+   */
+  expiresAt?: string | Date | null | undefined;
 }
 
 @Injectable()
@@ -1158,6 +1166,13 @@ export class ItemsService {
     if (input.rowScope !== undefined) {
       update.rowScope = input.rowScope;
     }
+    if (input.expiresAt !== undefined) {
+      // null clears, anything else (Date or ISO string) sets.
+      // Prisma accepts either; coerce a string here so callers
+      // sending JSON don't have to construct a Date.
+      update.expiresAt =
+        input.expiresAt === null ? null : new Date(input.expiresAt);
+    }
     const create: Record<string, unknown> = {
       itemId: id,
       principalType: input.principalType,
@@ -1175,6 +1190,9 @@ export class ItemsService {
     }
     if (input.rowScope !== undefined) {
       create.rowScope = input.rowScope;
+    }
+    if (input.expiresAt !== undefined && input.expiresAt !== null) {
+      create.expiresAt = new Date(input.expiresAt);
     }
     return this.prisma.itemShare.upsert({
       where: {

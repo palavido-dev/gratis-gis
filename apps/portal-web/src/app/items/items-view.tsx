@@ -19,6 +19,7 @@ import {
   PrincipalPicker,
   type PrincipalOption,
 } from '@/components/principal-picker';
+import { ShareExpiryPicker } from '@/components/share-expiry-picker';
 import { DependentsWarning } from '@/components/dependents-warning';
 import { ItemCard } from '@gratis-gis/ui';
 import type {
@@ -448,6 +449,7 @@ export function ItemsView({ items, currentUser, folders = [] }: Props) {
   async function handleBulkShare(
     principal: PrincipalOption,
     permission: 'view' | 'download' | 'edit' | 'admin',
+    expiresAt: string | null,
   ) {
     setBulkSaving(true);
     setBulkError(null);
@@ -467,6 +469,7 @@ export function ItemsView({ items, currentUser, folders = [] }: Props) {
               principalType,
               principalId,
               permission,
+              ...(expiresAt !== null ? { expiresAt } : {}),
             }),
           });
           if (res.ok) {
@@ -825,6 +828,7 @@ function BulkShareDialog({
   onSubmit: (
     principal: PrincipalOption,
     permission: 'view' | 'download' | 'edit' | 'admin',
+    expiresAt: string | null,
   ) => void | Promise<void>;
   onClose: () => void;
 }) {
@@ -832,6 +836,7 @@ function BulkShareDialog({
   const [permission, setPermission] = useState<
     'view' | 'download' | 'edit' | 'admin'
   >('view');
+  const [expiresAt, setExpiresAt] = useState<string | null>(null);
 
   async function search(q: string): Promise<PrincipalOption[]> {
     const [usersRes, groupsRes] = await Promise.allSettled([
@@ -963,6 +968,20 @@ function BulkShareDialog({
               ))}
             </div>
           </div>
+
+          {/* Optional expiry (#84). Default Never. The picker
+              writes ISO date strings, which the server stores
+              against expires_at on each share row. */}
+          <div>
+            <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted">
+              Expires
+            </span>
+            <ShareExpiryPicker
+              value={expiresAt}
+              onChange={(next) => setExpiresAt(next)}
+              variant="full"
+            />
+          </div>
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
@@ -976,7 +995,9 @@ function BulkShareDialog({
           </button>
           <button
             type="button"
-            onClick={() => picked && void onSubmit(picked, permission)}
+            onClick={() =>
+              picked && void onSubmit(picked, permission, expiresAt)
+            }
             disabled={saving || !picked}
             className="h-9 rounded-md bg-accent px-3 text-sm font-medium text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
