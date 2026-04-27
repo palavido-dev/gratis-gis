@@ -785,10 +785,18 @@ function LayerRow({
         </button>
         <button
           type="button"
-          onClick={canEdit ? onToggle : undefined}
-          disabled={!canEdit}
+          onClick={onToggle}
           aria-label={layer.visible ? 'Hide layer' : 'Show layer'}
-          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted hover:bg-surface-2 disabled:opacity-50"
+          // Visibility is a session-local view preference, not a
+          // config edit: anyone viewing the map (including share-
+          // viewers and editor-runtime users) can hide layers they
+          // don't want to see in their own session. Persistence is
+          // gated separately by the parent's autosave (markDirty
+          // skips when canEdit is false), so toggling on a view-
+          // only map updates local state without firing a PATCH.
+          // Matches AGO / Esri behavior: viewers can change what
+          // they see, only authors can save it back.
+          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted hover:bg-surface-2"
         >
           {layer.visible ? (
             <Eye className="h-3.5 w-3.5" />
