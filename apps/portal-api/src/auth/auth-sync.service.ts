@@ -149,6 +149,25 @@ export class AuthSyncService {
       this.lastSeenWrittenAt.set(user.id, now);
     }
 
+    // Auto-disable enforcement (#85). When auto_disable_at is in
+    // the past, refuse the request immediately so even a delayed
+    // cron sweep can't leak access. The cron flips the Keycloak
+    // `enabled` flag in bulk so the next sign-in stops at the SSO
+    // gate; in the meantime the local API rejects every call.
+    // Org admins are exempt via the admin form so a stray
+    // auto_disable_at on an admin account can't lock them out,
+    // but we double-gate here in case someone toggled the field
+    // directly in the DB.
+    if (
+      user.autoDisableAt !== null &&
+      user.autoDisableAt.getTime() <= Date.now() &&
+      user.orgRole !== 'admin'
+    ) {
+      throw new UnauthorizedException(
+        'This account is disabled. Contact your organization admin.',
+      );
+    }
+
     // Seed built-in basemap items if this org is missing any. We
     // cache "this org has been verified this process lifetime" in
     // memory so the SELECT only fires once per org per process; this

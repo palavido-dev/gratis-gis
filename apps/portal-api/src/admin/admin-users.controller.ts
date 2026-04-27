@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -13,6 +14,7 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   IsBoolean,
+  IsDateString,
   IsEmail,
   IsEnum,
   IsOptional,
@@ -38,6 +40,13 @@ export type AdminUserRep = KeycloakUserRep & {
    * by AuthSyncService on every authenticated request.
    */
   lastSeenAt: string | null;
+  /**
+   * Optional auto-disable timestamp (#85). When non-null and in
+   * the past, the user is rejected at request time and disabled
+   * in Keycloak by the housekeeping cron. ISO date string on
+   * the wire; null = no auto-disable (default).
+   */
+  autoDisableAt: string | null;
 };
 
 type OrgRole = 'viewer' | 'contributor' | 'admin';
@@ -58,6 +67,13 @@ class UpdateUserDto {
   @IsOptional() @IsEmail() email?: string;
   @IsOptional() @IsBoolean() enabled?: boolean;
   @IsOptional() @IsEnum(['viewer', 'contributor', 'admin']) orgRole?: OrgRole;
+  /**
+   * Optional auto-disable timestamp (#85). ISO date string sets,
+   * null clears, omit to leave untouched. Refused for org admins
+   * to avoid lockout; the controller validates this before the
+   * write hits the DB.
+   */
+  @IsOptional() @IsDateString() autoDisableAt?: string | null;
 }
 
 /**
@@ -105,14 +121,18 @@ export class AdminUsersController {
     const local = ids.length
       ? await this.prisma.user.findMany({
           where: { id: { in: ids } },
-          select: { id: true, lastSeenAt: true },
+          select: { id: true, lastSeenAt: true, autoDisableAt: true },
         })
       : [];
-    const byId = new Map(local.map((u) => [u.id, u.lastSeenAt]));
-    return kcUsers.map((u) => ({
-      ...u,
-      lastSeenAt: u.id ? (byId.get(u.id)?.toISOString() ?? null) : null,
-    }));
+    const byId = new Map(local.map((u) => [u.id, u]));
+    return kcUsers.map((u) => {
+      const row = u.id ? byId.get(u.id) : undefined;
+      return {
+        ...u,
+        lastSeenAt: row?.lastSeenAt?.toISOString() ?? null,
+        autoDisableAt: row?.autoDisableAt?.toISOString() ?? null,
+      };
+    });
   }
 
   @Get(':id')
@@ -142,7 +162,7 @@ export class AdminUsersController {
   }
 
   @Patch(':id')
-  update(
+  async update(
     @Param('id') id: string,
     @Body() dto: UpdateUserDto,
   ): Promise<KeycloakUserRep> {
@@ -154,6 +174,31 @@ export class AdminUsersController {
     if (dto.email !== undefined) patch.email = dto.email;
     if (dto.enabled !== undefined) patch.enabled = dto.enabled;
     if (dto.orgRole !== undefined) patch.orgRole = dto.orgRole;
+
+    // autoDisableAt (#85) lives on our local user row, not in
+    // Keycloak. Persist it BEFORE the Keycloak update so a
+    // failure on the Keycloak side doesn't strand the local
+    // change. Org admins are refused to avoid lockout: setting
+    // an auto-disable on the only admin would brick the org.
+    if (dto.autoDisableAt !== undefined) {
+      const localUser = await this.prisma.user.findUnique({
+        where: { id },
+        select: { orgRole: true },
+      });
+      const targetRole = dto.orgRole ?? localUser?.orgRole;
+      if (dto.autoDisableAt !== null && targetRole === 'admin') {
+        throw new BadRequestException(
+          'Auto-disable cannot be set on an org admin. Demote the user first.',
+        );
+      }
+      await this.prisma.user.update({
+        where: { id },
+        data: {
+          autoDisableAt:
+            dto.autoDisableAt === null ? null : new Date(dto.autoDisableAt),
+        },
+      });
+    }
     return this.kc.updateUser(id, patch);
   }
 

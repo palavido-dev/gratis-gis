@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import type { AdminUserRow } from './page';
 import { ReassignOwnerDialog } from '@/components/reassign-owner-dialog';
+import { ShareExpiryPicker } from '@/components/share-expiry-picker';
 
 /**
  * Admin-side users table.
@@ -663,6 +664,9 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
     (user.attributes?.org_role?.[0] as OrgRole | undefined) ?? 'viewer',
   );
   const [enabled, setEnabled] = useState(Boolean(user.enabled));
+  const [autoDisableAt, setAutoDisableAt] = useState<string | null>(
+    user.autoDisableAt ?? null,
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -689,6 +693,9 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
       patch.orgRole = orgRole;
     }
     if (enabled !== Boolean(user.enabled)) patch.enabled = enabled;
+    if (autoDisableAt !== (user.autoDisableAt ?? null)) {
+      patch.autoDisableAt = autoDisableAt;
+    }
 
     if (Object.keys(patch).length === 0) {
       // Nothing to save: just close. Avoids spurious PATCH round-trips
@@ -815,6 +822,29 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
             </span>
           </span>
         </label>
+
+        {/* Auto-disable (#85). Sets a hard end-date on the
+            account; auth-sync rejects requests once the date
+            passes and the housekeeping cron flips Keycloak's
+            enabled flag in bulk. Refused for org admins to
+            avoid lockout (the picker is hidden when the role
+            is admin). */}
+        {orgRole !== 'admin' ? (
+          <div className="text-xs">
+            <span className="mb-1 block uppercase tracking-wide text-muted">
+              Auto-disable on
+            </span>
+            <ShareExpiryPicker
+              value={autoDisableAt}
+              onChange={(next) => setAutoDisableAt(next)}
+              variant="full"
+            />
+            <p className="mt-1 text-[11px] text-muted">
+              Useful for contractors, interns, and audit access. The
+              account is disabled automatically when the date passes.
+            </p>
+          </div>
+        ) : null}
 
         <CapabilitiesSection userId={user.id} role={orgRole} />
 

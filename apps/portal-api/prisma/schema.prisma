@@ -126,6 +126,13 @@ model User {
   /// who hasn't signed in yet). Drives the housekeeping stale-user
   /// detection on /admin/housekeeping.
   lastSeenAt DateTime? @map("last_seen_at")
+  /// Optional auto-disable timestamp (#85). When non-null and in
+  /// the past, auth-sync flips the user's Keycloak `enabled` flag
+  /// to false on the next request and the housekeeping cron sweep
+  /// makes the same change in bulk hourly. Null = no auto-disable
+  /// (default). Org admins are exempted by the admin form to
+  /// avoid lockout.
+  autoDisableAt DateTime? @map("auto_disable_at")
 
   org           Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
   ownedGroups   Group[]       @relation("GroupOwner")

@@ -22,6 +22,11 @@ export interface AdminUserRow {
   /** ISO timestamp of the last authenticated request we saw from
    *  this user, or null if they've never signed in. */
   lastSeenAt: string | null;
+  /** Optional auto-disable timestamp (#85). When non-null and in
+   *  the past, auth-sync rejects requests immediately; the
+   *  housekeeping cron flips Keycloak's enabled flag in bulk.
+   *  Null = no auto-disable (default). */
+  autoDisableAt: string | null;
 }
 
 interface Meta {
