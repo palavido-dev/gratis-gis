@@ -30,6 +30,7 @@ import {
   type ResolvedTarget,
 } from './build-map-data';
 import { AttributeForm } from './attribute-form';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 
 interface Props {
   /** The Editor item id (used for the back link and POST URLs). */
@@ -155,6 +156,22 @@ export function EditorRuntime({
   activeTargetKeyRef.current = activeTargetKey;
 
   const drawRef = useRef<unknown | null>(null);
+
+  // Pending-delete state for the Delete tool. Holds the feature
+  // the user clicked + a short label for the confirm dialog.
+  // Settled when the user confirms or cancels the dialog.
+  const [pendingDelete, setPendingDelete] = useState<{
+    dataLayerId: string;
+    layerKey: string;
+    featureId: string;
+    layerTitle: string;
+    /** Short user-facing description for the dialog body, e.g.
+     *  "Building #4127" or "feature 0a1b2c3d...". Falls back to
+     *  the global_id prefix when no obvious display field exists. */
+    summary: string;
+  } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Index resolvedTargets by key so the picker / panel / submit
   // path can look up O(1).
@@ -379,6 +396,24 @@ export function EditorRuntime({
     return out;
   }, [editor.targets, targetByKey]);
 
+  // Deletable predicate. Target's canDelete flag plus the layer
+  // being editingEnabled. The data_layer's editing.policy gates at
+  // the server too; the client predicate is a UX guard so users
+  // don't get a 403 for clicking a delete that was never going to
+  // work.
+  const deletableTargetKeys = useMemo(() => {
+    const out = new Set<string>();
+    for (const t of editor.targets) {
+      const key = `${t.dataLayerId}:${t.layerKey}`;
+      const r = targetByKey.get(key);
+      if (!r?.layer) continue;
+      if (r.layer.editingEnabled === false) continue;
+      if (!t.canDelete) continue;
+      out.add(key);
+    }
+    return out;
+  }, [editor.targets, targetByKey]);
+
   // Tool-button handler. Add wires up the active-target picker;
   // Edit activates click-to-pick mode (handled via map click below);
   // Select drops back to off. Other tools surface the coming-soon
@@ -413,6 +448,18 @@ export function EditorRuntime({
       setActiveTargetKey(null);
       return;
     }
+    if (tool === 'delete') {
+      if (deletableTargetKeys.size === 0) {
+        setToast(
+          'No targets allow delete. Turn on Delete on a target in the config.',
+        );
+        scheduleToastClear();
+        return;
+      }
+      setActiveTool('delete');
+      setActiveTargetKey(null);
+      return;
+    }
     if (tool === 'select') {
       setActiveTool('off');
       setActiveTargetKey(null);
@@ -422,21 +469,19 @@ export function EditorRuntime({
     scheduleToastClear();
   }
 
-  // Edit-mode click handler. Listens for clicks on the MapLibre map
-  // when activeTool === 'edit'; queries rendered features at the
-  // click point, filters to ones in editor-target sources, and
-  // opens the AttributeForm pre-filled with the topmost hit's
-  // properties. The global_id we need for PATCH lives in
-  // properties._global_id (the API layer inlines it because
-  // MapCanvas's generateId: true overwrites feature.id).
+  // Click-pick handler shared by Edit and Delete modes. Queries
+  // rendered features at the click point, filters to ones in
+  // editor-target sources (so reference layers can never be
+  // edited / deleted through the Editor), and dispatches based
+  // on which write tool is active. The global_id needed for both
+  // PATCH and DELETE lives in properties._global_id (inlined by
+  // the v3 service because MapCanvas's generateId: true overwrites
+  // the top-level Feature.id at render time).
   useEffect(() => {
     const m = mapInstance;
     if (!m) return;
-    if (activeTool !== 'edit') return;
+    if (activeTool !== 'edit' && activeTool !== 'delete') return;
     const handler = (e: maplibregl.MapMouseEvent) => {
-      // Only consider hits on editor-target sources. The source id
-      // pattern from MapCanvas is "gg:<layer.id>"; our target
-      // layer ids start with EDITOR_TARGET_LAYER_PREFIX.
       const features = m.queryRenderedFeatures(e.point);
       const hit = features.find((f) => {
         const sid = f.source as string | undefined;
@@ -447,18 +492,12 @@ export function EditorRuntime({
       });
       if (!hit) return;
       const sid = hit.source as string;
-      // Recover (dataLayerId, layerKey) from "gg:editor-target:<dl>:<lk>".
       const stripped = sid.slice(`gg:${EDITOR_TARGET_LAYER_PREFIX}`.length);
       const sep = stripped.lastIndexOf(':');
       if (sep === -1) return;
       const dataLayerId = stripped.slice(0, sep);
       const layerKey = stripped.slice(sep + 1);
       const targetKey = `${dataLayerId}:${layerKey}`;
-      if (!editableTargetKeys.has(targetKey)) {
-        setToast('That layer is not editable in this editor.');
-        scheduleToastClear();
-        return;
-      }
       const props = (hit.properties ?? {}) as Record<string, unknown>;
       const featureId =
         typeof props['_global_id'] === 'string'
@@ -471,24 +510,57 @@ export function EditorRuntime({
         scheduleToastClear();
         return;
       }
-      // Strip system metadata before seeding the form so the user
-      // sees only their own columns. The geometry on `hit.geometry`
-      // is what came back from queryRenderedFeatures; for attribute-
-      // only edits we don't change it, but pass it through so the
-      // submit can include it if the user later toggles geometry
-      // editing (slice 3b-3b).
-      const initialProps: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(props)) {
-        if (k.startsWith('_')) continue;
-        initialProps[k] = v;
+
+      if (activeTool === 'edit') {
+        if (!editableTargetKeys.has(targetKey)) {
+          setToast('That layer is not editable in this editor.');
+          scheduleToastClear();
+          return;
+        }
+        const initialProps: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(props)) {
+          if (k.startsWith('_')) continue;
+          initialProps[k] = v;
+        }
+        setActiveTargetKey(targetKey);
+        setPendingFeature({
+          mode: 'update',
+          geometry: hit.geometry as unknown,
+          targetKey,
+          featureId,
+          initialProperties: initialProps,
+        });
+        return;
+      }
+
+      // delete tool
+      if (!deletableTargetKeys.has(targetKey)) {
+        setToast('That layer cannot be deleted from in this editor.');
+        scheduleToastClear();
+        return;
+      }
+      // Build a short user-facing summary for the dialog. Pick the
+      // first non-underscore string-ish property (so users see e.g.
+      // "Building #4127" rather than the raw uuid). Fall back to a
+      // truncated global_id when the row has no obvious display
+      // field.
+      let summary = featureId.slice(0, 8) + '...';
+      const target = targetByKey.get(targetKey);
+      if (target?.layer) {
+        for (const f of target.layer.fields) {
+          const v = props[f.name];
+          if (v === null || v === undefined || v === '') continue;
+          summary = String(v);
+          break;
+        }
       }
       setActiveTargetKey(targetKey);
-      setPendingFeature({
-        mode: 'update',
-        geometry: hit.geometry as unknown,
-        targetKey,
+      setPendingDelete({
+        dataLayerId,
+        layerKey,
         featureId,
-        initialProperties: initialProps,
+        layerTitle: `${target?.dataLayerTitle ?? ''} / ${target?.layer?.label ?? layerKey}`,
+        summary,
       });
     };
     m.on('click', handler);
@@ -499,7 +571,45 @@ export function EditorRuntime({
         /* map may have torn down */
       }
     };
-  }, [mapInstance, activeTool, editableTargetKeys]);
+  }, [
+    mapInstance,
+    activeTool,
+    editableTargetKeys,
+    deletableTargetKeys,
+    targetByKey,
+  ]);
+
+  // Delete submit. Calls the v3 DELETE endpoint with the captured
+  // global_id. The data_layer's own editing.policy gates server-
+  // side; the Editor's canDelete is the UX gate. On success we
+  // refresh the layer; the deleted feature drops off the canvas
+  // when the new geojson lands.
+  async function confirmDelete() {
+    if (!pendingDelete) return;
+    setDeleteError(null);
+    setDeleting(true);
+    try {
+      const res = await fetch(
+        `/api/portal/items/${pendingDelete.dataLayerId}/layers/${pendingDelete.layerKey}/features/${pendingDelete.featureId}`,
+        { method: 'DELETE' },
+      );
+      if (!res.ok && res.status !== 204) {
+        setDeleteError(`Delete failed: ${res.status} ${await res.text()}`);
+        return;
+      }
+      const dl = pendingDelete.dataLayerId;
+      const lk = pendingDelete.layerKey;
+      setPendingDelete(null);
+      setActiveTool('off');
+      refreshTarget(dl, lk);
+    } catch (err) {
+      setDeleteError(
+        err instanceof Error ? err.message : 'Network error during delete.',
+      );
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   function scheduleToastClear() {
     if (typeof window !== 'undefined') {
@@ -716,6 +826,23 @@ export function EditorRuntime({
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
+          ) : activeTool === 'delete' ? (
+            <div className="pointer-events-auto absolute left-16 top-3 flex items-center gap-2 rounded-md border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs text-rose-900 shadow-card">
+              <span className="font-medium">Delete mode:</span>
+              <span>click a feature to remove it (you'll confirm before it's gone)</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTool('off');
+                  setActiveTargetKey(null);
+                }}
+                className="rounded-md p-0.5 text-rose-900 hover:bg-rose-100"
+                aria-label="Exit delete mode"
+                title="Exit delete mode"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
           ) : null}
 
           {/* Layer panel. Same shape as 3b-1; we now also show the
@@ -847,6 +974,35 @@ export function EditorRuntime({
           }
         />
       ) : null}
+
+      {/* Delete confirm. Uses the shared ConfirmDialog for visual
+          consistency with the rest of the portal's destructive
+          actions (group delete, item move-to-trash, etc.). The
+          dialog component handles its own focus trap + escape
+          key. */}
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onCancel={() => {
+          if (deleting) return;
+          setPendingDelete(null);
+          setDeleteError(null);
+        }}
+        onConfirm={confirmDelete}
+        title="Delete this feature?"
+        description={
+          pendingDelete
+            ? `${pendingDelete.summary} on ${pendingDelete.layerTitle}. This cannot be undone from the editor runtime.`
+            : ''
+        }
+        confirmLabel={deleting ? 'Deleting...' : 'Delete feature'}
+        tone="danger"
+      >
+        {deleteError ? (
+          <p className="text-sm text-danger" role="alert">
+            {deleteError}
+          </p>
+        ) : null}
+      </ConfirmDialog>
     </div>
   );
 }
