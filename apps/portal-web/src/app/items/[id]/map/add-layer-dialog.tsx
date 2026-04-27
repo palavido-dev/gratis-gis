@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ClipboardPaste,
   Database,
-  Globe,
   Layers,
   Link2,
   Loader2,
@@ -24,7 +23,6 @@ import {
   DEFAULT_LAYER_INTERACTIONS,
   DEFAULT_LAYER_RENDERER,
 } from '@gratis-gis/shared-types';
-import { CURATED_SOURCES, type CuratedSource } from './curated-sources';
 import { fileToGeoJson } from './kml-convert';
 import {
   probeService,
@@ -38,7 +36,7 @@ interface Props {
   onAdd: (layer: MapLayer) => void;
 }
 
-type Tab = 'url' | 'paste' | 'file' | 'portal' | 'curated' | 'arcgis';
+type Tab = 'url' | 'paste' | 'file' | 'portal' | 'arcgis';
 
 /**
  * Four-tab layer catalog:
@@ -61,6 +59,13 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
   // Portal tab state: list of data_layer items + search query.
   const [portalQ, setPortalQ] = useState('');
   const [portalItems, setPortalItems] = useState<Item[]>([]);
+  // Optional folder filter on the Portal tab (#91). Null = "All
+  // items"; otherwise narrows portalItems to direct children of
+  // the selected folder. Folders are fetched once when the tab
+  // opens; the filter is applied client-side against the already-
+  // loaded item list so the dropdown stays snappy.
+  const [folderFilter, setFolderFilter] = useState<string | null>(null);
+  const [portalFolders, setPortalFolders] = useState<Item[]>([]);
   const [portalLoading, setPortalLoading] = useState(false);
   // When the user picks an arcgis_service item that exposes more than
   // one sublayer, we surface this follow-up prompt: pick which of
@@ -71,9 +76,6 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
     item: Item;
     sublayers: Array<{ id: number; name?: string; geometryType?: string }>;
   } | null>(null);
-
-  // Curated tab state: search narrows the curated list.
-  const [curatedQ, setCuratedQ] = useState('');
 
   // ArcGIS REST tab state: url, probe result, picked layer.
   const [arcgisUrl, setArcgisUrl] = useState('');
@@ -89,7 +91,6 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
     setUrl('');
     setPaste('');
     setPortalQ('');
-    setCuratedQ('');
     setArcgisUrl('');
     setArcgisProbing(false);
     setArcgisService(null);
@@ -166,16 +167,46 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
     };
   }, [open, tab, portalQ]);
 
-  const filteredCurated = useMemo(() => {
-    const q = curatedQ.trim().toLowerCase();
-    if (!q) return CURATED_SOURCES;
-    return CURATED_SOURCES.filter(
-      (s) =>
-        s.title.toLowerCase().includes(q) ||
-        s.description.toLowerCase().includes(q) ||
-        s.tags.some((t) => t.toLowerCase().includes(q)),
-    );
-  }, [curatedQ]);
+  // Load the folder list for the filter dropdown (#91). One-shot
+  // fetch when the portal tab opens; folders rarely change during
+  // a dialog session so we don't re-fetch on every keystroke.
+  useEffect(() => {
+    if (!open || tab !== 'portal') return;
+    let cancelled = false;
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const res = await fetch('/api/portal/items?type=folder&lite=1', {
+          signal: controller.signal,
+        });
+        if (!res.ok || cancelled) return;
+        const folders = (await res.json()) as Item[];
+        folders.sort((a, b) => a.title.localeCompare(b.title));
+        if (!cancelled) setPortalFolders(folders);
+      } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return;
+      }
+    })();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [open, tab]);
+
+  // Apply the folder filter client-side. A folder's child set
+  // lives in data.childItemIds; intersect with the loaded item
+  // list for direct (non-recursive) membership. Matches the
+  // semantic on the items page rail: a folder shows its direct
+  // children, not transitively nested grandchildren.
+  const visiblePortalItems = useMemo(() => {
+    if (!folderFilter) return portalItems;
+    const folder = portalFolders.find((f) => f.id === folderFilter);
+    const childIds = (folder?.data as { childItemIds?: unknown } | null)
+      ?.childItemIds;
+    if (!Array.isArray(childIds)) return [];
+    const set = new Set(childIds.filter((c): c is string => typeof c === 'string'));
+    return portalItems.filter((i) => set.has(i.id));
+  }, [folderFilter, portalFolders, portalItems]);
 
   function makeLayer(title: string, source: MapLayerSource): MapLayer {
     return {
@@ -529,14 +560,6 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
     }
   }
 
-  function submitCurated(src: CuratedSource) {
-    onAdd(
-      makeLayer(src.title, { kind: 'geojson-url', url: src.url }),
-    );
-    reset();
-    onClose();
-  }
-
   if (!open) return null;
 
   return (
@@ -565,20 +588,19 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
 
 <div className="flex gap-0 border-b border-border px-2 pt-2">
           {/* Portal first: content inside this org's catalog is the
-              most common "add a layer" path once maps exist. Curated
-              sources come next as the guided-browse option. File /
-              Paste / URL are progressively more manual. */}
+              most common "add a layer" path once maps exist. The
+              Curated tab was removed (#91) -- it shipped a
+              hand-coded GeoJSON URL list with no admin UI to
+              manage it; if a deployment wants curated layers it
+              should seed them as real items in a "Curated"
+              folder/group. The Portal tab now supports filtering
+              by folder so finding one of many items is fast. File
+              / Paste / URL are progressively more manual. */}
           <TabButton
             Icon={Database}
             label="Portal"
             active={tab === 'portal'}
             onClick={() => setTab('portal')}
-          />
-          <TabButton
-            Icon={Globe}
-            label="Curated"
-            active={tab === 'curated'}
-            onClick={() => setTab('curated')}
           />
           <TabButton
             Icon={Upload}
@@ -691,31 +713,56 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
 
           {tab === 'portal' && (
             <div className="space-y-3">
-              <label className="relative block">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-                <input
-                  type="text"
-                  value={portalQ}
-                  onChange={(e) => setPortalQ(e.target.value)}
-                  placeholder="Search feature & ArcGIS services..."
-                  className="h-9 w-full rounded-md border border-border bg-surface-1 pl-9 pr-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
-                />
-              </label>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="relative min-w-0 flex-1">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+                  <input
+                    type="text"
+                    value={portalQ}
+                    onChange={(e) => setPortalQ(e.target.value)}
+                    placeholder="Search feature & ArcGIS services..."
+                    className="h-9 w-full rounded-md border border-border bg-surface-1 pl-9 pr-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+                  />
+                </label>
+                {/* Folder filter (#91). Optional narrowing to one
+                    folder's direct children -- handy when the org
+                    has many items and the user knows where the one
+                    they want lives. Group filter is queued as a
+                    follow-up (needs items-by-group server filter
+                    support; can ship without it). */}
+                {portalFolders.length > 0 ? (
+                  <select
+                    value={folderFilter ?? ''}
+                    onChange={(e) =>
+                      setFolderFilter(e.target.value || null)
+                    }
+                    className="h-9 max-w-[180px] truncate rounded-md border border-border bg-surface-1 px-2 text-xs text-ink-1 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+                    title="Filter by folder"
+                  >
+                    <option value="">All folders</option>
+                    {portalFolders.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        In folder: {f.title}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+              </div>
               {portalLoading ? (
                 <div className="flex items-center justify-center gap-2 rounded-md border border-border bg-surface-2 px-4 py-6 text-sm text-muted">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Loading services from your portal...
                 </div>
-              ) : portalItems.length === 0 ? (
+              ) : visiblePortalItems.length === 0 ? (
                 <div className="rounded-md border border-border bg-surface-2 p-4 text-center text-xs text-muted">
                   <Sparkles className="mx-auto mb-2 h-5 w-5" />
-                  No services match. Upload vector data as a feature
-                  service, or save an ArcGIS REST URL as an ArcGIS
-                  service item to pick it here.
+                  {folderFilter
+                    ? 'No data services in this folder. Pick another folder or "All folders".'
+                    : 'No services match. Upload vector data as a feature service, or save an ArcGIS REST URL as an ArcGIS service item to pick it here.'}
                 </div>
               ) : (
                 <ul className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-1">
-                  {portalItems.map((item) => {
+                  {visiblePortalItems.map((item) => {
                     // The list is fetched in lite mode (#52) so
                     // `data` is omitted from the row payload; the
                     // server attaches a derived `_subLayerCount` for
@@ -790,60 +837,8 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
             </div>
           )}
 
-          {tab === 'curated' && (
-            <div className="space-y-3">
-              <label className="relative block">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-                <input
-                  type="text"
-                  value={curatedQ}
-                  onChange={(e) => setCuratedQ(e.target.value)}
-                  placeholder="Search curated datasets..."
-                  className="h-9 w-full rounded-md border border-border bg-surface-1 pl-9 pr-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
-                />
-              </label>
-              <ul className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-1">
-                {filteredCurated.map((src) => (
-                  <li key={src.url}>
-                    <button
-                      type="button"
-                      onClick={() => submitCurated(src)}
-                      className="flex w-full flex-col items-start gap-1 px-3 py-2.5 text-left transition-colors hover:bg-surface-2"
-                    >
-                      <div className="flex w-full items-center justify-between gap-3">
-                        <span className="truncate text-sm font-medium text-ink-0">
-                          {src.title}
-                        </span>
-                        <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted">
-                          {src.category}
-                        </span>
-                      </div>
-                      <div className="line-clamp-2 text-xs text-muted">
-                        {src.description}
-                      </div>
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {src.tags.map((t) => (
-                          <span
-                            key={t}
-                            className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted"
-                          >
-                            {t}
-                          </span>
-                        ))}
-                      </div>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              {filteredCurated.length === 0 ? (
-                <p className="text-xs text-muted">No datasets match.</p>
-              ) : null}
-              <p className="text-[11px] text-muted">
-                Links point to public, permissively-licensed data. Attribution
-                is the responsibility of the map author.
-              </p>
-            </div>
-          )}
+          {/* Curated tab removed (#91): see comment near the tab
+              button row above. */}
 
           {tab === 'arcgis' && (
             <div className="space-y-4">
