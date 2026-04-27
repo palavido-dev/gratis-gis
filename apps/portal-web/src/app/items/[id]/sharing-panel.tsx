@@ -1,6 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Building2,
@@ -17,6 +24,7 @@ import type {
   Group,
   ItemAccess,
   ItemShare,
+  ItemType,
   SharePermission,
 } from '@gratis-gis/shared-types';
 import {
@@ -29,9 +37,26 @@ import {
   type BoundaryOption,
   type ShareGeoLimitSave,
 } from './share-geo-limit-dialog';
+import {
+  loadEditorDependencyChain,
+  principalHasItemAccess,
+  type EditorDependencyNode,
+} from '@/lib/editor-dependencies';
+import { getItemTypeLabel } from '@/lib/item-type-icon';
+import { AlertTriangle, Loader2 } from 'lucide-react';
 
 interface Props {
   itemId: string;
+  /**
+   * Item type. Composite types (today: editor) trigger a
+   * dependency-access pre-check before each share is created --
+   * sharing an editor without granting view on its referenced map
+   * + target data_layers leaves the sharee staring at a broken
+   * runtime. The pre-check refuses to proceed silently; the
+   * author either cancels the share or grants view on every
+   * missing dependency. Non-composite types skip the check.
+   */
+  itemType: ItemType;
   initialAccess: ItemAccess;
   initialShares: ItemShare[];
   groups: Pick<Group, 'id' | 'title'>[];
@@ -56,6 +81,7 @@ type RowSaveState = 'idle' | 'saving' | 'saved' | 'error';
 
 export function SharingPanel({
   itemId,
+  itemType,
   initialAccess,
   initialShares,
   groups,
@@ -100,6 +126,36 @@ export function SharingPanel({
 
   const [mode, setMode] = useState<'group' | 'user'>('group');
   const [permission, setPermission] = useState<SharePermission>('view');
+
+  // Editor share-time hard prompt (#editor sharing slice 2). When
+  // an editor item is being shared, we first audit the principal
+  // against the editor's full dependency chain (referenced map +
+  // basemap + map's layers + target data_layers). If any
+  // dependency is invisible to the principal, a confirm modal
+  // forces the author to either cancel the share or grant view on
+  // every missing dependency. Skipping the gap is intentionally
+  // not an option: a missing dep means the runtime breaks for
+  // that user, and a silent broken share is worse than a clear
+  // refusal at share time.
+  //
+  // The dep chain is fetched lazily on the first editor share
+  // attempt and memoized; subsequent shares in the same session
+  // reuse it. depCacheRef stores both the chain and the in-flight
+  // promise so a rapid double-pick doesn't race.
+  const [pendingShare, setPendingShare] = useState<{
+    principalType: 'user' | 'group';
+    principalId: string;
+    principalName: string;
+    missing: EditorDependencyNode[];
+  } | null>(null);
+  const [confirmingShare, setConfirmingShare] = useState(false);
+  const depChainRef = useRef<{
+    promise: Promise<EditorDependencyNode[]> | null;
+    chain: EditorDependencyNode[] | null;
+  }>({ promise: null, chain: null });
+  const [auditingPrincipal, setAuditingPrincipal] = useState<string | null>(
+    null,
+  );
 
   const keyOf = (s: Pick<ItemShare, 'principalType' | 'principalId'>) =>
     `${s.principalType}:${s.principalId}`;
@@ -416,6 +472,143 @@ export function SharingPanel({
       return [...filtered, added];
     });
     startTransition(() => router.refresh());
+  }
+
+  /** Lazily fetch + cache the editor's full dependency chain. */
+  async function loadDependencyChainCached(): Promise<
+    EditorDependencyNode[]
+  > {
+    if (depChainRef.current.chain) return depChainRef.current.chain;
+    if (depChainRef.current.promise) return depChainRef.current.promise;
+    const p = (async () => {
+      const { nodes } = await loadEditorDependencyChain(itemId);
+      depChainRef.current.chain = nodes;
+      depChainRef.current.promise = null;
+      return nodes;
+    })();
+    depChainRef.current.promise = p;
+    return p;
+  }
+
+  /**
+   * Pre-share dependency audit for editor items. Fetches the
+   * principal's group memberships (users only; groups have no
+   * memberships of their own here), runs the full chain through
+   * `principalHasItemAccess`, and either:
+   *   - opens the hard-prompt modal when there are gaps, or
+   *   - falls through to addShare() when the principal already
+   *     has access to every dependency.
+   * Non-editor item types skip the audit entirely.
+   *
+   * The modal does not let the author "skip" gaps because a
+   * skipped gap means a broken runtime for the sharee. Two
+   * choices, no third path: cancel, or grant view on every
+   * missing dep and proceed.
+   */
+  async function intentShare(
+    principalType: 'group' | 'user',
+    principalId: string,
+    principalName: string,
+  ) {
+    setError(null);
+    if (itemType !== 'editor') {
+      void addShare(principalType, principalId);
+      return;
+    }
+    const principalKey = `${principalType}:${principalId}`;
+    setAuditingPrincipal(principalKey);
+    try {
+      const chain = await loadDependencyChainCached();
+      if (chain.length === 0) {
+        await addShare(principalType, principalId);
+        return;
+      }
+      let memberships: Record<string, string[]> = {};
+      if (principalType === 'user') {
+        try {
+          const r = await fetch(
+            `/api/portal/users?ids=${encodeURIComponent(principalId)}`,
+          );
+          if (r.ok) {
+            const rows = (await r.json()) as Array<{
+              id: string;
+              groupIds?: string[];
+            }>;
+            for (const u of rows) memberships[u.id] = u.groupIds ?? [];
+          }
+        } catch {
+          /* non-fatal: gap detection treats user as no-groups, which is
+             the conservative default (more gaps shown, not fewer) */
+        }
+      }
+      const missing = chain.filter(
+        (n) =>
+          !principalHasItemAccess(
+            n,
+            { type: principalType, id: principalId },
+            memberships,
+          ),
+      );
+      if (missing.length === 0) {
+        await addShare(principalType, principalId);
+        return;
+      }
+      setPendingShare({ principalType, principalId, principalName, missing });
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? `Dependency audit failed: ${err.message}`
+          : 'Dependency audit failed.',
+      );
+    } finally {
+      setAuditingPrincipal(null);
+    }
+  }
+
+  /**
+   * "Share + grant view on missing items" path of the hard
+   * prompt. Issues a view-share POST against each missing
+   * dependency, then calls addShare on the editor. Done in
+   * sequence (not parallel) so a downstream failure on one
+   * dep grant surfaces a usable error rather than a partial
+   * orchestration. The dep cache is invalidated on success
+   * because subsequent gap audits should see the freshly-
+   * granted shares.
+   */
+  async function confirmGrantAndShare() {
+    if (!pendingShare) return;
+    setConfirmingShare(true);
+    setError(null);
+    try {
+      for (const dep of pendingShare.missing) {
+        const res = await fetch(`/api/portal/items/${dep.id}/share`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            principalType: pendingShare.principalType,
+            principalId: pendingShare.principalId,
+            permission: 'view',
+          }),
+        });
+        if (!res.ok) {
+          throw new Error(
+            `Grant on "${dep.title}" failed: ${res.status} ${await res.text()}`,
+          );
+        }
+      }
+      await addShare(
+        pendingShare.principalType,
+        pendingShare.principalId,
+      );
+      depChainRef.current = { promise: null, chain: null };
+      setPendingShare(null);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Grant or share failed.',
+      );
+    } finally {
+      setConfirmingShare(false);
+    }
   }
 
   // Group search: purely client-side against the already-loaded list.
@@ -762,7 +955,9 @@ export function SharingPanel({
                 key="group-picker"
                 placeholder="Search groups..."
                 search={searchGroups}
-                onPick={(opt) => addShare('group', opt.id)}
+                onPick={(opt) =>
+                  void intentShare('group', opt.id, opt.title)
+                }
                 emptyInitialMessage={
                   groups.length === 0
                     ? 'No groups yet. Create one from /groups.'
@@ -774,7 +969,9 @@ export function SharingPanel({
                 key="user-picker"
                 placeholder="Search people in your org..."
                 search={searchUsers}
-                onPick={(opt) => addShare('user', opt.id)}
+                onPick={(opt) =>
+                  void intentShare('user', opt.id, opt.title)
+                }
                 emptyInitialMessage="Start typing a name or username."
               />
             )}
@@ -795,7 +992,81 @@ export function SharingPanel({
             {error}
           </p>
         ) : null}
+        {auditingPrincipal ? (
+          <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-muted">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Checking dependency access...
+          </p>
+        ) : null}
       </div>
+
+      {pendingShare ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-lg bg-surface-1 shadow-raised">
+            <div className="flex items-start gap-3 border-b border-border px-4 py-3">
+              <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-800">
+                <AlertTriangle className="h-4 w-4" />
+              </span>
+              <div className="min-w-0">
+                <h2 className="text-sm font-semibold text-ink-0">
+                  Grant access to dependencies?
+                </h2>
+                <p className="mt-1 text-xs text-muted">
+                  <span className="font-medium text-ink-1">
+                    {pendingShare.principalName}
+                  </span>{' '}
+                  cannot see {pendingShare.missing.length} item
+                  {pendingShare.missing.length === 1 ? '' : 's'} this
+                  editor depends on. Without view access on each one,
+                  the editor will fail to load when they open it.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-4 py-3">
+              <ul className="space-y-1.5">
+                {pendingShare.missing.map((dep) => (
+                  <li
+                    key={dep.id}
+                    className="rounded border border-amber-200 bg-amber-50 px-3 py-2"
+                  >
+                    <div className="text-sm font-medium text-ink-1">
+                      {dep.title}
+                    </div>
+                    <div className="text-[11px] uppercase tracking-wide text-amber-800">
+                      {getItemTypeLabel(dep.type)}
+                      {dep.rationale ? ` · ${dep.rationale}` : ''}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-border bg-surface-2 px-4 py-3">
+              <button
+                type="button"
+                disabled={confirmingShare}
+                onClick={() => setPendingShare(null)}
+                className="inline-flex h-8 items-center rounded border border-border bg-surface-1 px-3 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+              >
+                Cancel share
+              </button>
+              <button
+                type="button"
+                disabled={confirmingShare}
+                onClick={() => void confirmGrantAndShare()}
+                className="inline-flex h-8 items-center gap-1 rounded bg-amber-600 px-3 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                {confirmingShare ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : null}
+                Share + grant view on {pendingShare.missing.length} item
+                {pendingShare.missing.length === 1 ? '' : 's'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

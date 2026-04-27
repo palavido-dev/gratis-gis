@@ -175,6 +175,15 @@ export async function loadEditorDependencyChain(
  * caller has stale share rows in hand they should drop expired
  * ones before passing them in.
  *
+ * Org-access shortcut: GratisGIS shares only to in-org principals,
+ * and an editor's dependencies are always in the editor's org
+ * (Prisma scopes every item write by orgId). So the only case
+ * we'd see at this call site is item.orgId === principal.orgId,
+ * and `'org'` access always grants visibility. The caller passes
+ * the principal/item through unmodified; we treat 'org' as a
+ * pass without comparing org ids, matching the production
+ * invariant.
+ *
  * This is intentionally a pure function rather than a server call:
  * we want to evaluate it for every cell in the matrix without
  * issuing N x M HTTP probes. Trade-off: this duplicates the
@@ -183,12 +192,12 @@ export async function loadEditorDependencyChain(
  * is a UI hint, not the security boundary.
  */
 export function principalHasItemAccess(
-  item: Pick<EditorDependencyNode, 'access' | 'orgId' | 'shares'>,
-  principal: { type: 'user' | 'group'; id: string; orgId: string },
+  item: Pick<EditorDependencyNode, 'access' | 'shares'>,
+  principal: { type: 'user' | 'group'; id: string },
   groupMemberships: Record<string, string[]>,
 ): boolean {
   if (item.access === 'public') return true;
-  if (item.access === 'org' && item.orgId === principal.orgId) return true;
+  if (item.access === 'org') return true;
   for (const s of item.shares) {
     if (s.principalType === principal.type && s.principalId === principal.id) {
       return true;

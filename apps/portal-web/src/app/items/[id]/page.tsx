@@ -553,6 +553,7 @@ export default async function ItemDetailPage({ params }: Props) {
           </h2>
           <SharingPanel
             itemId={item.id}
+            itemType={item.type}
             initialAccess={item.access}
             initialShares={item.shares}
             groups={groups}
