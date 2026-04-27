@@ -6,6 +6,7 @@ import type maplibregl from 'maplibre-gl';
 import {
   ArrowLeft,
   Eye,
+  Folder as FolderIcon,
   Layers,
   MousePointer2,
   PencilRuler,
@@ -211,13 +212,37 @@ export function EditorRuntime({
   }, [editor.targets, targetByKey]);
 
   // Layer split for the side panel: target layers (purple, editable)
-  // vs reference layers (read-only context).
+  // vs reference layers (read-only context). Reference layers
+  // include group "layers" (source.kind === 'group') because the
+  // legend renders them as section headers with indented children
+  // -- the same hierarchy the referenced map authors arranged.
+  // Each entry carries its tree depth so the legend can indent
+  // children under their groups (#46-style nested rendering).
   const { targetLayers, referenceLayers } = useMemo(() => {
     const targetSet = new Set(targetLayerIds);
-    const targets = mapData.layers.filter((l) => targetSet.has(l.id));
-    const references = mapData.layers.filter(
-      (l) => !targetSet.has(l.id) && l.source.kind !== 'group',
-    );
+    const layerById = new Map(mapData.layers.map((l) => [l.id, l] as const));
+
+    // Compute group-tree depth via the groupId chain. Cycle-safe
+    // via a visited-set, mirroring shared-types' groupDepth helper.
+    function depthOf(l: { groupId?: string }): number {
+      let d = 0;
+      let cur = l.groupId;
+      const seen = new Set<string>();
+      while (cur && !seen.has(cur)) {
+        seen.add(cur);
+        d += 1;
+        const parent = layerById.get(cur);
+        cur = parent?.groupId;
+      }
+      return d;
+    }
+
+    const targets = mapData.layers
+      .filter((l) => targetSet.has(l.id))
+      .map((l) => ({ layer: l, depth: 0 }));
+    const references = mapData.layers
+      .filter((l) => !targetSet.has(l.id))
+      .map((l) => ({ layer: l, depth: depthOf(l) }));
     return { targetLayers: targets, referenceLayers: references };
   }, [mapData.layers, targetLayerIds]);
 
@@ -728,15 +753,19 @@ export function EditorRuntime({
 
   return (
     <div className="flex h-full min-h-[calc(100vh-3.5rem)] flex-col bg-surface-0">
-      {/* Top bar: back link + title + reference map breadcrumb. */}
+      {/* Top bar: back link + title + reference map breadcrumb.
+          "Back to items" matches the standard item detail page so
+          users who arrive here from the items list have a
+          consistent escape. Owners get a separate "Configure"
+          link that takes them to the editor's detail/config page. */}
       <header className="flex shrink-0 items-center justify-between gap-4 border-b border-border bg-surface-1 px-4 py-2">
         <div className="flex min-w-0 items-center gap-3">
           <Link
-            href={`/items/${editorId}`}
+            href="/items"
             className="inline-flex items-center gap-1 text-xs text-muted hover:text-ink-0"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
-            Back to config
+            Back to items
           </Link>
           <span className="text-muted">/</span>
           <span className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-0">
@@ -757,9 +786,20 @@ export function EditorRuntime({
             </span>
           ) : null}
         </div>
-        <div className="flex items-center gap-2 text-xs text-muted">
-          {targetLayers.length} editable layer
-          {targetLayers.length === 1 ? '' : 's'}
+        <div className="flex items-center gap-3 text-xs text-muted">
+          <span>
+            {targetLayers.length} editable layer
+            {targetLayers.length === 1 ? '' : 's'}
+          </span>
+          {canEdit ? (
+            <Link
+              href={`/items/${editorId}`}
+              className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-2 py-1 text-xs font-medium text-ink-1 hover:bg-surface-2"
+              title="Open the editor's configuration page"
+            >
+              Configure
+            </Link>
+          ) : null}
         </div>
       </header>
 
@@ -897,7 +937,7 @@ export function EditorRuntime({
                 </div>
               ) : (
                 <ul>
-                  {targetLayers.map((l) => {
+                  {targetLayers.map(({ layer: l }) => {
                     // Recover (dataLayerId, layerKey) from the
                     // synthetic layer id so we can match the active
                     // target.
@@ -941,17 +981,33 @@ export function EditorRuntime({
                 </p>
               ) : (
                 <ul>
-                  {referenceLayers.map((l) => (
-                    <li
-                      key={l.id}
-                      className="flex items-center gap-2 px-3 py-1.5 text-xs"
-                    >
-                      <Eye className="h-3 w-3 shrink-0 text-muted" />
-                      <span className="truncate text-ink-1" title={l.title}>
-                        {l.title}
-                      </span>
-                    </li>
-                  ))}
+                  {referenceLayers.map(({ layer: l, depth }) => {
+                    const isGroup = l.source.kind === 'group';
+                    // Indentation step matches the map editor's nested
+                    // layer panel pattern (#46): 12px per depth level.
+                    // Group headers are bold + folder icon; leaves are
+                    // plain rows with the eye icon used elsewhere for
+                    // read-only layers.
+                    const indent = depth > 0 ? { paddingLeft: 12 + depth * 12 } : undefined;
+                    return (
+                      <li
+                        key={l.id}
+                        className={`flex items-center gap-2 py-1.5 pr-3 text-xs ${
+                          isGroup ? 'font-medium text-ink-0' : 'text-ink-1'
+                        }`}
+                        style={indent ?? { paddingLeft: 12 }}
+                      >
+                        {isGroup ? (
+                          <FolderIcon className="h-3 w-3 shrink-0 text-muted" />
+                        ) : (
+                          <Eye className="h-3 w-3 shrink-0 text-muted" />
+                        )}
+                        <span className="truncate" title={l.title}>
+                          {l.title}
+                        </span>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>
