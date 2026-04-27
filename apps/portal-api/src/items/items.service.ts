@@ -218,6 +218,18 @@ export class ItemsService {
     // index. Done outside the Prisma `where` because Prisma can't
     // express geometry operators directly; the result is a SET of
     // ids that we intersect with the regular where via `id IN`.
+    //
+    // When an area filter is active we strictly restrict to spatial
+    // item types (the user explicitly asked "what's in this area?";
+    // folders / pick-lists / basemaps don't have a footprint and
+    // shouldn't pad the result). We also drop the previous
+    // pass-through for items with empty bbox: a stored `bbox = []`
+    // means we don't know where the item lives, so we can't claim
+    // it's inside the user's area. Items without a known extent
+    // surface as "no results" rather than as false positives.
+    // Note: data_layers/maps that haven't had their feature extent
+    // computed yet (seeded fixtures, pre-#24 rows) will be hidden
+    // here until something writes an extent into item.bbox.
     if (opts.bbox) {
       const buf = degreesFromKm(opts.bufferKm ?? 0);
       const [w, s, e, n] = opts.bbox;
@@ -236,27 +248,32 @@ export class ItemsService {
           )
       `;
       const idSet = ids.map((r) => r.id);
-      // Combine with existing where via AND so visibility / type /
-      // ownerId all still apply. Items without a bbox_geom are
-      // intentionally allowed through the spatial filter (see opts
-      // doc): spatial-aware items get filtered down to those whose
-      // bbox intersects, while bbox-less items are unaffected.
-      //
-      // Important: visibleWhere(user) returns `{ AND: [access, { deletedAt: null }] }`
+      // visibleWhere(user) returns `{ AND: [access, { deletedAt: null }] }`
       // so `where.AND` is already populated. Direct assignment would
       // overwrite the deletedAt filter (this used to leak trashed
       // items into spatial search results in the "All items" view).
       // Preserve the existing AND clauses by appending instead.
-      const orParts: Prisma.ItemWhereInput[] = [
-        { id: { in: idSet } },
-        { bbox: { equals: [] } },
-      ];
       const existingAnd = Array.isArray(where.AND)
         ? where.AND
         : where.AND
           ? [where.AND]
           : [];
-      where.AND = [...existingAnd, { OR: orParts }];
+      where.AND = [
+        ...existingAnd,
+        {
+          type: {
+            in: [
+              'map',
+              'data_layer',
+              'arcgis_service',
+              'wms_service',
+              'wfs_service',
+              'geo_boundary',
+            ],
+          },
+        },
+        { id: { in: idSet } },
+      ];
     }
     // Include shares in the list response so the items page can render
     // sharing badges without a second round-trip per item. Most items
