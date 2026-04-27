@@ -89,19 +89,36 @@ export async function discoverLayerMetadata(
       // suppressing symbology / legend / etc. The features query
       // for a table often errors out on `f=geojson` so we skip it
       // entirely when we know it's a table. (#87)
-      const descUrl = `${layer.source.url}/${layer.source.layerId}?f=json`;
+      //
+      // Route through the portal-api proxy when the source item is
+      // credentialed (#36); the proxy attaches the stored
+      // credential server-side. Without this, secured services
+      // return Esri's JSON error body (200 + {error:{code:401}}),
+      // which parses cleanly but has no geometryType -- so EVERY
+      // layer would have looked like a table.
+      const baseUrl =
+        (layer.source as { proxyUrl?: string }).proxyUrl ?? layer.source.url;
+      const descUrl = `${baseUrl}/${layer.source.layerId}?f=json`;
       const descInit: RequestInit = {};
       if (signal) descInit.signal = signal;
       type LayerDesc = {
         geometryType?: string | null;
         type?: string;
         fields?: Array<{ name?: unknown }>;
+        // Esri's failure shape: HTTP 200 with this object instead
+        // of the layer description. We treat its presence as a
+        // signal that the desc fetch effectively failed.
+        error?: { code?: number; message?: string };
       };
       let layerDesc: LayerDesc | null = null;
       try {
         const descRes = await fetch(descUrl, descInit);
         if (descRes.ok) {
-          layerDesc = (await descRes.json()) as LayerDesc;
+          const parsed = (await descRes.json()) as LayerDesc;
+          // Reject Esri error envelopes here so the geometryType
+          // missing branch can trust that null = table, not auth
+          // failure.
+          if (!parsed.error) layerDesc = parsed;
         }
       } catch {
         // Non-fatal: fall through to the features query path. If
@@ -138,7 +155,7 @@ export async function discoverLayerMetadata(
         f: 'geojson',
         resultRecordCount: String(FEATURE_SAMPLE_CAP),
       });
-      const url = `${layer.source.url}/${layer.source.layerId}/query?${params.toString()}`;
+      const url = `${baseUrl}/${layer.source.layerId}/query?${params.toString()}`;
       const init: RequestInit = {};
       if (signal) init.signal = signal;
       const res = await fetch(url, init);

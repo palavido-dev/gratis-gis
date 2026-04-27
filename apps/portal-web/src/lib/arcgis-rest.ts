@@ -266,10 +266,26 @@ function detectServiceType(url: string): ArcgisServiceType {
 }
 
 function appendQuery(url: string, params: Record<string, string>): string {
-  const u = new URL(url);
+  // Support relative URLs (e.g. our `/api/portal/items/.../proxy`
+  // for secured services). `new URL(url)` throws for paths without
+  // a scheme, so pass window.location.origin as the base when we're
+  // in the browser. Falls back to a synthetic base on the server
+  // side; we only ever need toString() to round-trip the query
+  // string and the relative-path portion is preserved either way.
+  const isAbsolute = /^[a-z][a-z0-9+.-]*:/i.test(url);
+  const base = isAbsolute
+    ? undefined
+    : typeof window !== 'undefined'
+      ? window.location.origin
+      : 'http://localhost';
+  const u = new URL(url, base);
   for (const [k, v] of Object.entries(params)) {
     u.searchParams.set(k, v);
   }
+  // For relative URLs, return just the path + search so the caller
+  // can keep using a relative URL (the BFF route is on the same
+  // origin and we don't want to hard-code it).
+  if (!isAbsolute) return `${u.pathname}${u.search}`;
   return u.toString();
 }
 
