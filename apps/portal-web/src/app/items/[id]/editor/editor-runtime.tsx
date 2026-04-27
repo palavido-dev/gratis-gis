@@ -216,37 +216,58 @@ export function EditorRuntime({
 
   // Layer split for the side panel: target layers (purple, editable)
   // vs reference layers (read-only context). Reference layers
-  // include group "layers" (source.kind === 'group') because the
-  // legend renders them as section headers with indented children
-  // -- the same hierarchy the referenced map authors arranged.
-  // Each entry carries its tree depth so the legend can indent
-  // children under their groups (#46-style nested rendering).
-  const { targetLayers, referenceLayers } = useMemo(() => {
+  // include group "layers" (source.kind === 'group') so the legend
+  // can render them as section headers with their children
+  // recursively nested underneath -- same convention #46 uses.
+  //
+  // We render the tree depth-first by collecting children-by-group
+  // into an index, then walking ONLY top-level layers (no groupId,
+  // or groupId points at a missing/non-group header). When a top-
+  // level layer is a group, the renderer recurses into its
+  // children. Crucially this means a group's children can sit
+  // ANYWHERE in the array -- before or after the header -- and
+  // still render under the header, which is how the underlying
+  // map data actually stores them (#71's drag-into-group keeps
+  // children's array position rather than co-locating them with
+  // the header).
+  const { targetTree, referenceTree, allLayerOrder } = useMemo(() => {
     const targetSet = new Set(targetLayerIds);
-    const layerById = new Map(mapData.layers.map((l) => [l.id, l] as const));
-
-    // Compute group-tree depth via the groupId chain. Cycle-safe
-    // via a visited-set, mirroring shared-types' groupDepth helper.
-    function depthOf(l: { groupId?: string }): number {
-      let d = 0;
-      let cur = l.groupId;
-      const seen = new Set<string>();
-      while (cur && !seen.has(cur)) {
-        seen.add(cur);
-        d += 1;
-        const parent = layerById.get(cur);
-        cur = parent?.groupId;
-      }
-      return d;
+    const headerIds = new Set<string>();
+    for (const l of mapData.layers) {
+      if (l.source.kind === 'group') headerIds.add(l.id);
     }
-
-    const targets = mapData.layers
-      .filter((l) => targetSet.has(l.id))
-      .map((l) => ({ layer: l, depth: 0 }));
-    const references = mapData.layers
-      .filter((l) => !targetSet.has(l.id))
-      .map((l) => ({ layer: l, depth: depthOf(l) }));
-    return { targetLayers: targets, referenceLayers: references };
+    // Index of children by their group id. Only count an entry as
+    // "child of X" when X is actually a known group header in this
+    // mapData; an orphan groupId (header was deleted, or pointed at
+    // a non-group) renders as top-level.
+    const kidsByGroup = new Map<string, typeof mapData.layers>();
+    for (const l of mapData.layers) {
+      if (l.groupId && headerIds.has(l.groupId)) {
+        const arr = kidsByGroup.get(l.groupId) ?? [];
+        arr.push(l);
+        kidsByGroup.set(l.groupId, arr);
+      }
+    }
+    // Top-level layers per section. A target layer is always top
+    // level since targets are synthesized into the layers array
+    // without a groupId (build-map-data doesn't put targets into
+    // groups). Reference layers are top-level when their groupId
+    // is missing or points at a non-existent header.
+    const targetTopLevel = mapData.layers.filter((l) => targetSet.has(l.id));
+    const refTopLevel = mapData.layers.filter(
+      (l) =>
+        !targetSet.has(l.id) &&
+        (!l.groupId || !headerIds.has(l.groupId)),
+    );
+    return {
+      targetTree: { topLevel: targetTopLevel, kidsByGroup },
+      referenceTree: { topLevel: refTopLevel, kidsByGroup },
+      // Map of layer id -> array index, used by reorder buttons
+      // to know whether a layer can move up / down.
+      allLayerOrder: new Map(
+        mapData.layers.map((l, i) => [l.id, i] as const),
+      ),
+    };
   }, [mapData.layers, targetLayerIds]);
 
   // Toggle a layer's `visible` flag. Single layer click; child layers
@@ -826,8 +847,8 @@ export function EditorRuntime({
         </div>
         <div className="flex items-center gap-3 text-xs text-muted">
           <span>
-            {targetLayers.length} editable layer
-            {targetLayers.length === 1 ? '' : 's'}
+            {targetTree.topLevel.length} editable layer
+            {targetTree.topLevel.length === 1 ? '' : 's'}
           </span>
           {canEdit ? (
             <Link
@@ -953,9 +974,9 @@ export function EditorRuntime({
             </div>
             <div className="overflow-auto">
               <div className="px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-muted">
-                Editing ({targetLayers.length})
+                Editing ({targetTree.topLevel.length})
               </div>
-              {targetLayers.length === 0 ? (
+              {targetTree.topLevel.length === 0 ? (
                 <div className="px-3 pb-3 text-xs">
                   <p className="text-muted">
                     No editable layers configured.
@@ -975,37 +996,23 @@ export function EditorRuntime({
                 </div>
               ) : (
                 <ul>
-                  {targetLayers.map(({ layer: l }) => {
-                    const stripped = l.id.startsWith(EDITOR_TARGET_LAYER_PREFIX)
-                      ? l.id.slice(EDITOR_TARGET_LAYER_PREFIX.length)
-                      : l.id;
-                    const isActive = stripped === activeTargetKey;
-                    const idx = mapData.layers.findIndex(
-                      (m) => m.id === l.id,
-                    );
-                    return (
-                      <LegendRow
-                        key={l.id}
-                        layerId={l.id}
-                        title={l.title}
-                        visible={l.visible}
-                        depth={0}
-                        isGroup={false}
-                        isActive={isActive}
-                        canMoveUp={idx > 0}
-                        canMoveDown={idx >= 0 && idx < mapData.layers.length - 1}
-                        accent="target"
-                        onToggleVisible={toggleLayerVisible}
-                        onMove={moveLayer}
-                      />
-                    );
+                  {renderLegendTree({
+                    topLevel: targetTree.topLevel,
+                    kidsByGroup: targetTree.kidsByGroup,
+                    depth: 0,
+                    accent: 'target',
+                    activeTargetKey,
+                    allLayerOrder,
+                    totalLayers: mapData.layers.length,
+                    onToggleVisible: toggleLayerVisible,
+                    onMove: moveLayer,
                   })}
                 </ul>
               )}
               <div className="border-t border-border px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-muted">
-                Reference ({referenceLayers.length})
+                Reference ({mapData.layers.length - targetTree.topLevel.length})
               </div>
-              {referenceLayers.length === 0 ? (
+              {referenceTree.topLevel.length === 0 ? (
                 <p className="px-3 pb-3 text-xs text-muted">
                   {referencedMapTitle
                     ? 'The referenced map has no overlay layers.'
@@ -1013,27 +1020,16 @@ export function EditorRuntime({
                 </p>
               ) : (
                 <ul>
-                  {referenceLayers.map(({ layer: l, depth }) => {
-                    const isGroup = l.source.kind === 'group';
-                    const idx = mapData.layers.findIndex(
-                      (m) => m.id === l.id,
-                    );
-                    return (
-                      <LegendRow
-                        key={l.id}
-                        layerId={l.id}
-                        title={l.title}
-                        visible={l.visible}
-                        depth={depth}
-                        isGroup={isGroup}
-                        isActive={false}
-                        canMoveUp={idx > 0}
-                        canMoveDown={idx >= 0 && idx < mapData.layers.length - 1}
-                        accent="reference"
-                        onToggleVisible={toggleLayerVisible}
-                        onMove={moveLayer}
-                      />
-                    );
+                  {renderLegendTree({
+                    topLevel: referenceTree.topLevel,
+                    kidsByGroup: referenceTree.kidsByGroup,
+                    depth: 0,
+                    accent: 'reference',
+                    activeTargetKey: null,
+                    allLayerOrder,
+                    totalLayers: mapData.layers.length,
+                    onToggleVisible: toggleLayerVisible,
+                    onMove: moveLayer,
                   })}
                 </ul>
               )}
@@ -1121,6 +1117,65 @@ export function EditorRuntime({
       </ConfirmDialog>
     </div>
   );
+}
+
+/**
+ * Render a tree of legend rows depth-first, starting from the
+ * provided top-level layers. When a layer is a group header
+ * (source.kind === 'group') we recurse into its children from the
+ * kidsByGroup index; non-group layers render as leaf rows. Mirrors
+ * the existing layer-panel.tsx pattern (#46, #71) so the editor
+ * runtime's legend stays consistent with the map editor's panel.
+ */
+function renderLegendTree(args: {
+  topLevel: import('@gratis-gis/shared-types').MapLayer[];
+  kidsByGroup: Map<string, import('@gratis-gis/shared-types').MapLayer[]>;
+  depth: number;
+  accent: 'target' | 'reference';
+  activeTargetKey: string | null;
+  allLayerOrder: Map<string, number>;
+  totalLayers: number;
+  onToggleVisible: (id: string) => void;
+  onMove: (id: string, dir: 'up' | 'down') => void;
+}): React.ReactElement[] {
+  const out: React.ReactElement[] = [];
+  for (const l of args.topLevel) {
+    const isGroup = l.source.kind === 'group';
+    const idx = args.allLayerOrder.get(l.id) ?? -1;
+    const stripped = l.id.startsWith(EDITOR_TARGET_LAYER_PREFIX)
+      ? l.id.slice(EDITOR_TARGET_LAYER_PREFIX.length)
+      : l.id;
+    const isActive = stripped === args.activeTargetKey;
+    out.push(
+      <LegendRow
+        key={l.id}
+        layerId={l.id}
+        title={l.title}
+        visible={l.visible}
+        depth={args.depth}
+        isGroup={isGroup}
+        isActive={isActive}
+        canMoveUp={idx > 0}
+        canMoveDown={idx >= 0 && idx < args.totalLayers - 1}
+        accent={args.accent}
+        onToggleVisible={args.onToggleVisible}
+        onMove={args.onMove}
+      />,
+    );
+    if (isGroup) {
+      const kids = args.kidsByGroup.get(l.id) ?? [];
+      if (kids.length > 0) {
+        out.push(
+          ...renderLegendTree({
+            ...args,
+            topLevel: kids,
+            depth: args.depth + 1,
+          }),
+        );
+      }
+    }
+  }
+  return out;
 }
 
 interface LegendRowProps {
