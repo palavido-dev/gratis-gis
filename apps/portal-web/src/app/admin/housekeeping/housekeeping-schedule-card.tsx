@@ -16,6 +16,8 @@ export interface HousekeepingConfig {
   autoTrashDays: number;
   autoDisableEnabled: boolean;
   autoDisableDays: number;
+  /** Periodic recompute-extents pass (#93). Off by default. */
+  recomputeExtentsEnabled: boolean;
   scheduleMode: 'off' | 'daily' | 'weekly';
   scheduleHour: number;
   scheduleMinute: number;
@@ -92,6 +94,7 @@ export function HousekeepingScheduleCard({
           autoTrashDays: config.autoTrashDays,
           autoDisableEnabled: config.autoDisableEnabled,
           autoDisableDays: config.autoDisableDays,
+          recomputeExtentsEnabled: config.recomputeExtentsEnabled,
           scheduleMode: config.scheduleMode,
           scheduleHour: config.scheduleHour,
           scheduleMinute: config.scheduleMinute,
@@ -214,6 +217,29 @@ export function HousekeepingScheduleCard({
             owned stays put, and you can turn sign-in back on for
             them later from the Users page. Admins are skipped.
           </label>
+        </fieldset>
+
+        <fieldset className="space-y-2 rounded-md border border-border p-3 md:col-span-2">
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <input
+              type="checkbox"
+              checked={config.recomputeExtentsEnabled}
+              onChange={(e) =>
+                set('recomputeExtentsEnabled', e.target.checked)
+              }
+              className="h-4 w-4 rounded border-border text-accent focus:ring-accent/30"
+            />
+            Refresh spatial extents on every run (#93)
+          </label>
+          <p className="block text-xs text-ink-1">
+            Recompute the cached bounding box on every map / data
+            layer / external service in your org so the area filter
+            stays accurate as features get added and removed. Cheap
+            for v3 data layers (one PostGIS query per layer); for
+            ArcGIS services it does one HTTP probe per sublayer per
+            service, so leave it off if you have many external
+            services and a slow link to them.
+          </p>
         </fieldset>
       </div>
 

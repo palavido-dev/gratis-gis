@@ -31,6 +31,7 @@ class HousekeepingConfigDto {
   @IsOptional() @IsInt() @Min(1) @Max(3650) autoTrashDays?: number | null;
   @IsOptional() @IsBoolean() autoDisableEnabled?: boolean;
   @IsOptional() @IsInt() @Min(1) @Max(3650) autoDisableDays?: number | null;
+  @IsOptional() @IsBoolean() recomputeExtentsEnabled?: boolean;
   @IsOptional() @IsEnum(['off', 'daily', 'weekly'])
   scheduleMode?: HousekeepingScheduleMode;
   @IsOptional() @IsInt() @Min(0) @Max(23) scheduleHour?: number;

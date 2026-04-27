@@ -8,6 +8,7 @@ import {
   V3TablesService,
   type V3LayerShape,
 } from '../features-v3/v3-tables.service.js';
+import { HousekeepingService } from './housekeeping.service.js';
 
 export type HousekeepingScheduleMode = 'off' | 'daily' | 'weekly';
 
@@ -21,6 +22,9 @@ export interface HousekeepingConfig {
   autoTrashDays: number;
   autoDisableEnabled: boolean;
   autoDisableDays: number;
+  /** When true, the periodic pass recomputes item.bbox for every
+   *  spatial item alongside the trash + disable passes (#93). */
+  recomputeExtentsEnabled: boolean;
   scheduleMode: HousekeepingScheduleMode;
   scheduleHour: number;
   scheduleMinute: number;
@@ -38,6 +42,7 @@ export interface HousekeepingConfigPatch {
   autoTrashDays?: number | null;
   autoDisableEnabled?: boolean;
   autoDisableDays?: number | null;
+  recomputeExtentsEnabled?: boolean;
   scheduleMode?: HousekeepingScheduleMode;
   scheduleHour?: number;
   scheduleMinute?: number;
@@ -70,6 +75,7 @@ export class HousekeepingScheduleService {
     private readonly cfg: ConfigService,
     private readonly keycloak: KeycloakAdminService,
     private readonly v3Tables: V3TablesService,
+    private readonly housekeeping: HousekeepingService,
   ) {}
 
   // ---------------------------------------------------------------
@@ -92,6 +98,8 @@ export class HousekeepingScheduleService {
       data.autoDisableEnabled = patch.autoDisableEnabled;
     if (patch.autoDisableDays !== undefined)
       data.autoDisableDays = patch.autoDisableDays;
+    if (patch.recomputeExtentsEnabled !== undefined)
+      data.recomputeExtentsEnabled = patch.recomputeExtentsEnabled;
     if (patch.scheduleMode !== undefined)
       data.scheduleMode = patch.scheduleMode;
     if (patch.scheduleHour !== undefined) data.scheduleHour = patch.scheduleHour;
@@ -135,6 +143,7 @@ export class HousekeepingScheduleService {
       autoTrashDays: number | null;
       autoDisableEnabled: boolean;
       autoDisableDays: number | null;
+      recomputeExtentsEnabled: boolean;
       scheduleMode: string;
       scheduleHour: number;
       scheduleMinute: number;
@@ -150,10 +159,11 @@ export class HousekeepingScheduleService {
     const dow = row?.scheduleDayOfWeek ?? null;
     const autoTrash = row?.autoTrashEnabled ?? false;
     const autoDisable = row?.autoDisableEnabled ?? false;
+    const recompute = row?.recomputeExtentsEnabled ?? false;
 
     let effectiveCron: string | null = null;
     let summary = 'Off';
-    if (mode !== 'off' && (autoTrash || autoDisable)) {
+    if (mode !== 'off' && (autoTrash || autoDisable || recompute)) {
       const m = String(minute).padStart(2, '0');
       const h = String(hour).padStart(2, '0');
       if (mode === 'daily') {
@@ -166,7 +176,7 @@ export class HousekeepingScheduleService {
           ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d] ?? 'Monday';
         summary = `Weekly on ${dayName} at ${h}:${m}`;
       }
-    } else if (!autoTrash && !autoDisable && mode !== 'off') {
+    } else if (!autoTrash && !autoDisable && !recompute && mode !== 'off') {
       summary = 'Schedule set, but no auto-actions enabled';
     }
 
@@ -175,6 +185,7 @@ export class HousekeepingScheduleService {
       autoTrashDays: row?.autoTrashDays ?? autoTrashDaysEnv,
       autoDisableEnabled: autoDisable,
       autoDisableDays: row?.autoDisableDays ?? autoDisableDaysEnv,
+      recomputeExtentsEnabled: recompute,
       scheduleMode: mode,
       scheduleHour: hour,
       scheduleMinute: minute,
@@ -218,6 +229,31 @@ export class HousekeepingScheduleService {
       // logger output below distinguishes the cause.
       const expired = await this.autoDisableExpiredUsers();
       usersDisabled += expired;
+      // Optional periodic recompute-extents (#93). Loops every org
+      // and recomputes their spatial item bboxes. Cheap for a
+      // typical pure-data_layer org; with arcgis services it does
+      // N HTTP probes so the toggle is explicit-opt-in. Failures
+      // on a single org are logged and we move on; one bad org
+      // can't black out the whole sweep.
+      if (cfg.recomputeExtentsEnabled) {
+        const orgs = await this.prisma.organization.findMany({
+          select: { id: true, slug: true },
+        });
+        for (const org of orgs) {
+          try {
+            const result = await this.housekeeping.recomputeExtents(org.id);
+            this.log.log(
+              `recompute-extents (${org.slug}): ${result.updated}/${result.scanned} items refreshed`,
+            );
+          } catch (err) {
+            this.log.warn(
+              `recompute-extents failed for org ${org.slug}: ${
+                err instanceof Error ? err.message : err
+              }`,
+            );
+          }
+        }
+      }
       const finished = await this.prisma.housekeepingRun.update({
         where: { id: run.id },
         data: {

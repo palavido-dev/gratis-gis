@@ -44,7 +44,11 @@ export class HousekeepingCronService implements OnModuleInit {
       );
       return;
     }
-    if (!cfg.autoTrashEnabled && !cfg.autoDisableEnabled) {
+    if (
+      !cfg.autoTrashEnabled &&
+      !cfg.autoDisableEnabled &&
+      !cfg.recomputeExtentsEnabled
+    ) {
       this.log.log(
         'Schedule set but no auto-actions enabled; nothing to register.',
       );

@@ -480,6 +480,12 @@ model HousekeepingConfig {
   /// back to HOUSEKEEPING_STALE_USER_DAYS env (default 180).
   autoDisableDays     Int?    @map("auto_disable_days")
 
+  /// Whether the periodic housekeeping pass should also recompute
+  /// every spatial item's bbox (#93). Cheap relative to the trash
+  /// pass for typical orgs but does N HTTP probes when ArcGIS
+  /// services are present, so we keep it explicit-opt-in.
+  recomputeExtentsEnabled Boolean @default(false) @map("recompute_extents_enabled")
+
   /// 'off' | 'daily' | 'weekly'. Matches BackupConfig structure but
   /// without the monthly / custom modes (housekeeping cadence is
   /// never high-frequency in practice).
