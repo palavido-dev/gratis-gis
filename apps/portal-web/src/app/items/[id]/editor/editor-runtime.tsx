@@ -20,6 +20,7 @@ import {
   discoverLayerMetadata,
   type LayerMetadata,
 } from '../map/layer-metadata';
+import { SearchBar } from '../map/search-bar';
 import type {
   EditorData,
   EditorTool,
@@ -947,6 +948,35 @@ export function EditorRuntime({
             }}
             onMapReady={(m) => setMapInstance(m)}
           />
+
+          {/* SearchBar overlay. Same component the map editor
+              renders. Geocoding + per-layer attribute search;
+              picking a result flies the canvas to the feature
+              and briefly highlights it. mapData.search drives the
+              enable / geocoding flags so the runtime honors what
+              the referenced map already configured. */}
+          {mapData.search?.enabled !== false ? (
+            <SearchBar
+              layers={mapData.layers}
+              featuresByLayer={featuresByLayer}
+              geocodingEnabled={mapData.search?.geocoding !== false}
+              onPick={(r) => {
+                canvasRef.current?.flyAndHighlight({
+                  bbox: r.bbox,
+                  center: r.center,
+                  ...(r.kind === 'feature'
+                    ? {
+                        layerId: r.layerId,
+                        featureProps: (r.feature.properties ?? {}) as Record<
+                          string,
+                          unknown
+                        >,
+                      }
+                    : {}),
+                });
+              }}
+            />
+          ) : null}
 
           {/* Tool palette overlay. Top-left of the canvas. Renders
               only the tools the author enabled in the editor's
