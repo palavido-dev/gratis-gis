@@ -16,7 +16,10 @@ import {
   X,
 } from 'lucide-react';
 import { LayerPanel } from '../map/layer-panel';
-import type { LayerMetadata } from '../map/layer-metadata';
+import {
+  discoverLayerMetadata,
+  type LayerMetadata,
+} from '../map/layer-metadata';
 import type {
   EditorData,
   EditorTool,
@@ -166,6 +169,79 @@ export function EditorRuntime({
   activeTargetKeyRef.current = activeTargetKey;
 
   const drawRef = useRef<unknown | null>(null);
+
+  // Per-layer probe metadata. Mirrors the pattern map-editor uses:
+  // when the layer list changes, fetch each layer's geojson (or
+  // arcgis-rest description) once and cache fields / geometryTypes
+  // / sample features / etc. LayerPanel consumes this to render
+  // proper swatches and field pickers in style/popup editors;
+  // SearchBar (slice 3b-x) will consume the cached
+  // featureCollection for attribute search; AttributeTable will
+  // consume both. AbortController per layer so a rapid layer-list
+  // churn doesn't leave us with in-flight fetches scribbling over
+  // newer state.
+  const [metadata, setMetadata] = useState<Record<string, LayerMetadata>>({});
+  const probeAbortsRef = useRef<Record<string, AbortController>>({});
+  const sourceKeysJoined = mapData.layers
+    .map((l) => `${l.id}|${JSON.stringify(l.source)}`)
+    .join('\n');
+  useEffect(() => {
+    const seen = new Set(mapData.layers.map((l) => l.id));
+    // Drop metadata for layers that were removed (visibility toggle
+    // doesn't drop; full removal does).
+    setMetadata((prev) => {
+      const next: Record<string, LayerMetadata> = {};
+      for (const [id, md] of Object.entries(prev)) {
+        if (seen.has(id)) next[id] = md;
+      }
+      return next;
+    });
+
+    for (const layer of mapData.layers) {
+      const existing = metadata[layer.id];
+      if (existing && !existing.loading && !existing.error) continue;
+      probeAbortsRef.current[layer.id]?.abort();
+      const controller = new AbortController();
+      probeAbortsRef.current[layer.id] = controller;
+      setMetadata((prev) => ({
+        ...prev,
+        [layer.id]: {
+          fields: prev[layer.id]?.fields ?? [],
+          valuesByField: prev[layer.id]?.valuesByField ?? {},
+          sampleProperties: prev[layer.id]?.sampleProperties ?? null,
+          featureCollection: prev[layer.id]?.featureCollection ?? null,
+          geometryTypes: prev[layer.id]?.geometryTypes ?? new Set(),
+          isTable: prev[layer.id]?.isTable ?? false,
+          error: null,
+          loading: true,
+        },
+      }));
+      void discoverLayerMetadata(layer, controller.signal).then((md) => {
+        if (controller.signal.aborted) return;
+        setMetadata((prev) => ({ ...prev, [layer.id]: md }));
+      });
+    }
+    return () => {
+      for (const c of Object.values(probeAbortsRef.current)) c.abort();
+    };
+    // The joined source-key string changes when a layer is added /
+    // removed / has its source swapped; that's exactly when we want
+    // to re-probe. Including `metadata` in the deps would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceKeysJoined]);
+
+  // Cached feature collections per layer, derived from metadata so
+  // SearchBar + AttributeTable don't refetch. featuresByLayer stays
+  // in sync with metadata automatically; consumers see null while
+  // a layer is loading, then the FeatureCollection once the probe
+  // settles.
+  const featuresByLayer = useMemo(() => {
+    const out: Record<string, GeoJSON.FeatureCollection | null> = {};
+    for (const [id, md] of Object.entries(metadata)) {
+      out[id] = md.featureCollection;
+    }
+    return out;
+  }, [metadata]);
 
   // Pending-delete state for the Delete tool. Holds the feature
   // the user clicked + a short label for the confirm dialog.
@@ -825,7 +901,7 @@ export function EditorRuntime({
         <div className="w-72 shrink-0">
           <LayerPanel
             layers={mapData.layers}
-            metadata={EMPTY_LAYER_METADATA}
+            metadata={metadata}
             canEdit={canEdit}
             currentZoom={currentZoom}
             onOpenAdd={() => {
@@ -1042,18 +1118,6 @@ export function EditorRuntime({
     </div>
   );
 }
-
-/**
- * LayerPanel expects a per-layer metadata object (cached fields,
- * geometryTypes, sample features) that the map editor builds from
- * its feature-loading machinery. The editor runtime hasn't grown
- * that probe layer yet so we pass an empty record; LayerPanel's
- * fallback rendering kicks in (swatches use layer.style alone,
- * fields lists in style / popup editors come up empty). Slice 3b-x
- * will wire the v3 + arcgis-rest probe through to populate this so
- * the runtime's symbology and field pickers light up properly.
- */
-const EMPTY_LAYER_METADATA: Record<string, LayerMetadata> = {};
 
 const TOOL_LABELS: Record<EditorTool, string> = {
   select: 'Select',
