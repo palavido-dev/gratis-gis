@@ -157,6 +157,7 @@ Deeper design references:
 - [docs/editing-and-collection.md](./docs/editing-and-collection.md): the Editor item type design
 - [docs/folders.md](./docs/folders.md): folders + smart folders
 - [docs/web-maps.md](./docs/web-maps.md): map composition + per-layer access matrix
+- [docs/llm-integration.md](./docs/llm-integration.md): local-first LLM features (semantic search, authoring assistant, NL queries, RAG help)
 - [docs/notebooks.md](./docs/notebooks.md): notebook environment integration (planned)
 - [docs/tool-builder.md](./docs/tool-builder.md): visual tool/widget builder (planned)
 - [docs/design-system.md](./docs/design-system.md): UI principles, tokens, components
