@@ -95,6 +95,31 @@ export function extractDependencies(
     }
   }
 
+  if (item.type === 'editor') {
+    // An Editor item references:
+    //   - data.mapId         -> the map providing basemap + reference
+    //                            layers in the runtime
+    //   - data.targets[].dataLayerId
+    //                        -> each target data_layer the editor
+    //                            exposes for write
+    // Tracking these lets the dependency panel show "this editor
+    // depends on X map and Y data_layers", and the reverse edge
+    // ("Used by: this editor") shows up on the map / data_layer
+    // detail pages so authors can see which editors expose them
+    // before purging or restructuring. See docs/editing-and-collection.md.
+    const mapRef = (data as { mapId?: unknown }).mapId;
+    if (typeof mapRef === 'string' && mapRef.length > 0) {
+      itemIds.add(mapRef);
+    }
+    const targets = (data as { targets?: unknown }).targets;
+    if (Array.isArray(targets)) {
+      for (const t of targets as Array<Record<string, unknown>>) {
+        const dl = t?.dataLayerId;
+        if (typeof dl === 'string' && dl.length > 0) itemIds.add(dl);
+      }
+    }
+  }
+
   if (item.type === 'data_layer') {
     // v3 multi-layer: walk each layer's fields and collect pick-list
     // refs (domain type === 'coded-value-ref'). v1/v2 items store
@@ -159,4 +184,9 @@ export function normalizeArcgisUrl(u: string): string {
 
 /** Item types that can reference other items. If we expand this,
  *  update the service's dependents scan to include the new types. */
-export const REFERENCER_TYPES: ItemType[] = ['map', 'data_layer', 'folder'];
+export const REFERENCER_TYPES: ItemType[] = [
+  'map',
+  'data_layer',
+  'folder',
+  'editor',
+];
