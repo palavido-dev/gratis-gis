@@ -11,6 +11,7 @@ import {
   CheckSquare,
   Circle,
   Clock,
+  Crosshair,
   Database,
   Download,
   Eye,
@@ -18,6 +19,7 @@ import {
   GripVertical,
   Hash,
   Home,
+  Image,
   Link,
   ListOrdered,
   ListChecks,
@@ -638,6 +640,9 @@ const PALETTE: PaletteEntry[] = [
   { type: 'name', label: 'Full name', icon: User, group: 'identity' },
   { type: 'address', label: 'Address', icon: Home, group: 'identity' },
   { type: 'photo', label: 'Photo', icon: Camera, group: 'media' },
+  { type: 'image-choice', label: 'Image choice', icon: Image, group: 'media' },
+  { type: 'image-display', label: 'Image', icon: Image, group: 'media' },
+  { type: 'image-hotspot', label: 'Image hotspot', icon: Crosshair, group: 'media' },
   { type: 'signature', label: 'Signature', icon: Type, group: 'media' },
   { type: 'geopoint', label: 'Location', icon: MapPin, group: 'spatial' },
   { type: 'geotrace', label: 'Path', icon: SplitSquareHorizontal, group: 'spatial' },
@@ -1511,6 +1516,71 @@ function Properties({
         />
       ) : null}
 
+      {question.type === 'image-display' || question.type === 'image-hotspot' ? (
+        <Field label="Image URL">
+          <input
+            type="url"
+            value={question.imageUrl}
+            disabled={!canEdit}
+            onChange={(e) =>
+              onChange({ imageUrl: e.target.value } as Partial<Question>)
+            }
+            className={inputCls}
+          />
+        </Field>
+      ) : null}
+
+      {question.type === 'image-display' ? (
+        <Field label="Caption">
+          <input
+            type="text"
+            value={question.caption ?? ''}
+            disabled={!canEdit}
+            onChange={(e) =>
+              onChange({ caption: e.target.value || undefined } as Partial<Question>)
+            }
+            className={inputCls}
+          />
+        </Field>
+      ) : null}
+
+      {question.type === 'image-hotspot' ? (
+        <Field label="Max points">
+          <input
+            type="number"
+            min={1}
+            max={50}
+            value={question.maxPoints ?? 1}
+            disabled={!canEdit}
+            onChange={(e) =>
+              onChange({ maxPoints: Number(e.target.value) } as Partial<Question>)
+            }
+            className={inputCls}
+          />
+        </Field>
+      ) : null}
+
+      {question.type === 'image-choice' ? (
+        <>
+          <label className="mb-2 inline-flex items-center gap-2 text-xs">
+            <input
+              type="checkbox"
+              checked={Boolean(question.multi)}
+              disabled={!canEdit}
+              onChange={(e) =>
+                onChange({ multi: e.target.checked } as Partial<Question>)
+              }
+            />
+            <span>Allow multiple selections</span>
+          </label>
+          <ImageChoicesEditor
+            choices={question.choices}
+            canEdit={canEdit}
+            onChange={(choices) => onChange({ choices } as Partial<Question>)}
+          />
+        </>
+      ) : null}
+
       {question.type === 'address' ? (
         <ComponentToggleEditor
           label="Components"
@@ -2121,6 +2191,108 @@ function MatrixDropdownEditor({
  * surfaces, plus which of those are required. Two checkboxes per
  * row: "Show" and "Required". Required implies Show.
  */
+/**
+ * Variant of ChoicesEditor that exposes an `imageUrl` per choice
+ * (and optional alt text). Same value/label inputs sit on the top
+ * row, image URL underneath.
+ */
+function ImageChoicesEditor({
+  choices,
+  canEdit,
+  onChange,
+}: {
+  choices: { value: string; label: string; imageUrl: string; alt?: string }[];
+  canEdit: boolean;
+  onChange: (next: typeof choices) => void;
+}) {
+  return (
+    <div className="mb-2">
+      <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">
+        Image choices
+      </p>
+      <div className="space-y-2">
+        {choices.map((c, i) => (
+          <div key={i} className="rounded-md border border-border bg-surface-1 p-2">
+            <div className="mb-1 flex items-center gap-1">
+              <input
+                type="text"
+                value={c.value}
+                placeholder="value"
+                disabled={!canEdit}
+                onChange={(e) =>
+                  onChange(
+                    choices.map((cc, ii) =>
+                      ii === i ? { ...cc, value: e.target.value } : cc,
+                    ),
+                  )
+                }
+                className={`${inputCls} font-mono w-24`}
+              />
+              <input
+                type="text"
+                value={c.label}
+                placeholder="label"
+                disabled={!canEdit}
+                onChange={(e) =>
+                  onChange(
+                    choices.map((cc, ii) =>
+                      ii === i ? { ...cc, label: e.target.value } : cc,
+                    ),
+                  )
+                }
+                className={`${inputCls} flex-1`}
+              />
+              {canEdit ? (
+                <button
+                  type="button"
+                  onClick={() => onChange(choices.filter((_, ii) => ii !== i))}
+                  className="rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
+                  aria-label="Remove choice"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              ) : null}
+            </div>
+            <input
+              type="url"
+              value={c.imageUrl}
+              placeholder="https://example.com/image.jpg"
+              disabled={!canEdit}
+              onChange={(e) =>
+                onChange(
+                  choices.map((cc, ii) =>
+                    ii === i ? { ...cc, imageUrl: e.target.value } : cc,
+                  ),
+                )
+              }
+              className={inputCls}
+            />
+          </div>
+        ))}
+        {canEdit ? (
+          <button
+            type="button"
+            onClick={() =>
+              onChange([
+                ...choices,
+                {
+                  value: `option_${choices.length + 1}`,
+                  label: `Option ${choices.length + 1}`,
+                  imageUrl: '',
+                },
+              ])
+            }
+            className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-border bg-surface-1 px-2 text-[11px] text-ink-1 hover:bg-surface-2"
+          >
+            <Plus className="h-3 w-3" />
+            Add choice
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function ComponentToggleEditor<T extends string>({
   label,
   allComponents,

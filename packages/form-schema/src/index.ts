@@ -72,6 +72,9 @@ export const QUESTION_TYPES = [
   'name', // composite person name (first / middle / last / suffix / prefix)
   'address', // composite postal address
   'photo', // one or more image attachments
+  'image-choice', // single/multi choice where each option is an image
+  'image-display', // display-only image embed (no value captured)
+  'image-hotspot', // click point(s) on a reference image
   'signature', // ink-on-canvas, stored as PNG
   'geopoint', // single lat/lon
   'geotrace', // polyline
@@ -492,6 +495,59 @@ interface PhotoQuestion extends QuestionBase {
   maxBytes?: number;
 }
 
+/** A choice-with-image. Same shape as Choice plus an imageUrl that
+ *  the runtime renders as the visual face of the option. */
+export interface ImageChoice {
+  value: string;
+  label: string;
+  imageUrl: string;
+  /** Optional alternate text. Falls back to `label`. */
+  alt?: string;
+}
+
+/**
+ * Image-choice question: the options are images. Set `multi` to
+ * allow more than one selection. Response shape:
+ *   - multi=false: chosen value (string) or null
+ *   - multi=true: chosen values (string[])
+ */
+interface ImageChoiceQuestion extends QuestionBase {
+  type: 'image-choice';
+  choices: ImageChoice[];
+  /** Default false: behaves like select-one. */
+  multi?: boolean;
+  /** Per-row only meaningful for multi=true. */
+  minSelected?: number;
+  maxSelected?: number;
+}
+
+/**
+ * Image-display question: a non-interactive image embed. No value
+ * is captured. Useful for instructional content above a question.
+ */
+interface ImageDisplayQuestion extends QuestionBase {
+  type: 'image-display';
+  imageUrl: string;
+  alt?: string;
+  /** Optional caption shown below the image. */
+  caption?: string;
+}
+
+/**
+ * Image-hotspot: respondent clicks one or more points on a
+ * reference image. Coordinates are captured as fractions of the
+ * image's natural size (so the value is resolution-independent).
+ *
+ * Response shape: Array<{ x: number; y: number }> in [0..1].
+ */
+interface ImageHotspotQuestion extends QuestionBase {
+  type: 'image-hotspot';
+  imageUrl: string;
+  alt?: string;
+  /** Maximum number of points the respondent may place. Default 1. */
+  maxPoints?: number;
+}
+
 interface SignatureQuestion extends QuestionBase {
   type: 'signature';
 }
@@ -622,6 +678,9 @@ export type Question =
   | NameQuestion
   | AddressQuestion
   | PhotoQuestion
+  | ImageChoiceQuestion
+  | ImageDisplayQuestion
+  | ImageHotspotQuestion
   | SignatureQuestion
   | GeoPointQuestion
   | GeoTraceQuestion
@@ -967,7 +1026,14 @@ export interface ValidationResult {
 export function validate(form: FormSchema, response: Response): ValidationResult {
   const errors: ValidationError[] = [];
   for (const q of walkQuestions(form)) {
-    if (q.type === 'page' || q.type === 'note' || q.type === 'group') continue;
+    if (
+      q.type === 'page' ||
+      q.type === 'note' ||
+      q.type === 'group' ||
+      q.type === 'image-display'
+    ) {
+      continue;
+    }
     if (!isVisible(q, response)) continue;
 
     const value = response[q.id];
@@ -1330,6 +1396,52 @@ function validateType(q: Question, value: unknown): string | null {
         return `Up to ${q.maxCount} attachments allowed.`;
       }
       return null;
+    case 'image-choice': {
+      const validValues = new Set(q.choices.map((c) => c.value));
+      if (q.multi) {
+        if (!Array.isArray(value)) return 'Pick one or more options.';
+        for (const v of value) {
+          if (typeof v !== 'string' || !validValues.has(v)) {
+            return 'Selection contains an unrecognized option.';
+          }
+        }
+        if (q.minSelected !== undefined && value.length < q.minSelected) {
+          return `Pick at least ${q.minSelected}.`;
+        }
+        if (q.maxSelected !== undefined && value.length > q.maxSelected) {
+          return `Pick at most ${q.maxSelected}.`;
+        }
+      } else {
+        if (typeof value !== 'string' || !validValues.has(value)) {
+          return 'Pick one option.';
+        }
+      }
+      return null;
+    }
+    case 'image-display':
+      // Display-only: no captured value to validate.
+      return null;
+    case 'image-hotspot': {
+      if (!Array.isArray(value)) return 'Expected one or more points.';
+      const max = q.maxPoints ?? 1;
+      if (value.length > max) return `Up to ${max} points allowed.`;
+      for (const p of value) {
+        if (
+          typeof p !== 'object' ||
+          p === null ||
+          typeof (p as { x: unknown }).x !== 'number' ||
+          typeof (p as { y: unknown }).y !== 'number'
+        ) {
+          return 'Point format is invalid.';
+        }
+        const x = (p as { x: number }).x;
+        const y = (p as { y: number }).y;
+        if (x < 0 || x > 1 || y < 0 || y > 1) {
+          return 'Point is outside the image.';
+        }
+      }
+      return null;
+    }
     case 'signature':
     case 'geopoint':
     case 'geotrace':
@@ -1395,7 +1507,14 @@ export function applyCalculations(
 export function pruneHidden(form: FormSchema, response: Response): Response {
   const out: Response = {};
   for (const q of walkQuestions(form)) {
-    if (q.type === 'page' || q.type === 'note' || q.type === 'group') continue;
+    if (
+      q.type === 'page' ||
+      q.type === 'note' ||
+      q.type === 'group' ||
+      q.type === 'image-display'
+    ) {
+      continue;
+    }
     if (!isVisible(q, response)) continue;
     if (q.id in response) out[q.id] = response[q.id];
   }
@@ -1557,6 +1676,19 @@ export function defaultQuestion(type: QuestionType, id: QuestionId): Question {
       };
     case 'photo':
       return { ...base, type, maxCount: 1 };
+    case 'image-choice':
+      return {
+        ...base,
+        type,
+        choices: [
+          { value: 'option_1', label: 'Option 1', imageUrl: '' },
+          { value: 'option_2', label: 'Option 2', imageUrl: '' },
+        ],
+      };
+    case 'image-display':
+      return { ...base, type, imageUrl: '' };
+    case 'image-hotspot':
+      return { ...base, type, imageUrl: '', maxPoints: 1 };
     case 'signature':
       return { ...base, type };
     case 'geopoint':
@@ -1622,6 +1754,9 @@ function defaultLabel(type: QuestionType): string {
       name: 'Full name',
       address: 'Address',
       photo: 'Photo',
+      'image-choice': 'Image choice',
+      'image-display': 'Image',
+      'image-hotspot': 'Image hotspot',
       signature: 'Signature',
       geopoint: 'Location (point)',
       geotrace: 'Path (polyline)',
