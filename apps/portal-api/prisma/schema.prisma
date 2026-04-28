@@ -757,6 +757,28 @@ model SystemSetting {
   @@map("system_setting")
 }
 
+/// One captured response against a form item (#131). Idempotent on
+/// (formId, clientId) so a re-drained offline queue is safe. The
+/// captured `schemaVersion` is preserved so downstream consumers can
+/// still resolve the response against the right schema even if the
+/// form has been updated since capture.
+model FormSubmission {
+  id            String   @id @default(uuid()) @db.Uuid
+  formId        String   @map("form_id") @db.Uuid
+  orgId         String   @map("org_id") @db.Uuid
+  clientId      String   @map("client_id")
+  schemaVersion Int      @map("schema_version")
+  response      Json
+  submittedBy   String?  @map("submitted_by") @db.Uuid
+  capturedAt    DateTime @map("captured_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([formId, clientId], map: "form_submission_form_client_unique")
+  @@index([formId], map: "form_submission_form_idx")
+  @@index([submittedBy], map: "form_submission_submitted_by_idx")
+  @@map("form_submission")
+}
+
 /// Per-(NotificationType, NotificationChannel) org-wide override of
 /// the code-level default in notification-types.ts. Sparse: an admin
 /// keeping the code default has no row. When materialising a user's

@@ -17,6 +17,7 @@ import { V3FeaturesModule } from './features-v3/v3-features.module.js';
 import { PublicModule } from './public/public.module.js';
 import { BackupModule } from './backup/backup.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
+import { FormsModule } from './forms/forms.module.js';
 import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
 
 @Module({
@@ -36,6 +37,7 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
     PublicModule,
     BackupModule,
     NotificationsModule,
+    FormsModule,
   ],
   controllers: [HealthController],
   providers: [

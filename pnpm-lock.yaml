@@ -172,6 +172,9 @@ importers:
 
   apps/portal-web:
     dependencies:
+      '@gratis-gis/form-schema':
+        specifier: workspace:*
+        version: link:../../packages/form-schema
       '@gratis-gis/shared-types':
         specifier: workspace:*
         version: link:../../packages/shared-types
