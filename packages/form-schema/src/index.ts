@@ -69,6 +69,8 @@ export const QUESTION_TYPES = [
   'date', // calendar date
   'time', // wall-clock time
   'datetime', // calendar + clock
+  'name', // composite person name (first / middle / last / suffix / prefix)
+  'address', // composite postal address
   'photo', // one or more image attachments
   'signature', // ink-on-canvas, stored as PNG
   'geopoint', // single lat/lon
@@ -437,6 +439,51 @@ interface DateTimeQuestion extends QuestionBase {
   max?: string;
 }
 
+/** Components a `name` question can request. The renderer hides
+ *  components not in this set (or all six when omitted). */
+export type NameComponent =
+  | 'prefix'
+  | 'first'
+  | 'middle'
+  | 'last'
+  | 'suffix';
+
+/**
+ * Composite person name. Captures named subfields. Response shape:
+ * `{ prefix?, first?, middle?, last?, suffix? }` -- all optional
+ * strings. The form-level `required` flag means at least one of the
+ * required components must be filled.
+ */
+interface NameQuestion extends QuestionBase {
+  type: 'name';
+  /** Which components to surface. Default: ['first', 'last']. */
+  components?: NameComponent[];
+  /** Required components. Defaults to ['first', 'last'] when the
+   *  question is required. Hidden when the question is optional. */
+  requiredComponents?: NameComponent[];
+}
+
+/** Components an `address` question can request. */
+export type AddressComponent =
+  | 'street1'
+  | 'street2'
+  | 'city'
+  | 'region'
+  | 'postal'
+  | 'country';
+
+/**
+ * Composite postal address. Response shape:
+ * `{ street1?, street2?, city?, region?, postal?, country? }` --
+ * all optional strings. The renderer hides components not in
+ * `components`.
+ */
+interface AddressQuestion extends QuestionBase {
+  type: 'address';
+  components?: AddressComponent[];
+  requiredComponents?: AddressComponent[];
+}
+
 interface PhotoQuestion extends QuestionBase {
   type: 'photo';
   /** Max number of attachments. Default 1. */
@@ -572,6 +619,8 @@ export type Question =
   | DateQuestion
   | TimeQuestion
   | DateTimeQuestion
+  | NameQuestion
+  | AddressQuestion
   | PhotoQuestion
   | SignatureQuestion
   | GeoPointQuestion
@@ -965,6 +1014,41 @@ export function isRequired(q: Question, response: Response): boolean {
   return Boolean(evaluate(q.required, response));
 }
 
+/** Human label for a NameComponent. Exported because the runtime
+ *  uses it for placeholders too. */
+export function labelForNameComponent(c: NameComponent): string {
+  switch (c) {
+    case 'prefix':
+      return 'Prefix';
+    case 'first':
+      return 'First name';
+    case 'middle':
+      return 'Middle name';
+    case 'last':
+      return 'Last name';
+    case 'suffix':
+      return 'Suffix';
+  }
+}
+
+/** Human label for an AddressComponent. */
+export function labelForAddressComponent(c: AddressComponent): string {
+  switch (c) {
+    case 'street1':
+      return 'Street address';
+    case 'street2':
+      return 'Apt / suite';
+    case 'city':
+      return 'City';
+    case 'region':
+      return 'State / region';
+    case 'postal':
+      return 'Postal code';
+    case 'country':
+      return 'Country';
+  }
+}
+
 function isEmpty(value: unknown): boolean {
   if (value === null || value === undefined) return true;
   if (typeof value === 'string') return value.trim() === '';
@@ -1212,6 +1296,34 @@ function validateType(q: Question, value: unknown): string | null {
     case 'datetime':
       if (typeof value !== 'string') return 'Expected a valid value.';
       return null;
+    case 'name': {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return 'Expected a name object.';
+      }
+      const map = value as Record<string, unknown>;
+      const reqd = q.requiredComponents ?? (q.required ? ['first', 'last'] : []);
+      for (const c of reqd) {
+        const v = map[c];
+        if (typeof v !== 'string' || v.trim() === '') {
+          return `${labelForNameComponent(c)} is required.`;
+        }
+      }
+      return null;
+    }
+    case 'address': {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return 'Expected an address object.';
+      }
+      const map = value as Record<string, unknown>;
+      const reqd = q.requiredComponents ?? [];
+      for (const c of reqd) {
+        const v = map[c];
+        if (typeof v !== 'string' || v.trim() === '') {
+          return `${labelForAddressComponent(c)} is required.`;
+        }
+      }
+      return null;
+    }
     case 'photo':
       if (!Array.isArray(value)) return 'Expected one or more attachments.';
       if (q.maxCount !== undefined && value.length > q.maxCount) {
@@ -1435,6 +1547,14 @@ export function defaultQuestion(type: QuestionType, id: QuestionId): Question {
       return { ...base, type };
     case 'datetime':
       return { ...base, type };
+    case 'name':
+      return { ...base, type, components: ['first', 'last'] };
+    case 'address':
+      return {
+        ...base,
+        type,
+        components: ['street1', 'street2', 'city', 'region', 'postal', 'country'],
+      };
     case 'photo':
       return { ...base, type, maxCount: 1 };
     case 'signature':
@@ -1499,6 +1619,8 @@ function defaultLabel(type: QuestionType): string {
       date: 'Date',
       time: 'Time',
       datetime: 'Date and time',
+      name: 'Full name',
+      address: 'Address',
       photo: 'Photo',
       signature: 'Signature',
       geopoint: 'Location (point)',

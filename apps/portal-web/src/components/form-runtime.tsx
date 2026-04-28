@@ -19,6 +19,8 @@ import {
   evaluate,
   isRequired,
   isVisible,
+  labelForAddressComponent,
+  labelForNameComponent,
   pruneHidden,
   validate,
   walkQuestions,
@@ -750,6 +752,10 @@ function Input({
           className={baseClass}
         />
       );
+    case 'name':
+      return <NameInput q={q} value={value} readOnly={readOnly} onChange={onChange} />;
+    case 'address':
+      return <AddressInput q={q} value={value} readOnly={readOnly} onChange={onChange} />;
     case 'photo':
       return <PhotoInput q={q} value={value} readOnly={readOnly} onChange={onChange} />;
     case 'signature':
@@ -959,6 +965,159 @@ function PhotoInput({
       <p className="text-[11px] text-muted">
         {photos.length} of {max} {max === 1 ? 'photo' : 'photos'}
       </p>
+    </div>
+  );
+}
+
+/**
+ * Composite name input. Renders one labeled <input> per requested
+ * component; lays them out in a responsive grid that collapses on
+ * mobile. The `prefix` and `suffix` cells stay narrow when shown.
+ */
+function NameInput({
+  q,
+  value,
+  readOnly,
+  onChange,
+}: {
+  q: Extract<Question, { type: 'name' }>;
+  value: unknown;
+  readOnly: boolean;
+  onChange: (v: unknown) => void;
+}) {
+  const components = q.components ?? ['first', 'last'];
+  const map: Record<string, string> =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, string>)
+      : {};
+
+  function set(component: string, raw: string) {
+    const next = { ...map };
+    if (raw === '') delete next[component];
+    else next[component] = raw;
+    onChange(Object.keys(next).length === 0 ? null : next);
+  }
+
+  // Two-column on sm+: prefix / first / middle / last / suffix in a
+  // sane shape. We use a 6-col grid where prefix/suffix span 1, the
+  // name cells span 2.
+  function spanFor(c: string): string {
+    if (c === 'prefix' || c === 'suffix') return 'sm:col-span-1';
+    return 'sm:col-span-2';
+  }
+
+  return (
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-6">
+      {components.map((c) => (
+        <label key={c} className={`flex flex-col gap-1 ${spanFor(c)}`}>
+          <span className="text-[11px] text-muted">
+            {labelForNameComponent(c)}
+          </span>
+          <input
+            type="text"
+            value={map[c] ?? ''}
+            disabled={readOnly}
+            autoComplete={
+              c === 'first'
+                ? 'given-name'
+                : c === 'last'
+                  ? 'family-name'
+                  : c === 'middle'
+                    ? 'additional-name'
+                    : c === 'prefix'
+                      ? 'honorific-prefix'
+                      : c === 'suffix'
+                        ? 'honorific-suffix'
+                        : 'off'
+            }
+            onChange={(e) => set(c, e.target.value)}
+            className="h-11 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+          />
+        </label>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Composite postal address input. Components are rendered in a
+ * sensible form layout (street1/2 stack full-width, city/region/postal
+ * share a row on sm+, country full-width).
+ */
+function AddressInput({
+  q,
+  value,
+  readOnly,
+  onChange,
+}: {
+  q: Extract<Question, { type: 'address' }>;
+  value: unknown;
+  readOnly: boolean;
+  onChange: (v: unknown) => void;
+}) {
+  const components =
+    q.components ?? ['street1', 'street2', 'city', 'region', 'postal', 'country'];
+  const map: Record<string, string> =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, string>)
+      : {};
+
+  function set(component: string, raw: string) {
+    const next = { ...map };
+    if (raw === '') delete next[component];
+    else next[component] = raw;
+    onChange(Object.keys(next).length === 0 ? null : next);
+  }
+
+  // Map component to its grid placement. We use a 6-col grid:
+  // street1, street2, country: full row
+  // city: 3, region: 2, postal: 1 -- the standard US-style row.
+  function spanFor(c: string): string {
+    if (c === 'street1' || c === 'street2' || c === 'country') {
+      return 'sm:col-span-6';
+    }
+    if (c === 'city') return 'sm:col-span-3';
+    if (c === 'region') return 'sm:col-span-2';
+    if (c === 'postal') return 'sm:col-span-1';
+    return 'sm:col-span-6';
+  }
+
+  function autoFor(c: string): string {
+    switch (c) {
+      case 'street1':
+        return 'address-line1';
+      case 'street2':
+        return 'address-line2';
+      case 'city':
+        return 'address-level2';
+      case 'region':
+        return 'address-level1';
+      case 'postal':
+        return 'postal-code';
+      case 'country':
+        return 'country-name';
+      default:
+        return 'off';
+    }
+  }
+
+  return (
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-6">
+      {components.map((c) => (
+        <label key={c} className={`flex flex-col gap-1 ${spanFor(c)}`}>
+          <span className="text-[11px] text-muted">
+            {labelForAddressComponent(c)}
+          </span>
+          <input
+            type="text"
+            value={map[c] ?? ''}
+            disabled={readOnly}
+            autoComplete={autoFor(c)}
+            onChange={(e) => set(c, e.target.value)}
+            className="h-11 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+          />
+        </label>
+      ))}
     </div>
   );
 }
@@ -1747,7 +1906,9 @@ function packIntoRows(qs: Question[]): Question[][] {
       q.type === 'matrix-rating' ||
       q.type === 'ranking' ||
       q.type === 'likert' ||
-      q.type === 'nps';
+      q.type === 'nps' ||
+      q.type === 'name' ||
+      q.type === 'address';
     const w = widthFraction(q.layout?.width);
     if (isStandalone || w === 1) {
       flush();
