@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ChevronRight, Folder as FolderIcon, FolderOpen } from 'lucide-react';
 import { FolderRowMenu } from './folder-row-menu';
+import { useAlert } from '@/components/dialog-provider';
 
 /** MIME-style key used to identify an item-card drag payload (#43).
  *  Kept narrow (`application/x-gratis-item`) so other dragged content
@@ -53,6 +54,7 @@ interface Props {
  */
 export function FolderRail({ folders, activeFolderId }: Props) {
   const router = useRouter();
+  const alert = useAlert();
   const folderById = useMemo(() => {
     const m = new Map<string, FolderRailNode>();
     for (const f of folders) m.set(f.id, f);
@@ -197,10 +199,11 @@ export function FolderRail({ folders, activeFolderId }: Props) {
       }
       router.refresh();
     } catch (err) {
-      // eslint-disable-next-line no-alert
-      window.alert(
-        err instanceof Error ? err.message : 'Could not move item.',
-      );
+      void alert({
+        tone: 'warn',
+        title: 'Move failed',
+        message: err instanceof Error ? err.message : 'Could not move item.',
+      });
     }
   }
 

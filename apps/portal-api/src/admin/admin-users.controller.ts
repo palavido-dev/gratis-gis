@@ -259,10 +259,72 @@ export class AdminUsersController {
     };
   }
 
+  /**
+   * Remove a user from both Keycloak and the local mirror. Idempotent
+   * with respect to Keycloak: a user that's already missing upstream
+   * (dev-realm reset, prior partial delete, manual cleanup) is treated
+   * as success and we still purge our local row. The local cleanup
+   * keys on USERNAME so seeded accounts -- whose local user.id differs
+   * from the Keycloak sub -- get cleaned up too.
+   *
+   * If the user has no Keycloak entry AND no local row matching by id
+   * or username, we 404 the caller; this preserves the "operating on
+   * a thing that doesn't exist" semantics for the rare malicious /
+   * stale path while making the common case (just-purged user) work.
+   */
   @Delete(':id')
   @HttpCode(204)
   async remove(@Param('id') id: string): Promise<void> {
-    await this.kc.deleteUser(id);
+    // First try to grab the Keycloak record so we know the username
+    // for local cleanup. Either the user is there (we'll delete) or
+    // they aren't (we'll fall through to local cleanup by id alone).
+    let username: string | null = null;
+    try {
+      const kc = await this.kc.getUser(id);
+      username = kc.username ?? null;
+    } catch {
+      // Treat any failure as "not in Keycloak"; if it was a real
+      // upstream / token error the local cleanup path is still safe
+      // and the next admin action will surface the auth issue.
+    }
+
+    let deletedUpstream = false;
+    try {
+      await this.kc.deleteUser(id);
+      deletedUpstream = true;
+    } catch (err) {
+      // 404 from Keycloak is the dev-realm-reset case: nothing to
+      // delete upstream, fall through and clean up our side. Anything
+      // else is a real failure -- bubble up.
+      if (!(err instanceof NotFoundException)) {
+        throw err;
+      }
+    }
+
+    // Local cleanup. Match by id first (covers the modern path where
+    // local user.id === Keycloak sub) and by username (covers seeded
+    // users with mismatched ids per docs/data-model.md).
+    const localById = await this.prisma.user.findUnique({ where: { id } }).catch(() => null);
+    const localByUsername = username
+      ? await this.prisma.user.findUnique({ where: { username } })
+      : null;
+    let deletedLocal = false;
+    if (localById) {
+      await this.prisma.user.delete({ where: { id } });
+      deletedLocal = true;
+    } else if (localByUsername) {
+      await this.prisma.user.delete({ where: { id: localByUsername.id } });
+      deletedLocal = true;
+    }
+
+    // If neither side had the user, surface a 404 so the caller knows
+    // they were operating on a fully ghost row -- the UI can refresh
+    // its list to re-sync.
+    if (!deletedUpstream && !deletedLocal) {
+      throw new NotFoundException(
+        `User ${id} not found in Keycloak or local store.`,
+      );
+    }
   }
 
   /**

@@ -22,6 +22,7 @@ import type { AdminUserRow } from './page';
 import { ReassignOwnerDialog } from '@/components/reassign-owner-dialog';
 import { ShareExpiryPicker } from '@/components/share-expiry-picker';
 import { UserAccessDialog } from './user-access-dialog';
+import { useAlert, useConfirm } from '@/components/dialog-provider';
 
 /**
  * Admin-side users table.
@@ -42,6 +43,8 @@ interface Props {
 }
 
 export function AdminUsersView({ initialUsers }: Props) {
+  const confirm = useConfirm();
+  const alert = useAlert();
   const [users, setUsers] = useState<AdminUserRow[]>(initialUsers);
   const [query, setQuery] = useState('');
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -144,6 +147,13 @@ export function AdminUsersView({ initialUsers }: Props) {
    * Actual delete call: assumes the caller has already verified the
    * user has no owned items (or has reassigned them). Called either
    * directly (clean path) or from the reassign-and-delete flow below.
+   *
+   * Idempotency: a 404 from upstream means the user is already gone
+   * from Keycloak (dev-realm reset, prior partial delete, etc.). We
+   * still drop the row from the local table state and surface the
+   * deletion as successful since "user is gone" is the desired
+   * end state -- the server-side handler does the local-DB cleanup
+   * by username.
    */
   async function performDelete(user: AdminUserRow) {
     setWorking(user.id);
@@ -152,7 +162,7 @@ export function AdminUsersView({ initialUsers }: Props) {
       method: 'DELETE',
     });
     setWorking(null);
-    if (!res.ok) {
+    if (!res.ok && res.status !== 404) {
       setError(`Delete failed: ${res.status}`);
       return;
     }
@@ -188,13 +198,13 @@ export function AdminUsersView({ initialUsers }: Props) {
     } finally {
       setWorking(null);
     }
-    if (
-      !confirm(
-        `Permanently delete ${user.username}? This cannot be undone and will remove their portal account.`,
-      )
-    ) {
-      return;
-    }
+    const ok = await confirm({
+      title: 'Delete user?',
+      message: `Permanently delete ${user.username}? This cannot be undone and will remove their portal account.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    });
+    if (!ok) return;
     await performDelete(user);
   }
 
@@ -503,6 +513,7 @@ interface InviteDialogProps {
 }
 
 function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
+  const alert = useAlert();
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [firstName, setFirstName] = useState('');
@@ -546,13 +557,15 @@ function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
     // Confirm with the admin so they're not surprised when the user
     // says "I didn't get an email". The user row is still added.
     if (created.setupEmailError) {
-      // eslint-disable-next-line no-alert
-      window.alert(
-        `User "${created.username}" was created, but the password-setup ` +
+      await alert({
+        title: 'User created, email failed',
+        tone: 'warn',
+        message:
+          `User "${created.username}" was created, but the password-setup ` +
           `email could not be sent:\n\n${created.setupEmailError}\n\n` +
           `Once SMTP is healthy, click "Reset password" on this user to ` +
           `re-send the email.`,
-      );
+      });
     }
     onInvited(created);
   }
