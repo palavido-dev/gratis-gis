@@ -217,6 +217,130 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
     [],
   );
 
+  /**
+   * "Share a row with this question" gesture. Triggered by dropping
+   * a tile (new from palette OR an existing question being reordered)
+   * directly onto another question's card body. Auto-balances the
+   * widths of all questions in that row to the next equal fraction:
+   *
+   *   target alone  -> 1/2 + 1/2
+   *   target in 2   -> 1/3 + 1/3 + 1/3
+   *   target in 3   -> 1/4 + 1/4 + 1/4 + 1/4
+   *   target in 4   -> row is full; new tile starts a new row at
+   *                     full width below the target
+   *
+   * Same-row reorder (the dragged question is already in the target's
+   * row) is treated as a plain reorder; widths stay as-is.
+   */
+  const shareRowWith = useCallback(
+    (
+      targetId: QuestionId,
+      src:
+        | { kind: 'new'; type: QuestionType }
+        | { kind: 'existing'; id: QuestionId },
+    ) => {
+      setForm((f) => {
+        const targetLoc = locate(f.questions, targetId);
+        if (!targetLoc) return f;
+        const targetParent = targetLoc.containerId;
+
+        // Same-row reorder shortcut: if the existing source already
+        // lives in the target's row, just reorder, leave widths alone.
+        const initialContainer = childrenOfContainer(f, targetParent);
+        const targetRow = rowContaining(initialContainer, targetId);
+        if (
+          src.kind === 'existing' &&
+          targetRow.some((q) => q.id === src.id)
+        ) {
+          const idx = initialContainer.findIndex((q) => q.id === targetId);
+          return moveInTree(f, src.id, {
+            containerId: targetParent,
+            index: idx + 1,
+          });
+        }
+
+        // For an existing source coming from a different row / container,
+        // detach first so width-update math sees the row at its true size.
+        let next = f;
+        if (src.kind === 'existing') next = removeFromTree(next, src.id);
+
+        const containerNow = childrenOfContainer(next, targetParent);
+        const rowNow = rowContaining(containerNow, targetId);
+        const newWidth = nextWidthFor(rowNow.length + 1);
+
+        // Helper: insert the new/moved question right after the target.
+        const insertAfterTarget = (q: Question): FormSchema => {
+          const idx = childrenOfContainer(next, targetParent).findIndex(
+            (x) => x.id === targetId,
+          );
+          return mutateContainer(next, targetParent, (list) => [
+            ...list.slice(0, idx + 1),
+            q,
+            ...list.slice(idx + 1),
+          ]);
+        };
+
+        if (newWidth === null) {
+          // Row already at the 4-cell cap. Drop in as a new row at
+          // full width right below the target.
+          if (src.kind === 'new') {
+            const id = uniqueQuestionId(
+              next,
+              suggestQuestionId(src.type),
+            );
+            const newQ = defaultQuestion(src.type, id);
+            next = insertAfterTarget(newQ);
+            queueMicrotask(() => setSelectedId(id));
+          } else {
+            const idx = childrenOfContainer(next, targetParent).findIndex(
+              (x) => x.id === targetId,
+            );
+            next = moveInTree(next, src.id, {
+              containerId: targetParent,
+              index: idx + 1,
+            });
+          }
+          return next;
+        }
+
+        // Apply the shared width to every existing row member.
+        for (const memberQ of rowNow) {
+          next = updateInTree(next, memberQ.id, (qq) => {
+            const layout =
+              newWidth === 'full' ? undefined : { width: newWidth };
+            return { ...qq, layout } as Question;
+          });
+        }
+
+        // Insert / move the source with the same width.
+        if (src.kind === 'new') {
+          const id = uniqueQuestionId(next, suggestQuestionId(src.type));
+          const baseQ = defaultQuestion(src.type, id);
+          const newQ: Question = {
+            ...baseQ,
+            layout: newWidth === 'full' ? undefined : { width: newWidth },
+          };
+          next = insertAfterTarget(newQ);
+          queueMicrotask(() => setSelectedId(id));
+        } else {
+          const idx = childrenOfContainer(next, targetParent).findIndex(
+            (x) => x.id === targetId,
+          );
+          next = moveInTree(next, src.id, {
+            containerId: targetParent,
+            index: idx + 1,
+          });
+          next = updateInTree(next, src.id, (qq) => ({
+            ...qq,
+            layout: newWidth === 'full' ? undefined : { width: newWidth },
+          } as Question));
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
   async function save() {
     if (!canEdit) return;
     setSaving(true);
@@ -436,6 +560,7 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
             onSelect={setSelectedId}
             onRemove={removeQuestion}
             onAddInto={addQuestion}
+            onShareRow={shareRowWith}
             onMove={moveQuestion}
             onOpenImport={() => setImportOpen(true)}
           />
@@ -553,6 +678,50 @@ function removeFromTree(form: FormSchema, id: QuestionId): FormSchema {
       .map((q) => (q.type === 'group' ? { ...q, children: rec(q.children) } : q));
   }
   return { ...form, questions: rec(form.questions) };
+}
+
+/**
+ * Look up a container's children. `null` containerId means top
+ * level. Returns an empty array if the container id doesn't resolve
+ * (group was deleted while we were holding a reference).
+ */
+function childrenOfContainer(
+  f: FormSchema,
+  containerId: QuestionId | null,
+): Question[] {
+  if (containerId === null) return f.questions;
+  const g = findById(f.questions, containerId);
+  if (g && g.type === 'group') return g.children;
+  return [];
+}
+
+/**
+ * Given a flat container's children list and a target question id,
+ * return the row that contains the target as packIntoRows would
+ * compute it. Used by the share-row gesture to know which siblings
+ * to re-balance.
+ */
+function rowContaining(list: Question[], targetId: QuestionId): Question[] {
+  const rows = packIntoRows(list);
+  for (const row of rows) {
+    if (row.some((q) => q.id === targetId)) return row;
+  }
+  return [];
+}
+
+/**
+ * Width to apply when a row gains its `count`-th cell. We support
+ * up to 4 cells per row using the equal-share fractions; beyond
+ * that the caller falls back to a new row.
+ */
+function nextWidthFor(
+  count: number,
+): 'full' | 'half' | 'third' | 'quarter' | null {
+  if (count <= 1) return 'full';
+  if (count === 2) return 'half';
+  if (count === 3) return 'third';
+  if (count === 4) return 'quarter';
+  return null;
 }
 
 /** Locate the parent container + index for a given question id. */
@@ -844,6 +1013,12 @@ interface CanvasCallbacks {
     containerId: QuestionId | null,
     index?: number,
   ) => void;
+  onShareRow: (
+    targetId: QuestionId,
+    src:
+      | { kind: 'new'; type: QuestionType }
+      | { kind: 'existing'; id: QuestionId },
+  ) => void;
   onMove: (
     sourceId: QuestionId,
     target: { containerId: QuestionId | null; index: number },
@@ -1066,6 +1241,7 @@ function QuestionRow({
   onSelect,
   onRemove,
   onAddInto,
+  onShareRow,
   onMove,
 }: {
   q: Question;
@@ -1074,16 +1250,40 @@ function QuestionRow({
 } & CanvasCallbacks) {
   const [overTop, setOverTop] = useState(false);
 
+  // Drop onto a question card. For "real" questions (anything that
+  // accepts a value), the gesture means "share a row with this one":
+  // the target and its existing row-mates get rebalanced to equal
+  // fractions and the source slots in next to the target. For
+  // structural / display-only types (group, page, note, divider,
+  // hidden, image-display) sharing a row makes no sense, so we
+  // preserve the older insert-before behavior.
+  const isStructural =
+    q.type === 'group' ||
+    q.type === 'page' ||
+    q.type === 'note' ||
+    q.type === 'divider' ||
+    q.type === 'hidden' ||
+    q.type === 'image-display';
+
   function onTopDrop(e: React.DragEvent) {
     e.preventDefault();
     e.stopPropagation();
     setOverTop(false);
     const newType = e.dataTransfer.getData('text/x-question-type');
     const sourceId = e.dataTransfer.getData('text/x-reorder-id');
-    // Drop onto a row card -> insert immediately before that row.
-    if (newType) onAddInto(newType as QuestionType, containerId, index);
-    else if (sourceId && sourceId !== q.id) {
-      onMove(sourceId, { containerId, index });
+    if (isStructural) {
+      // Drop onto a structural row -> insert immediately before it.
+      if (newType) onAddInto(newType as QuestionType, containerId, index);
+      else if (sourceId && sourceId !== q.id) {
+        onMove(sourceId, { containerId, index });
+      }
+      return;
+    }
+    // Drop onto a real question -> share-row gesture.
+    if (newType) {
+      onShareRow(q.id, { kind: 'new', type: newType as QuestionType });
+    } else if (sourceId && sourceId !== q.id) {
+      onShareRow(q.id, { kind: 'existing', id: sourceId });
     }
   }
 
@@ -1217,6 +1417,7 @@ function QuestionRow({
                 onSelect={onSelect}
                 onRemove={onRemove}
                 onAddInto={onAddInto}
+                onShareRow={onShareRow}
                 onMove={onMove}
               />
             )}
