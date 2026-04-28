@@ -9,6 +9,8 @@ import {
   CalendarClock,
   Camera,
   CheckSquare,
+  ChevronDown,
+  ChevronRight,
   Circle,
   Clock,
   Crosshair,
@@ -32,6 +34,7 @@ import {
   Phone,
   Plus,
   Regex,
+  Search,
   ShieldCheck,
   Save,
   Sliders,
@@ -600,10 +603,13 @@ interface PaletteEntry {
   group: PaletteGroup;
 }
 
-/** Display order + label for each palette group. The list order is
- *  intentional: text and choice (the bread-and-butter types) come
- *  first; specialized groups follow. */
+/** Display order + label for each palette group. Layout sits at the
+ *  top because authors typically scaffold a form (page breaks,
+ *  groups, dividers, notes) before they add the actual questions.
+ *  Logic and Geometry land at the bottom because they're either
+ *  advanced (calculated, hidden, acknowledge) or specialized. */
 const PALETTE_GROUPS: { id: PaletteGroup; label: string }[] = [
+  { id: 'layout', label: 'Layout' },
   { id: 'text', label: 'Text' },
   { id: 'numeric', label: 'Numeric' },
   { id: 'choice', label: 'Choice' },
@@ -614,7 +620,6 @@ const PALETTE_GROUPS: { id: PaletteGroup; label: string }[] = [
   { id: 'media', label: 'Media' },
   { id: 'spatial', label: 'Geometry' },
   { id: 'logic', label: 'Logic' },
-  { id: 'layout', label: 'Layout' },
 ];
 
 const PALETTE: PaletteEntry[] = [
@@ -668,6 +673,15 @@ function Palette({
   canEdit: boolean;
   onAdd: (type: QuestionType) => void;
 }) {
+  // Search query filters the palette by label or type. When non-empty
+  // we auto-expand every group so matches don't hide behind a closed
+  // header.
+  const [query, setQuery] = useState('');
+  // Per-group collapsed state. Default: all open. We keep the state
+  // keyed by group id so a new group added later doesn't accidentally
+  // start collapsed.
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
   // Bucket entries by group, preserving the QUESTION_TYPES order
   // within each bucket so any new schema type slots in cleanly.
   const buckets = new Map<PaletteGroup, PaletteEntry[]>();
@@ -679,45 +693,106 @@ function Palette({
     buckets.set(entry.group, list);
   }
 
+  const trimmed = query.trim().toLowerCase();
+  const isSearching = trimmed.length > 0;
+
+  function matches(entry: PaletteEntry): boolean {
+    if (!isSearching) return true;
+    return (
+      entry.label.toLowerCase().includes(trimmed) ||
+      entry.type.toLowerCase().includes(trimmed)
+    );
+  }
+
+  function toggleGroup(id: string) {
+    setCollapsed((prev) => ({ ...prev, [id]: !prev[id] }));
+  }
+
   return (
     <aside className="border-b border-border bg-surface-2/40 p-3 lg:border-b-0 lg:border-r">
       <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted">
         Add a question
       </p>
-      <div className="space-y-3">
+      <div className="relative mb-3">
+        <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search question types"
+          className="block h-8 w-full rounded-md border border-border bg-surface-1 pl-7 pr-7 text-xs text-ink-1 placeholder:text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+        />
+        {query ? (
+          <button
+            type="button"
+            onClick={() => setQuery('')}
+            aria-label="Clear search"
+            className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 text-muted hover:bg-surface-2"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        ) : null}
+      </div>
+      <div className="space-y-2">
         {PALETTE_GROUPS.map((g) => {
           const entries = buckets.get(g.id);
           if (!entries || entries.length === 0) return null;
+          const visible = entries.filter(matches);
+          // Hide a group entirely when searching and nothing matches.
+          if (isSearching && visible.length === 0) return null;
+          // While searching, force-open so matches are reachable.
+          const isOpen = isSearching ? true : !collapsed[g.id];
           return (
             <div key={g.id}>
-              <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted/70">
-                {g.label}
-              </p>
-              <div className="flex flex-wrap gap-1.5 lg:flex-col">
-                {entries.map((entry) => {
-                  const Icon = entry.icon;
-                  return (
-                    <button
-                      type="button"
-                      key={entry.type}
-                      draggable={canEdit}
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData('text/x-question-type', entry.type);
-                        e.dataTransfer.effectAllowed = 'copy';
-                      }}
-                      onClick={() => canEdit && onAdd(entry.type)}
-                      disabled={!canEdit}
-                      className="inline-flex w-full items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2 py-1.5 text-xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
-                    >
-                      <Icon className="h-3.5 w-3.5 text-muted" />
-                      <span className="truncate text-left">{entry.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
+              <button
+                type="button"
+                onClick={() => toggleGroup(g.id)}
+                disabled={isSearching}
+                className="flex w-full items-center gap-1 px-0.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted/80 hover:text-ink-1 disabled:cursor-default disabled:opacity-90"
+              >
+                {isOpen ? (
+                  <ChevronDown className="h-3 w-3" />
+                ) : (
+                  <ChevronRight className="h-3 w-3" />
+                )}
+                <span>{g.label}</span>
+                <span className="ml-auto text-[10px] tabular-nums text-muted/60">
+                  {isSearching ? `${visible.length}` : entries.length}
+                </span>
+              </button>
+              {isOpen ? (
+                <div className="mt-1 flex flex-wrap gap-1.5 lg:flex-col">
+                  {visible.map((entry) => {
+                    const Icon = entry.icon;
+                    return (
+                      <button
+                        type="button"
+                        key={entry.type}
+                        draggable={canEdit}
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData('text/x-question-type', entry.type);
+                          e.dataTransfer.effectAllowed = 'copy';
+                        }}
+                        onClick={() => canEdit && onAdd(entry.type)}
+                        disabled={!canEdit}
+                        className="inline-flex w-full items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2 py-1.5 text-xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+                      >
+                        <Icon className="h-3.5 w-3.5 text-muted" />
+                        <span className="truncate text-left">{entry.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
             </div>
           );
         })}
+        {isSearching &&
+        Array.from(buckets.values()).flat().filter(matches).length === 0 ? (
+          <p className="px-1 py-2 text-[11px] text-muted">
+            No question types match &quot;{query}&quot;.
+          </p>
+        ) : null}
       </div>
     </aside>
   );
