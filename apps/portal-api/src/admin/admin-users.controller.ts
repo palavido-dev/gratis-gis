@@ -159,7 +159,12 @@ export class AdminUsersController {
       email: dto.email,
       sendSetupEmail: dto.sendSetupEmail ?? true,
       enabled: true,
-      org: me.orgId,
+      // The Keycloak `org` user-attribute (and the JWT `org` claim
+      // it produces) is the org SLUG, not the id. auth-sync looks
+      // up Organization by slug; passing the UUID here causes it
+      // to create a phantom Organization with slug=name=UUID for
+      // the invitee on their first login.
+      org: me.orgSlug,
     };
     if (dto.firstName !== undefined) input.firstName = dto.firstName;
     if (dto.lastName !== undefined) input.lastName = dto.lastName;
