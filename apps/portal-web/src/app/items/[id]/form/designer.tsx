@@ -16,6 +16,7 @@ import {
   Grid3x3,
   GripVertical,
   Hash,
+  ListOrdered,
   ListChecks,
   Loader2,
   MapPin,
@@ -611,6 +612,9 @@ const PALETTE: PaletteEntry[] = [
   { type: 'select-many', label: 'Multiple choice', icon: CheckSquare, group: 'choice' },
   { type: 'matrix-single', label: 'Matrix (single)', icon: Grid3x3, group: 'matrix' },
   { type: 'matrix-multi', label: 'Matrix (multi)', icon: Grid3x3, group: 'matrix' },
+  { type: 'matrix-dropdown', label: 'Matrix (dropdown)', icon: Grid3x3, group: 'matrix' },
+  { type: 'matrix-rating', label: 'Matrix (rating)', icon: Grid3x3, group: 'matrix' },
+  { type: 'ranking', label: 'Ranking', icon: ListOrdered, group: 'choice' },
   { type: 'rating', label: 'Rating', icon: Star, group: 'scale' },
   { type: 'slider', label: 'Slider', icon: Sliders, group: 'scale' },
   { type: 'date', label: 'Date', icon: Calendar, group: 'time' },
@@ -1197,6 +1201,109 @@ function Properties({
         </div>
       ) : null}
 
+      {question.type === 'matrix-dropdown' ? (
+        <MatrixDropdownEditor
+          rows={question.rows}
+          columns={question.columns}
+          canEdit={canEdit}
+          onChange={(patch) => onChange(patch as Partial<Question>)}
+        />
+      ) : null}
+
+      {question.type === 'matrix-rating' ? (
+        <>
+          <MatrixRowsEditor
+            rows={question.rows}
+            canEdit={canEdit}
+            onChange={(rows) => onChange({ rows } as Partial<Question>)}
+          />
+          <div className="mb-2 grid grid-cols-2 gap-2">
+            <Field label="Max stars">
+              <input
+                type="number"
+                min={1}
+                max={10}
+                value={question.max ?? 5}
+                disabled={!canEdit}
+                onChange={(e) =>
+                  onChange({ max: Number(e.target.value) } as Partial<Question>)
+                }
+                className={inputCls}
+              />
+            </Field>
+            <Field label="Shape">
+              <select
+                value={question.shape ?? 'star'}
+                disabled={!canEdit}
+                onChange={(e) =>
+                  onChange({
+                    shape: e.target.value as 'star' | 'heart' | 'thumb',
+                  } as Partial<Question>)
+                }
+                className={inputCls}
+              >
+                <option value="star">Star</option>
+                <option value="heart">Heart</option>
+                <option value="thumb">Thumb</option>
+              </select>
+            </Field>
+          </div>
+          <label className="mb-2 inline-flex items-center gap-2 text-xs">
+            <input
+              type="checkbox"
+              checked={Boolean(question.perRowRequired)}
+              disabled={!canEdit}
+              onChange={(e) =>
+                onChange({ perRowRequired: e.target.checked } as Partial<Question>)
+              }
+            />
+            <span>Require an answer for every row</span>
+          </label>
+        </>
+      ) : null}
+
+      {question.type === 'ranking' ? (
+        <>
+          <ChoicesEditor
+            choices={question.choices}
+            canEdit={canEdit}
+            onChange={(choices) => onChange({ choices } as Partial<Question>)}
+          />
+          <div className="mb-2 grid grid-cols-2 gap-2">
+            <Field label="Min ranked">
+              <input
+                type="number"
+                min={0}
+                value={question.minRanked ?? ''}
+                disabled={!canEdit}
+                onChange={(e) =>
+                  onChange({
+                    minRanked:
+                      e.target.value === '' ? undefined : Number(e.target.value),
+                  } as Partial<Question>)
+                }
+                className={inputCls}
+              />
+            </Field>
+            <Field label="Max ranked">
+              <input
+                type="number"
+                min={0}
+                value={question.maxRanked ?? ''}
+                disabled={!canEdit}
+                onChange={(e) =>
+                  onChange({
+                    maxRanked:
+                      e.target.value === '' ? undefined : Number(e.target.value),
+                  } as Partial<Question>)
+                }
+                className={inputCls}
+              />
+            </Field>
+          </div>
+        </>
+      ) : null}
+
       {question.type === 'number' || question.type === 'integer' ? (
         <div className="grid grid-cols-2 gap-2">
           <Field label="Min">
@@ -1609,6 +1716,203 @@ function MatrixEditor({
                     {
                       value: `option_${columns.length + 1}`,
                       label: `Option ${columns.length + 1}`,
+                    },
+                  ],
+                })
+              }
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-border bg-surface-1 px-2 text-[11px] text-ink-1 hover:bg-surface-2"
+            >
+              <Plus className="h-3 w-3" />
+              Add column
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MatrixRowsEditor({
+  rows,
+  canEdit,
+  onChange,
+}: {
+  rows: { id: string; label: string }[];
+  canEdit: boolean;
+  onChange: (next: typeof rows) => void;
+}) {
+  return (
+    <div className="mb-3">
+      <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">
+        Rows
+      </p>
+      <div className="space-y-1">
+        {rows.map((r, i) => (
+          <div key={i} className="flex items-center gap-1">
+            <input
+              type="text"
+              value={r.id}
+              placeholder="row id"
+              disabled={!canEdit}
+              onChange={(e) =>
+                onChange(
+                  rows.map((rr, ii) =>
+                    ii === i ? { ...rr, id: e.target.value } : rr,
+                  ),
+                )
+              }
+              className={`${inputCls} font-mono w-20`}
+            />
+            <input
+              type="text"
+              value={r.label}
+              placeholder="row label"
+              disabled={!canEdit}
+              onChange={(e) =>
+                onChange(
+                  rows.map((rr, ii) =>
+                    ii === i ? { ...rr, label: e.target.value } : rr,
+                  ),
+                )
+              }
+              className={`${inputCls} flex-1`}
+            />
+            {canEdit ? (
+              <button
+                type="button"
+                onClick={() => onChange(rows.filter((_, ii) => ii !== i))}
+                className="rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
+                aria-label="Remove row"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            ) : null}
+          </div>
+        ))}
+        {canEdit ? (
+          <button
+            type="button"
+            onClick={() =>
+              onChange([
+                ...rows,
+                {
+                  id: `row_${rows.length + 1}`,
+                  label: `Item ${rows.length + 1}`,
+                },
+              ])
+            }
+            className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-border bg-surface-1 px-2 text-[11px] text-ink-1 hover:bg-surface-2"
+          >
+            <Plus className="h-3 w-3" />
+            Add row
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Editor for `matrix-dropdown` columns. Each column has its own
+ * choices, so the component is a stack of {column header, column
+ * choices editor} blocks rather than the flat list MatrixEditor uses.
+ */
+function MatrixDropdownEditor({
+  rows,
+  columns,
+  canEdit,
+  onChange,
+}: {
+  rows: { id: string; label: string }[];
+  columns: { value: string; label: string; choices: Choice[] }[];
+  canEdit: boolean;
+  onChange: (
+    patch: { rows?: typeof rows; columns?: typeof columns },
+  ) => void;
+}) {
+  return (
+    <div className="mb-3 space-y-3">
+      <MatrixRowsEditor
+        rows={rows}
+        canEdit={canEdit}
+        onChange={(next) => onChange({ rows: next })}
+      />
+      <div>
+        <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">
+          Columns (each with its own choices)
+        </p>
+        <div className="space-y-2">
+          {columns.map((c, i) => (
+            <div key={i} className="rounded-md border border-border bg-surface-1 p-2">
+              <div className="mb-1 flex items-center gap-1">
+                <input
+                  type="text"
+                  value={c.value}
+                  placeholder="value"
+                  disabled={!canEdit}
+                  onChange={(e) =>
+                    onChange({
+                      columns: columns.map((cc, ii) =>
+                        ii === i ? { ...cc, value: e.target.value } : cc,
+                      ),
+                    })
+                  }
+                  className={`${inputCls} font-mono w-20`}
+                />
+                <input
+                  type="text"
+                  value={c.label}
+                  placeholder="label"
+                  disabled={!canEdit}
+                  onChange={(e) =>
+                    onChange({
+                      columns: columns.map((cc, ii) =>
+                        ii === i ? { ...cc, label: e.target.value } : cc,
+                      ),
+                    })
+                  }
+                  className={`${inputCls} flex-1`}
+                />
+                {canEdit ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onChange({ columns: columns.filter((_, ii) => ii !== i) })
+                    }
+                    className="rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
+                    aria-label="Remove column"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                ) : null}
+              </div>
+              <ChoicesEditor
+                choices={c.choices}
+                canEdit={canEdit}
+                onChange={(choices) =>
+                  onChange({
+                    columns: columns.map((cc, ii) =>
+                      ii === i ? { ...cc, choices } : cc,
+                    ),
+                  })
+                }
+              />
+            </div>
+          ))}
+          {canEdit ? (
+            <button
+              type="button"
+              onClick={() =>
+                onChange({
+                  columns: [
+                    ...columns,
+                    {
+                      value: `col_${columns.length + 1}`,
+                      label: `Column ${columns.length + 1}`,
+                      choices: [
+                        { value: 'option_1', label: 'Option 1' },
+                        { value: 'option_2', label: 'Option 2' },
+                      ],
                     },
                   ],
                 })
