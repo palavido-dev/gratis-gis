@@ -75,6 +75,8 @@ export const QUESTION_TYPES = [
   'geotrace', // polyline
   'geoshape', // polygon
   'rating', // 1-5 stars (or configurable max)
+  'likert', // single-row Likert (Strongly disagree -> Strongly agree)
+  'nps', // Net Promoter Score (0..10 buttons)
   'slider', // numeric range slider
   'calculated', // read-only, derived from `calculate` expression
   'note', // display-only static text (no value captured)
@@ -473,6 +475,36 @@ interface RatingQuestion extends QuestionBase {
   shape?: 'star' | 'heart' | 'thumb';
 }
 
+/**
+ * Single-row Likert scale. Today this is doable with `select-one`
+ * plus careful labeling, but a first-class type lets the runtime
+ * render a canonical horizontal scale and lets future analytics
+ * treat the value as ordinal rather than categorical.
+ *
+ * Response: the index of the chosen point (1..points), or null.
+ */
+interface LikertQuestion extends QuestionBase {
+  type: 'likert';
+  /** Number of points. Common values: 5 or 7. Default 5. */
+  points?: number;
+  /** Label for the leftmost point. */
+  leftLabel?: string;
+  /** Label for the rightmost point. */
+  rightLabel?: string;
+  /** Optional middle label (shown above the centre point). */
+  centerLabel?: string;
+}
+
+/**
+ * Net Promoter Score: 0..10 buttons with the standard
+ * Detractor / Passive / Promoter coloring. Captured as integer.
+ */
+interface NpsQuestion extends QuestionBase {
+  type: 'nps';
+  /** Optional caption above the scale (e.g. "How likely..."). */
+  caption?: string;
+}
+
 interface SliderQuestion extends QuestionBase {
   type: 'slider';
   min: number;
@@ -546,6 +578,8 @@ export type Question =
   | GeoTraceQuestion
   | GeoShapeQuestion
   | RatingQuestion
+  | LikertQuestion
+  | NpsQuestion
   | SliderQuestion
   | CalculatedQuestion
   | NoteQuestion
@@ -1192,6 +1226,21 @@ function validateType(q: Question, value: unknown): string | null {
     case 'slider':
     case 'calculated':
       return null;
+    case 'likert': {
+      if (typeof value !== 'number' || !Number.isInteger(value)) {
+        return 'Pick a point on the scale.';
+      }
+      const points = q.points ?? 5;
+      if (value < 1 || value > points) return 'Pick a point on the scale.';
+      return null;
+    }
+    case 'nps': {
+      if (typeof value !== 'number' || !Number.isInteger(value)) {
+        return 'Pick a number from 0 to 10.';
+      }
+      if (value < 0 || value > 10) return 'Pick a number from 0 to 10.';
+      return null;
+    }
     default:
       return null;
   }
@@ -1398,6 +1447,16 @@ export function defaultQuestion(type: QuestionType, id: QuestionId): Question {
       return { ...base, type };
     case 'rating':
       return { ...base, type, max: 5, shape: 'star' };
+    case 'likert':
+      return {
+        ...base,
+        type,
+        points: 5,
+        leftLabel: 'Strongly disagree',
+        rightLabel: 'Strongly agree',
+      };
+    case 'nps':
+      return { ...base, type };
     case 'slider':
       return { ...base, type, min: 0, max: 100, step: 1, showValue: true };
     case 'calculated':
@@ -1446,6 +1505,8 @@ function defaultLabel(type: QuestionType): string {
       geotrace: 'Path (polyline)',
       geoshape: 'Area (polygon)',
       rating: 'Rating',
+      likert: 'Likert',
+      nps: 'NPS (0-10)',
       slider: 'Slider',
       calculated: 'Calculated',
       note: 'Note',
