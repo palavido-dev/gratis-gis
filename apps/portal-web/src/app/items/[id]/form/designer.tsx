@@ -159,12 +159,23 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
    * that group's children.
    */
   const addQuestion = useCallback(
-    (type: QuestionType, containerId: QuestionId | null = null) => {
+    (
+      type: QuestionType,
+      containerId: QuestionId | null = null,
+      index?: number,
+    ) => {
       const baseId = suggestQuestionId(type);
       setForm((f) => {
         const id = uniqueQuestionId(f, baseId);
         const q = defaultQuestion(type, id);
-        const next = mutateContainer(f, containerId, (list) => [...list, q]);
+        // Insert at `index` when given (drop between two existing
+        // questions); otherwise append to the container's end.
+        const next = mutateContainer(f, containerId, (list) => {
+          if (index === undefined || index >= list.length) {
+            return [...list, q];
+          }
+          return [...list.slice(0, Math.max(0, index)), q, ...list.slice(index)];
+        });
         // schedule selection on the next tick so the freshly-added
         // question is selectable immediately
         queueMicrotask(() => setSelectedId(id));
@@ -828,7 +839,11 @@ interface CanvasCallbacks {
   isLinked: boolean;
   onSelect: (id: QuestionId) => void;
   onRemove: (id: QuestionId) => void;
-  onAddInto: (type: QuestionType, containerId: QuestionId | null) => void;
+  onAddInto: (
+    type: QuestionType,
+    containerId: QuestionId | null,
+    index?: number,
+  ) => void;
   onMove: (
     sourceId: QuestionId,
     target: { containerId: QuestionId | null; index: number },
@@ -953,7 +968,7 @@ function QuestionList({
               containerId={containerId}
               index={firstIdx}
               canEdit={cb.canEdit}
-              onAddType={(t) => cb.onAddInto(t, containerId)}
+              onAddType={(t) => cb.onAddInto(t, containerId, firstIdx)}
               onMove={(id) =>
                 cb.onMove(id, { containerId, index: firstIdx })
               }
@@ -993,7 +1008,7 @@ function QuestionList({
           containerId={containerId}
           index={list.length}
           canEdit={cb.canEdit}
-          onAddType={(t) => cb.onAddInto(t, containerId)}
+          onAddType={(t) => cb.onAddInto(t, containerId, list.length)}
           onMove={(id) => cb.onMove(id, { containerId, index: list.length })}
         />
       </li>
@@ -1065,7 +1080,8 @@ function QuestionRow({
     setOverTop(false);
     const newType = e.dataTransfer.getData('text/x-question-type');
     const sourceId = e.dataTransfer.getData('text/x-reorder-id');
-    if (newType) onAddInto(newType as QuestionType, containerId);
+    // Drop onto a row card -> insert immediately before that row.
+    if (newType) onAddInto(newType as QuestionType, containerId, index);
     else if (sourceId && sourceId !== q.id) {
       onMove(sourceId, { containerId, index });
     }
