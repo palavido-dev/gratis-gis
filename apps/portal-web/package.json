@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@gratis-gis/form-schema": "workspace:*",
     "@gratis-gis/shared-types": "workspace:*",
     "@gratis-gis/ui": "workspace:*",
     "@tmcw/togeojson": "^6.0.1",

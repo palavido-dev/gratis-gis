@@ -104,6 +104,8 @@ import { PickListEditor } from './pick-list/editor';
 import { GeoBoundaryEditor } from './geo-boundary/editor';
 import { FolderDetail } from './folder/folder-detail';
 import { EditorDetail } from './editor/editor-detail';
+import { FormDesigner } from './form/designer';
+import type { FormSchema } from '@gratis-gis/form-schema';
 import { DataLayerProvenance } from './data-layer/provenance-panel';
 import { DataLayerSchema } from './data-layer/schema-panel';
 import { VersionHistoryPanel } from './data-layer/version-history-panel';
@@ -531,6 +533,29 @@ export default async function ItemDetailPage({ params }: Props) {
             }}
             canEdit={canManage}
           />
+        </section>
+      ) : item.type === 'form' ? (
+        <section className="mb-6">
+          <FormDesigner
+            itemId={item.id}
+            initial={
+              item.data && typeof item.data === 'object' && 'questions' in (item.data as object)
+                ? ((item.data as unknown) as FormSchema)
+                : null
+            }
+            canEdit={canManage}
+          />
+          <div className="mt-3 flex items-center gap-2 text-xs text-muted">
+            <span>
+              Respondent link:{' '}
+              <Link
+                href={`/forms/${item.id}/respond`}
+                className="font-mono text-accent hover:underline"
+              >
+                /forms/{item.id}/respond
+              </Link>
+            </span>
+          </div>
         </section>
       ) : (
         <section className="mb-6">
