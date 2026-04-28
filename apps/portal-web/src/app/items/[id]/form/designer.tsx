@@ -89,6 +89,30 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [layerColumns, setLayerColumns] = useState<LayerColumn[] | null>(null);
+
+  // Whenever the linked layer changes (initial load + import + unlink),
+  // refresh our copy of the layer's columns so the canvas can render
+  // per-question status. Failure is non-fatal: the designer still
+  // works, just without the colored "matched / new column" badges.
+  useEffect(() => {
+    if (!form.linkedLayerId) {
+      setLayerColumns(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const cols = await fetchLayerColumns(form.linkedLayerId!, form.linkedLayerKey);
+        if (!cancelled) setLayerColumns(cols);
+      } catch {
+        if (!cancelled) setLayerColumns(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [form.linkedLayerId, form.linkedLayerKey]);
 
   const selected = useMemo(
     () => (selectedId ? findById(form.questions, selectedId) : null),
@@ -167,9 +191,34 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
     }
   }
 
-  function applyImported(qs: Question[]) {
-    setForm((f) => ({ ...f, questions: [...f.questions, ...qs] }));
+  function applyImported(
+    qs: Question[],
+    layer: { id: string; title: string; layerKey?: string },
+  ) {
+    setForm((f) => ({
+      ...f,
+      questions: [...f.questions, ...qs],
+      linkedLayerId: layer.id,
+      ...(layer.layerKey !== undefined ? { linkedLayerKey: layer.layerKey } : {}),
+      meta: { ...(f.meta ?? {}), linkedLayerTitle: layer.title },
+    }));
     setImportOpen(false);
+  }
+
+  function unlinkLayer() {
+    setForm((f) => {
+      const next: FormSchema = { ...f };
+      delete next.linkedLayerId;
+      delete next.linkedLayerKey;
+      // Drop bindTo from each question -- the user's choice to
+      // unlink means the form is no longer authoritative against any
+      // layer schema. Question content stays.
+      next.questions = stripBindings(next.questions);
+      const meta = { ...(next.meta ?? {}) } as Record<string, unknown>;
+      delete meta.linkedLayerTitle;
+      next.meta = meta;
+      return next;
+    });
   }
 
   return (
@@ -249,6 +298,8 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
             form={form}
             selectedId={selectedId}
             canEdit={canEdit}
+            layerColumns={layerColumns}
+            isLinked={Boolean(form.linkedLayerId)}
             onSelect={setSelectedId}
             onRemove={removeQuestion}
             onAddInto={addQuestion}
@@ -259,6 +310,8 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
             form={form}
             question={selected}
             canEdit={canEdit}
+            layerColumns={layerColumns}
+            onUnlinkLayer={unlinkLayer}
             onChange={(patch) => {
               if (selected) updateQuestion(selected.id, patch);
             }}
@@ -501,6 +554,8 @@ function Palette({
 interface CanvasCallbacks {
   selectedId: QuestionId | null;
   canEdit: boolean;
+  layerColumns: LayerColumn[] | null;
+  isLinked: boolean;
   onSelect: (id: QuestionId) => void;
   onRemove: (id: QuestionId) => void;
   onAddInto: (type: QuestionType, containerId: QuestionId | null) => void;
@@ -566,7 +621,7 @@ function EmptyCanvas({
           className="mt-1 inline-flex h-8 items-center gap-1 rounded-md border border-border bg-surface-1 px-3 text-xs font-medium text-ink-1 hover:bg-surface-2"
         >
           <Database className="h-3.5 w-3.5" />
-          Or start from a data layer
+          Or link to a data layer
         </button>
       ) : null}
     </div>
@@ -650,6 +705,8 @@ function QuestionRow({
   containerId,
   selectedId,
   canEdit,
+  layerColumns,
+  isLinked,
   onSelect,
   onRemove,
   onAddInto,
@@ -730,6 +787,7 @@ function QuestionRow({
                   repeat
                 </span>
               ) : null}
+              <LinkStatusBadge status={questionLinkStatus(q, layerColumns, isLinked)} />
             </p>
             <p className="text-sm font-medium text-ink-0">{q.label}</p>
             {q.hint ? <p className="text-xs text-muted">{q.hint}</p> : null}
@@ -782,6 +840,8 @@ function QuestionRow({
                 containerId={q.id}
                 selectedId={selectedId}
                 canEdit={canEdit}
+                layerColumns={layerColumns}
+                isLinked={isLinked}
                 onSelect={onSelect}
                 onRemove={onRemove}
                 onAddInto={onAddInto}
@@ -801,18 +861,22 @@ function Properties({
   form,
   question,
   canEdit,
+  layerColumns,
   onChange,
   onRename,
   onUpdateForm,
   onOpenImport,
+  onUnlinkLayer,
 }: {
   form: FormSchema;
   question: Question | null;
   canEdit: boolean;
+  layerColumns: LayerColumn[] | null;
   onChange: (patch: Partial<Question>) => void;
   onRename: (newId: string) => void;
   onUpdateForm: (patch: Partial<FormSchema>) => void;
   onOpenImport: () => void;
+  onUnlinkLayer: () => void;
 }) {
   if (!question) {
     return (
@@ -829,14 +893,21 @@ function Properties({
             className={inputCls}
           />
         </Field>
-        {canEdit ? (
+        {form.linkedLayerId ? (
+          <LinkedLayerSummary
+            form={form}
+            layerColumns={layerColumns}
+            canEdit={canEdit}
+            onUnlinkLayer={onUnlinkLayer}
+          />
+        ) : canEdit ? (
           <button
             type="button"
             onClick={onOpenImport}
             className="mb-3 inline-flex h-8 w-full items-center justify-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-xs font-medium text-ink-1 hover:bg-surface-2"
           >
             <Database className="h-3.5 w-3.5" />
-            Import questions from a data layer
+            Link to a data layer
           </button>
         ) : null}
         <p className="mt-1 text-[11px] text-muted">
@@ -1240,15 +1311,15 @@ function LayerImportDialog({
   onApply,
 }: {
   onClose: () => void;
-  onApply: (qs: Question[]) => void;
+  onApply: (
+    qs: Question[],
+    layer: { id: string; title: string; layerKey?: string },
+  ) => void;
 }) {
   const [layers, setLayers] = useState<LayerListItem[] | null>(null);
   const [pickedId, setPickedId] = useState<string | null>(null);
-  const [columns, setColumns] = useState<Array<{
-    name: string;
-    type: string;
-    nullable?: boolean;
-  }> | null>(null);
+  const [pickedTitle, setPickedTitle] = useState<string | null>(null);
+  const [schema, setSchema] = useState<LayerSchema | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -1267,27 +1338,15 @@ function LayerImportDialog({
     })();
   }, []);
 
-  async function loadColumns(layerId: string) {
+  async function loadColumns(layerId: string, title: string) {
     setBusy(true);
     setErr(null);
-    setColumns(null);
+    setSchema(null);
     try {
-      const res = await fetch(`/api/portal/items/${layerId}`);
-      if (!res.ok) throw new Error(`${res.status}`);
-      const layer = (await res.json()) as {
-        data?: {
-          layers?: Array<{
-            schema?: { columns?: Array<{ name: string; type: string; nullable?: boolean }> };
-          }>;
-          schema?: { columns?: Array<{ name: string; type: string; nullable?: boolean }> };
-        };
-      };
-      const cols =
-        layer.data?.layers?.[0]?.schema?.columns ??
-        layer.data?.schema?.columns ??
-        [];
-      setColumns(cols);
+      const s = await fetchLayerSchema(layerId);
+      setSchema(s);
       setPickedId(layerId);
+      setPickedTitle(title);
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Could not load layer schema.');
     } finally {
@@ -1296,54 +1355,16 @@ function LayerImportDialog({
   }
 
   function generate() {
-    if (!columns) return;
-    // Skip system columns (created_*, edited_*, geometry-internal,
-    // primary keys) -- the form designer sees them as noise.
-    const skipPrefix = /^_/;
-    const skipExact = new Set([
-      'global_id',
-      'object_id',
-      'objectid',
-      'fid',
-      'gid',
-      'shape',
-      'geom',
-      'geometry',
-    ]);
+    if (!schema || !pickedId || !pickedTitle) return;
     const qs: Question[] = [];
-    for (const col of columns) {
-      if (skipPrefix.test(col.name)) continue;
-      if (skipExact.has(col.name.toLowerCase())) continue;
-      const t = col.type.toLowerCase();
-      const id = col.name;
-      const label = humanise(col.name);
-      const required = col.nullable === false;
-      const base = { id, label, required, bindTo: { column: col.name } };
-      if (/text|varchar|char/.test(t)) {
-        qs.push({ ...base, type: 'text' });
-      } else if (/int|smallint|bigint/.test(t)) {
-        qs.push({ ...base, type: 'integer' });
-      } else if (/numeric|float|double|real|decimal/.test(t)) {
-        qs.push({ ...base, type: 'number' });
-      } else if (/bool/.test(t)) {
-        qs.push({ ...base, type: 'boolean' });
-      } else if (t.includes('time') && t.includes('date')) {
-        qs.push({ ...base, type: 'datetime' });
-      } else if (t.includes('time')) {
-        qs.push({ ...base, type: 'time' });
-      } else if (t.includes('date')) {
-        qs.push({ ...base, type: 'date' });
-      } else if (/point/.test(t)) {
-        qs.push({ ...base, type: 'geopoint', capture: 'auto' });
-      } else if (/line/.test(t)) {
-        qs.push({ ...base, type: 'geotrace' });
-      } else if (/polygon/.test(t)) {
-        qs.push({ ...base, type: 'geoshape' });
-      } else {
-        qs.push({ ...base, type: 'text' });
-      }
+    qs.push(...questionsForColumns(schema.columns));
+    if (schema.attachmentsEnabled) {
+      qs.push(buildAttachmentsGroup('photos', 'Photos'));
     }
-    onApply(qs);
+    for (const rel of schema.related) {
+      qs.push(buildRelatedGroup(rel));
+    }
+    onApply(qs, { id: pickedId, title: pickedTitle });
   }
 
   return (
@@ -1357,7 +1378,7 @@ function LayerImportDialog({
       >
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <h2 className="text-sm font-semibold tracking-tight text-ink-0">
-            Start from a data layer
+            Link to a data layer
           </h2>
           <button
             type="button"
@@ -1377,8 +1398,9 @@ function LayerImportDialog({
           {!pickedId ? (
             <div>
               <p className="mb-2 text-xs text-muted">
-                Pick a data layer; we&apos;ll generate one question per column at the
-                most compatible question type. You can edit before saving.
+                Pick a data layer to link this form to. We&apos;ll generate one
+                question per column at the most compatible question type, and
+                submissions to this form will land in the picked layer.
               </p>
               {layers === null ? (
                 <p className="text-xs text-muted">Loading layers...</p>
@@ -1390,7 +1412,7 @@ function LayerImportDialog({
                     <li key={l.id}>
                       <button
                         type="button"
-                        onClick={() => void loadColumns(l.id)}
+                        onClick={() => void loadColumns(l.id, l.title)}
                         disabled={busy}
                         className="flex w-full items-center justify-between rounded-md border border-border bg-surface-1 px-3 py-2 text-left hover:bg-surface-2 disabled:opacity-50"
                       >
@@ -1405,19 +1427,7 @@ function LayerImportDialog({
               )}
             </div>
           ) : (
-            <div>
-              <p className="mb-2 text-xs text-muted">
-                Will generate {columns?.length ?? 0} questions:
-              </p>
-              <ul className="max-h-60 space-y-1 overflow-y-auto rounded border border-border bg-surface-2/40 p-2 text-xs">
-                {(columns ?? []).map((c) => (
-                  <li key={c.name} className="flex justify-between">
-                    <span className="font-mono text-ink-1">{c.name}</span>
-                    <span className="text-muted">{c.type}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <ImportPreview schema={schema} />
           )}
         </div>
         <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
@@ -1432,7 +1442,7 @@ function LayerImportDialog({
             <button
               type="button"
               onClick={generate}
-              disabled={!columns}
+              disabled={!schema}
               className="inline-flex h-8 items-center rounded-md bg-accent px-3 text-xs font-medium text-accent-foreground hover:opacity-90 disabled:opacity-50"
             >
               Generate questions
@@ -1449,4 +1459,571 @@ function humanise(name: string): string {
     .replace(/[_-]+/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase())
     .trim();
+}
+
+/**
+ * Preview the shape of the form we'll generate from a layer's
+ * schema. Top-level columns are listed flat; related tables are
+ * shown as collapsed groups; attachments-enabled flags get a
+ * "+ Photos" line.
+ */
+function ImportPreview({ schema }: { schema: LayerSchema | null }) {
+  if (!schema) {
+    return <p className="text-xs text-muted">Loading layer schema...</p>;
+  }
+  const visibleCols = schema.columns.filter(
+    (c) => !SKIP_PREFIX_RE.test(c.name) && !SKIP_EXACT.has(c.name.toLowerCase()),
+  );
+  const total =
+    visibleCols.length +
+    (schema.attachmentsEnabled ? 1 : 0) +
+    schema.related.length;
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted">
+        Will generate {total} top-level{' '}
+        {total === 1 ? 'question' : 'questions'}.
+      </p>
+      <div className="rounded border border-border bg-surface-2/40 p-2 text-xs">
+        <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">
+          This layer
+        </p>
+        <ul className="space-y-0.5">
+          {visibleCols.map((c) => (
+            <li key={c.name} className="flex justify-between">
+              <span className="font-mono text-ink-1">{c.name}</span>
+              <span className="text-muted">{c.type}</span>
+            </li>
+          ))}
+          {visibleCols.length === 0 ? (
+            <li className="text-muted">(no editable columns)</li>
+          ) : null}
+          {schema.attachmentsEnabled ? (
+            <li className="mt-1 flex items-center justify-between border-t border-border/50 pt-1">
+              <span className="text-ink-1">+ Photos</span>
+              <span className="text-[10px] uppercase tracking-wide text-accent">
+                repeat
+              </span>
+            </li>
+          ) : null}
+        </ul>
+      </div>
+      {schema.related.length > 0 ? (
+        <div className="space-y-2">
+          <p className="text-[10px] uppercase tracking-wide text-muted">
+            Related tables (each becomes a repeat group)
+          </p>
+          {schema.related.map((rel, i) => {
+            const cols = rel.columns.filter(
+              (c) =>
+                !SKIP_PREFIX_RE.test(c.name) &&
+                !SKIP_EXACT.has(c.name.toLowerCase()),
+            );
+            return (
+              <div
+                key={`${rel.layerKeyOrItemId}-${i}`}
+                className="rounded border border-border bg-surface-2/40 p-2 text-xs"
+              >
+                <p className="mb-1 flex items-center justify-between">
+                  <span className="font-medium text-ink-0">{rel.label}</span>
+                  <span className="inline-flex rounded-full bg-accent/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-accent">
+                    repeat
+                  </span>
+                </p>
+                <ul className="space-y-0.5">
+                  {cols.map((c) => (
+                    <li key={c.name} className="flex justify-between">
+                      <span className="font-mono text-ink-1">{c.name}</span>
+                      <span className="text-muted">{c.type}</span>
+                    </li>
+                  ))}
+                  {rel.attachmentsEnabled ? (
+                    <li className="mt-1 flex items-center justify-between border-t border-border/50 pt-1">
+                      <span className="text-ink-1">+ Photos</span>
+                      <span className="text-[10px] uppercase tracking-wide text-accent">
+                        repeat
+                      </span>
+                    </li>
+                  ) : null}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// System / Esri-y columns the form designer treats as noise. The
+// data_layer keeps them; the form just doesn't surface them as
+// questions.
+const SKIP_PREFIX_RE = /^_/;
+const SKIP_EXACT = new Set([
+  'global_id',
+  'object_id',
+  'objectid',
+  'fid',
+  'gid',
+  'shape',
+  'geom',
+  'geometry',
+  'parent_global_id',
+  'created_at',
+  'updated_at',
+  'created_by',
+  'updated_by',
+  'edited_at',
+  'edited_by',
+]);
+
+/**
+ * Convert a flat list of layer columns into questions, snapping each
+ * to the most compatible question type. Stamps `bindTo.column` so the
+ * Field-mode runtime can route values back to the right column.
+ */
+function questionsForColumns(cols: LayerColumn[]): Question[] {
+  const qs: Question[] = [];
+  for (const col of cols) {
+    if (SKIP_PREFIX_RE.test(col.name)) continue;
+    if (SKIP_EXACT.has(col.name.toLowerCase())) continue;
+    const t = (col.type ?? '').toLowerCase();
+    const id = col.name;
+    const label = col.label ?? humanise(col.name);
+    const required = col.nullable === false;
+    const base = { id, label, required, bindTo: { column: col.name } };
+    if (/text|varchar|char|string/.test(t) || t === '') {
+      qs.push({ ...base, type: 'text' });
+    } else if (/int|smallint|bigint/.test(t)) {
+      qs.push({ ...base, type: 'integer' });
+    } else if (/numeric|float|double|real|decimal|number/.test(t)) {
+      qs.push({ ...base, type: 'number' });
+    } else if (/bool/.test(t)) {
+      qs.push({ ...base, type: 'boolean' });
+    } else if (t.includes('time') && t.includes('date')) {
+      qs.push({ ...base, type: 'datetime' });
+    } else if (t.includes('time')) {
+      qs.push({ ...base, type: 'time' });
+    } else if (t.includes('date')) {
+      qs.push({ ...base, type: 'date' });
+    } else if (/point/.test(t)) {
+      qs.push({ ...base, type: 'geopoint', capture: 'auto' });
+    } else if (/line/.test(t)) {
+      qs.push({ ...base, type: 'geotrace' });
+    } else if (/polygon/.test(t)) {
+      qs.push({ ...base, type: 'geoshape' });
+    } else {
+      qs.push({ ...base, type: 'text' });
+    }
+  }
+  return qs;
+}
+
+/**
+ * Build a repeating group named for a related table. Each instance
+ * captures one related row, so e.g. a "Nest" with related "Nest
+ * Inspections" generates a "Nest Inspections" repeat group with
+ * one question per inspection column. If the related layer has
+ * attachments enabled, an inner "Attachments" repeat group is
+ * appended so each inspection can carry photos.
+ */
+function buildRelatedGroup(rel: RelatedTable): Question {
+  const inner = questionsForColumns(rel.columns);
+  if (rel.attachmentsEnabled) {
+    inner.push(buildAttachmentsGroup(`${rel.layerKeyOrItemId}_photos`, 'Photos'));
+  }
+  const id = suggestQuestionId(rel.label || 'related');
+  return {
+    id,
+    type: 'group',
+    label: rel.label,
+    repeat: { addLabel: `Add another ${rel.label}` },
+    bindTo: { column: rel.layerKeyOrItemId },
+    children: inner,
+  };
+}
+
+/**
+ * Build a repeating group dedicated to attachments. Phase 1 ships
+ * one photo question per instance so a respondent can capture N
+ * images; future iterations may add captions / files / etc. The
+ * group's bindTo is the layer key (or relationship id) the
+ * Field-mode runtime uses to route attachments back to the right
+ * feature_attachment row.
+ */
+function buildAttachmentsGroup(idHint: string, label: string): Question {
+  return {
+    id: suggestQuestionId(idHint),
+    type: 'group',
+    label,
+    repeat: { addLabel: 'Add another photo' },
+    children: [
+      {
+        id: 'photo',
+        type: 'photo',
+        label: 'Photo',
+        maxCount: 1,
+      },
+    ],
+  };
+}
+
+// ---- Link-status badge on each canvas row ----------------------
+
+function LinkStatusBadge({ status }: { status: LinkStatus }) {
+  if (status.kind === 'unbound') return null;
+  if (status.kind === 'matched') {
+    return (
+      <span
+        title={`Bound to column "${status.column.name}" (${status.column.type})`}
+        className="ml-1.5 inline-flex rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-emerald-800"
+      >
+        bound
+      </span>
+    );
+  }
+  if (status.kind === 'will-add') {
+    return (
+      <span
+        title="No matching column on the layer yet. Will be added on save."
+        className="ml-1.5 inline-flex rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-amber-900"
+      >
+        new column
+      </span>
+    );
+  }
+  return (
+    <span
+      title={`The layer no longer has column "${status.column}". Submissions for this question won't reach the layer.`}
+      className="ml-1.5 inline-flex rounded-full bg-danger/15 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-danger"
+    >
+      orphaned
+    </span>
+  );
+}
+
+// ---- Linked-layer summary panel ---------------------------------
+
+function LinkedLayerSummary({
+  form,
+  layerColumns,
+  canEdit,
+  onUnlinkLayer,
+}: {
+  form: FormSchema;
+  layerColumns: LayerColumn[] | null;
+  canEdit: boolean;
+  onUnlinkLayer: () => void;
+}) {
+  const linkedTitle =
+    typeof form.meta?.linkedLayerTitle === 'string'
+      ? (form.meta.linkedLayerTitle as string)
+      : 'data layer';
+  // Tally per-question status so the user sees at a glance how the
+  // form lines up against the layer's current schema.
+  let matched = 0;
+  let willAdd = 0;
+  for (const q of walkAll(form.questions)) {
+    if (q.type === 'note' || q.type === 'page' || q.type === 'group') continue;
+    const s = questionLinkStatus(q, layerColumns, true);
+    if (s.kind === 'matched') matched += 1;
+    else if (s.kind === 'will-add') willAdd += 1;
+  }
+  return (
+    <div className="mb-3 rounded-md border border-accent/40 bg-accent/5 p-2 text-xs">
+      <div className="mb-1 flex items-center gap-1.5">
+        <Database className="h-3.5 w-3.5 text-accent" />
+        <span className="font-medium text-ink-0">Linked to:</span>
+        <span className="truncate text-ink-1">{linkedTitle}</span>
+      </div>
+      <p className="text-[11px] text-muted">
+        {layerColumns === null
+          ? 'Loading layer schema...'
+          : `${matched} matched · ${willAdd} new column${willAdd === 1 ? '' : 's'} on save`}
+      </p>
+      <p className="mt-1 text-[11px] text-muted">
+        Submissions go to this layer. New questions land as additive columns
+        the next time someone submits.
+      </p>
+      {canEdit ? (
+        <button
+          type="button"
+          onClick={onUnlinkLayer}
+          className="mt-2 inline-flex h-7 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-[11px] font-medium text-ink-1 hover:bg-surface-2"
+        >
+          Unlink
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function* walkAll(qs: Question[]): Iterable<Question> {
+  for (const q of qs) {
+    yield q;
+    if (q.type === 'group') yield* walkAll(q.children);
+  }
+}
+
+// ---- Linked-layer helpers ---------------------------------------
+
+export interface LayerColumn {
+  name: string;
+  type: string;
+  nullable?: boolean;
+  /** Display label from the layer's FeatureField, when present. */
+  label?: string;
+}
+
+/**
+ * A related table the form should mirror as a repeating group.
+ * Comes from one of three sources:
+ *   - v3 child layer inside the SAME data_layer item (parent has
+ *     `childLayerIds` referencing other sublayers).
+ *   - Cross-item relationship registered on the parent item's
+ *     `data.relationships`.
+ *   - Cross-item relationship registered on the child item's
+ *     `data.parentRelationship` -- detected when the form imports
+ *     a parent that doesn't have its own `relationships` list yet.
+ */
+export interface RelatedTable {
+  label: string;
+  /** Column id stamped on each generated question's bindTo so the
+   *  Field-mode runtime can route a repeat instance back to the
+   *  related table. */
+  layerKeyOrItemId: string;
+  /** True when the relationship lives in the same data_layer item
+   *  (a v3 sublayer). False when the related rows live in a
+   *  separate item. */
+  sameItem: boolean;
+  columns: LayerColumn[];
+  /** True when the related layer/table has attachments enabled.
+   *  The generator nests an "Attachments" repeat group inside the
+   *  related table's group with a single photo question. */
+  attachmentsEnabled?: boolean;
+}
+
+export interface LayerSchema {
+  /** Top-level columns (the parent's own attributes). */
+  columns: LayerColumn[];
+  /** Zero or more related tables to render as repeating groups. */
+  related: RelatedTable[];
+  /** Whether the parent layer itself has attachments enabled. The
+   *  generator appends an "Attachments" repeat group at the top
+   *  level when true. */
+  attachmentsEnabled?: boolean;
+}
+
+interface RawFeatureField {
+  name: string;
+  type?: string;
+  label?: string;
+  nullable?: boolean;
+}
+
+interface RawSublayer {
+  id?: string;
+  key?: string;
+  name?: string;
+  label?: string;
+  geometryType?: string | null;
+  fields?: RawFeatureField[];
+  attachmentsEnabled?: boolean;
+  childLayerIds?: string[];
+  parentLayerId?: string;
+  /** Legacy shape: schema.columns pre-v3. Tolerated for safety. */
+  schema?: { columns?: LayerColumn[] };
+}
+
+interface RawDataLayerItem {
+  id: string;
+  title: string;
+  data?: {
+    version?: number;
+    layers?: RawSublayer[];
+    fields?: RawFeatureField[];
+    schema?: { columns?: LayerColumn[] };
+    relationships?: Array<{
+      id: string;
+      label: string;
+      relatedItemId: string;
+      fkColumn: string;
+    }>;
+  };
+}
+
+function fieldsToColumns(fields: RawFeatureField[] | undefined): LayerColumn[] {
+  if (!fields) return [];
+  return fields.map((f) => {
+    const col: LayerColumn = {
+      name: f.name,
+      type: f.type ?? 'string',
+    };
+    if (f.label !== undefined) col.label = f.label;
+    if (f.nullable !== undefined) col.nullable = f.nullable;
+    return col;
+  });
+}
+
+/** Pick the columns out of a v3 sublayer in any reasonable shape:
+ *  v3 `fields[]`, legacy `schema.columns[]`, or empty. */
+function sublayerColumns(layer: RawSublayer): LayerColumn[] {
+  if (layer.fields && layer.fields.length > 0) {
+    return fieldsToColumns(layer.fields);
+  }
+  return layer.schema?.columns ?? [];
+}
+
+async function fetchItem(id: string): Promise<RawDataLayerItem | null> {
+  try {
+    const res = await fetch(`/api/portal/items/${id}`);
+    if (!res.ok) return null;
+    return (await res.json()) as RawDataLayerItem;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Full schema fetch for a data_layer: parent columns plus any
+ * related tables (same-item child layers and cross-item
+ * relationships). Used by the import dialog to generate questions
+ * that mirror the layer's structure -- a repeating group per
+ * related table -- and by the canvas to compute per-question link
+ * status.
+ *
+ * Tolerant of v1, v2, v3 layouts and legacy shapes.
+ */
+export async function fetchLayerSchema(
+  layerId: string,
+  layerKey?: string,
+): Promise<LayerSchema> {
+  const item = await fetchItem(layerId);
+  if (!item) return { columns: [], related: [] };
+  const data = item.data ?? {};
+
+  // Identify the picked sublayer in v3, or the synthetic single-
+  // layer in v1/v2.
+  const layers = data.layers ?? [];
+  let picked: RawSublayer | null = null;
+  if (layers.length > 0) {
+    if (layerKey) {
+      picked =
+        layers.find((l) => l.key === layerKey || l.id === layerKey) ?? null;
+    }
+    if (!picked) picked = layers[0] ?? null;
+  }
+
+  const columns: LayerColumn[] = picked
+    ? sublayerColumns(picked)
+    : fieldsToColumns(data.fields) || data.schema?.columns || [];
+
+  const related: RelatedTable[] = [];
+
+  // Same-item v3 child layers: a layer that lists other layer ids in
+  // `childLayerIds`, OR layers that name `picked` as their `parentLayerId`.
+  if (picked) {
+    const childIds = new Set(picked.childLayerIds ?? []);
+    for (const l of layers) {
+      const isChildById = l.id !== undefined && childIds.has(l.id);
+      const isChildByParent =
+        l.parentLayerId !== undefined && l.parentLayerId === picked.id;
+      if ((isChildById || isChildByParent) && l !== picked) {
+        related.push({
+          label: l.label ?? l.name ?? l.id ?? 'Related table',
+          layerKeyOrItemId: l.key ?? l.id ?? '',
+          sameItem: true,
+          columns: sublayerColumns(l),
+          attachmentsEnabled: Boolean(l.attachmentsEnabled),
+        });
+      }
+    }
+  }
+
+  // Cross-item relationships registered on the parent.
+  for (const rel of data.relationships ?? []) {
+    const child = await fetchItem(rel.relatedItemId);
+    if (!child) continue;
+    const childLayer = child.data?.layers?.[0];
+    const cols = childLayer
+      ? sublayerColumns(childLayer)
+      : fieldsToColumns(child.data?.fields) ?? [];
+    related.push({
+      label: rel.label ?? child.title ?? 'Related table',
+      layerKeyOrItemId: rel.relatedItemId,
+      sameItem: false,
+      columns: cols,
+      attachmentsEnabled: Boolean(childLayer?.attachmentsEnabled),
+    });
+  }
+
+  return {
+    columns,
+    related,
+    attachmentsEnabled: Boolean(picked?.attachmentsEnabled),
+  };
+}
+
+/**
+ * Back-compat shim: the canvas only needs the parent columns to
+ * compute per-question link status; the import path uses the full
+ * schema. Kept as a thin wrapper so old call sites don't break.
+ */
+export async function fetchLayerColumns(
+  layerId: string,
+  layerKey?: string,
+): Promise<LayerColumn[]> {
+  const s = await fetchLayerSchema(layerId, layerKey);
+  return s.columns;
+}
+
+/** Strip every question's bindTo. Called when the user unlinks a
+ *  form from its layer so the questions don't carry stale bindings. */
+export function stripBindings(qs: Question[]): Question[] {
+  return qs.map((q) => {
+    const next: Question = { ...q };
+    delete next.bindTo;
+    if (next.type === 'group') {
+      next.children = stripBindings(next.children);
+    }
+    return next;
+  });
+}
+
+export type LinkStatus =
+  | { kind: 'matched'; column: LayerColumn }
+  | { kind: 'will-add' } // bindTo set but column not on layer; safe additive on save
+  | { kind: 'orphaned'; column: string } // bindTo column was removed from layer
+  | { kind: 'unbound' }; // form not linked OR question has no bindTo
+
+/**
+ * Compute per-question status against the linked layer's columns.
+ * The designer uses this to render badges on each question card and
+ * a summary in the form-level properties panel.
+ */
+export function questionLinkStatus(
+  q: Question,
+  cols: LayerColumn[] | null,
+  isLinked: boolean,
+): LinkStatus {
+  if (!isLinked || cols === null) return { kind: 'unbound' };
+  // Skip pure-display question types and groups -- they don't bind.
+  if (q.type === 'note' || q.type === 'page' || q.type === 'group') {
+    return { kind: 'unbound' };
+  }
+  const colName = q.bindTo?.column ?? q.id;
+  const match = cols.find((c) => c.name === colName);
+  if (match) return { kind: 'matched', column: match };
+  if (q.bindTo?.column) {
+    // Explicit binding to a column the layer doesn't have. Could be
+    // either "we'll add it on save" (the user just made the
+    // question) or "the layer dropped that column" (orphaned). We
+    // can't tell the two apart from schema alone, so we surface
+    // "will-add" by default and rely on the layer's column-history
+    // to flag orphaned bindings in Phase 1b.
+    return { kind: 'will-add' };
+  }
+  // No bindTo + no column match. The form would extend the layer
+  // additively with the question's id as the new column name.
+  return { kind: 'will-add' };
 }
