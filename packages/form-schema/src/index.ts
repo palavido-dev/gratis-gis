@@ -357,6 +357,25 @@ export interface FormSchema {
    *  present, the layer's geometry column is filled from this question
    *  rather than from a separate `geopoint` capture flow. */
   geometryQuestionId?: QuestionId;
+  /**
+   * Form-level link to a data_layer item. When set, the form is
+   * "bound" to that layer:
+   *
+   *   - Submissions land in the layer's feature table (Field runtime
+   *     and any data_collection deployment that picks this form
+   *     and the same target layer).
+   *   - Designer shows per-question status against the layer's
+   *     current schema (matched / new-column-on-save / orphaned).
+   *   - Adding a question whose `bindTo.column` doesn't yet exist on
+   *     the layer is allowed: it lands as an additive `addColumn`
+   *     ALTER the first time a submission references it, per the
+   *     schema-evolution policy in editing-and-collection.md.
+   *
+   * The optional `linkedLayerKey` picks one layer inside a multi-
+   * layer data_layer item (single-layer layers omit it).
+   */
+  linkedLayerId?: string;
+  linkedLayerKey?: string;
   /** Designer metadata (palette state, last-edit timestamps) the
    *  runtime ignores. */
   meta?: Record<string, unknown>;
