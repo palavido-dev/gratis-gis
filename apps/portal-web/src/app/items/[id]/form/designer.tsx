@@ -116,24 +116,26 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [layerColumns, setLayerColumns] = useState<LayerColumn[] | null>(null);
+  const [layerSchema, setLayerSchema] = useState<LayerSchema | null>(null);
 
   // Whenever the linked layer changes (initial load + import + unlink),
-  // refresh our copy of the layer's columns so the canvas can render
-  // per-question status. Failure is non-fatal: the designer still
-  // works, just without the colored "matched / new column" badges.
+  // refresh our copy of the layer's full schema (parent columns +
+  // related tables) so the canvas can render per-question link status
+  // correctly even for questions inside related-table groups. Failure
+  // is non-fatal: the designer still works, just without the colored
+  // "matched / new column" badges.
   useEffect(() => {
     if (!form.linkedLayerId) {
-      setLayerColumns(null);
+      setLayerSchema(null);
       return;
     }
     let cancelled = false;
     void (async () => {
       try {
-        const cols = await fetchLayerColumns(form.linkedLayerId!, form.linkedLayerKey);
-        if (!cancelled) setLayerColumns(cols);
+        const s = await fetchLayerSchema(form.linkedLayerId!, form.linkedLayerKey);
+        if (!cancelled) setLayerSchema(s);
       } catch {
-        if (!cancelled) setLayerColumns(null);
+        if (!cancelled) setLayerSchema(null);
       }
     })();
     return () => {
@@ -403,7 +405,7 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
             form={form}
             selectedId={selectedId}
             canEdit={canEdit}
-            layerColumns={layerColumns}
+            layerSchema={layerSchema}
             isLinked={Boolean(form.linkedLayerId)}
             onSelect={setSelectedId}
             onRemove={removeQuestion}
@@ -415,7 +417,7 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
             form={form}
             question={selected}
             canEdit={canEdit}
-            layerColumns={layerColumns}
+            layerSchema={layerSchema}
             onUnlinkLayer={unlinkLayer}
             onChange={(patch) => {
               if (selected) updateQuestion(selected.id, patch);
@@ -803,7 +805,7 @@ function Palette({
 interface CanvasCallbacks {
   selectedId: QuestionId | null;
   canEdit: boolean;
-  layerColumns: LayerColumn[] | null;
+  layerSchema: LayerSchema | null;
   isLinked: boolean;
   onSelect: (id: QuestionId) => void;
   onRemove: (id: QuestionId) => void;
@@ -954,7 +956,7 @@ function QuestionRow({
   containerId,
   selectedId,
   canEdit,
-  layerColumns,
+  layerSchema,
   isLinked,
   onSelect,
   onRemove,
@@ -1036,7 +1038,7 @@ function QuestionRow({
                   repeat
                 </span>
               ) : null}
-              <LinkStatusBadge status={questionLinkStatus(q, layerColumns, isLinked)} />
+              <LinkStatusBadge status={questionLinkStatus(q, layerSchema, isLinked)} />
             </p>
             <p className="text-sm font-medium text-ink-0">{q.label}</p>
             {q.hint ? <p className="text-xs text-muted">{q.hint}</p> : null}
@@ -1089,7 +1091,7 @@ function QuestionRow({
                 containerId={q.id}
                 selectedId={selectedId}
                 canEdit={canEdit}
-                layerColumns={layerColumns}
+                layerSchema={layerSchema}
                 isLinked={isLinked}
                 onSelect={onSelect}
                 onRemove={onRemove}
@@ -1110,7 +1112,7 @@ function Properties({
   form,
   question,
   canEdit,
-  layerColumns,
+  layerSchema,
   onChange,
   onRename,
   onUpdateForm,
@@ -1120,7 +1122,7 @@ function Properties({
   form: FormSchema;
   question: Question | null;
   canEdit: boolean;
-  layerColumns: LayerColumn[] | null;
+  layerSchema: LayerSchema | null;
   onChange: (patch: Partial<Question>) => void;
   onRename: (newId: string) => void;
   onUpdateForm: (patch: Partial<FormSchema>) => void;
@@ -1145,7 +1147,7 @@ function Properties({
         {form.linkedLayerId ? (
           <LinkedLayerSummary
             form={form}
-            layerColumns={layerColumns}
+            layerSchema={layerSchema}
             canEdit={canEdit}
             onUnlinkLayer={onUnlinkLayer}
           />
@@ -1817,7 +1819,17 @@ function Properties({
           <ExpressionEditor
             label="Visible if"
             value={question.visibleIf}
-            allFields={collectIdLabelPairs(form)}
+            // Exclude the current question. A "visible if Species
+            // equals X" expression on the Species question itself is
+            // a self-reference: technically defined (it reads its own
+            // captured value) but almost always an authoring mistake.
+            // The legitimate use-case (hide a calculated read-only
+            // field based on its own computed value) is rare enough
+            // that we'd rather force the author to introduce a
+            // helper field than expose the footgun by default.
+            allFields={collectIdLabelPairs(form).filter(
+              (f) => f.id !== question.id,
+            )}
             disabled={!canEdit}
             onChange={(visibleIf) => onChange({ visibleIf })}
           />
@@ -2908,11 +2920,45 @@ const SKIP_EXACT = new Set([
 ]);
 
 /**
- * Convert a flat list of layer columns into questions, snapping each
- * to the most compatible question type. Stamps `bindTo.column` so the
- * Field-mode runtime can route values back to the right column.
+ * Where a column lives in the data_layer hierarchy. Stamped on each
+ * generated question's `bindTo` so the Field-mode runtime knows
+ * which table to route a captured value into, and so the designer
+ * can resolve link-status against the right column set.
+ *
+ *  - `parent`: top-level form columns. Routing falls back to the
+ *    form's `linkedLayerId` / `linkedLayerKey`.
+ *  - `sublayer`: a v3 child sublayer in the SAME data_layer item.
+ *    The runtime addresses it by layerKey.
+ *  - `item`: a separate data_layer item linked through a cross-item
+ *    relationship. Addressed by layerItemId.
  */
-function questionsForColumns(cols: LayerColumn[]): Question[] {
+type LayerContext =
+  | { kind: 'parent' }
+  | { kind: 'sublayer'; layerKey: string }
+  | { kind: 'item'; layerItemId: string };
+
+/** Build a BindTo for a column under a given layer context. */
+function bindToForColumn(
+  ctx: LayerContext,
+  column: string,
+): { layerKey?: string; layerItemId?: string; column: string } {
+  if (ctx.kind === 'sublayer') return { layerKey: ctx.layerKey, column };
+  if (ctx.kind === 'item') return { layerItemId: ctx.layerItemId, column };
+  return { column };
+}
+
+/**
+ * Convert a flat list of layer columns into questions, snapping each
+ * to the most compatible question type. Stamps `bindTo` so the Field-
+ * mode runtime can route values back to the right column on the right
+ * table. The optional `ctx` qualifies the binding when the columns
+ * belong to a related sublayer or cross-item relationship; without it
+ * the questions bind to the form's top-level linked layer.
+ */
+function questionsForColumns(
+  cols: LayerColumn[],
+  ctx: LayerContext = { kind: 'parent' },
+): Question[] {
   const qs: Question[] = [];
   for (const col of cols) {
     if (SKIP_PREFIX_RE.test(col.name)) continue;
@@ -2921,7 +2967,31 @@ function questionsForColumns(cols: LayerColumn[]): Question[] {
     const id = col.name;
     const label = col.label ?? humanise(col.name);
     const required = col.nullable === false;
-    const base = { id, label, required, bindTo: { column: col.name } };
+    const base = {
+      id,
+      label,
+      required,
+      bindTo: bindToForColumn(ctx, col.name),
+    };
+
+    // Domain-bound columns become a select-one regardless of
+    // underlying type. Pick-list-backed columns also carry the
+    // source `pickListItemId` so the question can refresh choices
+    // later if the list changes. We default to dropdown appearance
+    // because pick lists tend to be longer than 4-5 entries (radio
+    // buttons would scroll).
+    if (col.choices && col.choices.length > 0) {
+      const q: Question = {
+        ...base,
+        type: 'select-one',
+        appearance: 'dropdown',
+        choices: col.choices,
+      };
+      if (col.pickListItemId) q.pickListId = col.pickListItemId;
+      qs.push(q);
+      continue;
+    }
+
     if (/text|varchar|char|string/.test(t) || t === '') {
       qs.push({ ...base, type: 'text' });
     } else if (/int|smallint|bigint/.test(t)) {
@@ -2958,17 +3028,27 @@ function questionsForColumns(cols: LayerColumn[]): Question[] {
  * appended so each inspection can carry photos.
  */
 function buildRelatedGroup(rel: RelatedTable): Question {
-  const inner = questionsForColumns(rel.columns);
+  // The repeat group itself binds to the related TABLE (a sublayer
+  // or a cross-item layer), not to a column. Each captured repeat
+  // instance becomes one row in that table, so the right shape is
+  // bindTo: { layerKey } or { layerItemId }, never { column }.
+  const ctx: LayerContext = rel.sameItem
+    ? { kind: 'sublayer', layerKey: rel.layerKeyOrItemId }
+    : { kind: 'item', layerItemId: rel.layerKeyOrItemId };
+  const inner = questionsForColumns(rel.columns, ctx);
   if (rel.attachmentsEnabled) {
     inner.push(buildAttachmentsGroup(`${rel.layerKeyOrItemId}_photos`, 'Photos'));
   }
   const id = suggestQuestionId(rel.label || 'related');
+  const groupBindTo: { layerKey?: string; layerItemId?: string } = rel.sameItem
+    ? { layerKey: rel.layerKeyOrItemId }
+    : { layerItemId: rel.layerKeyOrItemId };
   return {
     id,
     type: 'group',
     label: rel.label,
     repeat: { addLabel: `Add another ${rel.label}` },
-    bindTo: { column: rel.layerKeyOrItemId },
+    bindTo: groupBindTo,
     children: inner,
   };
 }
@@ -3036,12 +3116,12 @@ function LinkStatusBadge({ status }: { status: LinkStatus }) {
 
 function LinkedLayerSummary({
   form,
-  layerColumns,
+  layerSchema,
   canEdit,
   onUnlinkLayer,
 }: {
   form: FormSchema;
-  layerColumns: LayerColumn[] | null;
+  layerSchema: LayerSchema | null;
   canEdit: boolean;
   onUnlinkLayer: () => void;
 }) {
@@ -3050,12 +3130,14 @@ function LinkedLayerSummary({
       ? (form.meta.linkedLayerTitle as string)
       : 'data layer';
   // Tally per-question status so the user sees at a glance how the
-  // form lines up against the layer's current schema.
+  // form lines up against the layer's current schema. The status
+  // walker resolves each question against the right column set
+  // (parent layer or related table).
   let matched = 0;
   let willAdd = 0;
   for (const q of walkAll(form.questions)) {
     if (q.type === 'note' || q.type === 'page' || q.type === 'group') continue;
-    const s = questionLinkStatus(q, layerColumns, true);
+    const s = questionLinkStatus(q, layerSchema, true);
     if (s.kind === 'matched') matched += 1;
     else if (s.kind === 'will-add') willAdd += 1;
   }
@@ -3067,7 +3149,7 @@ function LinkedLayerSummary({
         <span className="truncate text-ink-1">{linkedTitle}</span>
       </div>
       <p className="text-[11px] text-muted">
-        {layerColumns === null
+        {layerSchema === null
           ? 'Loading layer schema...'
           : `${matched} matched · ${willAdd} new column${willAdd === 1 ? '' : 's'} on save`}
       </p>
@@ -3103,6 +3185,18 @@ export interface LayerColumn {
   nullable?: boolean;
   /** Display label from the layer's FeatureField, when present. */
   label?: string;
+  /**
+   * Resolved domain choices when the field has a coded-value
+   * constraint (inline `coded-value` or via a referenced pick list).
+   * Pre-resolved by `fetchLayerSchema` so `questionsForColumns` can
+   * stay sync. The form then renders this column as a single-choice
+   * dropdown rather than a free-text input.
+   */
+  choices?: { value: string; label: string }[];
+  /** When the choices came from a referenced pick_list, the source
+   *  item id is preserved here so the generated select-one question
+   *  can carry `pickListId` for round-trip / future refresh. */
+  pickListItemId?: string;
 }
 
 /**
@@ -3149,6 +3243,16 @@ interface RawFeatureField {
   type?: string;
   label?: string;
   nullable?: boolean;
+  /** Optional value-constraint. Mirrors shared-types FieldDomain --
+   *  inline coded-values OR a reference to a pick_list item.
+   *  fetchLayerSchema resolves the reference into LayerColumn.choices. */
+  domain?:
+    | {
+        type: 'coded-value';
+        values: Array<{ code: string | number; label: string }>;
+      }
+    | { type: 'coded-value-ref'; pickListItemId: string }
+    | { type: 'range'; min: number; max: number };
 }
 
 interface RawSublayer {
@@ -3191,6 +3295,20 @@ function fieldsToColumns(fields: RawFeatureField[] | undefined): LayerColumn[] {
     };
     if (f.label !== undefined) col.label = f.label;
     if (f.nullable !== undefined) col.nullable = f.nullable;
+    // Inline coded-value domain: snap directly to choices. The
+    // form-schema's Choice.value is a string, so number codes are
+    // stringified at this boundary.
+    if (f.domain && f.domain.type === 'coded-value') {
+      col.choices = f.domain.values.map((v) => ({
+        value: String(v.code),
+        label: v.label,
+      }));
+    }
+    // Coded-value-ref: just stash the id; fetchLayerSchema resolves
+    // the entries by fetching the pick_list item.
+    if (f.domain && f.domain.type === 'coded-value-ref') {
+      col.pickListItemId = f.domain.pickListItemId;
+    }
     return col;
   });
 }
@@ -3287,11 +3405,65 @@ export async function fetchLayerSchema(
     });
   }
 
+  // Resolve every pick_list reference across parent + related table
+  // columns in parallel. Once we have the entries we patch them onto
+  // the column.choices in place; questionsForColumns is sync and
+  // can then snap-bind to a select-one with real choices.
+  await resolvePickListChoices([
+    ...columns,
+    ...related.flatMap((r) => r.columns),
+  ]);
+
   return {
     columns,
     related,
     attachmentsEnabled: Boolean(picked?.attachmentsEnabled),
   };
+}
+
+/**
+ * For every column with a `pickListItemId` set but no `choices` yet,
+ * fetch the referenced pick_list item once (deduped) and copy its
+ * entries onto the column. Failure is silent: if a pick list 404s
+ * or the user can't see it, the column simply falls through to its
+ * type-based default question (text, number, etc).
+ */
+async function resolvePickListChoices(cols: LayerColumn[]): Promise<void> {
+  const ids = new Set<string>();
+  for (const c of cols) {
+    if (c.pickListItemId && !c.choices) ids.add(c.pickListItemId);
+  }
+  if (ids.size === 0) return;
+
+  const cache = new Map<string, { value: string; label: string }[]>();
+  await Promise.all(
+    Array.from(ids).map(async (id) => {
+      try {
+        const res = await fetch(`/api/portal/items/${id}`);
+        if (!res.ok) return;
+        const item = (await res.json()) as {
+          data?: { entries?: Array<{ code?: unknown; label?: unknown }> };
+        };
+        const entries = item.data?.entries ?? [];
+        const choices = entries
+          .map((e) => ({
+            value: String(e.code ?? ''),
+            label: typeof e.label === 'string' ? e.label : String(e.code ?? ''),
+          }))
+          .filter((c) => c.value !== '');
+        cache.set(id, choices);
+      } catch {
+        // Network / parse failure -- leave choices unset.
+      }
+    }),
+  );
+
+  for (const c of cols) {
+    if (c.pickListItemId && !c.choices) {
+      const resolved = cache.get(c.pickListItemId);
+      if (resolved && resolved.length > 0) c.choices = resolved;
+    }
+  }
 }
 
 /**
@@ -3333,20 +3505,45 @@ export type LinkStatus =
  */
 export function questionLinkStatus(
   q: Question,
-  cols: LayerColumn[] | null,
+  schema: LayerSchema | null,
   isLinked: boolean,
 ): LinkStatus {
-  if (!isLinked || cols === null) return { kind: 'unbound' };
-  // Skip pure-display question types and groups -- they don't bind.
+  if (!isLinked || schema === null) return { kind: 'unbound' };
+  // Pure-display + structural types don't bind to a column; group
+  // status is implied by its children, and we render a separate
+  // "REPEAT" tag for repeating groups elsewhere.
   if (q.type === 'note' || q.type === 'page' || q.type === 'group') {
     return { kind: 'unbound' };
   }
+
+  // Resolve which column set this question targets:
+  //   - bindTo.layerKey points at a v3 same-item sublayer
+  //   - bindTo.layerItemId points at a separate data_layer item
+  //   - otherwise: the parent's columns
+  let cols: LayerColumn[] | null = null;
+  if (q.bindTo?.layerKey) {
+    cols =
+      schema.related.find((r) => r.layerKeyOrItemId === q.bindTo!.layerKey)
+        ?.columns ?? null;
+  } else if (q.bindTo?.layerItemId) {
+    cols =
+      schema.related.find((r) => r.layerKeyOrItemId === q.bindTo!.layerItemId)
+        ?.columns ?? null;
+  } else {
+    cols = schema.columns;
+  }
+  if (cols === null) {
+    // Question is tagged for a related table the schema doesn't know
+    // about (the relationship was removed, or the layer changed).
+    return { kind: 'orphaned', column: q.bindTo?.column ?? q.id };
+  }
+
   const colName = q.bindTo?.column ?? q.id;
   const match = cols.find((c) => c.name === colName);
   if (match) return { kind: 'matched', column: match };
   if (q.bindTo?.column) {
-    // Explicit binding to a column the layer doesn't have. Could be
-    // either "we'll add it on save" (the user just made the
+    // Explicit binding to a column the target table doesn't have.
+    // Could be either "we'll add it on save" (the user just made the
     // question) or "the layer dropped that column" (orphaned). We
     // can't tell the two apart from schema alone, so we surface
     // "will-add" by default and rely on the layer's column-history

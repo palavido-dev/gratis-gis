@@ -130,6 +130,13 @@ export interface BindTo {
   /** Layer key inside the multi-layer data_layer item; matches
    *  data_layer.layers[].key. Optional for single-layer data_layers. */
   layerKey?: string;
+  /**
+   * For cross-item relationships: the id of a separate data_layer
+   * item that holds the related rows. The form is "anchored" to its
+   * own linkedLayerId at the top, but a repeating group can target
+   * a different item this way.
+   */
+  layerItemId?: string;
   /** Column name on the target table. Optional; when omitted the
    *  question id is used. */
   column?: string;
