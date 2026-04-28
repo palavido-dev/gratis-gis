@@ -765,6 +765,8 @@ function Input({
       return <AddressInput q={q} value={value} readOnly={readOnly} onChange={onChange} />;
     case 'photo':
       return <PhotoInput q={q} value={value} readOnly={readOnly} onChange={onChange} />;
+    case 'file':
+      return <FileInput q={q} value={value} readOnly={readOnly} onChange={onChange} />;
     case 'image-choice':
       return (
         <ImageChoiceInput
@@ -1084,6 +1086,116 @@ function AcknowledgeInput({
           ) : null}
         </span>
       </label>
+    </div>
+  );
+}
+
+/**
+ * Generic file upload. Captures attachments as `{ name, mimeType,
+ * sizeBytes, dataUrl }` so the offline outbox can persist them
+ * without an immediate network upload. Phase 2 swaps the data URL
+ * for a MinIO object key once the server-side pipeline lands.
+ */
+function FileInput({
+  q,
+  value,
+  readOnly,
+  onChange,
+}: {
+  q: Extract<Question, { type: 'file' }>;
+  value: unknown;
+  readOnly: boolean;
+  onChange: (v: unknown) => void;
+}) {
+  type Attachment = {
+    name: string;
+    mimeType: string;
+    sizeBytes: number;
+    dataUrl: string;
+  };
+  const files: Attachment[] = Array.isArray(value)
+    ? (value as Attachment[]).filter(
+        (f): f is Attachment =>
+          f !== null &&
+          typeof f === 'object' &&
+          typeof (f as Attachment).name === 'string' &&
+          typeof (f as Attachment).dataUrl === 'string',
+      )
+    : [];
+  const max = q.maxCount ?? 1;
+
+  async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
+    if (readOnly) return;
+    const picked = e.target.files;
+    if (!picked || picked.length === 0) return;
+    const next: Attachment[] = files.slice();
+    for (const f of Array.from(picked)) {
+      if (next.length >= max) break;
+      const dataUrl = await fileToDataUrl(f);
+      next.push({
+        name: f.name,
+        mimeType: f.type || 'application/octet-stream',
+        sizeBytes: f.size,
+        dataUrl,
+      });
+    }
+    onChange(next);
+    e.target.value = '';
+  }
+
+  function remove(idx: number) {
+    if (readOnly) return;
+    onChange(files.filter((_, i) => i !== idx));
+  }
+
+  function fmtSize(b: number): string {
+    if (b < 1024) return `${b} B`;
+    if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+    return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  return (
+    <div className="space-y-2">
+      {files.length > 0 ? (
+        <ul className="space-y-1">
+          {files.map((f, i) => (
+            <li
+              key={i}
+              className="flex items-center gap-2 rounded-md border border-border bg-surface-1 px-3 py-2 text-sm"
+            >
+              <span className="flex-1 truncate" title={f.name}>
+                {f.name}
+              </span>
+              <span className="text-[11px] text-muted">{fmtSize(f.sizeBytes)}</span>
+              {!readOnly ? (
+                <button
+                  type="button"
+                  onClick={() => remove(i)}
+                  className="rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
+                  aria-label="Remove file"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {!readOnly && files.length < max ? (
+        <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-md border border-dashed border-border bg-surface-1 px-3 text-sm text-ink-1 hover:bg-surface-2">
+          <Plus className="h-4 w-4 text-muted" />
+          <span>Add file</span>
+          <input
+            type="file"
+            className="sr-only"
+            accept={q.accept}
+            onChange={onPick}
+          />
+        </label>
+      ) : null}
+      <p className="text-[11px] text-muted">
+        {files.length} of {max} {max === 1 ? 'file' : 'files'} attached
+      </p>
     </div>
   );
 }

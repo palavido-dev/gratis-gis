@@ -16,6 +16,7 @@ import {
   Download,
   Eye,
   EyeOff,
+  FileText,
   Grid3x3,
   GripVertical,
   Hash,
@@ -643,6 +644,7 @@ const PALETTE: PaletteEntry[] = [
   { type: 'name', label: 'Full name', icon: User, group: 'identity' },
   { type: 'address', label: 'Address', icon: Home, group: 'identity' },
   { type: 'photo', label: 'Photo', icon: Camera, group: 'media' },
+  { type: 'file', label: 'File', icon: FileText, group: 'media' },
   { type: 'image-choice', label: 'Image choice', icon: Image, group: 'media' },
   { type: 'image-display', label: 'Image', icon: Image, group: 'media' },
   { type: 'image-hotspot', label: 'Image hotspot', icon: Crosshair, group: 'media' },
@@ -1520,6 +1522,55 @@ function Properties({
             } as Partial<Question>)
           }
         />
+      ) : null}
+
+      {question.type === 'file' ? (
+        <>
+          <div className="mb-2 grid grid-cols-2 gap-2">
+            <Field label="Max files">
+              <input
+                type="number"
+                min={1}
+                value={question.maxCount ?? 1}
+                disabled={!canEdit}
+                onChange={(e) =>
+                  onChange({
+                    maxCount: Number(e.target.value),
+                  } as Partial<Question>)
+                }
+                className={inputCls}
+              />
+            </Field>
+            <Field label="Max bytes">
+              <input
+                type="number"
+                min={0}
+                value={question.maxBytes ?? ''}
+                disabled={!canEdit}
+                onChange={(e) =>
+                  onChange({
+                    maxBytes:
+                      e.target.value === '' ? undefined : Number(e.target.value),
+                  } as Partial<Question>)
+                }
+                className={inputCls}
+              />
+            </Field>
+          </div>
+          <Field label="Accept" hint='e.g. ".pdf,application/pdf"'>
+            <input
+              type="text"
+              value={question.accept ?? ''}
+              disabled={!canEdit}
+              onChange={(e) =>
+                onChange({
+                  accept: e.target.value || undefined,
+                } as Partial<Question>)
+              }
+              className={inputCls}
+            />
+          </Field>
+        </>
       ) : null}
 
       {question.type === 'image-display' || question.type === 'image-hotspot' ? (
