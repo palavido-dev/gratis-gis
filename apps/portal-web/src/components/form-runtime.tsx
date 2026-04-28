@@ -204,32 +204,17 @@ export function FormRuntime({
           }
         }}
       >
-        {/* Sequential questions are packed into rows by their declared
-            width so authors can place "first name | last name" or a
-            three-up grid on a single line. Mobile collapses everything
-            to full-width below 640px (sm: breakpoint) so phone users
-            never operate cramped half-width inputs. */}
-        {packIntoRows(currentPage.questions).map((row, rowIdx) => (
-          <div
-            key={`row-${rowIdx}`}
-            className="flex flex-col gap-5 sm:flex-row sm:flex-wrap sm:gap-4"
-          >
-            {row.map((q) => (
-              <div
-                key={q.id}
-                className={`min-w-0 ${widthToClass(q.layout?.width)}`}
-              >
-                <QuestionField
-                  q={q}
-                  response={response}
-                  error={errorByQuestion.get(q.id) ?? null}
-                  readOnly={readOnly || isReadOnly(q, response)}
-                  onChange={(v) => setValue(q.id, v)}
-                />
-              </div>
-            ))}
-          </div>
-        ))}
+        {/* Page-level row-packing. Same machinery is reused inside
+            groups and repeating instances via PackedRows so the
+            author's side-by-side layout shows up everywhere, not
+            just at the root. Mobile collapses to full-width. */}
+        <PackedRows
+          questions={currentPage.questions}
+          response={response}
+          errorByQuestion={errorByQuestion}
+          readOnly={readOnly}
+          onSet={setValue}
+        />
 
         {submitError ? (
           <p className="rounded-md border border-danger/40 bg-danger/5 px-3 py-2 text-sm text-danger">
@@ -362,22 +347,17 @@ function GroupField({
         <legend className="px-2 text-sm font-medium text-ink-0">
           {q.label}
         </legend>
-        <div className="space-y-4">
-          {q.children.map((child) => (
-            <QuestionField
-              key={child.id}
-              q={child}
-              response={response}
-              error={null}
-              readOnly={readOnly}
-              onChange={(v) => {
-                const fakeOnChange = (val: unknown) =>
-                  onChange({ ...(response[q.id] as object | undefined), [child.id]: val });
-                fakeOnChange(v);
-              }}
-            />
-          ))}
-        </div>
+        <PackedRows
+          questions={q.children}
+          response={response}
+          readOnly={readOnly}
+          onSet={(id, v) =>
+            onChange({
+              ...(response[q.id] as object | undefined),
+              [id]: v,
+            })
+          }
+        />
       </fieldset>
     );
   }
@@ -406,22 +386,16 @@ function GroupField({
                 </button>
               ) : null}
             </div>
-            <div className="space-y-3">
-              {q.children.map((child) => (
-                <QuestionField
-                  key={child.id}
-                  q={child}
-                  response={inst}
-                  error={null}
-                  readOnly={readOnly}
-                  onChange={(v) => {
-                    const next = instances.slice();
-                    next[idx] = { ...inst, [child.id]: v };
-                    onChange(next);
-                  }}
-                />
-              ))}
-            </div>
+            <PackedRows
+              questions={q.children}
+              response={inst}
+              readOnly={readOnly}
+              onSet={(id, v) => {
+                const next = instances.slice();
+                next[idx] = { ...inst, [id]: v };
+                onChange(next);
+              }}
+            />
           </div>
         ))}
         {!readOnly &&
@@ -439,6 +413,52 @@ function GroupField({
         ) : null}
       </div>
     </fieldset>
+  );
+}
+
+/**
+ * Render a flat list of questions packed into rows by their declared
+ * widths. Used at the top of every page and inside every group / repeat
+ * instance so the side-by-side layout the author set up shows up
+ * everywhere, not just at the form's root level.
+ */
+function PackedRows({
+  questions,
+  response,
+  errorByQuestion,
+  readOnly,
+  onSet,
+}: {
+  questions: Question[];
+  response: Response;
+  errorByQuestion?: Map<string, string>;
+  readOnly: boolean;
+  onSet: (id: string, v: unknown) => void;
+}) {
+  return (
+    <div className="space-y-5 sm:space-y-4">
+      {packIntoRows(questions).map((row, rowIdx) => (
+        <div
+          key={`row-${rowIdx}`}
+          className="flex flex-col gap-5 sm:flex-row sm:flex-wrap sm:gap-4"
+        >
+          {row.map((q) => (
+            <div
+              key={q.id}
+              className={`min-w-0 ${widthToClass(q.layout?.width)}`}
+            >
+              <QuestionField
+                q={q}
+                response={response}
+                error={errorByQuestion?.get(q.id) ?? null}
+                readOnly={readOnly || isReadOnly(q, response)}
+                onChange={(v) => onSet(q.id, v)}
+              />
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
   );
 }
 
