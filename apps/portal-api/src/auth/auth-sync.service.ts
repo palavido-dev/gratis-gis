@@ -11,6 +11,16 @@ import {
 export interface AuthUser {
   id: string;
   orgId: string;
+  /**
+   * Org slug -- the human-readable identifier we use as the value of
+   * the Keycloak `org` user-attribute and as the JWT `org` claim.
+   * Carry it on AuthUser so anything that mints downstream identity
+   * (e.g. admin invite, service tokens) reaches for the slug rather
+   * than the UUID. Passing the UUID would re-trigger the phantom-org
+   * bug where auth-sync upserts a brand-new org keyed on the UUID
+   * because no slug matches.
+   */
+  orgSlug: string;
   username: string;
   email: string;
   orgRole: OrgRole;
@@ -77,11 +87,27 @@ export class AuthSyncService {
         ? 'contributor'
         : ((rawRole as OrgRole | undefined) ?? 'viewer');
 
-    const org = await this.prisma.organization.upsert({
-      where: { slug: orgSlug },
-      update: {},
-      create: { slug: orgSlug, name: orgSlug },
-    });
+    // Defense against the admin-invite bug where the new user's `org`
+    // attribute was historically set to the inviter's UUID instead of
+    // their slug. If we see a UUID-shaped value, prefer looking up
+    // the existing org by id rather than minting a phantom org with
+    // slug = UUID, name = UUID. The invite path is fixed (we now
+    // pass slug, not id), but stray Keycloak users from before the
+    // fix would otherwise create garbage orgs on first login.
+    const looksLikeUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        orgSlug,
+      );
+    let org = looksLikeUuid
+      ? await this.prisma.organization.findUnique({ where: { id: orgSlug } })
+      : null;
+    if (!org) {
+      org = await this.prisma.organization.upsert({
+        where: { slug: orgSlug },
+        update: {},
+        create: { slug: orgSlug, name: orgSlug },
+      });
+    }
 
     // We key on `username` rather than Keycloak's `sub`. The local user.id is
     // our own stable identifier (possibly seeded or provisioned before the user
@@ -200,6 +226,7 @@ export class AuthSyncService {
     return {
       id: user.id,
       orgId: user.orgId,
+      orgSlug: org.slug,
       username: user.username,
       email: user.email,
       orgRole: user.orgRole,
