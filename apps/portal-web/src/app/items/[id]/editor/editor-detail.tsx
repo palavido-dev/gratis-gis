@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
+  ChevronRight,
   ExternalLink,
   Layers,
   Loader2,
@@ -19,6 +20,7 @@ import type {
   DataLayerData,
   DataLayerSublayer,
   EditorData,
+  EditorFeatureTemplate,
   EditorTarget,
   EditorTool,
   Item,
@@ -974,21 +976,363 @@ function TargetRow({
           in slice 3 alongside the runtime; for now we just
           indicate the count so authors know it's a real concept
           even when empty. */}
-      <div className="flex items-center gap-2 text-xs text-muted">
-        <span>
-          {target.templates.length} template
-          {target.templates.length === 1 ? '' : 's'}
+      <TemplatesSection
+        templates={target.templates}
+        fields={fields}
+        layerGeometry={layer?.geometryType ?? null}
+        canEdit={canEdit && target.canCreate}
+        onPatch={(updater) =>
+          onPatch((t) => ({ ...t, templates: updater(t.templates) }))
+        }
+      />
+    </li>
+  );
+}
+
+interface TemplatesSectionProps {
+  templates: EditorFeatureTemplate[];
+  fields: DataLayerSublayer['fields'];
+  layerGeometry: 'point' | 'line' | 'polygon' | null;
+  canEdit: boolean;
+  onPatch: (
+    updater: (current: EditorFeatureTemplate[]) => EditorFeatureTemplate[],
+  ) => void;
+}
+
+/**
+ * Per-target Templates authoring section (#121). Templates are
+ * presets the runtime offers in Add mode: each one carries a
+ * geometry tool + a bag of preset attribute values. Picking a
+ * template at runtime overrides the default tool and pre-fills
+ * the attribute form.
+ *
+ * Authoring rules:
+ *   - Templates are only meaningful when canCreate is on. We
+ *     gate `canEdit` on both the editor's edit rights AND
+ *     target.canCreate so the section visibly disables itself
+ *     when create is off (the user gets the "this won't matter
+ *     yet" signal without us silently dropping their work).
+ *   - Geometry tool defaults to the layer's geometry type but
+ *     can be overridden per template (e.g. a non-spatial table
+ *     could expose a "polygon zone" template that draws into a
+ *     different layer the runtime will infer; v1 only the
+ *     layer's own type works at runtime, but the dropdown is
+ *     exposed for future flexibility).
+ *   - Preset attributes are a list of (fieldName, value) rows
+ *     rather than a free-form JSON editor, so the author always
+ *     picks from real schema fields. Repeated keys collapse on
+ *     save: last write wins.
+ *
+ * Out of scope for this slice (still TODOs):
+ *   - Type-aware value inputs per field (today values are typed
+ *     as strings then coerced at runtime). Pick-list domains
+ *     don't render as dropdowns yet.
+ *   - Inline preview of the configured templates as runtime
+ *     tiles.
+ */
+function TemplatesSection({
+  templates,
+  fields,
+  layerGeometry,
+  canEdit,
+  onPatch,
+}: TemplatesSectionProps) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  function addTemplate() {
+    const id =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `tpl-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const next: EditorFeatureTemplate = {
+      id,
+      label: `Template ${templates.length + 1}`,
+      geometryTool: layerGeometry ?? 'point',
+      presetAttributes: {},
+    };
+    onPatch((cur) => [...cur, next]);
+    setExpanded(id);
+  }
+
+  function removeTemplate(id: string) {
+    onPatch((cur) => cur.filter((t) => t.id !== id));
+    if (expanded === id) setExpanded(null);
+  }
+
+  function updateTemplate(
+    id: string,
+    updater: (t: EditorFeatureTemplate) => EditorFeatureTemplate,
+  ) {
+    onPatch((cur) => cur.map((t) => (t.id === id ? updater(t) : t)));
+  }
+
+  return (
+    <div className="rounded-md border border-border bg-surface-2/40 p-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-ink-1">
+          Templates{' '}
+          <span className="font-normal text-muted">
+            ({templates.length})
+          </span>
         </span>
         <button
           type="button"
-          disabled
-          className="rounded-md border border-border bg-surface-2/60 px-2 py-0.5 opacity-60"
-          title="Feature template authoring lands in slice 3."
+          disabled={!canEdit}
+          onClick={addTemplate}
+          className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-2 py-0.5 text-[11px] text-ink-1 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Manage templates...
+          <Plus className="h-3 w-3" />
+          Add template
         </button>
       </div>
-    </li>
+
+      {templates.length === 0 ? (
+        <p className="mt-2 text-[11px] text-muted">
+          Templates pre-fill the attribute form when an author hits
+          Add at runtime. Useful for repeated workflows like "all
+          new observations default to species = BHCO."
+        </p>
+      ) : (
+        <ul className="mt-2 space-y-2">
+          {templates.map((tpl) => {
+            const isOpen = expanded === tpl.id;
+            const presetCount = Object.keys(tpl.presetAttributes).length;
+            return (
+              <li
+                key={tpl.id}
+                className="rounded border border-border bg-surface-1"
+              >
+                <div className="flex items-center justify-between gap-2 px-2 py-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setExpanded(isOpen ? null : tpl.id)}
+                    className="flex flex-1 items-center gap-2 text-left"
+                  >
+                    <ChevronRight
+                      className={`h-3 w-3 transition-transform ${
+                        isOpen ? 'rotate-90' : ''
+                      }`}
+                    />
+                    <span
+                      aria-hidden
+                      className="inline-block h-3 w-3 shrink-0 rounded-full border border-border"
+                      style={{
+                        backgroundColor: tpl.previewColor ?? '#a78bfa',
+                      }}
+                    />
+                    <span className="truncate text-xs font-medium text-ink-1">
+                      {tpl.label || '(unnamed template)'}
+                    </span>
+                    <span className="text-[10px] uppercase tracking-wide text-muted">
+                      {tpl.geometryTool}
+                    </span>
+                    <span className="text-[10px] text-muted">
+                      {presetCount} preset
+                      {presetCount === 1 ? '' : 's'}
+                    </span>
+                  </button>
+                  {canEdit ? (
+                    <button
+                      type="button"
+                      onClick={() => removeTemplate(tpl.id)}
+                      className="shrink-0 rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
+                      aria-label="Remove template"
+                      title="Remove template"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  ) : null}
+                </div>
+
+                {isOpen ? (
+                  <TemplateEditor
+                    template={tpl}
+                    fields={fields}
+                    layerGeometry={layerGeometry}
+                    canEdit={canEdit}
+                    onChange={(updater) => updateTemplate(tpl.id, updater)}
+                  />
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+interface TemplateEditorProps {
+  template: EditorFeatureTemplate;
+  fields: DataLayerSublayer['fields'];
+  layerGeometry: 'point' | 'line' | 'polygon' | null;
+  canEdit: boolean;
+  onChange: (
+    updater: (t: EditorFeatureTemplate) => EditorFeatureTemplate,
+  ) => void;
+}
+
+/**
+ * Body of an expanded template card. Edits land directly into the
+ * persisted EditorFeatureTemplate via onChange; the parent's
+ * dirty-tracking + autosave catches the mutation.
+ */
+function TemplateEditor({
+  template,
+  fields,
+  layerGeometry,
+  canEdit,
+  onChange,
+}: TemplateEditorProps) {
+  function setPresetValue(fieldName: string, value: string) {
+    onChange((t) => ({
+      ...t,
+      presetAttributes: { ...t.presetAttributes, [fieldName]: value },
+    }));
+  }
+
+  function clearPreset(fieldName: string) {
+    onChange((t) => {
+      const next = { ...t.presetAttributes };
+      delete next[fieldName];
+      return { ...t, presetAttributes: next };
+    });
+  }
+
+  return (
+    <div className="space-y-3 border-t border-border px-3 py-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <label className="flex flex-col gap-0.5 text-xs">
+          <span className="text-muted">Label</span>
+          <input
+            type="text"
+            value={template.label}
+            disabled={!canEdit}
+            onChange={(e) =>
+              onChange((t) => ({ ...t, label: e.target.value }))
+            }
+            className="h-7 rounded border border-border bg-surface-1 px-2 text-xs disabled:opacity-50"
+          />
+        </label>
+        <label className="flex flex-col gap-0.5 text-xs">
+          <span className="text-muted">Geometry tool</span>
+          <select
+            value={template.geometryTool}
+            disabled={!canEdit}
+            onChange={(e) =>
+              onChange((t) => ({
+                ...t,
+                geometryTool: e.target.value as 'point' | 'line' | 'polygon',
+              }))
+            }
+            className="h-7 rounded border border-border bg-surface-1 px-2 text-xs disabled:opacity-50"
+          >
+            <option value="point">point</option>
+            <option value="line">line</option>
+            <option value="polygon">polygon</option>
+          </select>
+          {layerGeometry && template.geometryTool !== layerGeometry ? (
+            <span className="text-[10px] text-amber-700">
+              Layer is {layerGeometry}; runtime today uses the layer's
+              type. Mismatch is allowed for forward compatibility.
+            </span>
+          ) : null}
+        </label>
+        <label className="flex flex-col gap-0.5 text-xs">
+          <span className="text-muted">Preview color (optional)</span>
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              value={template.previewColor ?? '#a78bfa'}
+              disabled={!canEdit}
+              onChange={(e) =>
+                onChange((t) => ({ ...t, previewColor: e.target.value }))
+              }
+              className="h-7 w-10 cursor-pointer rounded border border-border bg-surface-1 disabled:opacity-50"
+            />
+            {template.previewColor ? (
+              <button
+                type="button"
+                disabled={!canEdit}
+                onClick={() => {
+                  onChange((t) => {
+                    const { previewColor: _drop, ...rest } = t;
+                    void _drop;
+                    return rest as EditorFeatureTemplate;
+                  });
+                }}
+                className="text-[11px] text-muted hover:text-ink-1 disabled:opacity-50"
+                title="Clear preview color"
+              >
+                Clear
+              </button>
+            ) : null}
+          </div>
+        </label>
+      </div>
+
+      <div>
+        <span className="mb-1 block text-xs font-medium text-ink-1">
+          Preset attributes
+        </span>
+        {fields.length === 0 ? (
+          <p className="text-[11px] text-muted">
+            No layer fields available yet. Add fields to the data
+            layer first.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 gap-y-1 sm:grid-cols-2">
+            {fields.map((f) => {
+              const presetValue = template.presetAttributes[f.name];
+              const hasPreset = presetValue !== undefined;
+              return (
+                <div
+                  key={f.name}
+                  className="flex items-center gap-2 text-xs"
+                >
+                  <input
+                    type="checkbox"
+                    checked={hasPreset}
+                    disabled={!canEdit}
+                    onChange={(e) => {
+                      if (e.target.checked) setPresetValue(f.name, '');
+                      else clearPreset(f.name);
+                    }}
+                    className="h-3.5 w-3.5 cursor-pointer"
+                    aria-label={`Preset ${f.label || f.name}`}
+                  />
+                  <span
+                    className="w-32 shrink-0 truncate text-muted"
+                    title={f.name}
+                  >
+                    {f.label || f.name}
+                  </span>
+                  <input
+                    type="text"
+                    value={
+                      hasPreset
+                        ? presetValue === null
+                          ? ''
+                          : String(presetValue)
+                        : ''
+                    }
+                    disabled={!canEdit || !hasPreset}
+                    placeholder={hasPreset ? '' : '(not preset)'}
+                    onChange={(e) => setPresetValue(f.name, e.target.value)}
+                    className="h-6 flex-1 rounded border border-border bg-surface-1 px-1.5 text-xs disabled:opacity-50"
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <p className="mt-1 text-[10px] text-muted">
+          Values are stored as text and coerced at runtime against
+          the field's type. The author can always edit the preset
+          when filling out the form.
+        </p>
+      </div>
+    </div>
   );
 }
 

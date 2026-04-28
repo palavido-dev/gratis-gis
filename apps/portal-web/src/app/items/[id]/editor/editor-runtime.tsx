@@ -170,6 +170,21 @@ export function EditorRuntime({
   const activeTargetKeyRef = useRef(activeTargetKey);
   activeTargetKeyRef.current = activeTargetKey;
 
+  // Active feature template (#121). When the chosen target has
+  // templates configured, picking one overrides the geometry tool
+  // for the next draw and prefills the attribute form with the
+  // template's preset attributes. Cleared when the user exits Add
+  // mode, switches to a different target, or successfully submits.
+  // Stored as state for re-renders + a ref so the terra-draw
+  // 'finish' closure (which is registered once and reads through
+  // a ref to avoid stale closures, same pattern as
+  // activeTargetKeyRef) sees the current value.
+  const [activeTemplateId, setActiveTemplateId] = useState<string | null>(
+    null,
+  );
+  const activeTemplateIdRef = useRef(activeTemplateId);
+  activeTemplateIdRef.current = activeTemplateId;
+
   const drawRef = useRef<unknown | null>(null);
 
   // Per-layer probe metadata. Mirrors the pattern map-editor uses:
@@ -608,6 +623,25 @@ export function EditorRuntime({
       if (!f || !f.geometry) return;
       const targetKey = activeTargetKeyRef.current;
       if (!targetKey) return;
+      // When a feature template is active, prefill the attribute
+      // form with its preset attributes (#121). The form's existing
+      // type-coercion and pick-list rendering kick in normally;
+      // presets are just the starting state, not locked-in.
+      const tplId = activeTemplateIdRef.current;
+      let initialProperties: Record<string, unknown> = {};
+      if (tplId) {
+        const [tplDataLayerId, tplLayerKey] = targetKey.split(':');
+        const tplTarget = editor.targets.find(
+          (t) =>
+            t.dataLayerId === tplDataLayerId && t.layerKey === tplLayerKey,
+        );
+        const tpl = tplTarget?.templates.find((t) => t.id === tplId);
+        if (tpl) {
+          // Copy so the user editing in the form doesn't mutate the
+          // persisted template config.
+          initialProperties = { ...tpl.presetAttributes };
+        }
+      }
       // Snapshot the geometry, then drop it from terra-draw's
       // internal store so the sketch doesn't linger after the
       // attribute form opens. The real feature lands on the layer's
@@ -617,7 +651,7 @@ export function EditorRuntime({
         geometry: f.geometry,
         targetKey,
         featureId: null,
-        initialProperties: {},
+        initialProperties,
       });
       draw.clear();
       // Park the draw in select mode so click events go back to
@@ -653,17 +687,37 @@ export function EditorRuntime({
       return;
     }
     const target = targetByKey.get(activeTargetKey);
-    const gt = target?.layer?.geometryType;
-    if (!gt) return;
+    const layerGt = target?.layer?.geometryType;
+    if (!layerGt) return;
+    // Active feature template (#121) overrides the geometry tool:
+    // a template explicitly chooses point / line / polygon, even
+    // for layers whose schema-level geometry type would normally
+    // dictate it. The detail-page authoring UI keeps the template
+    // tool in sync with the layer's geometry; runtime trusts the
+    // persisted config.
+    let geomTool: 'point' | 'line' | 'polygon' = layerGt;
+    if (activeTemplateId) {
+      const editorTarget = editor.targets.find(
+        (t) => `${t.dataLayerId}:${t.layerKey}` === activeTargetKey,
+      );
+      const tpl = editorTarget?.templates.find(
+        (t) => t.id === activeTemplateId,
+      );
+      if (tpl) geomTool = tpl.geometryTool;
+    }
     const mode =
-      gt === 'point' ? 'point' : gt === 'line' ? 'linestring' : 'polygon';
+      geomTool === 'point'
+        ? 'point'
+        : geomTool === 'line'
+          ? 'linestring'
+          : 'polygon';
     try {
       draw.start();
     } catch {
       /* already started */
     }
     draw.setMode(mode);
-  }, [activeTool, activeTargetKey, targetByKey]);
+  }, [activeTool, activeTargetKey, activeTemplateId, targetByKey, editor.targets]);
 
   // Eligible-edit predicate. A target is editable when its resolved
   // layer is non-null, the layer is editingEnabled, and the editor
@@ -717,6 +771,10 @@ export function EditorRuntime({
         return;
       }
       setActiveTool('add');
+      // Always start template-less; the user picks a template from
+      // the chip's tray after the target settles. (If the target
+      // has only one template, future polish could auto-pick it.)
+      setActiveTemplateId(null);
       if (eligibleAddTargets.length === 1) {
         setActiveTargetKey(eligibleAddTargets[0]!.key);
       } else {
@@ -1557,39 +1615,127 @@ export function EditorRuntime({
               Delete shows the same in rose to telegraph the
               destructive nature. */}
           {activeTool === 'add' ? (
-            <div className="pointer-events-auto absolute left-16 top-3 z-10 flex items-center gap-2 rounded-md border border-purple-300 bg-purple-50 px-3 py-1.5 text-xs text-purple-900 shadow-card">
-              <span className="font-medium">Drawing into:</span>
-              <select
-                value={activeTargetKey ?? ''}
-                onChange={(e) => setActiveTargetKey(e.target.value || null)}
-                className="rounded-md border border-purple-300 bg-white px-2 py-0.5 text-xs"
-              >
-                <option value="">pick a layer...</option>
-                {eligibleAddTargets.map((e) => (
-                  <option key={e.key} value={e.key}>
-                    {e.resolved?.dataLayerTitle} /{' '}
-                    {e.resolved?.layer?.label} (
-                    {e.resolved?.layer?.geometryType})
-                  </option>
-                ))}
-              </select>
-              {activeTarget?.layer?.geometryType ? (
-                <span className="rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide">
-                  click to add {activeTarget.layer.geometryType}
-                </span>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTool('off');
-                  setActiveTargetKey(null);
-                }}
-                className="rounded-md p-0.5 text-purple-900 hover:bg-purple-100"
-                aria-label="Exit add mode"
-                title="Exit add mode"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
+            <div className="pointer-events-auto absolute left-16 top-3 z-10 flex flex-col gap-1 rounded-md border border-purple-300 bg-purple-50 px-3 py-1.5 text-xs text-purple-900 shadow-card">
+              <div className="flex items-center gap-2">
+                <span className="font-medium">Drawing into:</span>
+                <select
+                  value={activeTargetKey ?? ''}
+                  onChange={(e) => {
+                    setActiveTargetKey(e.target.value || null);
+                    // Switching the target invalidates the active
+                    // template (each target has its own list).
+                    setActiveTemplateId(null);
+                  }}
+                  className="rounded-md border border-purple-300 bg-white px-2 py-0.5 text-xs"
+                >
+                  <option value="">pick a layer...</option>
+                  {eligibleAddTargets.map((e) => (
+                    <option key={e.key} value={e.key}>
+                      {e.resolved?.dataLayerTitle} /{' '}
+                      {e.resolved?.layer?.label} (
+                      {e.resolved?.layer?.geometryType})
+                    </option>
+                  ))}
+                </select>
+                {activeTarget?.layer?.geometryType ? (
+                  <span className="rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide">
+                    click to add{' '}
+                    {(() => {
+                      const tplTarget = activeTargetKey
+                        ? editor.targets.find(
+                            (t) =>
+                              `${t.dataLayerId}:${t.layerKey}` ===
+                              activeTargetKey,
+                          )
+                        : undefined;
+                      const tpl = activeTemplateId
+                        ? tplTarget?.templates.find(
+                            (t) => t.id === activeTemplateId,
+                          )
+                        : undefined;
+                      return tpl?.geometryTool ?? activeTarget?.layer?.geometryType ?? '';
+                    })()}
+                  </span>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTool('off');
+                    setActiveTargetKey(null);
+                    setActiveTemplateId(null);
+                  }}
+                  className="rounded-md p-0.5 text-purple-900 hover:bg-purple-100"
+                  aria-label="Exit add mode"
+                  title="Exit add mode"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              {/* Feature-template tray (#121). Renders only when
+                  the chosen target has templates configured. The
+                  Default tile clears the active template so the
+                  next draw uses the layer's plain geometry tool
+                  with empty initial attributes (today's behaviour
+                  when no templates exist). Each template tile shows
+                  the label + a small swatch in the optional preview
+                  color so authors who configured many templates can
+                  pick the right one at a glance. */}
+              {(() => {
+                const tplTarget = activeTargetKey
+                  ? editor.targets.find(
+                      (t) =>
+                        `${t.dataLayerId}:${t.layerKey}` === activeTargetKey,
+                    )
+                  : undefined;
+                const tpls = tplTarget?.templates ?? [];
+                if (tpls.length === 0) return null;
+                return (
+                  <div className="flex flex-wrap items-center gap-1 border-t border-purple-200 pt-1">
+                    <span className="text-[10px] uppercase tracking-wide text-purple-700">
+                      Template:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTemplateId(null)}
+                      aria-pressed={activeTemplateId === null}
+                      className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] ${
+                        activeTemplateId === null
+                          ? 'border-purple-400 bg-purple-100 text-purple-900'
+                          : 'border-purple-200 bg-white text-purple-800 hover:bg-purple-100'
+                      }`}
+                    >
+                      Default
+                    </button>
+                    {tpls.map((tpl) => {
+                      const selected = activeTemplateId === tpl.id;
+                      return (
+                        <button
+                          key={tpl.id}
+                          type="button"
+                          onClick={() => setActiveTemplateId(tpl.id)}
+                          aria-pressed={selected}
+                          title={`${tpl.label} · ${tpl.geometryTool}`}
+                          className={`inline-flex items-center gap-1.5 rounded border px-1.5 py-0.5 text-[11px] ${
+                            selected
+                              ? 'border-purple-400 bg-purple-100 text-purple-900'
+                              : 'border-purple-200 bg-white text-purple-800 hover:bg-purple-100'
+                          }`}
+                        >
+                          <span
+                            aria-hidden
+                            className="inline-block h-2.5 w-2.5 shrink-0 rounded-full border border-purple-300"
+                            style={{
+                              backgroundColor: tpl.previewColor ?? '#a78bfa',
+                            }}
+                          />
+                          {tpl.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
           ) : activeTool === 'edit' ? (
             <div className="pointer-events-auto absolute left-16 top-3 z-10 flex items-center gap-2 rounded-md border border-purple-300 bg-purple-50 px-3 py-1.5 text-xs text-purple-900 shadow-card">
