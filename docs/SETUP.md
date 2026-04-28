@@ -207,7 +207,50 @@ pnpm test
 ```
 
 
-## 8. Common gotchas
+## 8. Optional: email notifications
+
+The portal can send email notifications for share-created events
+(more triggers in follow-up phases). Off by default. To turn it on,
+add the following to your `apps/portal-api/.env`:
+
+```bash
+NOTIFICATIONS_ENABLED=true
+SMTP_HOST=smtp.example.org
+SMTP_PORT=587
+SMTP_USER=mailbox@example.org
+SMTP_PASS=your-password
+SMTP_FROM="GratisGIS <noreply@example.org>"
+SMTP_SECURE=false           # true on port 465 (SMTPS), false elsewhere
+
+# Optional: portal-name + base URL used in email subjects + deep-link
+# bodies. Defaults: "GratisGIS" and http://localhost:3000.
+PORTAL_NAME="Acme GIS Portal"
+PORTAL_BASE_URL=https://gis.acme.example.org
+```
+
+For local dev without a real mail provider, point at MailHog or a
+similar capture tool:
+
+```bash
+SMTP_HOST=localhost
+SMTP_PORT=1025
+SMTP_USER=
+SMTP_PASS=
+SMTP_FROM=test@localhost
+NOTIFICATIONS_ENABLED=true
+```
+
+The worker drains the queue every 30 seconds; failed sends retry
+with exponential backoff (60s, 5m, 30m, 2h, 12h) up to 5 attempts
+before staying in the `failed` state for admin inspection.
+
+When `NOTIFICATIONS_ENABLED` is unset or `false`, the platform
+short-circuits: every `notify()` call is a no-op, no rows accumulate,
+no SMTP attempts. Flip the flag back on and existing infrastructure
+picks up where it left off.
+
+
+## 9. Common gotchas
 
 **"Port 5432 is already in use"** — you have another Postgres
 running on the host. Stop it (`brew services stop postgresql`) or
@@ -245,7 +288,7 @@ For a clean reseed, drop the database (`pnpm infra:reset`) and
 re-run.
 
 
-## 9. What lives where
+## 10. What lives where
 
 ```
 gratis-gis/
@@ -273,7 +316,7 @@ The pieces you'll touch most often:
   web (item types, sharing shapes, etc.)
 
 
-## 10. Where to go next
+## 11. Where to go next
 
 - [walkthrough.md](./walkthrough.md): a guided tour of every
   feature for someone coming from an ArcGIS Online / Enterprise
