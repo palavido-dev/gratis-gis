@@ -278,6 +278,12 @@ export function EditorRuntime({
      *  "Building #4127" or "feature 0a1b2c3d...". Falls back to
      *  the global_id prefix when no obvious display field exists. */
     summary: string;
+    /** Captured at click time so the undo stack can re-create the
+     *  row if the user undoes the delete. The properties already
+     *  have underscore-prefixed editor-tracking keys stripped --
+     *  the v3 INSERT path stamps them on the new row. */
+    geometry: GeoJSON.Geometry | null;
+    properties: Record<string, unknown>;
   } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -341,6 +347,34 @@ export function EditorRuntime({
   const [measureReadout, setMeasureReadout] = useState<string | null>(null);
   // Internal terra-draw id for the in-progress measurement feature.
   const measureFeatureIdRef = useRef<string | null>(null);
+
+  // In-session undo / redo stacks (#123). Every successful create /
+  // update / delete pushes an op carrying enough state to invert
+  // it: a create remembers the new feature id (undo -> DELETE), an
+  // update remembers prev + next properties / geometry (undo
+  // -> PATCH back), a delete remembers the full row (undo -> POST
+  // with the same global_id, which the v3 insert path accepts).
+  // Caps at 20 entries; older ops drop off the bottom. Stacks are
+  // session-local: a page refresh clears them. Persistent
+  // historical revert (via the temporal model on the data layer)
+  // is a separate larger feature.
+  const [undoStack, setUndoStack] = useState<EditorOp[]>([]);
+  const [redoStack, setRedoStack] = useState<EditorOp[]>([]);
+  const [undoBusy, setUndoBusy] = useState(false);
+
+  function pushOp(op: EditorOp) {
+    setUndoStack((cur) => {
+      const next = [...cur, op];
+      // Cap at 20 by dropping the oldest. Numbers higher than this
+      // make the memory cost real for image-heavy properties.
+      if (next.length > 20) next.shift();
+      return next;
+    });
+    // A new operation invalidates anything in the redo stack the
+    // user could otherwise re-apply -- standard undo/redo
+    // semantics.
+    setRedoStack([]);
+  }
 
   // AttributeTable state. tableOpen drives the bottom-overlay
   // panel; tableFocusLayerId anchors the table to a specific layer
@@ -640,6 +674,174 @@ export function EditorRuntime({
     clearMeasurement();
     setActiveTool('off');
   }
+
+  // Apply a single op to the server (create / update / delete) and
+  // refresh the affected layer. Used by both undo and redo via two
+  // small wrappers below: undo runs the inverse of the popped op,
+  // redo re-runs the popped op as-is.
+  async function applyOp(op: EditorOp, mode: 'create' | 'update' | 'delete') {
+    const baseUrl = `/api/portal/items/${op.dataLayerId}/layers/${op.layerKey}/features`;
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+      'x-editor-id': editorId,
+    };
+    if (mode === 'create') {
+      // Reinsert the original row with its captured global_id so
+      // dependents pointing at that uuid stay intact. Used for
+      // undoing a delete AND for redoing a create (both ops carry
+      // the same featureId / geometry / properties shape).
+      if (op.kind === 'update') {
+        throw new Error('Apply.create requires a create or delete op');
+      }
+      const res = await fetch(baseUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          features: [
+            {
+              globalId: op.featureId,
+              geometry: op.geometry,
+              properties: op.properties,
+            },
+          ],
+        }),
+      });
+      if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    } else if (mode === 'update') {
+      if (op.kind !== 'update') {
+        throw new Error('Apply.update requires an update op');
+      }
+      const res = await fetch(`${baseUrl}/${op.featureId}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({
+          geometry: op.geometry,
+          properties: op.properties,
+        }),
+      });
+      if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    } else {
+      const res = await fetch(`${baseUrl}/${op.featureId}`, {
+        method: 'DELETE',
+        headers,
+      });
+      if (!res.ok && res.status !== 204) {
+        throw new Error(`${res.status} ${await res.text()}`);
+      }
+    }
+    refreshTarget(op.dataLayerId, op.layerKey);
+  }
+
+  /**
+   * Pop the most recent op and run its inverse. Pushes the same op
+   * onto the redo stack so the user can step forward again. On
+   * server failure (e.g. someone else deleted the row out from
+   * under us), the op stays popped: trying to undo it again would
+   * keep failing, and surfacing the error so the user knows the
+   * stack is partially stale is more honest than silently retrying.
+   */
+  async function undo() {
+    if (undoBusy || undoStack.length === 0) return;
+    const op = undoStack[undoStack.length - 1]!;
+    setUndoBusy(true);
+    try {
+      if (op.kind === 'create') {
+        // Undo a create -> delete the row that got created. The
+        // op carries the global_id we returned at create time.
+        await applyOp(op, 'delete');
+      } else if (op.kind === 'update') {
+        // Undo an update -> PATCH back to the previous geometry +
+        // properties. Build a synthetic update op that swaps prev
+        // and next for the apply call.
+        await applyOp(
+          {
+            ...op,
+            geometry: op.previousGeometry,
+            properties: op.previousProperties,
+          },
+          'update',
+        );
+      } else {
+        // Undo a delete -> re-insert the original row with the
+        // captured global_id, geometry, and properties.
+        await applyOp(op, 'create');
+      }
+      setUndoStack((cur) => cur.slice(0, -1));
+      setRedoStack((cur) => [...cur, op]);
+    } catch (err) {
+      setToast(
+        err instanceof Error ? `Undo failed: ${err.message}` : 'Undo failed',
+      );
+      scheduleToastClear();
+    } finally {
+      setUndoBusy(false);
+    }
+  }
+
+  /**
+   * Pop the most recent redoable op and re-apply it. Mirrors the
+   * undo path in the opposite direction; same failure behaviour.
+   */
+  async function redo() {
+    if (undoBusy || redoStack.length === 0) return;
+    const op = redoStack[redoStack.length - 1]!;
+    setUndoBusy(true);
+    try {
+      if (op.kind === 'create') {
+        // Redo a create -> POST again with captured global_id +
+        // snapshot. The captured snapshot ensures we re-create
+        // the same row, not a fresh uuid.
+        await applyOp(op, 'create');
+      } else if (op.kind === 'update') {
+        // Redo an update -> PATCH to the new state.
+        await applyOp(op, 'update');
+      } else {
+        // Redo a delete -> DELETE the row again.
+        await applyOp(op, 'delete');
+      }
+      setRedoStack((cur) => cur.slice(0, -1));
+      setUndoStack((cur) => {
+        const next = [...cur, op];
+        if (next.length > 20) next.shift();
+        return next;
+      });
+    } catch (err) {
+      setToast(
+        err instanceof Error ? `Redo failed: ${err.message}` : 'Redo failed',
+      );
+      scheduleToastClear();
+    } finally {
+      setUndoBusy(false);
+    }
+  }
+
+  // Keyboard: Ctrl+Z (undo), Ctrl+Shift+Z (redo). Cmd on macOS.
+  // We don't override the browser's default outside of the editor
+  // runtime, so the listener checks document.activeElement to
+  // avoid eating Cmd+Z when the user is typing in an input -- if
+  // they're in a text field, the browser's text-undo wins.
+  useEffect(() => {
+    if (!canEdit) return;
+    function onKey(e: KeyboardEvent) {
+      const meta = e.metaKey || e.ctrlKey;
+      if (!meta || e.key.toLowerCase() !== 'z') return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      e.preventDefault();
+      if (e.shiftKey) void redo();
+      else void undo();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canEdit, undoStack.length, redoStack.length, undoBusy]);
 
   // Runtime snap toggle. When the user clicks the Snap tool button
   // we flip `snappingEnabled`; this effect picks it up and patches
@@ -963,6 +1165,24 @@ export function EditorRuntime({
       scheduleToastClear();
       return;
     }
+    if (tool === 'undo') {
+      if (undoStack.length === 0) {
+        setToast('Nothing to undo.');
+        scheduleToastClear();
+        return;
+      }
+      void undo();
+      return;
+    }
+    if (tool === 'redo') {
+      if (redoStack.length === 0) {
+        setToast('Nothing to redo.');
+        scheduleToastClear();
+        return;
+      }
+      void redo();
+      return;
+    }
     if (tool === 'measure') {
       // Measure takes over the canvas the same way Add does, but
       // has nothing to do with editor targets: it's a sketch
@@ -1103,12 +1323,22 @@ export function EditorRuntime({
         }
       }
       setActiveTargetKey(targetKey);
+      // Capture the row's geometry + non-underscore properties so
+      // the undo stack can reinsert it. Same shape we use for the
+      // create flow's globalId path.
+      const captureProps: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(props)) {
+        if (k.startsWith('_')) continue;
+        captureProps[k] = v;
+      }
       setPendingDelete({
         dataLayerId,
         layerKey,
         featureId,
         layerTitle: `${target?.dataLayerTitle ?? ''} / ${target?.layer?.label ?? layerKey}`,
         summary,
+        geometry: hit.geometry as GeoJSON.Geometry,
+        properties: captureProps,
       });
     };
     m.on('click', handler);
@@ -1294,6 +1524,19 @@ export function EditorRuntime({
         setGeomEditError(`Save failed: ${res.status} ${await res.text()}`);
         return;
       }
+      // Push undo op (#123). Geometry-only edit: properties stay
+      // the same on both sides so a redo or undo round-trips
+      // cleanly through applyOp.update.
+      pushOp({
+        kind: 'update',
+        dataLayerId: pendingGeometryEdit.dataLayerId,
+        layerKey: pendingGeometryEdit.layerKey,
+        featureId: pendingGeometryEdit.featureId,
+        previousGeometry: pendingGeometryEdit.originalGeometry,
+        previousProperties: pendingGeometryEdit.properties,
+        geometry: pendingGeometryEdit.currentGeometry,
+        properties: pendingGeometryEdit.properties,
+      });
       const dl = pendingGeometryEdit.dataLayerId;
       const lk = pendingGeometryEdit.layerKey;
       setPendingGeometryEdit(null);
@@ -1374,6 +1617,17 @@ export function EditorRuntime({
         setDeleteError(`Delete failed: ${res.status} ${await res.text()}`);
         return;
       }
+      // Push undo op (#123). The captured geometry + properties
+      // (recorded at click time) let the user undo the delete by
+      // re-creating the row with the same global_id.
+      pushOp({
+        kind: 'delete',
+        dataLayerId: pendingDelete.dataLayerId,
+        layerKey: pendingDelete.layerKey,
+        featureId: pendingDelete.featureId,
+        geometry: pendingDelete.geometry,
+        properties: pendingDelete.properties,
+      });
       const dl = pendingDelete.dataLayerId;
       const lk = pendingDelete.layerKey;
       setPendingDelete(null);
@@ -1423,13 +1677,24 @@ export function EditorRuntime({
         'x-editor-id': editorId,
       };
       let res: Response;
+      // Generate a client-side global_id for new features so the
+      // undo stack (#123) can refer to the same row by uuid even
+      // before we re-fetch the layer. The v3 INSERT path accepts
+      // `globalId` and uses COALESCE so client-generated ids
+      // round-trip cleanly.
+      let createdGlobalId: string | null = null;
       if (pendingFeature.mode === 'create') {
+        createdGlobalId =
+          typeof crypto !== 'undefined' && 'randomUUID' in crypto
+            ? crypto.randomUUID()
+            : `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
         res = await fetch(baseUrl, {
           method: 'POST',
           headers: writeHeaders,
           body: JSON.stringify({
             features: [
               {
+                globalId: createdGlobalId,
                 geometry: pendingFeature.geometry,
                 properties: values,
               },
@@ -1453,6 +1718,39 @@ export function EditorRuntime({
         const verb = pendingFeature.mode === 'create' ? 'Save' : 'Update';
         setSubmitError(`${verb} failed: ${res.status} ${await res.text()}`);
         return;
+      }
+      // Push an undo op so the user can step backward. Capture
+      // enough state to invert: a create remembers its globalId +
+      // submitted geometry / properties (undo -> DELETE that
+      // row); an update remembers prev + next properties (undo
+      // -> PATCH back). For the update path, geometry is
+      // unchanged here -- the attribute form doesn't touch
+      // geometry; that's a separate save path (saveGeometryEdit).
+      if (pendingFeature.mode === 'create' && createdGlobalId) {
+        pushOp({
+          kind: 'create',
+          dataLayerId: target.dataLayerId,
+          layerKey: target.layerKey,
+          featureId: createdGlobalId,
+          geometry: (pendingFeature.geometry ??
+            null) as GeoJSON.Geometry | null,
+          properties: values,
+        });
+      } else if (pendingFeature.mode === 'update' && pendingFeature.featureId) {
+        pushOp({
+          kind: 'update',
+          dataLayerId: target.dataLayerId,
+          layerKey: target.layerKey,
+          featureId: pendingFeature.featureId,
+          previousGeometry: (pendingFeature.geometry ??
+            null) as GeoJSON.Geometry | null,
+          previousProperties: pendingFeature.initialProperties,
+          // Geometry is unchanged on attribute-only edits, so
+          // record the same value for both sides.
+          geometry: (pendingFeature.geometry ??
+            null) as GeoJSON.Geometry | null,
+          properties: values,
+        });
       }
       // Success: clear pending, refresh layer, return to select.
       setPendingFeature(null);
@@ -1736,11 +2034,23 @@ export function EditorRuntime({
               const isActive = isToggle
                 ? snappingEnabled
                 : activeTool === t.key;
+              // Undo / redo are stateless trigger buttons: enabled
+              // only when the corresponding stack has entries
+              // (#123). canEdit gates them too; a view-only viewer
+              // can't undo something they couldn't have done.
+              const stackEmpty =
+                (t.key === 'undo' && undoStack.length === 0) ||
+                (t.key === 'redo' && redoStack.length === 0);
+              const isStackButton = t.key === 'undo' || t.key === 'redo';
+              const disabled =
+                !canEdit ||
+                (isStackButton && stackEmpty) ||
+                (isStackButton && undoBusy);
               return (
                 <button
                   key={t.key}
                   type="button"
-                  disabled={!canEdit}
+                  disabled={disabled}
                   onClick={() => onToolClick(t.key)}
                   className={`inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-ink-0 disabled:cursor-not-allowed disabled:opacity-40 ${
                     isActive
@@ -1752,7 +2062,13 @@ export function EditorRuntime({
                   title={
                     isToggle
                       ? `${t.label}: ${snappingEnabled ? 'on' : 'off'}`
-                      : t.label
+                      : isStackButton
+                        ? `${t.label}${
+                            t.key === 'undo'
+                              ? ` (${undoStack.length} available)`
+                              : ` (${redoStack.length} available)`
+                          }`
+                        : t.label
                   }
                   aria-label={t.label}
                   aria-pressed={isActive}
@@ -2171,6 +2487,46 @@ export function EditorRuntime({
     </div>
   );
 }
+
+/**
+ * One step in the editor runtime's in-session undo/redo stack
+ * (#123). Each kind carries enough state to either undo (run the
+ * inverse) or redo (re-apply). Stack is session-local; persistent
+ * historical revert via the temporal model is a separate feature.
+ *
+ * `featureId` is always the row's global_id (uuid). For creates,
+ * we generate the uuid client-side at submit time and pass it
+ * through the v3 POST `globalId` field so undo can target it
+ * directly. For deletes and updates, we capture the row's full
+ * pre-mutation snapshot at the call site.
+ */
+type EditorOp =
+  | {
+      kind: 'create';
+      dataLayerId: string;
+      layerKey: string;
+      featureId: string;
+      geometry: GeoJSON.Geometry | null;
+      properties: Record<string, unknown>;
+    }
+  | {
+      kind: 'update';
+      dataLayerId: string;
+      layerKey: string;
+      featureId: string;
+      previousGeometry: GeoJSON.Geometry | null;
+      previousProperties: Record<string, unknown>;
+      geometry: GeoJSON.Geometry | null;
+      properties: Record<string, unknown>;
+    }
+  | {
+      kind: 'delete';
+      dataLayerId: string;
+      layerKey: string;
+      featureId: string;
+      geometry: GeoJSON.Geometry | null;
+      properties: Record<string, unknown>;
+    };
 
 const TOOL_LABELS: Record<EditorTool, string> = {
   select: 'Select',
