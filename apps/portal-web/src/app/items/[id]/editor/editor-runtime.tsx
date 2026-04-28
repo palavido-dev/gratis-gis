@@ -37,6 +37,12 @@ import {
 } from './build-map-data';
 import { AttributeForm } from './attribute-form';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import {
+  formatArea,
+  formatLength,
+  lineLengthMeters,
+  ringAreaSquareMeters,
+} from '@/lib/measure';
 
 interface Props {
   /** The Editor item id (used for the back link and POST URLs). */
@@ -324,6 +330,18 @@ export function EditorRuntime({
   const snappingEnabledRef = useRef(snappingEnabled);
   snappingEnabledRef.current = snappingEnabled;
 
+  // Measure tool state (#122). The measure tool is its own
+  // activeTool path: when on, terra-draw enters linestring or
+  // polygon mode (depending on the sub-mode) and the runtime
+  // shows a floating readout that updates as the user clicks.
+  // The measurement is local; nothing persists to a layer.
+  const [measureMode, setMeasureMode] = useState<'distance' | 'area'>(
+    'distance',
+  );
+  const [measureReadout, setMeasureReadout] = useState<string | null>(null);
+  // Internal terra-draw id for the in-progress measurement feature.
+  const measureFeatureIdRef = useRef<string | null>(null);
+
   // AttributeTable state. tableOpen drives the bottom-overlay
   // panel; tableFocusLayerId anchors the table to a specific layer
   // when the user opens it from a layer-panel kebab. selection is
@@ -526,6 +544,103 @@ export function EditorRuntime({
     };
   }, [mapInstance]);
 
+  // Measure tool change listener (#122). When active, terra-draw
+  // emits 'change' on every click while the user is sketching the
+  // line / polygon. We read the latest geometry from getSnapshot,
+  // compute length or area depending on the sub-mode, and update
+  // the floating readout. The shape stays in terra-draw's store
+  // until the user clicks Clear or exits the measure tool, so the
+  // last measurement keeps rendering alongside the final readout.
+  useEffect(() => {
+    if (activeTool !== 'measure') return;
+    const draw = drawRef.current as
+      | {
+          on: (
+            ev: 'change',
+            cb: (ids: Array<string | number>) => void,
+          ) => void;
+          off: (
+            ev: 'change',
+            cb: (ids: Array<string | number>) => void,
+          ) => void;
+          getSnapshot: () => Array<{
+            id: string | number;
+            geometry: GeoJSON.Geometry;
+          }>;
+        }
+      | null;
+    if (!draw) return;
+    const handleChange = () => {
+      const snap = draw.getSnapshot();
+      // Newest sketch wins; old measurements that the user didn't
+      // clear stay rendered but don't compete for the readout.
+      const f = snap[snap.length - 1];
+      if (!f || !f.geometry) return;
+      measureFeatureIdRef.current = String(f.id);
+      const g = f.geometry;
+      if (
+        measureMode === 'distance' &&
+        g.type === 'LineString' &&
+        Array.isArray(g.coordinates)
+      ) {
+        const len = lineLengthMeters(
+          g.coordinates as Array<[number, number]>,
+        );
+        setMeasureReadout(formatLength(len));
+      } else if (
+        measureMode === 'area' &&
+        g.type === 'Polygon' &&
+        Array.isArray(g.coordinates) &&
+        g.coordinates[0]
+      ) {
+        const a = ringAreaSquareMeters(
+          g.coordinates[0] as Array<[number, number]>,
+        );
+        setMeasureReadout(formatArea(a));
+      }
+    };
+    draw.on('change', handleChange);
+    return () => {
+      try {
+        draw.off('change', handleChange);
+      } catch {
+        /* terra-draw race on unmount; ignore */
+      }
+    };
+  }, [activeTool, measureMode, mapInstance]);
+
+  // Clear the in-canvas measurement(s). Drops every feature in
+  // terra-draw's store; that's safe here because the only things
+  // the store holds while in measure mode are measurement sketches
+  // (the geometry-edit feature is removed on exit; the Add tool's
+  // sketch is dropped on finish).
+  function clearMeasurement() {
+    const draw = drawRef.current as { clear: () => void } | null;
+    try {
+      draw?.clear();
+    } catch {
+      /* ignore */
+    }
+    measureFeatureIdRef.current = null;
+    setMeasureReadout(null);
+  }
+
+  // Switch sub-mode without exiting the tool. Clears the existing
+  // sketch so the user starts fresh with the new geometry kind.
+  function switchMeasureMode(next: 'distance' | 'area') {
+    if (next === measureMode) return;
+    clearMeasurement();
+    setMeasureMode(next);
+  }
+
+  // Exit the measure tool entirely. Mirrors the Add / Edit / Delete
+  // exit paths for consistency: clears whatever was being measured,
+  // drops back to the read-only canvas.
+  function exitMeasure() {
+    clearMeasurement();
+    setActiveTool('off');
+  }
+
   // Runtime snap toggle. When the user clicks the Snap tool button
   // we flip `snappingEnabled`; this effect picks it up and patches
   // the draw + select modes via terra-draw's `updateModeOptions`
@@ -678,6 +793,24 @@ export function EditorRuntime({
       | { start: () => void; setMode: (m: string) => void }
       | null;
     if (!draw) return;
+    // Measure tool path (#122). Independent of editor targets:
+    // entering measure mode + sub-mode flips terra-draw into the
+    // matching draw mode without needing an activeTargetKey. The
+    // change-listener effect below picks up the in-progress
+    // geometry and updates the readout.
+    if (activeTool === 'measure') {
+      try {
+        draw.start();
+      } catch {
+        /* already started */
+      }
+      try {
+        draw.setMode(measureMode === 'area' ? 'polygon' : 'linestring');
+      } catch {
+        /* not started yet */
+      }
+      return;
+    }
     if (activeTool !== 'add' || !activeTargetKey) {
       try {
         draw.setMode('select');
@@ -717,7 +850,14 @@ export function EditorRuntime({
       /* already started */
     }
     draw.setMode(mode);
-  }, [activeTool, activeTargetKey, activeTemplateId, targetByKey, editor.targets]);
+  }, [
+    activeTool,
+    activeTargetKey,
+    activeTemplateId,
+    targetByKey,
+    editor.targets,
+    measureMode,
+  ]);
 
   // Eligible-edit predicate. A target is editable when its resolved
   // layer is non-null, the layer is editingEnabled, and the editor
@@ -821,6 +961,19 @@ export function EditorRuntime({
       const next = !snappingEnabled;
       setToast(next ? 'Snapping on' : 'Snapping off');
       scheduleToastClear();
+      return;
+    }
+    if (tool === 'measure') {
+      // Measure takes over the canvas the same way Add does, but
+      // has nothing to do with editor targets: it's a sketch
+      // overlay that reports length / area without persisting.
+      // We default to distance; the floating chip lets the user
+      // toggle to area without exiting and re-entering the tool.
+      setActiveTool('measure');
+      setActiveTargetKey(null);
+      setActiveTemplateId(null);
+      setMeasureMode('distance');
+      setMeasureReadout(null);
       return;
     }
     setToast(`${TOOL_LABELS[tool]} lands in a follow-up slice.`);
@@ -1754,6 +1907,70 @@ export function EditorRuntime({
                 className="rounded-md p-0.5 text-purple-900 hover:bg-purple-100"
                 aria-label="Exit edit mode"
                 title="Exit edit mode"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : activeTool === 'measure' ? (
+            <div className="pointer-events-auto absolute left-16 top-3 z-10 flex items-center gap-2 rounded-md border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs text-sky-900 shadow-card">
+              <span className="font-medium">Measure:</span>
+              <div
+                role="radiogroup"
+                aria-label="Measure mode"
+                className="inline-flex overflow-hidden rounded border border-sky-300 bg-white"
+              >
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={measureMode === 'distance'}
+                  onClick={() => switchMeasureMode('distance')}
+                  className={`px-2 py-0.5 ${
+                    measureMode === 'distance'
+                      ? 'bg-sky-100 text-sky-900'
+                      : 'text-sky-700 hover:bg-sky-50'
+                  }`}
+                >
+                  Distance
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={measureMode === 'area'}
+                  onClick={() => switchMeasureMode('area')}
+                  className={`border-l border-sky-300 px-2 py-0.5 ${
+                    measureMode === 'area'
+                      ? 'bg-sky-100 text-sky-900'
+                      : 'text-sky-700 hover:bg-sky-50'
+                  }`}
+                >
+                  Area
+                </button>
+              </div>
+              <span className="rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide">
+                {measureMode === 'area'
+                  ? 'click to add vertices, double-click to finish'
+                  : 'click to add points, double-click to finish'}
+              </span>
+              {measureReadout ? (
+                <span className="rounded-md bg-white px-2 py-0.5 font-mono text-xs font-medium text-sky-900 ring-1 ring-sky-300">
+                  {measureReadout}
+                </span>
+              ) : null}
+              <button
+                type="button"
+                onClick={clearMeasurement}
+                className="rounded border border-sky-300 bg-white px-1.5 py-0.5 text-[11px] text-sky-800 hover:bg-sky-100"
+                title="Clear measurement"
+                disabled={measureReadout === null}
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                onClick={exitMeasure}
+                className="rounded-md p-0.5 text-sky-900 hover:bg-sky-100"
+                aria-label="Exit measure"
+                title="Exit measure"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
