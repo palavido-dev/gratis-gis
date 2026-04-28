@@ -3,7 +3,13 @@ import { redirect } from 'next/navigation';
 import { ArrowLeft, Bell } from 'lucide-react';
 
 import { apiFetch } from '@/lib/api';
-import { NotificationsAdminView, type Stats, type RecentRow } from './notifications-admin-view';
+import {
+  NotificationsAdminView,
+  type Stats,
+  type RecentRow,
+  type SmtpState,
+  type DefaultsRow,
+} from './notifications-admin-view';
 
 /**
  * Admin-only notifications status surface (#130). Shows queue
@@ -23,12 +29,20 @@ export default async function AdminNotificationsPage() {
 
   let stats: Stats | null = null;
   let recent: RecentRow[] = [];
+  let smtp: SmtpState | null = null;
+  let defaults: DefaultsRow[] = [];
   let error: string | null = null;
   try {
-    [stats, recent] = await Promise.all([
+    const [s, r, sm, df] = await Promise.all([
       apiFetch<Stats>('/api/admin/notifications/stats'),
       apiFetch<RecentRow[]>('/api/admin/notifications/recent'),
+      apiFetch<SmtpState>('/api/admin/notifications/smtp'),
+      apiFetch<{ rows: DefaultsRow[] }>('/api/admin/notifications/defaults'),
     ]);
+    stats = s;
+    recent = r;
+    smtp = sm;
+    defaults = df.rows;
   } catch (err) {
     error =
       err instanceof Error
@@ -69,8 +83,13 @@ export default async function AdminNotificationsPage() {
         </div>
       ) : null}
 
-      {stats ? (
-        <NotificationsAdminView initialStats={stats} initialRecent={recent} />
+      {stats && smtp ? (
+        <NotificationsAdminView
+          initialStats={stats}
+          initialRecent={recent}
+          initialSmtp={smtp}
+          initialDefaults={defaults}
+        />
       ) : null}
     </div>
   );

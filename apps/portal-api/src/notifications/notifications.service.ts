@@ -8,6 +8,8 @@ import {
 } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { NotificationTypeDefaultService } from './notification-type-default.service.js';
+import { getTypeMeta } from './notification-types.js';
 
 /**
  * Public entry point for any service that wants to notify a user.
@@ -48,6 +50,7 @@ export class NotificationsService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly defaults: NotificationTypeDefaultService,
     cfg: ConfigService,
   ) {
     this.enabled =
@@ -80,11 +83,19 @@ export class NotificationsService {
         this.log.warn(`notify: user ${userId} not found, dropping ${type}`);
         return;
       }
-      // Resolve the per-(user, type, channel) preference; absence
-      // of a row is "use the default" which today is always true.
-      const prefs = await this.prisma.notificationPreference.findMany({
-        where: { userId, type },
-      });
+      // Resolve the per-(user, type, channel) preference and the
+      // org-wide override in parallel. Precedence chain at dispatch
+      // time:
+      //   user pref > org default override > code default
+      // An admin muting share_expiring platform-wide (#137) flips
+      // every user who hasn't explicitly opted in -- but a user who
+      // has explicitly opted in still wins.
+      const [prefs, overrides] = await Promise.all([
+        this.prisma.notificationPreference.findMany({
+          where: { userId, type },
+        }),
+        this.defaults.loadOverrideMap(),
+      ]);
       const prefByChannel = new Map(
         prefs.map((p) => [p.channel, p.enabled] as const),
       );
@@ -93,9 +104,15 @@ export class NotificationsService {
       // over a list here and pick the right address per channel.
       const channels: NotificationChannel[] = ['email'];
       for (const channel of channels) {
-        const enabled = prefByChannel.has(channel)
-          ? prefByChannel.get(channel)!
-          : defaultPreference(type, channel);
+        const userPref = prefByChannel.get(channel);
+        const overrideKey = `${type}|${channel}`;
+        const orgOverride = overrides.get(overrideKey);
+        const enabled =
+          userPref !== undefined
+            ? userPref
+            : orgOverride !== undefined
+              ? orgOverride
+              : codeDefault(type, channel);
         if (!enabled) continue;
         const address = resolveAddress(channel, user);
         if (!address) {
@@ -145,16 +162,18 @@ export class NotificationsService {
 }
 
 /**
- * Per-(type, channel) default opt-in. Today everything defaults to
- * on; the table override turns specific combinations off when the
- * user opts out via the (Phase 3) settings UI. Centralised here so
- * the service + the future preferences UI agree on the baseline.
+ * Code-level default opt-in derived from the catalog in
+ * notification-types.ts. Org admin overrides (notification_type_default)
+ * and per-user prefs (notification_preference) override this in
+ * dispatch.
  */
-function defaultPreference(
-  _type: NotificationType,
-  _channel: NotificationChannel,
+function codeDefault(
+  type: NotificationType,
+  channel: NotificationChannel,
 ): boolean {
-  return true;
+  const meta = getTypeMeta(type);
+  if (!meta) return true;
+  return meta.defaultByChannel[channel] ?? true;
 }
 
 /**
