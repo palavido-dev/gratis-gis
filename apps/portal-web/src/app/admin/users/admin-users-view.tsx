@@ -541,6 +541,19 @@ function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
       return;
     }
     const created = (await res.json()) as AdminUserRow;
+    // setupEmailError means: user exists in Keycloak, but password-
+    // setup email could not be sent (usually realm SMTP misconfigured).
+    // Confirm with the admin so they're not surprised when the user
+    // says "I didn't get an email". The user row is still added.
+    if (created.setupEmailError) {
+      // eslint-disable-next-line no-alert
+      window.alert(
+        `User "${created.username}" was created, but the password-setup ` +
+          `email could not be sent:\n\n${created.setupEmailError}\n\n` +
+          `Once SMTP is healthy, click "Reset password" on this user to ` +
+          `re-send the email.`,
+      );
+    }
     onInvited(created);
   }
 

@@ -27,6 +27,13 @@ export interface AdminUserRow {
    *  housekeeping cron flips Keycloak's enabled flag in bulk.
    *  Null = no auto-disable (default). */
   autoDisableAt: string | null;
+  /** Populated by the invite flow when the user was created in
+   *  Keycloak but the password-setup email could not be sent
+   *  (typically because the realm SMTP isn't configured yet, or
+   *  the relay rejected delivery). The user row is real and
+   *  usable; the admin can retry the email via "Reset password"
+   *  once the underlying SMTP issue is resolved. */
+  setupEmailError?: string;
 }
 
 interface Meta {
