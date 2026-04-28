@@ -17,6 +17,7 @@ import {
   Grid3x3,
   GripVertical,
   Hash,
+  Home,
   Link,
   ListOrdered,
   ListChecks,
@@ -36,6 +37,7 @@ import {
   Trash2,
   Type,
   Upload,
+  User,
   Workflow,
   X,
 } from 'lucide-react';
@@ -579,6 +581,7 @@ type PaletteGroup =
   | 'matrix'
   | 'scale'
   | 'time'
+  | 'identity'
   | 'media'
   | 'spatial'
   | 'logic'
@@ -601,6 +604,7 @@ const PALETTE_GROUPS: { id: PaletteGroup; label: string }[] = [
   { id: 'matrix', label: 'Matrix' },
   { id: 'scale', label: 'Scale' },
   { id: 'time', label: 'Date & time' },
+  { id: 'identity', label: 'Identity' },
   { id: 'media', label: 'Media' },
   { id: 'spatial', label: 'Geometry' },
   { id: 'logic', label: 'Logic' },
@@ -631,6 +635,8 @@ const PALETTE: PaletteEntry[] = [
   { type: 'date', label: 'Date', icon: Calendar, group: 'time' },
   { type: 'time', label: 'Time', icon: Clock, group: 'time' },
   { type: 'datetime', label: 'Date + time', icon: CalendarClock, group: 'time' },
+  { type: 'name', label: 'Full name', icon: User, group: 'identity' },
+  { type: 'address', label: 'Address', icon: Home, group: 'identity' },
   { type: 'photo', label: 'Photo', icon: Camera, group: 'media' },
   { type: 'signature', label: 'Signature', icon: Type, group: 'media' },
   { type: 'geopoint', label: 'Location', icon: MapPin, group: 'spatial' },
@@ -1480,6 +1486,66 @@ function Properties({
         </Field>
       ) : null}
 
+      {question.type === 'name' ? (
+        <ComponentToggleEditor
+          label="Components"
+          allComponents={[
+            { value: 'prefix', label: 'Prefix' },
+            { value: 'first', label: 'First name' },
+            { value: 'middle', label: 'Middle name' },
+            { value: 'last', label: 'Last name' },
+            { value: 'suffix', label: 'Suffix' },
+          ]}
+          components={question.components ?? ['first', 'last']}
+          requiredComponents={question.requiredComponents}
+          canEdit={canEdit}
+          onChangeComponents={(components) =>
+            onChange({ components } as Partial<Question>)
+          }
+          onChangeRequired={(requiredComponents) =>
+            onChange({
+              requiredComponents:
+                requiredComponents.length === 0 ? undefined : requiredComponents,
+            } as Partial<Question>)
+          }
+        />
+      ) : null}
+
+      {question.type === 'address' ? (
+        <ComponentToggleEditor
+          label="Components"
+          allComponents={[
+            { value: 'street1', label: 'Street address' },
+            { value: 'street2', label: 'Apt / suite' },
+            { value: 'city', label: 'City' },
+            { value: 'region', label: 'State / region' },
+            { value: 'postal', label: 'Postal code' },
+            { value: 'country', label: 'Country' },
+          ]}
+          components={
+            question.components ?? [
+              'street1',
+              'street2',
+              'city',
+              'region',
+              'postal',
+              'country',
+            ]
+          }
+          requiredComponents={question.requiredComponents}
+          canEdit={canEdit}
+          onChangeComponents={(components) =>
+            onChange({ components } as Partial<Question>)
+          }
+          onChangeRequired={(requiredComponents) =>
+            onChange({
+              requiredComponents:
+                requiredComponents.length === 0 ? undefined : requiredComponents,
+            } as Partial<Question>)
+          }
+        />
+      ) : null}
+
       <details className="mt-3 rounded-md border border-border bg-surface-1 p-2 text-xs">
         <summary className="cursor-pointer text-muted">Conditional logic</summary>
         <div className="mt-2 space-y-2">
@@ -2045,6 +2111,87 @@ function MatrixDropdownEditor({
             </button>
           ) : null}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Toggle which components a composite question (name / address)
+ * surfaces, plus which of those are required. Two checkboxes per
+ * row: "Show" and "Required". Required implies Show.
+ */
+function ComponentToggleEditor<T extends string>({
+  label,
+  allComponents,
+  components,
+  requiredComponents,
+  canEdit,
+  onChangeComponents,
+  onChangeRequired,
+}: {
+  label: string;
+  allComponents: { value: T; label: string }[];
+  components: T[];
+  requiredComponents: T[] | undefined;
+  canEdit: boolean;
+  onChangeComponents: (next: T[]) => void;
+  onChangeRequired: (next: T[]) => void;
+}) {
+  const shown = new Set(components);
+  const required = new Set(requiredComponents ?? []);
+  return (
+    <div className="mb-3">
+      <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">
+        {label}
+      </p>
+      <div className="space-y-1">
+        {allComponents.map((c) => (
+          <div key={c.value} className="flex items-center justify-between gap-2 text-xs">
+            <span className="flex-1 truncate">{c.label}</span>
+            <label className="inline-flex items-center gap-1 text-[11px]">
+              <input
+                type="checkbox"
+                checked={shown.has(c.value)}
+                disabled={!canEdit}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    onChangeComponents([
+                      ...allComponents
+                        .map((x) => x.value)
+                        .filter((v) => shown.has(v) || v === c.value),
+                    ]);
+                  } else {
+                    onChangeComponents(components.filter((v) => v !== c.value));
+                    if (required.has(c.value)) {
+                      onChangeRequired(
+                        Array.from(required).filter((v) => v !== c.value),
+                      );
+                    }
+                  }
+                }}
+              />
+              <span>Show</span>
+            </label>
+            <label className="inline-flex items-center gap-1 text-[11px]">
+              <input
+                type="checkbox"
+                checked={required.has(c.value)}
+                disabled={!canEdit || !shown.has(c.value)}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    onChangeRequired([...Array.from(required), c.value]);
+                  } else {
+                    onChangeRequired(
+                      Array.from(required).filter((v) => v !== c.value),
+                    );
+                  }
+                }}
+              />
+              <span>Required</span>
+            </label>
+          </div>
+        ))}
       </div>
     </div>
   );
