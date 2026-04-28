@@ -31,6 +31,7 @@ import {
   V3TablesService,
   type V3LayerShape,
 } from '../features-v3/v3-tables.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 
 // Optional fields use `| undefined` explicitly so class-validator DTOs
 // (which leave unset keys present-as-undefined) can satisfy these types
@@ -102,6 +103,7 @@ export class ItemsService {
     private readonly sharing: SharingService,
     private readonly v3Tables: V3TablesService,
     private readonly snapshots: DataSnapshotService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async list(
@@ -1211,7 +1213,21 @@ export class ItemsService {
     if (input.expiresAt !== undefined && input.expiresAt !== null) {
       create.expiresAt = new Date(input.expiresAt);
     }
-    return this.prisma.itemShare.upsert({
+    // Track whether this is a NEW share (vs an updated existing
+    // one) so we only notify on first creation. An author tweaking
+    // a permission or expiry on an existing share shouldn't spam
+    // the recipient with another email.
+    const existing = await this.prisma.itemShare.findUnique({
+      where: {
+        itemId_principalType_principalId: {
+          itemId: id,
+          principalType: input.principalType,
+          principalId: input.principalId,
+        },
+      },
+      select: { itemId: true },
+    });
+    const result = await this.prisma.itemShare.upsert({
       where: {
         itemId_principalType_principalId: {
           itemId: id,
@@ -1222,6 +1238,72 @@ export class ItemsService {
       update: update as Prisma.ItemShareUpdateInput,
       create: create as Prisma.ItemShareCreateInput,
     });
+
+    // First-time share fires a share_created notification to the
+    // affected user(s). For a user principal that's one row; for
+    // a group it's every member. Resolved here rather than inside
+    // NotificationsService so the fan-out is visible at the call
+    // site -- helps when reasoning about why one share triggers N
+    // emails. The author's own user id is filtered out below to
+    // avoid the noise of "you shared something with yourself" when
+    // an author shares with a group they're a member of.
+    if (!existing) {
+      const recipientIds = await this.resolveShareRecipientIds(
+        input.principalType,
+        input.principalId,
+      );
+      const sharer = await this.prisma.user.findUnique({
+        where: { id: user.id },
+        select: { fullName: true, username: true },
+      });
+      const sharerName =
+        sharer?.fullName || sharer?.username || 'Someone';
+      const payload = {
+        itemId: item.id,
+        itemTitle: item.title,
+        itemType: item.type,
+        permission: input.permission ?? 'view',
+        sharedByName: sharerName,
+        ...(input.expiresAt
+          ? {
+              expiresAt:
+                typeof input.expiresAt === 'string'
+                  ? input.expiresAt
+                  : input.expiresAt.toISOString(),
+            }
+          : {}),
+      };
+      // Fire-and-forget: never block the share response on
+      // notification enqueue. NotificationsService also catches
+      // its own errors as a defence in depth.
+      void this.notifications.notifyMany(
+        recipientIds.filter((rid) => rid !== user.id),
+        'share_created',
+        payload,
+      );
+    }
+    return result;
+  }
+
+  /**
+   * Resolve the user ids that need to be notified for a share
+   * targeting a given principal. User shares notify just that
+   * user; group shares fan out to every member of the group.
+   * Group memberships at notify-time -- a member added later
+   * doesn't retroactively get a "you got shared on this" email,
+   * which matches the user-visible model that sharing happens
+   * once, not continuously.
+   */
+  private async resolveShareRecipientIds(
+    principalType: PrincipalType,
+    principalId: string,
+  ): Promise<string[]> {
+    if (principalType === 'user') return [principalId];
+    const members = await this.prisma.groupMember.findMany({
+      where: { groupId: principalId },
+      select: { userId: true },
+    });
+    return members.map((m) => m.userId);
   }
 
   async unshare(user: AuthUser, id: string, input: ShareItemInput) {

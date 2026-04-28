@@ -9,9 +9,10 @@ import { ItemProxyController } from './item-proxy.controller.js';
 import { ServiceProbeController } from './service-probe.controller.js';
 import { EditorPolicyService } from './editor-policy.service.js';
 import { V3TablesModule } from '../features-v3/v3-tables.module.js';
+import { NotificationsModule } from '../notifications/notifications.module.js';
 
 @Module({
-  imports: [V3TablesModule],
+  imports: [V3TablesModule, NotificationsModule],
   controllers: [
     ItemsController,
     ItemCredentialController,
