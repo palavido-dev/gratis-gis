@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlignLeft,
   Calculator,
@@ -11,6 +11,7 @@ import {
   Circle,
   Clock,
   Database,
+  Download,
   Eye,
   GripVertical,
   Hash,
@@ -27,6 +28,7 @@ import {
   ToggleLeft,
   Trash2,
   Type,
+  Upload,
   Workflow,
   X,
 } from 'lucide-react';
@@ -35,8 +37,12 @@ import {
   CURRENT_FORM_SCHEMA_VERSION,
   defaultQuestion,
   emptyForm,
+  fromImportEnvelope,
+  parseExportEnvelope,
   QUESTION_TYPES,
+  suggestExportFilename,
   suggestQuestionId,
+  toExportEnvelope,
   uniqueQuestionId,
   type Choice,
   type Expression,
@@ -45,6 +51,7 @@ import {
   type QuestionId,
   type QuestionType,
 } from '@gratis-gis/form-schema';
+import { useConfirm } from '@/components/dialog-provider';
 import { FormRuntime } from '@/components/form-runtime';
 
 interface Props {
@@ -80,6 +87,7 @@ interface Props {
  * automatically.
  */
 export function FormDesigner({ itemId, initial, canEdit }: Props) {
+  const confirmDialog = useConfirm();
   const [form, setForm] = useState<FormSchema>(
     () => initial ?? emptyForm(itemId, 'Untitled form'),
   );
@@ -89,6 +97,7 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [layerColumns, setLayerColumns] = useState<LayerColumn[] | null>(null);
 
   // Whenever the linked layer changes (initial load + import + unlink),
@@ -191,6 +200,50 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
     }
   }
 
+  function exportForm() {
+    const env = toExportEnvelope(form);
+    const blob = new Blob([JSON.stringify(env, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = suggestExportFilename(form);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importFormFile(file: File) {
+    setError(null);
+    let raw: unknown;
+    try {
+      raw = JSON.parse(await file.text());
+    } catch {
+      setError('That file is not valid JSON.');
+      return;
+    }
+    const result = parseExportEnvelope(raw);
+    if ('error' in result) {
+      setError(result.error);
+      return;
+    }
+    // Confirm before clobbering existing work.
+    const hasContent = form.questions.length > 0;
+    if (hasContent) {
+      const ok = await confirmDialog({
+        title: 'Replace this form?',
+        message: `Importing "${result.form.title}" will replace the current form (${form.questions.length} question${form.questions.length === 1 ? '' : 's'}). This can't be undone.`,
+        confirmLabel: 'Replace',
+        variant: 'danger',
+      });
+      if (!ok) return;
+    }
+    setForm(fromImportEnvelope(result, itemId));
+    setSelectedId(null);
+  }
+
   function applyImported(
     qs: Question[],
     layer: { id: string; title: string; layerKey?: string },
@@ -262,6 +315,40 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
               Preview
             </button>
           </div>
+          <button
+            type="button"
+            onClick={exportForm}
+            title="Download this form as a portable JSON file"
+            className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-xs font-medium text-ink-1 hover:bg-surface-2"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Export
+          </button>
+          {canEdit ? (
+            <>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                title="Replace this form with one from a .gratisgis-form.json file"
+                className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-xs font-medium text-ink-1 hover:bg-surface-2"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                Import
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void importFormFile(f);
+                  // Reset so picking the same file twice still fires.
+                  e.target.value = '';
+                }}
+              />
+            </>
+          ) : null}
           {canEdit ? (
             <button
               type="button"

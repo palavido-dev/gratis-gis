@@ -975,3 +975,177 @@ export function uniqueQuestionId(form: FormSchema, candidate: string): string {
   while (existing.has(`${candidate}_${i}`)) i += 1;
   return `${candidate}_${i}`;
 }
+
+// ---------------------------------------------------------------------------
+// Portable export / import
+// ---------------------------------------------------------------------------
+
+/**
+ * Envelope used for native GratisGIS form export (#142). Wraps a
+ * FormSchema with a small bit of provenance metadata so a future
+ * GratisGIS knows the file came from us, what version, and where
+ * (informational; for cross-portal migration audits).
+ *
+ * `schemaVersion` mirrors the inner FormSchema's so you can pick the
+ * right migrator if we ever bump it without opening the inner schema.
+ */
+export interface FormExportEnvelope {
+  /** Magic header so importers can sniff before parsing further. */
+  kind: 'gratisgis-form';
+  /** The form-schema version the inner form is on. */
+  schemaVersion: FormSchemaVersion;
+  /** ISO timestamp of the export. */
+  exportedAt: string;
+  /** Optional: free-form note about where the form came from. */
+  source?: {
+    /** Human-friendly origin (org name, portal URL). */
+    portal?: string;
+    /** The original form item id at the source portal -- not used
+     *  on import, just for trail-of-breadcrumbs. */
+    formId?: string;
+  };
+  /** The portable form. Local-only fields (linkedLayerId, the
+   *  linkedLayerTitle in meta) are stripped before this is written;
+   *  see `toExportEnvelope`. */
+  form: FormSchema;
+}
+
+/** Magic kind string we sniff for on import. */
+export const FORM_EXPORT_KIND = 'gratisgis-form' as const;
+
+/**
+ * Strip everything that's local to one GratisGIS portal so the file
+ * is portable. We keep:
+ *
+ *   - Form title, description, and the question tree (with bindTo
+ *     metadata: column names are useful even when the layer doesn't
+ *     exist at the destination -- a re-link will line them up by
+ *     name).
+ *   - Question id, label, hint, validation, expressions, choices.
+ *
+ * We strip:
+ *
+ *   - `id` on the FormSchema (this matches the source form item's
+ *     id; the destination's form item has a different id).
+ *   - `linkedLayerId` / `linkedLayerKey` (refer to a remote item).
+ *   - `meta.linkedLayerTitle` (display name of a remote item).
+ *
+ * We do NOT strip per-question `bindTo`. The destination importer
+ * decides whether to clear bindings (if the target layer differs)
+ * or keep them (if a layer with the same column names is being
+ * relinked).
+ */
+export function toExportEnvelope(
+  form: FormSchema,
+  opts: { portal?: string } = {},
+): FormExportEnvelope {
+  const portable: FormSchema = {
+    schemaVersion: form.schemaVersion,
+    id: '', // destination assigns
+    title: form.title,
+    questions: form.questions,
+  };
+  if (form.description !== undefined) portable.description = form.description;
+  if (form.geometryQuestionId !== undefined) {
+    portable.geometryQuestionId = form.geometryQuestionId;
+  }
+  // Drop linkedLayerTitle from meta; keep anything else.
+  if (form.meta) {
+    const { linkedLayerTitle: _drop, ...rest } = form.meta as Record<
+      string,
+      unknown
+    >;
+    void _drop;
+    if (Object.keys(rest).length > 0) portable.meta = rest;
+  }
+  const env: FormExportEnvelope = {
+    kind: FORM_EXPORT_KIND,
+    schemaVersion: form.schemaVersion,
+    exportedAt: new Date().toISOString(),
+    form: portable,
+  };
+  if (opts.portal) {
+    env.source = { portal: opts.portal, formId: form.id };
+  } else if (form.id) {
+    env.source = { formId: form.id };
+  }
+  return env;
+}
+
+/**
+ * Apply a portable envelope onto a destination form. Keeps the
+ * destination's `id` (the local form item id stays the source of
+ * truth), copies title / description / questions / geometry binding
+ * from the import. Does NOT carry the source's `linkedLayerId` (the
+ * remote layer doesn't exist locally; the user re-links explicitly).
+ *
+ * Returns the new FormSchema. Caller drives state.
+ */
+export function fromImportEnvelope(
+  env: FormExportEnvelope,
+  destinationId: string,
+): FormSchema {
+  const next: FormSchema = {
+    schemaVersion: env.form.schemaVersion,
+    id: destinationId,
+    title: env.form.title,
+    questions: env.form.questions,
+  };
+  if (env.form.description !== undefined) next.description = env.form.description;
+  if (env.form.geometryQuestionId !== undefined) {
+    next.geometryQuestionId = env.form.geometryQuestionId;
+  }
+  if (env.form.meta) next.meta = { ...env.form.meta };
+  return next;
+}
+
+/**
+ * Validate that an unknown blob is a well-formed export envelope.
+ * Returns the typed envelope on success or a string error suitable
+ * for showing in a dialog.
+ */
+export function parseExportEnvelope(
+  raw: unknown,
+): FormExportEnvelope | { error: string } {
+  if (!raw || typeof raw !== 'object') {
+    return { error: 'Not a valid form export file (expected JSON object).' };
+  }
+  const r = raw as Record<string, unknown>;
+  if (r.kind !== FORM_EXPORT_KIND) {
+    return {
+      error: `Not a GratisGIS form export. Expected kind="${FORM_EXPORT_KIND}", got "${String(r.kind)}".`,
+    };
+  }
+  if (typeof r.schemaVersion !== 'number') {
+    return { error: 'Export is missing a schemaVersion.' };
+  }
+  if (r.schemaVersion > CURRENT_FORM_SCHEMA_VERSION) {
+    return {
+      error: `This form was exported from a newer GratisGIS (schema v${r.schemaVersion}). Update this portal to import it.`,
+    };
+  }
+  const form = r.form as Record<string, unknown> | undefined;
+  if (!form || typeof form !== 'object') {
+    return { error: 'Export is missing the form payload.' };
+  }
+  if (typeof form.title !== 'string') {
+    return { error: 'Form is missing a title.' };
+  }
+  if (!Array.isArray(form.questions)) {
+    return { error: 'Form is missing the questions array.' };
+  }
+  return raw as FormExportEnvelope;
+}
+
+/**
+ * Suggest a download filename based on the form title.
+ * "Nest Inspections" -> "nest-inspections.gratisgis-form.json"
+ */
+export function suggestExportFilename(form: FormSchema): string {
+  const slug = form.title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'form';
+  return `${slug}.gratisgis-form.json`;
+}
