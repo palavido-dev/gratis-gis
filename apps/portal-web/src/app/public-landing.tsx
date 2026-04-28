@@ -90,7 +90,7 @@ export function PublicLanding({ data }: Props) {
                 portal account, sign in to see content shared with you.
               </p>
               <Link
-                href="/api/auth/signin"
+                href="/signin"
                 className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground shadow-card hover:opacity-90"
               >
                 <LogIn className="h-4 w-4" />
@@ -110,7 +110,7 @@ export function PublicLanding({ data }: Props) {
         // the page has something the user can actually do.
         <section className="flex flex-1 items-center justify-center px-6 py-12">
           <Link
-            href="/api/auth/signin"
+            href="/signin"
             className="inline-flex h-11 items-center gap-2 rounded-md bg-accent px-5 text-base font-medium text-accent-foreground shadow-card hover:opacity-90"
           >
             <LogIn className="h-5 w-5" />
@@ -136,7 +136,7 @@ function TopBar({ orgName }: { orgName: string }) {
         </span>
       </div>
       <Link
-        href="/api/auth/signin"
+        href="/signin"
         className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground hover:opacity-90"
       >
         <LogIn className="h-4 w-4" />

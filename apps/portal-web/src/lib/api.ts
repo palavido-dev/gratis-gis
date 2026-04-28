@@ -25,7 +25,9 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   const session = (await getServerSession(authOptions)) as SessionWithToken | null;
   const tSession = trace ? Date.now() : 0;
   if (!session?.accessToken) {
-    redirect('/api/auth/signin');
+    // Redirect via the custom /signin so the user skips the
+    // default provider picker (we have only one provider).
+    redirect('/signin');
   }
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,

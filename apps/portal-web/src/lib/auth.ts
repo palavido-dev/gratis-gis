@@ -131,6 +131,11 @@ export const authOptions: NextAuthOptions = {
     },
   },
   session: { strategy: 'jwt' },
+  // We have only one provider (Keycloak). Override the default
+  // /api/auth/signin picker page with a custom /signin that
+  // immediately redirects to Keycloak; saves the user a useless
+  // "Sign in with Keycloak" click. See app/signin/page.tsx.
+  pages: { signIn: '/signin' },
 };
 
 export type SessionWithToken = import('next-auth').Session & {
