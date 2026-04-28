@@ -442,6 +442,46 @@ function GroupField({
   );
 }
 
+/**
+ * Static, non-interactive preview of one question's input UI. The
+ * designer renders this inline beneath each question card so authors
+ * can see what a respondent would actually see without flipping to
+ * the Preview tab.
+ *
+ * The wrapper sets `pointer-events: none` so clicks on the input
+ * pass through to the design-view's selection handler instead of
+ * activating the radio / button. Also dims slightly to telegraph
+ * "this is a preview, not interactive."
+ */
+export function QuestionPreview({ q }: { q: Question }) {
+  // Pages, hidden, and group are structural -- nothing to render.
+  // Note (text panel) and divider already render on their own.
+  if (q.type === 'page' || q.type === 'hidden' || q.type === 'group') {
+    return null;
+  }
+  // Photo / signature / file would either render an empty file
+  // picker or a message. Show a small badge instead.
+  if (q.type === 'photo' || q.type === 'file' || q.type === 'signature') {
+    return (
+      <div className="rounded-md border border-dashed border-border bg-surface-2/30 px-3 py-2 text-[11px] text-muted">
+        {q.type === 'signature'
+          ? 'Signature pad'
+          : q.type === 'photo'
+            ? 'Photo capture'
+            : 'File upload'}
+      </div>
+    );
+  }
+  return (
+    <div
+      className="pointer-events-none select-none opacity-90"
+      aria-hidden="true"
+    >
+      <Input q={q} value={null} readOnly onChange={() => {}} />
+    </div>
+  );
+}
+
 // Per-type input renderers. Native HTML inputs everywhere -- mobile
 // pickers come for free.
 function Input({
