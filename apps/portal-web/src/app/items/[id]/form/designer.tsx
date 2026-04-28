@@ -212,9 +212,31 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
       sourceId: QuestionId,
       target: { containerId: QuestionId | null; index: number },
     ) => {
-      setForm((f) => moveInTree(f, sourceId, target));
+      setForm((f) => {
+        // Guard: refuse to land an already-repeating group (or a
+        // group that contains any descendant repeating group) inside
+        // an attachment group's subtree. The data model treats one
+        // attachment row as one repeat instance, so a repeating group
+        // here would imply attachment-of-attachment, which we don't
+        // support. Silently stripping the repeat would surprise the
+        // user; we surface an error instead and leave the form
+        // untouched.
+        if (
+          containerIsInAttachmentSubtree(f, target.containerId, layerSchema)
+        ) {
+          const src = findById(f.questions, sourceId);
+          if (src && groupContainsRepeat(src)) {
+            setError(
+              "Can't move a repeating group inside an attachment group. Each attachment is already one repeat instance, so a nested repeat here would mean attachment-of-attachment, which the data model doesn't support.",
+            );
+            return f;
+          }
+        }
+        setError(null);
+        return moveInTree(f, sourceId, target);
+      });
     },
-    [],
+    [layerSchema],
   );
 
   /**
@@ -1826,6 +1848,12 @@ function Properties({
         <GroupRepeatEditor
           q={question}
           canEdit={canEdit}
+          {...(hasAttachmentAncestor(form, question.id, layerSchema)
+            ? {
+                lockedReason:
+                  "This group is inside an attachment group. Each attachment is already one repeat instance, so a nested repeat here would mean attachment-of-attachment, which the data model doesn't support. Use this group as a non-repeating section instead.",
+              }
+            : {})}
           onChange={(repeat) => onChange({ repeat } as Partial<Question>)}
         />
       ) : null}
@@ -2175,26 +2203,42 @@ function collectIdLabelPairs(form: FormSchema): Array<{ id: string; label: strin
 function GroupRepeatEditor({
   q,
   canEdit,
+  lockedReason,
   onChange,
 }: {
   q: Extract<Question, { type: 'group' }>;
   canEdit: boolean;
+  /**
+   * If set, the repeat toggle is force-disabled and the reason is
+   * shown to the author. Used today to keep authors from making a
+   * group repeat when it's nested inside an attachment group: the
+   * data model treats one attachment row as one repeat instance,
+   * and "repeat inside attachment" would imply attachment-of-
+   * attachment, which isn't supported.
+   */
+  lockedReason?: string;
   onChange: (repeat: Extract<Question, { type: 'group' }>['repeat']) => void;
 }) {
   const enabled = Boolean(q.repeat);
+  const locked = Boolean(lockedReason);
   return (
     <div className="mt-2 rounded-md border border-border bg-surface-1 p-2 text-xs">
       <label className="inline-flex items-center gap-2">
         <input
           type="checkbox"
           checked={enabled}
-          disabled={!canEdit}
+          disabled={!canEdit || locked}
           onChange={(e) =>
             onChange(e.target.checked ? { min: 0, addLabel: 'Add another' } : undefined)
           }
         />
         <span>Repeat (capture multiple instances)</span>
       </label>
+      {locked ? (
+        <p className="mt-1 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-900">
+          {lockedReason}
+        </p>
+      ) : null}
       {enabled && q.repeat ? (
         <div className="mt-2 grid grid-cols-2 gap-2">
           <Field label="Min instances">
@@ -3462,6 +3506,84 @@ function isAttachmentGroup(
     );
   }
   return Boolean(layerSchema.attachmentsEnabled);
+}
+
+/**
+ * True if `id` (or any of its ancestor groups) is an attachment group.
+ * Used to enforce "no repeating groups inside attachment groups": the
+ * data model can't represent attachment-of-attachment cleanly, so the
+ * Properties panel hides the repeat toggle for groups in this position
+ * and the drag-drop layer refuses to land an already-repeating group
+ * here.
+ *
+ * Walks the tree from the root. Returns false if the id isn't found
+ * (shouldn't happen for a real selected question, but be defensive).
+ */
+function hasAttachmentAncestor(
+  form: FormSchema,
+  id: QuestionId,
+  layerSchema: LayerSchema | null,
+): boolean {
+  if (!layerSchema) return false;
+  type Frame = { qs: Question[]; ancestorAttachment: boolean };
+  const stack: Frame[] = [{ qs: form.questions, ancestorAttachment: false }];
+  while (stack.length > 0) {
+    const { qs, ancestorAttachment } = stack.pop()!;
+    for (const q of qs) {
+      if (q.id === id) return ancestorAttachment;
+      if (q.type === 'group') {
+        const nextAncestor =
+          ancestorAttachment || isAttachmentGroup(q, layerSchema);
+        stack.push({ qs: q.children, ancestorAttachment: nextAncestor });
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * True if `q` is a repeating group, or contains one anywhere in its
+ * descendants. Used by the move guard so that moving an outer non-
+ * repeating wrapper that contains a repeating group still triggers
+ * the attachment-subtree refusal.
+ */
+function groupContainsRepeat(q: Question): boolean {
+  if (q.type !== 'group') return false;
+  if (q.repeat) return true;
+  for (const c of q.children) {
+    if (groupContainsRepeat(c)) return true;
+  }
+  return false;
+}
+
+/**
+ * True if dropping a question into `containerId`'s children would
+ * land it inside an attachment group's subtree (or directly inside
+ * one). `null` means the top-level form, which can't be inside any
+ * group, so the answer is always false there.
+ */
+function containerIsInAttachmentSubtree(
+  form: FormSchema,
+  containerId: QuestionId | null,
+  layerSchema: LayerSchema | null,
+): boolean {
+  if (containerId === null) return false;
+  if (!layerSchema) return false;
+  // Look up the container itself; it's "in the subtree" if it IS an
+  // attachment group, or any of its ancestors is. Use the same walker
+  // as hasAttachmentAncestor but compare inclusively.
+  type Frame = { qs: Question[]; ancestorAttachment: boolean };
+  const stack: Frame[] = [{ qs: form.questions, ancestorAttachment: false }];
+  while (stack.length > 0) {
+    const { qs, ancestorAttachment } = stack.pop()!;
+    for (const q of qs) {
+      if (q.type !== 'group') continue;
+      const here = ancestorAttachment || isAttachmentGroup(q, layerSchema);
+      if (q.id === containerId) return here;
+      stack.push({ qs: q.children, ancestorAttachment: here });
+    }
+  }
+  return false;
 }
 
 // ---- Link-status badge on each canvas row ----------------------
