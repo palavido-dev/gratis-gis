@@ -1049,6 +1049,35 @@ function Properties({
         <span>Required</span>
       </label>
 
+      {question.type !== 'page' && question.type !== 'group' ? (
+        <Field label="Width" hint="Width on desktop. Mobile collapses to full.">
+          <select
+            value={question.layout?.width ?? 'full'}
+            disabled={!canEdit}
+            onChange={(e) => {
+              const v = e.target.value as
+                | 'full'
+                | 'half'
+                | 'third'
+                | 'two-thirds'
+                | 'quarter'
+                | 'three-quarters';
+              onChange({
+                layout: v === 'full' ? undefined : { width: v },
+              });
+            }}
+            className={inputCls}
+          >
+            <option value="full">Full</option>
+            <option value="half">1 / 2</option>
+            <option value="third">1 / 3</option>
+            <option value="two-thirds">2 / 3</option>
+            <option value="quarter">1 / 4</option>
+            <option value="three-quarters">3 / 4</option>
+          </select>
+        </Field>
+      ) : null}
+
       {question.type === 'select-one' || question.type === 'select-many' ? (
         <ChoicesEditor
           choices={question.choices}
