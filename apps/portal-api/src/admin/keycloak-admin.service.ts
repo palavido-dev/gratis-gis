@@ -4,6 +4,7 @@ import {
   InternalServerErrorException,
   Logger,
   NotFoundException,
+  OnModuleInit,
   ServiceUnavailableException,
 } from '@nestjs/common';
 
@@ -44,6 +45,14 @@ export interface KeycloakUserRep {
   attributes?: Record<string, string[]>;
   /** Convenience: combined name for display. */
   fullName?: string;
+  /**
+   * Populated by createUser() / resetPassword() flows when the user
+   * was created/updated successfully but the setup or password-reset
+   * email could not be sent (typically realm SMTP not configured).
+   * The caller decides whether to surface this; the user row is real
+   * and usable either way, so we don't fail the whole operation.
+   */
+  setupEmailError?: string;
 }
 
 export interface KeycloakUserCreateInput {
@@ -71,9 +80,39 @@ export interface KeycloakUserUpdateInput {
 }
 
 @Injectable()
-export class KeycloakAdminService {
+export class KeycloakAdminService implements OnModuleInit {
   private readonly logger = new Logger(KeycloakAdminService.name);
   private tokenCache: TokenCache | null = null;
+
+  /**
+   * On boot, push our SMTP_* env vars into the Keycloak realm so that
+   * Keycloak's built-in flows (invite emails, forgot-password, email
+   * verification) deliver through the same relay our notifications
+   * platform uses. Without this, a fresh dev/prod install hits
+   * "Failed to send execute actions email" / 500 the first time an
+   * admin clicks Invite, because the realm has no smtpServer config.
+   *
+   * Failures here are logged and swallowed: the admin Keycloak client
+   * may not be configured yet (first run), Keycloak might still be
+   * coming up, or the service-account might lack manage-realm. None
+   * of those should crash portal-api's bootstrap.
+   *
+   * Idempotent: PUT /admin/realms/{realm} replaces the smtpServer
+   * map, so repeated startups converge on the same config.
+   */
+  async onModuleInit(): Promise<void> {
+    if (!this.isConfigured()) return;
+    if (!process.env.SMTP_HOST) return;
+    try {
+      await this.syncRealmSmtp();
+    } catch (err) {
+      this.logger.warn(
+        `Could not sync SMTP config to Keycloak realm: ${String(err)}. ` +
+          `Invite emails will fail until the realm has smtpServer ` +
+          `configured (Keycloak admin console -> realm settings -> Email).`,
+      );
+    }
+  }
 
   /** Base URL of the Keycloak server (no trailing slash). */
   private get keycloakUrl(): string {
@@ -266,13 +305,29 @@ export class KeycloakAdminService {
       );
     }
 
+    let setupEmailError: string | undefined;
     if (input.sendSetupEmail) {
-      await this.sendExecuteActionsEmail(id, [
-        'UPDATE_PASSWORD',
-        'VERIFY_EMAIL',
-      ]);
+      // The user row in Keycloak is the source of truth -- if email
+      // delivery fails (realm SMTP misconfigured, relay down, etc.) we
+      // still want the row so an admin can retry the email later or
+      // share the password-set URL out-of-band. Capture the error and
+      // attach it to the rep instead of throwing.
+      try {
+        await this.sendExecuteActionsEmail(id, [
+          'UPDATE_PASSWORD',
+          'VERIFY_EMAIL',
+        ]);
+      } catch (err) {
+        setupEmailError =
+          err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `User ${input.username} created in Keycloak but setup email failed: ${setupEmailError}`,
+        );
+      }
     }
-    return this.getUser(id);
+    const rep = await this.getUser(id);
+    if (setupEmailError) rep.setupEmailError = setupEmailError;
+    return rep;
   }
 
   async updateUser(
@@ -347,10 +402,100 @@ export class KeycloakAdminService {
     );
     if (!res.ok) {
       const text = await res.text();
+      // Keycloak returns 500 ("Failed to send execute actions email")
+      // when the realm has no smtpServer configured. We sync that on
+      // boot via onModuleInit, but a partial / failed sync (e.g.
+      // service-account missing manage-realm) leaves us here. The
+      // caller (admin-users.controller) maps this to a clear 502 so
+      // the admin UI can surface the real fix.
+      const isLikelySmtpMissing =
+        res.status === 500 && /send.*email/i.test(text);
+      const hint = isLikelySmtpMissing
+        ? ' (likely cause: Keycloak realm has no smtpServer configured. ' +
+          'Set SMTP_HOST/SMTP_PORT/SMTP_FROM in portal-api env so the ' +
+          'realm sync on boot can populate it, and ensure the admin ' +
+          'service-account client has the manage-realm role.)'
+        : '';
       throw new BadGatewayException(
-        `Keycloak execute-actions-email failed: ${res.status} ${res.statusText} :: ${text}`,
+        `Keycloak execute-actions-email failed: ${res.status} ${res.statusText} :: ${text}${hint}`,
       );
     }
+  }
+
+  /**
+   * PUT /admin/realms/{realm} with smtpServer drawn from SMTP_* env.
+   * Called from onModuleInit so Keycloak's invite + forgot-password
+   * flows share our SMTP relay and Matt only configures it once.
+   *
+   * Requires the admin service-account to have the realm-management
+   * client role `manage-realm`. If it doesn't, Keycloak returns 403
+   * and we log a warning telling the operator how to grant it.
+   *
+   * Returns the keys we set so callers / tests can introspect; today
+   * only onModuleInit calls it.
+   */
+  async syncRealmSmtp(): Promise<Record<string, string>> {
+    const host = process.env.SMTP_HOST;
+    if (!host) {
+      throw new Error('SMTP_HOST is not set');
+    }
+    const port = process.env.SMTP_PORT ?? '587';
+    const user = process.env.SMTP_USER ?? '';
+    const pass = process.env.SMTP_PASS ?? '';
+    const fromRaw =
+      process.env.SMTP_FROM ?? 'GratisGIS <noreply@gratisgis.local>';
+    // SMTP_FROM commonly looks like 'Display Name <addr@host>'. Split
+    // for Keycloak which wants address + display name in separate keys.
+    const { from, fromDisplayName } = parseFrom(fromRaw);
+    const secure =
+      (process.env.SMTP_SECURE ?? '').toLowerCase() === 'true' ||
+      port === '465';
+
+    // Keycloak's smtpServer is Map<String,String>: stringified booleans,
+    // ports, etc. STARTTLS is the default for port 587 so we set
+    // starttls=true and ssl=false there; ssl=true on 465.
+    const smtpServer: Record<string, string> = {
+      host,
+      port,
+      from,
+      fromDisplayName,
+      ssl: secure ? 'true' : 'false',
+      starttls: secure ? 'false' : 'true',
+      auth: user ? 'true' : 'false',
+    };
+    if (user) smtpServer.user = user;
+    if (pass) smtpServer.password = pass;
+
+    const token = await this.getAccessToken();
+    // Keycloak's PUT on the realm endpoint accepts a partial body and
+    // merges it into the existing RealmRepresentation, so we don't have
+    // to GET-then-PUT. Sending only smtpServer keeps unrelated fields
+    // (login flows, themes, etc) untouched.
+    const res = await fetch(this.adminUrl(''), {
+      method: 'PUT',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ smtpServer }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      if (res.status === 403) {
+        throw new Error(
+          `Keycloak refused realm SMTP sync (403). Grant the admin ` +
+            `service-account client the realm-management role ` +
+            `'manage-realm' so portal-api can update smtpServer.`,
+        );
+      }
+      throw new Error(
+        `Keycloak realm SMTP sync failed: ${res.status} ${res.statusText} :: ${text}`,
+      );
+    }
+    this.logger.log(
+      `Synced SMTP config to Keycloak realm '${this.realm}' (host=${host} port=${port} secure=${secure})`,
+    );
+    return smtpServer;
   }
 }
 
@@ -364,4 +509,19 @@ function combineName(
   );
   if (parts.length > 0) return parts.join(' ');
   return username;
+}
+
+/**
+ * Split an RFC-5322 style "Display Name <addr@host>" string into the
+ * pieces Keycloak's smtpServer map wants. Falls back to treating the
+ * whole input as the address if no angle brackets are present.
+ */
+function parseFrom(raw: string): { from: string; fromDisplayName: string } {
+  const m = raw.match(/^\s*(?:"?(.*?)"?\s*)?<([^>]+)>\s*$/);
+  if (m) {
+    const display = (m[1] ?? '').trim();
+    const addr = (m[2] ?? '').trim();
+    return { from: addr, fromDisplayName: display };
+  }
+  return { from: raw.trim(), fromDisplayName: '' };
 }

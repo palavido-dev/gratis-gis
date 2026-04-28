@@ -249,6 +249,27 @@ short-circuits: every `notify()` call is a no-op, no rows accumulate,
 no SMTP attempts. Flip the flag back on and existing infrastructure
 picks up where it left off.
 
+### One SMTP for the whole portal (Keycloak realm sync)
+
+The same `SMTP_*` env vars also drive Keycloak's invite +
+forgot-password emails. On startup, portal-api pushes the SMTP
+config into the Keycloak realm (`smtpServer` on the
+`RealmRepresentation`) so an admin clicking "Invite user" no longer
+hits a 500 from a realm with no email server configured.
+
+This sync requires the `KEYCLOAK_ADMIN_CLIENT_ID` /
+`KEYCLOAK_ADMIN_CLIENT_SECRET` service-account client to have the
+`manage-realm` role on the `realm-management` client (in addition to
+`manage-users` it already needs). Grant it once in Keycloak admin
+console -> Clients -> {your admin client} -> Service Account Roles ->
+Client Roles -> realm-management -> add `manage-realm`.
+
+If the sync fails (admin client not configured, missing role, etc.)
+portal-api logs a warning and continues; invites that need email
+will fail with a clearer error pointing at the underlying issue. The
+user row is still created; an admin can re-trigger the email later
+via "Reset password" once SMTP is healthy.
+
 
 ## 9. Common gotchas
 
