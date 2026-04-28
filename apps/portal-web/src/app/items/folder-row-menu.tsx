@@ -11,6 +11,8 @@ import {
   Trash2,
 } from 'lucide-react';
 
+import { useAlert, useConfirm } from '@/components/dialog-provider';
+
 /**
  * Right-click + kebab menu attached to a folder row in the FolderRail.
  * Same items either way so keyboard / trackpad users without
@@ -32,6 +34,8 @@ interface Props {
 
 export function FolderRowMenu({ folderId, folderTitle, canEdit }: Props) {
   const router = useRouter();
+  const confirm = useConfirm();
+  const alert = useAlert();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -71,20 +75,24 @@ export function FolderRowMenu({ folderId, folderTitle, canEdit }: Props) {
 
   async function moveToTrash() {
     if (!canEdit) return;
-    if (
-      !window.confirm(
-        `Move "${folderTitle}" to the recycle bin? The folder's contents stay where they are; only the folder arrangement is removed.`,
-      )
-    ) {
-      return;
-    }
+    const ok = await confirm({
+      title: 'Move folder to trash?',
+      message: `Move "${folderTitle}" to the recycle bin? The folder's contents stay where they are; only the folder arrangement is removed.`,
+      confirmLabel: 'Move to trash',
+      variant: 'danger',
+    });
+    if (!ok) return;
     setBusy(true);
     try {
       const res = await fetch(`/api/portal/items/${folderId}`, {
         method: 'DELETE',
       });
       if (!res.ok) {
-        window.alert(`Move to trash failed: ${res.status}`);
+        await alert({
+          tone: 'warn',
+          title: 'Could not move to trash',
+          message: `Move to trash failed: ${res.status}`,
+        });
         return;
       }
       setOpen(false);

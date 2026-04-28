@@ -11,6 +11,7 @@ import {
   Search,
 } from 'lucide-react';
 import type { ArcgisServiceData, ISODateString } from '@gratis-gis/shared-types';
+import { useConfirm } from '@/components/dialog-provider';
 import {
   DEFAULT_ARCGIS_SERVICE,
 } from '@gratis-gis/shared-types';
@@ -553,6 +554,7 @@ function CredentialsCard({
     updatedAt: string;
     updatedBy: string;
   } | { hasSecret: false };
+  const confirmDialog = useConfirm();
   const [meta, setMeta] = useState<Meta | null>(null);
   const [loading, setLoading] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -627,9 +629,13 @@ function CredentialsCard({
   }
 
   async function clearCredential() {
-    if (!window.confirm('Remove the stored credential for this item?')) {
-      return;
-    }
+    const ok = await confirmDialog({
+      title: 'Remove stored credential?',
+      message: 'Remove the stored credential for this item? Future Probe / proxy calls will use no auth until you save a new one.',
+      confirmLabel: 'Remove',
+      variant: 'danger',
+    });
+    if (!ok) return;
     setBusy(true);
     setErr(null);
     try {
