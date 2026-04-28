@@ -2344,13 +2344,18 @@ function isReadOnly(q: Question, response: Response): boolean {
 
 /**
  * Pack a list of questions into visual rows based on their declared
- * widths. A `full` (or unspecified) width starts a new row by itself.
- * Otherwise sequential questions are accumulated until their summed
- * widths exceed 1, then the row breaks. Note rows are flat -- no
- * recursive nesting -- so a row never contains a group; groups are
- * always on their own row at full width.
+ * widths. A question with `full` (or unspecified) width starts a new
+ * row by itself. Otherwise sequential questions are accumulated until
+ * their summed widths exceed 1, then the row breaks.
+ *
+ * Only genuinely structural types are forced standalone (page break,
+ * group, note, divider, hidden, image-display). Everything else --
+ * including the wide ones like matrix and ranking -- respects the
+ * author's `layout.width`. If the author sets a matrix to 1/2 they
+ * accept the cramped or scrolling consequence; that's an explicit
+ * choice we shouldn't second-guess.
  */
-function packIntoRows(qs: Question[]): Question[][] {
+export function packIntoRows(qs: Question[]): Question[][] {
   const rows: Question[][] = [];
   let current: Question[] = [];
   let used = 0;
@@ -2364,20 +2369,9 @@ function packIntoRows(qs: Question[]): Question[][] {
       q.type === 'page' ||
       q.type === 'group' ||
       q.type === 'note' ||
-      q.type === 'matrix-single' ||
-      q.type === 'matrix-multi' ||
-      q.type === 'matrix-dropdown' ||
-      q.type === 'matrix-rating' ||
-      q.type === 'ranking' ||
-      q.type === 'likert' ||
-      q.type === 'nps' ||
-      q.type === 'name' ||
-      q.type === 'address' ||
-      q.type === 'image-display' ||
-      q.type === 'image-hotspot' ||
       q.type === 'divider' ||
-      q.type === 'acknowledge' ||
-      q.type === 'hidden';
+      q.type === 'hidden' ||
+      q.type === 'image-display';
     const w = widthFraction(q.layout?.width);
     if (isStandalone || w === 1) {
       flush();
@@ -2410,7 +2404,7 @@ function widthFraction(width: string | undefined): number {
   }
 }
 
-function widthToClass(width: string | undefined): string {
+export function widthToClass(width: string | undefined): string {
   // Tailwind: mobile collapses to w-full; sm: applies the fractional
   // basis. We use `basis-` so flexbox does the wrapping inside the
   // `flex-wrap` parent.

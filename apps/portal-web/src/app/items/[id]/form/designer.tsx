@@ -70,7 +70,12 @@ import {
   type QuestionType,
 } from '@gratis-gis/form-schema';
 import { useConfirm } from '@/components/dialog-provider';
-import { FormRuntime, QuestionPreview } from '@/components/form-runtime';
+import {
+  FormRuntime,
+  QuestionPreview,
+  packIntoRows,
+  widthToClass,
+} from '@/components/form-runtime';
 
 interface Props {
   itemId: string;
@@ -888,20 +893,64 @@ function QuestionList({
   containerId,
   ...cb
 }: { list: Question[]; containerId: QuestionId | null } & CanvasCallbacks) {
+  // Mirror the runtime's row-packing so the design view shows
+  // questions side-by-side when the author has set narrower widths.
+  // Each row becomes a flex container; insert-before drop slots go
+  // ABOVE each row (and there's a trailing drop slot at the bottom).
+  // We don't offer drop targets between cells in the same row to
+  // keep the drag-drop story simple -- if you need to insert a
+  // question between two side-by-side ones, drop at the row above
+  // and reorder, or temporarily widen one to break the row.
+  const rows = packIntoRows(list);
+  // We need each question's absolute index in the flat `list` for
+  // the drop targets, not its index within the row.
+  const indexOf = new Map(list.map((q, i) => [q.id, i]));
   return (
     <ul className="space-y-2">
-      {list.map((q, i) => (
-        <QuestionRow
-          key={q.id}
-          q={q}
-          index={i}
-          containerId={containerId}
-          {...cb}
-        />
-      ))}
-      {/* Trailing drop zone for "drop at the end". Without this you
-          can't drop into an empty group, and you can't append-via-
-          drop on the top-level list either. */}
+      {rows.map((row, ri) => {
+        const firstId = row[0]!.id;
+        const firstIdx = indexOf.get(firstId) ?? 0;
+        return (
+          <li key={`row-${ri}-${firstId}`}>
+            <DropSlot
+              containerId={containerId}
+              index={firstIdx}
+              canEdit={cb.canEdit}
+              onAddType={(t) => cb.onAddInto(t, containerId)}
+              onMove={(id) =>
+                cb.onMove(id, { containerId, index: firstIdx })
+              }
+            />
+            {row.length === 1 ? (
+              <QuestionRow
+                q={row[0]!}
+                index={firstIdx}
+                containerId={containerId}
+                {...cb}
+              />
+            ) : (
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-stretch">
+                {row.map((q) => {
+                  const idx = indexOf.get(q.id) ?? 0;
+                  return (
+                    <div
+                      key={q.id}
+                      className={`min-w-0 ${widthToClass(q.layout?.width)}`}
+                    >
+                      <QuestionRow
+                        q={q}
+                        index={idx}
+                        containerId={containerId}
+                        {...cb}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </li>
+        );
+      })}
       <li>
         <DropSlot
           containerId={containerId}
@@ -986,26 +1035,12 @@ function QuestionRow({
   }
 
   return (
-    <li>
-      {/* Insert-before drop zone. Sits above the row card so the user
-          gets a target *between* questions, distinct from "drop on
-          the row" (which would be ambiguous). */}
-      <DropSlot
-        containerId={containerId}
-        index={index}
-        canEdit={canEdit}
-        onAddType={(t) => onAddInto(t, containerId)}
-        onMove={(id) => {
-          if (id !== q.id) onMove(id, { containerId, index });
-        }}
-      />
-
-      <div
-        className={`relative rounded-md border ${
-          q.id === selectedId
-            ? 'border-accent ring-2 ring-accent/30'
-            : 'border-border'
-        } bg-surface-1 p-3 ${overTop ? 'border-accent' : ''}`}
+    <div
+      className={`relative h-full rounded-md border ${
+        q.id === selectedId
+          ? 'border-accent ring-2 ring-accent/30'
+          : 'border-border'
+      } bg-surface-1 p-3 ${overTop ? 'border-accent' : ''}`}
         onClick={(e) => {
           e.stopPropagation();
           onSelect(q.id);
@@ -1074,10 +1109,10 @@ function QuestionRow({
 
         {/* Group children rendered inside the row, so dropping on
             the group adds to its children, not to the parent. */}
-        {q.type === 'group' ? (
-          <div
-            className="mt-3 rounded border border-dashed border-border bg-surface-2/30 p-2"
-            onClick={(e) => e.stopPropagation()}
+      {q.type === 'group' ? (
+        <div
+          className="mt-3 rounded border border-dashed border-border bg-surface-2/30 p-2"
+          onClick={(e) => e.stopPropagation()}
             onDragOver={(e) => {
               if (!canEdit) return;
               e.preventDefault();
@@ -1113,10 +1148,9 @@ function QuestionRow({
                 onMove={onMove}
               />
             )}
-          </div>
-        ) : null}
-      </div>
-    </li>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
