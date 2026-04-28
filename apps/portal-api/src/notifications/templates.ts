@@ -49,6 +49,52 @@ export interface ShareCreatedPayload {
   expiresAt?: string;
 }
 
+/** Payload shape for share_expiring + share_expired. The cron carries
+ *  the share's identifying tuple (itemId + principalType + principalId)
+ *  so the idempotency lookup can find prior notifications, plus the
+ *  exact expiresAt so a re-extension of the share triggers a fresh
+ *  warning. */
+export interface ShareExpiryPayload {
+  itemId: string;
+  itemTitle: string;
+  itemType: string;
+  /** ISO timestamp at which (or after which) the share lapses. */
+  expiresAt: string;
+  /** The share's principal -- needed for idempotency and for the
+   *  human "you no longer have access" framing in the email body. */
+  principalType: 'user' | 'group';
+  principalId: string;
+}
+
+/** Payload shape for user_auto_disable_warning + user_disabled. */
+export interface UserDisablePayload {
+  /** ISO timestamp at which the auto-disable will fire (warning) or
+   *  fired (disabled). Used by the idempotency check + the email
+   *  body. */
+  autoDisableAt: string;
+}
+
+/** Payload shape for editor_feature_created. The editor's owner is
+ *  the immediate recipient; a richer per-target recipient list is a
+ *  Phase 2b extension. */
+export interface EditorFeatureCreatedPayload {
+  editorId: string;
+  editorTitle: string;
+  /** The data_layer the feature landed in. */
+  dataLayerId: string;
+  dataLayerTitle: string;
+  /** Layer key inside the data_layer. */
+  layerKey: string;
+  /** global_id of the new feature. */
+  featureId: string;
+  /** Display name of the author who created the feature. */
+  createdByName: string;
+  /** Best-effort summary string -- the first non-empty user field's
+   *  value, e.g. "Building #4127". Falls back to a truncated
+   *  featureId when nothing better is available. */
+  summary: string;
+}
+
 type Renderer<T> = (payload: T, ctx: RenderContext) => RenderedNotification;
 
 const renderers: { [K in NotificationType]?: Renderer<unknown> } = {
@@ -72,6 +118,85 @@ const renderers: { [K in NotificationType]?: Renderer<unknown> } = {
       `<li>Permission: ${escapeHtml(payload.permission)}${escapeHtml(expiryNote)}</li>` +
       `</ul>` +
       `<p><a href="${escapeAttr(itemUrl)}">Open the item</a></p>`;
+    return { subject, text, html };
+  }) as Renderer<unknown>,
+
+  share_expiring: ((payload: ShareExpiryPayload, ctx) => {
+    const itemUrl = `${ctx.baseUrl}/items/${payload.itemId}`;
+    const when = formatDate(payload.expiresAt);
+    const subject = `Your access to "${payload.itemTitle}" expires soon`;
+    const text =
+      `Your access to "${payload.itemTitle}" on ${ctx.orgLabel} expires on ${when}.\n\n` +
+      `If you still need this item, ask the owner to extend the share.\n\n` +
+      `Open it: ${itemUrl}\n`;
+    const html =
+      `<p>Your access to <strong>${escapeHtml(payload.itemTitle)}</strong> on ` +
+      `${escapeHtml(ctx.orgLabel)} expires on <strong>${escapeHtml(when)}</strong>.</p>` +
+      `<p>If you still need this item, ask the owner to extend the share.</p>` +
+      `<p><a href="${escapeAttr(itemUrl)}">Open the item</a></p>`;
+    return { subject, text, html };
+  }) as Renderer<unknown>,
+
+  share_expired: ((payload: ShareExpiryPayload, ctx) => {
+    const when = formatDate(payload.expiresAt);
+    const subject = `Your access to "${payload.itemTitle}" has expired`;
+    const text =
+      `Your access to "${payload.itemTitle}" on ${ctx.orgLabel} expired on ${when}.\n\n` +
+      `You can no longer open or query this item. If you need access, contact the owner.\n`;
+    const html =
+      `<p>Your access to <strong>${escapeHtml(payload.itemTitle)}</strong> on ` +
+      `${escapeHtml(ctx.orgLabel)} expired on <strong>${escapeHtml(when)}</strong>.</p>` +
+      `<p>You can no longer open or query this item. If you need access, contact the owner.</p>`;
+    return { subject, text, html };
+  }) as Renderer<unknown>,
+
+  user_auto_disable_warning: ((payload: UserDisablePayload, ctx) => {
+    const when = formatDate(payload.autoDisableAt);
+    const subject = `Your account on ${ctx.orgLabel} will be disabled on ${when}`;
+    const text =
+      `Your account on ${ctx.orgLabel} is scheduled to be disabled on ${when}.\n\n` +
+      `If you still need access, sign in once before that date or contact your org admin.\n\n` +
+      `${ctx.baseUrl}\n`;
+    const html =
+      `<p>Your account on <strong>${escapeHtml(ctx.orgLabel)}</strong> is scheduled to be ` +
+      `disabled on <strong>${escapeHtml(when)}</strong>.</p>` +
+      `<p>If you still need access, sign in once before that date or contact your org admin.</p>` +
+      `<p><a href="${escapeAttr(ctx.baseUrl)}">${escapeHtml(ctx.baseUrl)}</a></p>`;
+    return { subject, text, html };
+  }) as Renderer<unknown>,
+
+  user_disabled: ((payload: UserDisablePayload, ctx) => {
+    const when = formatDate(payload.autoDisableAt);
+    const subject = `Your account on ${ctx.orgLabel} has been disabled`;
+    const text =
+      `Your account on ${ctx.orgLabel} was disabled on ${when}.\n\n` +
+      `Contact your org admin if you believe this was in error.\n`;
+    const html =
+      `<p>Your account on <strong>${escapeHtml(ctx.orgLabel)}</strong> was disabled on ` +
+      `<strong>${escapeHtml(when)}</strong>.</p>` +
+      `<p>Contact your org admin if you believe this was in error.</p>`;
+    return { subject, text, html };
+  }) as Renderer<unknown>,
+
+  editor_feature_created: ((payload: EditorFeatureCreatedPayload, ctx) => {
+    const editorUrl = `${ctx.baseUrl}/items/${payload.editorId}`;
+    const dataLayerUrl = `${ctx.baseUrl}/items/${payload.dataLayerId}`;
+    const subject = `New submission on "${payload.editorTitle}": ${payload.summary}`;
+    const text =
+      `${payload.createdByName} added a feature through "${payload.editorTitle}".\n\n` +
+      `Layer: ${payload.dataLayerTitle}\n` +
+      `Summary: ${payload.summary}\n\n` +
+      `Editor: ${editorUrl}\n` +
+      `Data layer: ${dataLayerUrl}\n`;
+    const html =
+      `<p><strong>${escapeHtml(payload.createdByName)}</strong> added a feature ` +
+      `through <strong>${escapeHtml(payload.editorTitle)}</strong>.</p>` +
+      `<ul>` +
+      `<li>Layer: ${escapeHtml(payload.dataLayerTitle)}</li>` +
+      `<li>Summary: ${escapeHtml(payload.summary)}</li>` +
+      `</ul>` +
+      `<p><a href="${escapeAttr(editorUrl)}">Open the editor</a> · ` +
+      `<a href="${escapeAttr(dataLayerUrl)}">open the data layer</a></p>`;
     return { subject, text, html };
   }) as Renderer<unknown>,
 };

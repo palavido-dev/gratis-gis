@@ -5,6 +5,7 @@ import { PrismaModule } from '../prisma/prisma.module.js';
 import { EmailTransport } from './email-transport.js';
 import { NotificationsService } from './notifications.service.js';
 import { NotificationsWorker } from './notifications.worker.js';
+import { NotificationsCron } from './notifications-cron.service.js';
 
 /**
  * Cross-cutting notifications platform (#127). Other modules import
@@ -20,7 +21,12 @@ import { NotificationsWorker } from './notifications.worker.js';
  */
 @Module({
   imports: [PrismaModule, ScheduleModule.forRoot()],
-  providers: [NotificationsService, NotificationsWorker, EmailTransport],
+  providers: [
+    NotificationsService,
+    NotificationsWorker,
+    NotificationsCron,
+    EmailTransport,
+  ],
   exports: [NotificationsService],
 })
 export class NotificationsModule {}

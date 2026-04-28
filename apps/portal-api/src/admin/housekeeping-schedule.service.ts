@@ -9,6 +9,7 @@ import {
   type V3LayerShape,
 } from '../features-v3/v3-tables.service.js';
 import { HousekeepingService } from './housekeeping.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 
 export type HousekeepingScheduleMode = 'off' | 'daily' | 'weekly';
 
@@ -76,6 +77,7 @@ export class HousekeepingScheduleService {
     private readonly keycloak: KeycloakAdminService,
     private readonly v3Tables: V3TablesService,
     private readonly housekeeping: HousekeepingService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // ---------------------------------------------------------------
@@ -384,13 +386,25 @@ export class HousekeepingScheduleService {
         orgRole: { not: 'admin' },
         autoDisableAt: { not: null, lte: new Date() },
       },
-      select: { id: true, username: true },
+      select: { id: true, username: true, autoDisableAt: true },
     });
     let count = 0;
     for (const u of candidates) {
       try {
         await this.keycloak.updateUser(u.id, { enabled: false });
         count += 1;
+        // Fire user_disabled notification (#128). The cron's
+        // sweep-once-per-tick contract means we only get here when
+        // the row freshly crossed the threshold or the previous
+        // tick failed; the notify() path is idempotent on
+        // (userId, type, autoDisableAt) so a flap doesn't double-
+        // email. Fire-and-forget: a notify failure shouldn't
+        // unflip the Keycloak disable.
+        if (u.autoDisableAt) {
+          void this.notifications.notify(u.id, 'user_disabled', {
+            autoDisableAt: u.autoDisableAt.toISOString(),
+          });
+        }
       } catch (err) {
         this.log.warn(
           `auto-disable (expired): could not disable ${u.username} (${u.id}): ${
@@ -431,10 +445,20 @@ export class HousekeepingScheduleService {
       select: { id: true, username: true },
     });
     let count = 0;
+    const now = new Date();
     for (const u of candidates) {
       try {
         await this.keycloak.updateUser(u.id, { enabled: false });
         count += 1;
+        // Quiet-user disable doesn't have a stored autoDisableAt
+        // (the heuristic is the disable trigger). Use `now` as
+        // the synthetic timestamp so the user sees a real "your
+        // account was disabled on <today>" message; the
+        // notification's idempotency key falls back to user_id +
+        // type if the autoDisableAt timestamp matches.
+        void this.notifications.notify(u.id, 'user_disabled', {
+          autoDisableAt: now.toISOString(),
+        });
       } catch (err) {
         this.log.warn(
           `auto-disable: could not disable ${u.username} (${u.id}): ${
