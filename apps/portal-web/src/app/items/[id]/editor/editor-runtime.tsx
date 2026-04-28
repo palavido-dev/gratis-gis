@@ -287,6 +287,28 @@ export function EditorRuntime({
   // setup effect's closure on every render.
   const tdEditFeatureIdRef = useRef<string | null>(null);
 
+  // Snap-to-vertex on/off for this session. Initialized from the
+  // editor item's persisted snapping config so authors who set
+  // snapping off in the editor's config don't have it suddenly
+  // turn back on at runtime. Toggling persists for the session
+  // only; we don't write back to editor.snapping so a viewer
+  // can't mutate someone else's config. tolerancePx and selfSnap
+  // from the persisted config aren't yet wired -- terra-draw 1.28
+  // exposes binary toLine / toCoordinate snapping flags rather
+  // than a configurable pixel tolerance, and the "self only" idea
+  // doesn't map cleanly to terra-draw's store-scoped model. Today
+  // the feature is just on / off; richer snap controls land in a
+  // follow-up.
+  const [snappingEnabled, setSnappingEnabled] = useState<boolean>(
+    editor.snapping.enabled,
+  );
+  // Ref so the terra-draw setup closure (which only re-runs on
+  // mapInstance change, not every render) can read the latest
+  // value when constructing modes. Toggle effect below
+  // updateModeOptions for runtime changes.
+  const snappingEnabledRef = useRef(snappingEnabled);
+  snappingEnabledRef.current = snappingEnabled;
+
   // AttributeTable state. tableOpen drives the bottom-overlay
   // panel; tableFocusLayerId anchors the table to a specific layer
   // when the user opens it from a layer-panel kebab. selection is
@@ -398,6 +420,19 @@ export function EditorRuntime({
       const td = await import('terra-draw');
       const adapterMod = await import('terra-draw-maplibre-gl-adapter');
       if (cancelled) return;
+      // Snap-to-vertex initial config. terra-draw exposes snapping
+      // as a per-mode option on the line / polygon DRAW modes
+      // (snap candidates as the user clicks the next vertex) AND
+      // as a `snappable` flag on the SELECT mode's coordinate
+      // settings (snap candidates as the user drags an existing
+      // vertex during geometry edit). Point-mode has no snapping
+      // story because a point IS its vertex. We set the same
+      // toLine + toCoordinate booleans across both surfaces so
+      // the experience is consistent, then `updateModeOptions`
+      // below for runtime toggles.
+      const snapInit = snappingEnabledRef.current
+        ? { toLine: true, toCoordinate: true }
+        : undefined;
       const draw = new td.TerraDraw({
         adapter: new adapterMod.TerraDrawMapLibreGLAdapter({
           map: mapInstance,
@@ -405,8 +440,12 @@ export function EditorRuntime({
         }),
         modes: [
           new td.TerraDrawPointMode(),
-          new td.TerraDrawLineStringMode(),
-          new td.TerraDrawPolygonMode(),
+          new td.TerraDrawLineStringMode(
+            snapInit ? { snapping: snapInit } : undefined,
+          ),
+          new td.TerraDrawPolygonMode(
+            snapInit ? { snapping: snapInit } : undefined,
+          ),
           // Select mode is what powers geometry editing. The flags
           // tell terra-draw which interactions are allowed for each
           // geometry family the editor exposes:
@@ -415,6 +454,8 @@ export function EditorRuntime({
           //   - linestring / polygon: drag the whole feature, drag
           //     individual vertices, click midpoints to insert new
           //     vertices, alt-click a vertex to delete it.
+          //   - snappable on coordinates wires snap-during-drag for
+          //     the geometry edit flow (#120).
           // We don't pass a `selectable: false` flag because the
           // setup effect explicitly calls selectFeature() when
           // entering geometry edit, then deselects on exit; the
@@ -429,6 +470,7 @@ export function EditorRuntime({
                     midpoints: true,
                     draggable: true,
                     deletable: true,
+                    snappable: snapInit ?? false,
                   },
                 },
               },
@@ -439,6 +481,7 @@ export function EditorRuntime({
                     midpoints: true,
                     draggable: true,
                     deletable: true,
+                    snappable: snapInit ?? false,
                   },
                 },
               },
@@ -467,6 +510,71 @@ export function EditorRuntime({
       cleanup?.();
     };
   }, [mapInstance]);
+
+  // Runtime snap toggle. When the user clicks the Snap tool button
+  // we flip `snappingEnabled`; this effect picks it up and patches
+  // the draw + select modes via terra-draw's `updateModeOptions`
+  // so we don't have to tear down + rebuild the whole instance
+  // (which would interrupt any in-progress draw / edit). Mirrors
+  // the per-mode shape used at construction time above.
+  useEffect(() => {
+    const draw = drawRef.current as
+      | {
+          updateModeOptions: (
+            mode: string,
+            options: Record<string, unknown>,
+          ) => void;
+        }
+      | null;
+    if (!draw) return;
+    const snap = snappingEnabled
+      ? { toLine: true, toCoordinate: true }
+      : undefined;
+    try {
+      draw.updateModeOptions('linestring', { snapping: snap });
+    } catch {
+      /* mode not available on this build; ignore */
+    }
+    try {
+      draw.updateModeOptions('polygon', { snapping: snap });
+    } catch {
+      /* same */
+    }
+    try {
+      // Select mode's snapping is per geometry family, nested under
+      // each flag profile. We match the construction-time shape so
+      // the partial update only changes the snappable bit.
+      draw.updateModeOptions('select', {
+        flags: {
+          point: { feature: { draggable: true } },
+          linestring: {
+            feature: {
+              draggable: true,
+              coordinates: {
+                midpoints: true,
+                draggable: true,
+                deletable: true,
+                snappable: snap ?? false,
+              },
+            },
+          },
+          polygon: {
+            feature: {
+              draggable: true,
+              coordinates: {
+                midpoints: true,
+                draggable: true,
+                deletable: true,
+                snappable: snap ?? false,
+              },
+            },
+          },
+        },
+      });
+    } catch {
+      /* same */
+    }
+  }, [snappingEnabled, mapInstance]);
 
   // Keep an "on draw finish" listener registered against the live
   // draw instance. Re-registers if the instance changes (rare; only
@@ -643,6 +751,18 @@ export function EditorRuntime({
     if (tool === 'select') {
       setActiveTool('off');
       setActiveTargetKey(null);
+      return;
+    }
+    if (tool === 'snap') {
+      // Snap is a session toggle, not a tool that takes over the
+      // canvas. We flip the persisted-config-seeded local state
+      // and the mode-update effect above patches terra-draw via
+      // updateModeOptions. activeTool is left alone; the user can
+      // still draw / edit / delete with snap on or off.
+      setSnappingEnabled((v) => !v);
+      const next = !snappingEnabled;
+      setToast(next ? 'Snapping on' : 'Snapping off');
+      scheduleToastClear();
       return;
     }
     setToast(`${TOOL_LABELS[tool]} lands in a follow-up slice.`);
@@ -1396,7 +1516,15 @@ export function EditorRuntime({
               config; disabled when canEdit is false. */}
           <div className="pointer-events-auto absolute left-3 top-3 z-10 flex flex-col gap-1 rounded-md border border-border bg-surface-1 p-1 shadow-card">
             {ALL_TOOLS.filter((t) => editor.tools.includes(t.key)).map((t) => {
-              const isActive = activeTool === t.key;
+              // Snap is the only tool today that's a session toggle
+              // rather than an exclusive activeTool: you can have
+              // Snap on while drawing or geometry-editing. Its
+              // "active" state mirrors snappingEnabled so the user
+              // sees a clear on / off indicator.
+              const isToggle = t.key === 'snap';
+              const isActive = isToggle
+                ? snappingEnabled
+                : activeTool === t.key;
               return (
                 <button
                   key={t.key}
@@ -1404,9 +1532,17 @@ export function EditorRuntime({
                   disabled={!canEdit}
                   onClick={() => onToolClick(t.key)}
                   className={`inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-ink-0 disabled:cursor-not-allowed disabled:opacity-40 ${
-                    isActive ? 'bg-purple-100 text-purple-800' : ''
+                    isActive
+                      ? isToggle
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-purple-100 text-purple-800'
+                      : ''
                   }`}
-                  title={t.label}
+                  title={
+                    isToggle
+                      ? `${t.label}: ${snappingEnabled ? 'on' : 'off'}`
+                      : t.label
+                  }
                   aria-label={t.label}
                   aria-pressed={isActive}
                 >
