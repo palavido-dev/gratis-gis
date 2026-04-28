@@ -2701,7 +2701,10 @@ function LayerImportDialog({
     const qs: Question[] = [];
     qs.push(...questionsForColumns(schema.columns));
     if (schema.attachmentsEnabled) {
-      qs.push(buildAttachmentsGroup('photos', 'Photos'));
+      // Top-level attachments live on the parent layer. The form's
+      // linkedLayerId already addresses it, so the inner photo
+      // question doesn't need a layerKey/layerItemId stamp.
+      qs.push(buildAttachmentsGroup('photos', 'Photos', { kind: 'parent' }));
     }
     for (const rel of schema.related) {
       qs.push(buildRelatedGroup(rel));
@@ -3037,7 +3040,12 @@ function buildRelatedGroup(rel: RelatedTable): Question {
     : { kind: 'item', layerItemId: rel.layerKeyOrItemId };
   const inner = questionsForColumns(rel.columns, ctx);
   if (rel.attachmentsEnabled) {
-    inner.push(buildAttachmentsGroup(`${rel.layerKeyOrItemId}_photos`, 'Photos'));
+    // Pass the related-table context through so the inner photo's
+    // bindTo points at the right layer and the link-status check
+    // can resolve attachmentsEnabled against the right table.
+    inner.push(
+      buildAttachmentsGroup(`${rel.layerKeyOrItemId}_photos`, 'Photos', ctx),
+    );
   }
   const id = suggestQuestionId(rel.label || 'related');
   const groupBindTo: { layerKey?: string; layerItemId?: string } = rel.sameItem
@@ -3056,26 +3064,41 @@ function buildRelatedGroup(rel: RelatedTable): Question {
 /**
  * Build a repeating group dedicated to attachments. Phase 1 ships
  * one photo question per instance so a respondent can capture N
- * images; future iterations may add captions / files / etc. The
- * group's bindTo is the layer key (or relationship id) the
- * Field-mode runtime uses to route attachments back to the right
- * feature_attachment row.
+ * images; future iterations may add captions / files / etc.
+ *
+ * The inner photo question is stamped with the target layer's
+ * context (layerKey for a v3 sublayer, layerItemId for a cross-item
+ * relationship, neither for top-level / parent) so the link-status
+ * check can find the layer at render time and confirm attachments
+ * are enabled on it.
  */
-function buildAttachmentsGroup(idHint: string, label: string): Question {
-  return {
+function buildAttachmentsGroup(
+  idHint: string,
+  label: string,
+  ctx: LayerContext = { kind: 'parent' },
+): Question {
+  const layerBinding =
+    ctx.kind === 'sublayer'
+      ? { layerKey: ctx.layerKey }
+      : ctx.kind === 'item'
+        ? { layerItemId: ctx.layerItemId }
+        : null;
+  const inner: Extract<Question, { type: 'photo' }> = {
+    id: 'photo',
+    type: 'photo',
+    label: 'Photo',
+    maxCount: 1,
+  };
+  if (layerBinding) inner.bindTo = layerBinding;
+  const group: Extract<Question, { type: 'group' }> = {
     id: suggestQuestionId(idHint),
     type: 'group',
     label,
     repeat: { addLabel: 'Add another photo' },
-    children: [
-      {
-        id: 'photo',
-        type: 'photo',
-        label: 'Photo',
-        maxCount: 1,
-      },
-    ],
+    children: [inner],
   };
+  if (layerBinding) group.bindTo = layerBinding;
+  return group;
 }
 
 // ---- Link-status badge on each canvas row ----------------------
@@ -3083,9 +3106,16 @@ function buildAttachmentsGroup(idHint: string, label: string): Question {
 function LinkStatusBadge({ status }: { status: LinkStatus }) {
   if (status.kind === 'unbound') return null;
   if (status.kind === 'matched') {
+    // Synthetic attachment match: surface "bound" with an attachment-
+    // specific tooltip so users know the value goes to the layer's
+    // attachment store rather than a regular column.
+    const isAttachment = status.column.type === 'attachment';
+    const tip = isAttachment
+      ? "Bound to the layer's attachments."
+      : `Bound to column "${status.column.name}" (${status.column.type})`;
     return (
       <span
-        title={`Bound to column "${status.column.name}" (${status.column.type})`}
+        title={tip}
         className="ml-1.5 inline-flex rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-emerald-800"
       >
         bound
@@ -3521,17 +3551,39 @@ export function questionLinkStatus(
   //   - bindTo.layerItemId points at a separate data_layer item
   //   - otherwise: the parent's columns
   let cols: LayerColumn[] | null = null;
+  let attachmentsEnabled = false;
   if (q.bindTo?.layerKey) {
-    cols =
-      schema.related.find((r) => r.layerKeyOrItemId === q.bindTo!.layerKey)
-        ?.columns ?? null;
+    const rel = schema.related.find(
+      (r) => r.layerKeyOrItemId === q.bindTo!.layerKey,
+    );
+    cols = rel?.columns ?? null;
+    attachmentsEnabled = Boolean(rel?.attachmentsEnabled);
   } else if (q.bindTo?.layerItemId) {
-    cols =
-      schema.related.find((r) => r.layerKeyOrItemId === q.bindTo!.layerItemId)
-        ?.columns ?? null;
+    const rel = schema.related.find(
+      (r) => r.layerKeyOrItemId === q.bindTo!.layerItemId,
+    );
+    cols = rel?.columns ?? null;
+    attachmentsEnabled = Boolean(rel?.attachmentsEnabled);
   } else {
     cols = schema.columns;
+    attachmentsEnabled = Boolean(schema.attachmentsEnabled);
   }
+
+  // Attachment-bearing question types (photo / signature / file)
+  // don't bind to a regular column. They bind to the layer's
+  // attachments capability, which we surface with a synthetic
+  // column so the existing "matched" UI works without a new status.
+  if (
+    (q.type === 'photo' || q.type === 'signature' || q.type === 'file') &&
+    attachmentsEnabled &&
+    !q.bindTo?.column
+  ) {
+    return {
+      kind: 'matched',
+      column: { name: 'attachment', type: 'attachment' },
+    };
+  }
+
   if (cols === null) {
     // Question is tagged for a related table the schema doesn't know
     // about (the relationship was removed, or the layer changed).
