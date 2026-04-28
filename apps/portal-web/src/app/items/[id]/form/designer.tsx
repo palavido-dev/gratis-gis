@@ -404,7 +404,17 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
       ) : null}
 
       {tab === 'design' ? (
-        <div className="grid grid-cols-1 lg:grid-cols-[200px_1fr_280px]">
+        // The grid hosts three independent columns. We use
+        // `lg:items-start` so each column can be its own scroll
+        // container without forcing the others to match height.
+        // Palette + Properties get `lg:sticky lg:top-0
+        // lg:max-h-screen lg:overflow-y-auto` (applied inside their
+        // components) so scrolling within them doesn't drag the
+        // page along. Canvas stays in normal flow -- it grows with
+        // the form's content and the user scrolls the page to
+        // navigate. Result: scrolling the palette to find a
+        // question type doesn't take the canvas out of viewport.
+        <div className="grid grid-cols-1 lg:grid-cols-[200px_1fr_280px] lg:items-start">
           <Palette canEdit={canEdit} onAdd={(t) => addQuestion(t, null)} />
           <Canvas
             form={form}
@@ -720,7 +730,7 @@ function Palette({
   }
 
   return (
-    <aside className="border-b border-border bg-surface-2/40 p-3 lg:border-b-0 lg:border-r">
+    <aside className="border-b border-border bg-surface-2/40 p-3 lg:sticky lg:top-0 lg:max-h-screen lg:overflow-y-auto lg:border-b-0 lg:border-r">
       <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted">
         Add a question
       </p>
@@ -830,8 +840,35 @@ function Canvas({
   onOpenImport,
   ...cb
 }: { form: FormSchema; onOpenImport: () => void } & CanvasCallbacks) {
+  // Last-resort drop target: anywhere in the canvas's whitespace.
+  // Child drop slots stopPropagation so this only fires when the
+  // user drops on empty area (e.g. below the last question, or in
+  // the gutter after scrolling the palette to find a tile and the
+  // form is short). Falls through to "append to top-level form".
+  function onCanvasDrop(e: React.DragEvent<HTMLElement>) {
+    if (!cb.canEdit) return;
+    const newType = e.dataTransfer.getData('text/x-question-type');
+    const sourceId = e.dataTransfer.getData('text/x-reorder-id');
+    if (!newType && !sourceId) return;
+    e.preventDefault();
+    if (newType) {
+      cb.onAddInto(newType as QuestionType, null);
+    } else if (sourceId) {
+      cb.onMove(sourceId, {
+        containerId: null,
+        index: form.questions.length,
+      });
+    }
+  }
   return (
-    <main className="min-h-[420px] border-b border-border bg-surface-0 p-4 lg:border-b-0">
+    <main
+      className="min-h-[420px] border-b border-border bg-surface-0 p-4 lg:border-b-0"
+      onDragOver={(e) => {
+        if (!cb.canEdit) return;
+        e.preventDefault();
+      }}
+      onDrop={onCanvasDrop}
+    >
       {form.questions.length === 0 ? (
         <EmptyCanvas
           canEdit={cb.canEdit}
@@ -1179,7 +1216,7 @@ function Properties({
 }) {
   if (!question) {
     return (
-      <aside className="border-l border-border bg-surface-2/40 p-3">
+      <aside className="border-l border-border bg-surface-2/40 p-3 lg:sticky lg:top-0 lg:max-h-screen lg:overflow-y-auto">
         <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted">
           Form
         </p>
@@ -1216,7 +1253,7 @@ function Properties({
     );
   }
   return (
-    <aside className="border-l border-border bg-surface-2/40 p-3">
+    <aside className="border-l border-border bg-surface-2/40 p-3 lg:sticky lg:top-0 lg:max-h-screen lg:overflow-y-auto">
       <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted">
         {question.type} properties
       </p>
