@@ -477,6 +477,63 @@ function Input({
           className={baseClass}
         />
       );
+    case 'email':
+      return (
+        <input
+          id={q.id}
+          type="email"
+          inputMode="email"
+          autoComplete="email"
+          value={(value as string) ?? ''}
+          maxLength={q.maxLength}
+          placeholder={q.placeholder}
+          disabled={readOnly}
+          onChange={(e) => onChange(e.target.value)}
+          className={baseClass}
+        />
+      );
+    case 'url':
+      return (
+        <input
+          id={q.id}
+          type="url"
+          inputMode="url"
+          autoComplete="url"
+          value={(value as string) ?? ''}
+          maxLength={q.maxLength}
+          placeholder={q.placeholder}
+          disabled={readOnly}
+          onChange={(e) => onChange(e.target.value)}
+          className={baseClass}
+        />
+      );
+    case 'phone':
+      return (
+        <input
+          id={q.id}
+          type="tel"
+          inputMode="tel"
+          autoComplete="tel"
+          value={(value as string) ?? ''}
+          placeholder={q.placeholder}
+          disabled={readOnly}
+          onChange={(e) => onChange(e.target.value)}
+          className={baseClass}
+        />
+      );
+    case 'regex':
+      return (
+        <input
+          id={q.id}
+          type="text"
+          value={(value as string) ?? ''}
+          maxLength={q.maxLength}
+          placeholder={q.placeholder}
+          disabled={readOnly}
+          onChange={(e) => onChange(e.target.value)}
+          className={baseClass}
+        />
+      );
     case 'number':
       return (
         <input
