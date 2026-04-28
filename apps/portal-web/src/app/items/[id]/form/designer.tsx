@@ -13,6 +13,7 @@ import {
   Database,
   Download,
   Eye,
+  Grid3x3,
   GripVertical,
   Hash,
   ListChecks,
@@ -565,21 +566,53 @@ function isDescendant(node: Question, candidateId: QuestionId): boolean {
 
 // ---- Palette ----------------------------------------------------
 
+type PaletteGroup =
+  | 'text'
+  | 'numeric'
+  | 'choice'
+  | 'matrix'
+  | 'scale'
+  | 'time'
+  | 'media'
+  | 'spatial'
+  | 'logic'
+  | 'layout';
+
 interface PaletteEntry {
   type: QuestionType;
   label: string;
   icon: typeof Type;
-  group: 'basic' | 'choice' | 'time' | 'media' | 'spatial' | 'logic' | 'layout';
+  group: PaletteGroup;
 }
 
+/** Display order + label for each palette group. The list order is
+ *  intentional: text and choice (the bread-and-butter types) come
+ *  first; specialized groups follow. */
+const PALETTE_GROUPS: { id: PaletteGroup; label: string }[] = [
+  { id: 'text', label: 'Text' },
+  { id: 'numeric', label: 'Numeric' },
+  { id: 'choice', label: 'Choice' },
+  { id: 'matrix', label: 'Matrix' },
+  { id: 'scale', label: 'Scale' },
+  { id: 'time', label: 'Date & time' },
+  { id: 'media', label: 'Media' },
+  { id: 'spatial', label: 'Geometry' },
+  { id: 'logic', label: 'Logic' },
+  { id: 'layout', label: 'Layout' },
+];
+
 const PALETTE: PaletteEntry[] = [
-  { type: 'text', label: 'Short text', icon: Type, group: 'basic' },
-  { type: 'multiline', label: 'Long text', icon: AlignLeft, group: 'basic' },
-  { type: 'number', label: 'Number', icon: Hash, group: 'basic' },
-  { type: 'integer', label: 'Whole number', icon: Hash, group: 'basic' },
-  { type: 'boolean', label: 'Yes / No', icon: ToggleLeft, group: 'basic' },
+  { type: 'text', label: 'Short text', icon: Type, group: 'text' },
+  { type: 'multiline', label: 'Long text', icon: AlignLeft, group: 'text' },
+  { type: 'number', label: 'Number', icon: Hash, group: 'numeric' },
+  { type: 'integer', label: 'Whole number', icon: Hash, group: 'numeric' },
+  { type: 'boolean', label: 'Yes / No', icon: ToggleLeft, group: 'choice' },
   { type: 'select-one', label: 'Single choice', icon: Circle, group: 'choice' },
   { type: 'select-many', label: 'Multiple choice', icon: CheckSquare, group: 'choice' },
+  { type: 'matrix-single', label: 'Matrix (single)', icon: Grid3x3, group: 'matrix' },
+  { type: 'matrix-multi', label: 'Matrix (multi)', icon: Grid3x3, group: 'matrix' },
+  { type: 'rating', label: 'Rating', icon: Star, group: 'scale' },
+  { type: 'slider', label: 'Slider', icon: Sliders, group: 'scale' },
   { type: 'date', label: 'Date', icon: Calendar, group: 'time' },
   { type: 'time', label: 'Time', icon: Clock, group: 'time' },
   { type: 'datetime', label: 'Date + time', icon: CalendarClock, group: 'time' },
@@ -588,8 +621,6 @@ const PALETTE: PaletteEntry[] = [
   { type: 'geopoint', label: 'Location', icon: MapPin, group: 'spatial' },
   { type: 'geotrace', label: 'Path', icon: SplitSquareHorizontal, group: 'spatial' },
   { type: 'geoshape', label: 'Area', icon: Square, group: 'spatial' },
-  { type: 'rating', label: 'Rating', icon: Star, group: 'basic' },
-  { type: 'slider', label: 'Slider', icon: Sliders, group: 'basic' },
   { type: 'calculated', label: 'Calculated', icon: Calculator, group: 'logic' },
   { type: 'note', label: 'Note', icon: TextIcon, group: 'layout' },
   { type: 'page', label: 'Page break', icon: Workflow, group: 'layout' },
@@ -603,32 +634,54 @@ function Palette({
   canEdit: boolean;
   onAdd: (type: QuestionType) => void;
 }) {
+  // Bucket entries by group, preserving the QUESTION_TYPES order
+  // within each bucket so any new schema type slots in cleanly.
+  const buckets = new Map<PaletteGroup, PaletteEntry[]>();
+  for (const t of QUESTION_TYPES) {
+    const entry = PALETTE.find((e) => e.type === t);
+    if (!entry) continue;
+    const list = buckets.get(entry.group) ?? [];
+    list.push(entry);
+    buckets.set(entry.group, list);
+  }
+
   return (
     <aside className="border-b border-border bg-surface-2/40 p-3 lg:border-b-0 lg:border-r">
       <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted">
         Add a question
       </p>
-      <div className="flex flex-wrap gap-1.5 lg:flex-col">
-        {QUESTION_TYPES.map((t) => {
-          const entry = PALETTE.find((e) => e.type === t);
-          if (!entry) return null;
-          const Icon = entry.icon;
+      <div className="space-y-3">
+        {PALETTE_GROUPS.map((g) => {
+          const entries = buckets.get(g.id);
+          if (!entries || entries.length === 0) return null;
           return (
-            <button
-              type="button"
-              key={t}
-              draggable={canEdit}
-              onDragStart={(e) => {
-                e.dataTransfer.setData('text/x-question-type', t);
-                e.dataTransfer.effectAllowed = 'copy';
-              }}
-              onClick={() => canEdit && onAdd(t)}
-              disabled={!canEdit}
-              className="inline-flex w-full items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2 py-1.5 text-xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
-            >
-              <Icon className="h-3.5 w-3.5 text-muted" />
-              <span className="truncate text-left">{entry.label}</span>
-            </button>
+            <div key={g.id}>
+              <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted/70">
+                {g.label}
+              </p>
+              <div className="flex flex-wrap gap-1.5 lg:flex-col">
+                {entries.map((entry) => {
+                  const Icon = entry.icon;
+                  return (
+                    <button
+                      type="button"
+                      key={entry.type}
+                      draggable={canEdit}
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData('text/x-question-type', entry.type);
+                        e.dataTransfer.effectAllowed = 'copy';
+                      }}
+                      onClick={() => canEdit && onAdd(entry.type)}
+                      disabled={!canEdit}
+                      className="inline-flex w-full items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2 py-1.5 text-xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+                    >
+                      <Icon className="h-3.5 w-3.5 text-muted" />
+                      <span className="truncate text-left">{entry.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           );
         })}
       </div>
@@ -1086,6 +1139,64 @@ function Properties({
         />
       ) : null}
 
+      {question.type === 'matrix-single' || question.type === 'matrix-multi' ? (
+        <MatrixEditor
+          rows={question.rows}
+          columns={question.columns}
+          canEdit={canEdit}
+          onChange={(patch) => onChange(patch as Partial<Question>)}
+        />
+      ) : null}
+
+      {question.type === 'matrix-single' ? (
+        <label className="mb-2 inline-flex items-center gap-2 text-xs">
+          <input
+            type="checkbox"
+            checked={Boolean(question.perRowRequired)}
+            disabled={!canEdit}
+            onChange={(e) =>
+              onChange({ perRowRequired: e.target.checked } as Partial<Question>)
+            }
+          />
+          <span>Require an answer for every row</span>
+        </label>
+      ) : null}
+
+      {question.type === 'matrix-multi' ? (
+        <div className="mb-2 grid grid-cols-2 gap-2">
+          <Field label="Min per row">
+            <input
+              type="number"
+              min={0}
+              value={question.perRowMinSelected ?? ''}
+              disabled={!canEdit}
+              onChange={(e) =>
+                onChange({
+                  perRowMinSelected:
+                    e.target.value === '' ? undefined : Number(e.target.value),
+                } as Partial<Question>)
+              }
+              className={inputCls}
+            />
+          </Field>
+          <Field label="Max per row">
+            <input
+              type="number"
+              min={0}
+              value={question.perRowMaxSelected ?? ''}
+              disabled={!canEdit}
+              onChange={(e) =>
+                onChange({
+                  perRowMaxSelected:
+                    e.target.value === '' ? undefined : Number(e.target.value),
+                } as Partial<Question>)
+              }
+              className={inputCls}
+            />
+          </Field>
+        </div>
+      ) : null}
+
       {question.type === 'number' || question.type === 'integer' ? (
         <div className="grid grid-cols-2 gap-2">
           <Field label="Min">
@@ -1345,6 +1456,170 @@ function ChoicesEditor({
             Add choice
           </button>
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+function MatrixEditor({
+  rows,
+  columns,
+  canEdit,
+  onChange,
+}: {
+  rows: { id: string; label: string }[];
+  columns: { value: string; label: string }[];
+  canEdit: boolean;
+  onChange: (
+    patch: { rows?: typeof rows; columns?: typeof columns },
+  ) => void;
+}) {
+  return (
+    <div className="mb-3 space-y-3">
+      <div>
+        <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">
+          Rows
+        </p>
+        <div className="space-y-1">
+          {rows.map((r, i) => (
+            <div key={i} className="flex items-center gap-1">
+              <input
+                type="text"
+                value={r.id}
+                placeholder="row id"
+                disabled={!canEdit}
+                onChange={(e) =>
+                  onChange({
+                    rows: rows.map((rr, ii) =>
+                      ii === i ? { ...rr, id: e.target.value } : rr,
+                    ),
+                  })
+                }
+                className={`${inputCls} font-mono w-20`}
+              />
+              <input
+                type="text"
+                value={r.label}
+                placeholder="row label"
+                disabled={!canEdit}
+                onChange={(e) =>
+                  onChange({
+                    rows: rows.map((rr, ii) =>
+                      ii === i ? { ...rr, label: e.target.value } : rr,
+                    ),
+                  })
+                }
+                className={`${inputCls} flex-1`}
+              />
+              {canEdit ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onChange({ rows: rows.filter((_, ii) => ii !== i) })
+                  }
+                  className="rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
+                  aria-label="Remove row"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              ) : null}
+            </div>
+          ))}
+          {canEdit ? (
+            <button
+              type="button"
+              onClick={() =>
+                onChange({
+                  rows: [
+                    ...rows,
+                    {
+                      id: `row_${rows.length + 1}`,
+                      label: `Statement ${rows.length + 1}`,
+                    },
+                  ],
+                })
+              }
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-border bg-surface-1 px-2 text-[11px] text-ink-1 hover:bg-surface-2"
+            >
+              <Plus className="h-3 w-3" />
+              Add row
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      <div>
+        <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">
+          Columns
+        </p>
+        <div className="space-y-1">
+          {columns.map((c, i) => (
+            <div key={i} className="flex items-center gap-1">
+              <input
+                type="text"
+                value={c.value}
+                placeholder="value"
+                disabled={!canEdit}
+                onChange={(e) =>
+                  onChange({
+                    columns: columns.map((cc, ii) =>
+                      ii === i ? { ...cc, value: e.target.value } : cc,
+                    ),
+                  })
+                }
+                className={`${inputCls} font-mono w-20`}
+              />
+              <input
+                type="text"
+                value={c.label}
+                placeholder="label"
+                disabled={!canEdit}
+                onChange={(e) =>
+                  onChange({
+                    columns: columns.map((cc, ii) =>
+                      ii === i ? { ...cc, label: e.target.value } : cc,
+                    ),
+                  })
+                }
+                className={`${inputCls} flex-1`}
+              />
+              {canEdit ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onChange({
+                      columns: columns.filter((_, ii) => ii !== i),
+                    })
+                  }
+                  className="rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
+                  aria-label="Remove column"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              ) : null}
+            </div>
+          ))}
+          {canEdit ? (
+            <button
+              type="button"
+              onClick={() =>
+                onChange({
+                  columns: [
+                    ...columns,
+                    {
+                      value: `option_${columns.length + 1}`,
+                      label: `Option ${columns.length + 1}`,
+                    },
+                  ],
+                })
+              }
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-border bg-surface-1 px-2 text-[11px] text-ink-1 hover:bg-surface-2"
+            >
+              <Plus className="h-3 w-3" />
+              Add column
+            </button>
+          ) : null}
+        </div>
       </div>
     </div>
   );

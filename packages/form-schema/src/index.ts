@@ -57,6 +57,8 @@ export const QUESTION_TYPES = [
   'boolean', // yes/no toggle
   'select-one', // radio buttons or dropdown (controlled by `appearance`)
   'select-many', // checkboxes
+  'matrix-single', // grid: rows of statements, one choice per row
+  'matrix-multi', // grid: rows of statements, multi choice per row
   'date', // calendar date
   'time', // wall-clock time
   'datetime', // calendar + clock
@@ -246,6 +248,64 @@ interface SelectManyQuestion extends QuestionBase {
   pickListId?: string;
 }
 
+/**
+ * A row in a matrix question. Rows are stable: the row `id` is the
+ * key used in the Response, so renaming a row label is safe but
+ * deleting and re-adding a row loses any captured value.
+ */
+export interface MatrixRow {
+  id: string;
+  label: string;
+}
+
+/**
+ * A column in a matrix question. For `matrix-single` and `matrix-multi`
+ * every column shares the same set of choices (the columns ARE the
+ * choices). The `value` is what's stored in the Response.
+ */
+export interface MatrixColumn {
+  value: string;
+  label: string;
+}
+
+/**
+ * Matrix with one selectable column per row (radio grid).
+ *
+ * Response shape: `Record<rowId, columnValue | null>` -- a flat object
+ * keyed by row id, with the chosen column's `value` as the value.
+ * Rows the respondent never touched are simply absent.
+ */
+interface MatrixSingleQuestion extends QuestionBase {
+  type: 'matrix-single';
+  rows: MatrixRow[];
+  columns: MatrixColumn[];
+  /** When set, rows are sourced from a pick list at runtime; the
+   *  inline `rows` may still be used as a designer-time preview. */
+  rowsPickListId?: string;
+  /** When true, every row counts toward `required`. When false (the
+   *  default), the question's `required` flag means "at least one
+   *  row has a value". */
+  perRowRequired?: boolean;
+}
+
+/**
+ * Matrix with one or many selectable columns per row (checkbox grid).
+ *
+ * Response shape: `Record<rowId, columnValue[]>` -- a flat object
+ * keyed by row id, with the array of chosen column values. Rows the
+ * respondent never touched are absent.
+ */
+interface MatrixMultiQuestion extends QuestionBase {
+  type: 'matrix-multi';
+  rows: MatrixRow[];
+  columns: MatrixColumn[];
+  rowsPickListId?: string;
+  /** Minimum selected columns per row. */
+  perRowMinSelected?: number;
+  /** Maximum selected columns per row. */
+  perRowMaxSelected?: number;
+}
+
 interface DateQuestion extends QuestionBase {
   type: 'date';
   /** ISO 8601 date or `today`. */
@@ -360,6 +420,8 @@ export type Question =
   | BooleanQuestion
   | SelectOneQuestion
   | SelectManyQuestion
+  | MatrixSingleQuestion
+  | MatrixMultiQuestion
   | DateQuestion
   | TimeQuestion
   | DateTimeQuestion
@@ -715,7 +777,12 @@ export function validate(form: FormSchema, response: Response): ValidationResult
       errors.push({ questionId: q.id, message: 'This field is required.' });
       continue;
     }
-    if (isEmpty(value)) continue; // nothing more to validate when blank + optional
+    // Matrix questions with perRowRequired enforce row-level checks
+    // even when nothing is filled, so we let validateType run.
+    const skipIfEmpty =
+      !(q.type === 'matrix-single' && q.perRowRequired) &&
+      !(q.type === 'matrix-multi' && q.perRowMinSelected);
+    if (isEmpty(value) && skipIfEmpty) continue;
 
     const typeError = validateType(q, value);
     if (typeError) {
@@ -752,6 +819,13 @@ function isEmpty(value: unknown): boolean {
   if (value === null || value === undefined) return true;
   if (typeof value === 'string') return value.trim() === '';
   if (Array.isArray(value)) return value.length === 0;
+  // Plain objects (matrix responses) are empty when no row has any
+  // value. We treat null / '' / [] as "no value" recursively.
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) return true;
+    return entries.every(([, v]) => isEmpty(v));
+  }
   return false;
 }
 
@@ -793,6 +867,62 @@ function validateType(q: Question, value: unknown): string | null {
       }
       if (q.maxSelected !== undefined && value.length > q.maxSelected) {
         return `Pick at most ${q.maxSelected}.`;
+      }
+      return null;
+    }
+    case 'matrix-single': {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return 'Expected one choice per row.';
+      }
+      const map = value as Record<string, unknown>;
+      const validValues = new Set(q.columns.map((c) => c.value));
+      for (const row of q.rows) {
+        const v = map[row.id];
+        if (v === undefined || v === null || v === '') continue;
+        if (typeof v !== 'string' || !validValues.has(v)) {
+          return `Row "${row.label}" has an unrecognized value.`;
+        }
+      }
+      // Per-row required: every row must have a non-empty selection.
+      if (q.perRowRequired) {
+        for (const row of q.rows) {
+          const v = map[row.id];
+          if (v === undefined || v === null || v === '') {
+            return `Row "${row.label}" is required.`;
+          }
+        }
+      }
+      return null;
+    }
+    case 'matrix-multi': {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return 'Expected selections per row.';
+      }
+      const map = value as Record<string, unknown>;
+      const validValues = new Set(q.columns.map((c) => c.value));
+      for (const row of q.rows) {
+        const v = map[row.id];
+        if (v === undefined || v === null) continue;
+        if (!Array.isArray(v)) {
+          return `Row "${row.label}" has an unexpected value.`;
+        }
+        for (const x of v) {
+          if (typeof x !== 'string' || !validValues.has(x)) {
+            return `Row "${row.label}" has an unrecognized value.`;
+          }
+        }
+        if (
+          q.perRowMinSelected !== undefined &&
+          v.length < q.perRowMinSelected
+        ) {
+          return `Row "${row.label}": pick at least ${q.perRowMinSelected}.`;
+        }
+        if (
+          q.perRowMaxSelected !== undefined &&
+          v.length > q.perRowMaxSelected
+        ) {
+          return `Row "${row.label}": pick at most ${q.perRowMaxSelected}.`;
+        }
       }
       return null;
     }
@@ -912,6 +1042,38 @@ export function defaultQuestion(type: QuestionType, id: QuestionId): Question {
           { value: 'option_2', label: 'Option 2' },
         ],
       };
+    case 'matrix-single':
+      return {
+        ...base,
+        type,
+        rows: [
+          { id: 'row_1', label: 'Statement 1' },
+          { id: 'row_2', label: 'Statement 2' },
+          { id: 'row_3', label: 'Statement 3' },
+        ],
+        columns: [
+          { value: 'strongly_disagree', label: 'Strongly disagree' },
+          { value: 'disagree', label: 'Disagree' },
+          { value: 'neutral', label: 'Neutral' },
+          { value: 'agree', label: 'Agree' },
+          { value: 'strongly_agree', label: 'Strongly agree' },
+        ],
+      };
+    case 'matrix-multi':
+      return {
+        ...base,
+        type,
+        rows: [
+          { id: 'row_1', label: 'Item 1' },
+          { id: 'row_2', label: 'Item 2' },
+          { id: 'row_3', label: 'Item 3' },
+        ],
+        columns: [
+          { value: 'option_a', label: 'Option A' },
+          { value: 'option_b', label: 'Option B' },
+          { value: 'option_c', label: 'Option C' },
+        ],
+      };
     case 'date':
       return { ...base, type };
     case 'time':
@@ -960,6 +1122,8 @@ function defaultLabel(type: QuestionType): string {
       boolean: 'Yes / No',
       'select-one': 'Single choice',
       'select-many': 'Multiple choice',
+      'matrix-single': 'Matrix (single)',
+      'matrix-multi': 'Matrix (multi)',
       date: 'Date',
       time: 'Time',
       datetime: 'Date and time',

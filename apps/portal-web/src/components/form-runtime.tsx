@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
   Camera,
   Check,
@@ -608,6 +608,24 @@ function Input({
         </div>
       );
     }
+    case 'matrix-single':
+      return (
+        <MatrixSingleInput
+          q={q}
+          value={value}
+          readOnly={readOnly}
+          onChange={onChange}
+        />
+      );
+    case 'matrix-multi':
+      return (
+        <MatrixMultiInput
+          q={q}
+          value={value}
+          readOnly={readOnly}
+          onChange={onChange}
+        />
+      );
     case 'date':
       return (
         <input
@@ -874,6 +892,276 @@ function GeoPointInput({
   );
 }
 
+/**
+ * Matrix (single choice per row). On desktop renders as a CSS grid
+ * with column headers across the top and row labels down the left.
+ * On mobile (< sm breakpoint) collapses to a stack: each row shows
+ * its label, then the choices below as full-width radio buttons --
+ * cramped grid cells are unusable on a phone.
+ */
+function MatrixSingleInput({
+  q,
+  value,
+  readOnly,
+  onChange,
+}: {
+  q: Extract<Question, { type: 'matrix-single' }>;
+  value: unknown;
+  readOnly: boolean;
+  onChange: (v: unknown) => void;
+}) {
+  const map: Record<string, string> =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, string>)
+      : {};
+
+  function set(rowId: string, col: string | null) {
+    const next = { ...map };
+    if (col === null) delete next[rowId];
+    else next[rowId] = col;
+    onChange(next);
+  }
+
+  return (
+    <div>
+      {/* Desktop: grid */}
+      <div className="hidden sm:block">
+        <div
+          className="grid items-center gap-x-2 gap-y-1 overflow-x-auto rounded-md border border-border bg-surface-1 p-2 text-sm"
+          style={{
+            gridTemplateColumns: `minmax(8rem, 1.4fr) repeat(${q.columns.length}, minmax(5rem, 1fr))`,
+          }}
+        >
+          <div />
+          {q.columns.map((c) => (
+            <div
+              key={c.value}
+              className="px-1 text-center text-[11px] font-medium text-muted"
+            >
+              {c.label}
+            </div>
+          ))}
+          {q.rows.map((row, idx) => (
+            <MatrixSingleRow
+              key={row.id}
+              row={row}
+              columns={q.columns}
+              selected={map[row.id] ?? null}
+              odd={idx % 2 === 1}
+              readOnly={readOnly}
+              onChange={(col) => set(row.id, col)}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Mobile: stacked rows */}
+      <div className="space-y-3 sm:hidden">
+        {q.rows.map((row) => (
+          <fieldset key={row.id} className="rounded-md border border-border bg-surface-1 p-2">
+            <legend className="px-1 text-sm font-medium text-ink-1">
+              {row.label}
+            </legend>
+            <div className="mt-1 space-y-1">
+              {q.columns.map((c) => {
+                const selected = map[row.id] === c.value;
+                return (
+                  <label
+                    key={c.value}
+                    className={`flex h-10 items-center gap-2 rounded-md border px-3 text-sm ${
+                      selected
+                        ? 'border-accent bg-accent/5'
+                        : 'border-border bg-surface-1'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name={`${q.id}__${row.id}`}
+                      value={c.value}
+                      checked={selected}
+                      disabled={readOnly}
+                      onChange={() => set(row.id, c.value)}
+                    />
+                    <span>{c.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MatrixSingleRow({
+  row,
+  columns,
+  selected,
+  odd,
+  readOnly,
+  onChange,
+}: {
+  row: { id: string; label: string };
+  columns: { value: string; label: string }[];
+  selected: string | null;
+  odd: boolean;
+  readOnly: boolean;
+  onChange: (col: string) => void;
+}) {
+  return (
+    <>
+      <div
+        className={`px-2 py-2 text-sm text-ink-1 ${odd ? 'bg-surface-2/40' : ''}`}
+      >
+        {row.label}
+      </div>
+      {columns.map((c) => (
+        <div
+          key={c.value}
+          className={`flex items-center justify-center py-2 ${odd ? 'bg-surface-2/40' : ''}`}
+        >
+          <input
+            type="radio"
+            name={`__matrix_${row.id}`}
+            value={c.value}
+            checked={selected === c.value}
+            disabled={readOnly}
+            onChange={() => onChange(c.value)}
+            aria-label={c.label}
+          />
+        </div>
+      ))}
+    </>
+  );
+}
+
+/**
+ * Matrix (multi choice per row). Same layout as MatrixSingleInput
+ * but each cell is a checkbox and the per-row response is an array.
+ */
+function MatrixMultiInput({
+  q,
+  value,
+  readOnly,
+  onChange,
+}: {
+  q: Extract<Question, { type: 'matrix-multi' }>;
+  value: unknown;
+  readOnly: boolean;
+  onChange: (v: unknown) => void;
+}) {
+  const map: Record<string, string[]> =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, string[]>)
+      : {};
+
+  function toggle(rowId: string, col: string) {
+    const raw = map[rowId];
+    const arr: string[] = Array.isArray(raw) ? raw : [];
+    const next = arr.includes(col)
+      ? arr.filter((v) => v !== col)
+      : [...arr, col];
+    const out = { ...map };
+    if (next.length === 0) delete out[rowId];
+    else out[rowId] = next;
+    onChange(out);
+  }
+
+  return (
+    <div>
+      {/* Desktop: grid */}
+      <div className="hidden sm:block">
+        <div
+          className="grid items-center gap-x-2 gap-y-1 overflow-x-auto rounded-md border border-border bg-surface-1 p-2 text-sm"
+          style={{
+            gridTemplateColumns: `minmax(8rem, 1.4fr) repeat(${q.columns.length}, minmax(5rem, 1fr))`,
+          }}
+        >
+          <div />
+          {q.columns.map((c) => (
+            <div
+              key={c.value}
+              className="px-1 text-center text-[11px] font-medium text-muted"
+            >
+              {c.label}
+            </div>
+          ))}
+          {q.rows.map((row, idx) => {
+            const odd = idx % 2 === 1;
+            const raw = map[row.id];
+            const arr: string[] = Array.isArray(raw) ? raw : [];
+            return (
+              <Fragment key={row.id}>
+                <div
+                  className={`px-2 py-2 text-sm text-ink-1 ${odd ? 'bg-surface-2/40' : ''}`}
+                >
+                  {row.label}
+                </div>
+                {q.columns.map((c) => (
+                  <div
+                    key={c.value}
+                    className={`flex items-center justify-center py-2 ${odd ? 'bg-surface-2/40' : ''}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={arr.includes(c.value)}
+                      disabled={readOnly}
+                      onChange={() => toggle(row.id, c.value)}
+                      aria-label={`${row.label}: ${c.label}`}
+                    />
+                  </div>
+                ))}
+              </Fragment>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Mobile: stacked rows */}
+      <div className="space-y-3 sm:hidden">
+        {q.rows.map((row) => {
+          const raw = map[row.id];
+          const arr: string[] = Array.isArray(raw) ? raw : [];
+          return (
+            <fieldset
+              key={row.id}
+              className="rounded-md border border-border bg-surface-1 p-2"
+            >
+              <legend className="px-1 text-sm font-medium text-ink-1">
+                {row.label}
+              </legend>
+              <div className="mt-1 space-y-1">
+                {q.columns.map((c) => {
+                  const checked = arr.includes(c.value);
+                  return (
+                    <label
+                      key={c.value}
+                      className={`flex h-10 items-center gap-2 rounded-md border px-3 text-sm ${
+                        checked
+                          ? 'border-accent bg-accent/5'
+                          : 'border-border bg-surface-1'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={readOnly}
+                        onChange={() => toggle(row.id, c.value)}
+                      />
+                      <span>{c.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </fieldset>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ---- helpers ----------------------------------------------------
 
 function fileToDataUrl(file: File): Promise<string> {
@@ -940,7 +1228,11 @@ function packIntoRows(qs: Question[]): Question[][] {
   }
   for (const q of qs) {
     const isStandalone =
-      q.type === 'page' || q.type === 'group' || q.type === 'note';
+      q.type === 'page' ||
+      q.type === 'group' ||
+      q.type === 'note' ||
+      q.type === 'matrix-single' ||
+      q.type === 'matrix-multi';
     const w = widthFraction(q.layout?.width);
     if (isStandalone || w === 1) {
       flush();
