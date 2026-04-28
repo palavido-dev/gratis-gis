@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { LogOut } from 'lucide-react';
+import { Bell, LogOut } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { AvatarEditor } from './avatar-editor';
 import { ProfileIdentityForm } from './profile-identity-form';
@@ -69,7 +69,14 @@ export default async function ProfilePage() {
         <Field label="Role" value={me.orgRole} />
       </section>
 
-      <section className="mt-8">
+      <section className="mt-8 flex flex-wrap items-center gap-2">
+        <Link
+          href="/settings/notifications"
+          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 shadow-card hover:bg-surface-2"
+        >
+          <Bell className="h-4 w-4" />
+          Notification preferences
+        </Link>
         <Link
           href="/api/auth/federated-logout"
           className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 shadow-card hover:bg-surface-2"
