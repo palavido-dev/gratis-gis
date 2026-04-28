@@ -28,7 +28,8 @@ services:
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
-      KC_HOSTNAME: localhost
+      KC_HOSTNAME_URL: http://localhost:8080
+      KC_HOSTNAME_ADMIN_URL: http://localhost:8080
       KC_HTTP_ENABLED: "true"
       # dev-file keeps data in a local H2 file that survives container restarts
       # AND stays alive when the connection pool idles. dev-mem loses everything
