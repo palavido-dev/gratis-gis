@@ -59,6 +59,9 @@ export const QUESTION_TYPES = [
   'select-many', // checkboxes
   'matrix-single', // grid: rows of statements, one choice per row
   'matrix-multi', // grid: rows of statements, multi choice per row
+  'matrix-dropdown', // grid: per-column dropdown choices
+  'matrix-rating', // grid: rating-per-row (stars / hearts / thumbs)
+  'ranking', // ordered list (drag or arrows to reorder)
   'date', // calendar date
   'time', // wall-clock time
   'datetime', // calendar + clock
@@ -306,6 +309,71 @@ interface MatrixMultiQuestion extends QuestionBase {
   perRowMaxSelected?: number;
 }
 
+/**
+ * A column in a `matrix-dropdown` question -- carries its own
+ * `choices` list, so each column can be a different dropdown
+ * (e.g. "Current state" with one choice set, "Target state" with
+ * another).
+ */
+export interface MatrixDropdownColumn {
+  value: string;
+  label: string;
+  choices: Choice[];
+}
+
+/**
+ * Matrix where each cell is a per-column dropdown. Useful when the
+ * columns aren't parallel choices (the matrix-single / matrix-multi
+ * case) but instead are different facets of each row that the
+ * respondent answers from different lists.
+ *
+ * Response shape:
+ *   Record<rowId, Record<columnValue, choiceValue | null>>
+ */
+interface MatrixDropdownQuestion extends QuestionBase {
+  type: 'matrix-dropdown';
+  rows: MatrixRow[];
+  columns: MatrixDropdownColumn[];
+  rowsPickListId?: string;
+}
+
+/**
+ * Matrix where each row gets the same rating widget (stars / hearts
+ * / thumbs). Quick way to score a list of items on a shared scale.
+ *
+ * Response shape: Record<rowId, number> (1..max).
+ */
+interface MatrixRatingQuestion extends QuestionBase {
+  type: 'matrix-rating';
+  rows: MatrixRow[];
+  rowsPickListId?: string;
+  /** Number of icons. Default 5. */
+  max?: number;
+  /** Icon shape. */
+  shape?: 'star' | 'heart' | 'thumb';
+  /** When true, every row counts toward `required`. */
+  perRowRequired?: boolean;
+}
+
+/**
+ * Ranking: the respondent orders the choices into a preferred
+ * sequence by dragging or by tapping up / down. The Response is an
+ * ordered array of choice values.
+ *
+ * Response shape: string[] -- the values of the choices in the
+ * order the respondent placed them.
+ */
+interface RankingQuestion extends QuestionBase {
+  type: 'ranking';
+  choices: Choice[];
+  pickListId?: string;
+  /** Minimum number of choices that must be ranked. Default: all. */
+  minRanked?: number;
+  /** Maximum number of choices the respondent can rank. Useful for
+   *  "rank your top 3" prompts -- defaults to all. */
+  maxRanked?: number;
+}
+
 interface DateQuestion extends QuestionBase {
   type: 'date';
   /** ISO 8601 date or `today`. */
@@ -422,6 +490,9 @@ export type Question =
   | SelectManyQuestion
   | MatrixSingleQuestion
   | MatrixMultiQuestion
+  | MatrixDropdownQuestion
+  | MatrixRatingQuestion
+  | RankingQuestion
   | DateQuestion
   | TimeQuestion
   | DateTimeQuestion
@@ -781,7 +852,8 @@ export function validate(form: FormSchema, response: Response): ValidationResult
     // even when nothing is filled, so we let validateType run.
     const skipIfEmpty =
       !(q.type === 'matrix-single' && q.perRowRequired) &&
-      !(q.type === 'matrix-multi' && q.perRowMinSelected);
+      !(q.type === 'matrix-multi' && q.perRowMinSelected) &&
+      !(q.type === 'matrix-rating' && q.perRowRequired);
     if (isEmpty(value) && skipIfEmpty) continue;
 
     const typeError = validateType(q, value);
@@ -924,6 +996,77 @@ function validateType(q: Question, value: unknown): string | null {
           return `Row "${row.label}": pick at most ${q.perRowMaxSelected}.`;
         }
       }
+      return null;
+    }
+    case 'matrix-dropdown': {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return 'Expected selections per row.';
+      }
+      const map = value as Record<string, unknown>;
+      const colMap = new Map(q.columns.map((c) => [c.value, c]));
+      for (const row of q.rows) {
+        const cells = map[row.id];
+        if (cells === undefined || cells === null) continue;
+        if (
+          typeof cells !== 'object' ||
+          Array.isArray(cells)
+        ) {
+          return `Row "${row.label}" has an unexpected value.`;
+        }
+        for (const [colValue, choice] of Object.entries(
+          cells as Record<string, unknown>,
+        )) {
+          if (choice === null || choice === undefined || choice === '') continue;
+          const col = colMap.get(colValue);
+          if (!col) {
+            return `Row "${row.label}": unknown column "${colValue}".`;
+          }
+          const validChoices = new Set(col.choices.map((c) => c.value));
+          if (typeof choice !== 'string' || !validChoices.has(choice)) {
+            return `Row "${row.label}", column "${col.label}" has an unrecognized choice.`;
+          }
+        }
+      }
+      return null;
+    }
+    case 'matrix-rating': {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return 'Expected a rating per row.';
+      }
+      const map = value as Record<string, unknown>;
+      const max = q.max ?? 5;
+      for (const row of q.rows) {
+        const v = map[row.id];
+        if (v === undefined || v === null || v === '') continue;
+        if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > max) {
+          return `Row "${row.label}" has an unexpected rating.`;
+        }
+      }
+      if (q.perRowRequired) {
+        for (const row of q.rows) {
+          const v = map[row.id];
+          if (v === undefined || v === null || v === '') {
+            return `Row "${row.label}" is required.`;
+          }
+        }
+      }
+      return null;
+    }
+    case 'ranking': {
+      if (!Array.isArray(value)) return 'Expected an ordered list.';
+      const validValues = new Set(q.choices.map((c) => c.value));
+      const seen = new Set<string>();
+      for (const v of value) {
+        if (typeof v !== 'string' || !validValues.has(v)) {
+          return 'List contains an unrecognized choice.';
+        }
+        if (seen.has(v)) return 'List contains a duplicate choice.';
+        seen.add(v);
+      }
+      const min = q.minRanked ?? 0;
+      const max = q.maxRanked ?? q.choices.length;
+      if (value.length < min) return `Rank at least ${min}.`;
+      if (value.length > max) return `Rank at most ${max}.`;
       return null;
     }
     case 'date':
@@ -1074,6 +1217,57 @@ export function defaultQuestion(type: QuestionType, id: QuestionId): Question {
           { value: 'option_c', label: 'Option C' },
         ],
       };
+    case 'matrix-dropdown':
+      return {
+        ...base,
+        type,
+        rows: [
+          { id: 'row_1', label: 'Item 1' },
+          { id: 'row_2', label: 'Item 2' },
+        ],
+        columns: [
+          {
+            value: 'current',
+            label: 'Current',
+            choices: [
+              { value: 'low', label: 'Low' },
+              { value: 'medium', label: 'Medium' },
+              { value: 'high', label: 'High' },
+            ],
+          },
+          {
+            value: 'target',
+            label: 'Target',
+            choices: [
+              { value: 'low', label: 'Low' },
+              { value: 'medium', label: 'Medium' },
+              { value: 'high', label: 'High' },
+            ],
+          },
+        ],
+      };
+    case 'matrix-rating':
+      return {
+        ...base,
+        type,
+        rows: [
+          { id: 'row_1', label: 'Item 1' },
+          { id: 'row_2', label: 'Item 2' },
+          { id: 'row_3', label: 'Item 3' },
+        ],
+        max: 5,
+        shape: 'star',
+      };
+    case 'ranking':
+      return {
+        ...base,
+        type,
+        choices: [
+          { value: 'option_1', label: 'Option 1' },
+          { value: 'option_2', label: 'Option 2' },
+          { value: 'option_3', label: 'Option 3' },
+        ],
+      };
     case 'date':
       return { ...base, type };
     case 'time':
@@ -1124,6 +1318,9 @@ function defaultLabel(type: QuestionType): string {
       'select-many': 'Multiple choice',
       'matrix-single': 'Matrix (single)',
       'matrix-multi': 'Matrix (multi)',
+      'matrix-dropdown': 'Matrix (dropdown)',
+      'matrix-rating': 'Matrix (rating)',
+      ranking: 'Ranking',
       date: 'Date',
       time: 'Time',
       datetime: 'Date and time',

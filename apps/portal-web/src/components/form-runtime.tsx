@@ -4,12 +4,15 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
   Camera,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Loader2,
   MapPin,
   Plus,
   Trash2,
+  X,
 } from 'lucide-react';
 import {
   applyCalculations,
@@ -626,6 +629,33 @@ function Input({
           onChange={onChange}
         />
       );
+    case 'matrix-dropdown':
+      return (
+        <MatrixDropdownInput
+          q={q}
+          value={value}
+          readOnly={readOnly}
+          onChange={onChange}
+        />
+      );
+    case 'matrix-rating':
+      return (
+        <MatrixRatingInput
+          q={q}
+          value={value}
+          readOnly={readOnly}
+          onChange={onChange}
+        />
+      );
+    case 'ranking':
+      return (
+        <RankingInput
+          q={q}
+          value={value}
+          readOnly={readOnly}
+          onChange={onChange}
+        />
+      );
     case 'date':
       return (
         <input
@@ -1162,6 +1192,355 @@ function MatrixMultiInput({
   );
 }
 
+/**
+ * Matrix dropdown: each cell is a per-column dropdown. Renders as a
+ * grid on desktop and as one fieldset per row on mobile.
+ */
+function MatrixDropdownInput({
+  q,
+  value,
+  readOnly,
+  onChange,
+}: {
+  q: Extract<Question, { type: 'matrix-dropdown' }>;
+  value: unknown;
+  readOnly: boolean;
+  onChange: (v: unknown) => void;
+}) {
+  const map: Record<string, Record<string, string>> =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, Record<string, string>>)
+      : {};
+
+  function setCell(rowId: string, colValue: string, choice: string | null) {
+    const rowMap: Record<string, string> = { ...(map[rowId] ?? {}) };
+    if (choice === null || choice === '') delete rowMap[colValue];
+    else rowMap[colValue] = choice;
+    const out = { ...map };
+    if (Object.keys(rowMap).length === 0) delete out[rowId];
+    else out[rowId] = rowMap;
+    onChange(out);
+  }
+
+  return (
+    <div>
+      <div className="hidden sm:block">
+        <div
+          className="grid items-center gap-x-2 gap-y-1 overflow-x-auto rounded-md border border-border bg-surface-1 p-2 text-sm"
+          style={{
+            gridTemplateColumns: `minmax(8rem, 1.4fr) repeat(${q.columns.length}, minmax(7rem, 1fr))`,
+          }}
+        >
+          <div />
+          {q.columns.map((c) => (
+            <div
+              key={c.value}
+              className="px-1 text-center text-[11px] font-medium text-muted"
+            >
+              {c.label}
+            </div>
+          ))}
+          {q.rows.map((row, idx) => {
+            const odd = idx % 2 === 1;
+            const rowMap = map[row.id] ?? {};
+            return (
+              <Fragment key={row.id}>
+                <div
+                  className={`px-2 py-2 text-sm text-ink-1 ${odd ? 'bg-surface-2/40' : ''}`}
+                >
+                  {row.label}
+                </div>
+                {q.columns.map((c) => (
+                  <div
+                    key={c.value}
+                    className={`px-1 py-1 ${odd ? 'bg-surface-2/40' : ''}`}
+                  >
+                    <select
+                      value={rowMap[c.value] ?? ''}
+                      disabled={readOnly}
+                      onChange={(e) =>
+                        setCell(row.id, c.value, e.target.value || null)
+                      }
+                      className="block h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs"
+                    >
+                      <option value="">--</option>
+                      {c.choices.map((ch) => (
+                        <option key={ch.value} value={ch.value}>
+                          {ch.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </Fragment>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="space-y-3 sm:hidden">
+        {q.rows.map((row) => {
+          const rowMap = map[row.id] ?? {};
+          return (
+            <fieldset
+              key={row.id}
+              className="rounded-md border border-border bg-surface-1 p-2"
+            >
+              <legend className="px-1 text-sm font-medium text-ink-1">
+                {row.label}
+              </legend>
+              <div className="mt-1 space-y-2">
+                {q.columns.map((c) => (
+                  <label key={c.value} className="block text-xs">
+                    <span className="mb-0.5 block text-muted">{c.label}</span>
+                    <select
+                      value={rowMap[c.value] ?? ''}
+                      disabled={readOnly}
+                      onChange={(e) =>
+                        setCell(row.id, c.value, e.target.value || null)
+                      }
+                      className="block h-10 w-full rounded-md border border-border bg-surface-1 px-2 text-sm"
+                    >
+                      <option value="">--</option>
+                      {c.choices.map((ch) => (
+                        <option key={ch.value} value={ch.value}>
+                          {ch.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Matrix rating: each row gets the same rating widget. Useful for
+ * scoring a list of items on a shared scale.
+ */
+function MatrixRatingInput({
+  q,
+  value,
+  readOnly,
+  onChange,
+}: {
+  q: Extract<Question, { type: 'matrix-rating' }>;
+  value: unknown;
+  readOnly: boolean;
+  onChange: (v: unknown) => void;
+}) {
+  const map: Record<string, number> =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, number>)
+      : {};
+  const max = q.max ?? 5;
+  const icon =
+    q.shape === 'heart' ? '♥' : q.shape === 'thumb' ? '\u{1F44D}' : '★';
+
+  function set(rowId: string, n: number) {
+    const out = { ...map };
+    out[rowId] = n;
+    onChange(out);
+  }
+
+  return (
+    <div className="space-y-2 rounded-md border border-border bg-surface-1 p-2">
+      {q.rows.map((row, idx) => {
+        const cur = map[row.id] ?? 0;
+        const odd = idx % 2 === 1;
+        return (
+          <div
+            key={row.id}
+            className={`flex flex-col items-start justify-between gap-1 rounded-sm px-2 py-2 sm:flex-row sm:items-center ${odd ? 'bg-surface-2/40' : ''}`}
+          >
+            <span className="text-sm text-ink-1">{row.label}</span>
+            <div className="flex gap-1">
+              {Array.from({ length: max }, (_, i) => i + 1).map((n) => (
+                <button
+                  type="button"
+                  key={n}
+                  disabled={readOnly}
+                  onClick={() => set(row.id, n)}
+                  className={`h-9 w-9 rounded-md border text-base ${
+                    n <= cur
+                      ? 'border-accent bg-accent/10 text-accent'
+                      : 'border-border bg-surface-1'
+                  }`}
+                  aria-label={`${row.label}: ${n} of ${max}`}
+                >
+                  {icon}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Ranking: drag-to-reorder on desktop with a fallback up / down
+ * arrow per item. Mobile users tap the arrows; the grip is a hint
+ * but not strictly required. Choices not yet ranked appear in a
+ * second list and can be promoted into the ordered set.
+ */
+function RankingInput({
+  q,
+  value,
+  readOnly,
+  onChange,
+}: {
+  q: Extract<Question, { type: 'ranking' }>;
+  value: unknown;
+  readOnly: boolean;
+  onChange: (v: unknown) => void;
+}) {
+  const ranked: string[] = Array.isArray(value)
+    ? (value as string[]).filter(
+        (v): v is string =>
+          typeof v === 'string' && q.choices.some((c) => c.value === v),
+      )
+    : [];
+  const rankedSet = new Set(ranked);
+  const unranked = q.choices.filter((c) => !rankedSet.has(c.value));
+
+  function move(idx: number, delta: -1 | 1) {
+    const next = ranked.slice();
+    const target = idx + delta;
+    if (target < 0 || target >= next.length) return;
+    const a = next[idx];
+    const b = next[target];
+    if (a === undefined || b === undefined) return;
+    next[idx] = b;
+    next[target] = a;
+    onChange(next);
+  }
+
+  function rank(value: string) {
+    if (rankedSet.has(value)) return;
+    const max = q.maxRanked ?? q.choices.length;
+    if (ranked.length >= max) return;
+    onChange([...ranked, value]);
+  }
+
+  function unrank(value: string) {
+    onChange(ranked.filter((v) => v !== value));
+  }
+
+  function onDragStart(e: React.DragEvent<HTMLLIElement>, idx: number) {
+    if (readOnly) return;
+    e.dataTransfer.setData('text/x-rank-index', String(idx));
+    e.dataTransfer.effectAllowed = 'move';
+  }
+
+  function onDrop(e: React.DragEvent<HTMLLIElement>, dropIdx: number) {
+    if (readOnly) return;
+    const raw = e.dataTransfer.getData('text/x-rank-index');
+    if (!raw) return;
+    const fromIdx = Number(raw);
+    if (Number.isNaN(fromIdx) || fromIdx === dropIdx) return;
+    const next = ranked.slice();
+    const [moved] = next.splice(fromIdx, 1);
+    if (moved === undefined) return;
+    const insertAt = dropIdx > fromIdx ? dropIdx - 1 : dropIdx;
+    next.splice(insertAt, 0, moved);
+    onChange(next);
+    e.preventDefault();
+  }
+
+  function labelFor(v: string): string {
+    return q.choices.find((c) => c.value === v)?.label ?? v;
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="rounded-md border border-border bg-surface-1 p-2">
+        <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">
+          Ranked
+        </p>
+        {ranked.length === 0 ? (
+          <p className="px-2 py-2 text-xs text-muted">
+            No items ranked yet. Tap an item below to add it.
+          </p>
+        ) : (
+          <ol className="space-y-1">
+            {ranked.map((v, i) => (
+              <li
+                key={v}
+                draggable={!readOnly}
+                onDragStart={(e) => onDragStart(e, i)}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => onDrop(e, i)}
+                className="flex items-center gap-2 rounded-md border border-border bg-surface-2/30 px-2 py-1.5 text-sm"
+              >
+                <span className="w-5 text-xs tabular-nums text-muted">{i + 1}.</span>
+                <span className="flex-1 truncate">{labelFor(v)}</span>
+                {!readOnly ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => move(i, -1)}
+                      disabled={i === 0}
+                      className="rounded p-1 text-muted hover:bg-surface-2 disabled:opacity-30"
+                      aria-label="Move up"
+                    >
+                      <ChevronUp className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => move(i, 1)}
+                      disabled={i === ranked.length - 1}
+                      className="rounded p-1 text-muted hover:bg-surface-2 disabled:opacity-30"
+                      aria-label="Move down"
+                    >
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => unrank(v)}
+                      className="rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
+                      aria-label="Remove from ranking"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </>
+                ) : null}
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+      {unranked.length > 0 ? (
+        <div className="rounded-md border border-dashed border-border bg-surface-2/30 p-2">
+          <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">
+            Available
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {unranked.map((c) => (
+              <button
+                type="button"
+                key={c.value}
+                disabled={readOnly}
+                onClick={() => rank(c.value)}
+                className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-xs hover:bg-surface-2"
+              >
+                <Plus className="h-3 w-3 text-muted" />
+                {c.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 // ---- helpers ----------------------------------------------------
 
 function fileToDataUrl(file: File): Promise<string> {
@@ -1232,7 +1611,10 @@ function packIntoRows(qs: Question[]): Question[][] {
       q.type === 'group' ||
       q.type === 'note' ||
       q.type === 'matrix-single' ||
-      q.type === 'matrix-multi';
+      q.type === 'matrix-multi' ||
+      q.type === 'matrix-dropdown' ||
+      q.type === 'matrix-rating' ||
+      q.type === 'ranking';
     const w = widthFraction(q.layout?.width);
     if (isStandalone || w === 1) {
       flush();
