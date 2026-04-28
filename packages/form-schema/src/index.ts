@@ -304,13 +304,15 @@ interface GroupQuestion extends QuestionBase {
   /** When `repeat` is set, this is a repeating group: the user
    *  captures multiple instances of the inner questions. The Field
    *  runtime maps repeating groups to a related child layer. */
-  repeat?: {
-    /** Min / max instance count. */
-    min?: number;
-    max?: number;
-    /** UI label per added instance ("Add another inspection"). */
-    addLabel?: string;
-  };
+  repeat?:
+    | {
+        /** Min / max instance count. */
+        min?: number | undefined;
+        max?: number | undefined;
+        /** UI label per added instance ("Add another inspection"). */
+        addLabel?: string | undefined;
+      }
+    | undefined;
   /** Child questions. Pages/groups can nest. */
   children: Question[];
 }
