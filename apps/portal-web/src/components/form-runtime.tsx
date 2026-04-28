@@ -758,6 +758,26 @@ function Input({
       return <AddressInput q={q} value={value} readOnly={readOnly} onChange={onChange} />;
     case 'photo':
       return <PhotoInput q={q} value={value} readOnly={readOnly} onChange={onChange} />;
+    case 'image-choice':
+      return (
+        <ImageChoiceInput
+          q={q}
+          value={value}
+          readOnly={readOnly}
+          onChange={onChange}
+        />
+      );
+    case 'image-display':
+      return <ImageDisplay q={q} />;
+    case 'image-hotspot':
+      return (
+        <ImageHotspotInput
+          q={q}
+          value={value}
+          readOnly={readOnly}
+          onChange={onChange}
+        />
+      );
     case 'signature':
       return (
         <div className="rounded-md border border-dashed border-border bg-surface-2/30 p-4 text-center text-xs text-muted">
@@ -974,6 +994,209 @@ function PhotoInput({
  * component; lays them out in a responsive grid that collapses on
  * mobile. The `prefix` and `suffix` cells stay narrow when shown.
  */
+/**
+ * Image-choice: a grid of clickable thumbnails. Single or multi
+ * select per `q.multi`. The whole tile is the click target so
+ * touch users don't have to hit a small radio.
+ */
+function ImageChoiceInput({
+  q,
+  value,
+  readOnly,
+  onChange,
+}: {
+  q: Extract<Question, { type: 'image-choice' }>;
+  value: unknown;
+  readOnly: boolean;
+  onChange: (v: unknown) => void;
+}) {
+  const multi = Boolean(q.multi);
+  const arr: string[] = Array.isArray(value) ? (value as string[]) : [];
+  const single: string | null = typeof value === 'string' ? value : null;
+
+  function toggle(v: string) {
+    if (readOnly) return;
+    if (multi) {
+      onChange(arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
+    } else {
+      onChange(single === v ? null : v);
+    }
+  }
+
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+      {q.choices.map((c) => {
+        const selected = multi ? arr.includes(c.value) : single === c.value;
+        return (
+          <button
+            type="button"
+            key={c.value}
+            onClick={() => toggle(c.value)}
+            disabled={readOnly}
+            className={`group flex flex-col overflow-hidden rounded-md border text-left text-xs ${
+              selected
+                ? 'border-accent ring-2 ring-accent/40'
+                : 'border-border hover:border-accent/50'
+            }`}
+          >
+            <div className="aspect-square w-full bg-surface-2 sm:aspect-[4/3]">
+              {c.imageUrl ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  src={c.imageUrl}
+                  alt={c.alt ?? c.label}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-[11px] text-muted">
+                  No image
+                </div>
+              )}
+            </div>
+            <div
+              className={`px-2 py-1.5 ${selected ? 'bg-accent/10 text-accent' : 'bg-surface-1 text-ink-1'}`}
+            >
+              {c.label}
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Image-display: a static image embed. No value captured. Used as
+ * instructional content; the runtime walker treats this as a
+ * non-input question.
+ */
+function ImageDisplay({
+  q,
+}: {
+  q: Extract<Question, { type: 'image-display' }>;
+}) {
+  if (!q.imageUrl) {
+    return (
+      <div className="rounded-md border border-dashed border-border bg-surface-2/30 p-4 text-center text-xs text-muted">
+        No image set.
+      </div>
+    );
+  }
+  return (
+    <figure className="overflow-hidden rounded-md border border-border bg-surface-1">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={q.imageUrl}
+        alt={q.alt ?? q.label}
+        className="block h-auto w-full object-contain"
+      />
+      {q.caption ? (
+        <figcaption className="border-t border-border bg-surface-2/40 px-3 py-1.5 text-[11px] text-muted">
+          {q.caption}
+        </figcaption>
+      ) : null}
+    </figure>
+  );
+}
+
+/**
+ * Image-hotspot: respondent clicks one or more points on the
+ * reference image. Coordinates are stored as fractions of the
+ * image's natural size so they survive resizes.
+ */
+function ImageHotspotInput({
+  q,
+  value,
+  readOnly,
+  onChange,
+}: {
+  q: Extract<Question, { type: 'image-hotspot' }>;
+  value: unknown;
+  readOnly: boolean;
+  onChange: (v: unknown) => void;
+}) {
+  const points: { x: number; y: number }[] = Array.isArray(value)
+    ? (value as { x: number; y: number }[]).filter(
+        (p): p is { x: number; y: number } =>
+          p !== null &&
+          typeof p === 'object' &&
+          typeof (p as { x: unknown }).x === 'number' &&
+          typeof (p as { y: unknown }).y === 'number',
+      )
+    : [];
+  const max = q.maxPoints ?? 1;
+
+  function addPoint(e: React.MouseEvent<HTMLDivElement>) {
+    if (readOnly) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
+    if (max <= 1) {
+      onChange([{ x, y }]);
+    } else {
+      const next = [...points, { x, y }];
+      onChange(next.slice(-max));
+    }
+  }
+
+  function clearPoints() {
+    if (readOnly) return;
+    onChange([]);
+  }
+
+  if (!q.imageUrl) {
+    return (
+      <div className="rounded-md border border-dashed border-border bg-surface-2/30 p-4 text-center text-xs text-muted">
+        Set an image URL in the question Properties to enable hotspot
+        capture.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <div
+        onClick={addPoint}
+        className="relative inline-block w-full cursor-crosshair overflow-hidden rounded-md border border-border bg-surface-1"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={q.imageUrl}
+          alt={q.alt ?? q.label}
+          className="block h-auto w-full select-none object-contain"
+          draggable={false}
+        />
+        {points.map((p, i) => (
+          <div
+            key={i}
+            style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` }}
+            className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2"
+          >
+            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-accent text-[10px] font-medium text-white shadow">
+              {i + 1}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center justify-between text-[11px] text-muted">
+        <span>
+          {points.length} of {max} {max === 1 ? 'point' : 'points'} placed
+        </span>
+        {!readOnly && points.length > 0 ? (
+          <button
+            type="button"
+            onClick={clearPoints}
+            className="rounded-md border border-border bg-surface-1 px-2 py-1 text-xs hover:bg-surface-2"
+          >
+            Clear
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function NameInput({
   q,
   value,
@@ -1908,7 +2131,9 @@ function packIntoRows(qs: Question[]): Question[][] {
       q.type === 'likert' ||
       q.type === 'nps' ||
       q.type === 'name' ||
-      q.type === 'address';
+      q.type === 'address' ||
+      q.type === 'image-display' ||
+      q.type === 'image-hotspot';
     const w = widthFraction(q.layout?.width);
     if (isStandalone || w === 1) {
       flush();
