@@ -1130,6 +1130,14 @@ function QuestionRow({
                   repeat
                 </span>
               ) : null}
+              {q.type === 'group' && isAttachmentGroup(q, layerSchema) ? (
+                <span
+                  title="This group binds to the layer's attachments. Each instance is one attached file plus any per-attachment fields you add."
+                  className="ml-1.5 inline-flex rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-emerald-800"
+                >
+                  attachment
+                </span>
+              ) : null}
               <LinkStatusBadge status={questionLinkStatus(q, layerSchema, isLinked)} />
             </p>
             <p className="text-sm font-medium text-ink-0">{q.label}</p>
@@ -1183,6 +1191,17 @@ function QuestionRow({
               }
             }}
           >
+            {/* Hint inside attachment groups so authors understand
+                that anything they add becomes a per-attachment field
+                stored alongside the file (caption, taken-by, GPS at
+                capture time, etc.) -- not a feature attribute. */}
+            {isAttachmentGroup(q, layerSchema) ? (
+              <p className="mb-2 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] text-emerald-900">
+                Each value here is captured per attachment, alongside the
+                file. Add per-attachment fields like caption, taken-by, or
+                GPS-at-capture.
+              </p>
+            ) : null}
             {q.children.length === 0 ? (
               <p className="px-2 py-3 text-center text-[11px] text-muted">
                 Drop questions here.
@@ -3200,6 +3219,48 @@ function buildAttachmentsGroup(
   };
   if (layerBinding) group.bindTo = layerBinding;
   return group;
+}
+
+/**
+ * Detect whether a group binds to an attachments-enabled layer.
+ *
+ * Detection is structural: the group has at least one media child
+ * (photo / file / signature) AND its bindTo target -- a related
+ * sublayer (layerKey), a cross-item layer (layerItemId), or the
+ * parent (no layer addressing) -- is reported as attachmentsEnabled
+ * by the resolved schema.
+ *
+ * The structural check (must have a media child) keeps the affordance
+ * from firing on a generic group that happens to live on an
+ * attachments-enabled layer. False positives are harmless (the hint is
+ * only encouragement, not enforcement) but the noise would be
+ * confusing.
+ */
+function isAttachmentGroup(
+  q: Question,
+  layerSchema: LayerSchema | null,
+): boolean {
+  if (q.type !== 'group') return false;
+  if (!layerSchema) return false;
+  const hasMediaChild = q.children.some(
+    (c) => c.type === 'photo' || c.type === 'file' || c.type === 'signature',
+  );
+  if (!hasMediaChild) return false;
+  if (q.bindTo?.layerKey) {
+    return Boolean(
+      layerSchema.related.find(
+        (r) => r.layerKeyOrItemId === q.bindTo!.layerKey,
+      )?.attachmentsEnabled,
+    );
+  }
+  if (q.bindTo?.layerItemId) {
+    return Boolean(
+      layerSchema.related.find(
+        (r) => r.layerKeyOrItemId === q.bindTo!.layerItemId,
+      )?.attachmentsEnabled,
+    );
+  }
+  return Boolean(layerSchema.attachmentsEnabled);
 }
 
 // ---- Link-status badge on each canvas row ----------------------
