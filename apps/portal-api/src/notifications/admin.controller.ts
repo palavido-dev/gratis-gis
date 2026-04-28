@@ -1,10 +1,68 @@
-import { Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+  Put,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { NotificationStatus, NotificationType } from '@prisma/client';
+import {
+  IsBoolean,
+  IsEmail,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
+import {
+  NotificationChannel,
+  NotificationStatus,
+  NotificationType,
+} from '@prisma/client';
 
 import { AdminGuard } from '../admin/admin.guard.js';
+import { CurrentUser } from '../auth/current-user.decorator.js';
+import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { NOTIFICATION_TYPES } from './notification-types.js';
+import { NOTIFICATION_TYPES, getTypeMeta } from './notification-types.js';
+import { SystemSettingsService, type SmtpConfig } from './system-settings.service.js';
+import { NotificationTypeDefaultService } from './notification-type-default.service.js';
+import { EmailTransport } from './email-transport.js';
+import { renderNotification } from './templates.js';
+import { SAMPLE_PAYLOADS } from './sample-payloads.js';
+import { KeycloakAdminService } from '../admin/keycloak-admin.service.js';
+
+class SaveSmtpDto {
+  @IsBoolean() enabled!: boolean;
+  @IsString() host!: string;
+  @IsInt() @Min(1) @Max(65535) port!: number;
+  @IsBoolean() secure!: boolean;
+  @IsString() fromAddress!: string;
+  @IsString() fromDisplayName!: string;
+  @IsString() user!: string;
+  /** Omit to keep the existing password; empty string to clear. */
+  @IsOptional() @IsString() password?: string;
+}
+
+class TestSmtpDto {
+  @IsEmail() to!: string;
+  /** When provided, send the test against this unsaved config so the
+   *  admin can verify before clicking Save. Optional; falls back to
+   *  the stored config. */
+  @IsOptional() config?: SaveSmtpDto;
+}
+
+class PutDefaultDto {
+  @IsEnum(NotificationType) type!: NotificationType;
+  @IsEnum(NotificationChannel) channel!: NotificationChannel;
+  @IsBoolean() enabled!: boolean;
+}
 
 interface StatsPayload {
   /** Total queued + sending rows. The "in-flight" backlog. */
@@ -62,7 +120,13 @@ interface RecentRow {
 @UseGuards(AdminGuard)
 @Controller('admin/notifications')
 export class NotificationsAdminController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly settings: SystemSettingsService,
+    private readonly defaults: NotificationTypeDefaultService,
+    private readonly transport: EmailTransport,
+    private readonly keycloak: KeycloakAdminService,
+  ) {}
 
   @Get('stats')
   async stats(): Promise<StatsPayload> {
@@ -204,4 +268,223 @@ export class NotificationsAdminController {
     });
     return { retried: r.count > 0 };
   }
+
+  // ---- SMTP config (#137) ---------------------------------------
+
+  /** Current effective SMTP config. Password is never returned --
+   *  only `hasPassword` so the form can show "stored" state without
+   *  leaking secret material to the browser. */
+  @Get('smtp')
+  async getSmtp(): Promise<SmtpStatePayload> {
+    const cfg = await this.settings.getSmtpConfig();
+    if (!cfg) {
+      return {
+        configured: false,
+        enabled: false,
+        host: '',
+        port: 587,
+        secure: false,
+        fromAddress: '',
+        fromDisplayName: '',
+        user: '',
+        hasPassword: false,
+      };
+    }
+    return {
+      configured: true,
+      enabled: cfg.enabled,
+      host: cfg.host,
+      port: cfg.port,
+      secure: cfg.secure,
+      fromAddress: cfg.fromAddress,
+      fromDisplayName: cfg.fromDisplayName,
+      user: cfg.user,
+      hasPassword: cfg.hasPassword,
+    };
+  }
+
+  /**
+   * Persist SMTP config. Reloads the EmailTransport so the next send
+   * uses the new credentials, and re-runs the Keycloak realm SMTP
+   * sync so invite / password-reset emails ride the new relay too.
+   * Both reloads are best-effort: a failure here should not block
+   * the admin's Save (the row is written either way).
+   */
+  @Put('smtp')
+  async saveSmtp(
+    @CurrentUser() me: AuthUser,
+    @Body() dto: SaveSmtpDto,
+  ): Promise<SmtpStatePayload> {
+    const input: Omit<SmtpConfig, 'hasPassword'> = {
+      enabled: dto.enabled,
+      host: dto.host,
+      port: dto.port,
+      secure: dto.secure,
+      fromAddress: dto.fromAddress,
+      fromDisplayName: dto.fromDisplayName,
+      user: dto.user,
+    };
+    if (dto.password !== undefined) input.password = dto.password;
+    await this.settings.saveSmtpConfig(input, me.id);
+    // Reload the in-process transport pool first so worker drains
+    // pick up fresh creds without an api restart.
+    try {
+      await this.transport.reload();
+    } catch {
+      // Reload failures don't unwind the save -- next worker tick
+      // will lazy-rebuild on demand.
+    }
+    // Push the new config into the Keycloak realm so invite /
+    // forgot-password / verify-email emails share the relay.
+    if (this.keycloak.isConfigured()) {
+      try {
+        await this.keycloak.syncRealmSmtp();
+      } catch {
+        // Logged inside syncRealmSmtp; surface to the admin via
+        // the next "send test" attempt rather than breaking save.
+      }
+    }
+    return this.getSmtp();
+  }
+
+  /**
+   * One-shot test send. When `config` is provided we send through a
+   * single-use transport built from those (possibly unsaved) creds
+   * so the admin can verify before clicking Save; without it we use
+   * the stored config.
+   */
+  @Post('smtp/test')
+  @HttpCode(200)
+  async testSmtp(@Body() dto: TestSmtpDto): Promise<{ ok: boolean; error?: string }> {
+    const builtCfg: SmtpConfig | null = await (async () => {
+      if (!dto.config) return this.settings.getSmtpConfig();
+      const c: SmtpConfig = {
+        enabled: dto.config.enabled,
+        host: dto.config.host,
+        port: dto.config.port,
+        secure: dto.config.secure,
+        fromAddress: dto.config.fromAddress,
+        fromDisplayName: dto.config.fromDisplayName,
+        user: dto.config.user,
+        password: dto.config.password,
+        hasPassword:
+          typeof dto.config.password === 'string' &&
+          dto.config.password.length > 0,
+      };
+      // If admin left password blank in the form but a stored one
+      // exists, fall back to the stored value so the test exercises
+      // the real config the worker would use.
+      if (c.password === undefined) {
+        const stored = await this.settings.getSmtpConfig();
+        if (stored?.password) c.password = stored.password;
+      }
+      return c;
+    })();
+    if (!builtCfg || !builtCfg.host) {
+      return { ok: false, error: 'SMTP host is empty' };
+    }
+    const cfg: SmtpConfig = builtCfg;
+    try {
+      await this.transport.sendTest(
+        cfg,
+        dto.to,
+        'GratisGIS notifications: test email',
+        'This is a test email from your GratisGIS portal. ' +
+          'If you can read this, your SMTP relay is working.',
+        '<p>This is a test email from your GratisGIS portal.</p>' +
+          '<p>If you can read this, your SMTP relay is working.</p>',
+      );
+      return { ok: true };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  // ---- Per-type org defaults (#137) -----------------------------
+
+  @Get('defaults')
+  async listDefaults(): Promise<DefaultsPayload> {
+    return { rows: await this.defaults.list() };
+  }
+
+  @Put('defaults')
+  async putDefault(@Body() dto: PutDefaultDto): Promise<{ ok: true }> {
+    await this.defaults.setOverride(dto.type, dto.channel, dto.enabled);
+    return { ok: true };
+  }
+
+  // ---- Template preview (#137) ----------------------------------
+
+  /**
+   * Render a template against a hardcoded sample payload so admins
+   * can see what each notification looks like without firing a
+   * real trigger. Uses PORTAL_BASE_URL / PORTAL_NAME for context
+   * just like a real send.
+   */
+  @Get('preview/:type')
+  async preview(
+    @Param('type') typeRaw: string,
+  ): Promise<PreviewPayload> {
+    const type = typeRaw as NotificationType;
+    const meta = getTypeMeta(type);
+    if (!meta) {
+      throw new BadRequestException(`Unknown notification type: ${typeRaw}`);
+    }
+    const payload = SAMPLE_PAYLOADS[type];
+    if (payload === undefined) {
+      throw new BadRequestException(
+        `No sample payload registered for ${type}. Add one in sample-payloads.ts.`,
+      );
+    }
+    const orgLabel = process.env.PORTAL_NAME ?? 'GratisGIS';
+    const baseUrl = process.env.PORTAL_BASE_URL ?? 'http://localhost:3000';
+    const rendered = renderNotification(type, payload, { orgLabel, baseUrl });
+    if (!rendered) {
+      throw new BadRequestException(
+        `No renderer registered for ${type}. Add one in templates.ts.`,
+      );
+    }
+    return {
+      type,
+      label: meta.label,
+      subject: rendered.subject,
+      text: rendered.text,
+      html: rendered.html,
+    };
+  }
+}
+
+interface SmtpStatePayload {
+  configured: boolean;
+  enabled: boolean;
+  host: string;
+  port: number;
+  secure: boolean;
+  fromAddress: string;
+  fromDisplayName: string;
+  user: string;
+  hasPassword: boolean;
+}
+
+interface DefaultsPayload {
+  rows: Array<{
+    type: NotificationType;
+    channel: NotificationChannel;
+    label: string;
+    category: string;
+    codeDefault: boolean;
+    effective: boolean;
+    isOverride: boolean;
+  }>;
+}
+
+interface PreviewPayload {
+  type: NotificationType;
+  label: string;
+  subject: string;
+  text: string;
+  html: string;
 }

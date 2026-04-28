@@ -73,9 +73,10 @@ export class NotificationsWorker {
       // this tick rather than overlap; the next one is 30s away.
       return;
     }
-    if (!this.transport.isAvailable()) {
+    if (!(await this.transport.isAvailable())) {
       // SMTP misconfigured. Logged once per process by EmailTransport;
-      // we silently skip ticks until env is fixed.
+      // we silently skip ticks until the admin saves SMTP via
+      // /admin/notifications and the transport reload picks it up.
       return;
     }
     this.busy = true;

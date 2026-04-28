@@ -8,6 +8,8 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 
+import { SystemSettingsService } from '../notifications/system-settings.service.js';
+
 /**
  * Thin wrapper around Keycloak's Admin REST API.
  *
@@ -84,6 +86,8 @@ export class KeycloakAdminService implements OnModuleInit {
   private readonly logger = new Logger(KeycloakAdminService.name);
   private tokenCache: TokenCache | null = null;
 
+  constructor(private readonly settings: SystemSettingsService) {}
+
   /**
    * On boot, push our SMTP_* env vars into the Keycloak realm so that
    * Keycloak's built-in flows (invite emails, forgot-password, email
@@ -102,7 +106,11 @@ export class KeycloakAdminService implements OnModuleInit {
    */
   async onModuleInit(): Promise<void> {
     if (!this.isConfigured()) return;
-    if (!process.env.SMTP_HOST) return;
+    // Skip the sync when SMTP isn't configured yet (no DB row, no
+    // env). The admin can configure SMTP via /admin/notifications
+    // and saveSmtp() will trigger the sync at that point.
+    const cfg = await this.settings.getSmtpConfig();
+    if (!cfg || !cfg.host) return;
     try {
       await this.syncRealmSmtp();
     } catch (err) {
@@ -435,36 +443,26 @@ export class KeycloakAdminService implements OnModuleInit {
    * only onModuleInit calls it.
    */
   async syncRealmSmtp(): Promise<Record<string, string>> {
-    const host = process.env.SMTP_HOST;
-    if (!host) {
-      throw new Error('SMTP_HOST is not set');
+    const cfg = await this.settings.getSmtpConfig();
+    if (!cfg || !cfg.host) {
+      throw new Error(
+        'SMTP not configured. Save SMTP via /admin/notifications first.',
+      );
     }
-    const port = process.env.SMTP_PORT ?? '587';
-    const user = process.env.SMTP_USER ?? '';
-    const pass = process.env.SMTP_PASS ?? '';
-    const fromRaw =
-      process.env.SMTP_FROM ?? 'GratisGIS <noreply@gratisgis.local>';
-    // SMTP_FROM commonly looks like 'Display Name <addr@host>'. Split
-    // for Keycloak which wants address + display name in separate keys.
-    const { from, fromDisplayName } = parseFrom(fromRaw);
-    const secure =
-      (process.env.SMTP_SECURE ?? '').toLowerCase() === 'true' ||
-      port === '465';
-
     // Keycloak's smtpServer is Map<String,String>: stringified booleans,
     // ports, etc. STARTTLS is the default for port 587 so we set
     // starttls=true and ssl=false there; ssl=true on 465.
     const smtpServer: Record<string, string> = {
-      host,
-      port,
-      from,
-      fromDisplayName,
-      ssl: secure ? 'true' : 'false',
-      starttls: secure ? 'false' : 'true',
-      auth: user ? 'true' : 'false',
+      host: cfg.host,
+      port: String(cfg.port),
+      from: cfg.fromAddress,
+      fromDisplayName: cfg.fromDisplayName,
+      ssl: cfg.secure ? 'true' : 'false',
+      starttls: cfg.secure ? 'false' : 'true',
+      auth: cfg.user ? 'true' : 'false',
     };
-    if (user) smtpServer.user = user;
-    if (pass) smtpServer.password = pass;
+    if (cfg.user) smtpServer.user = cfg.user;
+    if (cfg.password) smtpServer.password = cfg.password;
 
     const token = await this.getAccessToken();
     // Keycloak's PUT on the realm endpoint accepts a partial body and
@@ -493,7 +491,7 @@ export class KeycloakAdminService implements OnModuleInit {
       );
     }
     this.logger.log(
-      `Synced SMTP config to Keycloak realm '${this.realm}' (host=${host} port=${port} secure=${secure})`,
+      `Synced SMTP config to Keycloak realm '${this.realm}' (host=${cfg.host} port=${cfg.port} secure=${cfg.secure})`,
     );
     return smtpServer;
   }
@@ -511,17 +509,3 @@ function combineName(
   return username;
 }
 
-/**
- * Split an RFC-5322 style "Display Name <addr@host>" string into the
- * pieces Keycloak's smtpServer map wants. Falls back to treating the
- * whole input as the address if no angle brackets are present.
- */
-function parseFrom(raw: string): { from: string; fromDisplayName: string } {
-  const m = raw.match(/^\s*(?:"?(.*?)"?\s*)?<([^>]+)>\s*$/);
-  if (m) {
-    const display = (m[1] ?? '').trim();
-    const addr = (m[2] ?? '').trim();
-    return { from: addr, fromDisplayName: display };
-  }
-  return { from: raw.trim(), fromDisplayName: '' };
-}

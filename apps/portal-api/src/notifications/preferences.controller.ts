@@ -15,6 +15,7 @@ import {
   NOTIFICATION_TYPES,
   getTypeMeta,
 } from './notification-types.js';
+import { NotificationTypeDefaultService } from './notification-type-default.service.js';
 
 class UpsertPreferenceDto {
   @IsEnum(NotificationType)
@@ -68,18 +69,27 @@ interface PreferencesPayload {
 @ApiBearerAuth()
 @Controller('users/me/notification-preferences')
 export class NotificationPreferencesController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly defaults: NotificationTypeDefaultService,
+  ) {}
 
   /** Materialized per-(type, channel) state, ready for the UI to
    *  render. Combines the catalog from notification-types.ts with
-   *  any rows the user has stored. Channels they haven't touched
-   *  fall through to the default + isDefault: true. */
+   *  any user rows AND any org-wide override rows (#137). The
+   *  "default" the user sees is the org default if one exists,
+   *  otherwise the code default -- so when an admin mutes
+   *  share_expiring platform-wide, every user with no opt-in row
+   *  sees the toggle as off-by-default. */
   @Get()
   async list(@CurrentUser() user: AuthUser): Promise<PreferencesPayload> {
-    const rows = await this.prisma.notificationPreference.findMany({
-      where: { userId: user.id },
-      select: { type: true, channel: true, enabled: true },
-    });
+    const [rows, overrideMap] = await Promise.all([
+      this.prisma.notificationPreference.findMany({
+        where: { userId: user.id },
+        select: { type: true, channel: true, enabled: true },
+      }),
+      this.defaults.loadOverrideMap(),
+    ]);
     // Build a (type, channel) -> stored row index for O(1) merge below.
     const byKey = new Map<string, boolean>();
     for (const r of rows) {
@@ -92,6 +102,9 @@ export class NotificationPreferencesController {
         const preferences = {} as Record<NotificationChannel, PreferenceState>;
         for (const channel of meta.channels) {
           const key = `${meta.type}|${channel}`;
+          const orgDefault = overrideMap.has(key)
+            ? overrideMap.get(key)!
+            : meta.defaultByChannel[channel];
           if (byKey.has(key)) {
             preferences[channel] = {
               enabled: byKey.get(key)!,
@@ -99,7 +112,7 @@ export class NotificationPreferencesController {
             };
           } else {
             preferences[channel] = {
-              enabled: meta.defaultByChannel[channel],
+              enabled: orgDefault,
               isDefault: true,
             };
           }
@@ -135,7 +148,15 @@ export class NotificationPreferencesController {
       // catalog change doesn't 400 the user.
       return { enabled: true, isDefault: true };
     }
-    const defaultEnabled = meta.defaultByChannel[body.channel];
+    // The "default" we delete-down-to is the effective default the
+    // user sees, which is the org override if any, otherwise the
+    // code default. Without this fold, an admin-muted type would
+    // get re-opted-in for any user who toggled then matched the
+    // code default.
+    const defaultEnabled = await this.defaults.effectiveDefault(
+      body.type,
+      body.channel,
+    );
     if (body.enabled === defaultEnabled) {
       // Match default -> remove the row so this (user, type, channel)
       // tracks the default if it ever changes.

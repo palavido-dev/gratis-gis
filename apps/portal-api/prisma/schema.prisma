@@ -737,3 +737,38 @@ model Notification {
   @@map("notification")
 }
 
+/// Singleton-ish key/value bag for platform settings the admin can
+/// edit from the UI (no env file editing). Today: SMTP config under
+/// key='smtp'. JSON column carries non-secret fields; the encrypted
+/// pair carries any secret material (SMTP password) via the existing
+/// AES-256-GCM credential cipher with key as AAD.
+///
+/// When multi-org tenancy lands (#47), this gets an orgId column and
+/// a composite primary key. For now there's a single row per key
+/// platform-wide.
+model SystemSetting {
+  key                String   @id
+  value              Json     @default("{}")
+  encryptedSecret    String?  @map("encrypted_secret")
+  encryptedSecretIv  String?  @map("encrypted_secret_iv")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+  updatedBy          String?  @map("updated_by") @db.Uuid
+
+  @@map("system_setting")
+}
+
+/// Per-(NotificationType, NotificationChannel) org-wide override of
+/// the code-level default in notification-types.ts. Sparse: an admin
+/// keeping the code default has no row. When materialising a user's
+/// effective state, the chain is:
+///   notification_preference (user-specific) > notification_type_default (org) > code default
+model NotificationTypeDefault {
+  type      NotificationType
+  channel   NotificationChannel
+  enabled   Boolean
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@id([type, channel])
+  @@map("notification_type_default")
+}
+

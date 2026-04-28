@@ -7,6 +7,8 @@ import { NotificationsService } from './notifications.service.js';
 import { NotificationsWorker } from './notifications.worker.js';
 import { NotificationsCron } from './notifications-cron.service.js';
 import { NotificationPreferencesController } from './preferences.controller.js';
+import { SystemSettingsService } from './system-settings.service.js';
+import { NotificationTypeDefaultService } from './notification-type-default.service.js';
 
 /**
  * Cross-cutting notifications platform (#127). Other modules import
@@ -28,7 +30,19 @@ import { NotificationPreferencesController } from './preferences.controller.js';
     NotificationsWorker,
     NotificationsCron,
     EmailTransport,
+    SystemSettingsService,
+    NotificationTypeDefaultService,
   ],
-  exports: [NotificationsService],
+  // Export the platform settings + default services so the admin
+  // controller (registered in AdminModule, not here, to avoid a
+  // circular import) can inject them. EmailTransport is exported
+  // for the same reason -- the admin controller's "send test" path
+  // reuses the existing pool wrapper for one-shot delivery.
+  exports: [
+    NotificationsService,
+    SystemSettingsService,
+    NotificationTypeDefaultService,
+    EmailTransport,
+  ],
 })
 export class NotificationsModule {}
