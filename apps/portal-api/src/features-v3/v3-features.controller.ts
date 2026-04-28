@@ -30,6 +30,7 @@ import { SharingService } from '../items/sharing.service.js';
 import { EditorPolicyService } from '../items/editor-policy.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { V3FeaturesService } from './v3-features.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 
 class AppendFeatureDto {
   @IsOptional() @IsString() globalId?: string;
@@ -70,6 +71,7 @@ export class V3FeaturesController {
     private readonly v3: V3FeaturesService,
     private readonly prisma: PrismaService,
     private readonly editorPolicy: EditorPolicyService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   @Get('features')
@@ -180,7 +182,94 @@ export class V3FeaturesController {
         op: 'create',
       });
     }
-    return this.v3.insertFeatures(itemId, layerId, body.features, user);
+    const result = await this.v3.insertFeatures(
+      itemId,
+      layerId,
+      body.features,
+      user,
+    );
+    // Fire editor_feature_created when this insert came through an
+    // editor (#128). Notifies the editor item's owner so authors who
+    // build a data-collection editor get told when submissions land,
+    // matching the Survey123 "send me an email per response" gap.
+    // Per-target configurable recipient lists land in a follow-up;
+    // for v1 the editor owner is the only recipient. Fire-and-forget
+    // so a notify error never rolls back the user's POST.
+    if (editorId && result.inserted > 0) {
+      void this.notifyEditorFeatureCreated({
+        editorId,
+        dataLayerId: itemId,
+        layerKey: layerId,
+        features: body.features,
+        creator: user,
+      });
+    }
+    return result;
+  }
+
+  /**
+   * Helper for the editor_feature_created notification fan-out.
+   * Resolves the editor item, the data_layer title, and a best-
+   * effort summary string from the first non-empty user-field value
+   * of the (first) submitted feature. Notifies the editor's owner.
+   */
+  private async notifyEditorFeatureCreated(args: {
+    editorId: string;
+    dataLayerId: string;
+    layerKey: string;
+    features: AppendFeatureDto[];
+    creator: AuthUser;
+  }): Promise<void> {
+    try {
+      const editor = await this.prisma.item.findUnique({
+        where: { id: args.editorId },
+        select: { id: true, title: true, ownerId: true, type: true },
+      });
+      if (!editor || editor.type !== 'editor') return;
+      const dataLayer = await this.prisma.item.findUnique({
+        where: { id: args.dataLayerId },
+        select: { title: true },
+      });
+      const dataLayerTitle = dataLayer?.title ?? args.layerKey;
+      const creatorRow = await this.prisma.user.findUnique({
+        where: { id: args.creator.id },
+        select: { fullName: true, username: true },
+      });
+      const createdByName =
+        creatorRow?.fullName || creatorRow?.username || 'Someone';
+      // For v1 we notify per inserted feature; the typical editor
+      // submission is one feature at a time. Bulk inserts (e.g. a
+      // future import-via-editor flow) would multiply emails which
+      // is fine for now -- the recipient list is just the owner.
+      for (const f of args.features) {
+        const summary = pickFeatureSummary(f.properties);
+        const featureId = typeof f.globalId === 'string' ? f.globalId : '';
+        await this.notifications.notify(
+          editor.ownerId,
+          'editor_feature_created',
+          {
+            editorId: editor.id,
+            editorTitle: editor.title,
+            dataLayerId: args.dataLayerId,
+            dataLayerTitle,
+            layerKey: args.layerKey,
+            featureId,
+            createdByName,
+            summary,
+          },
+        );
+      }
+    } catch (err) {
+      // Notify errors are non-fatal -- the feature already landed.
+      // Pinned to debug because a misconfigured editor would
+      // otherwise spam the api logs on every collection.
+      // eslint-disable-next-line no-console
+      console.warn(
+        `editor_feature_created notify failed: ${
+          err instanceof Error ? err.message : err
+        }`,
+      );
+    }
   }
 
   @Patch('features/:fid')
@@ -318,4 +407,24 @@ export class V3FeaturesController {
     );
     return { geoLimit, rowScope };
   }
+}
+
+/**
+ * Best-effort summary string for an editor-feature-created
+ * notification. Picks the first non-empty user-field value so the
+ * email subject reads "New submission: <something useful>" rather
+ * than a uuid. Underscore-prefixed keys (system metadata) are
+ * skipped. Falls back to a short literal when nothing's available.
+ */
+function pickFeatureSummary(
+  properties: Record<string, unknown> | undefined,
+): string {
+  if (!properties) return '(no attributes)';
+  for (const [k, v] of Object.entries(properties)) {
+    if (k.startsWith('_')) continue;
+    if (v === null || v === undefined || v === '') continue;
+    const s = String(v);
+    return s.length > 80 ? `${s.slice(0, 77)}...` : s;
+  }
+  return '(no attributes)';
 }

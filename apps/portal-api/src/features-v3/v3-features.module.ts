@@ -6,6 +6,7 @@ import { V3AttachmentsService } from './v3-attachments.service.js';
 import { V3AttachmentsController } from './v3-attachments.controller.js';
 import { ItemsModule } from '../items/items.module.js';
 import { StorageModule } from '../storage/storage.module.js';
+import { NotificationsModule } from '../notifications/notifications.module.js';
 
 /**
  * v3 feature CRUD + attachments. Depends on ItemsModule (auth / gate
@@ -15,7 +16,7 @@ import { StorageModule } from '../storage/storage.module.js';
  * metadata against whatever's already there.
  */
 @Module({
-  imports: [ItemsModule, StorageModule],
+  imports: [ItemsModule, StorageModule, NotificationsModule],
   providers: [V3FeaturesService, V3AttachmentsService],
   controllers: [V3FeaturesController, V3AttachmentsController],
   exports: [V3FeaturesService, V3AttachmentsService],
