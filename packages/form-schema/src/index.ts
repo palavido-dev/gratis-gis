@@ -119,6 +119,28 @@ export interface BindTo {
 // Per-question shapes
 // ---------------------------------------------------------------------------
 
+/**
+ * Per-question layout hint. The runtime uses this to flow questions
+ * side-by-side instead of one-per-row. Sequential questions whose
+ * widths sum to <= 1 sit on the same visual row; the next question
+ * past 1 wraps to a new row. `full` always starts a new row.
+ *
+ * Mobile collapses everything to full-width below ~640px so users
+ * never have to operate cramped half-width inputs on a phone.
+ */
+export type QuestionWidth =
+  | 'full'
+  | 'half'
+  | 'third'
+  | 'two-thirds'
+  | 'quarter'
+  | 'three-quarters';
+
+export interface QuestionLayout {
+  /** Width within the form column. Default: 'full'. */
+  width?: QuestionWidth | undefined;
+}
+
 interface QuestionBase {
   id: QuestionId;
   /** User-facing label. Shown above the input. */
@@ -141,9 +163,22 @@ interface QuestionBase {
   readOnly?: boolean | Expression | undefined;
   /** Layer binding (Field runtime only). */
   bindTo?: BindTo | undefined;
+  /** Per-question layout (width within the form column). */
+  layout?: QuestionLayout | undefined;
   /** Free-form per-question metadata. */
   meta?: Record<string, unknown> | undefined;
 }
+
+/** Numeric fraction (0-1) for a width. Used by the runtime to
+ *  pack questions and by helpers that compute row breaks. */
+export const WIDTH_FRACTION: Record<QuestionWidth, number> = {
+  full: 1,
+  half: 1 / 2,
+  third: 1 / 3,
+  'two-thirds': 2 / 3,
+  quarter: 1 / 4,
+  'three-quarters': 3 / 4,
+};
 
 interface TextQuestion extends QuestionBase {
   type: 'text';

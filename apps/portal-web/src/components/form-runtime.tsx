@@ -199,15 +199,31 @@ export function FormRuntime({
           }
         }}
       >
-        {currentPage.questions.map((q) => (
-          <QuestionField
-            key={q.id}
-            q={q}
-            response={response}
-            error={errorByQuestion.get(q.id) ?? null}
-            readOnly={readOnly || isReadOnly(q, response)}
-            onChange={(v) => setValue(q.id, v)}
-          />
+        {/* Sequential questions are packed into rows by their declared
+            width so authors can place "first name | last name" or a
+            three-up grid on a single line. Mobile collapses everything
+            to full-width below 640px (sm: breakpoint) so phone users
+            never operate cramped half-width inputs. */}
+        {packIntoRows(currentPage.questions).map((row, rowIdx) => (
+          <div
+            key={`row-${rowIdx}`}
+            className="flex flex-col gap-5 sm:flex-row sm:flex-wrap sm:gap-4"
+          >
+            {row.map((q) => (
+              <div
+                key={q.id}
+                className={`min-w-0 ${widthToClass(q.layout?.width)}`}
+              >
+                <QuestionField
+                  q={q}
+                  response={response}
+                  error={errorByQuestion.get(q.id) ?? null}
+                  readOnly={readOnly || isReadOnly(q, response)}
+                  onChange={(v) => setValue(q.id, v)}
+                />
+              </div>
+            ))}
+          </div>
         ))}
 
         {submitError ? (
@@ -903,6 +919,79 @@ function isReadOnly(q: Question, response: Response): boolean {
   if (q.readOnly === undefined || q.readOnly === false) return false;
   if (q.readOnly === true) return true;
   return Boolean(evaluate(q.readOnly as Expression, response));
+}
+
+/**
+ * Pack a list of questions into visual rows based on their declared
+ * widths. A `full` (or unspecified) width starts a new row by itself.
+ * Otherwise sequential questions are accumulated until their summed
+ * widths exceed 1, then the row breaks. Note rows are flat -- no
+ * recursive nesting -- so a row never contains a group; groups are
+ * always on their own row at full width.
+ */
+function packIntoRows(qs: Question[]): Question[][] {
+  const rows: Question[][] = [];
+  let current: Question[] = [];
+  let used = 0;
+  function flush() {
+    if (current.length > 0) rows.push(current);
+    current = [];
+    used = 0;
+  }
+  for (const q of qs) {
+    const isStandalone =
+      q.type === 'page' || q.type === 'group' || q.type === 'note';
+    const w = widthFraction(q.layout?.width);
+    if (isStandalone || w === 1) {
+      flush();
+      rows.push([q]);
+      continue;
+    }
+    if (used + w > 1) flush();
+    current.push(q);
+    used += w;
+  }
+  flush();
+  return rows;
+}
+
+function widthFraction(width: string | undefined): number {
+  switch (width) {
+    case 'half':
+      return 1 / 2;
+    case 'third':
+      return 1 / 3;
+    case 'two-thirds':
+      return 2 / 3;
+    case 'quarter':
+      return 1 / 4;
+    case 'three-quarters':
+      return 3 / 4;
+    case 'full':
+    default:
+      return 1;
+  }
+}
+
+function widthToClass(width: string | undefined): string {
+  // Tailwind: mobile collapses to w-full; sm: applies the fractional
+  // basis. We use `basis-` so flexbox does the wrapping inside the
+  // `flex-wrap` parent.
+  switch (width) {
+    case 'half':
+      return 'w-full sm:basis-[calc(50%-0.5rem)]';
+    case 'third':
+      return 'w-full sm:basis-[calc(33.333%-0.667rem)]';
+    case 'two-thirds':
+      return 'w-full sm:basis-[calc(66.666%-0.333rem)]';
+    case 'quarter':
+      return 'w-full sm:basis-[calc(25%-0.75rem)]';
+    case 'three-quarters':
+      return 'w-full sm:basis-[calc(75%-0.25rem)]';
+    case 'full':
+    default:
+      return 'w-full';
+  }
 }
 
 // Re-export for designer / runtime consumers.
