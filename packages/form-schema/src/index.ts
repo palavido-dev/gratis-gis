@@ -72,6 +72,7 @@ export const QUESTION_TYPES = [
   'name', // composite person name (first / middle / last / suffix / prefix)
   'address', // composite postal address
   'photo', // one or more image attachments
+  'file', // generic file upload (any MIME)
   'image-choice', // single/multi choice where each option is an image
   'image-display', // display-only image embed (no value captured)
   'image-hotspot', // click point(s) on a reference image
@@ -498,6 +499,28 @@ interface PhotoQuestion extends QuestionBase {
   maxBytes?: number;
 }
 
+/**
+ * Generic file upload. Accepts any MIME by default; the optional
+ * `accept` array narrows the picker (e.g. ['application/pdf']).
+ *
+ * Response shape: an array of attachment descriptors:
+ *   { name: string; mimeType: string; sizeBytes: number; dataUrl: string }
+ *
+ * Phase 1 stores the file as a data: URL inside the queued
+ * submission, which works for the offline outbox. Phase 2 uploads
+ * to MinIO and replaces the data URL with the object key.
+ */
+interface FileQuestion extends QuestionBase {
+  type: 'file';
+  /** Max attachments. Default 1. */
+  maxCount?: number;
+  /** Soft cap per file in bytes. */
+  maxBytes?: number;
+  /** Accept filter for the picker; matches the HTML `accept`
+   *  attribute (e.g. ".pdf,application/pdf"). */
+  accept?: string;
+}
+
 /** A choice-with-image. Same shape as Choice plus an imageUrl that
  *  the runtime renders as the visual face of the option. */
 export interface ImageChoice {
@@ -718,6 +741,7 @@ export type Question =
   | NameQuestion
   | AddressQuestion
   | PhotoQuestion
+  | FileQuestion
   | ImageChoiceQuestion
   | ImageDisplayQuestion
   | ImageHotspotQuestion
@@ -1440,6 +1464,29 @@ function validateType(q: Question, value: unknown): string | null {
         return `Up to ${q.maxCount} attachments allowed.`;
       }
       return null;
+    case 'file':
+      if (!Array.isArray(value)) return 'Expected one or more files.';
+      if (q.maxCount !== undefined && value.length > q.maxCount) {
+        return `Up to ${q.maxCount} files allowed.`;
+      }
+      for (const v of value) {
+        if (
+          typeof v !== 'object' ||
+          v === null ||
+          typeof (v as { name?: unknown }).name !== 'string' ||
+          typeof (v as { dataUrl?: unknown }).dataUrl !== 'string'
+        ) {
+          return 'File entry has an unexpected shape.';
+        }
+        if (
+          q.maxBytes !== undefined &&
+          typeof (v as { sizeBytes?: unknown }).sizeBytes === 'number' &&
+          (v as { sizeBytes: number }).sizeBytes > q.maxBytes
+        ) {
+          return `Files must be ${q.maxBytes} bytes or smaller.`;
+        }
+      }
+      return null;
     case 'image-choice': {
       const validValues = new Set(q.choices.map((c) => c.value));
       if (q.multi) {
@@ -1731,6 +1778,8 @@ export function defaultQuestion(type: QuestionType, id: QuestionId): Question {
       };
     case 'photo':
       return { ...base, type, maxCount: 1 };
+    case 'file':
+      return { ...base, type, maxCount: 1 };
     case 'image-choice':
       return {
         ...base,
@@ -1819,6 +1868,7 @@ function defaultLabel(type: QuestionType): string {
       name: 'Full name',
       address: 'Address',
       photo: 'Photo',
+      file: 'File',
       'image-choice': 'Image choice',
       'image-display': 'Image',
       'image-hotspot': 'Image hotspot',

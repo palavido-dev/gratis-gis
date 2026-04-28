@@ -31,18 +31,28 @@ needs because they share the geometry, offline, and Field-mode story.
 
 ## What we have today (schema v1)
 
-Twenty-one types in `packages/form-schema/src/index.ts`:
+The Phase-2 expansion landed in PRs #15..#22 and brings the catalog
+from 21 to 47 types in `packages/form-schema/src/index.ts`. The
+sections marked "shipped" all rendered, validated, designable, and
+mobile-friendly:
 
-  - Text: `text`, `multiline`
-  - Numeric: `number`, `integer`
-  - Boolean: `boolean`
-  - Choice: `select-one` (radio or dropdown), `select-many`
-  - Date / time: `date`, `time`, `datetime`
-  - Capture: `photo`, `signature`
-  - Geometry: `geopoint`, `geotrace`, `geoshape`
-  - Scales: `rating` (1-N stars), `slider`
-  - Computation: `calculated`
-  - Layout: `note`, `page`, `group` (with optional repeat)
+  - Text (shipped): `text`, `multiline`, `email`, `url`, `phone`,
+    `regex`
+  - Numeric (shipped): `number`, `integer`
+  - Boolean (shipped): `boolean`
+  - Choice (shipped): `select-one`, `select-many`, `ranking`
+  - Matrix (shipped): `matrix-single`, `matrix-multi`,
+    `matrix-dropdown`, `matrix-rating`
+  - Scales (shipped): `rating`, `likert`, `nps`, `slider`
+  - Date / time (shipped): `date`, `time`, `datetime`
+  - Identity (shipped): `name`, `address`
+  - Capture (shipped): `photo`, `file`, `signature`
+  - Geometry (shipped): `geopoint`, `geotrace`, `geoshape`
+  - Image-driven (shipped): `image-choice`, `image-display`,
+    `image-hotspot`
+  - Computation (shipped): `calculated`
+  - Utility (shipped): `note`, `divider`, `acknowledge`, `hidden`,
+    `page`, `group`
 
 Strengths: the JSON-only expression DSL, the `bindTo` link to data
 layer columns, and the offline outbox give us a foundation that the
@@ -337,6 +347,30 @@ already do this on schema-version mismatch.
 becomes unusable. Group the palette into the categories above (Text,
 Choice, Matrix, Scale, Date / time, Capture, Identity, Geometry,
 Display, Advanced) and add a search box.
+
+## What is left
+
+Three slices from the original ten are still pending. They are the
+ones with the heaviest infrastructure cost; we deferred them so the
+text / scale / matrix / identity / image work could land first.
+
+  - **Audio + video capture** (`audio`, `video`): MediaRecorder,
+    permissions UX, blob handling, server-side upload pipeline.
+    Useful enough to be its own slice.
+  - **Barcode scan** (`barcode`): browser BarcodeDetector +
+    polyfill on devices that don't support it. Useful to field
+    workflows but a deeper UX investment than the rest of slice 7.
+  - **Drawing / sketch** (`drawing`): Canvas2D capture, undo,
+    SVG + PNG dual-output. Useful for damage diagrams over a
+    silhouette.
+  - **GIS extras** (`pick-feature`, `route`, `area-buffer`): all
+    three need a runtime map embed and either a routing service
+    or a feature search. Best addressed alongside the data
+    collection Phase 1b runtime work (#141) where the Field-mode
+    map is already on the table.
+  - **Designer palette polish**: search box across the now-47-type
+    palette. Categories already shipped in slice 1 so the flat
+    list is no longer a problem; search is a nice-to-have.
 
 ## Suggested rollout order
 
