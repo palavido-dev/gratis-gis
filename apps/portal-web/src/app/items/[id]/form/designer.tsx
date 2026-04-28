@@ -15,6 +15,7 @@ import {
   Database,
   Download,
   Eye,
+  EyeOff,
   Grid3x3,
   GripVertical,
   Hash,
@@ -26,9 +27,11 @@ import {
   Loader2,
   Mail,
   MapPin,
+  Minus,
   Phone,
   Plus,
   Regex,
+  ShieldCheck,
   Save,
   Sliders,
   SplitSquareHorizontal,
@@ -649,6 +652,9 @@ const PALETTE: PaletteEntry[] = [
   { type: 'geoshape', label: 'Area', icon: Square, group: 'spatial' },
   { type: 'calculated', label: 'Calculated', icon: Calculator, group: 'logic' },
   { type: 'note', label: 'Note', icon: TextIcon, group: 'layout' },
+  { type: 'divider', label: 'Divider', icon: Minus, group: 'layout' },
+  { type: 'acknowledge', label: 'Acknowledge', icon: ShieldCheck, group: 'logic' },
+  { type: 'hidden', label: 'Hidden', icon: EyeOff, group: 'logic' },
   { type: 'page', label: 'Page break', icon: Workflow, group: 'layout' },
   { type: 'group', label: 'Group / Repeat', icon: ListChecks, group: 'layout' },
 ];
@@ -1554,6 +1560,69 @@ function Properties({
             disabled={!canEdit}
             onChange={(e) =>
               onChange({ maxPoints: Number(e.target.value) } as Partial<Question>)
+            }
+            className={inputCls}
+          />
+        </Field>
+      ) : null}
+
+      {question.type === 'divider' ? (
+        <Field label="Caption">
+          <input
+            type="text"
+            value={question.caption ?? ''}
+            disabled={!canEdit}
+            onChange={(e) =>
+              onChange({ caption: e.target.value || undefined } as Partial<Question>)
+            }
+            className={inputCls}
+          />
+        </Field>
+      ) : null}
+
+      {question.type === 'acknowledge' ? (
+        <>
+          <Field label="Body" hint="Long-form text shown above the checkbox.">
+            <textarea
+              rows={4}
+              value={question.body}
+              disabled={!canEdit}
+              onChange={(e) =>
+                onChange({ body: e.target.value } as Partial<Question>)
+              }
+              className={inputCls}
+            />
+          </Field>
+          <Field label="Agree label">
+            <input
+              type="text"
+              value={question.agreeLabel ?? ''}
+              disabled={!canEdit}
+              onChange={(e) =>
+                onChange({
+                  agreeLabel: e.target.value || undefined,
+                } as Partial<Question>)
+              }
+              className={inputCls}
+            />
+          </Field>
+        </>
+      ) : null}
+
+      {question.type === 'hidden' ? (
+        <Field label="Default value" hint="Used when prefill / calculate doesn't set a value.">
+          <input
+            type="text"
+            value={
+              question.defaultValue === null || question.defaultValue === undefined
+                ? ''
+                : String(question.defaultValue)
+            }
+            disabled={!canEdit}
+            onChange={(e) =>
+              onChange({
+                defaultValue: e.target.value === '' ? undefined : e.target.value,
+              } as Partial<Question>)
             }
             className={inputCls}
           />

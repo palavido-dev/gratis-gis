@@ -85,6 +85,9 @@ export const QUESTION_TYPES = [
   'slider', // numeric range slider
   'calculated', // read-only, derived from `calculate` expression
   'note', // display-only static text (no value captured)
+  'divider', // thin visual separator with optional caption
+  'acknowledge', // display long-form text + required "I agree" checkbox
+  'hidden', // not rendered; value via prefill / calculate
   'page', // page break (for paged surveys)
   'group', // logical grouping with optional repeat (see `repeat`)
 ] as const;
@@ -631,6 +634,43 @@ interface NoteQuestion extends QuestionBase {
   appearance?: 'plain' | 'markdown';
 }
 
+/** A thin visual separator. No value captured. The optional
+ *  `caption` is shown above the rule. */
+interface DividerQuestion extends QuestionBase {
+  type: 'divider';
+  caption?: string;
+}
+
+/**
+ * Long-form text plus a required acknowledgement checkbox. When the
+ * respondent checks the box the runtime stamps an ISO timestamp so
+ * the system has an audit trail of when consent was given.
+ *
+ * Response shape: `{ acknowledged: boolean, at?: string }`.
+ */
+interface AcknowledgeQuestion extends QuestionBase {
+  type: 'acknowledge';
+  /** Body text shown above the checkbox. Markdown-lite is rendered
+   *  the same way as `note.appearance === 'markdown'`. */
+  body: string;
+  appearance?: 'plain' | 'markdown';
+  /** Label next to the checkbox. Default: "I have read and agree". */
+  agreeLabel?: string;
+}
+
+/**
+ * Hidden field. Never rendered. Value comes from URL prefill, a
+ * `calculated` expression, or some other surface (e.g. a campaign
+ * tracking id seeded by the page). The runtime preserves the
+ * captured value across submissions so analytics can stitch the
+ * record together.
+ */
+interface HiddenQuestion extends QuestionBase {
+  type: 'hidden';
+  /** Default value. Used when no prefill or calculate hits. */
+  defaultValue?: string | number | boolean | null;
+}
+
 interface PageQuestion extends QuestionBase {
   type: 'page';
   /** Page header text (overrides `label` when present). */
@@ -691,6 +731,9 @@ export type Question =
   | SliderQuestion
   | CalculatedQuestion
   | NoteQuestion
+  | DividerQuestion
+  | AcknowledgeQuestion
+  | HiddenQuestion
   | PageQuestion
   | GroupQuestion;
 
@@ -1030,6 +1073,7 @@ export function validate(form: FormSchema, response: Response): ValidationResult
       q.type === 'page' ||
       q.type === 'note' ||
       q.type === 'group' ||
+      q.type === 'divider' ||
       q.type === 'image-display'
     ) {
       continue;
@@ -1421,6 +1465,16 @@ function validateType(q: Question, value: unknown): string | null {
     case 'image-display':
       // Display-only: no captured value to validate.
       return null;
+    case 'acknowledge': {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return 'Please acknowledge to continue.';
+      }
+      const v = (value as { acknowledged?: unknown }).acknowledged;
+      if (v !== true) return 'Please acknowledge to continue.';
+      return null;
+    }
+    case 'hidden':
+      return null;
     case 'image-hotspot': {
       if (!Array.isArray(value)) return 'Expected one or more points.';
       const max = q.maxPoints ?? 1;
@@ -1511,6 +1565,7 @@ export function pruneHidden(form: FormSchema, response: Response): Response {
       q.type === 'page' ||
       q.type === 'note' ||
       q.type === 'group' ||
+      q.type === 'divider' ||
       q.type === 'image-display'
     ) {
       continue;
@@ -1722,6 +1777,16 @@ export function defaultQuestion(type: QuestionType, id: QuestionId): Question {
       };
     case 'note':
       return { ...base, type, appearance: 'plain' };
+    case 'divider':
+      return { ...base, type, label: '' };
+    case 'acknowledge':
+      return {
+        ...base,
+        type,
+        body: 'Please read the terms and check the box to continue.',
+      };
+    case 'hidden':
+      return { ...base, type };
     case 'page':
       return { ...base, type, label: 'Page break' };
     case 'group':
@@ -1767,6 +1832,9 @@ function defaultLabel(type: QuestionType): string {
       slider: 'Slider',
       calculated: 'Calculated',
       note: 'Note',
+      divider: 'Divider',
+      acknowledge: 'Acknowledge',
+      hidden: 'Hidden',
       page: 'New page',
       group: 'Group',
     } satisfies Record<QuestionType, string>

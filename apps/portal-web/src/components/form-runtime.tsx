@@ -295,12 +295,19 @@ function QuestionField({
   if (!isVisible(q, response)) return null;
 
   if (q.type === 'page') return null;
+  if (q.type === 'hidden') return null;
   if (q.type === 'note') {
     return (
       <div className="rounded-md border border-border bg-surface-2/40 px-3 py-2 text-sm text-ink-1">
         {q.label}
       </div>
     );
+  }
+  if (q.type === 'divider') {
+    return <Input q={q} value={null} readOnly={readOnly} onChange={onChange} />;
+  }
+  if (q.type === 'image-display') {
+    return <Input q={q} value={null} readOnly={readOnly} onChange={onChange} />;
   }
   if (q.type === 'group') {
     return <GroupField q={q} response={response} error={error} readOnly={readOnly} onChange={onChange} />;
@@ -922,7 +929,28 @@ function Input({
     case 'note':
     case 'page':
     case 'group':
+    case 'hidden':
       return null;
+    case 'divider':
+      return (
+        <div className="my-1">
+          {q.caption ? (
+            <p className="mb-1 text-[11px] uppercase tracking-wide text-muted">
+              {q.caption}
+            </p>
+          ) : null}
+          <hr className="border-border" />
+        </div>
+      );
+    case 'acknowledge':
+      return (
+        <AcknowledgeInput
+          q={q}
+          value={value}
+          readOnly={readOnly}
+          onChange={onChange}
+        />
+      );
   }
 }
 
@@ -999,6 +1027,67 @@ function PhotoInput({
  * select per `q.multi`. The whole tile is the click target so
  * touch users don't have to hit a small radio.
  */
+/**
+ * Acknowledgement: long-form text plus a required checkbox. When
+ * the user checks the box the runtime stamps an ISO timestamp into
+ * the response so the system has an audit trail of when consent
+ * was given. Unchecking clears the timestamp.
+ */
+function AcknowledgeInput({
+  q,
+  value,
+  readOnly,
+  onChange,
+}: {
+  q: Extract<Question, { type: 'acknowledge' }>;
+  value: unknown;
+  readOnly: boolean;
+  onChange: (v: unknown) => void;
+}) {
+  const checked =
+    typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? Boolean((value as { acknowledged?: unknown }).acknowledged)
+      : false;
+  const at =
+    typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? (value as { at?: unknown }).at
+      : undefined;
+
+  function set(nextChecked: boolean) {
+    if (readOnly) return;
+    if (nextChecked) {
+      onChange({ acknowledged: true, at: new Date().toISOString() });
+    } else {
+      onChange({ acknowledged: false });
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="rounded-md border border-border bg-surface-2/30 p-3 text-sm text-ink-1 whitespace-pre-line">
+        {q.body}
+      </div>
+      <label className="flex items-start gap-2 rounded-md border border-border bg-surface-1 p-3 text-sm">
+        <input
+          type="checkbox"
+          checked={checked}
+          disabled={readOnly}
+          onChange={(e) => set(e.target.checked)}
+          className="mt-0.5"
+        />
+        <span>
+          <span>{q.agreeLabel ?? 'I have read and agree.'}</span>
+          {checked && typeof at === 'string' ? (
+            <span className="ml-2 text-[11px] text-muted">
+              ({new Date(at).toLocaleString()})
+            </span>
+          ) : null}
+        </span>
+      </label>
+    </div>
+  );
+}
+
 function ImageChoiceInput({
   q,
   value,
@@ -2133,7 +2222,10 @@ function packIntoRows(qs: Question[]): Question[][] {
       q.type === 'name' ||
       q.type === 'address' ||
       q.type === 'image-display' ||
-      q.type === 'image-hotspot';
+      q.type === 'image-hotspot' ||
+      q.type === 'divider' ||
+      q.type === 'acknowledge' ||
+      q.type === 'hidden';
     const w = widthFraction(q.layout?.width);
     if (isStandalone || w === 1) {
       flush();
