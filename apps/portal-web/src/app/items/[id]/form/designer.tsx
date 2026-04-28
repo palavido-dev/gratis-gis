@@ -70,7 +70,7 @@ import {
   type QuestionType,
 } from '@gratis-gis/form-schema';
 import { useConfirm } from '@/components/dialog-provider';
-import { FormRuntime } from '@/components/form-runtime';
+import { FormRuntime, QuestionPreview } from '@/components/form-runtime';
 
 interface Props {
   itemId: string;
@@ -443,12 +443,16 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
         </div>
       ) : (
         <div className="border-t border-border bg-surface-0">
+          {/* Preview is interactive: the author should be able to
+              click radios, fill in fields, add repeat instances, hit
+              the page-break Next button, and see conditional logic
+              fire. onSubmit is a no-op so dummy data never lands
+              anywhere. */}
           <FormRuntime
             form={form}
             onSubmit={async () => {
               /* preview discards submission */
             }}
-            readOnly
           />
         </div>
       )}
@@ -1042,6 +1046,16 @@ function QuestionRow({
             </p>
             <p className="text-sm font-medium text-ink-0">{q.label}</p>
             {q.hint ? <p className="text-xs text-muted">{q.hint}</p> : null}
+            {/* Inline preview of the question's input UI. Renders
+                the same component the runtime would, wrapped in a
+                pointer-events-none div so clicks still hit the
+                row's selection handler. Authors see what their
+                form looks like without flipping to Preview. */}
+            {q.type !== 'group' && q.type !== 'page' && q.type !== 'hidden' ? (
+              <div className="mt-2">
+                <QuestionPreview q={q} />
+              </div>
+            ) : null}
           </div>
           {canEdit ? (
             <button
