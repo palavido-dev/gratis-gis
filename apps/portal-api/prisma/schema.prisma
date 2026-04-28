@@ -60,6 +60,49 @@ enum ShareRowScope {
   own
 }
 
+/// Notification type registry. Each kind drives a distinct subject /
+/// body template + per-user opt-out preference. Add new kinds as
+/// new triggers ship; the worker treats unknown kinds as a no-op
+/// rather than failing so a forward-rolled deploy that adds a kind
+/// doesn't break older workers mid-flight.
+enum NotificationType {
+  /// A user or group share row was just created on an item the
+  /// recipient can now see. Phase 1 trigger.
+  share_created            @map("share-created")
+  /// A share's expiresAt is within the warning window and the
+  /// recipient still needs the access. Phase 2 trigger.
+  share_expiring           @map("share-expiring")
+  /// A share has expired and the recipient lost access. Phase 2
+  /// trigger.
+  share_expired            @map("share-expired")
+  /// A user is approaching auto-disable for inactivity. Phase 2
+  /// trigger.
+  user_auto_disable_warning @map("user-auto-disable-warning")
+  /// A user was just auto-disabled. Phase 2 trigger.
+  user_disabled            @map("user-disabled")
+  /// An editor target had a feature added. Phase 2 trigger
+  /// (replaces the original Survey123-gap ask).
+  editor_feature_created   @map("editor-feature-created")
+}
+
+/// Channel a notification is delivered through. Phase 1 ships email
+/// only; webhook + in-app are placeholders so Phase 3 can extend
+/// the preference table without a follow-up enum migration.
+enum NotificationChannel {
+  email
+}
+
+/// Lifecycle of an enqueued Notification row. Workers move rows
+/// through queued -> sending -> sent / failed. Failed rows are
+/// retried up to a cap with exponential backoff; after the cap
+/// they stay in `failed` for admins to inspect.
+enum NotificationStatus {
+  queued
+  sending
+  sent
+  failed
+}
+
 enum ItemType {
   map
   data_layer                 @map("data-layer")
@@ -140,6 +183,8 @@ model User {
   groupMembers  GroupMember[]
   ownedItems    Item[]        @relation("ItemOwner")
   capabilityOverrides UserCapabilityOverride[]
+  notifications  Notification[]
+  notificationPrefs NotificationPreference[]
 
   @@index([orgId])
   @@map("user")
@@ -621,5 +666,74 @@ model FeatureAttachment {
 
   @@index([itemId, layerId, featureId])
   @@map("feature_attachment")
+}
+
+/// Per-(user, type) opt-in / opt-out for notification delivery.
+/// Absence of a row means "use the default" defined in code per
+/// type — most types default to enabled. The settings UI writes a
+/// row only when the user diverges from the default, which keeps
+/// the table small even at scale (a 100-user portal with two
+/// adjusted prefs each is 200 rows, not 100 * NotificationType
+/// rows).
+model NotificationPreference {
+  userId  String              @map("user_id") @db.Uuid
+  type    NotificationType
+  channel NotificationChannel
+  enabled Boolean             @default(true)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, type, channel])
+  @@map("notification_preference")
+}
+
+/// Queued notification waiting to be delivered (or already delivered
+/// / failed). The worker drains rows in `queued` status, marks them
+/// `sending` while they're in flight, then moves them to `sent` on
+/// success or `failed` after the retry cap.
+///
+/// Retained even after `sent` for an audit window so admins can
+/// answer "did the share-created email actually go out" without a
+/// log dive. A separate periodic prune (Phase 2) trims rows older
+/// than the configured retention.
+model Notification {
+  id          String              @id @default(uuid()) @db.Uuid
+  userId      String              @map("user_id") @db.Uuid
+  type        NotificationType
+  /// Free-form payload the template renderer reads to produce the
+  /// subject + body. Shape per `type` is documented in
+  /// notifications/templates.ts; the schema deliberately does not
+  /// validate it so we can extend payload shapes without a
+  /// migration each time.
+  payload     Json
+  channel     NotificationChannel
+  /// Resolved delivery address (email at send-time). Captured at
+  /// enqueue rather than read live from the user's profile so a
+  /// user changing their email after enqueue but before send still
+  /// gets the message at the address that was current when the
+  /// trigger fired.
+  address     String
+  status      NotificationStatus  @default(queued)
+  attempts    Int                 @default(0)
+  /// Last error message from a failed send attempt. Truncated to
+  /// 1KB at the application layer; not enforced in schema since
+  /// some Postgres SMTP errors carry more context that's still
+  /// useful in the admin diagnostics view.
+  lastError   String?             @map("last_error")
+  scheduledAt DateTime            @default(now()) @map("scheduled_at")
+  sentAt      DateTime?           @map("sent_at")
+  createdAt   DateTime            @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Worker-side index: the only query that runs hot is "next
+  /// queued row whose scheduledAt has elapsed", which this index
+  /// covers cheaply. Status + scheduledAt order matches a
+  /// covering scan against the smaller `queued` slice.
+  @@index([status, scheduledAt])
+  /// Admin-side index: "show me everything we sent to user X" for
+  /// the per-user notification log Phase 2 will surface.
+  @@index([userId])
+  @@map("notification")
 }
 
