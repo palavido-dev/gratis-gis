@@ -120,6 +120,41 @@ export function extractDependencies(
     }
   }
 
+  if (item.type === 'form') {
+    // A form item references:
+    //   - data.linkedLayerId            -> the data_layer the form is
+    //                                       bound to (where submissions
+    //                                       land for the Field-mode
+    //                                       runtime).
+    //   - question.bindTo.layerItemId   -> a separate data_layer item
+    //                                       targeted by a repeating
+    //                                       group (cross-item related
+    //                                       table). bindTo.layerKey is
+    //                                       a sublayer KEY inside the
+    //                                       form's already-linked
+    //                                       layer item, so it doesn't
+    //                                       contribute a new ref.
+    //   - question.pickListId           -> a pick_list item whose
+    //                                       entries populate the
+    //                                       choices. Same field exists
+    //                                       on individual choices via
+    //                                       choice.pickListId; keep
+    //                                       both paths.
+    // Tracking these surfaces the bound layer in the form's "Depends
+    // on" panel and the form in each layer's / pick list's "Used by".
+    const linked = (data as { linkedLayerId?: unknown }).linkedLayerId;
+    if (typeof linked === 'string' && linked.length > 0) itemIds.add(linked);
+
+    const questions = Array.isArray(
+      (data as { questions?: unknown }).questions,
+    )
+      ? ((data as { questions: unknown[] }).questions as Array<
+          Record<string, unknown>
+        >)
+      : [];
+    walkQuestionRefs(questions, itemIds);
+  }
+
   if (item.type === 'data_layer') {
     // v3 multi-layer: walk each layer's fields and collect pick-list
     // refs (domain type === 'coded-value-ref'). v1/v2 items store
@@ -182,11 +217,74 @@ export function normalizeArcgisUrl(u: string): string {
   return s.toLowerCase();
 }
 
-/** Item types that can reference other items. If we expand this,
- *  update the service's dependents scan to include the new types. */
+/**
+ * Recursively walk a form's question tree, collecting referenced
+ * item ids. Pulls bindTo.layerItemId (cross-item related-table
+ * targets) and pickListId (both per-question and per-choice). The
+ * form's top-level linkedLayerId is added by the caller; this
+ * helper handles only what's nested in the questions.
+ *
+ * The form schema lives in @gratis-gis/form-schema but the API can't
+ * cleanly import it (the package builds for the browser). We treat
+ * the tree as untyped JSON and access fields defensively, which
+ * matches the rest of this file.
+ */
+function walkQuestionRefs(
+  questions: Array<Record<string, unknown>>,
+  out: Set<string>,
+): void {
+  for (const q of questions) {
+    if (!q || typeof q !== 'object') continue;
+    const bindTo = q.bindTo as Record<string, unknown> | undefined;
+    if (bindTo) {
+      const layerItemId = bindTo.layerItemId;
+      if (typeof layerItemId === 'string' && layerItemId.length > 0) {
+        out.add(layerItemId);
+      }
+    }
+    const pickListId = q.pickListId;
+    if (typeof pickListId === 'string' && pickListId.length > 0) {
+      out.add(pickListId);
+    }
+    const choices = q.choices as Array<Record<string, unknown>> | undefined;
+    if (Array.isArray(choices)) {
+      for (const c of choices) {
+        const cpid = c?.pickListId;
+        if (typeof cpid === 'string' && cpid.length > 0) out.add(cpid);
+      }
+    }
+    // matrix-dropdown carries per-column choices
+    const columns = q.columns as Array<Record<string, unknown>> | undefined;
+    if (Array.isArray(columns)) {
+      for (const col of columns) {
+        const colChoices = col?.choices as
+          | Array<Record<string, unknown>>
+          | undefined;
+        if (Array.isArray(colChoices)) {
+          for (const c of colChoices) {
+            const cpid = c?.pickListId;
+            if (typeof cpid === 'string' && cpid.length > 0) out.add(cpid);
+          }
+        }
+      }
+    }
+    // Recurse into group children.
+    const children = q.children as
+      | Array<Record<string, unknown>>
+      | undefined;
+    if (Array.isArray(children)) walkQuestionRefs(children, out);
+  }
+}
+
+/** Item types that can reference other items. The service uses this
+ *  list to drive reverse-index scans -- e.g. when computing a
+ *  data_layer's "Used by" panel, only items of these types are
+ *  searched for forward refs. If we expand this, update the
+ *  service's dependents scan to include the new types. */
 export const REFERENCER_TYPES: ItemType[] = [
   'map',
   'data_layer',
   'folder',
   'editor',
+  'form',
 ];
