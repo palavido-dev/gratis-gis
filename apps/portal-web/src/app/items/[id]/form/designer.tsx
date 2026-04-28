@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlignLeft,
+  BarChart3,
   Calculator,
   Calendar,
   CalendarClock,
@@ -624,6 +625,8 @@ const PALETTE: PaletteEntry[] = [
   { type: 'matrix-rating', label: 'Matrix (rating)', icon: Grid3x3, group: 'matrix' },
   { type: 'ranking', label: 'Ranking', icon: ListOrdered, group: 'choice' },
   { type: 'rating', label: 'Rating', icon: Star, group: 'scale' },
+  { type: 'likert', label: 'Likert', icon: Sliders, group: 'scale' },
+  { type: 'nps', label: 'NPS (0-10)', icon: BarChart3, group: 'scale' },
   { type: 'slider', label: 'Slider', icon: Sliders, group: 'scale' },
   { type: 'date', label: 'Date', icon: Calendar, group: 'time' },
   { type: 'time', label: 'Time', icon: Clock, group: 'time' },
@@ -1408,6 +1411,73 @@ function Properties({
           canEdit={canEdit}
           onChange={(repeat) => onChange({ repeat } as Partial<Question>)}
         />
+      ) : null}
+
+      {question.type === 'likert' ? (
+        <>
+          <Field label="Number of points" hint="Common: 5 (default) or 7.">
+            <input
+              type="number"
+              min={2}
+              max={10}
+              value={question.points ?? 5}
+              disabled={!canEdit}
+              onChange={(e) =>
+                onChange({ points: Number(e.target.value) } as Partial<Question>)
+              }
+              className={inputCls}
+            />
+          </Field>
+          <div className="mb-2 grid grid-cols-2 gap-2">
+            <Field label="Left label">
+              <input
+                type="text"
+                value={question.leftLabel ?? ''}
+                disabled={!canEdit}
+                onChange={(e) =>
+                  onChange({ leftLabel: e.target.value || undefined } as Partial<Question>)
+                }
+                className={inputCls}
+              />
+            </Field>
+            <Field label="Right label">
+              <input
+                type="text"
+                value={question.rightLabel ?? ''}
+                disabled={!canEdit}
+                onChange={(e) =>
+                  onChange({ rightLabel: e.target.value || undefined } as Partial<Question>)
+                }
+                className={inputCls}
+              />
+            </Field>
+          </div>
+          <Field label="Center label" hint="Optional middle anchor (e.g. Neutral).">
+            <input
+              type="text"
+              value={question.centerLabel ?? ''}
+              disabled={!canEdit}
+              onChange={(e) =>
+                onChange({ centerLabel: e.target.value || undefined } as Partial<Question>)
+              }
+              className={inputCls}
+            />
+          </Field>
+        </>
+      ) : null}
+
+      {question.type === 'nps' ? (
+        <Field label="Caption" hint='e.g. "How likely are you to recommend us?"'>
+          <input
+            type="text"
+            value={question.caption ?? ''}
+            disabled={!canEdit}
+            onChange={(e) =>
+              onChange({ caption: e.target.value || undefined } as Partial<Question>)
+            }
+            className={inputCls}
+          />
+        </Field>
       ) : null}
 
       <details className="mt-3 rounded-md border border-border bg-surface-1 p-2 text-xs">

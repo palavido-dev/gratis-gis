@@ -790,6 +790,80 @@ function Input({
         </div>
       );
     }
+    case 'likert': {
+      const points = q.points ?? 5;
+      const cur = typeof value === 'number' ? value : 0;
+      return (
+        <div>
+          <div
+            className="grid items-center gap-1 rounded-md border border-border bg-surface-1 p-2"
+            style={{ gridTemplateColumns: `repeat(${points}, 1fr)` }}
+          >
+            {Array.from({ length: points }, (_, i) => i + 1).map((n) => (
+              <button
+                type="button"
+                key={n}
+                disabled={readOnly}
+                onClick={() => onChange(n)}
+                className={`flex h-11 items-center justify-center rounded-md border text-sm tabular-nums ${
+                  cur === n
+                    ? 'border-accent bg-accent/10 text-accent font-medium'
+                    : 'border-border bg-surface-1 hover:bg-surface-2'
+                }`}
+                aria-label={`Point ${n} of ${points}`}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+          <div className="mt-1 flex items-center justify-between text-[11px] text-muted">
+            <span>{q.leftLabel ?? ''}</span>
+            {q.centerLabel ? <span>{q.centerLabel}</span> : null}
+            <span>{q.rightLabel ?? ''}</span>
+          </div>
+        </div>
+      );
+    }
+    case 'nps': {
+      const cur = typeof value === 'number' ? value : -1;
+      // NPS scoring: 0..6 detractor (red), 7..8 passive (amber),
+      // 9..10 promoter (green). The fill colors track those bands so
+      // the respondent's choice maps visually to the score they're
+      // giving.
+      function bandClass(n: number, selected: boolean): string {
+        if (!selected) {
+          return 'border-border bg-surface-1 hover:bg-surface-2 text-ink-1';
+        }
+        if (n <= 6) return 'border-danger bg-danger/15 text-danger font-medium';
+        if (n <= 8) return 'border-warning bg-warning/15 text-warning font-medium';
+        return 'border-success bg-success/15 text-success font-medium';
+      }
+      return (
+        <div>
+          {q.caption ? (
+            <p className="mb-1 text-xs text-muted">{q.caption}</p>
+          ) : null}
+          <div className="grid grid-cols-11 gap-1">
+            {Array.from({ length: 11 }, (_, n) => (
+              <button
+                type="button"
+                key={n}
+                disabled={readOnly}
+                onClick={() => onChange(n)}
+                className={`flex h-10 items-center justify-center rounded-md border text-sm tabular-nums ${bandClass(n, cur === n)}`}
+                aria-label={`${n}`}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+          <div className="mt-1 flex justify-between text-[11px] text-muted">
+            <span>Not at all likely</span>
+            <span>Extremely likely</span>
+          </div>
+        </div>
+      );
+    }
     case 'slider': {
       const cur = typeof value === 'number' ? value : q.min;
       return (
@@ -1671,7 +1745,9 @@ function packIntoRows(qs: Question[]): Question[][] {
       q.type === 'matrix-multi' ||
       q.type === 'matrix-dropdown' ||
       q.type === 'matrix-rating' ||
-      q.type === 'ranking';
+      q.type === 'ranking' ||
+      q.type === 'likert' ||
+      q.type === 'nps';
     const w = widthFraction(q.layout?.width);
     if (isStandalone || w === 1) {
       flush();
