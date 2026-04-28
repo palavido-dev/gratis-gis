@@ -10,7 +10,11 @@ import { withAuth } from 'next-auth/middleware';
 
 export default withAuth({
   pages: {
-    signIn: '/api/auth/signin',
+    // Mirror authOptions.pages.signIn so middleware redirects skip
+    // the default provider picker and go straight to /signin, which
+    // immediately calls signIn('keycloak'). One provider == one less
+    // click for the user.
+    signIn: '/signin',
   },
 });
 

@@ -144,7 +144,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
               />
             ) : (
               <Link
-                href="/api/auth/signin"
+                href="/signin"
                 className="inline-flex h-9 items-center rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground hover:opacity-90"
               >
                 Sign in
