@@ -12,6 +12,7 @@ import { KeycloakAdminService } from './keycloak-admin.service.js';
 import { V3TablesModule } from '../features-v3/v3-tables.module.js';
 import { ItemsModule } from '../items/items.module.js';
 import { NotificationsModule } from '../notifications/notifications.module.js';
+import { NotificationsAdminController } from '../notifications/admin.controller.js';
 
 /**
  * Wires the admin surfaces: Keycloak integration (users +
@@ -32,6 +33,7 @@ import { NotificationsModule } from '../notifications/notifications.module.js';
     AdminBrandingController,
     AdminCapabilitiesController,
     HousekeepingController,
+    NotificationsAdminController,
   ],
   providers: [
     KeycloakAdminService,

@@ -112,6 +112,12 @@ export async function AppShell({ children }: { children: ReactNode }) {
               >
                 Housekeeping
               </NavLink>
+              <NavLink
+                href="/admin/notifications"
+                icon={<Bell className="h-4 w-4" />}
+              >
+                Notifications
+              </NavLink>
             </>
           ) : null}
         </nav>
