@@ -170,4 +170,4 @@ main()
     console.error(e);
     process.exit(1);
   })
-  .finally(() => prisma.$dis
+  .finally(() => prisma.$disconnect());

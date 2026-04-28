@@ -9,7 +9,7 @@
   "editUsernameAllowed": false,
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
-  "sslRequired": "external",
+  "sslRequired": "NONE",
   "accessTokenLifespan": 300,
   "ssoSessionIdleTimeout": 3600,
   "ssoSessionMaxLifespan": 36000,
@@ -24,8 +24,12 @@
       "publicClient": true,
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
-      "redirectUris": ["http://localhost:3000/*"],
-      "webOrigins": ["http://localhost:3000"],
+      "redirectUris": [
+        "http://localhost:3000/*"
+      ],
+      "webOrigins": [
+        "http://localhost:3000"
+      ],
       "attributes": {
         "pkce.code.challenge.method": "S256"
       },
@@ -128,9 +132,18 @@
   ],
   "roles": {
     "realm": [
-      { "name": "viewer", "description": "Can view shared items" },
-      { "name": "contributor", "description": "Can create and share items" },
-      { "name": "admin", "description": "Organization administrator" }
+      {
+        "name": "viewer",
+        "description": "Can view shared items"
+      },
+      {
+        "name": "contributor",
+        "description": "Can create and share items"
+      },
+      {
+        "name": "admin",
+        "description": "Organization administrator"
+      }
     ]
   },
   "users": [
@@ -138,14 +151,26 @@
       "username": "mateo",
       "email": "mateo@acme.test",
       "firstName": "Mateo",
-      "lastName": "García",
+      "lastName": "Garc\u00eda",
       "enabled": true,
       "emailVerified": true,
-      "credentials": [{ "type": "password", "value": "devpassword", "temporary": false }],
-      "realmRoles": ["contributor"],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "devpassword",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "contributor"
+      ],
       "attributes": {
-        "org": ["acme"],
-        "org_role": ["contributor"]
+        "org": [
+          "acme"
+        ],
+        "org_role": [
+          "contributor"
+        ]
       }
     },
     {
@@ -155,11 +180,33 @@
       "lastName": "Example",
       "enabled": true,
       "emailVerified": true,
-      "credentials": [{ "type": "password", "value": "devpassword", "temporary": false }],
-      "realmRoles": ["admin"],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "devpassword",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "admin"
+      ],
       "attributes": {
-        "org": ["acme"],
-        "org_role": ["admin"]
+        "org": [
+          "acme"
+        ],
+        "org_role": [
+          "admin"
+        ]
+      }
+    },
+    {
+      "username": "service-account-portal-api-admin",
+      "enabled": true,
+      "serviceAccountClientId": "portal-api-admin",
+      "clientRoles": {
+        "realm-management": [
+          "manage-users"
+        ]
       }
     }
   ]
