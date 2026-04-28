@@ -52,6 +52,10 @@ export const CURRENT_FORM_SCHEMA_VERSION: FormSchemaVersion = 1;
 export const QUESTION_TYPES = [
   'text', // single-line free text
   'multiline', // multi-line free text (textarea)
+  'email', // text + email validation + email keyboard
+  'url', // text + URL validation + URL keyboard
+  'phone', // text + tel keyboard + light phone validation
+  'regex', // text + author-supplied regex pattern
   'number', // free decimal
   'integer', // whole number
   'boolean', // yes/no toggle
@@ -203,6 +207,42 @@ interface MultilineQuestion extends QuestionBase {
   maxLength?: number;
   /** Suggested rows. UI may grow as the user types. */
   rows?: number;
+}
+
+interface EmailQuestion extends QuestionBase {
+  type: 'email';
+  placeholder?: string;
+  maxLength?: number;
+}
+
+interface UrlQuestion extends QuestionBase {
+  type: 'url';
+  placeholder?: string;
+  maxLength?: number;
+  /** Restrict to specific protocols, e.g. ['http', 'https']. When
+   *  omitted any URL.parse-able value is accepted. */
+  allowedProtocols?: string[];
+}
+
+interface PhoneQuestion extends QuestionBase {
+  type: 'phone';
+  placeholder?: string;
+  /** ISO 3166 country hint for the renderer (used to default the
+   *  country code prefix). Validation stays light: digits + a few
+   *  punctuation chars + length sanity check. */
+  defaultCountry?: string;
+}
+
+interface RegexQuestion extends QuestionBase {
+  type: 'regex';
+  placeholder?: string;
+  /** Author-supplied regex pattern. The runtime anchors it when
+   *  validating (^...$). Required for a useful regex question. */
+  pattern: string;
+  /** Optional flags ("i", "u", etc.). The runtime defaults to no
+   *  flags. */
+  flags?: string;
+  maxLength?: number;
 }
 
 interface NumberQuestion extends QuestionBase {
@@ -483,6 +523,10 @@ interface GroupQuestion extends QuestionBase {
 export type Question =
   | TextQuestion
   | MultilineQuestion
+  | EmailQuestion
+  | UrlQuestion
+  | PhoneQuestion
+  | RegexQuestion
   | NumberQuestion
   | IntegerQuestion
   | BooleanQuestion
@@ -915,6 +959,66 @@ function validateType(q: Question, value: unknown): string | null {
       }
       return null;
     }
+    case 'email': {
+      if (typeof value !== 'string') return 'Expected text.';
+      if (q.maxLength && value.length > q.maxLength) {
+        return `Must be ${q.maxLength} characters or fewer.`;
+      }
+      // Pragmatic email check (RFC 5322 lite). We accept anything
+      // with one @, a non-empty local part, and a domain that has at
+      // least one dot. The full RFC grammar is famously over-broad
+      // and rejects almost no real addresses; this catches typos.
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+        return 'Enter a valid email address.';
+      }
+      return null;
+    }
+    case 'url': {
+      if (typeof value !== 'string') return 'Expected text.';
+      if (q.maxLength && value.length > q.maxLength) {
+        return `Must be ${q.maxLength} characters or fewer.`;
+      }
+      let parsed: URL | null = null;
+      try {
+        parsed = new URL(value);
+      } catch {
+        return 'Enter a valid URL.';
+      }
+      if (q.allowedProtocols && q.allowedProtocols.length > 0) {
+        const proto = parsed.protocol.replace(/:$/, '');
+        if (!q.allowedProtocols.includes(proto)) {
+          return `URL must use ${q.allowedProtocols.join(' or ')}.`;
+        }
+      }
+      return null;
+    }
+    case 'phone': {
+      if (typeof value !== 'string') return 'Expected text.';
+      // Strip allowed punctuation; what's left should be digits with
+      // optional leading +. Length sanity: 7..16 digits is the
+      // ITU-T E.164 envelope minus a small slack for short codes.
+      const cleaned = value.replace(/[\s().-]/g, '');
+      if (!/^\+?\d{7,16}$/.test(cleaned)) {
+        return 'Enter a valid phone number.';
+      }
+      return null;
+    }
+    case 'regex': {
+      if (typeof value !== 'string') return 'Expected text.';
+      if (q.maxLength && value.length > q.maxLength) {
+        return `Must be ${q.maxLength} characters or fewer.`;
+      }
+      let re: RegExp;
+      try {
+        re = new RegExp(`^(?:${q.pattern})$`, q.flags ?? '');
+      } catch {
+        // A bad pattern is a designer error; pass validation rather
+        // than block the respondent on something they can't fix.
+        return null;
+      }
+      if (!re.test(value)) return q.message ?? 'Does not match the required format.';
+      return null;
+    }
     case 'number':
     case 'integer': {
       const n = typeof value === 'number' ? value : Number(value);
@@ -1160,6 +1264,14 @@ export function defaultQuestion(type: QuestionType, id: QuestionId): Question {
       return { ...base, type };
     case 'multiline':
       return { ...base, type, rows: 3 };
+    case 'email':
+      return { ...base, type };
+    case 'url':
+      return { ...base, type };
+    case 'phone':
+      return { ...base, type };
+    case 'regex':
+      return { ...base, type, pattern: '.+' };
     case 'number':
       return { ...base, type };
     case 'integer':
@@ -1311,6 +1423,10 @@ function defaultLabel(type: QuestionType): string {
     {
       text: 'Short text',
       multiline: 'Long text',
+      email: 'Email',
+      url: 'URL',
+      phone: 'Phone',
+      regex: 'Pattern',
       number: 'Number',
       integer: 'Whole number',
       boolean: 'Yes / No',

@@ -16,11 +16,15 @@ import {
   Grid3x3,
   GripVertical,
   Hash,
+  Link,
   ListOrdered,
   ListChecks,
   Loader2,
+  Mail,
   MapPin,
+  Phone,
   Plus,
+  Regex,
   Save,
   Sliders,
   SplitSquareHorizontal,
@@ -605,6 +609,10 @@ const PALETTE_GROUPS: { id: PaletteGroup; label: string }[] = [
 const PALETTE: PaletteEntry[] = [
   { type: 'text', label: 'Short text', icon: Type, group: 'text' },
   { type: 'multiline', label: 'Long text', icon: AlignLeft, group: 'text' },
+  { type: 'email', label: 'Email', icon: Mail, group: 'text' },
+  { type: 'url', label: 'URL', icon: Link, group: 'text' },
+  { type: 'phone', label: 'Phone', icon: Phone, group: 'text' },
+  { type: 'regex', label: 'Pattern', icon: Regex, group: 'text' },
   { type: 'number', label: 'Number', icon: Hash, group: 'numeric' },
   { type: 'integer', label: 'Whole number', icon: Hash, group: 'numeric' },
   { type: 'boolean', label: 'Yes / No', icon: ToggleLeft, group: 'choice' },
@@ -1335,7 +1343,11 @@ function Properties({
         </div>
       ) : null}
 
-      {question.type === 'text' || question.type === 'multiline' ? (
+      {question.type === 'text' ||
+      question.type === 'multiline' ||
+      question.type === 'email' ||
+      question.type === 'url' ||
+      question.type === 'regex' ? (
         <Field label="Max length">
           <input
             type="number"
@@ -1349,6 +1361,45 @@ function Properties({
             className={inputCls}
           />
         </Field>
+      ) : null}
+
+      {question.type === 'regex' ? (
+        <>
+          <Field label="Pattern" hint="Regex applied with implicit ^...$ anchors.">
+            <input
+              type="text"
+              value={question.pattern}
+              disabled={!canEdit}
+              onChange={(e) =>
+                onChange({ pattern: e.target.value } as Partial<Question>)
+              }
+              className={`${inputCls} font-mono`}
+            />
+          </Field>
+          <Field label="Flags" hint='e.g. "i" for case-insensitive.'>
+            <input
+              type="text"
+              value={question.flags ?? ''}
+              disabled={!canEdit}
+              onChange={(e) =>
+                onChange({ flags: e.target.value || undefined } as Partial<Question>)
+              }
+              className={`${inputCls} font-mono`}
+              maxLength={6}
+            />
+          </Field>
+          <Field label="Error message">
+            <input
+              type="text"
+              value={question.message ?? ''}
+              disabled={!canEdit}
+              onChange={(e) =>
+                onChange({ message: e.target.value || undefined } as Partial<Question>)
+              }
+              className={inputCls}
+            />
+          </Field>
+        </>
       ) : null}
 
       {question.type === 'group' ? (
