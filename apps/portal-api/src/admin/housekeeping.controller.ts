@@ -78,6 +78,27 @@ export class HousekeepingController {
   }
 
   /**
+   * Storage telemetry (#161). Postgres total size, MinIO bucket
+   * usage, host-disk free / total. The MinIO walk is O(objects),
+   * so this endpoint is fetched lazily on Housekeeping page render
+   * and not as part of the lighter `summary` cards.
+   */
+  @Get('storage')
+  storage() {
+    return this.housekeeping.storageMetrics();
+  }
+
+  /**
+   * Top N tables by total relation size (#161). Read-only diagnostic
+   * for "which table is bloating the cluster"; returns schema /
+   * name / total / table / index bytes plus a row estimate.
+   */
+  @Get('largest-tables')
+  largestTables() {
+    return this.housekeeping.largestTables();
+  }
+
+  /**
    * "Soon to expire" share rows (#86). `?within=` is the lookahead
    * window in days; defaults to 30. Already-expired rows are
    * included with `isExpired: true` so the admin can extend or

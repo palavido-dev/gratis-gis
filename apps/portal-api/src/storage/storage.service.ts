@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   CreateBucketCommand,
   HeadBucketCommand,
+  ListObjectsV2Command,
   PutBucketCorsCommand,
   PutBucketPolicyCommand,
   PutObjectCommand,
@@ -240,5 +241,62 @@ export class StorageService implements OnModuleInit {
   /** Exposed for DTO tests and error messages. */
   get allowedContentTypes(): ReadonlySet<string> {
     return ALLOWED_CONTENT_TYPES;
+  }
+
+  /**
+   * The bucket name we're configured to use. The Housekeeping page
+   * shows it next to the usage readout so the operator can spot a
+   * misconfigured deployment (e.g., still pointing at a leftover
+   * dev bucket) at a glance.
+   */
+  get bucketName(): string {
+    return this.bucket;
+  }
+
+  /**
+   * Walk every object in the bucket and total count + bytes.
+   *
+   * Used by the Housekeeping admin page (#161) to surface MinIO
+   * usage. ListObjectsV2 returns up to 1000 keys per page; we paginate
+   * via ContinuationToken until done. For a deployment with many
+   * thousands of objects this is O(N), so the controller calls it
+   * lazily (only when the admin opens the Storage card) rather than
+   * on every page render.
+   *
+   * Returns null if the bucket can't be enumerated (MinIO down at
+   * boot, credentials wrong, etc.) so the UI can surface that
+   * gracefully without a 500.
+   */
+  async getBucketUsage(): Promise<{
+    objectCount: number;
+    totalBytes: number;
+  } | null> {
+    let objectCount = 0;
+    let totalBytes = 0;
+    let continuationToken: string | undefined;
+    try {
+      do {
+        const cmd = new ListObjectsV2Command({
+          Bucket: this.bucket,
+          ...(continuationToken
+            ? { ContinuationToken: continuationToken }
+            : {}),
+        });
+        const res = await this.client.send(cmd);
+        for (const obj of res.Contents ?? []) {
+          objectCount += 1;
+          totalBytes += obj.Size ?? 0;
+        }
+        continuationToken = res.IsTruncated
+          ? res.NextContinuationToken
+          : undefined;
+      } while (continuationToken);
+      return { objectCount, totalBytes };
+    } catch (err) {
+      this.log.warn(
+        `Bucket usage query failed: ${err instanceof Error ? err.message : err}`,
+      );
+      return null;
+    }
   }
 }

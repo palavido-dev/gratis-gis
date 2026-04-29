@@ -13,6 +13,7 @@ import { V3TablesModule } from '../features-v3/v3-tables.module.js';
 import { ItemsModule } from '../items/items.module.js';
 import { NotificationsModule } from '../notifications/notifications.module.js';
 import { NotificationsAdminController } from '../notifications/admin.controller.js';
+import { StorageModule } from '../storage/storage.module.js';
 
 /**
  * Wires the admin surfaces: Keycloak integration (users +
@@ -27,7 +28,7 @@ import { NotificationsAdminController } from '../notifications/admin.controller.
  * management yet.
  */
 @Module({
-  imports: [V3TablesModule, ItemsModule, NotificationsModule],
+  imports: [V3TablesModule, ItemsModule, NotificationsModule, StorageModule],
   controllers: [
     AdminUsersController,
     AdminBrandingController,
