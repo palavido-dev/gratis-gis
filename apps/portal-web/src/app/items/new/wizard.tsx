@@ -28,6 +28,7 @@ import {
 import type {
   ArcgisServiceData,
   DataLayerDataV3,
+  DerivedLayerData,
   ISODateString,
   Item,
   ItemAccess,
@@ -37,6 +38,7 @@ import {
   DEFAULT_ARCGIS_SERVICE,
   DEFAULT_BASEMAP,
   DEFAULT_DATA_LAYER_V3,
+  DEFAULT_DERIVED_LAYER,
   DEFAULT_GEO_BOUNDARY,
   DEFAULT_PICK_LIST,
   DEFAULT_MAP,
@@ -53,6 +55,7 @@ import {
   type ArcgisServiceDescription,
 } from '@/lib/arcgis-rest';
 import { DataLayerBuilder } from './data-layer-builder';
+import { DerivedLayerBuilder } from './derived-layer-builder';
 import { MetadataXmlImporter } from './metadata-xml-importer';
 
 /**
@@ -189,6 +192,12 @@ const TYPE_GROUPS: TypeGroup[] = [
     label: 'Analysis',
     options: [
       {
+        value: 'derived_layer',
+        label: 'Derived layer',
+        desc: 'A layer computed live from another, with tools like buffer.',
+        Icon: FlaskConical,
+      },
+      {
         value: 'notebook',
         label: 'Notebook',
         desc: 'A Jupyter notebook hosted in the portal.',
@@ -321,6 +330,12 @@ export function NewItemWizard() {
   // the POST body can be sent as-is.
   const [featureServiceData, setDataLayerData] =
     useState<DataLayerDataV3>(DEFAULT_DATA_LAYER_V3);
+
+  // Derived-layer builder state. The recipe (source + pipeline) is
+  // structural so the wizard collects it up front rather than starting
+  // with an empty scaffold the user fills in on the detail page.
+  const [derivedLayerData, setDerivedLayerData] =
+    useState<DerivedLayerData>(DEFAULT_DERIVED_LAYER);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -643,6 +658,28 @@ export function NewItemWizard() {
       // an empty-state prompt until the first target is added. See
       // docs/editing-and-collection.md.
       data = DEFAULT_EDITOR;
+    } else if (type === 'derived_layer') {
+      // The wizard's DerivedLayerBuilder gathers the source layer +
+      // pipeline up front (the recipe is structural, not optional).
+      // Bail out with a friendly error if the user clicked Create
+      // without picking a source / configuring a tool.
+      if (!derivedLayerData) {
+        setError('Pick a source data layer and configure at least one tool.');
+        return;
+      }
+      const src = derivedLayerData.source;
+      if (!src || !src.itemId) {
+        setError('Pick a source data layer for this derived layer.');
+        return;
+      }
+      if (
+        !Array.isArray(derivedLayerData.pipeline) ||
+        derivedLayerData.pipeline.length === 0
+      ) {
+        setError('Add at least one tool step to the pipeline.');
+        return;
+      }
+      data = derivedLayerData;
     } else {
       data = {};
     }
@@ -1067,6 +1104,13 @@ export function NewItemWizard() {
         <DataLayerBuilder
           value={featureServiceData}
           onChange={setDataLayerData}
+        />
+      ) : null}
+
+      {type === 'derived_layer' ? (
+        <DerivedLayerBuilder
+          value={derivedLayerData}
+          onChange={setDerivedLayerData}
         />
       ) : null}
 

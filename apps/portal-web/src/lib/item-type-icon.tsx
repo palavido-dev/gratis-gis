@@ -3,6 +3,7 @@ import {
   ClipboardList,
   FileText,
   File as FileIcon,
+  FlaskConical,
   Folder as FolderIcon,
   Globe,
   Inbox,
@@ -34,6 +35,7 @@ import type { ItemType } from '@gratis-gis/shared-types';
 const ITEM_TYPE_ICONS: Record<ItemType, LucideIcon> = {
   map: MapIcon,
   data_layer: Layers,
+  derived_layer: FlaskConical,
   arcgis_service: Plug,
   form: ClipboardList,
   form_submission_collection: Inbox,
@@ -65,6 +67,7 @@ const ITEM_TYPE_ICONS: Record<ItemType, LucideIcon> = {
 const ITEM_TYPE_LABELS: Record<ItemType, string> = {
   map: 'Map',
   data_layer: 'Data layer',
+  derived_layer: 'Derived layer',
   arcgis_service: 'ArcGIS service',
   form: 'Form',
   form_submission_collection: 'Form submissions',
@@ -96,6 +99,7 @@ export function getItemTypeLabel(t: ItemType): string {
 const ITEM_TYPE_ACCENT: Record<ItemType, string> = {
   map: 'text-emerald-600',
   data_layer: 'text-sky-600',
+  derived_layer: 'text-blue-700',
   arcgis_service: 'text-cyan-600',
   form: 'text-violet-600',
   form_submission_collection: 'text-violet-500',
@@ -122,6 +126,7 @@ const ITEM_TYPE_ACCENT: Record<ItemType, string> = {
 const ITEM_TYPE_TILE: Record<ItemType, string> = {
   map: 'bg-emerald-500/90 text-white',
   data_layer: 'bg-sky-500/90 text-white',
+  derived_layer: 'bg-blue-700/90 text-white',
   arcgis_service: 'bg-cyan-600/90 text-white',
   form: 'bg-violet-500/90 text-white',
   form_submission_collection: 'bg-violet-400/90 text-white',
