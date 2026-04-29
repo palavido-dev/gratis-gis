@@ -1,6 +1,86 @@
 # Per-attachment custom fields (#158) - design doc
 
-## Why this exists
+## DECISION (2026-04-29): superseded by related-table pattern
+
+After reviewing this doc, the conclusion is that all three storage
+options below (JSONB on FeatureAttachment, EAV side-table, dedicated
+`fa_*` table) are over-engineered. The right answer uses primitives
+GratisGIS already has:
+
+> If each photo carries metadata, the metadata belongs on a related
+> "event" row, not on the attachment row. The attachment is just
+> evidence stapled to the event.
+
+Rewriting the four motivating examples in this pattern:
+
+* **Utility pole inspection.** Pole (parent feature) -> Inspections
+  (related data_layer: caption, photographer, capture timestamp,
+  GPS-at-capture, shot direction) -> Photos (standard attachment
+  table, but parented to the Inspection row, not the Pole row).
+* **Site visit.** Parcel -> Visits (phase, elevation, weather notes)
+  -> Photos on the Visit.
+* **Wildlife survey.** Transect waypoint -> Observations (species,
+  count, behavior code) -> Photos on the Observation.
+* **Damage assessment.** Building -> Damage entries (category 1-5,
+  affected component, repair priority) -> Photos on the Entry.
+
+In every case, the "per-photo" metadata is actually per-event
+metadata. The event is a real-world thing (an inspection happened,
+a visit happened, an observation happened), distinct from the
+parent feature. Modeling it as a related row instead of as
+attachment-row columns is correct on every axis:
+
+1. **Queryable like any feature data.** "Show me all moderate-damage
+   entries from last week" is a normal feature query against the
+   Damage Entries data_layer, not a JSONB field extraction.
+2. **Multi-photo per event is free.** The attachment table is
+   already 1:N against any feature row. Stick the photos on the
+   Inspection row instead of the Pole row and one inspection
+   trivially has many photos.
+3. **Sharing / editor tracking / geo-limits / row scope work.**
+   Because the Inspections layer is just a normal data_layer, every
+   piece of access-control plumbing we've already built applies.
+   None of that exists for "JSONB on attachment rows".
+4. **Zero new primitives.** Related tables, related layers, and
+   attachments all exist today. The form designer already supports
+   repeating groups. We don't need to invent a parallel schema
+   system one level below the one we already have.
+5. **Mental model lines up with the real world.** "One inspection
+   has many photos" is a real domain concept. "This attachment has
+   six custom fields attached to it" is an implementation artifact
+   that leaks into the user's understanding of their own data.
+
+### What this means for the work
+
+* `FeatureAttachment` stays exactly as it is. No JSONB column, no
+  EAV side-table, no per-data_layer `fa_*` shadow table. The three
+  storage options below are filed under "rejected alternatives".
+* `#158` (data_layer detail: split attachment-table columns) is
+  effectively closed: there are no per-attachment columns to split,
+  because per-attachment metadata is just a related layer the user
+  navigates into.
+* `#157` (form designer's "per-attachment fields" affordance) needs
+  reframing. The current affordance points users at the wrong
+  pattern. Instead it should be a "create related event layer"
+  shortcut on the form designer: when an author drops an attachment
+  question into a form and wants per-photo metadata, the right
+  next step is "wrap this in a related Inspections layer", not
+  "drop more questions into the attachment slot". Follow-up task
+  to be written.
+* We may want a one-click wizard on the data_layer detail page:
+  "Add an event-tracking related layer" that creates the related
+  data_layer, the FK relationship, and (optionally) seeds an
+  attachment-on-event affordance. That makes the pattern just as
+  fast as the rejected per-attachment-columns approach in the
+  common case, without paying the schema cost.
+
+The rest of this doc is preserved as the rationale for *why* the
+related-table approach beat the alternatives, but is no longer the
+plan of record.
+
+---
+
+## Why this exists (original framing)
 
 PR #157 ("surface 'per-attachment fields' affordance on attachment
 groups") added a UI affordance in the form designer that says, in
