@@ -847,6 +847,17 @@ export type Expression =
   | { op: 'not'; operand: Expression }
   | { op: 'in'; left: Operand; right: Operand }
   | { op: 'between'; value: Operand; min: Operand; max: Operand }
+  /** Test a value against a regex pattern. The right operand is the
+   *  pattern (string); the evaluator anchors with implicit ^...$ to
+   *  match XLSForm semantics (whole-value match) and applies optional
+   *  flags via the `flags` field (e.g. "i" for case-insensitive).
+   *  Added in Slice 4 of the expression builder series (#165). */
+  | {
+      op: 'matches';
+      left: Operand;
+      right: Operand;
+      flags?: string;
+    }
   | {
       op: 'add' | 'sub' | 'mul' | 'div';
       left: Operand;
@@ -865,12 +876,26 @@ export type Operand =
 export const BUILTINS = [
   'today', // current date as YYYY-MM-DD string
   'now', // current ISO datetime string
-  'len', // string length
+  'len', // string length (or array length)
   'sum', // numeric sum of a list of refs/values
   'count', // count of selected choices in a select-many
   'coalesce', // first non-null
   'lower',
   'upper',
+  // Slice 4 (#165) additions. All ship in both browser + server via
+  // the same evaluator; no new dependencies.
+  'trim', // strip leading + trailing whitespace
+  'contains', // contains(haystack, needle): does the string contain the substring?
+  'starts_with', // starts_with(s, prefix)
+  'ends_with', // ends_with(s, suffix)
+  'substring', // substring(s, start, end?): start/end are 0-based
+  'abs', // numeric absolute value
+  'round', // round(n, places?): banker's-free, default 0 places
+  'floor',
+  'ceil',
+  'min_of', // min_of(a, b, ...): smallest numeric arg, ignoring nulls
+  'max_of', // max_of(a, b, ...): largest numeric arg, ignoring nulls
+  'selected', // selected(field, value): is `value` in the array (select-many)
 ] as const;
 export type BuiltinName = (typeof BUILTINS)[number];
 
@@ -922,6 +947,25 @@ export function evaluate(expr: Expression | undefined, response: Response): unkn
       const hi = numericResolve(expr.max, response);
       if (v === null || lo === null || hi === null) return false;
       return v >= lo && v <= hi;
+    }
+    case 'matches': {
+      const subject = resolve(expr.left, response);
+      const pattern = resolve(expr.right, response);
+      if (typeof subject !== 'string' || typeof pattern !== 'string') {
+        return false;
+      }
+      try {
+        // Implicit ^...$ anchoring: the responder's whole answer must
+        // match. This is the XLSForm convention and matches the
+        // existing Pattern-question semantics in validateValue. A bad
+        // pattern is a designer-side error, not a respondent-blocking
+        // condition, so we treat construction failures as a no-match
+        // (false) rather than throwing.
+        const re = new RegExp(`^(?:${pattern})$`, expr.flags ?? '');
+        return re.test(subject);
+      } catch {
+        return false;
+      }
     }
     case 'add':
     case 'sub':
@@ -1029,6 +1073,86 @@ function callBuiltin(
     case 'upper': {
       const v = args[0] ? resolve(args[0], response) : null;
       return typeof v === 'string' ? v.toUpperCase() : v;
+    }
+    case 'trim': {
+      const v = args[0] ? resolve(args[0], response) : null;
+      return typeof v === 'string' ? v.trim() : v;
+    }
+    case 'contains': {
+      const hay = args[0] ? resolve(args[0], response) : null;
+      const needle = args[1] ? resolve(args[1], response) : null;
+      if (typeof hay !== 'string' || typeof needle !== 'string') return false;
+      return hay.includes(needle);
+    }
+    case 'starts_with': {
+      const s = args[0] ? resolve(args[0], response) : null;
+      const prefix = args[1] ? resolve(args[1], response) : null;
+      if (typeof s !== 'string' || typeof prefix !== 'string') return false;
+      return s.startsWith(prefix);
+    }
+    case 'ends_with': {
+      const s = args[0] ? resolve(args[0], response) : null;
+      const suffix = args[1] ? resolve(args[1], response) : null;
+      if (typeof s !== 'string' || typeof suffix !== 'string') return false;
+      return s.endsWith(suffix);
+    }
+    case 'substring': {
+      const s = args[0] ? resolve(args[0], response) : null;
+      const start = args[1] ? numericResolve(args[1], response) : 0;
+      const end = args[2] ? numericResolve(args[2], response) : null;
+      if (typeof s !== 'string') return '';
+      const a = start ?? 0;
+      return end === null ? s.substring(a) : s.substring(a, end);
+    }
+    case 'abs': {
+      const v = args[0] ? numericResolve(args[0], response) : null;
+      return v === null ? null : Math.abs(v);
+    }
+    case 'round': {
+      const v = args[0] ? numericResolve(args[0], response) : null;
+      const places = args[1] ? numericResolve(args[1], response) : 0;
+      if (v === null) return null;
+      const p = places ?? 0;
+      const m = Math.pow(10, p);
+      return Math.round(v * m) / m;
+    }
+    case 'floor': {
+      const v = args[0] ? numericResolve(args[0], response) : null;
+      return v === null ? null : Math.floor(v);
+    }
+    case 'ceil': {
+      const v = args[0] ? numericResolve(args[0], response) : null;
+      return v === null ? null : Math.ceil(v);
+    }
+    case 'min_of': {
+      let best: number | null = null;
+      for (const a of args) {
+        const v = numericResolve(a, response);
+        if (v === null) continue;
+        if (best === null || v < best) best = v;
+      }
+      return best;
+    }
+    case 'max_of': {
+      let best: number | null = null;
+      for (const a of args) {
+        const v = numericResolve(a, response);
+        if (v === null) continue;
+        if (best === null || v > best) best = v;
+      }
+      return best;
+    }
+    case 'selected': {
+      // selected(field, value): for select-many fields whose value is
+      // an array of selected option values, true when `value` is one
+      // of them. Mirrors the XLSForm convention so authors who know
+      // the ODK pattern feel at home.
+      const field = args[0] ? resolve(args[0], response) : null;
+      const target = args[1] ? resolve(args[1], response) : null;
+      if (Array.isArray(field)) {
+        return field.some((v) => v === target);
+      }
+      return field === target;
     }
   }
 }
