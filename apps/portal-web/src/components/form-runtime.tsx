@@ -496,6 +496,7 @@ export function QuestionPreview({ q }: { q: Question }) {
     q.type === 'photo' ||
     q.type === 'audio' ||
     q.type === 'video' ||
+    q.type === 'sketch' ||
     q.type === 'file' ||
     q.type === 'signature'
   ) {
@@ -508,7 +509,9 @@ export function QuestionPreview({ q }: { q: Question }) {
             ? 'Audio capture'
             : q.type === 'video'
               ? 'Video capture'
-              : 'File upload';
+              : q.type === 'sketch'
+                ? 'Sketch canvas'
+                : 'File upload';
     return (
       <div className="rounded-md border border-dashed border-border bg-surface-2/30 px-3 py-2 text-[11px] text-muted">
         {label}
@@ -875,6 +878,10 @@ function Input({
           kind="video"
         />
       );
+    case 'barcode':
+      return <BarcodeInput q={q} value={value} readOnly={readOnly} onChange={onChange} />;
+    case 'sketch':
+      return <SketchInput q={q} value={value} readOnly={readOnly} onChange={onChange} />;
     case 'file':
       return <FileInput q={q} value={value} readOnly={readOnly} onChange={onChange} />;
     case 'image-choice':
@@ -1289,6 +1296,226 @@ function MediaCaptureInput({
           ? ` · suggested cap ${q.maxDurationSec}s per clip`
           : null}
       </p>
+    </div>
+  );
+}
+
+/**
+ * Barcode / QR capture (#147). Phase 1 ships the manual-entry
+ * fallback only: a plain text field that respondents can type into,
+ * plus a hint that hardware scanners (USB / Bluetooth) input via
+ * keyboard so they "just work" for warehouse / asset workflows
+ * without us bundling a decoder yet. Phases 2+ add camera-based
+ * decoding via BarcodeDetector / zxing-wasm.
+ *
+ * Response: a string (or null when empty).
+ */
+function BarcodeInput({
+  q,
+  value,
+  readOnly,
+  onChange,
+}: {
+  q: Extract<Question, { type: 'barcode' }>;
+  value: unknown;
+  readOnly: boolean;
+  onChange: (v: unknown) => void;
+}) {
+  const v = typeof value === 'string' ? value : '';
+  const formats = q.formats?.length ? q.formats.join(' / ') : 'any format';
+  return (
+    <div className="space-y-1.5">
+      <input
+        id={q.id}
+        type="text"
+        inputMode="text"
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        value={v}
+        disabled={readOnly}
+        placeholder="Scan or type the code"
+        onChange={(e) => onChange(e.target.value || null)}
+        className="h-11 w-full rounded-md border border-border bg-surface-1 px-3 font-mono text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
+      />
+      <p className="text-[11px] text-muted">
+        Hardware scanners (USB / Bluetooth) type into this field
+        like a keyboard. Camera-based scanning will be added in a
+        future release. Accepted: {formats}.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Sketch canvas (#147). Free-form drawing with mouse / pen / touch.
+ * Distinguished from Signature by being multi-stroke and optionally
+ * sitting on top of a reference image (a floor plan, an aerial
+ * tile, an annotated diagram).
+ *
+ * The respondent draws; the canvas is exported as a PNG data URL on
+ * each stroke end and pushed to the response. Cleared via a single
+ * "Clear" button. Phase 1 supports a single ink color (black) and
+ * a fixed stroke width; per-stroke color / width controls land in
+ * a Phase 2 polish pass.
+ *
+ * Response: PNG data URL (or null when blank).
+ */
+function SketchInput({
+  q,
+  value,
+  readOnly,
+  onChange,
+}: {
+  q: Extract<Question, { type: 'sketch' }>;
+  value: unknown;
+  readOnly: boolean;
+  onChange: (v: unknown) => void;
+}) {
+  const canvasRef = useMemo<{
+    el: HTMLCanvasElement | null;
+    drawing: boolean;
+    last: { x: number; y: number } | null;
+  }>(() => ({ el: null, drawing: false, last: null }), []);
+  const aspect = q.aspectRatio ?? 16 / 9;
+  const initial = typeof value === 'string' ? value : null;
+
+  // Paint the existing value (and optional background image) when
+  // the canvas is mounted or when the underlying value reference
+  // changes. Re-running on every render would clobber an in-progress
+  // stroke; we depend on the saved value only.
+  useEffect(() => {
+    const c = canvasRef.el;
+    if (!c) return;
+    const ctx = c.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, c.width, c.height);
+    if (q.backgroundImageUrl) {
+      const bg = new Image();
+      bg.crossOrigin = 'anonymous';
+      bg.onload = () => {
+        ctx.drawImage(bg, 0, 0, c.width, c.height);
+        if (initial) {
+          const img = new Image();
+          img.onload = () => ctx.drawImage(img, 0, 0, c.width, c.height);
+          img.src = initial;
+        }
+      };
+      bg.src = q.backgroundImageUrl;
+    } else if (initial) {
+      const img = new Image();
+      img.onload = () => ctx.drawImage(img, 0, 0, c.width, c.height);
+      img.src = initial;
+    }
+    // The element ref is stable across renders; we explicitly want
+    // to re-init only when the saved value or the background URL
+    // changes. The disable-comment below silences the missing-deps
+    // warning for canvasRef (it's a memo, not a state).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial, q.backgroundImageUrl]);
+
+  function pointerToCanvas(e: React.PointerEvent<HTMLCanvasElement>): {
+    x: number;
+    y: number;
+  } {
+    const c = canvasRef.el;
+    if (!c) return { x: 0, y: 0 };
+    const rect = c.getBoundingClientRect();
+    return {
+      x: ((e.clientX - rect.left) / rect.width) * c.width,
+      y: ((e.clientY - rect.top) / rect.height) * c.height,
+    };
+  }
+
+  function start(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (readOnly) return;
+    canvasRef.drawing = true;
+    canvasRef.last = pointerToCanvas(e);
+    (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
+  }
+
+  function move(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (readOnly || !canvasRef.drawing) return;
+    const c = canvasRef.el;
+    if (!c) return;
+    const ctx = c.getContext('2d');
+    if (!ctx) return;
+    const next = pointerToCanvas(e);
+    if (canvasRef.last) {
+      ctx.strokeStyle = '#111827';
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(canvasRef.last.x, canvasRef.last.y);
+      ctx.lineTo(next.x, next.y);
+      ctx.stroke();
+    }
+    canvasRef.last = next;
+  }
+
+  function end() {
+    if (!canvasRef.drawing) return;
+    canvasRef.drawing = false;
+    canvasRef.last = null;
+    const c = canvasRef.el;
+    if (!c) return;
+    onChange(c.toDataURL('image/png'));
+  }
+
+  function clear() {
+    const c = canvasRef.el;
+    if (!c) return;
+    const ctx = c.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, c.width, c.height);
+    if (q.backgroundImageUrl) {
+      // Re-paint the background so the canvas isn't blank-blank.
+      const bg = new Image();
+      bg.crossOrigin = 'anonymous';
+      bg.onload = () => ctx.drawImage(bg, 0, 0, c.width, c.height);
+      bg.src = q.backgroundImageUrl;
+    }
+    onChange(null);
+  }
+
+  // Use a 1024-wide internal buffer; the CSS `aspect-ratio` keeps
+  // the rendered box correctly proportioned no matter the container
+  // width. 1024px gives a sketch with enough fidelity to be useful
+  // when zoomed but is small enough to keep PNG payloads under a
+  // few hundred KB at typical line densities.
+  const w = 1024;
+  const h = Math.round(w / aspect);
+
+  return (
+    <div className="space-y-2">
+      <canvas
+        ref={(el) => {
+          canvasRef.el = el;
+        }}
+        width={w}
+        height={h}
+        onPointerDown={start}
+        onPointerMove={move}
+        onPointerUp={end}
+        onPointerCancel={end}
+        onPointerLeave={end}
+        style={{ aspectRatio: String(aspect), touchAction: 'none' }}
+        className="block w-full cursor-crosshair rounded-md border border-border bg-surface-1"
+      />
+      {!readOnly ? (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={clear}
+            className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-surface-1 px-2.5 text-xs font-medium text-ink-1 hover:bg-surface-2"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Clear
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
