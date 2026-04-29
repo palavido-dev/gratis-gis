@@ -746,6 +746,24 @@ function nextWidthFor(
   return null;
 }
 
+/**
+ * True for question types in the palette's "Layout" group: structural
+ * or display-only kinds that don't capture a value from the responder.
+ * The Properties panel uses this to hide controls that don't apply
+ * (e.g. Required), and the QuestionRow's drop handler uses it to
+ * decide between insert-before and share-row gestures.
+ */
+function isLayoutType(t: QuestionType): boolean {
+  return (
+    t === 'note' ||
+    t === 'divider' ||
+    t === 'page' ||
+    t === 'group' ||
+    t === 'image-display' ||
+    t === 'hidden'
+  );
+}
+
 /** Locate the parent container + index for a given question id. */
 function locate(
   qs: Question[],
@@ -1115,6 +1133,12 @@ function EmptyCanvas({
       onDrop={(e) => {
         if (!canEdit) return;
         e.preventDefault();
+        // CRITICAL: stopPropagation is what prevents the same drop
+        // event from also firing on the parent <main>'s onDrop, which
+        // would call cb.onAddInto a second time and add the question
+        // twice. Without it, a single drop on a blank form produces
+        // two questions with sequential ids ("note", "note_2").
+        e.stopPropagation();
         const newType = e.dataTransfer.getData('text/x-question-type');
         const sourceId = e.dataTransfer.getData('text/x-reorder-id');
         if (newType) onAddType(newType as QuestionType);
@@ -1516,15 +1540,36 @@ function Properties({
         {question.type} properties
       </p>
 
-      <Field label="Label">
-        <input
-          type="text"
-          value={question.label}
-          disabled={!canEdit}
-          onChange={(e) => onChange({ label: e.target.value })}
-          className={inputCls}
-        />
-      </Field>
+      {/* Notes are display-only and the runtime renders just `label`,
+          so for them we (a) relabel "Label" to "Note text" so authors
+          stop hunting for a separate body field, (b) make it a
+          multi-line textarea since note bodies are typically a
+          paragraph, and (c) hide the Hint and Required fields below,
+          which don't apply to a question that captures no value. */}
+      {question.type === 'note' ? (
+        <Field
+          label="Note text"
+          hint="Shown to the responder. The body of the note."
+        >
+          <textarea
+            rows={4}
+            value={question.label}
+            disabled={!canEdit}
+            onChange={(e) => onChange({ label: e.target.value })}
+            className={inputCls}
+          />
+        </Field>
+      ) : (
+        <Field label="Label">
+          <input
+            type="text"
+            value={question.label}
+            disabled={!canEdit}
+            onChange={(e) => onChange({ label: e.target.value })}
+            className={inputCls}
+          />
+        </Field>
+      )}
 
       <Field label="Question id" hint="Used as the column name in the layer schema.">
         <input
@@ -1536,25 +1581,37 @@ function Properties({
         />
       </Field>
 
-      <Field label="Hint">
-        <textarea
-          rows={2}
-          value={question.hint ?? ''}
-          disabled={!canEdit}
-          onChange={(e) => onChange({ hint: e.target.value || undefined })}
-          className={inputCls}
-        />
-      </Field>
+      {question.type === 'note' ? null : (
+        <Field label="Hint">
+          <textarea
+            rows={2}
+            value={question.hint ?? ''}
+            disabled={!canEdit}
+            onChange={(e) => onChange({ hint: e.target.value || undefined })}
+            className={inputCls}
+          />
+        </Field>
+      )}
 
-      <label className="mb-2 inline-flex items-center gap-2 text-xs">
-        <input
-          type="checkbox"
-          checked={Boolean(question.required)}
-          disabled={!canEdit}
-          onChange={(e) => onChange({ required: e.target.checked })}
-        />
-        <span>Required</span>
-      </label>
+      {/* Layout / display-only types don't capture a value, so
+          "Required" is meaningless for them. Hiding the checkbox
+          keeps authors from setting a flag the runtime would
+          silently ignore. Covers note + divider + page + group +
+          image-display + hidden (the last is interesting because
+          a hidden question CAN carry a calculated value, but
+          enforcing required on something the user can't see is a
+          footgun the runtime currently doesn't even check). */}
+      {isLayoutType(question.type) ? null : (
+        <label className="mb-2 inline-flex items-center gap-2 text-xs">
+          <input
+            type="checkbox"
+            checked={Boolean(question.required)}
+            disabled={!canEdit}
+            onChange={(e) => onChange({ required: e.target.checked })}
+          />
+          <span>Required</span>
+        </label>
+      )}
 
       {question.type !== 'page' && question.type !== 'group' ? (
         <Field label="Width" hint="Width on desktop. Mobile collapses to full.">
