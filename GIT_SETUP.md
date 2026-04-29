@@ -148,8 +148,9 @@ pnpm dev
 
 You should then be able to:
 
-- Sign in at http://localhost:3000 as `bob` / `devpassword` (admin)
-  or `mateo` / `devpassword` (contributor) via Keycloak
+- Sign in at http://localhost:3000 as `admin` / `admin`,
+  `contributor` / `contributor`, or `viewer` / `viewer` via
+  Keycloak (passwords match usernames, dev-only)
 - Hit http://localhost:4000/docs for the Swagger UI
 - See the seeded Acme org, the Field Team group, and a few example
   items

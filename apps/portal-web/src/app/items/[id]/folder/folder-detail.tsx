@@ -907,8 +907,8 @@ function SmartFolderPanel({
   );
 
   // When mounting with a pre-existing ownerId, fetch the
-  // matching display name so the user sees "Alice" not the
-  // UUID. Bounded one-shot lookup; failure is silent (the
+  // matching display name so the user sees the person's name
+  // not the UUID. Bounded one-shot lookup; failure is silent (the
   // editor falls back to showing the id, but at least the
   // Clear button still works).
   useEffect(() => {

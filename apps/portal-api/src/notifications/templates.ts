@@ -43,7 +43,7 @@ export interface ShareCreatedPayload {
   itemTitle: string;
   itemType: string;
   permission: 'view' | 'download' | 'edit' | 'admin';
-  /** Display name of the author who shared (e.g. "Bob Example"). */
+  /** Display name of the author who shared (e.g. "Admin User"). */
   sharedByName: string;
   /** Optional ISO expiry; rendered when present. */
   expiresAt?: string;

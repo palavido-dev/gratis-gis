@@ -17,7 +17,7 @@ Keycloak is pre-seeded with:
 
 - Realm: `gratis-gis`
 - Clients: `portal-web`, `portal-api`, `field-app`
-- Users: `mateo` (contributor) and `bob` (admin) in org `acme`, password `devpassword`
+- Users: `admin` / `contributor` / `viewer` in org `acme`; password matches the username (dev-only)
 
 ## Usage
 

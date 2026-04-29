@@ -1,6 +1,12 @@
 /**
- * Dev seed. Mirrors the Keycloak realm seed: org `acme` with Mateo (contributor)
- * and Bob (admin), plus a group and a couple of example items.
+ * Dev seed. Mirrors the Keycloak realm seed: org `acme` with three
+ * generic users keyed on the role they exercise (admin, contributor,
+ * viewer). Passwords match usernames so a fresh-install reviewer can
+ * sign in without consulting docs.
+ *
+ * Replaces the older Mateo / Bob / Alice naming (#170): role-named
+ * accounts are easier to remember and self-document what each session
+ * is testing.
  *
  * Run: `pnpm --filter @gratis-gis/portal-api db:seed`
  */
@@ -9,10 +15,13 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 const ACME_ID = '11111111-1111-1111-1111-111111111111';
-// UUID preserved from the previous "Alice" seed so existing dev databases
-// stay aligned on foreign keys even though the human identifiers moved.
-const MATEO_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
-const BOB_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+// UUIDs preserved from the previous seed so existing dev databases
+// stay aligned on foreign keys even though the human identifiers
+// moved. CONTRIBUTOR_ID was Mateo (originally Alice); ADMIN_ID was
+// Bob. VIEWER_ID is brand new in this seed.
+const CONTRIBUTOR_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+const ADMIN_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+const VIEWER_ID = 'eeeeeeee-1111-eeee-1111-eeeeeeeeeeee';
 const GROUP_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 
 async function main() {
@@ -25,31 +34,54 @@ async function main() {
 
   console.log('-> seeding users');
   await prisma.user.upsert({
-    where: { id: MATEO_ID },
+    where: { id: ADMIN_ID },
     update: {
-      username: 'mateo',
-      email: 'mateo@acme.test',
-      fullName: 'Mateo García',
+      username: 'admin',
+      email: 'admin@acme.test',
+      fullName: 'Admin User',
+      orgRole: 'admin',
     },
     create: {
-      id: MATEO_ID,
+      id: ADMIN_ID,
       orgId: org.id,
-      username: 'mateo',
-      email: 'mateo@acme.test',
-      fullName: 'Mateo García',
+      username: 'admin',
+      email: 'admin@acme.test',
+      fullName: 'Admin User',
+      orgRole: 'admin',
+    },
+  });
+  await prisma.user.upsert({
+    where: { id: CONTRIBUTOR_ID },
+    update: {
+      username: 'contributor',
+      email: 'contributor@acme.test',
+      fullName: 'Contributor User',
+      orgRole: 'contributor',
+    },
+    create: {
+      id: CONTRIBUTOR_ID,
+      orgId: org.id,
+      username: 'contributor',
+      email: 'contributor@acme.test',
+      fullName: 'Contributor User',
       orgRole: 'contributor',
     },
   });
   await prisma.user.upsert({
-    where: { id: BOB_ID },
-    update: {},
+    where: { id: VIEWER_ID },
+    update: {
+      username: 'viewer',
+      email: 'viewer@acme.test',
+      fullName: 'Viewer User',
+      orgRole: 'viewer',
+    },
     create: {
-      id: BOB_ID,
+      id: VIEWER_ID,
       orgId: org.id,
-      username: 'bob',
-      email: 'bob@acme.test',
-      fullName: 'Bob Example',
-      orgRole: 'admin',
+      username: 'viewer',
+      email: 'viewer@acme.test',
+      fullName: 'Viewer User',
+      orgRole: 'viewer',
     },
   });
 
@@ -63,23 +95,28 @@ async function main() {
       title: 'Field Team',
       description: 'Members collecting field data for Acme.',
       access: 'org',
-      ownerId: BOB_ID,
+      ownerId: ADMIN_ID,
     },
   });
   await prisma.groupMember.upsert({
-    where: { groupId_userId: { groupId: GROUP_ID, userId: MATEO_ID } },
+    where: { groupId_userId: { groupId: GROUP_ID, userId: CONTRIBUTOR_ID } },
     update: {},
-    create: { groupId: GROUP_ID, userId: MATEO_ID, role: 'member' },
+    create: { groupId: GROUP_ID, userId: CONTRIBUTOR_ID, role: 'member' },
   });
   await prisma.groupMember.upsert({
-    where: { groupId_userId: { groupId: GROUP_ID, userId: BOB_ID } },
+    where: { groupId_userId: { groupId: GROUP_ID, userId: ADMIN_ID } },
     update: {},
-    create: { groupId: GROUP_ID, userId: BOB_ID, role: 'admin' },
+    create: { groupId: GROUP_ID, userId: ADMIN_ID, role: 'admin' },
+  });
+  await prisma.groupMember.upsert({
+    where: { groupId_userId: { groupId: GROUP_ID, userId: VIEWER_ID } },
+    update: {},
+    create: { groupId: GROUP_ID, userId: VIEWER_ID, role: 'member' },
   });
 
   console.log('-> seeding items');
 
-  // Small demo feature service: a handful of points around the Acme HQ
+  // Small demo data_layer: a handful of points around the Acme HQ
   // neighborhood with a category attribute so unique-value and filter
   // UI have something to chew on.
   const demoBuildings = {
@@ -119,10 +156,10 @@ async function main() {
     create: {
       id: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
       orgId: org.id,
-      ownerId: MATEO_ID,
+      ownerId: CONTRIBUTOR_ID,
       type: 'data_layer',
       title: 'Acme Buildings',
-      description: 'Demo feature service with the Acme campus buildings.',
+      description: 'Demo data layer with the Acme campus buildings.',
       tags: ['campus', 'buildings', 'demo'],
       data: {
         version: 1,
@@ -144,7 +181,7 @@ async function main() {
     create: {
       id: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
       orgId: org.id,
-      ownerId: MATEO_ID,
+      ownerId: CONTRIBUTOR_ID,
       type: 'map',
       title: 'Acme HQ Campus Map',
       description: 'Basemap + building outlines, shared to the Field Team.',
@@ -162,7 +199,7 @@ async function main() {
     },
   });
 
-  console.log('✓ seed complete');
+  console.log('seed complete');
 }
 
 main()

@@ -424,7 +424,7 @@ export class ItemsService {
       include: {
         shares: true,
         // Same lean owner projection the list endpoint uses, so the
-        // detail page header can render "Owner: Mateo Garcia" without
+        // detail page header can render "Owner: Contributor User" without
         // a separate lookup.
         owner: {
           select: {
@@ -1518,9 +1518,10 @@ export class ItemsService {
     // was shared.
     //
     // Earlier slice (#44) had a callerHasFolderAccess bypass that
-    // let folder shares cascade to every child. That confused Bob
-    // testing with Mateo: Bob's private map showed up under a
-    // shared parent folder. Ripped out 2026-04-26.
+    // let folder shares cascade to every child. That confused
+    // testing across users: an admin's private map showed up
+    // under a folder shared with a contributor. Ripped out
+    // 2026-04-26.
     const rows = await this.prisma.item.findMany({
       where: {
         AND: [
