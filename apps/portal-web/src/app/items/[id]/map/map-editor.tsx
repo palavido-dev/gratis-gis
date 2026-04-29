@@ -719,7 +719,11 @@ export function MapEditor({
                   : 'Boundary that frames the map on first load'
               }
             >
-              <option value="">{'(use saved camera)'}</option>
+              {/* "Saved extent" reads cleaner to GIS authors than
+                  the MapLibre-inherited "camera" term (#168). The
+                  schema field is already `defaultExtentBoundaryId`
+                  so the user-visible label now matches. */}
+              <option value="">{'(use saved extent)'}</option>
               {geoBoundaries.map((g) => (
                 <option key={g.id} value={g.id}>
                   {g.title}
