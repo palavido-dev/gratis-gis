@@ -162,6 +162,16 @@ export class ItemsService {
        * fetches) leave this off. (#52)
        */
       lite?: boolean;
+      /**
+       * Filter to items that have an active share row pointing at the
+       * given group (#100). The Add Layer dialog's Groups tab uses
+       * this so an author drilling into a group sees only the items
+       * the group has been granted access to. Note we still apply
+       * `visibleWhere` -- a non-member of the group with no other
+       * route to an item should not see it appear here. The intersection
+       * is the right "items in this group from my perspective" set.
+       */
+      sharedWithGroupId?: string;
     } = {},
   ) {
     // Lightweight per-call timing log behind the ITEMS_LIST_TIMING env
@@ -196,6 +206,19 @@ export class ItemsService {
       );
     }
     if (opts.ownerId) where.ownerId = opts.ownerId;
+    // sharedWithGroupId (#100): restrict to items whose shares
+    // include a row for the given group. Layered on top of the
+    // existing visibleWhere so a user only sees items the group has
+    // access to AND that they themselves are allowed to see (a non-
+    // member would already be filtered out by visibleWhere).
+    if (opts.sharedWithGroupId) {
+      where.shares = {
+        some: {
+          principalType: 'group',
+          principalId: opts.sharedWithGroupId,
+        },
+      };
+    }
     if (opts.q) {
       // Default search is across title + description + tags.
       // Smart folders (#38) can narrow to a subset by passing

@@ -2,14 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ChevronRight,
   ClipboardPaste,
   Database,
+  Folder,
+  FolderOpen,
   Layers,
   Link2,
   Loader2,
   Search,
   Sparkles,
   Upload,
+  Users,
   X,
 } from 'lucide-react';
 import type { Item, MapLayer, MapLayerSource } from '@gratis-gis/shared-types';
@@ -56,17 +60,49 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
   const [fileBusy, setFileBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Portal tab state: list of data_layer items + search query.
+  // Portal tab state. The Portal tab has three view modes (#100):
+  //
+  //   - 'items'   : flat list of every data_layer / arcgis_service
+  //                 item the user can see (with search).
+  //   - 'groups'  : top level lists groups the user belongs to.
+  //                 Drilling into a group (via selectedGroup) shows
+  //                 the items shared with that group.
+  //   - 'folders' : top level lists root folders. Drilling in (via
+  //                 folderPath) walks the folder tree with a
+  //                 breadcrumb, showing subfolders + items at each
+  //                 level.
+  //
+  // Search lives next to the view-mode tabs and applies to whatever
+  // is in view (items list, group list, or folder/items at the
+  // current folder level).
+  type PortalViewMode = 'items' | 'groups' | 'folders';
+  const [portalViewMode, setPortalViewMode] = useState<PortalViewMode>('items');
   const [portalQ, setPortalQ] = useState('');
   const [portalItems, setPortalItems] = useState<Item[]>([]);
-  // Optional folder filter on the Portal tab (#91). Null = "All
-  // items"; otherwise narrows portalItems to direct children of
-  // the selected folder. Folders are fetched once when the tab
-  // opens; the filter is applied client-side against the already-
-  // loaded item list so the dropdown stays snappy.
-  const [folderFilter, setFolderFilter] = useState<string | null>(null);
   const [portalFolders, setPortalFolders] = useState<Item[]>([]);
   const [portalLoading, setPortalLoading] = useState(false);
+  // Groups view state: list of groups visible to the user, plus the
+  // group currently drilled into (null at the top level). The
+  // group's items are fetched lazily when one is picked.
+  interface PortalGroup {
+    id: string;
+    title: string;
+    description?: string | null;
+  }
+  const [portalGroups, setPortalGroups] = useState<PortalGroup[]>([]);
+  const [selectedGroup, setSelectedGroup] = useState<PortalGroup | null>(null);
+  const [groupItems, setGroupItems] = useState<Item[]>([]);
+  const [groupLoading, setGroupLoading] = useState(false);
+  // Folders view state: breadcrumb path. Empty array = top level
+  // (showing root folders). Each entry is one level deeper. The
+  // current folder is the last entry; click a breadcrumb to truncate
+  // back. `folderContents` holds the resolved children of the
+  // current folder (a mix of subfolders + leaf items).
+  const [folderPath, setFolderPath] = useState<
+    Array<{ id: string; title: string }>
+  >([]);
+  const [folderContents, setFolderContents] = useState<Item[]>([]);
+  const [folderLoading, setFolderLoading] = useState(false);
   // When the user picks an arcgis_service item that exposes more than
   // one sublayer, we surface this follow-up prompt: pick which of
   // the available sublayers to add (#45) and whether to bundle them
@@ -91,6 +127,9 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
     setUrl('');
     setPaste('');
     setPortalQ('');
+    setPortalViewMode('items');
+    setSelectedGroup(null);
+    setFolderPath([]);
     setArcgisUrl('');
     setArcgisProbing(false);
     setArcgisService(null);
@@ -167,16 +206,23 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
     };
   }, [open, tab, portalQ]);
 
-  // Load the folder list for the filter dropdown (#91). One-shot
-  // fetch when the portal tab opens; folders rarely change during
-  // a dialog session so we don't re-fetch on every keystroke.
+  // Load the folder list once when the Portal tab opens (#100). The
+  // top-level Folders view derives "root folders" client-side as the
+  // folders that aren't claimed as children by any other folder, so
+  // we need every folder's `data.childItemIds` to compute that set.
+  // Folders rarely change during a dialog session; one fetch per
+  // open is plenty.
   useEffect(() => {
     if (!open || tab !== 'portal') return;
     let cancelled = false;
     const controller = new AbortController();
     void (async () => {
       try {
-        const res = await fetch('/api/portal/items?type=folder&lite=1', {
+        // NOT lite -- we need data.childItemIds to compute root
+        // folders + drill-in children. Folders are tiny rows; the
+        // payload cost is negligible vs the data_layer / arcgis_service
+        // list we lite-mode for.
+        const res = await fetch('/api/portal/items?type=folder', {
           signal: controller.signal,
         });
         if (!res.ok || cancelled) return;
@@ -193,20 +239,164 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
     };
   }, [open, tab]);
 
-  // Apply the folder filter client-side. A folder's child set
-  // lives in data.childItemIds; intersect with the loaded item
-  // list for direct (non-recursive) membership. Matches the
-  // semantic on the items page rail: a folder shows its direct
-  // children, not transitively nested grandchildren.
-  const visiblePortalItems = useMemo(() => {
-    if (!folderFilter) return portalItems;
-    const folder = portalFolders.find((f) => f.id === folderFilter);
-    const childIds = (folder?.data as { childItemIds?: unknown } | null)
-      ?.childItemIds;
-    if (!Array.isArray(childIds)) return [];
-    const set = new Set(childIds.filter((c): c is string => typeof c === 'string'));
-    return portalItems.filter((i) => set.has(i.id));
-  }, [folderFilter, portalFolders, portalItems]);
+  // Load groups when entering the Groups view (#100). Same shape as
+  // the folder fetch -- once per open is enough; the user rarely
+  // creates a group mid-add-layer.
+  useEffect(() => {
+    if (!open || tab !== 'portal' || portalViewMode !== 'groups') return;
+    if (selectedGroup) return; // we're drilled in; the group-items effect handles fetching
+    let cancelled = false;
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const res = await fetch('/api/portal/groups', {
+          signal: controller.signal,
+        });
+        if (!res.ok || cancelled) return;
+        const groups = (await res.json()) as PortalGroup[];
+        groups.sort((a, b) => a.title.localeCompare(b.title));
+        if (!cancelled) setPortalGroups(groups);
+      } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return;
+      }
+    })();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [open, tab, portalViewMode, selectedGroup]);
+
+  // Load items shared with the drilled-into group (#100). Uses the
+  // new `sharedWithGroupId` filter on /items so the server applies
+  // visibleWhere intersected with "has a share row for this group".
+  // Re-runs when the search query changes so the user can filter
+  // within a group.
+  useEffect(() => {
+    if (!open || tab !== 'portal' || portalViewMode !== 'groups') return;
+    if (!selectedGroup) return;
+    let cancelled = false;
+    const controller = new AbortController();
+    setGroupLoading(true);
+    const handle = setTimeout(async () => {
+      try {
+        const qs = new URLSearchParams({
+          type: 'data_layer,arcgis_service',
+          lite: '1',
+          sharedWithGroupId: selectedGroup.id,
+        });
+        const q = portalQ.trim();
+        if (q) qs.set('q', q);
+        const res = await fetch(`/api/portal/items?${qs}`, {
+          signal: controller.signal,
+        });
+        if (!res.ok || cancelled) {
+          if (!cancelled) setGroupItems([]);
+          return;
+        }
+        const items = (await res.json()) as Item[];
+        if (!cancelled) setGroupItems(items);
+      } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return;
+      } finally {
+        if (!cancelled) setGroupLoading(false);
+      }
+    }, 200);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+      controller.abort();
+    };
+  }, [open, tab, portalViewMode, selectedGroup, portalQ]);
+
+  // Load the current folder's contents when drilled in (#100).
+  // Top-level (folderPath = []) doesn't need a fetch -- we render
+  // root folders directly from the already-loaded folder list.
+  useEffect(() => {
+    if (!open || tab !== 'portal' || portalViewMode !== 'folders') return;
+    if (folderPath.length === 0) return;
+    const current = folderPath[folderPath.length - 1];
+    if (!current) return;
+    let cancelled = false;
+    const controller = new AbortController();
+    setFolderLoading(true);
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/portal/items/${current.id}/folder-contents`,
+          { signal: controller.signal },
+        );
+        if (!res.ok || cancelled) {
+          if (!cancelled) setFolderContents([]);
+          return;
+        }
+        const items = (await res.json()) as Item[];
+        if (!cancelled) setFolderContents(items);
+      } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return;
+      } finally {
+        if (!cancelled) setFolderLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [open, tab, portalViewMode, folderPath]);
+
+  // Top-level Folders view (folderPath empty): the "roots" are
+  // folders that aren't claimed as children by any other folder.
+  // Mirrors the folder-rail tree-building logic (apps/portal-web/
+  // src/app/items/folder-rail.tsx). Subfolders only show up after
+  // the user drills into their parent.
+  const rootFolders = useMemo(() => {
+    if (portalFolders.length === 0) return [];
+    const claimed = new Set<string>();
+    for (const f of portalFolders) {
+      const childIds = (f.data as { childItemIds?: unknown } | null)
+        ?.childItemIds;
+      if (Array.isArray(childIds)) {
+        for (const c of childIds) {
+          if (typeof c === 'string') claimed.add(c);
+        }
+      }
+    }
+    return portalFolders.filter((f) => !claimed.has(f.id));
+  }, [portalFolders]);
+
+  // Apply the search query client-side to whichever list is in view.
+  // For Items mode the server already did the matching via ?q=, so
+  // visiblePortalItems = portalItems unchanged. For Groups list and
+  // Folders contents, the search runs against title client-side
+  // because re-fetching on every keystroke would be wasteful when
+  // the lists are small.
+  const visiblePortalItems = portalItems;
+  const visibleGroups = useMemo(() => {
+    const q = portalQ.trim().toLowerCase();
+    if (!q) return portalGroups;
+    return portalGroups.filter(
+      (g) =>
+        g.title.toLowerCase().includes(q) ||
+        (g.description ?? '').toLowerCase().includes(q),
+    );
+  }, [portalGroups, portalQ]);
+  const visibleRootFolders = useMemo(() => {
+    const q = portalQ.trim().toLowerCase();
+    if (!q) return rootFolders;
+    return rootFolders.filter((f) => f.title.toLowerCase().includes(q));
+  }, [rootFolders, portalQ]);
+  const visibleFolderContents = useMemo(() => {
+    const q = portalQ.trim().toLowerCase();
+    if (!q) return folderContents;
+    return folderContents.filter((i) => i.title.toLowerCase().includes(q));
+  }, [folderContents, portalQ]);
+  const visibleGroupItems = useMemo(() => {
+    // Group items go through the server with ?q=, but do a
+    // belt-and-braces client-side filter too in case the request is
+    // still in flight.
+    const q = portalQ.trim().toLowerCase();
+    if (!q) return groupItems;
+    return groupItems.filter((i) => i.title.toLowerCase().includes(q));
+  }, [groupItems, portalQ]);
 
   function makeLayer(title: string, source: MapLayerSource): MapLayer {
     return {
@@ -713,54 +903,231 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
 
           {tab === 'portal' && (
             <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <label className="relative min-w-0 flex-1">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-                  <input
-                    type="text"
-                    value={portalQ}
-                    onChange={(e) => setPortalQ(e.target.value)}
-                    placeholder="Search feature & ArcGIS services..."
-                    className="h-9 w-full rounded-md border border-border bg-surface-1 pl-9 pr-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
-                  />
-                </label>
-                {/* Folder filter (#91). Optional narrowing to one
-                    folder's direct children -- handy when the org
-                    has many items and the user knows where the one
-                    they want lives. Group filter is queued as a
-                    follow-up (needs items-by-group server filter
-                    support; can ship without it). */}
-                {portalFolders.length > 0 ? (
-                  <select
-                    value={folderFilter ?? ''}
-                    onChange={(e) =>
-                      setFolderFilter(e.target.value || null)
-                    }
-                    className="h-9 max-w-[180px] truncate rounded-md border border-border bg-surface-1 px-2 text-xs text-ink-1 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
-                    title="Filter by folder"
+              {/* View-mode tabs (#100). Three sibling views: a flat
+                  Items list, a Groups list (drillable into items
+                  shared with that group), and a Folders tree
+                  (drillable with breadcrumb). Search is shared and
+                  applies to whichever list is in view. */}
+              <div className="flex items-center gap-1 rounded-md border border-border bg-surface-2 p-0.5 text-xs">
+                {(
+                  [
+                    ['items', 'Items', Database],
+                    ['groups', 'Groups', Users],
+                    ['folders', 'Folders', Folder],
+                  ] as const
+                ).map(([key, lbl, Icon]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => {
+                      setPortalViewMode(key);
+                      setSelectedGroup(null);
+                      setFolderPath([]);
+                      setPortalQ('');
+                    }}
+                    className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded px-3 py-1.5 ${
+                      portalViewMode === key
+                        ? 'bg-surface-0 font-medium text-ink-0 shadow-sm'
+                        : 'text-muted hover:text-ink-1'
+                    }`}
                   >
-                    <option value="">All folders</option>
-                    {portalFolders.map((f) => (
-                      <option key={f.id} value={f.id}>
-                        In folder: {f.title}
-                      </option>
-                    ))}
-                  </select>
-                ) : null}
+                    <Icon className="h-3.5 w-3.5" />
+                    {lbl}
+                  </button>
+                ))}
               </div>
-              {portalLoading ? (
-                <div className="flex items-center justify-center gap-2 rounded-md border border-border bg-surface-2 px-4 py-6 text-sm text-muted">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading services from your portal...
+              {/* Search bar */}
+              <label className="relative block">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+                <input
+                  type="text"
+                  value={portalQ}
+                  onChange={(e) => setPortalQ(e.target.value)}
+                  placeholder={
+                    portalViewMode === 'groups' && !selectedGroup
+                      ? 'Search groups...'
+                      : portalViewMode === 'folders' && folderPath.length === 0
+                        ? 'Search folders...'
+                        : 'Search services...'
+                  }
+                  className="h-9 w-full rounded-md border border-border bg-surface-1 pl-9 pr-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+                />
+              </label>
+
+              {/* Groups view: drilled into a group -> show items.
+                  Otherwise show the group list. */}
+              {portalViewMode === 'groups' && selectedGroup ? (
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedGroup(null)}
+                    className="inline-flex items-center gap-1 text-xs text-accent hover:underline"
+                  >
+                    <ChevronRight className="h-3 w-3 rotate-180" />
+                    Back to groups
+                  </button>
+                  <div className="rounded-md border border-border bg-surface-2 px-3 py-1.5 text-xs">
+                    <span className="text-muted">Showing items shared with </span>
+                    <span className="font-medium text-ink-0">
+                      {selectedGroup.title}
+                    </span>
+                  </div>
+                  {groupLoading ? (
+                    <LoadingShell label="Loading items shared with this group..." />
+                  ) : visibleGroupItems.length === 0 ? (
+                    <EmptyShell label="No items are shared with this group yet." />
+                  ) : (
+                    <PortalItemList
+                      items={visibleGroupItems}
+                      onPick={submitPortalItem}
+                    />
+                  )}
                 </div>
-              ) : visiblePortalItems.length === 0 ? (
-                <div className="rounded-md border border-border bg-surface-2 p-4 text-center text-xs text-muted">
-                  <Sparkles className="mx-auto mb-2 h-5 w-5" />
-                  {folderFilter
-                    ? 'No data services in this folder. Pick another folder or "All folders".'
-                    : 'No services match. Upload vector data as a feature service, or save an ArcGIS REST URL as an ArcGIS service item to pick it here.'}
+              ) : portalViewMode === 'groups' ? (
+                visibleGroups.length === 0 ? (
+                  <EmptyShell label="You aren't a member of any groups yet." />
+                ) : (
+                  <ul className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-1">
+                    {visibleGroups.map((g) => (
+                      <li key={g.id}>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedGroup(g)}
+                          className="flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-surface-2"
+                        >
+                          <Users className="h-4 w-4 shrink-0 text-muted" />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-ink-0">
+                              {g.title}
+                            </p>
+                            {g.description ? (
+                              <p className="line-clamp-1 text-xs text-muted">
+                                {g.description}
+                              </p>
+                            ) : null}
+                          </div>
+                          <ChevronRight className="h-4 w-4 shrink-0 text-muted" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )
+              ) : null}
+
+              {/* Folders view: top level shows root folders. Drilled
+                  in shows breadcrumb + (subfolders + items). */}
+              {portalViewMode === 'folders' && folderPath.length > 0 ? (
+                <div className="space-y-2">
+                  {/* Breadcrumb */}
+                  <nav className="flex flex-wrap items-center gap-1 text-xs text-muted">
+                    <button
+                      type="button"
+                      onClick={() => setFolderPath([])}
+                      className="inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-surface-2"
+                    >
+                      <Folder className="h-3 w-3" />
+                      All folders
+                    </button>
+                    {folderPath.map((seg, i) => (
+                      <span
+                        key={seg.id}
+                        className="inline-flex items-center gap-1"
+                      >
+                        <ChevronRight className="h-3 w-3" />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setFolderPath(folderPath.slice(0, i + 1))
+                          }
+                          className={`rounded px-1 py-0.5 hover:bg-surface-2 ${
+                            i === folderPath.length - 1
+                              ? 'font-medium text-ink-0'
+                              : ''
+                          }`}
+                        >
+                          {seg.title}
+                        </button>
+                      </span>
+                    ))}
+                  </nav>
+                  {folderLoading ? (
+                    <LoadingShell label="Loading folder contents..." />
+                  ) : visibleFolderContents.length === 0 ? (
+                    <EmptyShell label="This folder is empty." />
+                  ) : (
+                    <ul className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-1">
+                      {visibleFolderContents.map((item) =>
+                        item.type === 'folder' ? (
+                          <li key={item.id}>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setFolderPath([
+                                  ...folderPath,
+                                  { id: item.id, title: item.title },
+                                ])
+                              }
+                              className="flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-surface-2"
+                            >
+                              <FolderOpen className="h-4 w-4 shrink-0 text-muted" />
+                              <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink-0">
+                                {item.title}
+                              </span>
+                              <ChevronRight className="h-4 w-4 shrink-0 text-muted" />
+                            </button>
+                          </li>
+                        ) : item.type === 'data_layer' ||
+                          item.type === 'arcgis_service' ? (
+                          <PortalItemRow
+                            key={item.id}
+                            item={item}
+                            onPick={submitPortalItem}
+                          />
+                        ) : null,
+                      )}
+                    </ul>
+                  )}
                 </div>
-              ) : (
+              ) : portalViewMode === 'folders' ? (
+                visibleRootFolders.length === 0 ? (
+                  <EmptyShell label="No folders yet. Create one from the Items page to organize layers." />
+                ) : (
+                  <ul className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-1">
+                    {visibleRootFolders.map((f) => (
+                      <li key={f.id}>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setFolderPath([{ id: f.id, title: f.title }])
+                          }
+                          className="flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-surface-2"
+                        >
+                          <Folder className="h-4 w-4 shrink-0 text-muted" />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-ink-0">
+                              {f.title}
+                            </p>
+                            {f.description ? (
+                              <p className="line-clamp-1 text-xs text-muted">
+                                {f.description}
+                              </p>
+                            ) : null}
+                          </div>
+                          <ChevronRight className="h-4 w-4 shrink-0 text-muted" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )
+              ) : null}
+
+              {/* Items view: flat list with server-side search. */}
+              {portalViewMode === 'items' && (
+                portalLoading ? (
+                  <LoadingShell label="Loading services from your portal..." />
+                ) : visiblePortalItems.length === 0 ? (
+                  <EmptyShell label="No services match. Upload vector data as a feature service, or save an ArcGIS REST URL as an ArcGIS service item to pick it here." />
+                ) : (
                 <ul className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-1">
                   {visiblePortalItems.map((item) => {
                     // The list is fetched in lite mode (#52) so
@@ -829,6 +1196,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                     );
                   })}
                 </ul>
+                )
               )}
               <p className="text-[11px] text-muted">
                 Feature services stream from PostGIS; ArcGIS services
@@ -1305,4 +1673,113 @@ function geometryShort(g?: string): string {
   if (!g) return 'table';
   const m = g.match(/esriGeometry(\w+)/);
   return (m?.[1] ?? g).toLowerCase();
+}
+
+// ---- Portal-tab list helpers (#100) -----------------------------
+//
+// The Portal tab now has three view modes (Items / Groups / Folders),
+// and several of them end up rendering an item list. These helpers
+// keep the row JSX in one place so the +N-layers / Feature / ArcGIS
+// badges stay consistent across views.
+
+function LoadingShell({ label }: { label: string }) {
+  return (
+    <div className="flex items-center justify-center gap-2 rounded-md border border-border bg-surface-2 px-4 py-6 text-sm text-muted">
+      <Loader2 className="h-4 w-4 animate-spin" />
+      {label}
+    </div>
+  );
+}
+
+function EmptyShell({ label }: { label: string }) {
+  return (
+    <div className="rounded-md border border-border bg-surface-2 p-4 text-center text-xs text-muted">
+      <Sparkles className="mx-auto mb-2 h-5 w-5" />
+      {label}
+    </div>
+  );
+}
+
+function PortalItemList({
+  items,
+  onPick,
+}: {
+  items: Item[];
+  onPick: (item: Item) => void;
+}) {
+  return (
+    <ul className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-1">
+      {items.map((item) => (
+        <PortalItemRow key={item.id} item={item} onPick={onPick} />
+      ))}
+    </ul>
+  );
+}
+
+function PortalItemRow({
+  item,
+  onPick,
+}: {
+  item: Item;
+  onPick: (item: Item) => void;
+}) {
+  // The list is fetched in lite mode (#52) so `data` is omitted from
+  // the row payload; the server attaches a derived `_subLayerCount`
+  // for arcgis_service rows. Fall back to the legacy `data`-derived
+  // count if a non-lite caller ever re-uses this same component.
+  let sublayerCount = 0;
+  if (item.type === 'arcgis_service') {
+    const fromLite = (item as Item & { _subLayerCount?: number })
+      ._subLayerCount;
+    if (typeof fromLite === 'number') {
+      sublayerCount = fromLite;
+    } else {
+      const d = (item.data ?? {}) as {
+        selectedLayerIds?: Array<string | number>;
+        layers?: Array<unknown>;
+      };
+      sublayerCount = d.selectedLayerIds
+        ? d.selectedLayerIds.length
+        : Array.isArray(d.layers)
+          ? d.layers.length
+          : 0;
+    }
+  }
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => onPick(item)}
+        className="flex w-full flex-col items-start gap-1 px-3 py-2.5 text-left transition-colors hover:bg-surface-2"
+      >
+        <div className="flex w-full items-center gap-2">
+          <div className="min-w-0 flex-1 truncate text-sm font-medium text-ink-0">
+            {item.title}
+          </div>
+          {sublayerCount > 1 ? (
+            <span
+              className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800"
+              title={`This service exposes ${sublayerCount} sublayers; clicking adds them all.`}
+            >
+              +{sublayerCount} layers
+            </span>
+          ) : null}
+          <span
+            className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${
+              item.type === 'arcgis_service'
+                ? 'bg-cyan-100 text-cyan-800'
+                : 'bg-sky-100 text-sky-800'
+            }`}
+          >
+            {item.type === 'arcgis_service' ? 'ArcGIS' : 'Feature'}
+          </span>
+        </div>
+        {item.description ? (
+          <div className="line-clamp-1 text-xs text-muted">
+            {item.description}
+          </div>
+        ) : null}
+      </button>
+    </li>
+  );
 }
