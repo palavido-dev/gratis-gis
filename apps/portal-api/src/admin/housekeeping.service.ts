@@ -1,3 +1,4 @@
+import { statfs } from 'node:fs/promises';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ItemType } from '@prisma/client';
@@ -18,6 +19,7 @@ import {
   extractDependencies,
   normalizeArcgisUrl,
 } from '../items/dependency-extractor.js';
+import { StorageService } from '../storage/storage.service.js';
 
 /**
  * Heuristics-based analytics for the /admin/housekeeping page.
@@ -46,6 +48,7 @@ export class HousekeepingService {
     private readonly cfg: ConfigService,
     private readonly v3Tables: V3TablesService,
     private readonly credentials: CredentialService,
+    private readonly storage: StorageService,
   ) {}
 
   private get staleItemDays(): number {
@@ -283,44 +286,240 @@ export class HousekeepingService {
    * anyway; #65 follow-up can split that out.
    */
   async largeItems(orgId: string) {
-    // pg_column_size accounts for compression; octet_length of the
-    // JSON text is closer to "bytes the client saw". Close enough
-    // for housekeeping: we just want a sortable proxy.
-    const rows = await this.prisma.$queryRaw<
-      Array<{
-        id: string;
-        title: string;
-        type: string;
-        owner_id: string;
-        owner_label: string | null;
-        bytes: bigint;
-        updated_at: Date;
-      }>
-    >`
+    // Two passes. First, the JSON metadata size of every item (cheap;
+    // single-statement scan). Second, for v3 data_layer items, the
+    // sum of pg_total_relation_size over each item's per-layer
+    // feature tables (`fs_<itemIdNoDashes>_*`). Adding those gives
+    // total backend footprint, not just metadata. Form submissions
+    // and file attachments aren't attributed back to their owning
+    // item here -- those show up under the "Largest database tables"
+    // card (form_submission table) and are tracked separately on the
+    // MinIO usage row. Mixing them in here would require either a
+    // join keyed on form_id (different unit) or an N+1 walk into
+    // MinIO (slow). The follow-up to track per-item sizeBytes on
+    // upload would close those gaps.
+    type RawRow = {
+      id: string;
+      title: string;
+      type: string;
+      owner_id: string;
+      owner_label: string | null;
+      metadata_bytes: bigint;
+      data_bytes: bigint | null;
+      updated_at: Date;
+    };
+    const rows = await this.prisma.$queryRaw<RawRow[]>`
+      WITH meta AS (
+        SELECT
+          i.id,
+          i.title,
+          i.type,
+          i.owner_id,
+          COALESCE(NULLIF(u.full_name, ''), u.username) AS owner_label,
+          octet_length(i.data_json::text)::bigint AS metadata_bytes,
+          i.updated_at
+        FROM "item" i
+        LEFT JOIN "user" u ON u.id = i.owner_id
+        WHERE i.org_id = ${orgId}::uuid
+          AND i.deleted_at IS NULL
+      ),
+      data_sizes AS (
+        SELECT
+          (REPLACE(SUBSTRING(c.relname FROM 4 FOR 32), '_', '-')) AS item_id_compact,
+          SUM(pg_total_relation_size(c.oid))::bigint AS bytes
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public'
+          AND c.relkind = 'r'
+          AND c.relname LIKE 'fs\_%' ESCAPE '\'
+        GROUP BY 1
+      )
       SELECT
-        i.id,
-        i.title,
-        i.type,
-        i.owner_id,
-        COALESCE(NULLIF(u.full_name, ''), u.username) AS owner_label,
-        octet_length(i.data_json::text) AS bytes,
-        i.updated_at
-      FROM "item" i
-      LEFT JOIN "user" u ON u.id = i.owner_id
-      WHERE i.org_id = ${orgId}::uuid
-        AND i.deleted_at IS NULL
-      ORDER BY bytes DESC
+        m.id,
+        m.title,
+        m.type,
+        m.owner_id,
+        m.owner_label,
+        m.metadata_bytes,
+        d.bytes AS data_bytes,
+        m.updated_at
+      FROM meta m
+      LEFT JOIN data_sizes d
+        ON d.item_id_compact = REPLACE(m.id::text, '-', '')
+      ORDER BY (m.metadata_bytes + COALESCE(d.bytes, 0)) DESC
       LIMIT ${this.topN}
     `;
+    return rows.map((r) => {
+      const metadataBytes = Number(r.metadata_bytes);
+      const dataBytes = r.data_bytes == null ? 0 : Number(r.data_bytes);
+      return {
+        id: r.id,
+        title: r.title,
+        type: r.type as string,
+        ownerId: r.owner_id,
+        ownerLabel: r.owner_label ?? r.owner_id.slice(0, 8),
+        // Total = metadata JSON + (for data_layer) feature-table footprint.
+        sizeBytes: metadataBytes + dataBytes,
+        metadataBytes,
+        // dataBytes is set only for items whose feature tables we
+        // can attribute back via the fs_<itemId>_* naming pattern --
+        // i.e. v3 data_layer items. 0 for everything else.
+        dataBytes,
+        updatedAt: r.updated_at.toISOString(),
+      };
+    });
+  }
+
+  /**
+   * High-level storage telemetry surfaced on the Housekeeping page
+   * (#161). Three sources stitched together so the operator can
+   * answer "are we running low on disk" in one glance:
+   *
+   *   - postgres: total database size (pg_database_size). The
+   *                bulk of GratisGIS data lives here -- feature
+   *                tables, form submissions, item metadata.
+   *   - minio:    object count + bytes across the configured
+   *                bucket. Thumbnails, hero images, avatars,
+   *                feature attachments. Computed by walking
+   *                ListObjectsV2; null if MinIO isn't reachable.
+   *   - host:     free / total bytes on the volume the API
+   *                process is running on (statfs over '/'). On
+   *                a docker-compose deployment this is the same
+   *                volume as the postgres data dir for most
+   *                operators, so it's the right "are we full"
+   *                signal even though it's not an exact match.
+   *                Returns null on unsupported platforms.
+   *
+   * All values are cheap to compute except the bucket walk, which
+   * is O(N objects). The caller (HousekeepingController.storage)
+   * is expected to be hit on demand -- not on every page render --
+   * so a few hundred ms on a large bucket is fine.
+   */
+  async storageMetrics() {
+    const [dbSize, hostDisk, bucket] = await Promise.all([
+      this.queryDatabaseSize(),
+      this.queryHostDisk(),
+      this.storage.getBucketUsage(),
+    ]);
+    return {
+      postgres: {
+        databaseName: dbSize.databaseName,
+        totalBytes: dbSize.totalBytes,
+      },
+      minio: bucket
+        ? {
+            bucket: this.storage.bucketName,
+            objectCount: bucket.objectCount,
+            totalBytes: bucket.totalBytes,
+            unavailable: false,
+          }
+        : {
+            bucket: this.storage.bucketName,
+            objectCount: 0,
+            totalBytes: 0,
+            unavailable: true,
+          },
+      host: hostDisk,
+    };
+  }
+
+  /**
+   * Top N database tables by total relation size (heap + indexes +
+   * TOAST). Useful when one feature table is bloating the cluster
+   * and the operator wants to know which one. Joins to pg_stat_user_tables
+   * for live row-count estimates. Limited to public-schema regular
+   * tables so we skip toast/index/sequence noise.
+   */
+  async largestTables() {
+    type Row = {
+      schema: string;
+      name: string;
+      total_bytes: bigint;
+      table_bytes: bigint;
+      index_bytes: bigint;
+      row_estimate: number | null;
+    };
+    const rows = await this.prisma.$queryRaw<Row[]>`
+      SELECT
+        n.nspname AS schema,
+        c.relname AS name,
+        pg_total_relation_size(c.oid)::bigint AS total_bytes,
+        pg_relation_size(c.oid)::bigint AS table_bytes,
+        (pg_total_relation_size(c.oid) - pg_relation_size(c.oid))::bigint
+          AS index_bytes,
+        c.reltuples::float8::int AS row_estimate
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public'
+        AND c.relkind = 'r'
+      ORDER BY pg_total_relation_size(c.oid) DESC
+      LIMIT 10
+    `;
     return rows.map((r) => ({
-      id: r.id,
-      title: r.title,
-      type: r.type as string,
-      ownerId: r.owner_id,
-      ownerLabel: r.owner_label ?? r.owner_id.slice(0, 8),
-      sizeBytes: Number(r.bytes),
-      updatedAt: r.updated_at.toISOString(),
+      schema: r.schema,
+      name: r.name,
+      totalBytes: Number(r.total_bytes),
+      tableBytes: Number(r.table_bytes),
+      indexBytes: Number(r.index_bytes),
+      rowEstimate: r.row_estimate ?? 0,
     }));
+  }
+
+  /**
+   * Total bytes used by the current Postgres database. Includes
+   * heap, indexes, TOAST, and per-relation FSM. Cheap (O(1) catalog
+   * lookup); safe to call on every Housekeeping page render.
+   */
+  private async queryDatabaseSize(): Promise<{
+    databaseName: string;
+    totalBytes: number;
+  }> {
+    const rows = await this.prisma.$queryRaw<
+      Array<{ db: string; size: bigint }>
+    >`
+      SELECT
+        current_database() AS db,
+        pg_database_size(current_database())::bigint AS size
+    `;
+    const r = rows[0];
+    return {
+      databaseName: r?.db ?? 'unknown',
+      totalBytes: r ? Number(r.size) : 0,
+    };
+  }
+
+  /**
+   * Free / total bytes on the volume hosting the API process.
+   * Returns null when statfs isn't supported (older Node, exotic
+   * platform): the UI hides the disk gauge in that case rather
+   * than guessing.
+   */
+  private async queryHostDisk(): Promise<{
+    mountPoint: string;
+    totalBytes: number;
+    freeBytes: number;
+  } | null> {
+    // We probe the filesystem the API process is on. On a typical
+    // single-host docker-compose deployment, the postgres data
+    // volume and the MinIO data volume both live on this same
+    // disk, so this is a defensible "the box is full" signal.
+    // Operators who split data across volumes should replace this
+    // with a deployment-specific monitor (#161 follow-up).
+    const probePath = process.platform === 'win32' ? 'C:\\' : '/';
+    try {
+      const s = await statfs(probePath);
+      // Node's StatFs reports bsize + blocks + bavail. Multiply for
+      // bytes. bavail (not bfree) is what's available to a non-root
+      // user; that's the right "we can write more" number.
+      const totalBytes = Number(BigInt(s.bsize) * BigInt(s.blocks));
+      const freeBytes = Number(BigInt(s.bsize) * BigInt(s.bavail));
+      return { mountPoint: probePath, totalBytes, freeBytes };
+    } catch (err) {
+      this.log.warn(
+        `Disk metrics unavailable: ${err instanceof Error ? err.message : err}`,
+      );
+      return null;
+    }
   }
 
   /**

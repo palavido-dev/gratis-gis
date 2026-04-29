@@ -11,6 +11,8 @@ import {
   ChevronRight,
   Clock,
   Database,
+  HardDrive,
+  Layers,
   Loader2,
   Timer,
   Trash2,
@@ -74,8 +76,53 @@ export interface HousekeepingBundle {
     type: string;
     ownerId: string;
     ownerLabel: string;
+    /** Total = metadataBytes + dataBytes (the latter is non-zero only
+     *  for data_layer items, where it sums every per-layer feature
+     *  table). Sort key. */
     sizeBytes: number;
+    /** Just the item's JSON blob in the `item` table. */
+    metadataBytes: number;
+    /** For data_layer items: pg_total_relation_size summed across the
+     *  v3 feature tables (`fs_<itemIdNoDashes>_*`). 0 for any other
+     *  type -- file attachments and form submissions aren't attributed
+     *  back to the item here; they're visible in the storage cards. */
+    dataBytes: number;
     updatedAt: string;
+  }>;
+  /** Storage telemetry (#161). Rendered as a single card at the top
+   *  of the page so the operator can answer "are we running low" at
+   *  a glance. */
+  storage: {
+    postgres: {
+      databaseName: string;
+      totalBytes: number;
+    };
+    minio: {
+      bucket: string;
+      objectCount: number;
+      totalBytes: number;
+      /** True when MinIO couldn't be enumerated (down at boot, wrong
+       *  credentials, etc.). UI shows a fallback message instead of a
+       *  misleading "0 bytes". */
+      unavailable: boolean;
+    };
+    /** Null when statfs isn't supported on the API host (older Node /
+     *  exotic platform). UI hides the gauge in that case. */
+    host: {
+      mountPoint: string;
+      totalBytes: number;
+      freeBytes: number;
+    } | null;
+  };
+  /** Top 10 tables by pg_total_relation_size (#161). Diagnostic
+   *  for "which table is bloating the cluster". */
+  largestTables: Array<{
+    schema: string;
+    name: string;
+    totalBytes: number;
+    tableBytes: number;
+    indexBytes: number;
+    rowEstimate: number;
   }>;
   expiringShares: Array<{
     itemId: string;
@@ -114,6 +161,8 @@ export function HousekeepingView({ bundle }: Props) {
     largeItems,
     expiringShares,
     expiringUsers,
+    storage,
+    largestTables,
   } = bundle;
 
   // One selection set per table: items and users live in different
@@ -464,6 +513,12 @@ export function HousekeepingView({ bundle }: Props) {
         </div>
       ) : null}
 
+      {/* Storage usage (#161). Single card: host-disk gauge plus
+          per-store readouts (Postgres + MinIO). The disk gauge is
+          the "are we running low" signal at a glance; the readouts
+          tell the operator which store dominates. */}
+      <StorageCard storage={storage} />
+
       {/* Soon-to-expire shares (#86). Mixes already-expired
           (red) and within-window (amber) rows so the admin can
           deal with both in one place. Empty list collapses to a
@@ -635,11 +690,25 @@ export function HousekeepingView({ bundle }: Props) {
         />
       ) : null}
 
+      {/* Top tables by total relation size (#161). Diagnostic for
+          "which table is bloating the cluster" -- if the database
+          card above is heavy, this is where to look. */}
+      <Section
+        icon={<Layers className="h-4 w-4" />}
+        title="Largest database tables"
+        empty="No tables to report."
+        caption="Top 10 tables in the public schema by total size (heap + indexes). The fs_* tables are the per-layer feature stores for individual data_layer items; form_submission holds every form response."
+      >
+        {largestTables.length === 0 ? null : (
+          <LargestTablesTable rows={largestTables} />
+        )}
+      </Section>
+
       <Section
         icon={<Database className="h-4 w-4" />}
-        title="Largest items by stored size"
+        title="Largest items by total size"
         empty="No items yet."
-        caption="Rough size of the item's settings and metadata. Heavier items are the ones most likely to be slow to load or copy around. Actual map tiles, feature rows, and uploaded files live in separate storage and aren't counted here."
+        caption="Each item's settings/metadata blob plus, for data_layer items, the per-layer feature tables that hold the actual rows and geometry. File attachments and form submissions aren't attributed back to their owning items here -- attachments live in MinIO (see the Storage card above) and submissions live in form_submission (see the Largest database tables card)."
       >
         {largeItems.length === 0 ? null : (
           <LargeItemsTable rows={largeItems} />
@@ -1071,7 +1140,14 @@ function LargeItemsTable({
             <td className="px-4 py-2 text-muted">{r.type}</td>
             <td className="px-4 py-2 text-muted">{r.ownerLabel}</td>
             <td className="px-4 py-2 font-mono text-ink-0">
-              {formatBytes(r.sizeBytes)}
+              <span title="Total backend footprint: metadata JSON plus, for data_layer items, the per-layer feature tables.">
+                {formatBytes(r.sizeBytes)}
+              </span>
+              {r.dataBytes > 0 ? (
+                <span className="ml-2 text-[10px] text-muted">
+                  ({formatBytes(r.dataBytes)} data + {formatBytes(r.metadataBytes)} meta)
+                </span>
+              ) : null}
             </td>
             <td className="px-4 py-2 text-muted">
               {new Date(r.updatedAt).toLocaleDateString()}
@@ -1084,6 +1160,167 @@ function LargeItemsTable({
                 Open
                 <ChevronRight className="h-3 w-3" />
               </Link>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/**
+ * Top-of-page storage telemetry card (#161). Three readouts plus a
+ * single visual gauge. We pick "host disk used %" as the gauge
+ * because that's the universal "are we running out" signal: even
+ * if Postgres dominates today, when the disk fills the postgres
+ * data dir, MinIO bucket, and backup archive all stop writing.
+ *
+ * The gauge color steps from accent (cool) -> amber (warn at 75%)
+ * -> danger (crit at 90%) so a quick glance from across the room
+ * tells the operator how worried to be.
+ */
+function StorageCard({
+  storage,
+}: {
+  storage: HousekeepingBundle['storage'];
+}) {
+  const host = storage.host;
+  const usedBytes = host ? host.totalBytes - host.freeBytes : 0;
+  const usedPct = host && host.totalBytes > 0
+    ? (usedBytes / host.totalBytes) * 100
+    : 0;
+  const tone =
+    usedPct >= 90
+      ? 'bg-danger'
+      : usedPct >= 75
+        ? 'bg-amber-400'
+        : 'bg-accent';
+  return (
+    <section className="rounded-md border border-border bg-surface-1">
+      <header className="flex items-center gap-2 border-b border-border bg-surface-2 px-4 py-2 text-xs font-medium text-ink-1">
+        <HardDrive className="h-4 w-4 text-muted" />
+        <span>Storage usage</span>
+      </header>
+      <div className="space-y-3 p-4">
+        {host ? (
+          <div>
+            <div className="mb-1 flex items-baseline justify-between text-xs">
+              <span className="text-muted">
+                Host disk{' '}
+                <span className="font-mono text-[11px]">
+                  {host.mountPoint}
+                </span>
+              </span>
+              <span className="text-ink-0">
+                <span className="font-mono">{formatBytes(host.freeBytes)}</span>
+                <span className="text-muted"> free of </span>
+                <span className="font-mono">{formatBytes(host.totalBytes)}</span>
+                <span className="text-muted">
+                  {' '}
+                  ({usedPct.toFixed(0)}% used)
+                </span>
+              </span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2">
+              <div
+                className={`h-full ${tone} transition-all`}
+                style={{ width: `${Math.min(100, usedPct).toFixed(1)}%` }}
+              />
+            </div>
+            {usedPct >= 75 ? (
+              <p className="mt-1 text-[11px] text-amber-700">
+                Free space is running low. Backups, MinIO uploads, and
+                Postgres autovacuum all need headroom on this volume.
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <p className="text-xs text-muted">
+            Host disk metrics aren't available on this platform.
+          </p>
+        )}
+
+        <dl className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
+          <div className="rounded-md border border-border bg-surface-0 p-3">
+            <dt className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted">
+              <Database className="h-3.5 w-3.5" />
+              Postgres
+            </dt>
+            <dd className="mt-1 font-mono text-base text-ink-0">
+              {formatBytes(storage.postgres.totalBytes)}
+            </dd>
+            <dd className="mt-0.5 text-[11px] text-muted">
+              database{' '}
+              <span className="font-mono">{storage.postgres.databaseName}</span>{' '}
+              (heap + indexes + TOAST)
+            </dd>
+          </div>
+          <div className="rounded-md border border-border bg-surface-0 p-3">
+            <dt className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted">
+              <Archive className="h-3.5 w-3.5" />
+              MinIO
+            </dt>
+            <dd className="mt-1 font-mono text-base text-ink-0">
+              {storage.minio.unavailable
+                ? 'unavailable'
+                : formatBytes(storage.minio.totalBytes)}
+            </dd>
+            <dd className="mt-0.5 text-[11px] text-muted">
+              {storage.minio.unavailable ? (
+                <>bucket couldn't be enumerated; check MinIO connectivity</>
+              ) : (
+                <>
+                  bucket{' '}
+                  <span className="font-mono">{storage.minio.bucket}</span>
+                  {' · '}
+                  {storage.minio.objectCount.toLocaleString()} object
+                  {storage.minio.objectCount === 1 ? '' : 's'}
+                </>
+              )}
+            </dd>
+          </div>
+        </dl>
+      </div>
+    </section>
+  );
+}
+
+function LargestTablesTable({
+  rows,
+}: {
+  rows: HousekeepingBundle['largestTables'];
+}) {
+  return (
+    <table className="w-full text-sm">
+      <thead className="bg-surface-2 text-left text-[11px] uppercase tracking-wide text-muted">
+        <tr>
+          <th className="px-4 py-2">Table</th>
+          <th className="px-4 py-2">Total</th>
+          <th className="px-4 py-2">Heap</th>
+          <th className="px-4 py-2">Indexes</th>
+          <th className="px-4 py-2">Rows (est.)</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-border">
+        {rows.map((r) => (
+          <tr key={`${r.schema}.${r.name}`}>
+            <td className="px-4 py-2 font-mono text-ink-0">
+              {r.name}
+              {r.schema !== 'public' ? (
+                <span className="text-muted">.{r.schema}</span>
+              ) : null}
+            </td>
+            <td className="px-4 py-2 font-mono text-ink-0">
+              {formatBytes(r.totalBytes)}
+            </td>
+            <td className="px-4 py-2 font-mono text-muted">
+              {formatBytes(r.tableBytes)}
+            </td>
+            <td className="px-4 py-2 font-mono text-muted">
+              {formatBytes(r.indexBytes)}
+            </td>
+            <td className="px-4 py-2 font-mono text-muted">
+              {r.rowEstimate >= 0 ? r.rowEstimate.toLocaleString() : '–'}
             </td>
           </tr>
         ))}
