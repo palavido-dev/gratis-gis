@@ -15,6 +15,7 @@ export * from './user';
 export * from './item';
 export * from './map';
 export * from './data-layer';
+export * from './derived-layer';
 export * from './arcgis-service';
 export * from './pick-list';
 export * from './geo-boundary';
