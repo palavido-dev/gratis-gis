@@ -1,7 +1,19 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { FlaskConical, Layers, Search } from 'lucide-react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import {
+  ChevronDown,
+  FlaskConical,
+  Layers,
+  Search,
+  X,
+} from 'lucide-react';
 import {
   DEFAULT_DERIVED_LAYER_FEATURE_LIMIT,
   MAX_BUFFER_DISTANCE_METERS,
@@ -33,47 +45,6 @@ export function DerivedLayerBuilder({
   value: DerivedLayerData;
   onChange: (next: DerivedLayerData) => void;
 }) {
-  // Source layer picker state. We resolve the items list once on
-  // mount and let the user filter inline; for orgs with hundreds of
-  // data_layer items this should still feel snappy because the
-  // existing list endpoint streams them in bulk.
-  const [sources, setSources] = useState<Item[] | null>(null);
-  const [sourceFilter, setSourceFilter] = useState('');
-  const [sourceErr, setSourceErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch('/api/portal/items?type=data_layer')
-      .then(async (r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const body = (await r.json()) as { items?: Item[] } | Item[];
-        const list = Array.isArray(body) ? body : (body.items ?? []);
-        if (!cancelled) setSources(list);
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setSourceErr(
-            err instanceof Error ? err.message : 'Could not load data layers',
-          );
-          setSources([]);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const visibleSources = useMemo(() => {
-    if (!sources) return [];
-    const q = sourceFilter.trim().toLowerCase();
-    if (q.length === 0) return sources;
-    return sources.filter(
-      (s) =>
-        s.title.toLowerCase().includes(q) ||
-        s.description.toLowerCase().includes(q),
-    );
-  }, [sources, sourceFilter]);
-
   // Buffer step is the only tool in v1, so we surface it directly
   // rather than via a "pick a tool" intermediate step. When more
   // tools land, this becomes a tool selector and per-tool form
@@ -144,64 +115,13 @@ export function DerivedLayerBuilder({
         <h4 className="text-xs font-medium uppercase tracking-wide text-muted">
           Source layer
         </h4>
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-          <input
-            type="search"
-            value={sourceFilter}
-            onChange={(e) => setSourceFilter(e.target.value)}
-            placeholder="Filter by title or description"
-            className="h-10 w-full rounded-md border border-border bg-surface-0 pl-9 pr-3 text-sm text-ink-0 placeholder:text-muted focus:border-accent focus:outline-none"
-          />
-        </div>
-        {sourceErr ? (
-          <p className="text-xs text-danger">Could not load data layers: {sourceErr}</p>
-        ) : null}
-        {sources === null ? (
-          <p className="text-xs text-muted">Loading data layers…</p>
-        ) : visibleSources.length === 0 ? (
-          <p className="text-xs text-muted">
-            No data layers match the filter. Create one first under
-            Data {'>'} Data layer, then come back here.
-          </p>
-        ) : (
-          <ul
-            role="radiogroup"
-            aria-label="Source data layer"
-            className="max-h-64 space-y-1 overflow-y-auto rounded-md border border-border bg-surface-0 p-1"
-          >
-            {visibleSources.map((s) => {
-              const selected = value.source.itemId === s.id;
-              return (
-                <li key={s.id}>
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={selected}
-                    onClick={() => setSourceItem(s.id)}
-                    className={`flex w-full items-start gap-3 rounded-md px-3 py-2 text-left text-sm hover:bg-surface-2 ${
-                      selected
-                        ? 'bg-accent/10 ring-1 ring-accent'
-                        : ''
-                    }`}
-                  >
-                    <Layers className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium text-ink-0">
-                        {s.title}
-                      </span>
-                      {s.description ? (
-                        <span className="mt-0.5 block truncate text-xs text-muted">
-                          {s.description}
-                        </span>
-                      ) : null}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+        <SourceLayerPicker
+          selectedId={value.source.itemId}
+          onSelect={setSourceItem}
+        />
+        <p className="text-[11px] text-muted">
+          The list shows data layers you own and ones shared with you.
+        </p>
       </section>
 
       <section className="space-y-2">
@@ -257,6 +177,283 @@ export function DerivedLayerBuilder({
           />
         </label>
       </section>
+    </div>
+  );
+}
+
+/**
+ * Combobox-style picker for a single data_layer Item.
+ *
+ * Closed state is a button showing the selected layer's title (or a
+ * placeholder). Click opens a popover with a search input and the
+ * filtered list of data layers visible to the caller. Search runs
+ * server-side via `?q=` on the items list endpoint, debounced 200ms
+ * so a rapid typist doesn't fire a request per keystroke. Click-
+ * outside or Escape closes the popover; clicking a row selects and
+ * closes.
+ *
+ * The fetch follows the same pattern as the map's add-layer dialog
+ * (`?type=data_layer&lite=1`), which already returns items the
+ * caller can see, so no extra "shared with me" filtering is needed
+ * here. The list is sorted server-side by updatedAt desc so the
+ * most-recently-touched layers float to the top.
+ */
+function SourceLayerPicker({
+  selectedId,
+  onSelect,
+}: {
+  selectedId: string;
+  onSelect: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<Item[] | null>(null);
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Cache the selected item separately so the trigger keeps showing
+  // the right title even after the popover's list refetches with a
+  // narrowed query that excludes it.
+  const [cachedSelection, setCachedSelection] = useState<Item | null>(null);
+
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Debounced server-side search. Aborts any in-flight request when
+  // the query changes again so we don't hold a stale Prisma
+  // connection on the API side.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    const controller = new AbortController();
+    setLoading(true);
+    setErr(null);
+    const handle = setTimeout(async () => {
+      try {
+        const qs = new URLSearchParams({ type: 'data_layer', lite: '1' });
+        const q = query.trim();
+        if (q) qs.set('q', q);
+        const res = await fetch(`/api/portal/items?${qs}`, {
+          signal: controller.signal,
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const body = (await res.json()) as Item[] | { items?: Item[] };
+        const list = Array.isArray(body) ? body : (body.items ?? []);
+        if (!cancelled) setItems(list);
+      } catch (e) {
+        if ((e as Error)?.name === 'AbortError') return;
+        if (!cancelled) {
+          setErr(
+            e instanceof Error ? e.message : 'Could not load data layers',
+          );
+          setItems([]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }, 200);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+      controller.abort();
+    };
+  }, [open, query]);
+
+  // Resolve the selected id to a full Item once on mount (and again
+  // if the parent passes a new id we don't already have cached).
+  // Avoids a "selected but trigger shows blank" gap when the picker
+  // mounts with a value already set.
+  useEffect(() => {
+    if (!selectedId || cachedSelection?.id === selectedId) return;
+    let cancelled = false;
+    fetch(`/api/portal/items/${selectedId}?lite=1`)
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const body = (await r.json()) as Item;
+        if (!cancelled) setCachedSelection(body);
+      })
+      .catch(() => {
+        // Best-effort: leave the trigger showing the bare id if the
+        // resolve fails. Probably means the item was deleted or
+        // un-shared between save and re-render.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId, cachedSelection?.id]);
+
+  // Close on click outside.
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (!containerRef.current) return;
+      if (!containerRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [open]);
+
+  // Focus the search input when the popover opens, so the user can
+  // start typing immediately. Wrapped in rAF so the input has been
+  // mounted before we try to focus it.
+  useEffect(() => {
+    if (!open) return;
+    const id = requestAnimationFrame(() => searchInputRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, [open]);
+
+  const handleSelect = useCallback(
+    (item: Item) => {
+      setCachedSelection(item);
+      onSelect(item.id);
+      setOpen(false);
+      setQuery('');
+    },
+    [onSelect],
+  );
+
+  // Items currently visible in the popover. We let the server do the
+  // search but ALSO drop the selected item from the list when there's
+  // no query, so the popover doesn't waste a slot showing what's
+  // already chosen. Selected item still appears when the user is
+  // searching, so a typo recovery doesn't hide it.
+  const visibleItems = useMemo(() => {
+    if (!items) return null;
+    if (!selectedId || query.trim().length > 0) return items;
+    return items.filter((i) => i.id !== selectedId);
+  }, [items, selectedId, query]);
+
+  const triggerLabel =
+    cachedSelection && cachedSelection.id === selectedId
+      ? cachedSelection.title
+      : selectedId
+        ? '(Resolving selected layer…)'
+        : 'Pick a source data layer…';
+
+  const triggerSubtitle =
+    cachedSelection && cachedSelection.id === selectedId
+      ? cachedSelection.description
+      : '';
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-start gap-3 rounded-md border border-border bg-surface-0 px-3 py-2 text-left hover:bg-surface-2 focus:border-accent focus:outline-none"
+      >
+        <Layers className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" />
+        <span className="min-w-0 flex-1">
+          <span
+            className={`block truncate text-sm font-medium ${
+              selectedId ? 'text-ink-0' : 'text-muted'
+            }`}
+          >
+            {triggerLabel}
+          </span>
+          {triggerSubtitle ? (
+            <span className="mt-0.5 block truncate text-xs text-muted">
+              {triggerSubtitle}
+            </span>
+          ) : null}
+        </span>
+        <ChevronDown
+          className={`mt-1 h-4 w-4 shrink-0 text-muted transition-transform ${
+            open ? 'rotate-180' : ''
+          }`}
+          aria-hidden="true"
+        />
+      </button>
+
+      {open ? (
+        <div
+          role="listbox"
+          aria-label="Data layers"
+          className="absolute left-0 right-0 z-20 mt-1 overflow-hidden rounded-md border border-border bg-surface-0 shadow-lg"
+        >
+          <div className="relative border-b border-border p-2">
+            <Search
+              className="pointer-events-none absolute left-5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted"
+              aria-hidden="true"
+            />
+            <input
+              ref={searchInputRef}
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setOpen(false);
+                }
+              }}
+              placeholder="Search data layers…"
+              className="h-9 w-full rounded-md border border-border bg-surface-1 pl-9 pr-8 text-sm text-ink-0 placeholder:text-muted focus:border-accent focus:outline-none"
+            />
+            {query ? (
+              <button
+                type="button"
+                onClick={() => setQuery('')}
+                aria-label="Clear search"
+                className="absolute right-4 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted hover:bg-surface-2"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+          </div>
+
+          <div className="max-h-64 overflow-y-auto p-1">
+            {err ? (
+              <p className="px-3 py-2 text-xs text-danger">
+                Could not load data layers: {err}
+              </p>
+            ) : loading && !visibleItems ? (
+              <p className="px-3 py-2 text-xs text-muted">
+                Loading data layers…
+              </p>
+            ) : !visibleItems || visibleItems.length === 0 ? (
+              <p className="px-3 py-2 text-xs text-muted">
+                {query
+                  ? `No data layers match "${query}".`
+                  : 'No data layers visible to you yet. Create one under Data > Data layer first.'}
+              </p>
+            ) : (
+              <ul className="space-y-0.5">
+                {visibleItems.map((s) => {
+                  const selected = selectedId === s.id;
+                  return (
+                    <li key={s.id}>
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={selected}
+                        onClick={() => handleSelect(s)}
+                        className={`flex w-full items-start gap-3 rounded-md px-3 py-2 text-left text-sm hover:bg-surface-2 ${
+                          selected ? 'bg-accent/10 ring-1 ring-accent' : ''
+                        }`}
+                      >
+                        <Layers className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium text-ink-0">
+                            {s.title}
+                          </span>
+                          {s.description ? (
+                            <span className="mt-0.5 block truncate text-xs text-muted">
+                              {s.description}
+                            </span>
+                          ) : null}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
