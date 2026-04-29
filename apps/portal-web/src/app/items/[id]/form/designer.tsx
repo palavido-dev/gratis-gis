@@ -1379,7 +1379,7 @@ function QuestionRow({
               ) : null}
               {q.type === 'group' && isAttachmentGroup(q, layerSchema) ? (
                 <span
-                  title="This group binds to the layer's attachments. Each instance is one attached file plus any per-attachment fields you add."
+                  title="This group binds to the layer's attachments. Each instance is one attached file. To capture per-photo metadata (caption, photographer, GPS, etc.) wrap your attachment in a related event layer instead."
                   className="ml-1.5 inline-flex rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-emerald-800"
                 >
                   attachment
@@ -1438,15 +1438,26 @@ function QuestionRow({
               }
             }}
           >
-            {/* Hint inside attachment groups so authors understand
-                that anything they add becomes a per-attachment field
-                stored alongside the file (caption, taken-by, GPS at
-                capture time, etc.) -- not a feature attribute. */}
+            {/* Hint inside attachment groups. Earlier copy promised
+                authors that questions dropped here become per-attachment
+                fields stored alongside the file. That was aspirational,
+                not accurate: FeatureAttachment is a fixed schema and
+                non-attachment questions inside this group don't persist
+                anywhere on the file. (#158 / #173 design decision)
+                The right pattern for per-photo metadata is a related
+                event layer (one row per inspection / visit / observation,
+                with photos attached to each event row). For now we
+                warn authors instead of silently storing nothing. */}
             {isAttachmentGroup(q, layerSchema) ? (
               <p className="mb-2 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] text-emerald-900">
-                Each value here is captured per attachment, alongside the
-                file. Add per-attachment fields like caption, taken-by, or
-                GPS-at-capture.
+                <span className="font-semibold">One attached file per
+                instance.</span> This group binds to the layer's
+                attachments and stores files only. Per-photo metadata
+                (caption, photographer, GPS-at-capture, etc.) is NOT
+                persisted alongside individual files. To capture that
+                kind of data, wrap your attachment in a related event
+                layer (one row per inspection / visit / observation,
+                with photos attached to each row).
               </p>
             ) : null}
             {q.children.length === 0 ? (
