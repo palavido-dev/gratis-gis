@@ -172,8 +172,17 @@ interface QuestionBase {
   id: QuestionId;
   /** User-facing label. Shown above the input. */
   label: string;
-  /** Optional secondary explanatory text. */
+  /** Optional secondary explanatory text. Shown directly under the
+   *  question label in the runtime. */
   hint?: Hint | undefined;
+  /** Optional longer-form help, shown behind a click-to-reveal "More
+   *  info" toggle in the runtime. Use for explanations the responder
+   *  might want once but not on every render -- think "what counts
+   *  as 'household income'?" or "how to read your meter dial". The
+   *  short `hint` stays in the always-visible space; this one is the
+   *  expandable companion. Added in Slice 5 of the expression
+   *  builder series (#166). */
+  guidanceHint?: string | undefined;
   /** When false, the runtime hides the question and clears its
    *  value before submit. Default true. */
   visible?: boolean | undefined;

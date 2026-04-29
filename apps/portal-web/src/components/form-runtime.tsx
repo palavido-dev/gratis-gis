@@ -315,6 +315,16 @@ function QuestionField({
         {requiredMark}
       </label>
       {q.hint ? <p className="text-xs text-muted">{q.hint}</p> : null}
+      {q.guidanceHint ? (
+        <details className="text-xs text-muted">
+          <summary className="cursor-pointer text-accent hover:underline">
+            More info
+          </summary>
+          <p className="mt-1 whitespace-pre-line text-muted">
+            {q.guidanceHint}
+          </p>
+        </details>
+      ) : null}
       <Input q={q} value={value} readOnly={readOnly} onChange={onChange} />
       {error ? (
         <p className="text-xs text-danger" role="alert">
