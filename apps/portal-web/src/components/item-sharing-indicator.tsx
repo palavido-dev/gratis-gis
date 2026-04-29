@@ -192,13 +192,14 @@ export function ItemSharingIndicator({
 
   // Show every share row, including a share whose principal is the
   // current viewer. Previously we filtered self-shares out as
-  // "don't tell the user they shared with themselves" -- but that
-  // filter mis-fires for sharees: when Mateo (not the owner) opens
-  // the popover on Bob's item, the share row TO Mateo is exactly
-  // what's granting him visibility, and hiding it made the popover
-  // read "0 shares" while the chip count agreed and lied. We keep
-  // the row visible and tag it "(you)" inside SharingRow; the
-  // remove button is hidden for self-shares regardless of
+  // "don't tell the user they shared with themselves", but that
+  // filter mis-fires for sharees: when a contributor (not the
+  // owner) opens the popover on someone else's item, the share row
+  // TO them is exactly what's granting visibility, and hiding it
+  // made the popover read "0 shares" while the chip count agreed
+  // and lied. We keep the row visible and tag it "(you)" inside
+  // SharingRow; the remove button is hidden for self-shares
+  // regardless of
   // canManage so users don't accidentally yank their own access.
   const visibleShares = currentShares;
 

@@ -25,7 +25,7 @@ interface Props {
   data: DataLayerData | null | undefined;
   /**
    * Optional map of userId -> display name. When present, the panel
-   * uses it to render 'by Mateo Garcia' instead of the raw uuid
+   * uses it to render 'by Contributor User' instead of the raw uuid
    * slice. Supplied from the server-rendered detail page.
    */
   userNames?: Record<string, string>;

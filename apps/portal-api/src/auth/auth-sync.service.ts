@@ -112,7 +112,7 @@ export class AuthSyncService {
     // We key on `username` rather than Keycloak's `sub`. The local user.id is
     // our own stable identifier (possibly seeded or provisioned before the user
     // ever touched Keycloak), while `sub` is the IdP's opaque id. Keying on
-    // username means a seeded `alice` and a Keycloak-authenticated `alice`
+    // username means a seeded `admin` and a Keycloak-authenticated `admin`
     // resolve to the same row, and downstream FKs (items, group memberships)
     // remain stable even if the IdP is swapped out or the sub changes.
     // After both the org and the user exist (the user upsert happens

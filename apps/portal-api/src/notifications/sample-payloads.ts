@@ -23,7 +23,7 @@ export const SAMPLE_PAYLOADS: { [K in NotificationType]?: unknown } = {
     itemTitle: 'City Park Trees',
     itemType: 'data-layer',
     permission: 'view',
-    sharedByName: 'Bob Example',
+    sharedByName: 'Admin User',
     expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
   } satisfies ShareCreatedPayload,
   share_expiring: {
@@ -55,7 +55,7 @@ export const SAMPLE_PAYLOADS: { [K in NotificationType]?: unknown } = {
     dataLayerTitle: 'Storm Drains',
     layerKey: 'drains',
     featureId: 'drains/123',
-    createdByName: 'Alice Example',
+    createdByName: 'Contributor User',
     summary: 'Inspection #4127 (cracked grate)',
   } satisfies EditorFeatureCreatedPayload,
 };

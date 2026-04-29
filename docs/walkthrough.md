@@ -11,16 +11,17 @@ If the dev environment isn't running yet, see [SETUP.md](./SETUP.md).
 
 ## Sign in
 
-Open <http://localhost:3000>. Two seeded accounts on a fresh
-install:
+Open <http://localhost:3000>. Three seeded accounts on a fresh
+install (passwords match the username, dev-only):
 
-- **`bob` / `devpassword`** — admin in org Acme, sees every
-  item in the org
-- **`mateo` / `devpassword`** — contributor in org Acme, only
-  sees items shared with him
+- **`admin` / `admin`**: admin in org Acme, sees every item
+  in the org and can manage users, branding, housekeeping
+- **`contributor` / `contributor`**: contributor in org Acme,
+  can create items and only sees items shared with them
+- **`viewer` / `viewer`**: viewer in org Acme, read-only
 
-Sign in as Bob first to see the full surface, then re-test as
-Mateo to feel the sharing model.
+Sign in as `admin` first to see the full surface, then re-test
+as `contributor` or `viewer` to feel the sharing model.
 
 
 ## Vocabulary (AGO ↔ GratisGIS)
@@ -173,7 +174,7 @@ can still delete; the dependent items will fail gracefully on
 the missing reference.
 
 
-## Admin features (Bob only)
+## Admin features (admin only)
 
 `/admin` surfaces, in roughly the order of usefulness:
 

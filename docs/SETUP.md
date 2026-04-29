@@ -134,9 +134,10 @@ Migrations apply the Prisma schema (auth tables, items, sharing,
 folders, etc.). The seed script creates:
 
 - Org **Acme Corp** (`acme`)
-- User **Mateo García** (username `mateo`, role `contributor`)
-- User **Bob Example** (username `bob`, role `admin`)
-- Group **Field Team** with both users as members
+- User **Admin User** (username `admin`, role `admin`)
+- User **Contributor User** (username `contributor`, role `contributor`)
+- User **Viewer User** (username `viewer`, role `viewer`)
+- Group **Field Team** with all three users as members
 - A couple of example items so the items page isn't empty
 
 These match the users that the Keycloak realm import already set
@@ -168,15 +169,19 @@ Keycloak's sign-in page.
 
 ## 6. Sign in
 
-Two test accounts are seeded on both sides:
+Three test accounts are seeded on both sides. Passwords match the
+username so a fresh-install reviewer can sign in without consulting
+docs.
 
 | Username | Password | Role | Why use this one |
 | --- | --- | --- | --- |
-| `bob` | `devpassword` | Org admin | Sees every item in Acme; can manage users / branding / housekeeping |
-| `mateo` | `devpassword` | Contributor | Sees only what's shared with him; the realistic "everyday user" view |
+| `admin` | `admin` | Org admin | Sees every item in Acme; can manage users / branding / housekeeping |
+| `contributor` | `contributor` | Contributor | Sees only what's shared with them; can create new items |
+| `viewer` | `viewer` | Viewer | Read-only; the realistic "everyday consumer" view |
 
-Sign in as Bob first to take the admin tour, then sign out and
-sign in as Mateo to see what a non-admin's portal looks like.
+Sign in as `admin` first to take the admin tour, then sign out and
+sign in as `contributor` (or `viewer`) to see what a non-admin's
+portal looks like.
 
 If you need to add more users, create them in Keycloak under
 realm `gratis-gis`. The portal-api auto-syncs Keycloak users into

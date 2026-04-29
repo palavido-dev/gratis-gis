@@ -148,16 +148,42 @@
   },
   "users": [
     {
-      "username": "mateo",
-      "email": "mateo@acme.test",
-      "firstName": "Mateo",
-      "lastName": "Garc\u00eda",
+      "username": "admin",
+      "email": "admin@acme.test",
+      "firstName": "Admin",
+      "lastName": "User",
       "enabled": true,
       "emailVerified": true,
       "credentials": [
         {
           "type": "password",
-          "value": "devpassword",
+          "value": "admin",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "admin"
+      ],
+      "attributes": {
+        "org": [
+          "acme"
+        ],
+        "org_role": [
+          "admin"
+        ]
+      }
+    },
+    {
+      "username": "contributor",
+      "email": "contributor@acme.test",
+      "firstName": "Contributor",
+      "lastName": "User",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "contributor",
           "temporary": false
         }
       ],
@@ -174,28 +200,28 @@
       }
     },
     {
-      "username": "bob",
-      "email": "bob@acme.test",
-      "firstName": "Bob",
-      "lastName": "Example",
+      "username": "viewer",
+      "email": "viewer@acme.test",
+      "firstName": "Viewer",
+      "lastName": "User",
       "enabled": true,
       "emailVerified": true,
       "credentials": [
         {
           "type": "password",
-          "value": "devpassword",
+          "value": "viewer",
           "temporary": false
         }
       ],
       "realmRoles": [
-        "admin"
+        "viewer"
       ],
       "attributes": {
         "org": [
           "acme"
         ],
         "org_role": [
-          "admin"
+          "viewer"
         ]
       }
     },
