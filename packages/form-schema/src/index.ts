@@ -188,6 +188,20 @@ interface QuestionBase {
   message?: string | undefined;
   /** Read-only: the runtime renders a value but does not allow edits. */
   readOnly?: boolean | Expression | undefined;
+  /** Optional derived value. When set, the runtime evaluates this
+   *  expression after every response change and writes the result
+   *  into the response under this question's id. A question with a
+   *  `calculate` is implicitly read-only -- the respondent isn't
+   *  meant to override a derived value -- so the runtime treats it
+   *  the same as `readOnly: true` regardless of the explicit flag.
+   *
+   *  Historically this lived only on the dedicated `calculated`
+   *  question type, but in #164 it moved here so any question type
+   *  (number, date, text, select, …) can carry a derived value
+   *  without forcing authors to pick a different type. The
+   *  `calculated` type still works (its own `calculate` field is
+   *  required); the optional one here is the broader knob. */
+  calculate?: Expression | undefined;
   /** Layer binding (Field runtime only). */
   bindTo?: BindTo | undefined;
   /** Per-question layout (width within the form column). */
@@ -1583,10 +1597,12 @@ function validateType(q: Question, value: unknown): string | null {
 // ---------------------------------------------------------------------------
 
 /**
- * For every `calculated` question whose dependencies have changed,
- * recompute its value and write it into the response. Returns the
- * mutated response (callers can rely on identity equality when
- * nothing changed).
+ * For every question carrying a `calculate` expression -- whether
+ * it's the dedicated `calculated` type (required `calculate`) or any
+ * other type that opts in via the optional QuestionBase.calculate
+ * (#164) -- recompute its value and write it into the response.
+ * Returns the mutated response (callers can rely on identity
+ * equality when nothing changed).
  */
 export function applyCalculations(
   form: FormSchema,
@@ -1595,8 +1611,14 @@ export function applyCalculations(
   let next = response;
   let changed = false;
   for (const q of walkQuestions(form)) {
-    if (q.type !== 'calculated') continue;
-    const computed = evaluate(q.calculate, response);
+    // Pull the expression from either source: the required field on
+    // the `calculated` type, or the optional QuestionBase one. We
+    // prefer the type-specific field when it exists so v3-import or
+    // legacy data round-trips cleanly.
+    const expr =
+      q.type === 'calculated' ? q.calculate : q.calculate ?? undefined;
+    if (!expr) continue;
+    const computed = evaluate(expr, response);
     if (next[q.id] !== computed) {
       if (!changed) {
         next = { ...response };

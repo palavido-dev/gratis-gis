@@ -984,7 +984,7 @@ function Input({
       return (
         <div className="rounded-md border border-border bg-surface-2/40 px-3 py-2 text-sm text-ink-1">
           {value === null || value === undefined || value === ''
-            ? '—'
+            ? '-'
             : String(value)}
         </div>
       );
@@ -2357,6 +2357,12 @@ function collectIdsOnPage(page: Page): Set<string> {
 }
 
 function isReadOnly(q: Question, response: Response): boolean {
+  // A calculated question -- whether the dedicated `calculated`
+  // type or a QuestionBase with the optional `calculate` field
+  // (#164) -- is always read-only. The respondent isn't meant to
+  // override a derived value, and applyCalculations would just
+  // overwrite their edit on the next render anyway.
+  if (q.type === 'calculated' || q.calculate) return true;
   if (q.readOnly === undefined || q.readOnly === false) return false;
   if (q.readOnly === true) return true;
   return Boolean(evaluate(q.readOnly as Expression, response));
