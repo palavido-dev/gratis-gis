@@ -357,11 +357,47 @@ export class ItemsService {
         `;
         for (const c of counted) counts.set(c.id, c.sublayer_count);
       }
-      result = rows.map((r) =>
-        r.type === 'arcgis_service'
-          ? { ...r, _subLayerCount: counts.get(r.id) ?? 0 }
-          : r,
-      );
+
+      // Compute `_storageType` for data_layer rows in one targeted
+      // raw query. The lite findMany strips `data` to keep the wire
+      // payload small, but downstream UI surfaces (the derived-layer
+      // wizard, future analysis tools) need to know whether a layer
+      // is v1 inline-GeoJSON or v2 PostGIS-backed so they can filter
+      // out incompatible sources before the user picks one. Reads
+      // only the `data_json -> 'storageType'` path so the trip back
+      // is one short string per row, not the whole metadata blob.
+      const dataLayerIds = rows
+        .filter((r) => r.type === 'data_layer')
+        .map((r) => r.id);
+      const storageTypes = new Map<string, string>();
+      if (dataLayerIds.length > 0) {
+        const storage = await this.prisma.$queryRaw<
+          Array<{ id: string; storage_type: string | null }>
+        >`
+          SELECT id::text AS id,
+                 (data_json ->> 'storageType') AS storage_type
+          FROM "item"
+          WHERE id = ANY(${dataLayerIds}::uuid[])
+        `;
+        for (const s of storage) {
+          if (s.storage_type) storageTypes.set(s.id, s.storage_type);
+        }
+      }
+
+      result = rows.map((r) => {
+        if (r.type === 'arcgis_service') {
+          return { ...r, _subLayerCount: counts.get(r.id) ?? 0 };
+        }
+        if (r.type === 'data_layer') {
+          // Default to 'inline' (v1) when the field is absent so the
+          // client never has to special-case "missing means v1".
+          return {
+            ...r,
+            _storageType: storageTypes.get(r.id) ?? 'inline',
+          };
+        }
+        return r;
+      });
     }
 
     if (traceTiming) {

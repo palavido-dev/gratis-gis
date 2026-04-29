@@ -151,7 +151,10 @@ export function DerivedLayerBuilder({
           onSelect={setSourceItem}
         />
         <p className="text-[11px] text-muted">
-          The list shows data layers you own and ones shared with you.
+          Lists data layers you own or have been shared with. Only v2
+          PostGIS-backed layers are eligible: the buffer tool runs SQL
+          against the source's feature table, which v1 inline-GeoJSON
+          layers don't have.
         </p>
       </section>
 
@@ -241,6 +244,11 @@ function SourceLayerPicker({
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Count of data layers that exist for the user but are hidden
+  // because they aren't v2 PostGIS-backed. Drives the footnote in
+  // the empty / footer state so the user understands why a layer
+  // they remember creating doesn't appear in the list.
+  const [hiddenIncompatibleCount, setHiddenIncompatibleCount] = useState(0);
 
   // Cache the selected item separately so the trigger keeps showing
   // the right title even after the popover's list refetches with a
@@ -253,6 +261,14 @@ function SourceLayerPicker({
   // Debounced server-side search. Aborts any in-flight request when
   // the query changes again so we don't hold a stale Prisma
   // connection on the API side.
+  //
+  // The list is filtered to v2 PostGIS-backed data layers only.
+  // Buffer (and any future tool that issues SQL against the source's
+  // fs_<uuid> table) needs that table to exist; v1 inline-GeoJSON
+  // layers don't have one, and selecting one would silently produce
+  // an empty result. The server attaches `_storageType` to lite-mode
+  // data_layer rows so we can filter without paying the full data-
+  // blob cost.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -268,9 +284,17 @@ function SourceLayerPicker({
           signal: controller.signal,
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const body = (await res.json()) as Item[] | { items?: Item[] };
+        const body = (await res.json()) as
+          | Array<Item & { _storageType?: string }>
+          | { items?: Array<Item & { _storageType?: string }> };
         const list = Array.isArray(body) ? body : (body.items ?? []);
-        if (!cancelled) setItems(list);
+        const compatible = list.filter(
+          (i) => i._storageType === 'postgis',
+        );
+        if (!cancelled) {
+          setItems(compatible);
+          setHiddenIncompatibleCount(list.length - compatible.length);
+        }
       } catch (e) {
         if ((e as Error)?.name === 'AbortError') return;
         if (!cancelled) {
@@ -445,11 +469,21 @@ function SourceLayerPicker({
                 Loading data layers…
               </p>
             ) : !visibleItems || visibleItems.length === 0 ? (
-              <p className="px-3 py-2 text-xs text-muted">
-                {query
-                  ? `No data layers match "${query}".`
-                  : 'No data layers visible to you yet. Create one under Data > Data layer first.'}
-              </p>
+              <div className="px-3 py-2 text-xs text-muted">
+                <p>
+                  {query
+                    ? `No compatible data layers match "${query}".`
+                    : 'No compatible data layers visible to you yet. Create one under Data > Data layer first.'}
+                </p>
+                {hiddenIncompatibleCount > 0 ? (
+                  <p className="mt-1 text-[11px]">
+                    {hiddenIncompatibleCount} v1 inline-GeoJSON
+                    layer{hiddenIncompatibleCount === 1 ? ' is' : 's are'}{' '}
+                    hidden because the buffer tool needs a v2 PostGIS-
+                    backed source.
+                  </p>
+                ) : null}
+              </div>
             ) : (
               <ul className="space-y-0.5">
                 {visibleItems.map((s) => {
