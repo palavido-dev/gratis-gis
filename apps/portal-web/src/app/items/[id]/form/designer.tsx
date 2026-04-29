@@ -2222,7 +2222,13 @@ function Properties({
       <details className="mt-3 rounded-md border border-border bg-surface-1 p-2 text-xs">
         <summary className="cursor-pointer text-muted">Conditional logic</summary>
         <div className="mt-2 space-y-3">
+          {/* `key` forces a fresh editor instance when the selected
+              question changes. The editor holds local row state
+              (so partially-filled rows survive across "Add
+              condition" clicks); without the key, that local state
+              would leak across questions. */}
           <ExpressionEditor
+            key={`${question.id}:visibleIf`}
             label="Visible if"
             value={question.visibleIf}
             // Exclude the current question. A "visible if Species
@@ -2248,6 +2254,7 @@ function Properties({
               reads the question's own value (it's "is this answer
               valid"). */}
           <ExpressionEditor
+            key={`${question.id}:constraint`}
             label="Valid if"
             value={question.constraint}
             allFields={collectFieldRefs(form)}
@@ -3255,19 +3262,39 @@ function ExpressionEditor({
   disabled: boolean;
   onChange: (next: Expression | undefined) => void;
 }) {
-  const decomposed = decomposeExpression(value);
-  const isComplex = decomposed === null;
-  const rows = decomposed?.rows ?? [];
-  const combinator: 'and' | 'or' = decomposed?.combinator ?? 'and';
+  // Local state for the row list. We can't derive this from `value`
+  // on every render because composeExpression intentionally drops
+  // rows whose `ref` is empty -- a freshly-added row has no ref yet,
+  // so it would never persist back through `value` and the "Add
+  // condition" button would appear to do nothing.
+  //
+  // The parent wraps each ExpressionEditor in a `key` keyed by
+  // question id + slot, so when the user selects a different
+  // question the component remounts and re-initialises from the new
+  // `value`. That keeps state per-question without us having to
+  // diff `value` against local state in an effect.
+  const initial = decomposeExpression(value);
+  const [rows, setRows] = useState<ConditionRow[]>(initial?.rows ?? []);
+  const [combinator, setCombinator] = useState<'and' | 'or'>(
+    initial?.combinator ?? 'and',
+  );
+  // "Complex fallback" stays sticky for the lifetime of the component
+  // unless the user explicitly clears. Local state so the banner
+  // doesn't flicker on each re-render.
+  const [showComplexFallback, setShowComplexFallback] = useState(
+    initial === null,
+  );
 
   const update = (
     nextRows: ConditionRow[],
     nextCombinator: 'and' | 'or' = combinator,
   ) => {
+    setRows(nextRows);
+    setCombinator(nextCombinator);
     onChange(composeExpression(nextCombinator, nextRows));
   };
 
-  if (isComplex) {
+  if (showComplexFallback) {
     return (
       <div>
         <p className="mb-0.5 text-[10px] uppercase tracking-wide text-muted">
@@ -3282,7 +3309,12 @@ function ExpressionEditor({
           <button
             type="button"
             disabled={disabled}
-            onClick={() => onChange(undefined)}
+            onClick={() => {
+              setRows([]);
+              setCombinator('and');
+              setShowComplexFallback(false);
+              onChange(undefined);
+            }}
             className="inline-flex items-center gap-1 rounded border border-amber-300 bg-white px-1.5 py-0.5 text-[11px] hover:bg-amber-100 disabled:opacity-50"
           >
             Clear and start over
