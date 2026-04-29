@@ -106,6 +106,21 @@ export class KeycloakAdminService implements OnModuleInit {
    */
   async onModuleInit(): Promise<void> {
     if (!this.isConfigured()) return;
+    // Self-heal: if the admin service-account client doesn't have
+    // manage-realm yet, grant it now so the SMTP sync below can
+    // succeed. Idempotent and safe to call repeatedly. Failure here
+    // is logged but doesn't block bootstrap -- a misconfigured admin
+    // client can't grant itself a role it doesn't already have, and
+    // we'd rather the portal start than refuse to come up. (#139)
+    try {
+      await this.ensureManageRealm();
+    } catch (err) {
+      this.logger.warn(
+        `Could not auto-grant manage-realm to admin service-account: ` +
+          `${String(err)}. The admin Keycloak client needs realm-admin ` +
+          `(or just manage-realm directly) for SMTP sync to work.`,
+      );
+    }
     // Skip the sync when SMTP isn't configured yet (no DB row, no
     // env). The admin can configure SMTP via /admin/notifications
     // and saveSmtp() will trigger the sync at that point.
@@ -494,6 +509,135 @@ export class KeycloakAdminService implements OnModuleInit {
       `Synced SMTP config to Keycloak realm '${this.realm}' (host=${cfg.host} port=${cfg.port} secure=${cfg.secure})`,
     );
     return smtpServer;
+  }
+
+  /**
+   * Ensure the admin service-account client has the realm-management
+   * `manage-realm` client role. Idempotent: if the role is already
+   * granted (or unavailable to grant), this is a no-op. (#139)
+   *
+   * Sequence:
+   *   1. Look up the admin client (KEYCLOAK_ADMIN_CLIENT_ID) and get
+   *      its service-account user id.
+   *   2. Look up the built-in `realm-management` client.
+   *   3. Look up the `manage-realm` role within that client.
+   *   4. Check whether the role is already among the service
+   *      account's client-role mappings; if not, POST to grant it.
+   *
+   * The grant only succeeds if THIS service account already has
+   * sufficient privilege (realm-admin / manage-clients) to assign
+   * roles. Most local-dev setups configure the admin client with
+   * realm-admin already, so this works on the first boot. Cloud /
+   * SSO deployments where the admin client is intentionally minimal
+   * will get a clear error here that surfaces in the bootstrap log.
+   */
+  async ensureManageRealm(): Promise<void> {
+    if (!this.isConfigured()) return;
+    const token = await this.getAccessToken();
+    const headers = {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    };
+
+    // 1. Find the admin client by clientId env var, get its
+    //    service-account user id.
+    const clientId = this.adminClientId!;
+    const clientsRes = await fetch(
+      this.adminUrl(`/clients?clientId=${encodeURIComponent(clientId)}`),
+      { headers },
+    );
+    if (!clientsRes.ok) {
+      throw new Error(
+        `Lookup of admin client '${clientId}' failed: ${clientsRes.status}`,
+      );
+    }
+    const clients = (await clientsRes.json()) as Array<{ id: string }>;
+    if (clients.length === 0) {
+      throw new Error(
+        `Admin client '${clientId}' not found in realm '${this.realm}'.`,
+      );
+    }
+    const clientUuid = clients[0]!.id;
+    const saRes = await fetch(
+      this.adminUrl(`/clients/${clientUuid}/service-account-user`),
+      { headers },
+    );
+    if (!saRes.ok) {
+      throw new Error(
+        `Service-account-user lookup failed: ${saRes.status} (the admin ` +
+          `client must have 'Service accounts enabled' in Keycloak).`,
+      );
+    }
+    const saUser = (await saRes.json()) as { id: string };
+
+    // 2. Find the realm-management client (built into Keycloak).
+    const rmRes = await fetch(
+      this.adminUrl(`/clients?clientId=realm-management`),
+      { headers },
+    );
+    if (!rmRes.ok) {
+      throw new Error(`realm-management lookup failed: ${rmRes.status}`);
+    }
+    const rmClients = (await rmRes.json()) as Array<{ id: string }>;
+    if (rmClients.length === 0) {
+      throw new Error('Built-in realm-management client missing.');
+    }
+    const rmClientUuid = rmClients[0]!.id;
+
+    // 3. Find the manage-realm role within realm-management.
+    const roleRes = await fetch(
+      this.adminUrl(
+        `/clients/${rmClientUuid}/roles/manage-realm`,
+      ),
+      { headers },
+    );
+    if (!roleRes.ok) {
+      throw new Error(
+        `manage-realm role lookup failed: ${roleRes.status}`,
+      );
+    }
+    const role = (await roleRes.json()) as { id: string; name: string };
+
+    // 4. Already granted? Compare against the service account's
+    //    existing client-role mappings. If yes, no-op; if no, POST
+    //    to grant.
+    const existingRes = await fetch(
+      this.adminUrl(
+        `/users/${saUser.id}/role-mappings/clients/${rmClientUuid}`,
+      ),
+      { headers },
+    );
+    if (!existingRes.ok) {
+      throw new Error(
+        `Existing role-mappings lookup failed: ${existingRes.status}`,
+      );
+    }
+    const existing = (await existingRes.json()) as Array<{ name: string }>;
+    if (existing.some((r) => r.name === 'manage-realm')) {
+      // Already granted; quiet success.
+      return;
+    }
+    const grantRes = await fetch(
+      this.adminUrl(
+        `/users/${saUser.id}/role-mappings/clients/${rmClientUuid}`,
+      ),
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify([role]),
+      },
+    );
+    if (!grantRes.ok) {
+      const text = await grantRes.text();
+      throw new Error(
+        `manage-realm grant failed: ${grantRes.status} :: ${text}. ` +
+          `The admin client itself needs realm-admin (or manage-clients ` +
+          `+ manage-realm) to grant roles.`,
+      );
+    }
+    this.logger.log(
+      `Granted manage-realm to admin service-account '${clientId}' on realm '${this.realm}'.`,
+    );
   }
 }
 

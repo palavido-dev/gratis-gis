@@ -335,16 +335,36 @@ export class NotificationsAdminController {
       // will lazy-rebuild on demand.
     }
     // Push the new config into the Keycloak realm so invite /
-    // forgot-password / verify-email emails share the relay.
+    // forgot-password / verify-email emails share the relay. The
+    // SMTP save itself succeeded (DB row written, in-process
+    // transport reloaded) regardless of whether the realm sync
+    // works -- the admin just won't get realm-issued emails (invite,
+    // forgot-password, verify) through the right relay until the
+    // realm-side push succeeds.
+    //
+    // We surface the realm-sync error as a non-blocking warning
+    // on the response (#139). Before that fix, the failure was
+    // logged and silently swallowed, so the admin saw a green
+    // "Saved" with no idea anything had gone wrong server-side.
+    let realmSyncWarning: string | undefined;
     if (this.keycloak.isConfigured()) {
       try {
-        await this.keycloak.syncRealmSmtp();
+        // Self-heal first: try to grant manage-realm if missing.
+        // Idempotent; quiet success when already granted.
+        await this.keycloak.ensureManageRealm();
       } catch {
-        // Logged inside syncRealmSmtp; surface to the admin via
-        // the next "send test" attempt rather than breaking save.
+        // Don't bail; syncRealmSmtp will surface the underlying
+        // problem with a clearer error message anyway.
+      }
+      try {
+        await this.keycloak.syncRealmSmtp();
+      } catch (err) {
+        realmSyncWarning =
+          err instanceof Error ? err.message : String(err);
       }
     }
-    return this.getSmtp();
+    const state = await this.getSmtp();
+    return realmSyncWarning ? { ...state, realmSyncWarning } : state;
   }
 
   /**
@@ -467,6 +487,16 @@ interface SmtpStatePayload {
   fromDisplayName: string;
   user: string;
   hasPassword: boolean;
+  /**
+   * Set when the SMTP save succeeded but the realm-side sync to
+   * Keycloak failed. Surfaces the actionable error from
+   * KeycloakAdminService.syncRealmSmtp so the admin can fix the
+   * underlying issue (typically a missing manage-realm role on
+   * the admin service-account) without having to dig in logs.
+   * Absent / undefined when the sync succeeded or the integration
+   * isn't configured. (#139)
+   */
+  realmSyncWarning?: string;
 }
 
 interface DefaultsPayload {
