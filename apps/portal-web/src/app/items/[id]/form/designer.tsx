@@ -1850,6 +1850,67 @@ function Properties({
         </div>
       ) : null}
 
+      {question.type === 'slider' ? (
+        <>
+          <div className="grid grid-cols-3 gap-2">
+            <Field label="Min">
+              <input
+                type="number"
+                step="any"
+                value={question.min ?? ''}
+                disabled={!canEdit}
+                onChange={(e) =>
+                  onChange({
+                    min: e.target.value === '' ? 0 : Number(e.target.value),
+                  } as Partial<Question>)
+                }
+                className={inputCls}
+              />
+            </Field>
+            <Field label="Max">
+              <input
+                type="number"
+                step="any"
+                value={question.max ?? ''}
+                disabled={!canEdit}
+                onChange={(e) =>
+                  onChange({
+                    max: e.target.value === '' ? 100 : Number(e.target.value),
+                  } as Partial<Question>)
+                }
+                className={inputCls}
+              />
+            </Field>
+            <Field label="Step" hint="Granularity of each tick.">
+              <input
+                type="number"
+                step="any"
+                min={0}
+                value={question.step ?? ''}
+                disabled={!canEdit}
+                onChange={(e) =>
+                  onChange({
+                    step: e.target.value === '' ? undefined : Number(e.target.value),
+                  } as Partial<Question>)
+                }
+                className={inputCls}
+              />
+            </Field>
+          </div>
+          <label className="mb-2 inline-flex items-center gap-2 text-xs">
+            <input
+              type="checkbox"
+              checked={question.showValue !== false}
+              disabled={!canEdit}
+              onChange={(e) =>
+                onChange({ showValue: e.target.checked } as Partial<Question>)
+              }
+            />
+            <span>Show selected value next to the slider</span>
+          </label>
+        </>
+      ) : null}
+
       {question.type === 'text' ||
       question.type === 'multiline' ||
       question.type === 'email' ||
