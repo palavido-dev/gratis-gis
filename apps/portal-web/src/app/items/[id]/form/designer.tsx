@@ -2221,7 +2221,7 @@ function Properties({
 
       <details className="mt-3 rounded-md border border-border bg-surface-1 p-2 text-xs">
         <summary className="cursor-pointer text-muted">Conditional logic</summary>
-        <div className="mt-2 space-y-2">
+        <div className="mt-2 space-y-3">
           <ExpressionEditor
             label="Visible if"
             value={question.visibleIf}
@@ -2233,11 +2233,28 @@ function Properties({
             // field based on its own computed value) is rare enough
             // that we'd rather force the author to introduce a
             // helper field than expose the footgun by default.
-            allFields={collectIdLabelPairs(form).filter(
+            allFields={collectFieldRefs(form).filter(
               (f) => f.id !== question.id,
             )}
             disabled={!canEdit}
             onChange={(visibleIf) => onChange({ visibleIf })}
+          />
+          {/* Constraint (validation) -- new in #162 Slice 1. The
+              schema has supported `constraint?: Expression` on
+              QuestionBase for a while, but the designer never
+              exposed it. Wired through the same row-based editor as
+              Visible-if so the two affordances behave the same.
+              Self-reference is fine here: a constraint OF COURSE
+              reads the question's own value (it's "is this answer
+              valid"). */}
+          <ExpressionEditor
+            label="Valid if"
+            value={question.constraint}
+            allFields={collectFieldRefs(form)}
+            disabled={!canEdit}
+            onChange={(constraint) =>
+              onChange({ constraint } as Partial<Question>)
+            }
           />
         </div>
       </details>
@@ -2245,17 +2262,43 @@ function Properties({
   );
 }
 
-function collectIdLabelPairs(form: FormSchema): Array<{ id: string; label: string }> {
-  const out: Array<{ id: string; label: string }> = [];
-  function walk(qs: Question[]) {
+/**
+ * Richer field reference for pickers in the expression editor: id,
+ * label, type, and the "parent path" (the chain of group labels
+ * leading to the question, "/"-separated). Two questions sharing a
+ * label are still distinguishable because the dropdown also shows
+ * the id and the parent path. This replaces the older
+ * `collectIdLabelPairs` which collapsed duplicate labels into an
+ * indistinguishable mush in the visible-if dropdown -- the symptom
+ * Matt called out (two "Group" / "Photo" entries sitting next to
+ * each other with no way to tell them apart).
+ */
+interface FieldRef {
+  id: string;
+  label: string;
+  type: QuestionType;
+  parentPath: string; // empty for top-level questions
+}
+
+function collectFieldRefs(form: FormSchema): FieldRef[] {
+  const out: FieldRef[] = [];
+  function walk(qs: Question[], path: string[]) {
     for (const q of qs) {
-      out.push({ id: q.id, label: q.label });
-      if (q.type === 'group') walk(q.children);
+      out.push({
+        id: q.id,
+        label: q.label,
+        type: q.type,
+        parentPath: path.join(' / '),
+      });
+      if (q.type === 'group') {
+        walk(q.children, [...path, q.label || q.id]);
+      }
     }
   }
-  walk(form.questions);
+  walk(form.questions, []);
   return out;
 }
+
 
 function GroupRepeatEditor({
   q,
@@ -2998,6 +3041,207 @@ function ComponentToggleEditor<T extends string>({
   );
 }
 
+/**
+ * Operators the inline editor exposes for a single condition row.
+ * Mirrors the AST opcodes in `Expression`. We list the comparable
+ * subset (no `and`/`or`/`not`/arithmetic/concat/if): those are
+ * structural and live at the row-list level, not inside a row. The
+ * label is what shows in the dropdown; the AST opcode is what we
+ * persist.
+ *
+ * Numeric-only operators (gt/gte/lt/lte/between) still appear on
+ * any field type; the runtime evaluator coerces strings to numbers
+ * where it can. The author's choice of operator is more reliable
+ * than us trying to guess based on field type, especially when a
+ * "text" field actually holds numeric content.
+ */
+const COMPARISON_OPERATORS: ReadonlyArray<{
+  op: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'between';
+  label: string;
+  /** True when the right-hand side is a single value, false when
+   *  this op uses a different shape (in: list-ish; between: min+max). */
+  rhsKind: 'value' | 'list' | 'range';
+}> = [
+  { op: 'eq', label: 'equals', rhsKind: 'value' },
+  { op: 'neq', label: 'does not equal', rhsKind: 'value' },
+  { op: 'gt', label: 'greater than', rhsKind: 'value' },
+  { op: 'gte', label: 'greater than or equal', rhsKind: 'value' },
+  { op: 'lt', label: 'less than', rhsKind: 'value' },
+  { op: 'lte', label: 'less than or equal', rhsKind: 'value' },
+  { op: 'in', label: 'contains', rhsKind: 'value' },
+  { op: 'between', label: 'between', rhsKind: 'range' },
+];
+type ComparisonOp = (typeof COMPARISON_OPERATORS)[number]['op'];
+
+/**
+ * One row in the inline editor. Always references a question on the
+ * left; `op` picks one of the comparison operators above; the right
+ * side is either a single value or, for `between`, a {min, max} pair.
+ *
+ * We keep `value` typed as a primitive string in the row even when
+ * the left field is numeric -- on render we coerce via `Number(...)`
+ * before composing the AST, so the user can type freely without the
+ * input flickering between empty and 0.
+ */
+interface ConditionRow {
+  ref: string;
+  op: ComparisonOp;
+  value: string;
+  min: string;
+  max: string;
+}
+
+const DEFAULT_ROW = (): ConditionRow => ({
+  ref: '',
+  op: 'eq',
+  value: '',
+  min: '',
+  max: '',
+});
+
+/**
+ * Try to break an Expression into a list of comparison rows joined
+ * by AND or OR. Best-effort: if the expression uses ops we don't
+ * model in the inline editor (calls, arithmetic, nested and/or, etc.)
+ * we return null and the editor falls back to a "complex expression"
+ * banner with a clear-and-start-over button. This keeps the UI
+ * predictable -- we don't try to round-trip something we couldn't
+ * faithfully render.
+ */
+function decomposeExpression(expr: Expression | undefined): {
+  combinator: 'and' | 'or';
+  rows: ConditionRow[];
+} | null {
+  if (!expr) return { combinator: 'and', rows: [] };
+  // Single comparison row at the top level: treat as one-row AND.
+  const single = decomposeRow(expr);
+  if (single) return { combinator: 'and', rows: [single] };
+  // and / or of comparisons.
+  if (expr.op === 'and' || expr.op === 'or') {
+    const rows: ConditionRow[] = [];
+    for (const op of expr.operands) {
+      const r = decomposeRow(op);
+      if (!r) return null; // bail on first non-row operand
+      rows.push(r);
+    }
+    return { combinator: expr.op, rows };
+  }
+  return null;
+}
+
+/**
+ * If `expr` is one of our supported comparison shapes, return the
+ * matching row. Otherwise null.
+ */
+function decomposeRow(expr: Expression): ConditionRow | null {
+  if (
+    expr.op === 'eq' ||
+    expr.op === 'neq' ||
+    expr.op === 'gt' ||
+    expr.op === 'gte' ||
+    expr.op === 'lt' ||
+    expr.op === 'lte' ||
+    expr.op === 'in'
+  ) {
+    if ('ref' in expr.left && 'value' in expr.right) {
+      const v = expr.right.value;
+      return {
+        ...DEFAULT_ROW(),
+        ref: expr.left.ref,
+        op: expr.op,
+        value: v === null || v === undefined ? '' : String(v),
+      };
+    }
+    return null;
+  }
+  if (expr.op === 'between') {
+    if (
+      'ref' in expr.value &&
+      'value' in expr.min &&
+      'value' in expr.max
+    ) {
+      return {
+        ...DEFAULT_ROW(),
+        ref: expr.value.ref,
+        op: 'between',
+        min:
+          expr.min.value === null || expr.min.value === undefined
+            ? ''
+            : String(expr.min.value),
+        max:
+          expr.max.value === null || expr.max.value === undefined
+            ? ''
+            : String(expr.max.value),
+      };
+    }
+    return null;
+  }
+  return null;
+}
+
+/**
+ * Compose rows + combinator back into an Expression. Returns
+ * undefined when the result would be empty (no rows, or the only
+ * row has no field picked). undefined is the schema's "no condition"
+ * value, which is what we want for unset visibleIf / constraint.
+ */
+function composeExpression(
+  combinator: 'and' | 'or',
+  rows: ConditionRow[],
+): Expression | undefined {
+  const valid = rows.filter((r) => r.ref);
+  if (valid.length === 0) return undefined;
+  const exprs = valid.map(rowToExpression);
+  if (exprs.length === 1) return exprs[0];
+  return { op: combinator, operands: exprs };
+}
+
+function rowToExpression(r: ConditionRow): Expression {
+  if (r.op === 'between') {
+    return {
+      op: 'between',
+      value: { ref: r.ref },
+      min: { value: coerceLiteral(r.min) },
+      max: { value: coerceLiteral(r.max) },
+    };
+  }
+  return {
+    op: r.op,
+    left: { ref: r.ref },
+    right: { value: coerceLiteral(r.value) },
+  } as Expression;
+}
+
+/**
+ * Coerce a string-typed input value into the literal we persist on
+ * the AST. We're permissive: numeric strings become numbers,
+ * "true"/"false" become booleans, empty becomes empty string. Anything
+ * else stays as a string. The runtime evaluator does its own
+ * coercions for comparison, so this is mostly cosmetic -- the AST is
+ * cleaner when "5" persists as 5.
+ */
+function coerceLiteral(s: string): string | number | boolean {
+  if (s === '') return '';
+  if (s === 'true') return true;
+  if (s === 'false') return false;
+  // Strict numeric: string must parse cleanly and round-trip.
+  const n = Number(s);
+  if (!Number.isNaN(n) && String(n) === s) return n;
+  return s;
+}
+
+/**
+ * Inline expression editor (Slice 1 of #162). Row-based. Each row is
+ * a single comparison (`field op value`); rows join with AND or OR.
+ * Composes/decomposes against the AST `Expression` type. For shapes
+ * the editor doesn't model (function calls, nested and/or, etc.) we
+ * fall back to a "complex expression" banner so we never silently
+ * destroy an expression we can't round-trip.
+ *
+ * Slice 2 brings a modal Expression Builder reachable from the
+ * "Builder" button next to the heading; Slices 3+ extend to
+ * calculate / default / readOnly / quick-start shortcuts.
+ */
 function ExpressionEditor({
   label,
   value,
@@ -3007,59 +3251,244 @@ function ExpressionEditor({
 }: {
   label: string;
   value: Expression | undefined;
-  allFields: Array<{ id: string; label: string }>;
+  allFields: FieldRef[];
   disabled: boolean;
   onChange: (next: Expression | undefined) => void;
 }) {
-  const eq =
-    value && value.op === 'eq' && 'ref' in value.left && 'value' in value.right
-      ? { ref: value.left.ref, val: value.right.value as string | number | boolean | null }
-      : null;
+  const decomposed = decomposeExpression(value);
+  const isComplex = decomposed === null;
+  const rows = decomposed?.rows ?? [];
+  const combinator: 'and' | 'or' = decomposed?.combinator ?? 'and';
+
+  const update = (
+    nextRows: ConditionRow[],
+    nextCombinator: 'and' | 'or' = combinator,
+  ) => {
+    onChange(composeExpression(nextCombinator, nextRows));
+  };
+
+  if (isComplex) {
+    return (
+      <div>
+        <p className="mb-0.5 text-[10px] uppercase tracking-wide text-muted">
+          {label}
+        </p>
+        <div className="rounded border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-900">
+          <p className="mb-1">
+            This expression uses features the inline editor can&apos;t
+            visualize yet (functions, nested groups). Editing would
+            risk losing it.
+          </p>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onChange(undefined)}
+            className="inline-flex items-center gap-1 rounded border border-amber-300 bg-white px-1.5 py-0.5 text-[11px] hover:bg-amber-100 disabled:opacity-50"
+          >
+            Clear and start over
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
-      <p className="mb-0.5 text-[10px] uppercase tracking-wide text-muted">{label}</p>
-      <div className="grid grid-cols-2 gap-1">
-        <select
-          value={eq?.ref ?? ''}
-          disabled={disabled}
-          onChange={(e) => {
-            const ref = e.target.value;
-            if (!ref) {
-              onChange(undefined);
-              return;
+      <div className="mb-0.5 flex items-center justify-between">
+        <p className="text-[10px] uppercase tracking-wide text-muted">{label}</p>
+        {rows.length >= 2 ? (
+          <select
+            value={combinator}
+            disabled={disabled}
+            onChange={(e) =>
+              update(rows, e.target.value as 'and' | 'or')
             }
-            onChange({
-              op: 'eq',
-              left: { ref },
-              right: { value: eq?.val ?? '' },
-            });
-          }}
-          className={`${inputCls}`}
-        >
-          <option value="">none</option>
-          {allFields.map((f) => (
-            <option key={f.id} value={f.id}>
-              {f.label}
-            </option>
-          ))}
-        </select>
-        <input
-          type="text"
-          value={eq?.val === null || eq?.val === undefined ? '' : String(eq.val)}
-          placeholder="equals..."
-          disabled={disabled || !eq}
-          onChange={(e) => {
-            if (!eq) return;
-            onChange({
-              op: 'eq',
-              left: { ref: eq.ref },
-              right: { value: e.target.value },
-            });
-          }}
-          className={inputCls}
-        />
+            className="rounded border border-border bg-surface-1 px-1 py-0.5 text-[10px]"
+          >
+            <option value="and">all match</option>
+            <option value="or">any match</option>
+          </select>
+        ) : null}
       </div>
+      <ul className="space-y-1">
+        {rows.length === 0 ? (
+          <li className="rounded border border-dashed border-border bg-surface-2/40 px-2 py-1.5 text-[11px] text-muted">
+            No conditions. Always shown.
+          </li>
+        ) : (
+          rows.map((row, idx) => (
+            <li key={idx}>
+              <ConditionRowEditor
+                row={row}
+                allFields={allFields}
+                disabled={disabled}
+                onChange={(next) => {
+                  const r = rows.slice();
+                  r[idx] = next;
+                  update(r);
+                }}
+                onRemove={() => {
+                  const r = rows.slice();
+                  r.splice(idx, 1);
+                  update(r);
+                }}
+              />
+            </li>
+          ))
+        )}
+      </ul>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => update([...rows, DEFAULT_ROW()])}
+        className="mt-1 inline-flex items-center gap-1 text-[11px] text-accent hover:underline disabled:opacity-50"
+      >
+        <Plus className="h-3 w-3" />
+        Add condition
+      </button>
     </div>
+  );
+}
+
+function ConditionRowEditor({
+  row,
+  allFields,
+  disabled,
+  onChange,
+  onRemove,
+}: {
+  row: ConditionRow;
+  allFields: FieldRef[];
+  disabled: boolean;
+  onChange: (next: ConditionRow) => void;
+  onRemove: () => void;
+}) {
+  const opMeta =
+    COMPARISON_OPERATORS.find((o) => o.op === row.op) ??
+    COMPARISON_OPERATORS[0]!;
+  return (
+    <div className="grid grid-cols-[1fr_auto] gap-1">
+      <div className="space-y-1">
+        <FieldPicker
+          value={row.ref}
+          allFields={allFields}
+          disabled={disabled}
+          onChange={(ref) => onChange({ ...row, ref })}
+        />
+        <div className="grid grid-cols-[auto_1fr] gap-1">
+          <select
+            value={row.op}
+            disabled={disabled}
+            onChange={(e) =>
+              onChange({ ...row, op: e.target.value as ComparisonOp })
+            }
+            className="rounded border border-border bg-surface-1 px-1 py-0.5 text-[11px]"
+          >
+            {COMPARISON_OPERATORS.map((o) => (
+              <option key={o.op} value={o.op}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          {opMeta.rhsKind === 'range' ? (
+            <div className="grid grid-cols-2 gap-1">
+              <input
+                type="text"
+                value={row.min}
+                placeholder="min"
+                disabled={disabled || !row.ref}
+                onChange={(e) => onChange({ ...row, min: e.target.value })}
+                className={inputCls}
+              />
+              <input
+                type="text"
+                value={row.max}
+                placeholder="max"
+                disabled={disabled || !row.ref}
+                onChange={(e) => onChange({ ...row, max: e.target.value })}
+                className={inputCls}
+              />
+            </div>
+          ) : (
+            <input
+              type="text"
+              value={row.value}
+              placeholder="value"
+              disabled={disabled || !row.ref}
+              onChange={(e) => onChange({ ...row, value: e.target.value })}
+              className={inputCls}
+            />
+          )}
+        </div>
+      </div>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onRemove}
+        aria-label="Remove condition"
+        className="self-start rounded p-1 text-muted hover:bg-surface-2 hover:text-danger disabled:opacity-50"
+      >
+        <Minus className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Field picker (dropdown of question references). Resolves the
+ * duplicate-label issue by:
+ *
+ *   - Always showing the id alongside the label, so two questions
+ *     labeled "Photo" can be told apart by id ("photo" vs "photo_2").
+ *   - Grouping by parent path via <optgroup>, so a question inside
+ *     a group is visually scoped to that group.
+ *
+ * Selection is by id. The runtime AST also stores ids -- this is
+ * never lossy because every form has a unique-id invariant.
+ */
+function FieldPicker({
+  value,
+  allFields,
+  disabled,
+  onChange,
+}: {
+  value: string;
+  allFields: FieldRef[];
+  disabled: boolean;
+  onChange: (id: string) => void;
+}) {
+  // Group fields by parentPath. Top-level (parentPath === '') goes
+  // first un-grouped; everything else gets an <optgroup>.
+  const topLevel: FieldRef[] = [];
+  const byPath = new Map<string, FieldRef[]>();
+  for (const f of allFields) {
+    if (f.parentPath === '') topLevel.push(f);
+    else {
+      const list = byPath.get(f.parentPath) ?? [];
+      list.push(f);
+      byPath.set(f.parentPath, list);
+    }
+  }
+  const renderOption = (f: FieldRef) => (
+    <option key={f.id} value={f.id}>
+      {(f.label || '(unlabeled)') + ` · ${f.type} · ${f.id}`}
+    </option>
+  );
+  return (
+    <select
+      value={value}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value)}
+      className={inputCls}
+    >
+      <option value="">Pick a question…</option>
+      {topLevel.map(renderOption)}
+      {Array.from(byPath.entries()).map(([path, fs]) => (
+        <optgroup key={path} label={path}>
+          {fs.map(renderOption)}
+        </optgroup>
+      ))}
+    </select>
   );
 }
 
