@@ -1813,9 +1813,16 @@ function Properties({
 
       {question.type === 'number' || question.type === 'integer' ? (
         <div className="grid grid-cols-2 gap-2">
+          {/* Browser <input type="number"> defaults to step="1", which
+              quietly rejects decimals -- correct for an `integer`
+              question, wrong for `number`, where authors legitimately
+              want bounds like 0.5 or 99.99. step="any" lifts the
+              integer constraint without locking a particular
+              precision; integer keeps its explicit step={1}. */}
           <Field label="Min">
             <input
               type="number"
+              step={question.type === 'number' ? 'any' : 1}
               value={question.min ?? ''}
               disabled={!canEdit}
               onChange={(e) =>
@@ -1829,6 +1836,7 @@ function Properties({
           <Field label="Max">
             <input
               type="number"
+              step={question.type === 'number' ? 'any' : 1}
               value={question.max ?? ''}
               disabled={!canEdit}
               onChange={(e) =>

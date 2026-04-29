@@ -4,10 +4,9 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
   Camera,
   Check,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
-  ChevronUp,
+  GripVertical,
   Loader2,
   MapPin,
   Plus,
@@ -610,7 +609,14 @@ function Input({
           type="number"
           inputMode="decimal"
           value={value === null || value === undefined ? '' : (value as number | string)}
-          step={q.step}
+          // Default to "any" so the input accepts decimals when the
+          // question schema doesn't specify a precision. Without this,
+          // browsers fall through to step="1" and silently reject
+          // ".5" / "1.25" / etc., which surprises authors who picked
+          // the `number` type specifically because they wanted
+          // decimals (the dedicated `integer` type is the
+          // whole-number variant).
+          step={q.step ?? 'any'}
           min={q.min}
           max={q.max}
           disabled={readOnly}
@@ -2184,18 +2190,6 @@ function RankingInput({
   const rankedSet = new Set(ranked);
   const unranked = q.choices.filter((c) => !rankedSet.has(c.value));
 
-  function move(idx: number, delta: -1 | 1) {
-    const next = ranked.slice();
-    const target = idx + delta;
-    if (target < 0 || target >= next.length) return;
-    const a = next[idx];
-    const b = next[target];
-    if (a === undefined || b === undefined) return;
-    next[idx] = b;
-    next[target] = a;
-    onChange(next);
-  }
-
   function rank(value: string) {
     if (rankedSet.has(value)) return;
     const max = q.maxRanked ?? q.choices.length;
@@ -2251,39 +2245,27 @@ function RankingInput({
                 onDragStart={(e) => onDragStart(e, i)}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => onDrop(e, i)}
-                className="flex items-center gap-2 rounded-md border border-border bg-surface-2/30 px-2 py-1.5 text-sm"
+                className={`flex items-center gap-2 rounded-md border border-border bg-surface-2/30 px-2 py-1.5 text-sm ${
+                  readOnly ? '' : 'cursor-grab active:cursor-grabbing'
+                }`}
               >
+                {!readOnly ? (
+                  <GripVertical
+                    className="h-3.5 w-3.5 shrink-0 text-muted"
+                    aria-hidden="true"
+                  />
+                ) : null}
                 <span className="w-5 text-xs tabular-nums text-muted">{i + 1}.</span>
                 <span className="flex-1 truncate">{labelFor(v)}</span>
                 {!readOnly ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => move(i, -1)}
-                      disabled={i === 0}
-                      className="rounded p-1 text-muted hover:bg-surface-2 disabled:opacity-30"
-                      aria-label="Move up"
-                    >
-                      <ChevronUp className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => move(i, 1)}
-                      disabled={i === ranked.length - 1}
-                      className="rounded p-1 text-muted hover:bg-surface-2 disabled:opacity-30"
-                      aria-label="Move down"
-                    >
-                      <ChevronDown className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => unrank(v)}
-                      className="rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
-                      aria-label="Remove from ranking"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </>
+                  <button
+                    type="button"
+                    onClick={() => unrank(v)}
+                    className="rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
+                    aria-label="Remove from ranking"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
                 ) : null}
               </li>
             ))}
