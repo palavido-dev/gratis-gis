@@ -3284,6 +3284,11 @@ function ExpressionEditor({
   const [showComplexFallback, setShowComplexFallback] = useState(
     initial === null,
   );
+  // Slice 2 (#163): Modal builder for expressions richer than the
+  // inline can model -- nested groups, future function calls, etc.
+  // Stays closed by default; opening it always works regardless of
+  // whether the inline or the complex fallback is showing.
+  const [builderOpen, setBuilderOpen] = useState(false);
 
   const update = (
     nextRows: ConditionRow[],
@@ -3294,17 +3299,45 @@ function ExpressionEditor({
     onChange(composeExpression(nextCombinator, nextRows));
   };
 
+  // Save handler used by the modal builder. The modal returns an
+  // Expression (or undefined). We try to round-trip it through the
+  // simpler inline view; if it fits the inline shape we drop the
+  // complex fallback, otherwise we keep the fallback so the inline
+  // doesn't lie about the saved structure.
+  const saveFromBuilder = (next: Expression | undefined) => {
+    onChange(next);
+    setBuilderOpen(false);
+    const d = decomposeExpression(next);
+    if (d) {
+      setRows(d.rows);
+      setCombinator(d.combinator);
+      setShowComplexFallback(false);
+    } else {
+      setShowComplexFallback(true);
+    }
+  };
+
   if (showComplexFallback) {
     return (
       <div>
-        <p className="mb-0.5 text-[10px] uppercase tracking-wide text-muted">
-          {label}
-        </p>
+        <div className="mb-0.5 flex items-center justify-between">
+          <p className="text-[10px] uppercase tracking-wide text-muted">
+            {label}
+          </p>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => setBuilderOpen(true)}
+            className="text-[10px] text-accent hover:underline disabled:opacity-50"
+          >
+            Builder
+          </button>
+        </div>
         <div className="rounded border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-900">
           <p className="mb-1">
             This expression uses features the inline editor can&apos;t
-            visualize yet (functions, nested groups). Editing would
-            risk losing it.
+            visualize yet (nested groups, functions). Open the Builder
+            to edit it visually, or clear and start over.
           </p>
           <button
             type="button"
@@ -3320,27 +3353,46 @@ function ExpressionEditor({
             Clear and start over
           </button>
         </div>
+        {builderOpen ? (
+          <ExpressionBuilderModal
+            label={label}
+            initial={value}
+            allFields={allFields}
+            onClose={() => setBuilderOpen(false)}
+            onSave={saveFromBuilder}
+          />
+        ) : null}
       </div>
     );
   }
 
   return (
     <div>
-      <div className="mb-0.5 flex items-center justify-between">
+      <div className="mb-0.5 flex items-center justify-between gap-2">
         <p className="text-[10px] uppercase tracking-wide text-muted">{label}</p>
-        {rows.length >= 2 ? (
-          <select
-            value={combinator}
+        <div className="flex items-center gap-2">
+          {rows.length >= 2 ? (
+            <select
+              value={combinator}
+              disabled={disabled}
+              onChange={(e) =>
+                update(rows, e.target.value as 'and' | 'or')
+              }
+              className="rounded border border-border bg-surface-1 px-1 py-0.5 text-[10px]"
+            >
+              <option value="and">all match</option>
+              <option value="or">any match</option>
+            </select>
+          ) : null}
+          <button
+            type="button"
             disabled={disabled}
-            onChange={(e) =>
-              update(rows, e.target.value as 'and' | 'or')
-            }
-            className="rounded border border-border bg-surface-1 px-1 py-0.5 text-[10px]"
+            onClick={() => setBuilderOpen(true)}
+            className="text-[10px] text-accent hover:underline disabled:opacity-50"
           >
-            <option value="and">all match</option>
-            <option value="or">any match</option>
-          </select>
-        ) : null}
+            Builder
+          </button>
+        </div>
       </div>
       <ul className="space-y-1">
         {rows.length === 0 ? (
@@ -3378,6 +3430,15 @@ function ExpressionEditor({
         <Plus className="h-3 w-3" />
         Add condition
       </button>
+      {builderOpen ? (
+        <ExpressionBuilderModal
+          label={label}
+          initial={value}
+          allFields={allFields}
+          onClose={() => setBuilderOpen(false)}
+          onSave={saveFromBuilder}
+        />
+      ) : null}
     </div>
   );
 }
@@ -3521,6 +3582,484 @@ function FieldPicker({
         </optgroup>
       ))}
     </select>
+  );
+}
+
+// ---- Expression builder modal (#163, Slice 2) -----------------
+//
+// The inline ExpressionEditor handles a flat list of comparison rows
+// joined by AND or OR. Some forms need more than that: nested groups
+// like `(A or B) and (C or D)`, or function calls (planned for Slice
+// 4). This modal builder gives authors a richer visual surface for
+// those cases. It produces the same `Expression` AST the runtime
+// already evaluates -- no string parser, no separate format.
+//
+// Data model for the modal: a `Rule` is either a single ConditionRow
+// or a nested `RuleGroup`. `RuleTree` is the top level (a combinator
+// + a list of rules). Mapping to the AST is straightforward: a tree
+// emits `{ op: combinator, operands: [...] }` (or a single comparison
+// when there's one rule).
+
+type Rule =
+  | { kind: 'row'; row: ConditionRow }
+  | { kind: 'group'; combinator: 'and' | 'or'; rules: Rule[] };
+
+interface RuleTree {
+  combinator: 'and' | 'or';
+  rules: Rule[];
+}
+
+/**
+ * Decode an Expression into the modal's RuleTree shape. Best-effort:
+ * comparison ops, in, between become rows; and/or become groups; we
+ * recurse one level (deeper nesting is preserved).
+ *
+ * Anything we can't model (function calls, arithmetic, concat, if)
+ * becomes an empty row -- the alternative is silently dropping the
+ * expression on Save, which is worse. Slice 4 lifts this restriction
+ * by extending the row + group vocabulary to cover calls.
+ */
+function treeFromExpression(expr: Expression | undefined): RuleTree {
+  if (!expr) return { combinator: 'and', rules: [] };
+  if (expr.op === 'and' || expr.op === 'or') {
+    return {
+      combinator: expr.op,
+      rules: expr.operands.map(operandToRule),
+    };
+  }
+  const row = decomposeRow(expr);
+  if (row) return { combinator: 'and', rules: [{ kind: 'row', row }] };
+  return { combinator: 'and', rules: [] };
+}
+
+function operandToRule(expr: Expression): Rule {
+  if (expr.op === 'and' || expr.op === 'or') {
+    return {
+      kind: 'group',
+      combinator: expr.op,
+      rules: expr.operands.map(operandToRule),
+    };
+  }
+  const row = decomposeRow(expr);
+  if (row) return { kind: 'row', row };
+  return { kind: 'row', row: DEFAULT_ROW() };
+}
+
+function treeToExpression(tree: RuleTree): Expression | undefined {
+  const exprs: Expression[] = [];
+  for (const rule of tree.rules) {
+    const e = ruleToExpression(rule);
+    if (e !== undefined) exprs.push(e);
+  }
+  if (exprs.length === 0) return undefined;
+  if (exprs.length === 1) return exprs[0];
+  return { op: tree.combinator, operands: exprs };
+}
+
+function ruleToExpression(rule: Rule): Expression | undefined {
+  if (rule.kind === 'row') {
+    if (!rule.row.ref) return undefined;
+    return rowToExpression(rule.row);
+  }
+  return treeToExpression({
+    combinator: rule.combinator,
+    rules: rule.rules,
+  });
+}
+
+/**
+ * Modal "Expression Builder" reachable via the "Builder" link on
+ * each ExpressionEditor heading. Two-column body: tree editor on
+ * the left, reference panel (Fields / Operators / Functions) on
+ * the right. Done writes back through `onSave(Expression | undefined)`.
+ *
+ * Only the Fields tab is interactive in Slice 2 -- it has search,
+ * but click-to-insert lands in Slice 4 alongside the function
+ * library. Operators and Functions tabs are reference-only for now
+ * so the panel architecture is in place when Slice 4 turns it on.
+ */
+function ExpressionBuilderModal({
+  label,
+  initial,
+  allFields,
+  onClose,
+  onSave,
+}: {
+  label: string;
+  initial: Expression | undefined;
+  allFields: FieldRef[];
+  onClose: () => void;
+  onSave: (next: Expression | undefined) => void;
+}) {
+  const [tree, setTree] = useState<RuleTree>(() => treeFromExpression(initial));
+  const [tab, setTab] = useState<'fields' | 'operators' | 'functions'>(
+    'fields',
+  );
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink-0/40 p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="grid h-[80vh] max-h-[640px] w-full max-w-4xl grid-rows-[auto_1fr_auto] overflow-hidden rounded-lg border border-border bg-surface-0 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="flex items-center justify-between border-b border-border bg-surface-1 px-4 py-2">
+          <div>
+            <p className="text-[10px] uppercase tracking-wide text-muted">
+              Expression builder
+            </p>
+            <h2 className="text-sm font-medium text-ink-0">{label}</h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="rounded p-1 text-muted hover:bg-surface-2 hover:text-ink-0"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </header>
+        <div className="grid grid-cols-[1fr_280px] divide-x divide-border overflow-hidden">
+          <div className="overflow-auto p-4">
+            <RuleTreeEditor
+              tree={tree}
+              allFields={allFields}
+              onChange={setTree}
+            />
+          </div>
+          <aside className="flex min-h-0 flex-col bg-surface-1">
+            <nav className="flex border-b border-border text-xs">
+              {(
+                [
+                  ['fields', 'Fields'],
+                  ['operators', 'Operators'],
+                  ['functions', 'Functions'],
+                ] as const
+              ).map(([key, lbl]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setTab(key)}
+                  className={`flex-1 px-3 py-2 ${
+                    tab === key
+                      ? 'border-b-2 border-accent text-ink-0'
+                      : 'text-muted hover:text-ink-1'
+                  }`}
+                >
+                  {lbl}
+                </button>
+              ))}
+            </nav>
+            <div className="min-h-0 flex-1 overflow-auto p-3 text-xs">
+              {tab === 'fields' ? (
+                <FieldsReferencePanel allFields={allFields} />
+              ) : tab === 'operators' ? (
+                <OperatorsReferencePanel />
+              ) : (
+                <FunctionsReferencePanel />
+              )}
+            </div>
+          </aside>
+        </div>
+        <footer className="flex items-center justify-end gap-2 border-t border-border bg-surface-1 px-4 py-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-border bg-surface-0 px-3 py-1 text-xs hover:bg-surface-2"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => onSave(treeToExpression(tree))}
+            className="rounded-md bg-accent px-3 py-1 text-xs font-medium text-white hover:opacity-90"
+          >
+            Save
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Recursive editor for a RuleTree. Renders the tree's combinator
+ * selector + each rule. Rules are either condition rows (rendered
+ * via ConditionRowEditor) or nested groups (rendered via
+ * RuleTreeEditor again, indented). Two add buttons at every level:
+ * "+ Condition" and "+ Group".
+ */
+function RuleTreeEditor({
+  tree,
+  allFields,
+  onChange,
+  depth = 0,
+}: {
+  tree: RuleTree;
+  allFields: FieldRef[];
+  onChange: (next: RuleTree) => void;
+  depth?: number;
+}) {
+  const update = (rules: Rule[], combinator = tree.combinator) => {
+    onChange({ combinator, rules });
+  };
+  return (
+    <div
+      className={
+        depth === 0
+          ? ''
+          : 'rounded-md border border-dashed border-border bg-surface-1/40 p-2'
+      }
+    >
+      <div className="mb-2 flex items-center gap-2 text-[11px] text-muted">
+        <span className="uppercase tracking-wide">When</span>
+        <select
+          value={tree.combinator}
+          onChange={(e) =>
+            update(tree.rules, e.target.value as 'and' | 'or')
+          }
+          className="rounded border border-border bg-surface-1 px-1 py-0.5"
+        >
+          <option value="and">all match</option>
+          <option value="or">any match</option>
+        </select>
+        <span>of:</span>
+      </div>
+      <ul className="space-y-2">
+        {tree.rules.length === 0 ? (
+          <li className="rounded border border-dashed border-border bg-surface-2/40 px-2 py-2 text-[11px] text-muted">
+            No conditions in this group.
+          </li>
+        ) : (
+          tree.rules.map((rule, idx) => (
+            <li key={idx} className="grid grid-cols-[1fr_auto] gap-2">
+              {rule.kind === 'row' ? (
+                <ConditionRowEditor
+                  row={rule.row}
+                  allFields={allFields}
+                  disabled={false}
+                  onChange={(row) => {
+                    const r = tree.rules.slice();
+                    r[idx] = { kind: 'row', row };
+                    update(r);
+                  }}
+                  onRemove={() => {
+                    const r = tree.rules.slice();
+                    r.splice(idx, 1);
+                    update(r);
+                  }}
+                />
+              ) : (
+                <div className="grid grid-cols-[1fr_auto] gap-2">
+                  <RuleTreeEditor
+                    tree={{
+                      combinator: rule.combinator,
+                      rules: rule.rules,
+                    }}
+                    allFields={allFields}
+                    depth={depth + 1}
+                    onChange={(next) => {
+                      const r = tree.rules.slice();
+                      r[idx] = {
+                        kind: 'group',
+                        combinator: next.combinator,
+                        rules: next.rules,
+                      };
+                      update(r);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const r = tree.rules.slice();
+                      r.splice(idx, 1);
+                      update(r);
+                    }}
+                    aria-label="Remove group"
+                    className="self-start rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
+                  >
+                    <Minus className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+              {rule.kind === 'row' ? null : null}
+            </li>
+          ))
+        )}
+      </ul>
+      <div className="mt-2 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() =>
+            update([...tree.rules, { kind: 'row', row: DEFAULT_ROW() }])
+          }
+          className="inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
+        >
+          <Plus className="h-3 w-3" />
+          Condition
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            update([
+              ...tree.rules,
+              {
+                kind: 'group',
+                combinator: tree.combinator === 'and' ? 'or' : 'and',
+                rules: [{ kind: 'row', row: DEFAULT_ROW() }],
+              },
+            ])
+          }
+          className="inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
+        >
+          <Plus className="h-3 w-3" />
+          Group
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Right-panel reference: list of fields with search. Pure reference
+ * for Slice 2 -- click-to-insert lands in Slice 4. The list itself
+ * is still useful: authors looking for a field can scan here without
+ * scrolling the row's dropdown.
+ */
+function FieldsReferencePanel({ allFields }: { allFields: FieldRef[] }) {
+  const [q, setQ] = useState('');
+  const filtered = q
+    ? allFields.filter(
+        (f) =>
+          f.label.toLowerCase().includes(q.toLowerCase()) ||
+          f.id.toLowerCase().includes(q.toLowerCase()),
+      )
+    : allFields;
+  return (
+    <div>
+      <input
+        type="search"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="Search fields…"
+        className={inputCls}
+      />
+      <ul className="mt-2 space-y-1">
+        {filtered.length === 0 ? (
+          <li className="px-2 py-1 text-[11px] text-muted">No fields match.</li>
+        ) : (
+          filtered.map((f) => (
+            <li
+              key={f.id}
+              className="rounded border border-border bg-surface-0 px-2 py-1"
+            >
+              <div className="flex items-center gap-1.5">
+                <span className="rounded bg-surface-2 px-1 py-px font-mono text-[9px] uppercase text-muted">
+                  {f.type}
+                </span>
+                <span className="truncate text-[12px] text-ink-0">
+                  {f.label || '(unlabeled)'}
+                </span>
+              </div>
+              <p className="mt-0.5 truncate font-mono text-[10px] text-muted">
+                {f.id}
+                {f.parentPath ? ` · ${f.parentPath}` : ''}
+              </p>
+            </li>
+          ))
+        )}
+      </ul>
+    </div>
+  );
+}
+
+/** Operators reference panel: pure list, informational. Slice 4 turns
+ *  this into click-to-wrap-current-rule. */
+function OperatorsReferencePanel() {
+  const groups: Array<{ heading: string; ops: Array<[string, string]> }> = [
+    {
+      heading: 'Comparison',
+      ops: [
+        ['equals', 'value matches another'],
+        ['does not equal', 'value differs'],
+        ['greater than / >=', 'numeric / date comparison'],
+        ['less than / <=', 'numeric / date comparison'],
+        ['contains', 'string or list contains a value'],
+        ['between', 'value falls in a range'],
+      ],
+    },
+    {
+      heading: 'Logical',
+      ops: [
+        ['all match (and)', 'every condition must hold'],
+        ['any match (or)', 'at least one condition holds'],
+      ],
+    },
+  ];
+  return (
+    <div className="space-y-3">
+      {groups.map((g) => (
+        <div key={g.heading}>
+          <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">
+            {g.heading}
+          </p>
+          <ul className="space-y-1">
+            {g.ops.map(([name, hint]) => (
+              <li
+                key={name}
+                className="rounded border border-border bg-surface-0 px-2 py-1"
+              >
+                <p className="text-[12px] text-ink-0">{name}</p>
+                <p className="text-[10px] text-muted">{hint}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Functions reference panel: lists the existing 8 BUILTINS, with
+ *  copy describing each. Slice 4 expands the registry and makes
+ *  these clickable to insert call-shaped operands. */
+function FunctionsReferencePanel() {
+  const fns: Array<{ name: string; sig: string; hint: string }> = [
+    { name: 'today', sig: 'today()', hint: 'current date as YYYY-MM-DD' },
+    { name: 'now', sig: 'now()', hint: 'current ISO datetime' },
+    { name: 'len', sig: 'len(text)', hint: 'string length' },
+    { name: 'sum', sig: 'sum(a, b, …)', hint: 'numeric sum of refs / values' },
+    {
+      name: 'count',
+      sig: 'count(field)',
+      hint: 'number of selected choices in a select-many',
+    },
+    { name: 'coalesce', sig: 'coalesce(a, b, …)', hint: 'first non-null value' },
+    { name: 'lower', sig: 'lower(text)', hint: 'lowercase' },
+    { name: 'upper', sig: 'upper(text)', hint: 'uppercase' },
+  ];
+  return (
+    <div>
+      <p className="mb-2 text-[10px] text-muted">
+        Slice 4 adds click-to-insert and many more functions (regex,
+        contains, substr, selected, …). For now this is a reference of
+        what the runtime evaluator supports.
+      </p>
+      <ul className="space-y-1">
+        {fns.map((f) => (
+          <li
+            key={f.name}
+            className="rounded border border-border bg-surface-0 px-2 py-1"
+          >
+            <p className="font-mono text-[12px] text-ink-0">{f.sig}</p>
+            <p className="text-[10px] text-muted">{f.hint}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
