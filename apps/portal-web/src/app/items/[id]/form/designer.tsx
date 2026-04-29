@@ -30,6 +30,7 @@ import {
   Loader2,
   Mail,
   MapPin,
+  Mic,
   Minus,
   Phone,
   Plus,
@@ -47,6 +48,7 @@ import {
   Type,
   Upload,
   User,
+  Video,
   Workflow,
   X,
 } from 'lucide-react';
@@ -891,6 +893,8 @@ const PALETTE: PaletteEntry[] = [
   { type: 'name', label: 'Full name', icon: User, group: 'identity' },
   { type: 'address', label: 'Address', icon: Home, group: 'identity' },
   { type: 'photo', label: 'Photo', icon: Camera, group: 'media' },
+  { type: 'audio', label: 'Audio', icon: Mic, group: 'media' },
+  { type: 'video', label: 'Video', icon: Video, group: 'media' },
   { type: 'file', label: 'File', icon: FileText, group: 'media' },
   { type: 'image-choice', label: 'Image choice', icon: Image, group: 'media' },
   { type: 'image-display', label: 'Image', icon: Image, group: 'media' },
@@ -2129,6 +2133,55 @@ function Properties({
             />
           </Field>
         </>
+      ) : null}
+
+      {question.type === 'audio' || question.type === 'video' ? (
+        <div className="mb-2 grid grid-cols-3 gap-2">
+          <Field label="Max clips">
+            <input
+              type="number"
+              min={1}
+              value={question.maxCount ?? 1}
+              disabled={!canEdit}
+              onChange={(e) =>
+                onChange({
+                  maxCount: Number(e.target.value),
+                } as Partial<Question>)
+              }
+              className={inputCls}
+            />
+          </Field>
+          <Field label="Max bytes">
+            <input
+              type="number"
+              min={0}
+              value={question.maxBytes ?? ''}
+              disabled={!canEdit}
+              onChange={(e) =>
+                onChange({
+                  maxBytes:
+                    e.target.value === '' ? undefined : Number(e.target.value),
+                } as Partial<Question>)
+              }
+              className={inputCls}
+            />
+          </Field>
+          <Field label="Max seconds">
+            <input
+              type="number"
+              min={0}
+              value={question.maxDurationSec ?? ''}
+              disabled={!canEdit}
+              onChange={(e) =>
+                onChange({
+                  maxDurationSec:
+                    e.target.value === '' ? undefined : Number(e.target.value),
+                } as Partial<Question>)
+              }
+              className={inputCls}
+            />
+          </Field>
+        </div>
       ) : null}
 
       {question.type === 'image-display' || question.type === 'image-hotspot' ? (
@@ -4935,7 +4988,12 @@ function isAttachmentGroup(
   if (q.type !== 'group') return false;
   if (!layerSchema) return false;
   const hasMediaChild = q.children.some(
-    (c) => c.type === 'photo' || c.type === 'file' || c.type === 'signature',
+    (c) =>
+      c.type === 'photo' ||
+      c.type === 'audio' ||
+      c.type === 'video' ||
+      c.type === 'file' ||
+      c.type === 'signature',
   );
   if (!hasMediaChild) return false;
   if (q.bindTo?.layerKey) {
@@ -5501,12 +5559,17 @@ export function questionLinkStatus(
     attachmentsEnabled = Boolean(schema.attachmentsEnabled);
   }
 
-  // Attachment-bearing question types (photo / signature / file)
-  // don't bind to a regular column. They bind to the layer's
-  // attachments capability, which we surface with a synthetic
-  // column so the existing "matched" UI works without a new status.
+  // Attachment-bearing question types (photo / audio / video /
+  // signature / file) don't bind to a regular column. They bind to
+  // the layer's attachments capability, which we surface with a
+  // synthetic column so the existing "matched" UI works without a
+  // new status.
   if (
-    (q.type === 'photo' || q.type === 'signature' || q.type === 'file') &&
+    (q.type === 'photo' ||
+      q.type === 'audio' ||
+      q.type === 'video' ||
+      q.type === 'signature' ||
+      q.type === 'file') &&
     attachmentsEnabled &&
     !q.bindTo?.column
   ) {
