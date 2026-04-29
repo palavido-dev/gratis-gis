@@ -84,6 +84,9 @@ export const QUESTION_TYPES = [
   'geopoint', // single lat/lon
   'geotrace', // polyline
   'geoshape', // polygon
+  'pick-feature', // tap a feature on a referenced data_layer
+  'route', // computed path between two or more points
+  'area-buffer', // polygon = buffer of a captured point/line at a distance
   'rating', // 1-5 stars (or configurable max)
   'likert', // single-row Likert (Strongly disagree -> Strongly agree)
   'nps', // Net Promoter Score (0..10 buttons)
@@ -741,6 +744,100 @@ interface GeoShapeQuestion extends QuestionBase {
   type: 'geoshape';
 }
 
+/**
+ * Pick-feature (#148). Respondent taps a feature on a referenced
+ * data_layer; the captured value is the feature's `global_id` plus
+ * a snapshot of any display fields the author requested. Distinct
+ * from `geopoint` because the location is constrained to features
+ * that actually exist (poles, parcels, transect waypoints, etc.).
+ *
+ * Phase 1 ships the schema only; the runtime falls back to a
+ * placeholder until the map-aware picker lands. Identical pattern
+ * to the geotrace / geoshape Phase-1 placeholders that already
+ * ship in form-runtime.tsx.
+ *
+ * Response shape:
+ *   { itemId; layerKey?; featureId; displayLabel?; geometry? }
+ */
+interface PickFeatureQuestion extends QuestionBase {
+  type: 'pick-feature';
+  /** The data_layer item the picker reads from. Required. */
+  sourceItemId: string;
+  /** For v3 multi-layer items, which sublayer to query. */
+  sourceLayerKey?: string;
+  /**
+   * Optional list of feature columns to snapshot into the response
+   * (so a downstream report doesn't have to round-trip the layer).
+   * Empty / undefined captures only the feature id and label.
+   */
+  snapshotFields?: string[];
+  /**
+   * Constrain the pick to features inside a polygon (a geo_boundary
+   * item id). Useful for "pick an asset inside this work area".
+   */
+  withinBoundaryId?: string;
+}
+
+/**
+ * Route (#148). Computed path between an ordered list of waypoints.
+ * v1 captures the waypoint coordinates plus the routing profile; the
+ * geometry itself is computed at submission time by the runtime
+ * against whichever routing engine the org has configured (defaults
+ * to OSRM / Valhalla / GraphHopper depending on the deployment).
+ *
+ * Response shape:
+ *   { waypoints: Array<[lon, lat]>; profile: ...; distanceMeters?; durationSec?; geometry?: GeoJSON LineString }
+ */
+interface RouteQuestion extends QuestionBase {
+  type: 'route';
+  /**
+   * Travel mode hint. Defaults to 'driving'. Mirrors the standard
+   * OSRM / Valhalla profile vocabulary so the runtime can pass it
+   * through without translation.
+   */
+  profile?: 'driving' | 'walking' | 'cycling' | 'truck';
+  /** Minimum waypoints (default 2 = origin + destination). */
+  minWaypoints?: number;
+  /** Maximum waypoints (soft cap; default 10). */
+  maxWaypoints?: number;
+}
+
+/**
+ * Area buffer (#148). Captures a point or line and stores a polygon
+ * that's the geographic buffer of that input at a given distance.
+ * Useful for "draw a 100m exclusion zone around this trash pile" or
+ * "100ft setback from this property line" workflows where the
+ * polygon is derivable from a simpler input.
+ *
+ * Response shape:
+ *   { input: GeoJSON Point | LineString; distanceMeters: number; geometry: GeoJSON Polygon }
+ *
+ * Calling out the parallel to the derived_layer buffer tool: this is
+ * the *form-time* version (the polygon lives in a single submission)
+ * vs. that *layer-time* version (every feature in a layer gets a
+ * buffer at read time). They share no code path on purpose: this
+ * one is captured once on the device and is allowed to be slightly
+ * approximate, the derived_layer one is recomputed against the
+ * source on every read with PostGIS precision.
+ */
+interface AreaBufferQuestion extends QuestionBase {
+  type: 'area-buffer';
+  /**
+   * Whether the captured input is a single point or a polyline.
+   * Default 'point'.
+   */
+  inputKind?: 'point' | 'line';
+  /**
+   * Default buffer distance in meters. The respondent can override
+   * unless `lockDistance` is true.
+   */
+  defaultDistanceMeters?: number;
+  /** When true, hide the distance editor at runtime. */
+  lockDistance?: boolean;
+  /** Soft ceiling so a misclick can't generate a planet-size polygon. */
+  maxDistanceMeters?: number;
+}
+
 interface RatingQuestion extends QuestionBase {
   type: 'rating';
   /** Number of icons (default 5). */
@@ -898,6 +995,9 @@ export type Question =
   | GeoPointQuestion
   | GeoTraceQuestion
   | GeoShapeQuestion
+  | PickFeatureQuestion
+  | RouteQuestion
+  | AreaBufferQuestion
   | RatingQuestion
   | LikertQuestion
   | NpsQuestion
@@ -1864,6 +1964,69 @@ function validateType(q: Question, value: unknown): string | null {
     case 'slider':
     case 'calculated':
       return null;
+    case 'pick-feature': {
+      // Required pick: must be an object carrying a featureId.
+      // Author-side validation (sourceItemId is required) lives in
+      // the designer / save path; runtime only enforces shape.
+      if (
+        typeof value !== 'object' ||
+        value === null ||
+        Array.isArray(value) ||
+        typeof (value as { featureId?: unknown }).featureId !== 'string' ||
+        (value as { featureId: string }).featureId.length === 0
+      ) {
+        return 'Pick a feature on the map.';
+      }
+      return null;
+    }
+    case 'route': {
+      const min = q.minWaypoints ?? 2;
+      const max = q.maxWaypoints ?? 10;
+      if (
+        typeof value !== 'object' ||
+        value === null ||
+        Array.isArray(value) ||
+        !Array.isArray((value as { waypoints?: unknown }).waypoints)
+      ) {
+        return `Pick at least ${min} stops on the map.`;
+      }
+      const wps = (value as { waypoints: unknown[] }).waypoints;
+      if (wps.length < min) return `Pick at least ${min} stops on the map.`;
+      if (wps.length > max) return `At most ${max} stops allowed.`;
+      for (const wp of wps) {
+        if (
+          !Array.isArray(wp) ||
+          wp.length < 2 ||
+          typeof wp[0] !== 'number' ||
+          typeof wp[1] !== 'number'
+        ) {
+          return 'Each stop must be a [lon, lat] pair.';
+        }
+      }
+      return null;
+    }
+    case 'area-buffer': {
+      if (
+        typeof value !== 'object' ||
+        value === null ||
+        Array.isArray(value) ||
+        typeof (value as { distanceMeters?: unknown }).distanceMeters !==
+          'number' ||
+        !(value as { distanceMeters: number }).distanceMeters ||
+        !(value as { input?: unknown }).input ||
+        typeof (value as { input: unknown }).input !== 'object'
+      ) {
+        return 'Capture a location and a buffer distance.';
+      }
+      if (
+        q.maxDistanceMeters !== undefined &&
+        (value as { distanceMeters: number }).distanceMeters >
+          q.maxDistanceMeters
+      ) {
+        return `Buffer must be ${q.maxDistanceMeters} meters or less.`;
+      }
+      return null;
+    }
     case 'likert': {
       if (typeof value !== 'number' || !Number.isInteger(value)) {
         return 'Pick a point on the scale.';
@@ -2130,6 +2293,22 @@ export function defaultQuestion(type: QuestionType, id: QuestionId): Question {
       return { ...base, type };
     case 'geoshape':
       return { ...base, type };
+    case 'pick-feature':
+      // sourceItemId is required at save time; the designer surface
+      // exposes a picker. Default to the empty string here so
+      // hand-rolled JSON authors get a clear validation error rather
+      // than a silently broken question.
+      return { ...base, type, sourceItemId: '' };
+    case 'route':
+      return { ...base, type, profile: 'driving', minWaypoints: 2, maxWaypoints: 10 };
+    case 'area-buffer':
+      return {
+        ...base,
+        type,
+        inputKind: 'point',
+        defaultDistanceMeters: 50,
+        maxDistanceMeters: 10000,
+      };
     case 'rating':
       return { ...base, type, max: 5, shape: 'star' };
     case 'likert':
@@ -2209,6 +2388,9 @@ function defaultLabel(type: QuestionType): string {
       geopoint: 'Location (point)',
       geotrace: 'Path (polyline)',
       geoshape: 'Area (polygon)',
+      'pick-feature': 'Pick a feature',
+      route: 'Route',
+      'area-buffer': 'Area (buffer)',
       rating: 'Rating',
       likert: 'Likert',
       nps: 'NPS (0-10)',

@@ -498,7 +498,10 @@ export function QuestionPreview({ q }: { q: Question }) {
     q.type === 'video' ||
     q.type === 'sketch' ||
     q.type === 'file' ||
-    q.type === 'signature'
+    q.type === 'signature' ||
+    q.type === 'pick-feature' ||
+    q.type === 'route' ||
+    q.type === 'area-buffer'
   ) {
     const label =
       q.type === 'signature'
@@ -511,7 +514,13 @@ export function QuestionPreview({ q }: { q: Question }) {
               ? 'Video capture'
               : q.type === 'sketch'
                 ? 'Sketch canvas'
-                : 'File upload';
+                : q.type === 'pick-feature'
+                  ? 'Pick a feature'
+                  : q.type === 'route'
+                    ? 'Route'
+                    : q.type === 'area-buffer'
+                      ? 'Area (buffer)'
+                      : 'File upload';
     return (
       <div className="rounded-md border border-dashed border-border bg-surface-2/30 px-3 py-2 text-[11px] text-muted">
         {label}
@@ -918,6 +927,27 @@ function Input({
         <div className="rounded-md border border-dashed border-border bg-surface-2/30 p-4 text-center text-xs text-muted">
           Polyline / polygon capture is part of Phase 2 of the Data
           Collection rollout.
+        </div>
+      );
+    case 'pick-feature':
+      return (
+        <div className="rounded-md border border-dashed border-border bg-surface-2/30 p-4 text-center text-xs text-muted">
+          Pick-feature lands with the map-aware picker in a follow-up.
+          Schema captured today; the runtime surface ships next.
+        </div>
+      );
+    case 'route':
+      return (
+        <div className="rounded-md border border-dashed border-border bg-surface-2/30 p-4 text-center text-xs text-muted">
+          Route capture lands with the map runtime + routing engine
+          wiring in a follow-up. Schema captured today.
+        </div>
+      );
+    case 'area-buffer':
+      return (
+        <div className="rounded-md border border-dashed border-border bg-surface-2/30 p-4 text-center text-xs text-muted">
+          Area-buffer capture lands with the map runtime + Turf
+          buffer in a follow-up. Schema captured today.
         </div>
       );
     case 'rating': {
