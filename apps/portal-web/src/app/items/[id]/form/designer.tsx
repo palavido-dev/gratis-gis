@@ -746,6 +746,24 @@ function nextWidthFor(
   return null;
 }
 
+/**
+ * True for question types in the palette's "Layout" group: structural
+ * or display-only kinds that don't capture a value from the responder.
+ * The Properties panel uses this to hide controls that don't apply
+ * (e.g. Required), and the QuestionRow's drop handler uses it to
+ * decide between insert-before and share-row gestures.
+ */
+function isLayoutType(t: QuestionType): boolean {
+  return (
+    t === 'note' ||
+    t === 'divider' ||
+    t === 'page' ||
+    t === 'group' ||
+    t === 'image-display' ||
+    t === 'hidden'
+  );
+}
+
 /** Locate the parent container + index for a given question id. */
 function locate(
   qs: Question[],
@@ -1575,7 +1593,15 @@ function Properties({
         </Field>
       )}
 
-      {question.type === 'note' ? null : (
+      {/* Layout / display-only types don't capture a value, so
+          "Required" is meaningless for them. Hiding the checkbox
+          keeps authors from setting a flag the runtime would
+          silently ignore. Covers note + divider + page + group +
+          image-display + hidden (the last is interesting because
+          a hidden question CAN carry a calculated value, but
+          enforcing required on something the user can't see is a
+          footgun the runtime currently doesn't even check). */}
+      {isLayoutType(question.type) ? null : (
         <label className="mb-2 inline-flex items-center gap-2 text-xs">
           <input
             type="checkbox"
