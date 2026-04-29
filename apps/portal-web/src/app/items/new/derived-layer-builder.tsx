@@ -49,10 +49,41 @@ export function DerivedLayerBuilder({
   // rather than via a "pick a tool" intermediate step. When more
   // tools land, this becomes a tool selector and per-tool form
   // fragments.
+  //
+  // Default buffer distance shown in the input on first render.
+  // Pulled into a constant so the seed-on-mount effect below and
+  // the input value derivation agree on the same number.
+  const DEFAULT_BUFFER_DISTANCE = 100;
   const bufferStep = value.pipeline.find(
     (s): s is Extract<ToolStep, { tool: 'buffer' }> => s.tool === 'buffer',
   );
-  const bufferDistance = bufferStep?.params.distance ?? 100;
+  const bufferDistance = bufferStep?.params.distance ?? DEFAULT_BUFFER_DISTANCE;
+
+  // Seed the pipeline with a default buffer step the moment the
+  // builder mounts. Without this, the input shows "100" via the
+  // `?? DEFAULT_BUFFER_DISTANCE` fallback but `value.pipeline` stays
+  // empty until the user edits the field, which causes the wizard's
+  // "at least one step" guard to (correctly) reject the submit even
+  // though the form looks filled in.
+  useEffect(() => {
+    if (value.pipeline.length === 0) {
+      onChange({
+        ...value,
+        pipeline: [
+          {
+            tool: 'buffer',
+            params: { distance: DEFAULT_BUFFER_DISTANCE, unit: 'meters' },
+          },
+        ],
+      });
+    }
+    // We deliberately depend only on the pipeline length so this
+    // effect doesn't re-fire on every keystroke that mutates
+    // `value`. The intent is "ensure a step exists at startup or
+    // after a reset"; per-keystroke mutations go through
+    // `setBufferDistance` instead.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value.pipeline.length]);
 
   const setSourceItem = useCallback(
     (id: string) => {
