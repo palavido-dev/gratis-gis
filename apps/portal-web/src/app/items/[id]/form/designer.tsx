@@ -3157,7 +3157,7 @@ function ComponentToggleEditor<T extends string>({
  * "text" field actually holds numeric content.
  */
 const COMPARISON_OPERATORS: ReadonlyArray<{
-  op: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'between';
+  op: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'between' | 'matches';
   label: string;
   /** True when the right-hand side is a single value, false when
    *  this op uses a different shape (in: list-ish; between: min+max). */
@@ -3171,6 +3171,10 @@ const COMPARISON_OPERATORS: ReadonlyArray<{
   { op: 'lte', label: 'less than or equal', rhsKind: 'value' },
   { op: 'in', label: 'contains', rhsKind: 'value' },
   { op: 'between', label: 'between', rhsKind: 'range' },
+  // Slice 4 (#165): regex match. RHS is a regex pattern as a string;
+  // the evaluator anchors with implicit ^...$. The same row UI works
+  // because rhsKind = 'value' and we read the raw string.
+  { op: 'matches', label: 'matches pattern', rhsKind: 'value' },
 ];
 type ComparisonOp = (typeof COMPARISON_OPERATORS)[number]['op'];
 
@@ -3242,7 +3246,8 @@ function decomposeRow(expr: Expression): ConditionRow | null {
     expr.op === 'gte' ||
     expr.op === 'lt' ||
     expr.op === 'lte' ||
-    expr.op === 'in'
+    expr.op === 'in' ||
+    expr.op === 'matches'
   ) {
     if ('ref' in expr.left && 'value' in expr.right) {
       const v = expr.right.value;
@@ -3304,6 +3309,15 @@ function rowToExpression(r: ConditionRow): Expression {
       value: { ref: r.ref },
       min: { value: coerceLiteral(r.min) },
       max: { value: coerceLiteral(r.max) },
+    };
+  }
+  if (r.op === 'matches') {
+    // RHS is a regex pattern -- never coerce to number/boolean even
+    // if the pattern happens to look like one (e.g. "true|false").
+    return {
+      op: 'matches',
+      left: { ref: r.ref },
+      right: { value: r.value },
     };
   }
   return {
@@ -3762,6 +3776,45 @@ function ruleToExpression(rule: Rule): Expression | undefined {
 }
 
 /**
+ * Quick-start templates for the modal builder (Slice 4, #165). Each
+ * appends a pre-shaped row to the tree's top-level rules. The author
+ * still picks the field via the row's dropdown -- we just save them
+ * the operator + value-shape decisions for the common patterns.
+ *
+ * Patterns that need a function call on the left (Min length via
+ * len(), Selected option via selected(), etc.) aren't represented
+ * here yet because ConditionRow only models a `ref` left side. Those
+ * land alongside a value-mode editor for calculate / defaultValue
+ * in a future slice.
+ */
+type QuickStart = 'not-empty' | 'equals' | 'range' | 'regex';
+
+function insertQuickStartRow(
+  setTree: (next: RuleTree) => void,
+  tree: RuleTree,
+  allFields: FieldRef[],
+  kind: QuickStart,
+): void {
+  const ref = allFields[0]?.id ?? '';
+  const row: ConditionRow = (() => {
+    switch (kind) {
+      case 'not-empty':
+        return { ...DEFAULT_ROW(), ref, op: 'neq', value: '' };
+      case 'equals':
+        return { ...DEFAULT_ROW(), ref, op: 'eq', value: '' };
+      case 'range':
+        return { ...DEFAULT_ROW(), ref, op: 'between', min: '', max: '' };
+      case 'regex':
+        return { ...DEFAULT_ROW(), ref, op: 'matches', value: '' };
+    }
+  })();
+  setTree({
+    combinator: tree.combinator,
+    rules: [...tree.rules, { kind: 'row', row }],
+  });
+}
+
+/**
  * Modal "Expression Builder" reachable via the "Builder" link on
  * each ExpressionEditor heading. Two-column body: tree editor on
  * the left, reference panel (Fields / Operators / Functions) on
@@ -3817,12 +3870,56 @@ function ExpressionBuilderModal({
           </button>
         </header>
         <div className="grid grid-cols-[1fr_280px] divide-x divide-border overflow-hidden">
-          <div className="overflow-auto p-4">
-            <RuleTreeEditor
-              tree={tree}
-              allFields={allFields}
-              onChange={setTree}
-            />
+          <div className="flex min-h-0 flex-col overflow-hidden">
+            {/* Slice 4 (#165): quick-start shortcuts. Each button
+                inserts a pre-shaped row at the end of the tree's
+                current top-level rules, so the author skips the
+                operator-and-value typing. The buttons that need a
+                target field assume the FIRST field in `allFields`;
+                the author retunes the picker afterwards if needed.
+                Anything that requires a function call on the left
+                (Min length via len(), Selected option via selected(),
+                etc.) is a follow-up -- those need a richer row that
+                can take an Operand on the left, which lands when the
+                modal grows a value-mode editor for calculate. */}
+            <div className="flex flex-wrap gap-1.5 border-b border-border bg-surface-1/40 px-4 py-2 text-[11px]">
+              <span className="self-center text-muted">Quick start:</span>
+              <button
+                type="button"
+                onClick={() => insertQuickStartRow(setTree, tree, allFields, 'not-empty')}
+                className="rounded border border-border bg-surface-0 px-2 py-0.5 hover:bg-surface-2"
+              >
+                Required (not empty)
+              </button>
+              <button
+                type="button"
+                onClick={() => insertQuickStartRow(setTree, tree, allFields, 'equals')}
+                className="rounded border border-border bg-surface-0 px-2 py-0.5 hover:bg-surface-2"
+              >
+                Equals value
+              </button>
+              <button
+                type="button"
+                onClick={() => insertQuickStartRow(setTree, tree, allFields, 'range')}
+                className="rounded border border-border bg-surface-0 px-2 py-0.5 hover:bg-surface-2"
+              >
+                Range (between)
+              </button>
+              <button
+                type="button"
+                onClick={() => insertQuickStartRow(setTree, tree, allFields, 'regex')}
+                className="rounded border border-border bg-surface-0 px-2 py-0.5 hover:bg-surface-2"
+              >
+                Regex pattern
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto p-4">
+              <RuleTreeEditor
+                tree={tree}
+                allFields={allFields}
+                onChange={setTree}
+              />
+            </div>
           </div>
           <aside className="flex min-h-0 flex-col bg-surface-1">
             <nav className="flex border-b border-border text-xs">
@@ -4117,42 +4214,91 @@ function OperatorsReferencePanel() {
   );
 }
 
-/** Functions reference panel: lists the existing 8 BUILTINS, with
- *  copy describing each. Slice 4 expands the registry and makes
- *  these clickable to insert call-shaped operands. */
+/** Functions reference panel: lists every BUILTIN the runtime
+ *  evaluator supports. Pure reference -- click-to-insert into a
+ *  calculate field's left-side Operand is a follow-up that needs the
+ *  modal to grow a value-mode editor (Operand-shaped, not Expression-
+ *  shaped). For visibleIf / constraint these are mainly informational
+ *  context for the author. */
 function FunctionsReferencePanel() {
-  const fns: Array<{ name: string; sig: string; hint: string }> = [
-    { name: 'today', sig: 'today()', hint: 'current date as YYYY-MM-DD' },
-    { name: 'now', sig: 'now()', hint: 'current ISO datetime' },
-    { name: 'len', sig: 'len(text)', hint: 'string length' },
-    { name: 'sum', sig: 'sum(a, b, …)', hint: 'numeric sum of refs / values' },
+  const groups: Array<{
+    heading: string;
+    fns: Array<{ sig: string; hint: string }>;
+  }> = [
     {
-      name: 'count',
-      sig: 'count(field)',
-      hint: 'number of selected choices in a select-many',
+      heading: 'Date / time',
+      fns: [
+        { sig: 'today()', hint: 'current date as YYYY-MM-DD' },
+        { sig: 'now()', hint: 'current ISO datetime' },
+      ],
     },
-    { name: 'coalesce', sig: 'coalesce(a, b, …)', hint: 'first non-null value' },
-    { name: 'lower', sig: 'lower(text)', hint: 'lowercase' },
-    { name: 'upper', sig: 'upper(text)', hint: 'uppercase' },
+    {
+      heading: 'Text',
+      fns: [
+        { sig: 'len(text)', hint: 'string length' },
+        { sig: 'lower(text)', hint: 'lowercase' },
+        { sig: 'upper(text)', hint: 'uppercase' },
+        { sig: 'trim(text)', hint: 'strip leading + trailing whitespace' },
+        { sig: 'contains(s, sub)', hint: 'does the string contain a substring?' },
+        { sig: 'starts_with(s, prefix)', hint: 'string starts with prefix' },
+        { sig: 'ends_with(s, suffix)', hint: 'string ends with suffix' },
+        {
+          sig: 'substring(s, start, end?)',
+          hint: '0-based slice; end omitted means to end',
+        },
+      ],
+    },
+    {
+      heading: 'Numeric',
+      fns: [
+        { sig: 'sum(a, b, ...)', hint: 'numeric sum of refs / values' },
+        { sig: 'abs(n)', hint: 'absolute value' },
+        { sig: 'round(n, places?)', hint: 'rounds to `places` decimals (default 0)' },
+        { sig: 'floor(n)', hint: 'round down to integer' },
+        { sig: 'ceil(n)', hint: 'round up to integer' },
+        { sig: 'min_of(a, b, ...)', hint: 'smallest numeric arg, ignoring nulls' },
+        { sig: 'max_of(a, b, ...)', hint: 'largest numeric arg, ignoring nulls' },
+      ],
+    },
+    {
+      heading: 'Selection / null',
+      fns: [
+        {
+          sig: 'count(field)',
+          hint: 'number of selected choices in a select-many',
+        },
+        {
+          sig: 'selected(field, value)',
+          hint: 'true when `value` is among a select-many\'s choices',
+        },
+        { sig: 'coalesce(a, b, ...)', hint: 'first non-null / non-empty value' },
+      ],
+    },
   ];
   return (
-    <div>
-      <p className="mb-2 text-[10px] text-muted">
-        Slice 4 adds click-to-insert and many more functions (regex,
-        contains, substr, selected, …). For now this is a reference of
-        what the runtime evaluator supports.
+    <div className="space-y-3">
+      <p className="text-[10px] text-muted">
+        Reference. The runtime evaluator supports each of these on
+        both browser and server.
       </p>
-      <ul className="space-y-1">
-        {fns.map((f) => (
-          <li
-            key={f.name}
-            className="rounded border border-border bg-surface-0 px-2 py-1"
-          >
-            <p className="font-mono text-[12px] text-ink-0">{f.sig}</p>
-            <p className="text-[10px] text-muted">{f.hint}</p>
-          </li>
-        ))}
-      </ul>
+      {groups.map((g) => (
+        <div key={g.heading}>
+          <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">
+            {g.heading}
+          </p>
+          <ul className="space-y-1">
+            {g.fns.map((f) => (
+              <li
+                key={f.sig}
+                className="rounded border border-border bg-surface-0 px-2 py-1"
+              >
+                <p className="font-mono text-[11px] text-ink-0">{f.sig}</p>
+                <p className="text-[10px] text-muted">{f.hint}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
     </div>
   );
 }
