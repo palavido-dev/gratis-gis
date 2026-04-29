@@ -32,6 +32,7 @@ import {
   type V3LayerShape,
 } from '../features-v3/v3-tables.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
+import { DerivedLayersService } from '../derived-layers/derived-layers.service.js';
 
 // Optional fields use `| undefined` explicitly so class-validator DTOs
 // (which leave unset keys present-as-undefined) can satisfy these types
@@ -104,6 +105,7 @@ export class ItemsService {
     private readonly v3Tables: V3TablesService,
     private readonly snapshots: DataSnapshotService,
     private readonly notifications: NotificationsService,
+    private readonly derivedLayers: DerivedLayersService,
   ) {}
 
   async list(
@@ -562,13 +564,24 @@ export class ItemsService {
     // DEFAULT_MAP to the org's seeded positron (or any available)
     // basemap item UUID so every new map opens against a real
     // basemap without the client needing to know any UUIDs up front.
-    const resolvedData: Prisma.InputJsonValue =
+    let resolvedData: Prisma.InputJsonValue =
       input.type === 'map'
         ? ((await this.resolveDefaultBasemap(
             user.orgId,
             input.data,
           )) as Prisma.InputJsonValue)
         : input.data;
+
+    // For derived_layer items, validate the recipe + compute the
+    // cached outputSchema and bbox before persisting. The source
+    // ACL check is run here (not in DerivedLayersService) so the
+    // module dependency stays one-directional.
+    if (input.type === 'derived_layer') {
+      resolvedData = (await this.enrichDerivedLayerData(
+        user,
+        input.data,
+      )) as Prisma.InputJsonValue;
+    }
 
     const bbox = itemBbox(input.type, resolvedData);
     const row = await this.prisma.item.create({
@@ -614,6 +627,56 @@ export class ItemsService {
       }
     }
     return row;
+  }
+
+  /**
+   * Validate + enrich a derived_layer's `data` payload. Loads the
+   * source data layer, runs an explicit canRead check (so a user
+   * can't construct a derived layer over a layer they can't see),
+   * then delegates to DerivedLayersService for the per-tool
+   * validation, output-schema computation, and bbox padding.
+   *
+   * Returns the enriched data (with `outputSchema` and `bbox`
+   * populated) ready to write to `item.data`. Throws
+   * `BadRequestException` for any validation failure, including a
+   * non-readable / wrong-type / trashed source.
+   */
+  private async enrichDerivedLayerData(
+    user: AuthUser,
+    rawData: Prisma.InputJsonValue,
+  ): Promise<Prisma.JsonValue> {
+    if (!rawData || typeof rawData !== 'object') {
+      throw new BadRequestException('derived_layer data must be an object');
+    }
+    const sourceRef = (rawData as { source?: unknown }).source as
+      | { itemId?: unknown }
+      | undefined;
+    if (!sourceRef || typeof sourceRef.itemId !== 'string') {
+      throw new BadRequestException(
+        'derived_layer.source.itemId is required',
+      );
+    }
+    const source = await this.prisma.item.findUnique({
+      where: { id: sourceRef.itemId },
+      include: { shares: true },
+    });
+    if (
+      !source ||
+      source.deletedAt !== null ||
+      !this.sharing.canRead(user, source, source.shares)
+    ) {
+      // Match items.service.get's existence-vs-access idiom:
+      // surface the same generic error regardless of whether the
+      // source is missing, trashed, or unshared, so an attacker
+      // can't probe for hidden item ids.
+      throw new BadRequestException(
+        'derived_layer.source.itemId does not point at an accessible data layer',
+      );
+    }
+    return this.derivedLayers.validateAndEnrich(
+      rawData,
+      source,
+    ) as unknown as Prisma.JsonValue;
   }
 
   /**
@@ -702,22 +765,34 @@ export class ItemsService {
     if (input.data !== undefined && item.type === 'data_layer') {
       await this.snapshots.snapshot(id, user.id, 'pre-update');
     }
+    // For derived_layer updates that touch the recipe, validate +
+    // re-enrich (recomputes outputSchema and bbox) before persisting.
+    // Metadata-only updates (title / tags / sharing) bypass this so
+    // they stay cheap.
+    let nextData: Prisma.InputJsonValue | undefined = input.data;
+    if (input.data !== undefined && item.type === 'derived_layer') {
+      nextData = (await this.enrichDerivedLayerData(
+        user,
+        input.data,
+      )) as Prisma.InputJsonValue;
+    }
+
     // Recompute the cached extent when the data blob changes; leave
     // it untouched on metadata-only edits so we don't churn the
     // index for no reason.
     const nextBbox =
-      input.data !== undefined ? itemBbox(item.type, input.data) : null;
+      nextData !== undefined ? itemBbox(item.type, nextData) : null;
     const updated = await this.prisma.item.update({
       where: { id },
       data: {
         ...(input.title !== undefined && { title: input.title }),
         ...(input.description !== undefined && { description: input.description }),
         ...(input.tags !== undefined && { tags: input.tags }),
-        ...(input.data !== undefined && { data: input.data }),
+        ...(nextData !== undefined && { data: nextData }),
         ...(input.access !== undefined && { access: input.access }),
         ...(input.thumbnailUrl !== undefined && { thumbnailUrl: input.thumbnailUrl }),
         ...(input.license !== undefined && { license: input.license }),
-        ...(input.data !== undefined && { bbox: nextBbox ?? [] }),
+        ...(nextData !== undefined && { bbox: nextBbox ?? [] }),
       },
     });
     // v3: reconcile layer tables against the updated schema. prev lets
@@ -900,6 +975,33 @@ export class ItemsService {
     } = {},
   ): Promise<{ type: 'FeatureCollection'; features: unknown[] }> {
     const item = await this.get(user, id);
+
+    if (item.type === 'derived_layer') {
+      // Resolve and authorize the source data layer here so the
+      // derived-layers service stays one-directional (no SharingService
+      // dependency). A source that's missing, trashed, or out of
+      // reach for the caller produces an empty FeatureCollection
+      // rather than throwing, so a momentary inconsistency degrades
+      // gracefully on the map.
+      const data = item.data as { source?: { itemId?: string } } | null;
+      const sourceId = data?.source?.itemId;
+      if (typeof sourceId !== 'string' || sourceId.length === 0) {
+        return { type: 'FeatureCollection', features: [] };
+      }
+      const source = await this.prisma.item.findUnique({
+        where: { id: sourceId },
+        include: { shares: true },
+      });
+      if (
+        !source ||
+        source.deletedAt !== null ||
+        !this.sharing.canRead(user, source, source.shares)
+      ) {
+        return { type: 'FeatureCollection', features: [] };
+      }
+      return this.derivedLayers.getGeoJson(item, source, opts);
+    }
+
     if (item.type !== 'data_layer') {
       return { type: 'FeatureCollection', features: [] };
     }
