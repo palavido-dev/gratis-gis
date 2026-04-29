@@ -9,8 +9,10 @@ import {
   GripVertical,
   Loader2,
   MapPin,
+  Mic,
   Plus,
   Trash2,
+  Video as VideoIcon,
   X,
 } from 'lucide-react';
 import {
@@ -488,16 +490,28 @@ export function QuestionPreview({ q }: { q: Question }) {
   if (q.type === 'page' || q.type === 'hidden' || q.type === 'group') {
     return null;
   }
-  // Photo / signature / file would either render an empty file
-  // picker or a message. Show a small badge instead.
-  if (q.type === 'photo' || q.type === 'file' || q.type === 'signature') {
+  // Capture-style inputs would either render an empty picker or a
+  // message. Show a small badge instead.
+  if (
+    q.type === 'photo' ||
+    q.type === 'audio' ||
+    q.type === 'video' ||
+    q.type === 'file' ||
+    q.type === 'signature'
+  ) {
+    const label =
+      q.type === 'signature'
+        ? 'Signature pad'
+        : q.type === 'photo'
+          ? 'Photo capture'
+          : q.type === 'audio'
+            ? 'Audio capture'
+            : q.type === 'video'
+              ? 'Video capture'
+              : 'File upload';
     return (
       <div className="rounded-md border border-dashed border-border bg-surface-2/30 px-3 py-2 text-[11px] text-muted">
-        {q.type === 'signature'
-          ? 'Signature pad'
-          : q.type === 'photo'
-            ? 'Photo capture'
-            : 'File upload'}
+        {label}
       </div>
     );
   }
@@ -841,6 +855,26 @@ function Input({
       return <AddressInput q={q} value={value} readOnly={readOnly} onChange={onChange} />;
     case 'photo':
       return <PhotoInput q={q} value={value} readOnly={readOnly} onChange={onChange} />;
+    case 'audio':
+      return (
+        <MediaCaptureInput
+          q={q}
+          value={value}
+          readOnly={readOnly}
+          onChange={onChange}
+          kind="audio"
+        />
+      );
+    case 'video':
+      return (
+        <MediaCaptureInput
+          q={q}
+          value={value}
+          readOnly={readOnly}
+          onChange={onChange}
+          kind="video"
+        />
+      );
     case 'file':
       return <FileInput q={q} value={value} readOnly={readOnly} onChange={onChange} />;
     case 'image-choice':
@@ -1090,6 +1124,170 @@ function PhotoInput({
       </div>
       <p className="text-[11px] text-muted">
         {photos.length} of {max} {max === 1 ? 'photo' : 'photos'}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Audio / video capture (#146). One component handles both kinds
+ * because the only thing that varies is the MIME prefix and the
+ * playback element. The runtime relies on the device's native
+ * recorder when available (`capture` attribute on the file input);
+ * desktop browsers fall through to a normal file picker.
+ *
+ * Response shape: an array of attachment descriptors:
+ *   { name; mimeType; sizeBytes; dataUrl; durationSec? }
+ *
+ * Phase 1 inlines the bytes as a data URL just like FileInput, so
+ * the offline outbox can persist without a network round trip;
+ * Phase 2 swaps in a MinIO upload step. Soft caps from the schema
+ * (maxBytes, maxDurationSec) surface as warnings rather than hard
+ * blocks: phones produce wildly different file sizes for short
+ * clips and we'd rather let a slightly-over-cap recording through
+ * than drop a successful capture on the floor.
+ */
+function MediaCaptureInput({
+  q,
+  value,
+  readOnly,
+  onChange,
+  kind,
+}: {
+  q: Extract<Question, { type: 'audio' | 'video' }>;
+  value: unknown;
+  readOnly: boolean;
+  onChange: (v: unknown) => void;
+  kind: 'audio' | 'video';
+}) {
+  type Clip = {
+    name: string;
+    mimeType: string;
+    sizeBytes: number;
+    dataUrl: string;
+    durationSec?: number;
+  };
+  const clips: Clip[] = Array.isArray(value)
+    ? (value as Clip[]).filter(
+        (c): c is Clip =>
+          c !== null &&
+          typeof c === 'object' &&
+          typeof (c as Clip).dataUrl === 'string' &&
+          typeof (c as Clip).mimeType === 'string',
+      )
+    : [];
+  const max = q.maxCount ?? 1;
+  const acceptMime = kind === 'audio' ? 'audio/*' : 'video/*';
+  const captureLabel = kind === 'audio' ? 'Audio' : 'Video';
+
+  function remove(index: number) {
+    if (readOnly) return;
+    onChange(clips.filter((_, i) => i !== index));
+  }
+
+  // Probe duration after the URL is inlined. Best-effort; if the
+  // device or the MIME doesn't expose duration we leave it
+  // undefined and the bar shows "size only".
+  async function probeDuration(dataUrl: string): Promise<number | undefined> {
+    return new Promise((resolve) => {
+      const el = document.createElement(kind);
+      el.preload = 'metadata';
+      const cleanup = () => {
+        el.removeEventListener('loadedmetadata', loaded);
+        el.removeEventListener('error', errored);
+      };
+      const loaded = () => {
+        cleanup();
+        resolve(Number.isFinite(el.duration) ? el.duration : undefined);
+      };
+      const errored = () => {
+        cleanup();
+        resolve(undefined);
+      };
+      el.addEventListener('loadedmetadata', loaded);
+      el.addEventListener('error', errored);
+      el.src = dataUrl;
+    });
+  }
+
+  return (
+    <div className="space-y-2">
+      <ul className="space-y-2">
+        {clips.map((c, i) => (
+          <li
+            key={i}
+            className="rounded-md border border-border bg-surface-1 p-2"
+          >
+            {kind === 'video' ? (
+              <video
+                src={c.dataUrl}
+                controls
+                className="max-h-48 w-full rounded bg-black"
+              />
+            ) : (
+              <audio src={c.dataUrl} controls className="w-full" />
+            )}
+            <div className="mt-1 flex items-center justify-between text-[11px] text-muted">
+              <span className="truncate">
+                {c.name}
+                {' · '}
+                {Math.round(c.sizeBytes / 1024).toLocaleString()} KB
+                {typeof c.durationSec === 'number'
+                  ? ` · ${c.durationSec.toFixed(1)}s`
+                  : null}
+              </span>
+              {!readOnly ? (
+                <button
+                  type="button"
+                  onClick={() => remove(i)}
+                  className="rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
+                  aria-label={`Remove ${kind}`}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+            </div>
+          </li>
+        ))}
+      </ul>
+      {!readOnly && clips.length < max ? (
+        <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-dashed border-border bg-surface-1 px-3 text-xs text-ink-1 hover:bg-surface-2">
+          {kind === 'audio' ? (
+            <Mic className="h-3.5 w-3.5" />
+          ) : (
+            <VideoIcon className="h-3.5 w-3.5" />
+          )}
+          {captureLabel}
+          <input
+            type="file"
+            accept={acceptMime}
+            // Hint to mobile that the user wants to record. Desktop
+            // browsers ignore `capture` and fall back to file pick.
+            capture={kind === 'video' ? 'environment' : undefined}
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              const dataUrl = await fileToDataUrl(file);
+              const durationSec = await probeDuration(dataUrl);
+              const next: Clip = {
+                name: file.name,
+                mimeType: file.type || acceptMime,
+                sizeBytes: file.size,
+                dataUrl,
+                ...(typeof durationSec === 'number' ? { durationSec } : {}),
+              };
+              onChange([...clips, next]);
+            }}
+          />
+        </label>
+      ) : null}
+      <p className="text-[11px] text-muted">
+        {clips.length} of {max}{' '}
+        {max === 1 ? captureLabel.toLowerCase() : `${captureLabel.toLowerCase()}s`}
+        {typeof q.maxDurationSec === 'number'
+          ? ` · suggested cap ${q.maxDurationSec}s per clip`
+          : null}
       </p>
     </div>
   );

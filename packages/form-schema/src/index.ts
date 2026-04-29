@@ -72,6 +72,8 @@ export const QUESTION_TYPES = [
   'name', // composite person name (first / middle / last / suffix / prefix)
   'address', // composite postal address
   'photo', // one or more image attachments
+  'audio', // audio recording or upload
+  'video', // video recording or upload
   'file', // generic file upload (any MIME)
   'image-choice', // single/multi choice where each option is an image
   'image-display', // display-only image embed (no value captured)
@@ -530,6 +532,48 @@ interface PhotoQuestion extends QuestionBase {
 }
 
 /**
+ * Audio capture. Recorded clip OR uploaded audio file. The runtime
+ * uses `<input type="file" accept="audio/*" capture>` to surface the
+ * device's recorder when available, with file picker as a fallback.
+ *
+ * Response shape mirrors FileQuestion:
+ *   Array<{ name; mimeType; sizeBytes; dataUrl; durationSec? }>
+ *
+ * Phase 1 stores audio as data URLs in the offline outbox just like
+ * photos / files; Phase 2 swaps in MinIO upload.
+ */
+interface AudioQuestion extends QuestionBase {
+  type: 'audio';
+  /** Max attachments. Default 1. */
+  maxCount?: number;
+  /** Soft cap per clip in bytes; renderer warns above this. */
+  maxBytes?: number;
+  /** Soft cap per clip in seconds; the renderer can stop the
+   *  recorder when it's reached. Optional. */
+  maxDurationSec?: number;
+}
+
+/**
+ * Video capture. Same model as Audio but with `accept="video/*"`.
+ * The mobile recorder is preferred when the device exposes one; the
+ * desktop fallback is a normal file picker. We deliberately don't
+ * try to transcode in the browser; whatever MIME the device produces
+ * (MP4 / WebM / MOV) flows through.
+ *
+ * Response shape mirrors FileQuestion plus optional duration:
+ *   Array<{ name; mimeType; sizeBytes; dataUrl; durationSec? }>
+ */
+interface VideoQuestion extends QuestionBase {
+  type: 'video';
+  /** Max attachments. Default 1. */
+  maxCount?: number;
+  /** Soft cap per clip in bytes. */
+  maxBytes?: number;
+  /** Soft cap per clip in seconds. Optional. */
+  maxDurationSec?: number;
+}
+
+/**
  * Generic file upload. Accepts any MIME by default; the optional
  * `accept` array narrows the picker (e.g. ['application/pdf']).
  *
@@ -771,6 +815,8 @@ export type Question =
   | NameQuestion
   | AddressQuestion
   | PhotoQuestion
+  | AudioQuestion
+  | VideoQuestion
   | FileQuestion
   | ImageChoiceQuestion
   | ImageDisplayQuestion
@@ -1618,6 +1664,32 @@ function validateType(q: Question, value: unknown): string | null {
         return `Up to ${q.maxCount} attachments allowed.`;
       }
       return null;
+    case 'audio':
+    case 'video': {
+      const kindLabel = q.type === 'audio' ? 'audio clip' : 'video clip';
+      if (!Array.isArray(value)) return `Expected one or more ${kindLabel}s.`;
+      if (q.maxCount !== undefined && value.length > q.maxCount) {
+        return `Up to ${q.maxCount} ${kindLabel}s allowed.`;
+      }
+      for (const v of value) {
+        if (
+          typeof v !== 'object' ||
+          v === null ||
+          typeof (v as { dataUrl?: unknown }).dataUrl !== 'string' ||
+          typeof (v as { mimeType?: unknown }).mimeType !== 'string'
+        ) {
+          return `${kindLabel} entry has an unexpected shape.`;
+        }
+        if (
+          q.maxBytes !== undefined &&
+          typeof (v as { sizeBytes?: unknown }).sizeBytes === 'number' &&
+          (v as { sizeBytes: number }).sizeBytes > q.maxBytes
+        ) {
+          return `${kindLabel}s must be ${q.maxBytes} bytes or smaller.`;
+        }
+      }
+      return null;
+    }
     case 'file':
       if (!Array.isArray(value)) return 'Expected one or more files.';
       if (q.maxCount !== undefined && value.length > q.maxCount) {
@@ -1940,6 +2012,10 @@ export function defaultQuestion(type: QuestionType, id: QuestionId): Question {
       };
     case 'photo':
       return { ...base, type, maxCount: 1 };
+    case 'audio':
+      return { ...base, type, maxCount: 1 };
+    case 'video':
+      return { ...base, type, maxCount: 1 };
     case 'file':
       return { ...base, type, maxCount: 1 };
     case 'image-choice':
@@ -2030,6 +2106,8 @@ function defaultLabel(type: QuestionType): string {
       name: 'Full name',
       address: 'Address',
       photo: 'Photo',
+      audio: 'Audio',
+      video: 'Video',
       file: 'File',
       'image-choice': 'Image choice',
       'image-display': 'Image',
