@@ -8,6 +8,8 @@ import {
   DerivedLayersService,
   padBboxByMeters,
   readSourceSchema,
+  readSourceVersion,
+  resolveSublayer,
 } from './derived-layers.service.js';
 
 // The service we test here only exercises pure / DB-free helpers.
@@ -26,13 +28,43 @@ const STRING_FIELD: FeatureField = {
 function makeSource(
   overrides: Partial<Item> = {},
 ): Pick<Item, 'id' | 'type' | 'data' | 'bbox'> {
+  // Default fixture is a v2 single-table source. v3 multi-layer
+  // tests construct their own data inline via makeV3Source below
+  // so each one is explicit about which sublayer it's exercising.
   return {
     id: '11111111-1111-1111-1111-111111111111',
     type: 'data_layer' as Item['type'],
     data: {
+      version: 2,
       storageType: 'postgis',
-      version: 3,
       fields: [STRING_FIELD],
+    } as unknown as Item['data'],
+    bbox: [-122.5, 37.5, -122.0, 38.0] as Item['bbox'],
+    ...overrides,
+  };
+}
+
+function makeV3Source(
+  layerId: string,
+  overrides: Partial<Item> = {},
+): Pick<Item, 'id' | 'type' | 'data' | 'bbox'> {
+  return {
+    id: '22222222-2222-2222-2222-222222222222',
+    type: 'data_layer' as Item['type'],
+    data: {
+      version: 3,
+      storageType: 'postgis',
+      layers: [
+        {
+          id: layerId,
+          label: layerId,
+          name: layerId,
+          geometryType: 'point',
+          fields: [STRING_FIELD],
+          editingEnabled: true,
+          attachmentsEnabled: false,
+        },
+      ],
     } as unknown as Item['data'],
     bbox: [-122.5, 37.5, -122.0, 38.0] as Item['bbox'],
     ...overrides,
@@ -68,17 +100,86 @@ describe('readSourceSchema', () => {
     expect(fields).toEqual([STRING_FIELD]);
   });
 
-  it('merges fields from a v3 multi-layer payload', () => {
-    const merged = readSourceSchema({
-      layers: [{ fields: [STRING_FIELD] }, { fields: [STRING_FIELD] }],
-    });
-    expect(merged).toHaveLength(2);
-  });
-
   it('returns an empty array for unrecognized shapes', () => {
     expect(readSourceSchema(null)).toEqual([]);
     expect(readSourceSchema('not an object')).toEqual([]);
     expect(readSourceSchema({})).toEqual([]);
+  });
+});
+
+describe('readSourceVersion', () => {
+  it('reads a numeric version off the data blob', () => {
+    expect(readSourceVersion({ version: 3 })).toBe(3);
+    expect(readSourceVersion({ version: 1 })).toBe(1);
+  });
+
+  it('returns 0 for unknown shapes', () => {
+    expect(readSourceVersion(null)).toBe(0);
+    expect(readSourceVersion({})).toBe(0);
+    expect(readSourceVersion({ version: '3' })).toBe(0);
+  });
+});
+
+describe('resolveSublayer', () => {
+  it('returns null for v2 with no layerKey', () => {
+    expect(resolveSublayer({ fields: [STRING_FIELD] }, 2, undefined)).toBeNull();
+  });
+
+  it('rejects layerKey on a v2 source', () => {
+    expect(() =>
+      resolveSublayer({ fields: [STRING_FIELD] }, 2, 'L1'),
+    ).toThrow(/only valid against v3/);
+  });
+
+  it('auto-selects the only spatial sublayer of a v3 source', () => {
+    const data = {
+      version: 3,
+      layers: [
+        {
+          id: 'L1',
+          geometryType: 'point',
+          fields: [STRING_FIELD],
+        },
+      ],
+    };
+    const r = resolveSublayer(data, 3, undefined);
+    expect(r?.id).toBe('L1');
+    expect(r?.fields).toEqual([STRING_FIELD]);
+  });
+
+  it('requires layerKey when there are multiple spatial sublayers', () => {
+    const data = {
+      version: 3,
+      layers: [
+        { id: 'A', geometryType: 'point', fields: [] },
+        { id: 'B', geometryType: 'polygon', fields: [] },
+      ],
+    };
+    expect(() => resolveSublayer(data, 3, undefined)).toThrow(
+      /required because the source has multiple sublayers/,
+    );
+  });
+
+  it('rejects an unknown layerKey', () => {
+    const data = {
+      version: 3,
+      layers: [{ id: 'A', geometryType: 'point', fields: [] }],
+    };
+    expect(() => resolveSublayer(data, 3, 'B')).toThrow(
+      /does not match any sublayer/,
+    );
+  });
+
+  it('drops attribute-only sublayers from consideration', () => {
+    const data = {
+      version: 3,
+      layers: [
+        { id: 'related', geometryType: null, fields: [] },
+      ],
+    };
+    expect(() => resolveSublayer(data, 3, undefined)).toThrow(
+      /no spatial sublayers/,
+    );
   });
 });
 
@@ -210,6 +311,29 @@ describe('DerivedLayersService.buildReadSql', () => {
     // Default temporal filter is `valid_to IS NULL`.
     expect(sql).toMatch(/valid_to IS NULL/);
     expect(params).toEqual([250, 1000]);
+  });
+
+  it('uses the v3 per-sublayer table name when source.layerKey is set', () => {
+    const source = makeV3Source('sites');
+    const data: DerivedLayerData = {
+      version: 1,
+      source: {
+        kind: 'data_layer',
+        itemId: source.id,
+        layerKey: 'sites',
+      },
+      pipeline: [
+        { tool: 'buffer', params: { distance: 25, unit: 'meters' } },
+      ],
+      featureLimit: 100,
+      outputSchema: [STRING_FIELD],
+      bbox: [],
+    };
+    const item = makeDerivedItem(data);
+    const { sql } = service.buildReadSql(item, source);
+    expect(sql).toMatch(
+      /"fs_22222222222222222222222222222222_sites"/,
+    );
   });
 
   it('expands the request bbox by the pipeline reach for buffer halos', () => {

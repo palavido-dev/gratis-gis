@@ -8,6 +8,7 @@ import {
 } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { toV3TableName } from '../features-v3/v3-tables.service.js';
 import { getGeneratorForStep } from './tools/registry.js';
 
 /**
@@ -101,6 +102,21 @@ export class DerivedLayersService {
       );
     }
 
+    // v3 multi-layer items split features across one PostGIS table per
+    // sublayer, so the recipe MUST name which sublayer to derive from.
+    // v2 single-table items have no sublayer, so layerKey must be
+    // absent. Reject both directions explicitly: a missing layerKey
+    // on a v3 source would silently query a non-existent table, and
+    // a layerKey on a v2 source would imply structure that isn't
+    // there. The check runs before tool validation so a mismatched
+    // recipe never reaches the generators.
+    const sourceVersion = readSourceVersion(sourceItem.data);
+    const sublayer = resolveSublayer(
+      sourceItem.data,
+      sourceVersion,
+      typeof source.layerKey === 'string' ? source.layerKey : undefined,
+    );
+
     const pipeline = d.pipeline;
     if (!Array.isArray(pipeline) || pipeline.length === 0) {
       throw new BadRequestException(
@@ -135,8 +151,11 @@ export class DerivedLayersService {
 
     // Validate each step's params, threading the schema forward so a
     // step that changes the column shape (future: dissolve) yields
-    // the right input schema for the next step.
-    const sourceSchema = readSourceSchema(sourceItem.data);
+    // the right input schema for the next step. The schema comes
+    // from the resolved sublayer for v3, or top-level fields for v2.
+    const sourceSchema = sublayer
+      ? sublayer.fields
+      : readSourceSchema(sourceItem.data);
     let schema: FeatureField[] = sourceSchema;
     let totalReachMeters = 0;
     const validatedPipeline: ToolStep[] = [];
@@ -175,9 +194,7 @@ export class DerivedLayersService {
       source: {
         kind: 'data_layer',
         itemId: source.itemId as string,
-        ...(typeof source.layerKey === 'string'
-          ? { layerKey: source.layerKey }
-          : {}),
+        ...(sublayer ? { layerKey: sublayer.id } : {}),
       },
       pipeline: validatedPipeline,
       featureLimit,
@@ -240,7 +257,9 @@ export class DerivedLayersService {
       );
     }
 
-    const tbl = `fs_${data.source.itemId.replace(/-/g, '')}`;
+    const tbl = data.source.layerKey
+      ? toV3TableName(data.source.itemId, data.source.layerKey)
+      : `fs_${data.source.itemId.replace(/-/g, '')}`;
     const queryParams: unknown[] = [];
     const sourceConditions: string[] = [];
 
@@ -387,7 +406,9 @@ export class DerivedLayersService {
         generator.validate(step.params),
       );
     }
-    const tbl = `fs_${sourceItem.id.replace(/-/g, '')}`;
+    const tbl = data.source.layerKey
+      ? toV3TableName(sourceItem.id, data.source.layerKey)
+      : `fs_${sourceItem.id.replace(/-/g, '')}`;
     const queryParams: unknown[] = [];
     const sourceConditions: string[] = [];
 
@@ -462,39 +483,102 @@ export class DerivedLayersService {
 // -----------------------------------------------------------------
 
 /**
- * Read the FeatureField list from a data_layer item's `data` blob.
- * v1/v2 store fields top-level; v3 multi-layer items store fields
- * per-layer. For v1 buffer this just needs to know "the columns
- * coming through" so we collect from whichever shape is present;
- * future tools that need per-sublayer routing can read the layerKey
- * off `source` and walk into a single layer.
+ * Read the schema version off a data_layer's `data` blob. v1 and v2
+ * are flat (fields at the top level), v3 is multi-layer (fields per
+ * sublayer). Falls back to 0 for unknown / malformed shapes so the
+ * caller can branch defensively. Returns just the version number;
+ * callers that need to dispatch on it are expected to compare by
+ * value rather than rely on a typed union here (the data blob is
+ * Prisma `JsonValue`, narrowing to a discriminated union would
+ * require zod / class-validator for no real win).
+ */
+export function readSourceVersion(data: unknown): number {
+  if (!data || typeof data !== 'object') return 0;
+  const v = (data as { version?: unknown }).version;
+  return typeof v === 'number' ? v : 0;
+}
+
+/**
+ * Resolve which sublayer the recipe targets, or `null` for a v1 / v2
+ * single-table item.
+ *
+ * Rules:
+ *   - v3 source REQUIRES `layerKey`. Missing or unknown key throws.
+ *     A v3 item with exactly one spatial sublayer is allowed to
+ *     auto-select; we do that here so the wizard doesn't have to.
+ *   - v2 source FORBIDS `layerKey`. Passing one means the recipe is
+ *     pointed at structure that doesn't exist; throw rather than
+ *     silently ignore.
+ *   - v1 (inline GeoJSON) returns null and lets the caller's
+ *     storageType check reject it later.
+ *
+ * Returns the sublayer object when one is selected, or `null` when
+ * the source is single-table.
+ */
+export function resolveSublayer(
+  data: unknown,
+  version: number,
+  layerKey: string | undefined,
+): { id: string; fields: FeatureField[] } | null {
+  if (version !== 3) {
+    if (layerKey !== undefined) {
+      throw new BadRequestException(
+        'derived_layer.source.layerKey is only valid against v3 multi-layer data layers',
+      );
+    }
+    return null;
+  }
+  // v3 path
+  const layers = (data as { layers?: unknown }).layers;
+  if (!Array.isArray(layers) || layers.length === 0) {
+    throw new BadRequestException(
+      'Source data layer has no sublayers; add a layer in the data layer builder first',
+    );
+  }
+  const spatialLayers = layers.filter((l) => {
+    if (!l || typeof l !== 'object') return false;
+    const id = (l as { id?: unknown }).id;
+    const geom = (l as { geometryType?: unknown }).geometryType;
+    return typeof id === 'string' && id.length > 0 && typeof geom === 'string';
+  }) as Array<{ id: string; geometryType: string; fields?: FeatureField[] }>;
+  if (spatialLayers.length === 0) {
+    throw new BadRequestException(
+      'Source data layer has no spatial sublayers; buffer needs geometry to operate on',
+    );
+  }
+  if (layerKey === undefined) {
+    if (spatialLayers.length === 1) {
+      const only = spatialLayers[0]!;
+      return { id: only.id, fields: only.fields ?? [] };
+    }
+    throw new BadRequestException(
+      'derived_layer.source.layerKey is required because the source has multiple sublayers',
+    );
+  }
+  const match = spatialLayers.find((l) => l.id === layerKey);
+  if (!match) {
+    throw new BadRequestException(
+      `derived_layer.source.layerKey "${layerKey}" does not match any sublayer of the source`,
+    );
+  }
+  return { id: match.id, fields: match.fields ?? [] };
+}
+
+/**
+ * Read the FeatureField list from a v1 / v2 data_layer's `data`
+ * blob. v3 sources do NOT come through here; they go through
+ * `resolveSublayer` so the schema is read from the specific
+ * sublayer the recipe targets. Kept on the v2 path because top-
+ * level `fields` is the canonical place that schema lives in v2.
  */
 export function readSourceSchema(data: unknown): FeatureField[] {
   if (!data || typeof data !== 'object') return [];
-  const d = data as { fields?: unknown; layers?: unknown };
+  const d = data as { fields?: unknown };
   if (Array.isArray(d.fields)) {
     return d.fields.filter(
       (f): f is FeatureField =>
         !!f && typeof f === 'object' && typeof (f as { name?: unknown }).name === 'string',
     );
-  }
-  if (Array.isArray(d.layers) && d.layers.length > 0) {
-    const merged: FeatureField[] = [];
-    for (const layer of d.layers) {
-      const fields = (layer as { fields?: unknown }).fields;
-      if (Array.isArray(fields)) {
-        for (const f of fields) {
-          if (
-            f &&
-            typeof f === 'object' &&
-            typeof (f as { name?: unknown }).name === 'string'
-          ) {
-            merged.push(f as FeatureField);
-          }
-        }
-      }
-    }
-    return merged;
   }
   return [];
 }

@@ -358,29 +358,64 @@ export class ItemsService {
         for (const c of counted) counts.set(c.id, c.sublayer_count);
       }
 
-      // Compute `_storageType` for data_layer rows in one targeted
-      // raw query. The lite findMany strips `data` to keep the wire
-      // payload small, but downstream UI surfaces (the derived-layer
-      // wizard, future analysis tools) need to know whether a layer
-      // is v1 inline-GeoJSON or v2 PostGIS-backed so they can filter
-      // out incompatible sources before the user picks one. Reads
-      // only the `data_json -> 'storageType'` path so the trip back
-      // is one short string per row, not the whole metadata blob.
+      // Compute lite-mode annotations for data_layer rows in one
+      // targeted raw query. The lite findMany strips `data` to keep
+      // the wire payload small, but downstream UI surfaces (the
+      // derived-layer wizard, future analysis tools) need three
+      // small derived facts:
+      //   - `_storageType`: tells v1 inline-GeoJSON apart from v2 /
+      //     v3 PostGIS-backed layers.
+      //   - `_layers`: for v3 multi-layer items, the per-sublayer
+      //     {id, label, geometryType} list so the picker can flatten
+      //     sublayers into selectable rows.
+      // Reads only the JSON paths we care about so the trip back is
+      // one string + a small array per row, not the whole metadata
+      // blob.
       const dataLayerIds = rows
         .filter((r) => r.type === 'data_layer')
         .map((r) => r.id);
       const storageTypes = new Map<string, string>();
+      const sublayerInfo = new Map<
+        string,
+        Array<{ id: string; label: string; geometryType: string | null }>
+      >();
       if (dataLayerIds.length > 0) {
         const storage = await this.prisma.$queryRaw<
-          Array<{ id: string; storage_type: string | null }>
+          Array<{
+            id: string;
+            storage_type: string | null;
+            layers: unknown;
+          }>
         >`
           SELECT id::text AS id,
-                 (data_json ->> 'storageType') AS storage_type
+                 (data_json ->> 'storageType') AS storage_type,
+                 (data_json -> 'layers')        AS layers
           FROM "item"
           WHERE id = ANY(${dataLayerIds}::uuid[])
         `;
         for (const s of storage) {
           if (s.storage_type) storageTypes.set(s.id, s.storage_type);
+          if (Array.isArray(s.layers)) {
+            const slim: Array<{
+              id: string;
+              label: string;
+              geometryType: string | null;
+            }> = [];
+            for (const raw of s.layers as unknown[]) {
+              if (!raw || typeof raw !== 'object') continue;
+              const o = raw as Record<string, unknown>;
+              if (typeof o.id !== 'string') continue;
+              slim.push({
+                id: o.id,
+                label: typeof o.label === 'string' ? o.label : o.id,
+                geometryType:
+                  typeof o.geometryType === 'string'
+                    ? (o.geometryType as string)
+                    : null,
+              });
+            }
+            sublayerInfo.set(s.id, slim);
+          }
         }
       }
 
@@ -394,6 +429,7 @@ export class ItemsService {
           return {
             ...r,
             _storageType: storageTypes.get(r.id) ?? 'inline',
+            _layers: sublayerInfo.get(r.id) ?? [],
           };
         }
         return r;
