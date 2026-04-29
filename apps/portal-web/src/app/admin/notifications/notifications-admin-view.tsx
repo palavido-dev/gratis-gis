@@ -52,6 +52,12 @@ export interface SmtpState {
   fromDisplayName: string;
   user: string;
   hasPassword: boolean;
+  /** When the API saved successfully but realm-side push to Keycloak
+   *  failed, the actionable message lands here (#139). The DB save +
+   *  worker reload still happened, so non-realm emails work; realm-
+   *  issued emails (invite / forgot-password / verify) won't go out
+   *  until the underlying issue is fixed. */
+  realmSyncWarning?: string;
 }
 
 export interface DefaultsRow {
@@ -341,7 +347,7 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
   const [testTo, setTestTo] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [msg, setMsg] = useState<
-    { kind: 'ok' | 'err'; text: string } | null
+    { kind: 'ok' | 'warn' | 'err'; text: string } | null
   >(null);
 
   async function save() {
@@ -366,7 +372,24 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
       if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
       const fresh = (await res.json()) as SmtpState;
       setForm({ ...fresh, password: '' });
-      setMsg({ kind: 'ok', text: 'Saved. Worker will use new SMTP on next send.' });
+      // The DB save + worker-transport reload always succeeded if
+      // we got here. The realm sync to Keycloak (for invite /
+      // forgot-password / verify-email) may have failed
+      // separately; surface that as an amber warning rather than
+      // a green success so the admin knows realm emails won't
+      // route through the new SMTP until they fix the underlying
+      // issue (#139).
+      if (fresh.realmSyncWarning) {
+        setMsg({
+          kind: 'warn',
+          text: `SMTP saved, but Keycloak realm sync failed: ${fresh.realmSyncWarning}`,
+        });
+      } else {
+        setMsg({
+          kind: 'ok',
+          text: 'Saved. Worker will use new SMTP on next send.',
+        });
+      }
     } catch (err) {
       setMsg({
         kind: 'err',
@@ -581,7 +604,11 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
       {msg ? (
         <p
           className={`mt-2 text-xs ${
-            msg.kind === 'ok' ? 'text-emerald-700' : 'text-danger'
+            msg.kind === 'ok'
+              ? 'text-emerald-700'
+              : msg.kind === 'warn'
+                ? 'text-amber-700'
+                : 'text-danger'
           }`}
         >
           {msg.text}
