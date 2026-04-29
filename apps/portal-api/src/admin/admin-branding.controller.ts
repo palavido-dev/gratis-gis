@@ -16,11 +16,13 @@ import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 /**
- * Admin-only read/write for the five landing-page knobs on
- * Organization. Kept tiny on purpose: the page isn't a CMS, it's a
- * handful of branding fields an admin might touch a few times in
+ * Admin-only read/write for the Organization-level settings the
+ * branding page exposes. Kept tiny on purpose: this isn't a CMS,
+ * it's a handful of fields an admin might touch a few times in
  * the lifetime of an org.
  *
+ * - name               : the organization's display name (#171). Drives
+ *                          every "Acme Corp" surface across the portal.
  * - landingTitle       : short org-facing title (defaults to org.name)
  * - landingSubtitle    : one-line tagline
  * - landingHeroImageUrl: optional hero band image; empty falls back to a
@@ -29,10 +31,19 @@ import { PrismaService } from '../prisma/prisma.service.js';
  * - landingFeaturedItemIds: ordered ids to feature ahead of the rest
  *
  * GET returns the current config so the editor can prefill. PATCH
- * accepts any subset of the five fields; omitted keys are left
- * untouched, null values explicitly clear.
+ * accepts any subset of the fields; omitted keys are left untouched,
+ * null values explicitly clear (where the column is nullable).
  */
 class UpdateBrandingDto {
+  /**
+   * Organization display name. Required column on the row, so we
+   * reject empty strings here rather than letting Prisma fail with
+   * a less helpful error. Bounded length keeps it sensible across
+   * every header / nav / email surface that renders it.
+   */
+  @IsOptional() @IsString() @MaxLength(120)
+  name?: string;
+
   @IsOptional() @IsString() @MaxLength(200)
   landingTitle?: string | null;
 
@@ -91,6 +102,15 @@ export class AdminBrandingController {
     // Explicit null through the DTO resolves to Prisma's null write
     // (Prisma accepts null for nullable columns).
     const data: Record<string, unknown> = {};
+    if (dto.name !== undefined) {
+      // organization.name is non-null on the schema; reject empty
+      // strings here rather than store a meaningless blank that
+      // would render as a gap in every nav/header/email.
+      const trimmed = dto.name.trim();
+      if (trimmed.length > 0) {
+        data.name = trimmed;
+      }
+    }
     if (dto.landingTitle !== undefined) {
       data.landingTitle = dto.landingTitle;
     }

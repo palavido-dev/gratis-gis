@@ -28,6 +28,10 @@ interface Props {
 
 export function BrandingForm({ initial }: Props) {
   const router = useRouter();
+  // Org name (#171). Required, so we render the value verbatim and
+  // refuse empty saves. Drives every "Acme Corp" surface across the
+  // portal, hence its own card at the top.
+  const [name, setName] = useState(initial.name);
   const [title, setTitle] = useState(initial.landingTitle ?? '');
   const [subtitle, setSubtitle] = useState(initial.landingSubtitle ?? '');
   const [heroImageUrl, setHeroImageUrl] = useState<string | null>(
@@ -52,6 +56,7 @@ export function BrandingForm({ initial }: Props) {
   // arrays covers every field. Feature ids compared as a normalized
   // space-less string so 'a, b' vs 'a,b' reads as no change.
   const dirty = useMemo(() => {
+    if (name.trim() !== initial.name && name.trim().length > 0) return true;
     if ((title.trim() || null) !== (initial.landingTitle ?? null)) return true;
     if ((subtitle.trim() || null) !== (initial.landingSubtitle ?? null))
       return true;
@@ -64,6 +69,7 @@ export function BrandingForm({ initial }: Props) {
     }
     return false;
   }, [
+    name,
     title,
     subtitle,
     heroImageUrl,
@@ -86,6 +92,15 @@ export function BrandingForm({ initial }: Props) {
         // any more: invalid pastes can't get into the state.
         landingFeaturedItemIds: featuredIds,
       };
+      // Only include name if it actually changed AND is non-empty.
+      // The server rejects empty strings (org.name is required)
+      // but it's friendlier to keep the field out of the patch
+      // entirely than to send an empty value and rely on the
+      // server's defense.
+      const trimmedName = name.trim();
+      if (trimmedName.length > 0 && trimmedName !== initial.name) {
+        body.name = trimmedName;
+      }
       const res = await fetch('/api/portal/admin/branding', {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
@@ -106,6 +121,30 @@ export function BrandingForm({ initial }: Props) {
   return (
     <div className="space-y-5">
       <section className="space-y-4 rounded-lg border border-border bg-surface-1 p-5">
+        <div>
+          <label
+            htmlFor="org-name"
+            className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted"
+          >
+            Organization name
+          </label>
+          <input
+            id="org-name"
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Your organization"
+            maxLength={120}
+            required
+            className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+          />
+          <p className="mt-1 text-[11px] text-muted">
+            The display name used in headers, navigation, emails,
+            and anywhere else your organization is named. Cannot be
+            empty.
+          </p>
+        </div>
+
         <div>
           <label
             htmlFor="landing-title"
