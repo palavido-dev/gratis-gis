@@ -76,6 +76,7 @@ import {
   packIntoRows,
   widthToClass,
 } from '@/components/form-runtime';
+import { RegexQuestionFields } from './regex-builder';
 
 interface Props {
   itemId: string;
@@ -1932,42 +1933,13 @@ function Properties({
       ) : null}
 
       {question.type === 'regex' ? (
-        <>
-          <Field label="Pattern" hint="Regex applied with implicit ^...$ anchors.">
-            <input
-              type="text"
-              value={question.pattern}
-              disabled={!canEdit}
-              onChange={(e) =>
-                onChange({ pattern: e.target.value } as Partial<Question>)
-              }
-              className={`${inputCls} font-mono`}
-            />
-          </Field>
-          <Field label="Flags" hint='e.g. "i" for case-insensitive.'>
-            <input
-              type="text"
-              value={question.flags ?? ''}
-              disabled={!canEdit}
-              onChange={(e) =>
-                onChange({ flags: e.target.value || undefined } as Partial<Question>)
-              }
-              className={`${inputCls} font-mono`}
-              maxLength={6}
-            />
-          </Field>
-          <Field label="Error message">
-            <input
-              type="text"
-              value={question.message ?? ''}
-              disabled={!canEdit}
-              onChange={(e) =>
-                onChange({ message: e.target.value || undefined } as Partial<Question>)
-              }
-              className={inputCls}
-            />
-          </Field>
-        </>
+        <RegexQuestionFields
+          pattern={question.pattern}
+          flags={question.flags}
+          message={question.message}
+          canEdit={canEdit}
+          onChange={(patch) => onChange(patch as Partial<Question>)}
+        />
       ) : null}
 
       {question.type === 'group' ? (
