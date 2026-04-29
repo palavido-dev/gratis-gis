@@ -2263,6 +2263,31 @@ function Properties({
               onChange({ constraint } as Partial<Question>)
             }
           />
+          {/* Calculate -- #164 Slice 3. Any question type that
+              captures a value can opt in to being computed. When set,
+              the runtime evaluates the expression after every
+              response change and forces the question read-only.
+              Hidden for layout / display-only types since they don't
+              hold a value to compute. */}
+          {isLayoutType(question.type) ? null : (
+            <ExpressionEditor
+              key={`${question.id}:calculate`}
+              label="Calculate (computed value)"
+              value={question.calculate}
+              // Self-reference is allowed but pointless (would loop).
+              // Filter the current question out to nudge authors
+              // toward a sensible expression; if they really want
+              // self-reference they can switch to the Builder modal
+              // which doesn't filter.
+              allFields={collectFieldRefs(form).filter(
+                (f) => f.id !== question.id,
+              )}
+              disabled={!canEdit}
+              onChange={(calculate) =>
+                onChange({ calculate } as Partial<Question>)
+              }
+            />
+          )}
         </div>
       </details>
     </aside>
