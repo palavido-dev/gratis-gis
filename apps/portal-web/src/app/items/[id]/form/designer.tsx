@@ -1594,6 +1594,29 @@ function Properties({
         </Field>
       )}
 
+      {/* Guidance hint (#166 Slice 5). Longer-form help shown behind
+          a "More info" toggle in the runtime. Use for explanations
+          the responder might want once but not on every render. */}
+      {question.type === 'note' ? null : (
+        <Field
+          label="Guidance hint"
+          hint="Longer help shown behind a More info toggle in the runtime."
+        >
+          <textarea
+            rows={3}
+            value={question.guidanceHint ?? ''}
+            disabled={!canEdit}
+            placeholder="Expandable guidance text"
+            onChange={(e) =>
+              onChange({
+                guidanceHint: e.target.value || undefined,
+              } as Partial<Question>)
+            }
+            className={inputCls}
+          />
+        </Field>
+      )}
+
       {/* Layout / display-only types don't capture a value, so
           "Required" is meaningless for them. Hiding the checkbox
           keeps authors from setting a flag the runtime would
@@ -2329,10 +2352,154 @@ function Properties({
               }
             />
           )}
+          <ReverseDependentsPanel form={form} questionId={question.id} />
         </div>
       </details>
     </aside>
   );
+}
+
+/**
+ * "Referenced by" panel (#166 Slice 5). Walks the form looking for
+ * any question whose visibleIf / constraint / calculate / readOnly
+ * expression mentions the selected question's id, and lists them so
+ * the author can see at a glance who depends on this field before
+ * renaming or deleting it.
+ *
+ * Pure visual; the actual dependency-extraction logic for items is
+ * elsewhere (server-side dependency-extractor.ts). Here we just walk
+ * the in-progress form's tree, recursively crawling Expressions and
+ * Operands for `ref`s that match.
+ */
+function ReverseDependentsPanel({
+  form,
+  questionId,
+}: {
+  form: FormSchema;
+  questionId: QuestionId;
+}) {
+  const dependents = collectDependents(form, questionId);
+  if (dependents.length === 0) return null;
+  return (
+    <div className="rounded border border-border bg-surface-2/30 p-2 text-[11px]">
+      <p className="mb-1 font-medium uppercase tracking-wide text-muted">
+        Referenced by ({dependents.length})
+      </p>
+      <ul className="space-y-0.5">
+        {dependents.map((d) => (
+          <li key={`${d.id}:${d.usage}`} className="flex items-center gap-1.5">
+            <span className="rounded bg-surface-1 px-1 py-px font-mono text-[10px] text-muted">
+              {d.usage}
+            </span>
+            <span className="truncate text-ink-1">
+              {d.label || '(unlabeled)'}
+            </span>
+            <span className="font-mono text-muted">{d.id}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+interface DependentRecord {
+  id: string;
+  label: string;
+  usage: 'visible if' | 'valid if' | 'calculate' | 'read only';
+}
+
+/** Walk the form, returning every question whose expression-shaped
+ *  field references `target`. */
+function collectDependents(
+  form: FormSchema,
+  target: QuestionId,
+): DependentRecord[] {
+  const out: DependentRecord[] = [];
+  for (const q of walkAllQuestions(form.questions)) {
+    if (q.id === target) continue;
+    if (expressionRefs(q.visibleIf).has(target)) {
+      out.push({ id: q.id, label: q.label, usage: 'visible if' });
+    }
+    if (expressionRefs(q.constraint).has(target)) {
+      out.push({ id: q.id, label: q.label, usage: 'valid if' });
+    }
+    if (q.calculate && expressionRefs(q.calculate).has(target)) {
+      out.push({ id: q.id, label: q.label, usage: 'calculate' });
+    }
+    // readOnly can be a boolean or an Expression
+    if (
+      typeof q.readOnly === 'object' &&
+      q.readOnly !== null &&
+      expressionRefs(q.readOnly as Expression).has(target)
+    ) {
+      out.push({ id: q.id, label: q.label, usage: 'read only' });
+    }
+  }
+  return out;
+}
+
+function* walkAllQuestions(qs: Question[]): Iterable<Question> {
+  for (const q of qs) {
+    yield q;
+    if (q.type === 'group') yield* walkAllQuestions(q.children);
+  }
+}
+
+/** Walk an Expression / Operand tree, collecting every `ref` id. */
+function expressionRefs(expr: Expression | undefined): Set<string> {
+  const out = new Set<string>();
+  if (!expr) return out;
+  function walk(e: Expression): void {
+    switch (e.op) {
+      case 'eq':
+      case 'neq':
+      case 'gt':
+      case 'gte':
+      case 'lt':
+      case 'lte':
+      case 'in':
+      case 'matches':
+      case 'add':
+      case 'sub':
+      case 'mul':
+      case 'div':
+        walkOperand(e.left);
+        walkOperand(e.right);
+        break;
+      case 'and':
+      case 'or':
+        for (const o of e.operands) walk(o);
+        break;
+      case 'not':
+        walk(e.operand);
+        break;
+      case 'between':
+        walkOperand(e.value);
+        walkOperand(e.min);
+        walkOperand(e.max);
+        break;
+      case 'concat':
+        for (const o of e.operands) walkOperand(o);
+        break;
+      case 'if':
+        walk(e.condition);
+        walkOperand(e.then);
+        walkOperand(e.else);
+        break;
+    }
+  }
+  function walkOperand(op: { ref?: string; value?: unknown; call?: string; args?: unknown[] }): void {
+    if ('ref' in op && typeof op.ref === 'string') out.add(op.ref);
+    if ('args' in op && Array.isArray(op.args)) {
+      for (const a of op.args) {
+        if (a && typeof a === 'object') {
+          walkOperand(a as { ref?: string; value?: unknown; call?: string; args?: unknown[] });
+        }
+      }
+    }
+  }
+  walk(expr);
+  return out;
 }
 
 /**
