@@ -74,6 +74,8 @@ export const QUESTION_TYPES = [
   'photo', // one or more image attachments
   'audio', // audio recording or upload
   'video', // video recording or upload
+  'barcode', // scan or type a barcode / QR
+  'sketch', // free-form drawing on a canvas
   'file', // generic file upload (any MIME)
   'image-choice', // single/multi choice where each option is an image
   'image-display', // display-only image embed (no value captured)
@@ -554,6 +556,75 @@ interface AudioQuestion extends QuestionBase {
 }
 
 /**
+ * Barcode / QR capture (#147). Captures a single string value.
+ * The runtime uses three strategies in priority order:
+ *   1. The browser's BarcodeDetector API when available (modern
+ *      Chrome / Edge / Android). Decodes from the live camera
+ *      feed.
+ *   2. The device camera via `<input type="file" capture>` plus a
+ *      decoder (zxing-wasm or similar) on the captured frame. Used
+ *      when BarcodeDetector is missing.
+ *   3. A plain text input fallback so respondents can type the
+ *      number off the label when the camera isn't available.
+ *
+ * Phase 1 ships strategy 3 only (typed input) so we don't bundle
+ * a decoder yet. Phases 2 / 3 add the camera paths.
+ *
+ * Response shape: string (the decoded or typed value).
+ */
+interface BarcodeQuestion extends QuestionBase {
+  type: 'barcode';
+  /**
+   * Restrict accepted barcode formats. Empty / undefined means
+   * "any format the decoder supports". The standard symbologies
+   * GIS workflows tend to need (asset tags, inventory) are EAN /
+   * Code128 / QR, but expose the full list for completeness.
+   */
+  formats?: Array<
+    | 'qr'
+    | 'aztec'
+    | 'code128'
+    | 'code39'
+    | 'code93'
+    | 'codabar'
+    | 'datamatrix'
+    | 'ean13'
+    | 'ean8'
+    | 'itf'
+    | 'pdf417'
+    | 'upca'
+    | 'upce'
+  >;
+  /** Allow keyboard fallback even on devices that have a camera.
+   *  Default true: respondents with poor light or a glitchy
+   *  decoder can always type the number. */
+  allowManualEntry?: boolean;
+}
+
+/**
+ * Sketch (#147). A free-form drawing canvas. Distinguished from
+ * Signature by being a multi-stroke / general-purpose drawing
+ * surface (think "sketch the location of the damage on this
+ * diagram") rather than a one-shot ink-and-confirm. Optionally
+ * loads a background image so the sketch sits on top of a
+ * reference (a site map, a building floor plan, etc.).
+ *
+ * Response shape: a PNG data URL of the canvas contents.
+ */
+interface SketchQuestion extends QuestionBase {
+  type: 'sketch';
+  /** Optional image painted underneath the user's strokes.
+   *  Useful for "annotate this floor plan" workflows. */
+  backgroundImageUrl?: string;
+  /** Aspect ratio width / height; defaults to 16:9 for the canvas
+   *  view. The renderer uses CSS aspect-ratio to keep the canvas
+   *  responsive without distorting strokes. */
+  aspectRatio?: number;
+  /** Soft cap per saved drawing in bytes. */
+  maxBytes?: number;
+}
+
+/**
  * Video capture. Same model as Audio but with `accept="video/*"`.
  * The mobile recorder is preferred when the device exposes one; the
  * desktop fallback is a normal file picker. We deliberately don't
@@ -817,6 +888,8 @@ export type Question =
   | PhotoQuestion
   | AudioQuestion
   | VideoQuestion
+  | BarcodeQuestion
+  | SketchQuestion
   | FileQuestion
   | ImageChoiceQuestion
   | ImageDisplayQuestion
@@ -1664,6 +1737,20 @@ function validateType(q: Question, value: unknown): string | null {
         return `Up to ${q.maxCount} attachments allowed.`;
       }
       return null;
+    case 'barcode':
+      if (typeof value !== 'string') return 'Expected a barcode value.';
+      return null;
+    case 'sketch':
+      if (typeof value !== 'string') return 'Expected a sketch image.';
+      if (
+        q.maxBytes !== undefined &&
+        // data URLs are roughly 4/3 the size of the raw bytes; this
+        // is a rough check, fine for a soft cap.
+        value.length * 0.75 > q.maxBytes
+      ) {
+        return `Sketch must be ${q.maxBytes} bytes or smaller.`;
+      }
+      return null;
     case 'audio':
     case 'video': {
       const kindLabel = q.type === 'audio' ? 'audio clip' : 'video clip';
@@ -2016,6 +2103,10 @@ export function defaultQuestion(type: QuestionType, id: QuestionId): Question {
       return { ...base, type, maxCount: 1 };
     case 'video':
       return { ...base, type, maxCount: 1 };
+    case 'barcode':
+      return { ...base, type, allowManualEntry: true };
+    case 'sketch':
+      return { ...base, type, aspectRatio: 16 / 9 };
     case 'file':
       return { ...base, type, maxCount: 1 };
     case 'image-choice':
@@ -2108,6 +2199,8 @@ function defaultLabel(type: QuestionType): string {
       photo: 'Photo',
       audio: 'Audio',
       video: 'Video',
+      barcode: 'Barcode / QR',
+      sketch: 'Sketch',
       file: 'File',
       'image-choice': 'Image choice',
       'image-display': 'Image',

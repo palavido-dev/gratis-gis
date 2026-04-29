@@ -32,9 +32,11 @@ import {
   MapPin,
   Mic,
   Minus,
+  Pencil,
   Phone,
   Plus,
   Regex,
+  ScanLine,
   Search,
   ShieldCheck,
   Save,
@@ -895,6 +897,8 @@ const PALETTE: PaletteEntry[] = [
   { type: 'photo', label: 'Photo', icon: Camera, group: 'media' },
   { type: 'audio', label: 'Audio', icon: Mic, group: 'media' },
   { type: 'video', label: 'Video', icon: Video, group: 'media' },
+  { type: 'barcode', label: 'Barcode / QR', icon: ScanLine, group: 'media' },
+  { type: 'sketch', label: 'Sketch', icon: Pencil, group: 'media' },
   { type: 'file', label: 'File', icon: FileText, group: 'media' },
   { type: 'image-choice', label: 'Image choice', icon: Image, group: 'media' },
   { type: 'image-display', label: 'Image', icon: Image, group: 'media' },
@@ -4992,6 +4996,7 @@ function isAttachmentGroup(
       c.type === 'photo' ||
       c.type === 'audio' ||
       c.type === 'video' ||
+      c.type === 'sketch' ||
       c.type === 'file' ||
       c.type === 'signature',
   );
@@ -5568,6 +5573,7 @@ export function questionLinkStatus(
     (q.type === 'photo' ||
       q.type === 'audio' ||
       q.type === 'video' ||
+      q.type === 'sketch' ||
       q.type === 'signature' ||
       q.type === 'file') &&
     attachmentsEnabled &&
