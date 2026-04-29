@@ -159,6 +159,7 @@ export class ItemsController {
     @Query('bbox') bbox?: string,
     @Query('buffer') buffer?: string,
     @Query('lite') lite?: string,
+    @Query('sharedWithGroupId') sharedWithGroupId?: string,
   ) {
     // Build opts without explicit-undefined keys so `exactOptionalPropertyTypes`
     // is satisfied. Passing `{ type: undefined }` is not the same as omitting it.
@@ -170,6 +171,7 @@ export class ItemsController {
       bbox?: [number, number, number, number];
       bufferKm?: number;
       lite?: boolean;
+      sharedWithGroupId?: string;
     } = {};
     if (mine === 'true') opts.mine = true;
     // ?type accepts a single ItemType or a comma-separated list.
@@ -194,6 +196,16 @@ export class ItemsController {
     if (q !== undefined) opts.q = q;
     if (ownerId !== undefined) opts.ownerId = ownerId;
     if (lite === '1' || lite === 'true') opts.lite = true;
+    // sharedWithGroupId (#100): only accept obvious UUID-shaped values.
+    // The service layer would error on a malformed group id at query
+    // time anyway, but a quick reject here keeps that error surface
+    // off the public list endpoint.
+    if (
+      sharedWithGroupId !== undefined &&
+      /^[0-9a-f-]{32,40}$/i.test(sharedWithGroupId)
+    ) {
+      opts.sharedWithGroupId = sharedWithGroupId;
+    }
     if (bbox !== undefined) {
       const parts = bbox.split(',').map(Number);
       if (
