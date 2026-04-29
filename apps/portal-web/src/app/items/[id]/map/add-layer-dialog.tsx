@@ -141,13 +141,19 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
   }, []);
 
   // Load portal items when the portal tab activates or the query
-  // changes. One fetch (?type=data_layer,arcgis_service&lite=1)
-  // covers both supported types; lite mode strips the heavy data
+  // changes. One fetch
+  // (?type=data_layer,derived_layer,arcgis_service&lite=1) covers
+  // every supported source type; lite mode strips the heavy data
   // JSONB from each row so the wire payload is small and the
   // backend skips serialising hundreds of KB of layer metadata
   // per arcgis_service. The badge count comes from the derived
   // `_subLayerCount` field the server attaches in lite mode. Full
   // `data` is fetched lazily when the user clicks an item below.
+  // Derived layers join the list because the map renderer treats
+  // them as `kind: 'data-layer'` sources -- /items/:id/geojson on
+  // a derived_layer routes to derivedLayers.getGeoJson on the
+  // backend, so MapLibre fetches the same shape it does for a
+  // regular data layer.
   //
   // The fetch wires through an AbortController so when the user
   // navigates away mid-load (or types another character) the
@@ -166,7 +172,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
       try {
         const q = portalQ.trim();
         const qs = new URLSearchParams({
-          type: 'data_layer,arcgis_service',
+          type: 'data_layer,derived_layer,arcgis_service',
           lite: '1',
         });
         if (q) qs.set('q', q);
@@ -1178,12 +1184,16 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                             className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${
                               item.type === 'arcgis_service'
                                 ? 'bg-cyan-100 text-cyan-800'
-                                : 'bg-sky-100 text-sky-800'
+                                : item.type === 'derived_layer'
+                                  ? 'bg-blue-100 text-blue-800'
+                                  : 'bg-sky-100 text-sky-800'
                             }`}
                           >
                             {item.type === 'arcgis_service'
                               ? 'ArcGIS'
-                              : 'Feature'}
+                              : item.type === 'derived_layer'
+                                ? 'Derived'
+                                : 'Feature'}
                           </span>
                         </div>
                         {item.description ? (

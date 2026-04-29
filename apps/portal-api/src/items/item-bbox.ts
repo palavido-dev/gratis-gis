@@ -28,6 +28,11 @@ export function itemBbox(
   switch (type) {
     case 'data_layer':
       return readBboxField(data) ?? aggregateLayerBboxes(data);
+    case 'derived_layer':
+      // The DerivedLayersService writes a padded copy of the source's
+      // bbox into `data.bbox` whenever the recipe is enriched, so a
+      // cached read here matches what the source had at save time.
+      return readBboxField(data);
     case 'arcgis_service':
     case 'wms_service':
     case 'wfs_service':

@@ -11,6 +11,7 @@
 export const ITEM_TYPES = [
   'map',
   'data_layer',
+  'derived_layer',
   'arcgis_service',
   'form',
   'form_submission_collection',

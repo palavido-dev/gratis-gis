@@ -33,6 +33,7 @@ export interface ItemCardProps {
 const typeTileBg: Record<string, string> = {
   map: 'bg-emerald-500/90 text-white',
   data_layer: 'bg-sky-500/90 text-white',
+  derived_layer: 'bg-blue-700/90 text-white',
   arcgis_service: 'bg-cyan-600/90 text-white',
   form: 'bg-violet-500/90 text-white',
   form_submission_collection: 'bg-violet-400/90 text-white',
@@ -49,6 +50,7 @@ const typeTileBg: Record<string, string> = {
 const typeBadgeColor: Record<string, string> = {
   map: 'bg-emerald-100 text-emerald-800',
   data_layer: 'bg-sky-100 text-sky-800',
+  derived_layer: 'bg-blue-100 text-blue-800',
   arcgis_service: 'bg-cyan-100 text-cyan-800',
   form: 'bg-violet-100 text-violet-800',
   form_submission_collection: 'bg-violet-100 text-violet-800',
@@ -60,6 +62,40 @@ const typeBadgeColor: Record<string, string> = {
   notebook: 'bg-fuchsia-100 text-fuchsia-800',
   tool: 'bg-teal-100 text-teal-800',
   widget_package: 'bg-teal-100 text-teal-800',
+};
+
+/**
+ * Human-readable badge labels keyed by item type. The card was
+ * previously rendering the raw enum value (`derived_layer` etc.)
+ * which leaked the snake-case shape into the UI. Mirrors the
+ * portal-web `getItemTypeLabel` helper so the two surfaces agree;
+ * kept here so the ui package stays self-contained and doesn't
+ * import from portal-web. Falls back to the raw type string when
+ * an unknown value lands so a forgotten new type still renders
+ * something rather than blanking out.
+ */
+const typeLabel: Record<string, string> = {
+  map: 'Map',
+  data_layer: 'Data layer',
+  derived_layer: 'Derived layer',
+  arcgis_service: 'ArcGIS service',
+  form: 'Form',
+  form_submission_collection: 'Form submissions',
+  web_app: 'Web app',
+  report_template: 'Report template',
+  dashboard: 'Dashboard',
+  file: 'File',
+  layer_package: 'Layer package',
+  notebook: 'Notebook',
+  tool: 'Tool',
+  widget_package: 'Widget package',
+  pick_list: 'Pick list',
+  geo_boundary: 'Boundary',
+  basemap: 'Basemap',
+  wms_service: 'WMS service',
+  wfs_service: 'WFS service',
+  folder: 'Folder',
+  editor: 'Editor',
 };
 
 export function ItemCard({
@@ -123,7 +159,7 @@ export function ItemCard({
       {thumbnail}
       <div className="flex items-center justify-between gap-2">
         <span className={cn('rounded px-2 py-0.5 text-xs font-medium', badgeClass)}>
-          {item.type}
+          {typeLabel[item.type] ?? item.type}
         </span>
         {headerExtra ? <span className="shrink-0">{headerExtra}</span> : null}
       </div>

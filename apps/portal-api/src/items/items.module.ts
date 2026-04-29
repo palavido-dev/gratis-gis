@@ -10,9 +10,10 @@ import { ServiceProbeController } from './service-probe.controller.js';
 import { EditorPolicyService } from './editor-policy.service.js';
 import { V3TablesModule } from '../features-v3/v3-tables.module.js';
 import { NotificationsModule } from '../notifications/notifications.module.js';
+import { DerivedLayersModule } from '../derived-layers/derived-layers.module.js';
 
 @Module({
-  imports: [V3TablesModule, NotificationsModule],
+  imports: [V3TablesModule, NotificationsModule, DerivedLayersModule],
   controllers: [
     ItemsController,
     ItemCredentialController,

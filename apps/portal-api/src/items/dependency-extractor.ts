@@ -185,6 +185,21 @@ export function extractDependencies(
     }
   }
 
+  if (item.type === 'derived_layer') {
+    // A derived layer always references its source data_layer through
+    // `data.source.itemId`. Each step in `data.pipeline` may also
+    // reference items (a future intersect tool's second-input layer,
+    // a pickList referenced in a where clause). v1 buffer holds none.
+    // When a tool with item-typed params is added, give it a `case`
+    // branch here AND a matching `extractDependencies` on its
+    // generator (the latter for callers that want a single-tool view).
+    const sourceRef = (data as { source?: { itemId?: unknown } }).source;
+    const sourceId = sourceRef?.itemId;
+    if (typeof sourceId === 'string' && sourceId.length > 0) {
+      itemIds.add(sourceId);
+    }
+  }
+
   // Hook points for other types: extend as those item types come online.
 
   return { itemIds: Array.from(itemIds), urls: Array.from(urls) };
@@ -284,6 +299,7 @@ function walkQuestionRefs(
 export const REFERENCER_TYPES: ItemType[] = [
   'map',
   'data_layer',
+  'derived_layer',
   'folder',
   'editor',
   'form',

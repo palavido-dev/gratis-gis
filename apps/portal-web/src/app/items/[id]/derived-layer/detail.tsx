@@ -1,0 +1,186 @@
+'use client';
+
+import Link from 'next/link';
+import { useEffect, useState } from 'react';
+import { ArrowRight, FlaskConical, Layers } from 'lucide-react';
+import type {
+  DerivedLayerData,
+  Item,
+  ToolStep,
+} from '@gratis-gis/shared-types';
+
+/**
+ * Read-only summary of a derived layer's recipe. Editing the recipe
+ * (changing the source, tweaking buffer distance, adding tools) lives
+ * on the standard /edit screen for now: this panel just shows what
+ * the layer is so a viewer or owner can understand it at a glance,
+ * and shows the cached output schema so people binding dashboards
+ * to it can see the columns without running a query.
+ *
+ * Source title resolution is best-effort: a missing / unshared /
+ * trashed source renders the bare UUID with a warning rather than
+ * blocking the panel.
+ */
+export function DerivedLayerDetail({
+  data,
+}: {
+  data: DerivedLayerData;
+}) {
+  const [sourceItem, setSourceItem] = useState<Item | null>(null);
+  const [sourceErr, setSourceErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!data.source.itemId) return;
+    fetch(`/api/portal/items/${data.source.itemId}`)
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const body = (await r.json()) as Item;
+        if (!cancelled) setSourceItem(body);
+      })
+      .catch(() => {
+        if (!cancelled) setSourceErr('Source layer not accessible.');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [data.source.itemId]);
+
+  return (
+    <section className="mb-6 space-y-6 rounded-lg border border-border bg-surface-1 p-4">
+      <header className="flex items-start gap-3">
+        <span className="mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-md bg-blue-700/90 text-white">
+          <FlaskConical className="h-4 w-4" />
+        </span>
+        <div>
+          <h2 className="text-sm font-medium text-ink-0">Recipe</h2>
+          <p className="mt-1 text-xs text-muted">
+            This layer is computed live: it stores the steps below and
+            re-runs them on every read so it stays in sync with its
+            source.
+          </p>
+        </div>
+      </header>
+
+      <div className="space-y-2">
+        <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
+          Source layer
+        </h3>
+        {sourceItem ? (
+          <Link
+            href={`/items/${sourceItem.id}`}
+            className="inline-flex items-start gap-2 rounded-md border border-border bg-surface-0 px-3 py-2 text-sm hover:bg-surface-2"
+          >
+            <Layers className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" />
+            <span className="min-w-0 flex-1">
+              <span className="block font-medium text-ink-0">
+                {sourceItem.title}
+              </span>
+              {sourceItem.description ? (
+                <span className="mt-0.5 block text-xs text-muted">
+                  {sourceItem.description}
+                </span>
+              ) : null}
+            </span>
+          </Link>
+        ) : sourceErr ? (
+          <p className="text-xs text-danger">
+            {sourceErr} The recipe still references{' '}
+            <code>{data.source.itemId}</code>.
+          </p>
+        ) : (
+          <p className="text-xs text-muted">Loading source layer…</p>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
+          Pipeline ({data.pipeline.length} step
+          {data.pipeline.length === 1 ? '' : 's'})
+        </h3>
+        {data.pipeline.length === 0 ? (
+          <p className="text-xs text-muted">
+            No tool steps configured. The layer needs at least one
+            step to return any features.
+          </p>
+        ) : (
+          <ol className="space-y-1">
+            {data.pipeline.map((step, idx) => (
+              <li
+                key={idx}
+                className="flex items-start gap-2 rounded-md border border-border bg-surface-0 px-3 py-2 text-sm"
+              >
+                <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-700/90 text-[11px] font-semibold text-white">
+                  {idx + 1}
+                </span>
+                <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                  <span className="font-medium text-ink-0">
+                    {labelForTool(step)}
+                  </span>
+                  <ArrowRight className="h-3 w-3 text-muted" />
+                  <span className="text-xs text-muted">
+                    {summarizeStep(step)}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
+          Output schema
+        </h3>
+        {data.outputSchema.length === 0 ? (
+          <p className="text-xs text-muted">
+            No fields recorded yet. Save the recipe (or wait for the
+            server to recompute) to populate this list.
+          </p>
+        ) : (
+          <ul className="grid grid-cols-1 gap-1 text-xs sm:grid-cols-2">
+            {data.outputSchema.map((f) => (
+              <li
+                key={f.name}
+                className="flex items-baseline justify-between rounded-md border border-border bg-surface-0 px-2 py-1"
+              >
+                <span className="truncate font-medium text-ink-0">
+                  {f.label || f.name}
+                </span>
+                <span className="ml-2 shrink-0 text-muted">{f.type}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="text-[11px] text-muted">
+        Feature limit: {data.featureLimit.toLocaleString()} features per
+        read.
+      </div>
+    </section>
+  );
+}
+
+function labelForTool(step: ToolStep): string {
+  switch (step.tool) {
+    case 'buffer':
+      return 'Buffer';
+    default:
+      // Future tools land in this default until they grow a label;
+      // shows the raw kind so the panel never goes silently blank
+      // when a deployment is on a newer schema than the client.
+      return (step as { tool: string }).tool;
+  }
+}
+
+function summarizeStep(step: ToolStep): string {
+  switch (step.tool) {
+    case 'buffer': {
+      const { distance, unit } = step.params;
+      return `${distance.toLocaleString()} ${unit}`;
+    }
+    default:
+      return '';
+  }
+}

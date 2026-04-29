@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import type {
   BasemapData,
+  DerivedLayerData,
   FolderData,
   Item,
   ItemShare,
@@ -102,6 +103,7 @@ import { DataLayerV3SchemaEditor } from './data-layer/v3-schema-editor';
 import { ArcgisServiceEditor } from './arcgis-service/editor';
 import { PickListEditor } from './pick-list/editor';
 import { GeoBoundaryEditor } from './geo-boundary/editor';
+import { DerivedLayerDetail } from './derived-layer/detail';
 import { FolderDetail } from './folder/folder-detail';
 import { EditorDetail } from './editor/editor-detail';
 import { FormDesigner } from './form/designer';
@@ -487,6 +489,10 @@ export default async function ItemDetailPage({ params }: Props) {
             canEdit={canManage}
           />
         </section>
+      ) : item.type === 'derived_layer' ? (
+        <DerivedLayerDetail
+          data={(item.data ?? {}) as DerivedLayerData}
+        />
       ) : item.type === 'pick_list' ? (
         <section className="mb-6">
           <PickListEditor
