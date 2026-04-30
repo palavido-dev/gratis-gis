@@ -113,6 +113,17 @@ export interface MapCanvasHandle {
     /** Feature properties used for best-effort match when no stable id. */
     featureProps?: Record<string, unknown>;
   }) => void;
+  /**
+   * Force a refetch of one MapLayer's GeoJSON source. Used by
+   * editing surfaces (the field-mode runtime, the editor) after a
+   * feature is added / updated / deleted so the map shows the
+   * change without a full page reload. `setCenter` to the same
+   * value is a no-op in MapLibre and won't refetch a URL-backed
+   * source; calling `setData(url)` with the source's current URL
+   * does. Pass the MapLayer.id of the layer whose underlying
+   * features just changed.
+   */
+  refreshLayerSource: (layerId: string) => void;
 }
 
 /**
@@ -219,6 +230,31 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
           ],
           { padding: 60, duration: 600, maxZoom: 16 },
         );
+      },
+      refreshLayerSource: (layerId) => {
+        const m = mapRef.current;
+        if (!m) return;
+        const sourceId = `gg:${layerId}`;
+        const src = m.getSource(sourceId);
+        if (!src) return;
+        // Look up the current MapLayer descriptor via the ref so the
+        // closure stays stable but reads live state. layersRef tracks
+        // every prop update.
+        const layer = (layersRef.current ?? []).find((l) => l.id === layerId);
+        if (!layer) return;
+        const data = sourceData(layer);
+        if (data === null) return;
+        // GeoJSONSource.setData accepts URL or inline FC. Calling it
+        // with the source's current URL forces MapLibre to refetch,
+        // which is exactly what we want after an edit lands. The cast
+        // is safe because every overlay we add is a geojson source
+        // (see syncOverlays.addSource above).
+        const geojsonSrc = src as maplibregl.GeoJSONSource;
+        if (typeof data === 'string') {
+          geojsonSrc.setData(data);
+        } else {
+          geojsonSrc.setData(data);
+        }
       },
       flyAndHighlight: ({ bbox, center, layerId, featureProps }) => {
         const m = mapRef.current;
@@ -2062,15 +2098,25 @@ function sourceData(layer: MapLayer): GeoJSON.FeatureCollection | string | null 
     return layer.source.geojson as GeoJSON.FeatureCollection;
   }
   if (layer.source.kind === 'data-layer') {
-    // The server-side API endpoint emits the GeoJSON directly; see
-    // apps/portal-api/src/items/items.controller.ts `@Get(':id/geojson')`.
+    // Two endpoints depending on the data_layer item version:
+    //   - v1/v2 (single-table, no sublayers): `/items/:id/geojson` --
+    //     the legacy item-level endpoint that returns the FC
+    //     directly. layer.source.layerKey is omitted in this case.
+    //   - v3 (multi-layer): `/items/:id/layers/:layerKey/geojson` --
+    //     the per-sublayer v3 endpoint. layer.source.layerKey
+    //     carries the sublayer id; the Add Layer dialog generates
+    //     one MapLayer per sublayer with this set so each sublayer
+    //     renders as its own MapLibre source (correct per-geometry
+    //     symbology, no point-and-polygon-in-one-FC mixup).
     // Layer-level boundary clip (#34) is forwarded via ?clip=<id>;
     // the server resolves the geo_boundary and ANDs an ST_Intersects
     // into the SELECT so the wire payload is already trimmed. Honored
     // for data-layer sources only -- external sources (geojson-url,
     // arcgis-rest) are out of our control and would need a client-
     // side MapLibre filter for the same effect.
-    const base = `/api/portal/items/${layer.source.itemId}/geojson`;
+    const base = layer.source.layerKey
+      ? `/api/portal/items/${layer.source.itemId}/layers/${encodeURIComponent(layer.source.layerKey)}/geojson`
+      : `/api/portal/items/${layer.source.itemId}/geojson`;
     if (layer.boundaryFilterItemId) {
       const qs = new URLSearchParams({ clip: layer.boundaryFilterItemId });
       return `${base}?${qs}`;

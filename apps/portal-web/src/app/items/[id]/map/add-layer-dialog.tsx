@@ -103,14 +103,28 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
   >([]);
   const [folderContents, setFolderContents] = useState<Item[]>([]);
   const [folderLoading, setFolderLoading] = useState(false);
-  // When the user picks an arcgis_service item that exposes more than
-  // one sublayer, we surface this follow-up prompt: pick which of
-  // the available sublayers to add (#45) and whether to bundle them
-  // under a group header. Carries the resolved, ordered sublayer
-  // list so the modal can render checkboxes without re-deriving.
+  // When the user picks an item that exposes more than one sublayer
+  // we surface this follow-up prompt: which sublayers to include
+  // (#45) and whether to bundle them under a group header (#46).
+  // Used by two paths today:
+  //   - arcgis_service items with 2+ sublayers (numeric ids)
+  //   - v3 data_layer items with 2+ sublayers (string ids, #189)
+  // The modal stays generic over id type; each path supplies its
+  // own `onConfirm` so the commit step (URL shape, source kind)
+  // stays specialised. The picker selection passes through as
+  // `Set<number | string>`; each onConfirm narrows back to its
+  // specific id type.
   const [pendingSublayerChoice, setPendingSublayerChoice] = useState<{
     item: Item;
-    sublayers: Array<{ id: number; name?: string; geometryType?: string }>;
+    sublayers: Array<{
+      id: number | string;
+      name?: string;
+      geometryType?: string;
+    }>;
+    onConfirm: (
+      mode: 'group' | 'flat',
+      selectedIds: Set<number | string>,
+    ) => void;
   } | null>(null);
 
   // ArcGIS REST tab state: url, probe result, picked layer.
@@ -537,6 +551,55 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
    */
   async function submitPortalItem(item: Item) {
     if (item.type !== 'arcgis_service') {
+      // v3 data_layers carry one or more sublayers (each mapped to
+      // its own PostGIS table). The lite-mode list response attaches
+      // `_layers: [{id, label, geometryType}]` so we can fan out
+      // without a hydrate round-trip. v1/v2 single-table data_layers
+      // (and any other non-arcgis kind) have no _layers and continue
+      // to add as a single MapLayer pointing at the legacy item-level
+      // /geojson endpoint.
+      const lite = item as Item & {
+        _layers?: Array<{
+          id: string;
+          label: string;
+          geometryType: string | null;
+        }>;
+      };
+      const sublayers = lite._layers ?? [];
+      if (item.type === 'data_layer' && sublayers.length > 1) {
+        // Same UX as arcgis_service: defer to the picker so the user
+        // can opt out of sublayers and pick group vs flat. The id
+        // type here is string (v3 sublayer keys), normalised through
+        // the modal's `number | string` selection set; the
+        // `onConfirm` callback narrows it back at commit time.
+        setPendingSublayerChoice({
+          item,
+          sublayers: sublayers.map((s) => ({
+            id: s.id,
+            name: s.label,
+            ...(s.geometryType ? { geometryType: s.geometryType } : {}),
+          })),
+          onConfirm: (mode, ids) =>
+            addDataLayerPortalItem(item, mode, ids as Set<string>),
+        });
+        return;
+      }
+      if (item.type === 'data_layer' && sublayers.length === 1) {
+        const only = sublayers[0]!;
+        onAdd(
+          makeLayer(item.title, {
+            kind: 'data-layer',
+            itemId: item.id,
+            layerKey: only.id,
+          }),
+        );
+        reset();
+        onClose();
+        return;
+      }
+      // v1/v2 single-table data_layer (no _layers) and any other
+      // non-arcgis kind (derived_layer): add as a single MapLayer
+      // hitting the item-level /geojson endpoint. layerKey omitted.
       onAdd(makeLayer(item.title, { kind: 'data-layer', itemId: item.id }));
       reset();
       onClose();
@@ -551,7 +614,12 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
       // user pick a subset (#45) and choose group vs flat, then calls
       // addArcgisPortalItem against the hydrated copy without a re-
       // fetch.
-      setPendingSublayerChoice({ item: hydrated, sublayers: ordered });
+      setPendingSublayerChoice({
+        item: hydrated,
+        sublayers: ordered,
+        onConfirm: (mode, ids) =>
+          addArcgisPortalItem(hydrated, mode, ids as Set<number>),
+      });
       return;
     }
     addArcgisPortalItem(
@@ -697,6 +765,57 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
         serviceType: d.serviceType ?? 'MapServer',
         sourceItemId: item.id,
         ...(proxyUrl ? { proxyUrl } : {}),
+      });
+      if (groupId) layer.groupId = groupId;
+      onAdd(layer);
+    }
+    reset();
+    onClose();
+  }
+
+  /**
+   * v3 data_layer counterpart to addArcgisPortalItem (#189). Takes
+   * the same group-vs-flat decision and the user-picked subset of
+   * sublayers, and emits one MapLayer per sublayer with `layerKey`
+   * set so the renderer hits the v3 per-sublayer geojson endpoint
+   * (`/items/<id>/layers/<layerKey>/geojson`) rather than the
+   * legacy item-level path. Group mode adds a parent header layer
+   * with no source; flat mode adds them as siblings. Empty
+   * selection is a no-op (cancel-equivalent), matching the arcgis
+   * path.
+   */
+  function addDataLayerPortalItem(
+    item: Item,
+    mode: 'group' | 'flat',
+    selectedIds: Set<string>,
+  ) {
+    const lite = item as Item & {
+      _layers?: Array<{
+        id: string;
+        label: string;
+        geometryType: string | null;
+      }>;
+    };
+    const all = lite._layers ?? [];
+    const picked = all.filter((l) => selectedIds.has(l.id));
+    if (picked.length === 0) {
+      reset();
+      onClose();
+      return;
+    }
+    let groupId: string | undefined;
+    if (mode === 'group' && picked.length > 1) {
+      const header = makeLayer(item.title, { kind: 'group' });
+      groupId = header.id;
+      onAdd(header);
+    }
+    for (const sub of picked) {
+      const title =
+        picked.length === 1 ? item.title : sub.label || sub.id;
+      const layer = makeLayer(title, {
+        kind: 'data-layer',
+        itemId: item.id,
+        layerKey: sub.id,
       });
       if (groupId) layer.groupId = groupId;
       onAdd(layer);
@@ -1350,9 +1469,9 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
           item={pendingSublayerChoice.item}
           sublayers={pendingSublayerChoice.sublayers}
           onPick={(mode, selectedIds) => {
-            const item = pendingSublayerChoice.item;
+            const onConfirm = pendingSublayerChoice.onConfirm;
             setPendingSublayerChoice(null);
-            addArcgisPortalItem(item, mode, selectedIds);
+            onConfirm(mode, selectedIds);
           }}
           onCancel={() => setPendingSublayerChoice(null)}
         />
@@ -1362,11 +1481,16 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
 }
 
 /**
- * Inline follow-up dialog shown after the user picks an
- * arcgis_service item that exposes more than one sublayer. Lets
- * the user (#45) pick which sublayers to include via checkboxes,
- * and (#46) choose whether to bundle them under a group header
- * or add as separate top-level layers.
+ * Inline follow-up dialog shown after the user picks an item that
+ * exposes more than one sublayer. Lets the user (#45) pick which
+ * sublayers to include via checkboxes, and (#46) choose whether to
+ * bundle them under a group header or add as separate top-level
+ * layers.
+ *
+ * Generic over sublayer id type so it serves both arcgis_service
+ * (numeric ids) and v3 data_layer (string ids, #189). The caller
+ * supplies an `onConfirm` callback that knows how to commit the
+ * specific item type.
  *
  * Defaults: every sublayer checked, "Add as a group" highlighted.
  * The modal sits above the parent Add Layer dialog; we intercept
@@ -1379,19 +1503,26 @@ function SublayerChoiceModal({
   onCancel,
 }: {
   item: Item;
-  sublayers: Array<{ id: number; name?: string; geometryType?: string }>;
-  onPick: (mode: 'group' | 'flat', selectedIds: Set<number>) => void;
+  sublayers: Array<{
+    id: number | string;
+    name?: string;
+    geometryType?: string;
+  }>;
+  onPick: (
+    mode: 'group' | 'flat',
+    selectedIds: Set<number | string>,
+  ) => void;
   onCancel: () => void;
 }) {
   // All sublayers selected by default -- the most common case is
   // "give me everything, like the old behaviour." Users who want to
   // narrow can untick before clicking Add.
-  const [selected, setSelected] = useState<Set<number>>(
+  const [selected, setSelected] = useState<Set<number | string>>(
     () => new Set(sublayers.map((l) => l.id)),
   );
   const allChecked = selected.size === sublayers.length;
   const noneChecked = selected.size === 0;
-  function toggle(id: number) {
+  function toggle(id: number | string) {
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -1420,8 +1551,8 @@ function SublayerChoiceModal({
             Add &ldquo;{item.title}&rdquo;
           </h3>
           <p className="mt-1 text-sm text-muted">
-            This service exposes <strong>{sublayers.length} sublayers</strong>.
-            Pick which to include, then choose how to add them.
+            This item has <strong>{sublayers.length} sublayers</strong>. Pick
+            which to include, then choose how to add them.
           </p>
         </div>
         <div className="flex-1 overflow-y-auto px-4 py-3">
