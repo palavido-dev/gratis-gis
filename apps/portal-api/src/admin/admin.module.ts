@@ -9,6 +9,7 @@ import { HousekeepingService } from './housekeeping.service.js';
 import { HousekeepingScheduleService } from './housekeeping-schedule.service.js';
 import { HousekeepingCronService } from './housekeeping-cron.service.js';
 import { KeycloakAdminService } from './keycloak-admin.service.js';
+import { KeycloakSyncService } from './keycloak-sync.service.js';
 import { V3TablesModule } from '../features-v3/v3-tables.module.js';
 import { ItemsModule } from '../items/items.module.js';
 import { NotificationsModule } from '../notifications/notifications.module.js';
@@ -38,11 +39,12 @@ import { StorageModule } from '../storage/storage.module.js';
   ],
   providers: [
     KeycloakAdminService,
+    KeycloakSyncService,
     AdminGuard,
     HousekeepingService,
     HousekeepingScheduleService,
     HousekeepingCronService,
   ],
-  exports: [KeycloakAdminService],
+  exports: [KeycloakAdminService, KeycloakSyncService],
 })
 export class AdminModule {}

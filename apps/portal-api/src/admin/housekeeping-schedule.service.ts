@@ -4,6 +4,7 @@ import type { ItemType } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { KeycloakAdminService } from './keycloak-admin.service.js';
+import { KeycloakSyncService } from './keycloak-sync.service.js';
 import {
   V3TablesService,
   type V3LayerShape,
@@ -75,6 +76,7 @@ export class HousekeepingScheduleService {
     private readonly prisma: PrismaService,
     private readonly cfg: ConfigService,
     private readonly keycloak: KeycloakAdminService,
+    private readonly keycloakSync: KeycloakSyncService,
     private readonly v3Tables: V3TablesService,
     private readonly housekeeping: HousekeepingService,
     private readonly notifications: NotificationsService,
@@ -255,6 +257,27 @@ export class HousekeepingScheduleService {
             );
           }
         }
+      }
+      // Keycloak -> Prisma user mirror reconcile. Runs unconditionally
+      // (not gated on a config toggle) because the cost is a single
+      // realm scan per cron tick and an out-of-sync mirror surfaces
+      // as ghost / missing users in the principal picker -- a class
+      // of bug the eager pass exists to prevent. Self-skips when
+      // Keycloak admin isn't configured. Failures don't abort the
+      // run; the picker just stays as fresh as the previous tick.
+      try {
+        const summary = await this.keycloakSync.reconcileAll();
+        if (!summary.skipped) {
+          this.log.log(
+            `keycloak-sync: realmUsers=${summary.realmUsersSeen} inserted=${summary.inserted} updated=${summary.updated} softDeleted=${summary.softDeleted}`,
+          );
+        }
+      } catch (err) {
+        this.log.warn(
+          `keycloak-sync threw inside runOnce: ${
+            err instanceof Error ? err.message : err
+          }`,
+        );
       }
       const finished = await this.prisma.housekeepingRun.update({
         where: { id: run.id },

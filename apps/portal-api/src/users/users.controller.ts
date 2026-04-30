@@ -112,6 +112,12 @@ export class UsersController {
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
     if (idList.length > 0) {
+      // The ids branch is used to resolve names for already-known
+      // principal ids (e.g. the access matrix on a saved web map).
+      // We deliberately INCLUDE soft-deleted users here so the UI
+      // can still render their display name as "Removed user (was
+      // matt)" rather than showing a raw UUID. The caller can branch
+      // on `deletedAt !== null` if it wants to style the row.
       const rows = await this.prisma.user.findMany({
         where: {
           orgId: user.orgId,
@@ -122,6 +128,7 @@ export class UsersController {
           username: true,
           fullName: true,
           avatarUrl: true,
+          deletedAt: true,
           groupMembers: {
             where: { group: { deletedAt: null } },
             select: { groupId: true },
@@ -132,17 +139,30 @@ export class UsersController {
       return rows.map((r) => ({
         id: r.id,
         username: r.username,
-        fullName: r.fullName,
-        avatarUrl: r.avatarUrl,
+        // When the row has been soft-deleted by KeycloakSyncService
+        // (the user is gone from the realm), show a sentinel display
+        // name so a stale share row doesn't render the now-removed
+        // user's real name as if they were still active. The UI can
+        // also key on `deletedAt !== null` to style the row.
+        fullName: r.deletedAt !== null
+          ? `Removed user (was ${r.username})`
+          : r.fullName,
+        avatarUrl: r.deletedAt !== null ? null : r.avatarUrl,
+        deletedAt: r.deletedAt ? r.deletedAt.toISOString() : null,
         groupIds: r.groupMembers.map((m: { groupId: string }) => m.groupId),
       }));
     }
 
+    // Search branch (the principal picker on share / reassign / etc.).
+    // Soft-deleted users are excluded here so the picker only offers
+    // currently-active users; the ids branch above keeps showing them
+    // for display-name resolution on existing share rows.
     const trimmed = (q ?? '').trim();
     const where: {
       orgId: string;
+      deletedAt: null;
       OR?: Array<Record<string, unknown>>;
-    } = { orgId: user.orgId };
+    } = { orgId: user.orgId, deletedAt: null };
     if (trimmed.length > 0) {
       where.OR = [
         { username: { contains: trimmed, mode: 'insensitive' } },
