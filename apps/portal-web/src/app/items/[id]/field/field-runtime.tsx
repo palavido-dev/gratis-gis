@@ -48,6 +48,13 @@ import {
   type DownloadLayer,
   type DownloadProgress,
 } from '@/lib/offline-download';
+import {
+  checkDownloadFits,
+  estimateStorage,
+  isPersistent,
+  requestPersistentStorage,
+  type StorageEstimate,
+} from '@/lib/offline-storage-quota';
 
 /**
  * Per-layer descriptor the field runtime consumes. Server-built (see
@@ -389,11 +396,67 @@ export function FieldRuntime({
   const [downloadProgress, setDownloadProgress] =
     useState<DownloadProgress | null>(null);
 
+  // Slice 6 (persistence floor; see docs/field-offline-areas.md):
+  // surface whether the browser will keep our IndexedDB across
+  // disk-pressure events, and how much storage we're using vs the
+  // origin's quota. Both are read on mount and refreshed whenever
+  // the cached deployment changes (downloads + cache writes shift
+  // usage). The persistence prompt itself fires inside startDownload
+  // so the user sees it as a follow-up to the click, not a cold
+  // landing ambush.
+  const [persistentState, setPersistentState] = useState<
+    'unknown' | 'persistent' | 'best-effort'
+  >('unknown');
+  const [storage, setStorage] = useState<StorageEstimate | null>(null);
+  useEffect(() => {
+    void (async () => {
+      const [persisted, est] = await Promise.all([
+        isPersistent(),
+        estimateStorage(),
+      ]);
+      setPersistentState(persisted ? 'persistent' : 'best-effort');
+      setStorage(est);
+    })();
+  }, [cachedDeployment]);
+
   const startDownload = useCallback(async () => {
     if (downloadProgress?.phase && downloadProgress.phase !== 'done' &&
         downloadProgress.phase !== 'failed') {
       return; // already running
     }
+    // Slice 6 step 1: ask the browser to mark our origin's storage
+    // as "important" before any bytes land in IndexedDB. The prompt
+    // reads as natural follow-up to the user's Download click; if
+    // they deny, the download still proceeds, just with reduced
+    // resilience. Sets persistentState immediately so the badge in
+    // the header reflects the user's choice without a refresh.
+    const persistResult = await requestPersistentStorage();
+    setPersistentState(persistResult.persistent ? 'persistent' : 'best-effort');
+
+    // Slice 6 step 2: pre-flight quota check. The download manager's
+    // estimate is rough (layers * 50 features * ~800 bytes) but
+    // close enough to detect cases where the user is about to
+    // start a download that has no chance of completing. We reuse
+    // that estimate here -- duplicating the math would risk drift.
+    const roughEstimate =
+      editableLayers.length * 50 * 800 + 5 * 1024 * 1024; // + 5MB headroom for forms+pick-lists
+    const quota = await checkDownloadFits(roughEstimate);
+    if (!quota.fits) {
+      setDownloadProgress({
+        phase: 'failed',
+        message: 'Not enough storage for this download',
+        estimatedSize: quota.estimatedDownloadBytes,
+        featuresFetched: 0,
+        formsFetched: 0,
+        pickListsFetched: 0,
+        error: `Need ~${formatBytes(quota.shortfallBytes)} more space. Free up cached deployments or device storage and try again.`,
+      });
+      return;
+    }
+    // Refresh the persisted storage gauge so the LayerVisibilityPanel
+    // reflects the post-prompt state immediately.
+    void estimateStorage().then(setStorage);
+
     // Collect the pick-list ids referenced by any editable layer's
     // coded-value-ref domain. Same logic the server-side page does
     // for online; we duplicate here so the download manager has the
@@ -610,6 +673,12 @@ export function FieldRuntime({
           isOnline={isOnline}
           cachedAt={cachedDeployment?.cachedAt ?? null}
         />
+        {/* Slice 6 (persistence floor): surface whether the browser
+            will keep our IndexedDB across disk-pressure events. The
+            badge is intentionally subtle when persistent (green dot,
+            no copy) and slightly louder when best-effort (amber)
+            so users learn the difference without being nagged. */}
+        <PersistenceBadge state={persistentState} />
       </header>
 
       <div className="relative min-h-0 flex-1">
@@ -699,6 +768,14 @@ export function FieldRuntime({
               void startDownload();
             }}
             onClose={() => setLayerPanelOpen(false)}
+            storage={storage}
+            persistentState={persistentState}
+            onRequestPersist={async () => {
+              const r = await requestPersistentStorage();
+              setPersistentState(
+                r.persistent ? 'persistent' : 'best-effort',
+              );
+            }}
           />
         ) : null}
       </div>
@@ -1107,6 +1184,9 @@ function LayerVisibilityPanel({
   isDownloading,
   onDownload,
   onClose,
+  storage,
+  persistentState,
+  onRequestPersist,
 }: {
   layers: MapLayer[];
   hiddenLayerIds: Set<string>;
@@ -1115,6 +1195,13 @@ function LayerVisibilityPanel({
   isDownloading: boolean;
   onDownload: () => void;
   onClose: () => void;
+  /** Slice 6: live storage usage for the gauge. Null = not loaded yet. */
+  storage: StorageEstimate | null;
+  /** Slice 6: persistence state surfaced via the in-panel chip. */
+  persistentState: 'unknown' | 'persistent' | 'best-effort';
+  /** Fires the storage.persist() prompt. The user can also re-request
+   *  if they originally denied. */
+  onRequestPersist: () => void;
 }) {
   // Group sources are headers, not togglable rows themselves -- but
   // we still show them so the panel reads like the desktop layer
@@ -1162,6 +1249,59 @@ function LayerVisibilityPanel({
           </p>
         ) : null}
       </div>
+      {/* Slice 6 (persistence floor): storage gauge + persistence
+          affordance. Only renders when we have real numbers; on
+          unsupported browsers (older Safari, restricted WebViews)
+          we show nothing rather than a misleading "0 / 0" reading. */}
+      {storage && storage.available ? (
+        <div className="border-b border-border px-3 py-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
+              Storage
+            </span>
+            {persistentState === 'best-effort' ? (
+              <button
+                type="button"
+                onClick={onRequestPersist}
+                className="text-[10px] text-accent hover:underline"
+              >
+                Make persistent
+              </button>
+            ) : persistentState === 'persistent' ? (
+              <span className="text-[10px] text-emerald-700">Persistent</span>
+            ) : null}
+          </div>
+          <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-ink-1">
+            <span>{formatBytes(storage.usage)}</span>
+            <span className="text-muted">of {formatBytes(storage.quota)}</span>
+          </div>
+          <div
+            role="progressbar"
+            aria-valuenow={Math.round(storage.usagePercent * 100)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-surface-0"
+          >
+            <div
+              className={`h-full transition-all ${
+                storage.usagePercent >= 0.95
+                  ? 'bg-rose-500'
+                  : storage.usagePercent >= 0.8
+                    ? 'bg-amber-500'
+                    : 'bg-accent'
+              }`}
+              style={{
+                width: `${Math.min(100, Math.round(storage.usagePercent * 100))}%`,
+              }}
+            />
+          </div>
+          {storage.usagePercent >= 0.95 ? (
+            <p className="mt-1 text-[10px] text-rose-600">
+              Storage nearly full. Free up space before downloading more areas.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       <ul className="max-h-72 overflow-y-auto p-1">
         {layers.length === 0 ? (
           <li className="p-2 text-center text-xs text-muted">
@@ -1467,6 +1607,53 @@ function ConnectivityPill({
     >
       <CircleSlash className="h-3 w-3" />
       No cache
+    </span>
+  );
+}
+
+/**
+ * Persistence-state badge alongside the connectivity pill (Slice 6).
+ * Communicates whether the browser will keep our IndexedDB across
+ * disk-pressure events so the user can see at a glance whether their
+ * cached data + queued edits are protected.
+ *
+ * Three states:
+ *   - 'unknown': we haven't checked yet (rendering nothing avoids a
+ *     flash of "Best effort" on a freshly-loaded page).
+ *   - 'persistent': muted green dot, no copy. Shows on hover what it
+ *     means. Subtle on purpose -- this is the safe state.
+ *   - 'best-effort': amber, "Best effort" copy. The user can do
+ *     something about it (start a download, which prompts) so the
+ *     badge is visible enough to notice.
+ *
+ * On platforms that don't expose navigator.storage.persist (older
+ * Safari, locked-down WebViews) the state stays 'best-effort' since
+ * we can't get a positive guarantee. The runtime still works.
+ */
+function PersistenceBadge({
+  state,
+}: {
+  state: 'unknown' | 'persistent' | 'best-effort';
+}) {
+  if (state === 'unknown') return null;
+  if (state === 'persistent') {
+    return (
+      <span
+        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700"
+        title="Persistent storage: the browser will not auto-evict your cached deployment or queued edits. Only an explicit Clear browsing data removes it."
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+        Persistent
+      </span>
+    );
+  }
+  return (
+    <span
+      className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700"
+      title="Best-effort storage: the browser may evict your cached data under disk pressure. Starting an offline download prompts to upgrade to persistent."
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+      Best effort
     </span>
   );
 }
