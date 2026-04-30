@@ -178,6 +178,15 @@ model User {
   /// (default). Org admins are exempted by the admin form to
   /// avoid lockout.
   autoDisableAt DateTime? @map("auto_disable_at")
+  /// Soft-delete marker for users whose Keycloak entry is gone.
+  /// Set by the KeycloakSyncService.reconcile() pass. Soft-deleted
+  /// users are filtered out of the principal picker and render as
+  /// "Removed user" wherever their id resolves to a display name,
+  /// but the row stays so existing FKs (Item.ownerId, share rows)
+  /// remain valid. A "delete permanently" admin action can later
+  /// run the reassign-then-cascade flow (#138) to fully purge.
+  /// Same shape as Group.deletedAt and Item.deletedAt for consistency.
+  deletedAt     DateTime? @map("deleted_at")
 
   org           Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
   ownedGroups   Group[]       @relation("GroupOwner")
@@ -188,6 +197,7 @@ model User {
   notificationPrefs NotificationPreference[]
 
   @@index([orgId])
+  @@index([deletedAt])
   @@map("user")
 }
 
