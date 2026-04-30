@@ -30,7 +30,12 @@ export interface V3FeatureOut {
 interface V3Row {
   gid: bigint;
   global_id: string;
-  geom: string | null;
+  /**
+   * Optional. Spatial layers select `ST_AsGeoJSON(geom) AS geom`;
+   * table sublayers (geometryType=null at provision time) skip the
+   * column entirely (#192) and the row mapper emits geometry:null.
+   */
+  geom?: string | null;
   properties: Record<string, unknown>;
   valid_from: Date;
   valid_to: Date | null;
@@ -83,6 +88,15 @@ export class V3FeaturesService {
        * them at assertV3Layer time.
        */
       ownRowsOnly?: { userId: string };
+      /**
+       * Set when the target layer was provisioned without a `geom`
+       * column (geometryType=null, the related-event-tracking
+       * pattern from #174). Skips the geom projection AND every
+       * spatial filter so the SELECT doesn't reference a column
+       * that doesn't exist (#192). The controller derives this
+       * from the layer's geometryType in assertV3Layer.
+       */
+      isTable?: boolean;
     } = {},
   ): Promise<{ type: 'FeatureCollection'; features: V3FeatureOut[] }> {
     const tbl = toV3TableName(itemId, layerId);
@@ -96,35 +110,42 @@ export class V3FeaturesService {
     } else {
       whereClauses.push(`valid_to IS NULL`);
     }
-    if (opts.bbox) {
-      params.push(opts.bbox[0], opts.bbox[1], opts.bbox[2], opts.bbox[3]);
-      const n = params.length;
-      whereClauses.push(
-        `geom && ST_MakeEnvelope($${n - 3}, $${n - 2}, $${n - 1}, $${n}, 4326)`,
-      );
-    }
-    if (opts.geoLimit) {
-      // Rows either intersect the allowed polygon, or have no geometry
-      // at all (attribute-only rows leak through here and are filtered
-      // by the controller's parent-layer inheritance logic for related
-      // tables). ST_GeomFromGeoJSON handles Polygon, MultiPolygon, and
-      // GeometryCollection variants in the same call.
-      params.push(JSON.stringify(opts.geoLimit));
-      const n = params.length;
-      whereClauses.push(
-        `(geom IS NULL OR ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON($${n}), 4326)))`,
-      );
-    }
-    if (opts.boundaryClip) {
-      // Layer-content clip (#34). Strictly requires a geometry that
-      // intersects -- attribute-only rows are excluded so the map
-      // author's "render only features in this region" intent is
-      // honored even for tables with mixed spatial/non-spatial rows.
-      params.push(JSON.stringify(opts.boundaryClip));
-      const n = params.length;
-      whereClauses.push(
-        `geom IS NOT NULL AND ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON($${n}), 4326))`,
-      );
+    // Spatial filters only run when the layer actually has a geom
+    // column to filter on. Table sublayers ignore bbox / geoLimit /
+    // boundaryClip silently: they're attribute-only rows and access
+    // is governed by the parent layer's share, not by geometry.
+    if (!opts.isTable) {
+      if (opts.bbox) {
+        params.push(opts.bbox[0], opts.bbox[1], opts.bbox[2], opts.bbox[3]);
+        const n = params.length;
+        whereClauses.push(
+          `geom && ST_MakeEnvelope($${n - 3}, $${n - 2}, $${n - 1}, $${n}, 4326)`,
+        );
+      }
+      if (opts.geoLimit) {
+        // Rows either intersect the allowed polygon, or have no geometry
+        // at all (attribute-only rows in a mixed-shape spatial table
+        // leak through here and are filtered by the controller's parent
+        // layer inheritance for related tables). ST_GeomFromGeoJSON
+        // handles Polygon, MultiPolygon, and GeometryCollection in the
+        // same call.
+        params.push(JSON.stringify(opts.geoLimit));
+        const n = params.length;
+        whereClauses.push(
+          `(geom IS NULL OR ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON($${n}), 4326)))`,
+        );
+      }
+      if (opts.boundaryClip) {
+        // Layer-content clip (#34). Strictly requires a geometry that
+        // intersects -- attribute-only rows are excluded so the map
+        // author's "render only features in this region" intent is
+        // honored even for tables with mixed spatial/non-spatial rows.
+        params.push(JSON.stringify(opts.boundaryClip));
+        const n = params.length;
+        whereClauses.push(
+          `geom IS NOT NULL AND ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON($${n}), 4326))`,
+        );
+      }
     }
     if (opts.ownRowsOnly) {
       // Row-scope filter (#40). Only features the caller created
@@ -134,8 +155,12 @@ export class V3FeaturesService {
       const n = params.length;
       whereClauses.push(`created_by = $${n}`);
     }
+    // Build the projection. Table layers have no geom column so we
+    // omit the cast entirely; rowToFeature falls back to geometry:null
+    // when row.geom is undefined.
+    const geomProjection = opts.isTable ? '' : 'ST_AsGeoJSON(geom) AS geom,';
     const sql = `
-      SELECT gid, global_id, ST_AsGeoJSON(geom) AS geom, properties,
+      SELECT gid, global_id, ${geomProjection} properties,
              valid_from, valid_to, created_by, created_at, edited_by, edited_at
       FROM "${tbl}"
       WHERE ${whereClauses.join(' AND ')}
@@ -155,28 +180,54 @@ export class V3FeaturesService {
     layerId: string,
     inputs: V3FeatureInsert[],
     user: AuthUser,
+    opts: { isTable?: boolean } = {},
   ): Promise<{ inserted: number }> {
     if (inputs.length === 0) return { inserted: 0 };
     const tbl = toV3TableName(itemId, layerId);
     const now = new Date();
     let inserted = 0;
-    for (const f of inputs) {
-      await this.prisma.$executeRawUnsafe(
-        `
-        INSERT INTO "${tbl}"
-          (global_id, geom, properties, valid_from, created_by, edited_by)
-        VALUES
-          (COALESCE($1::uuid, gen_random_uuid()),
-           CASE WHEN $2::text IS NULL THEN NULL ELSE ST_GeomFromGeoJSON($2) END,
-           $3::jsonb, $4, $5::uuid, $5::uuid)
-        `,
-        f.globalId ?? null,
-        f.geometry ? JSON.stringify(f.geometry) : null,
-        JSON.stringify(f.properties ?? {}),
-        now,
-        user.id,
-      );
-      inserted += 1;
+    // Table sublayers (no geom column) get a different INSERT shape:
+    // dropping the geom column from the column list AND its parameter
+    // so we don't reference a column that doesn't exist (#192). Any
+    // f.geometry is silently ignored on a table layer; the caller
+    // shouldn't be sending one but if they do we choose to drop it
+    // rather than 400 the whole batch.
+    if (opts.isTable) {
+      for (const f of inputs) {
+        await this.prisma.$executeRawUnsafe(
+          `
+          INSERT INTO "${tbl}"
+            (global_id, properties, valid_from, created_by, edited_by)
+          VALUES
+            (COALESCE($1::uuid, gen_random_uuid()),
+             $2::jsonb, $3, $4::uuid, $4::uuid)
+          `,
+          f.globalId ?? null,
+          JSON.stringify(f.properties ?? {}),
+          now,
+          user.id,
+        );
+        inserted += 1;
+      }
+    } else {
+      for (const f of inputs) {
+        await this.prisma.$executeRawUnsafe(
+          `
+          INSERT INTO "${tbl}"
+            (global_id, geom, properties, valid_from, created_by, edited_by)
+          VALUES
+            (COALESCE($1::uuid, gen_random_uuid()),
+             CASE WHEN $2::text IS NULL THEN NULL ELSE ST_GeomFromGeoJSON($2) END,
+             $3::jsonb, $4, $5::uuid, $5::uuid)
+          `,
+          f.globalId ?? null,
+          f.geometry ? JSON.stringify(f.geometry) : null,
+          JSON.stringify(f.properties ?? {}),
+          now,
+          user.id,
+        );
+        inserted += 1;
+      }
     }
     this.log.log(`Inserted ${inserted} features into ${tbl}`);
     // Lazy-grow buffer-by-field caches on any derived layer that
@@ -199,9 +250,14 @@ export class V3FeaturesService {
     featureId: string,
     patch: { geometry?: unknown; properties?: Record<string, unknown> },
     user: AuthUser,
-    opts: { ownRowsOnly?: boolean } = {},
+    opts: { ownRowsOnly?: boolean; isTable?: boolean } = {},
   ): Promise<V3FeatureOut> {
     const tbl = toV3TableName(itemId, layerId);
+    // Table layers (#192): no geom column means the SELECT, the
+    // current-row carry-forward, and the INSERT all need to skip
+    // anything that touches geom. Patches that include a geometry
+    // are silently dropped on a table layer.
+    const isTable = opts.isTable === true;
     // Capture the merged props inside the transaction so we can fire
     // the cache-refresh hook AFTER the tx commits. Firing inside the
     // transaction (even with `void`) means the cache work runs in
@@ -209,10 +265,12 @@ export class V3FeaturesService {
     // source on its own connection. Out here we know the write is
     // durable.
     let mergedProps: Record<string, unknown> | null = null;
+    let cacheLayerKey: string | null = null;
     const out = await this.prisma.$transaction(async (tx) => {
+      const selectGeom = isTable ? '' : 'ST_AsGeoJSON(geom) AS geom,';
       const cur = await tx.$queryRawUnsafe<V3Row[]>(
         `
-        SELECT gid, global_id, ST_AsGeoJSON(geom) AS geom, properties,
+        SELECT gid, global_id, ${selectGeom} properties,
                valid_from, valid_to, created_by, created_at, edited_by, edited_at
         FROM "${tbl}"
         WHERE global_id = $1::uuid AND valid_to IS NULL
@@ -236,14 +294,36 @@ export class V3FeaturesService {
         user.id,
         cur[0]!.gid,
       );
+      const nextProps =
+        patch.properties !== undefined ? patch.properties : cur[0]!.properties;
+      if (isTable) {
+        // No geom column: smaller INSERT / RETURNING, no geometry
+        // carry-forward (cur[0].geom is undefined for table layers).
+        const inserted = await tx.$queryRawUnsafe<V3Row[]>(
+          `
+          INSERT INTO "${tbl}"
+            (global_id, properties, valid_from, created_by, created_at, edited_by, edited_at)
+          VALUES
+            ($1::uuid, $2::jsonb, $3, $4::uuid, $5, $4::uuid, $3)
+          RETURNING gid, global_id, properties,
+                    valid_from, valid_to, created_by, created_at, edited_by, edited_at
+          `,
+          featureId,
+          JSON.stringify(nextProps),
+          now,
+          user.id,
+          cur[0]!.created_at,
+        );
+        // Table layers have no geometry, so they can't be the source
+        // of a buffer derived layer; skip the cache notification.
+        return rowToFeature(inserted[0]!);
+      }
       const nextGeometry =
         patch.geometry !== undefined
           ? patch.geometry
           : cur[0]!.geom
             ? JSON.parse(cur[0]!.geom)
             : null;
-      const nextProps =
-        patch.properties !== undefined ? patch.properties : cur[0]!.properties;
       const inserted = await tx.$queryRawUnsafe<V3Row[]>(
         `
         INSERT INTO "${tbl}"
@@ -262,13 +342,16 @@ export class V3FeaturesService {
         cur[0]!.created_at,
       );
       mergedProps = nextProps as Record<string, unknown>;
+      cacheLayerKey = layerId;
       return rowToFeature(inserted[0]!);
     });
     // Lazy-grow buffer-by-field caches on dependents now that the
     // transaction has committed. notifySourceWrite swallows its own
     // errors so a cache problem can't bring down a successful edit.
     if (mergedProps !== null) {
-      void this.cacheRefresh.notifySourceWrite(itemId, layerId, [mergedProps]);
+      void this.cacheRefresh.notifySourceWrite(itemId, cacheLayerKey, [
+        mergedProps,
+      ]);
     }
     return out;
   }

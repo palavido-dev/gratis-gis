@@ -83,7 +83,7 @@ export class V3FeaturesController {
     @Query('at') at?: string,
     @Query('clip') clip?: string,
   ) {
-    const { geoLimit, rowScope } = await this.assertV3Layer(
+    const { geoLimit, rowScope, isTable } = await this.assertV3Layer(
       user,
       itemId,
       layerId,
@@ -95,7 +95,9 @@ export class V3FeaturesController {
       geoLimit?: unknown;
       boundaryClip?: unknown;
       ownRowsOnly?: { userId: string };
+      isTable?: boolean;
     } = {};
+    if (isTable) opts.isTable = true;
     if (bbox) {
       const parts = bbox.split(',').map(Number);
       if (parts.length === 4 && parts.every((n) => !isNaN(n))) {
@@ -172,7 +174,7 @@ export class V3FeaturesController {
     @Body() body: AppendFeaturesBodyDto,
     @Headers('x-editor-id') editorId?: string,
   ) {
-    await this.assertV3Layer(user, itemId, layerId, 'write');
+    const { isTable } = await this.assertV3Layer(user, itemId, layerId, 'write');
     if (editorId) {
       await this.editorPolicy.assertAllows({
         user,
@@ -187,6 +189,7 @@ export class V3FeaturesController {
       layerId,
       body.features,
       user,
+      { isTable },
     );
     // Fire editor_feature_created when this insert came through an
     // editor (#128). Notifies the editor item's owner so authors who
@@ -281,7 +284,7 @@ export class V3FeaturesController {
     @Body() body: UpdateFeatureBodyDto,
     @Headers('x-editor-id') editorId?: string,
   ) {
-    const { rowScope } = await this.assertV3Layer(
+    const { rowScope, isTable } = await this.assertV3Layer(
       user,
       itemId,
       layerId,
@@ -308,6 +311,7 @@ export class V3FeaturesController {
     if (body.properties !== undefined) patch.properties = body.properties;
     return this.v3.updateFeature(itemId, layerId, featureId, patch, user, {
       ownRowsOnly: rowScope === 'own',
+      isTable,
     });
   }
 
@@ -352,7 +356,18 @@ export class V3FeaturesController {
     itemId: string,
     layerId: string,
     mode: 'read' | 'write',
-  ): Promise<{ geoLimit: unknown | null; rowScope: 'all' | 'own' }> {
+  ): Promise<{
+    geoLimit: unknown | null;
+    rowScope: 'all' | 'own';
+    /**
+     * True when the resolved layer was provisioned without a `geom`
+     * column (geometryType=null, the related-event-tracking pattern
+     * from #174). Threads through to the v3 service so SELECT /
+     * INSERT / UPDATE statements skip every reference to geom on
+     * table sublayers (#192).
+     */
+    isTable: boolean;
+  }> {
     const item = await this.items.get(user, itemId);
     if (item.type !== 'data_layer') {
       throw new NotFoundException('Not a data_layer item');
@@ -363,6 +378,7 @@ export class V3FeaturesController {
         id: string;
         parentLayerId?: string;
         editingPolicy?: 'all-rows' | 'own-rows-only';
+        geometryType?: string | null;
       }>;
     } | null;
     if (data?.version !== 3) {
@@ -405,7 +421,15 @@ export class V3FeaturesController {
       shares,
       layerPolicy,
     );
-    return { geoLimit, rowScope };
+    // Match v3-tables.service's convention: null geometryType means
+    // a table sublayer (no geom column was provisioned). undefined
+    // shouldn't happen in well-formed v3 data but if it does we err
+    // toward "spatial layer" so the historic codepath that selects
+    // geom keeps working -- a layer that genuinely has geom but is
+    // missing its geometryType field would silently lose geometry
+    // otherwise.
+    const isTable = layer.geometryType === null;
+    return { geoLimit, rowScope, isTable };
   }
 }
 
