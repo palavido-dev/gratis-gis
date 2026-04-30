@@ -1106,6 +1106,10 @@ export class ItemsService {
       storageType?: string;
       version?: number;
       data?: unknown;
+      layers?: Array<{
+        id: string;
+        geometryType?: string | null;
+      }>;
     } | null;
 
     // Resolve the boundary clip once up front so both v1 and v2
@@ -1127,8 +1131,34 @@ export class ItemsService {
     }
 
     if (data?.storageType === 'postgis') {
-      // v2: query the PostGIS table.
-      const tbl = `fs_${id.replace(/-/g, '')}`;
+      // v2 + v3 share the column shape (gid, global_id, geom,
+      // properties, valid_*, created_*, edited_*) so the SELECT
+      // below works for either. They differ only in the table name:
+      //
+      //   v2: fs_<itemId>             (single table per item)
+      //   v3: fs_<itemId>_<layerKey>  (one table per sublayer)
+      //
+      // The legacy /items/:id/geojson endpoint is item-level and
+      // doesn't carry a sublayer key, so for v3 items we fall back
+      // to the first spatial sublayer (#194). Saved maps that
+      // predate the per-sublayer source URL (#189) still hit this
+      // path and get a sensible default; authors who want a
+      // specific sublayer can re-add the layer from the dialog
+      // (which now stamps layerKey) or wait for a backfill pass.
+      // v3 items with zero spatial sublayers (event-tracking-only
+      // deployments) return an empty FC.
+      let tbl: string;
+      if (data.version === 3 && Array.isArray(data.layers)) {
+        const firstSpatial = (
+          data.layers as Array<{ id?: string; geometryType?: string | null }>
+        ).find((l) => l.geometryType !== null && l.geometryType !== undefined);
+        if (!firstSpatial?.id) {
+          return { type: 'FeatureCollection', features: [] };
+        }
+        tbl = `fs_${id.replace(/-/g, '')}_${firstSpatial.id}`;
+      } else {
+        tbl = `fs_${id.replace(/-/g, '')}`;
+      }
       const params: unknown[] = [];
       const conditions: string[] = [];
 
