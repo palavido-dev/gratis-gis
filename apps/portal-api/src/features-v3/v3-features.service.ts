@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { DerivedLayerCacheRefreshService } from '../derived-layers/cache-refresh.service.js';
 import { toV3TableName } from './v3-tables.service.js';
 
 /**
@@ -43,7 +44,10 @@ interface V3Row {
 export class V3FeaturesService {
   private readonly log = new Logger(V3FeaturesService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cacheRefresh: DerivedLayerCacheRefreshService,
+  ) {}
 
   /** Current-state feature collection for a layer. Supports bbox
    *  filter + point-in-time (?at=) in the usual temporal-table form,
@@ -175,6 +179,15 @@ export class V3FeaturesService {
       inserted += 1;
     }
     this.log.log(`Inserted ${inserted} features into ${tbl}`);
+    // Lazy-grow buffer-by-field caches on any derived layer that
+    // reads from this source. Best-effort: notifySourceWrite swallows
+    // its own errors so an insert that goes through here is never
+    // rolled back by a downstream cache problem.
+    void this.cacheRefresh.notifySourceWrite(
+      itemId,
+      layerId,
+      inputs.map((f) => f.properties),
+    );
     return { inserted };
   }
 
@@ -241,7 +254,16 @@ export class V3FeaturesService {
         user.id,
         cur[0]!.created_at,
       );
-      return rowToFeature(inserted[0]!);
+      // Lazy-grow buffer-by-field caches on dependents. The merged
+      // properties object is what downstream reads will see, so it's
+      // also the right input to the staleness check. Fire after the
+      // transaction commits so a cache write can't bring down a
+      // user's edit.
+      const out = rowToFeature(inserted[0]!);
+      void this.cacheRefresh.notifySourceWrite(itemId, layerId, [
+        nextProps as Record<string, unknown>,
+      ]);
+      return out;
     });
   }
 

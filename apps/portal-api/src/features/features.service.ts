@@ -7,6 +7,7 @@ import {
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { DerivedLayerCacheRefreshService } from '../derived-layers/cache-refresh.service.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -153,7 +154,10 @@ function rowToFeature(row: FeatureRow, includeMeta: boolean): GeoJsonFeature {
 export class FeaturesService {
   private readonly log = new Logger(FeaturesService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cacheRefresh: DerivedLayerCacheRefreshService,
+  ) {}
 
   // -------------------------------------------------------------------------
   // Table lifecycle
@@ -250,6 +254,15 @@ export class FeaturesService {
     if (features.length === 0) return { inserted: 0 };
     const tbl = toTableName(itemId);
     const inserted = await this.bulkInsertCore(this.prisma, tbl, features, user);
+    // Lazy-grow buffer-by-field caches on derived layers that read
+    // from this v2 source. v2 has no sublayer concept, so layerKey
+    // is null. Fire-and-forget: notifySourceWrite swallows its own
+    // errors so a cache problem can't roll back this insert.
+    void this.cacheRefresh.notifySourceWrite(
+      itemId,
+      null,
+      features.map((f) => f.properties),
+    );
     return { inserted };
   }
 
@@ -344,6 +357,15 @@ export class FeaturesService {
       const expired = typeof expireResult === 'number' ? expireResult : 0;
 
       const inserted = await this.bulkInsertCore(tx, tbl, features, user);
+      // Same staleness hook as bulkInsert. replaceAll is the bulk
+      // upload path the wizard / API caller uses to populate a v2
+      // layer; without this hook a freshly-uploaded source whose
+      // values exceed a stored cap would not propagate.
+      void this.cacheRefresh.notifySourceWrite(
+        itemId,
+        null,
+        features.map((f) => f.properties),
+      );
       return { inserted, expired };
     });
   }
@@ -427,6 +449,12 @@ export class FeaturesService {
         old.created_at.toISOString(),
       );
 
+      // Lazy-grow buffer-by-field caches on dependents. The merged
+      // newProps object is the absolute post-update state of the
+      // row, so it's the right input to the staleness check.
+      void this.cacheRefresh.notifySourceWrite(itemId, null, [
+        newProps as Record<string, unknown>,
+      ]);
       return rowToFeature(inserted[0]!, true);
     });
   }
