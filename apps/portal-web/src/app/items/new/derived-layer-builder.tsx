@@ -15,10 +15,17 @@ import {
   X,
 } from 'lucide-react';
 import {
+  DEFAULT_BUFFER_STEP,
   DEFAULT_DERIVED_LAYER_FEATURE_LIMIT,
+  LENGTH_UNITS,
   MAX_BUFFER_DISTANCE_METERS,
+  METERS_PER_UNIT,
+  UNIT_LABELS,
+  type BufferParams,
   type DerivedLayerData,
+  type FeatureField,
   type Item,
+  type LengthUnit,
   type ToolStep,
 } from '@gratis-gis/shared-types';
 
@@ -49,40 +56,30 @@ export function DerivedLayerBuilder({
   // rather than via a "pick a tool" intermediate step. When more
   // tools land, this becomes a tool selector and per-tool form
   // fragments.
-  //
-  // Default buffer distance shown in the input on first render.
-  // Pulled into a constant so the seed-on-mount effect below and
-  // the input value derivation agree on the same number.
-  const DEFAULT_BUFFER_DISTANCE = 100;
   const bufferStep = value.pipeline.find(
     (s): s is Extract<ToolStep, { tool: 'buffer' }> => s.tool === 'buffer',
   );
-  const bufferDistance = bufferStep?.params.distance ?? DEFAULT_BUFFER_DISTANCE;
+  const bufferParams: BufferParams =
+    bufferStep?.params ?? DEFAULT_BUFFER_STEP.params;
 
   // Seed the pipeline with a default buffer step the moment the
   // builder mounts. Without this, the input shows "100" via the
-  // `?? DEFAULT_BUFFER_DISTANCE` fallback but `value.pipeline` stays
-  // empty until the user edits the field, which causes the wizard's
-  // "at least one step" guard to (correctly) reject the submit even
-  // though the form looks filled in.
+  // default fallback but `value.pipeline` stays empty until the user
+  // edits the field, which causes the wizard's "at least one step"
+  // guard to (correctly) reject the submit even though the form
+  // looks filled in.
   useEffect(() => {
     if (value.pipeline.length === 0) {
       onChange({
         ...value,
-        pipeline: [
-          {
-            tool: 'buffer',
-            params: { distance: DEFAULT_BUFFER_DISTANCE, unit: 'meters' },
-          },
-        ],
+        pipeline: [DEFAULT_BUFFER_STEP],
       });
     }
     // We deliberately depend only on the pipeline length so this
     // effect doesn't re-fire on every keystroke that mutates
     // `value`. The intent is "ensure a step exists at startup or
-    // after a reset"; per-keystroke mutations go through
-    // `setBufferDistance` instead.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // after a reset"; per-keystroke mutations go through the
+    // setBuffer* helpers instead.
   }, [value.pipeline.length]);
 
   const setSourceItem = useCallback(
@@ -99,22 +96,130 @@ export function DerivedLayerBuilder({
     [value, onChange],
   );
 
-  const setBufferDistance = useCallback(
-    (distance: number) => {
-      const safe =
-        Number.isFinite(distance) && distance > 0
-          ? Math.min(distance, MAX_BUFFER_DISTANCE_METERS)
-          : 0;
-      const next: ToolStep = {
-        tool: 'buffer',
-        params: { distance: safe, unit: 'meters' },
-      };
+  // Lookup the source's schema once a source is selected, so the
+  // field-mode picker can list numeric fields. Best-effort: if the
+  // fetch fails, the field selector falls back to a "no fields
+  // available" empty state and the user can switch to fixed mode.
+  const [sourceFields, setSourceFields] = useState<FeatureField[]>([]);
+  useEffect(() => {
+    if (!value.source.itemId) {
+      setSourceFields([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/portal/items/${value.source.itemId}`)
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json() as Promise<Item>;
+      })
+      .then((it) => {
+        if (cancelled) return;
+        setSourceFields(extractFields(it.data, value.source.layerKey));
+      })
+      .catch(() => {
+        if (!cancelled) setSourceFields([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [value.source.itemId, value.source.layerKey]);
+
+  // Helper: write a new buffer params object back into the recipe.
+  // The pipeline is a one-element list in v1, so this is a single-
+  // step replace; the call sites below pass the params they want
+  // committed (post-clamping) and we wrap in the ToolStep envelope.
+  const setBufferParams = useCallback(
+    (params: BufferParams) => {
       onChange({
         ...value,
-        pipeline: [next],
+        pipeline: [{ tool: 'buffer', params }],
       });
     },
     [value, onChange],
+  );
+
+  const setBufferMode = useCallback(
+    (mode: 'fixed' | 'field') => {
+      if (mode === bufferParams.mode) return;
+      // Preserve the unit across mode switches so a user who chose
+      // "kilometers" doesn't have to re-pick when toggling to field
+      // mode and back. Other fields reset to sensible defaults.
+      if (mode === 'fixed') {
+        setBufferParams({
+          mode: 'fixed',
+          distance: 100,
+          unit: bufferParams.unit,
+        });
+      } else {
+        // Pre-pick the first numeric field if one is available; the
+        // user can change it. Without a default the picker shows a
+        // placeholder until they make a choice.
+        const firstNumeric = sourceFields.find((f) => f.type === 'number');
+        setBufferParams({
+          mode: 'field',
+          field: firstNumeric?.name ?? '',
+          unit: bufferParams.unit,
+          // cachedMaxMeters is server-computed at save time; the
+          // wizard always sends 0 and the API replaces it.
+          cachedMaxMeters: 0,
+        });
+      }
+    },
+    [bufferParams, sourceFields, setBufferParams],
+  );
+
+  const setBufferDistance = useCallback(
+    (distance: number) => {
+      if (bufferParams.mode !== 'fixed') return;
+      // Clamp the user-typed value to the meters ceiling, expressed
+      // in the chosen unit. A user typing "999" with unit=miles
+      // shouldn't sail past 100 km; converting to meters first keeps
+      // the cap absolute.
+      const meters = Number.isFinite(distance)
+        ? distance * METERS_PER_UNIT[bufferParams.unit]
+        : 0;
+      const cappedMeters = Math.max(0, Math.min(meters, MAX_BUFFER_DISTANCE_METERS));
+      const safe = cappedMeters / METERS_PER_UNIT[bufferParams.unit];
+      setBufferParams({
+        mode: 'fixed',
+        distance: safe,
+        unit: bufferParams.unit,
+      });
+    },
+    [bufferParams, setBufferParams],
+  );
+
+  const setBufferUnit = useCallback(
+    (unit: LengthUnit) => {
+      if (bufferParams.mode === 'fixed') {
+        setBufferParams({
+          mode: 'fixed',
+          distance: bufferParams.distance,
+          unit,
+        });
+      } else {
+        setBufferParams({
+          mode: 'field',
+          field: bufferParams.field,
+          unit,
+          cachedMaxMeters: 0,
+        });
+      }
+    },
+    [bufferParams, setBufferParams],
+  );
+
+  const setBufferField = useCallback(
+    (field: string) => {
+      if (bufferParams.mode !== 'field') return;
+      setBufferParams({
+        mode: 'field',
+        field,
+        unit: bufferParams.unit,
+        cachedMaxMeters: 0,
+      });
+    },
+    [bufferParams, setBufferParams],
   );
 
   const setFeatureLimit = useCallback(
@@ -176,29 +281,92 @@ export function DerivedLayerBuilder({
           Tool: Buffer
         </h4>
         <p className="text-xs text-muted">
-          Expand each feature outward by a fixed distance. The result
-          is a polygon layer that lines up with the source's halo on
-          every map read.
+          Expand each feature outward into a polygon halo. Distance
+          can be a fixed value applied to every feature, or read from
+          a numeric field on each row so different features get
+          different buffers.
         </p>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-ink-1">Distance</span>
-          <span className="flex items-center gap-2">
-            <input
-              type="number"
-              min={1}
-              max={MAX_BUFFER_DISTANCE_METERS}
-              step={1}
-              value={bufferDistance}
-              onChange={(e) => setBufferDistance(Number(e.target.value))}
-              className="h-10 w-32 rounded-md border border-border bg-surface-0 px-3 text-sm text-ink-0 focus:border-accent focus:outline-none"
-            />
-            <span className="text-sm text-muted">meters</span>
-          </span>
-        </label>
-        <p className="text-[11px] text-muted">
-          Up to {MAX_BUFFER_DISTANCE_METERS.toLocaleString()} m. Other
-          units arrive when the reproject tool ships.
-        </p>
+        <div
+          className="grid grid-cols-2 gap-2"
+          role="radiogroup"
+          aria-label="Buffer distance source"
+        >
+          <button
+            type="button"
+            role="radio"
+            aria-checked={bufferParams.mode === 'fixed'}
+            onClick={() => setBufferMode('fixed')}
+            className={`flex flex-col items-start gap-0.5 rounded-md border p-2.5 text-left transition-colors ${
+              bufferParams.mode === 'fixed'
+                ? 'border-accent bg-accent/5 ring-2 ring-accent/30'
+                : 'border-border bg-surface-0 hover:bg-surface-2'
+            }`}
+          >
+            <span className="text-sm font-medium text-ink-1">Fixed</span>
+            <span className="text-[11px] text-muted">
+              The same distance for every feature.
+            </span>
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={bufferParams.mode === 'field'}
+            onClick={() => setBufferMode('field')}
+            disabled={!value.source.itemId}
+            title={
+              !value.source.itemId
+                ? 'Pick a source layer first to see its numeric fields'
+                : undefined
+            }
+            className={`flex flex-col items-start gap-0.5 rounded-md border p-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+              bufferParams.mode === 'field'
+                ? 'border-accent bg-accent/5 ring-2 ring-accent/30'
+                : 'border-border bg-surface-0 hover:bg-surface-2'
+            }`}
+          >
+            <span className="text-sm font-medium text-ink-1">From a field</span>
+            <span className="text-[11px] text-muted">
+              Read the distance from a numeric column on each row.
+            </span>
+          </button>
+        </div>
+
+        {bufferParams.mode === 'fixed' ? (
+          <label className="flex flex-col gap-1 pt-1 text-sm">
+            <span className="text-ink-1">Distance</span>
+            <span className="flex items-center gap-2">
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={
+                  Number.isFinite(bufferParams.distance)
+                    ? bufferParams.distance
+                    : 0
+                }
+                onChange={(e) => setBufferDistance(Number(e.target.value))}
+                className="h-10 w-32 rounded-md border border-border bg-surface-0 px-3 text-sm text-ink-0 focus:border-accent focus:outline-none"
+              />
+              <UnitSelect
+                value={bufferParams.unit}
+                onChange={setBufferUnit}
+              />
+            </span>
+            <span className="text-[11px] text-muted">
+              Up to {MAX_BUFFER_DISTANCE_METERS.toLocaleString()} m. Try
+              kilometers, feet, yards, or miles.
+            </span>
+          </label>
+        ) : (
+          <FieldModeControls
+            sourceFields={sourceFields}
+            field={bufferParams.field}
+            unit={bufferParams.unit}
+            onFieldChange={setBufferField}
+            onUnitChange={setBufferUnit}
+            sourcePicked={Boolean(value.source.itemId)}
+          />
+        )}
       </section>
 
       <section className="space-y-2">
@@ -648,4 +816,140 @@ function SourceLayerPicker({
       ) : null}
     </div>
   );
+}
+
+/**
+ * Lightweight `<select>` for picking a length unit. Pulls the option
+ * list from `LENGTH_UNITS` (shared-types) so a new unit added there
+ * shows up here automatically. Sized small enough to live inline next
+ * to a numeric input without dominating the row.
+ */
+function UnitSelect({
+  value,
+  onChange,
+}: {
+  value: LengthUnit;
+  onChange: (u: LengthUnit) => void;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value as LengthUnit)}
+      className="h-10 rounded-md border border-border bg-surface-0 px-2 text-sm text-ink-0 focus:border-accent focus:outline-none"
+    >
+      {LENGTH_UNITS.map((u) => (
+        <option key={u} value={u}>
+          {u} ({UNIT_LABELS[u]})
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/**
+ * Field-mode controls for the buffer step: a numeric-field picker
+ * plus a unit dropdown. The picker is filtered to `type: 'number'`
+ * fields off the source's schema; non-numeric fields are not eligible
+ * because the SQL pipeline can't divide a string by a unit factor.
+ *
+ * The user is NOT asked for a maximum distance. The server queries
+ * MAX(field) at recipe-save time and stamps `cachedMaxMeters` on the
+ * recipe (see docs/derived-layers.md). That cap drives bbox padding
+ * and per-row clamping in SQL.
+ */
+function FieldModeControls({
+  sourceFields,
+  field,
+  unit,
+  onFieldChange,
+  onUnitChange,
+  sourcePicked,
+}: {
+  sourceFields: FeatureField[];
+  field: string;
+  unit: LengthUnit;
+  onFieldChange: (name: string) => void;
+  onUnitChange: (u: LengthUnit) => void;
+  sourcePicked: boolean;
+}) {
+  const numericFields = sourceFields.filter((f) => f.type === 'number');
+  return (
+    <div className="space-y-2 pt-1">
+      <label className="flex flex-col gap-1 text-sm">
+        <span className="text-ink-1">Numeric field</span>
+        <select
+          value={field}
+          onChange={(e) => onFieldChange(e.target.value)}
+          disabled={!sourcePicked || numericFields.length === 0}
+          className="h-10 rounded-md border border-border bg-surface-0 px-3 text-sm text-ink-0 focus:border-accent focus:outline-none disabled:opacity-60"
+        >
+          {field === '' ? (
+            <option value="">
+              {!sourcePicked
+                ? 'Pick a source layer first'
+                : numericFields.length === 0
+                  ? 'No numeric fields on the source'
+                  : 'Pick a numeric field…'}
+            </option>
+          ) : null}
+          {numericFields.map((f) => (
+            <option key={f.name} value={f.name}>
+              {f.label || f.name}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="flex flex-col gap-1 text-sm">
+        <span className="text-ink-1">Unit</span>
+        <UnitSelect value={unit} onChange={onUnitChange} />
+        <span className="text-[11px] text-muted">
+          The field's stored value is interpreted in this unit. The
+          server figures out the upper bound by reading the largest
+          value when the recipe saves.
+        </span>
+      </label>
+
+      {sourcePicked && numericFields.length === 0 ? (
+        <p className="text-[11px] text-amber-700">
+          The selected source has no numeric fields. Add a numeric
+          column to the source layer or switch to fixed mode.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Pull the FeatureField list from a data_layer item's `data` blob,
+ * narrowing to the requested sublayer when one is given. Tolerant
+ * of malformed shapes: returns `[]` for anything we don't recognize
+ * so the field-mode picker degrades to "no fields available" rather
+ * than crashing the wizard.
+ */
+function extractFields(data: unknown, layerKey: string | undefined): FeatureField[] {
+  if (!data || typeof data !== 'object') return [];
+  const d = data as { version?: unknown; layers?: unknown; fields?: unknown };
+  if (Array.isArray(d.layers)) {
+    const layers = d.layers as Array<{
+      id?: string;
+      fields?: FeatureField[];
+    }>;
+    if (layerKey) {
+      const match = layers.find((l) => l.id === layerKey);
+      return Array.isArray(match?.fields) ? match!.fields : [];
+    }
+    // No layerKey: a v3 source with exactly one spatial layer is the
+    // common single-layer case; surface its fields. Otherwise we
+    // can't pick on the user's behalf without ambiguity, so return
+    // nothing.
+    if (layers.length === 1 && Array.isArray(layers[0]?.fields)) {
+      return layers[0]!.fields ?? [];
+    }
+    return [];
+  }
+  if (Array.isArray(d.fields)) {
+    return d.fields as FeatureField[];
+  }
+  return [];
 }

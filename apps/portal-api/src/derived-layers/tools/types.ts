@@ -1,6 +1,44 @@
 import type { FeatureField } from '@gratis-gis/shared-types';
 
 /**
+ * Optional context handed to `validate(...)` when the call site has
+ * the source schema in hand (i.e. `validateAndEnrich` at save time).
+ * When omitted (e.g. read-time `validate` calls inside `getGeoJson`),
+ * generators must accept the persisted shape without touching the
+ * source schema. Keeps generators usable in two distinct call paths
+ * without forcing them into either one.
+ */
+export interface ToolValidateContext {
+  /** Schema of the rows the tool will receive as input. */
+  sourceSchema: FeatureField[];
+}
+
+/**
+ * Context handed to `enrich(...)` at recipe-save time. Lets a
+ * generator run a parameterized SQL query against the source's
+ * PostGIS table to compute caches the recipe needs (e.g. buffer's
+ * `cachedMaxMeters`). Generators receive a callback rather than a
+ * Prisma client so the dependency stays narrow and easy to mock in
+ * tests.
+ */
+export interface ToolEnrichContext {
+  sourceSchema: FeatureField[];
+  /**
+   * Quoted PostGIS table name backing the source rows the tool will
+   * read. v3 sources resolve to `fs_<itemId>_<layerKey>`; v2 sources
+   * to `fs_<itemId>`. Pre-quoted by the caller so the generator can
+   * splice it into hand-authored SQL without escaping concerns.
+   */
+  sourceTable: string;
+  /**
+   * Run a parameterized SQL query against the workspace database.
+   * Generators MUST go through this rather than touching Prisma
+   * directly so the surface stays narrow.
+   */
+  queryRaw: <T = unknown>(sql: string, ...params: unknown[]) => Promise<T[]>;
+}
+
+/**
  * Common shape every tool generator produces from `toSql`. The
  * backing string is a SQL fragment, parameterized through `$N`
  * placeholders, that defines a single CTE-style subquery yielding the
@@ -64,8 +102,30 @@ export interface ToolGenerator<TParams> {
    * params don't match the declared shape. The registry calls this
    * before any other generator method, so other methods can assume
    * params are well-formed.
+   *
+   * `ctx` is optional. When the caller has the source schema (i.e.
+   * recipe-save time), passing it lets the generator do schema-level
+   * checks ("does this field exist? is it numeric?") that would be
+   * impossible at read time. When omitted (read time), validation is
+   * limited to "the persisted shape parses cleanly" and the generator
+   * trusts that the shape was checked against the schema once at
+   * save.
    */
-  validate(params: unknown): TParams;
+  validate(params: unknown, ctx?: ToolValidateContext): TParams;
+
+  /**
+   * Optional async hook: compute and bake any cached values the
+   * recipe needs (e.g. buffer's `cachedMaxMeters` from MAX(field)).
+   * Called by `validateAndEnrich` after `validate` returns. The
+   * returned params are persisted and used by `outwardReachMeters`
+   * and `toSql` thereafter, so any cache placed here is durable
+   * across reads. Generators that don't need an async pass omit
+   * this method and the service skips the call.
+   */
+  enrich?: (
+    params: TParams,
+    ctx: ToolEnrichContext,
+  ) => Promise<TParams>;
 
   /**
    * Compute the output schema from the input schema + params. Pure.

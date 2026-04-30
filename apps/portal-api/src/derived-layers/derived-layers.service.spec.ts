@@ -208,14 +208,14 @@ describe('padBboxByMeters', () => {
 });
 
 describe('DerivedLayersService.validateAndEnrich', () => {
-  it('rejects non-object data', () => {
-    expect(() =>
+  it('rejects non-object data', async () => {
+    await expect(
       service.validateAndEnrich(null, makeSource()),
-    ).toThrow(/must be an object/);
+    ).rejects.toThrow(/must be an object/);
   });
 
-  it('rejects an empty pipeline', () => {
-    expect(() =>
+  it('rejects an empty pipeline', async () => {
+    await expect(
       service.validateAndEnrich(
         {
           version: 1,
@@ -227,12 +227,12 @@ describe('DerivedLayersService.validateAndEnrich', () => {
         },
         makeSource(),
       ),
-    ).toThrow(/non-empty array/);
+    ).rejects.toThrow(/non-empty array/);
   });
 
-  it('rejects a mismatched source.itemId vs the resolved source', () => {
+  it('rejects a mismatched source.itemId vs the resolved source', async () => {
     const source = makeSource();
-    expect(() =>
+    await expect(
       service.validateAndEnrich(
         {
           version: 1,
@@ -244,12 +244,12 @@ describe('DerivedLayersService.validateAndEnrich', () => {
         },
         source,
       ),
-    ).toThrow(/match the resolved source/);
+    ).rejects.toThrow(/match the resolved source/);
   });
 
-  it('produces an enriched DerivedLayerData with bbox padded by reach', () => {
+  it('produces an enriched DerivedLayerData with bbox padded by reach', async () => {
     const source = makeSource();
-    const enriched = service.validateAndEnrich(
+    const enriched = await service.validateAndEnrich(
       {
         version: 1,
         source: { kind: 'data_layer', itemId: source.id },
@@ -266,9 +266,9 @@ describe('DerivedLayersService.validateAndEnrich', () => {
     expect(enriched.bbox[3]).toBeCloseTo(38.1, 4);
   });
 
-  it('rejects featureLimit values outside the allowed range', () => {
+  it('rejects featureLimit values outside the allowed range', async () => {
     const source = makeSource();
-    expect(() =>
+    await expect(
       service.validateAndEnrich(
         {
           version: 1,
@@ -280,7 +280,103 @@ describe('DerivedLayersService.validateAndEnrich', () => {
         },
         source,
       ),
-    ).toThrow(/positive integer/);
+    ).rejects.toThrow(/positive integer/);
+  });
+
+  it('runs a tool generator enrich hook at save time and persists its output', async () => {
+    // Source that exposes a numeric field named `radius_m`. The
+    // buffer field-mode generator looks it up in the source schema,
+    // then calls `queryRaw` on the (fake) Prisma to find MAX(radius_m).
+    const NUMBER_FIELD: FeatureField = {
+      name: 'radius_m',
+      label: 'Radius (m)',
+      type: 'number',
+      nullable: true,
+    };
+    const source = makeSource({
+      data: {
+        version: 2,
+        storageType: 'postgis',
+        fields: [STRING_FIELD, NUMBER_FIELD],
+      } as unknown as Item['data'],
+    });
+    // Stand-in Prisma whose $queryRawUnsafe returns a single row
+    // with max_value: 250. The service is constructed with this
+    // fake; the generator's enrich hook calls through.
+    const queryCalls: string[] = [];
+    const fake = {
+      $queryRawUnsafe: jest.fn(async (sql: string) => {
+        queryCalls.push(sql);
+        return [{ max_value: 250 }] as unknown[];
+      }),
+    } as unknown as ConstructorParameters<typeof DerivedLayersService>[0];
+    const svc = new DerivedLayersService(fake);
+    const enriched = await svc.validateAndEnrich(
+      {
+        version: 1,
+        source: { kind: 'data_layer', itemId: source.id },
+        pipeline: [
+          {
+            tool: 'buffer',
+            params: { mode: 'field', field: 'radius_m', unit: 'meters' },
+          },
+        ],
+      },
+      source,
+    );
+    // Enrich populated cachedMaxMeters from the MAX query; the
+    // recipe persists with that cap baked in for future reads.
+    const step = enriched.pipeline[0]!;
+    expect(step.tool).toBe('buffer');
+    if (step.tool === 'buffer' && step.params.mode === 'field') {
+      expect(step.params.cachedMaxMeters).toBe(250);
+    } else {
+      throw new Error('expected a field-mode buffer step');
+    }
+    // bbox is padded by the cached cap, not zero, so map reads in
+    // tile-edge regions still see the buffer halo.
+    expect(enriched.bbox[0]).toBeLessThan(-122.5);
+    expect(queryCalls[0]).toMatch(/SELECT COALESCE\(\s*MAX\(/);
+  });
+
+  it('rejects field-mode buffer when the named field is not on the source schema', async () => {
+    const source = makeSource();
+    await expect(
+      service.validateAndEnrich(
+        {
+          version: 1,
+          source: { kind: 'data_layer', itemId: source.id },
+          pipeline: [
+            {
+              tool: 'buffer',
+              params: { mode: 'field', field: 'nope', unit: 'meters' },
+            },
+          ],
+        },
+        source,
+      ),
+    ).rejects.toThrow(/does not exist on the source schema/);
+  });
+
+  it('rejects field-mode buffer pointing at a non-numeric field', async () => {
+    // STRING_FIELD is name: 'name', type: 'string', so picking it for
+    // a buffer distance should be rejected up front.
+    const source = makeSource();
+    await expect(
+      service.validateAndEnrich(
+        {
+          version: 1,
+          source: { kind: 'data_layer', itemId: source.id },
+          pipeline: [
+            {
+              tool: 'buffer',
+              params: { mode: 'field', field: 'name', unit: 'meters' },
+            },
+          ],
+        },
+        source,
+      ),
+    ).rejects.toThrow(/must be a number field/);
   });
 });
 
@@ -291,7 +387,10 @@ describe('DerivedLayersService.buildReadSql', () => {
       version: 1,
       source: { kind: 'data_layer', itemId: source.id },
       pipeline: [
-        { tool: 'buffer', params: { distance: 250, unit: 'meters' } },
+        {
+          tool: 'buffer',
+          params: { mode: 'fixed', distance: 250, unit: 'meters' },
+        },
       ],
       featureLimit: 1000,
       outputSchema: [STRING_FIELD],
@@ -323,7 +422,10 @@ describe('DerivedLayersService.buildReadSql', () => {
         layerKey: 'sites',
       },
       pipeline: [
-        { tool: 'buffer', params: { distance: 25, unit: 'meters' } },
+        {
+          tool: 'buffer',
+          params: { mode: 'fixed', distance: 25, unit: 'meters' },
+        },
       ],
       featureLimit: 100,
       outputSchema: [STRING_FIELD],
@@ -342,7 +444,10 @@ describe('DerivedLayersService.buildReadSql', () => {
       version: 1,
       source: { kind: 'data_layer', itemId: source.id },
       pipeline: [
-        { tool: 'buffer', params: { distance: 11132, unit: 'meters' } },
+        {
+          tool: 'buffer',
+          params: { mode: 'fixed', distance: 11132, unit: 'meters' },
+        },
       ],
       featureLimit: 500,
       outputSchema: [STRING_FIELD],

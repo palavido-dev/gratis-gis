@@ -768,10 +768,11 @@ export class ItemsService {
         'derived_layer.source.itemId does not point at an accessible data layer',
       );
     }
-    return this.derivedLayers.validateAndEnrich(
+    const enriched = await this.derivedLayers.validateAndEnrich(
       rawData,
       source,
-    ) as unknown as Prisma.JsonValue;
+    );
+    return enriched as unknown as Prisma.JsonValue;
   }
 
   /**
