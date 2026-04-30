@@ -2612,3 +2612,15 @@ export function suggestExportFilename(form: FormSchema): string {
     .slice(0, 60) || 'form';
   return `${slug}.gratisgis-form.json`;
 }
+
+// ---------------------------------------------------------------------------
+// Auto-form-from-schema (Field Maps style)
+// ---------------------------------------------------------------------------
+
+export {
+  generateFormFromLayer,
+  type LayerFieldForGeneration,
+  type LayerForGeneration,
+  type LayerPopupConfigForGeneration,
+  type AutoFormOptions,
+} from './from-layer';
