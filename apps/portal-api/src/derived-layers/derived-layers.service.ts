@@ -12,13 +12,17 @@ import { toV3TableName } from '../features-v3/v3-tables.service.js';
 import { getGeneratorForStep } from './tools/registry.js';
 
 /**
- * Maximum allowed pipeline length. Long pipelines are inherently
- * suspect (each step is a sub-CTE; planning cost climbs) and v1's
- * single tool gives no reason to need more than a handful. Easy to
- * lift later. Set high enough that legitimate stacking (a future
- * `simplify -> buffer -> dissolve`) doesn't bump into it.
+ * Maximum allowed pipeline length. Each step is a separate CTE in
+ * the chained read SQL, so planning cost and peak materialization
+ * memory both grow with step count. Ten covers any realistic recipe
+ * with headroom (a typical chained workflow is 3-6 steps), trips
+ * before a runaway client can post a thousand-step pipeline, and
+ * keeps the user-facing complexity bounded. The per-tool runtime
+ * caps (MAX_BUFFER_DISTANCE_METERS, MAX_CELLS_PER_RECIPE,
+ * featureLimit) are the load-bearing safety nets; this one is the
+ * "are you sure?" check.
  */
-const MAX_PIPELINE_STEPS = 8;
+const MAX_PIPELINE_STEPS = 10;
 
 /**
  * Hard cap on the user-overridable feature limit. The default sits
