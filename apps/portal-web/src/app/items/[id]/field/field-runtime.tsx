@@ -37,12 +37,19 @@ import type { CustomBasemap } from '@/lib/custom-basemap';
 import { MapCanvas, type MapCanvasHandle } from '../map/map-canvas';
 import { FormRuntime } from '@/components/form-runtime';
 import {
+  enqueueRecord,
   formatBytes,
   getDeployment,
+  hashLayerSchema,
   listFeaturesForLayer,
   listPickListsForDeployment,
+  listQueue,
+  putFeatures,
   type CachedDeployment,
+  type CachedFeature,
+  type QueueRecord,
 } from '@/lib/offline-store';
+import { newGlobalId, syncQueue, type SyncResult } from '@/lib/offline-sync';
 import {
   downloadDeployment,
   type DownloadLayer,
@@ -289,6 +296,14 @@ export function FieldRuntime({
   const [offlineFeatures, setOfflineFeatures] = useState<
     Record<string, GeoJSON.FeatureCollection>
   >({});
+  // Slice 5 state: declared early so the offlineFeatures useEffect
+  // can list it as a dep (and re-read after offline writes / sync).
+  // The runSync callback + auto-sync effect that consume these live
+  // further down with the other Slice 5 logic.
+  const [offlineWriteCounter, setOfflineWriteCounter] = useState(0);
+  const [queueCount, setQueueCount] = useState(0);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
   useEffect(() => {
     if (isOnline || !cachedDeployment) {
       // Online: don't bother loading inline data. The MapCanvas
@@ -320,7 +335,16 @@ export function FieldRuntime({
     return () => {
       cancelled = true;
     };
-  }, [isOnline, cachedDeployment, editableLayers, dataCollectionId]);
+  }, [
+    isOnline,
+    cachedDeployment,
+    editableLayers,
+    dataCollectionId,
+    // Slice 5: re-read after every offline write so the new / updated
+    // feature appears on the map without a manual reload. Same dep
+    // shape works for sync completion (the runner bumps the counter).
+    offlineWriteCounter,
+  ]);
 
   // Effective MapData: visibility overrides + offline source
   // substitution. The two transforms compose: each layer is first
@@ -395,6 +419,79 @@ export function FieldRuntime({
   // the user sees per-layer status as the run completes.
   const [downloadProgress, setDownloadProgress] =
     useState<DownloadProgress | null>(null);
+
+  // Slice 5 (queue + sync; see docs/field-offline-recovery.md).
+  // State declarations are higher up next to offlineFeatures so the
+  // useEffect there can include them as deps. The pieces below own
+  // the runner + auto-sync wiring.
+  // Throttle handle so back-to-back online/offline flips (Wi-Fi
+  // flapping while a worker walks past a building corner) don't
+  // schedule N parallel syncs.
+  const lastSyncAttemptRef = useRef<number>(0);
+
+  // Refresh the queue count whenever something might have changed it:
+  // an offline write added a record, a sync run drained records, the
+  // user re-opened the page after an offline session. Polling the
+  // queue store on these dep changes is cheap (the read is keyed by
+  // deployment) and avoids a separate event bus.
+  useEffect(() => {
+    void (async () => {
+      const records = await listQueue(dataCollectionId);
+      setQueueCount(records.length);
+    })();
+  }, [dataCollectionId, offlineWriteCounter, lastSyncResult]);
+
+  // The actual sync runner. Wrapped in a callback so both the
+  // online-flip auto-trigger and the manual button share the same
+  // path (and so the throttle ref is honoured uniformly).
+  const runSync = useCallback(
+    async (reason: 'auto' | 'manual') => {
+      // 5-second throttle: the network can flap on/off many times in
+      // quick succession at the edge of coverage. We don't want to
+      // start a fresh sync each flip; the second flip's records will
+      // be picked up by the running sync's queue read.
+      const now = Date.now();
+      if (reason === 'auto' && now - lastSyncAttemptRef.current < 5000) {
+        return;
+      }
+      lastSyncAttemptRef.current = now;
+      setSyncing(true);
+      try {
+        const result = await syncQueue(dataCollectionId);
+        setLastSyncResult(result);
+        // After a successful sync the live API reflects the queued
+        // edits; refresh every editable layer's source so the user
+        // sees the post-sync state on the map. Skip when offline (the
+        // refresh would 500). The bump to offlineWriteCounter also
+        // forces the cached-features read to re-run, which keeps the
+        // offline GeoJSON path consistent if the user goes back
+        // offline immediately after.
+        if (typeof navigator !== 'undefined' && navigator.onLine) {
+          for (const ml of mapData.layers ?? []) {
+            const source = ml.source;
+            if (source?.kind !== 'data-layer') continue;
+            canvasRef.current?.refreshLayerSource(ml.id);
+          }
+        }
+        setOfflineWriteCounter((n) => n + 1);
+      } finally {
+        setSyncing(false);
+      }
+    },
+    [dataCollectionId, mapData.layers],
+  );
+
+  // Auto-sync when isOnline flips from false -> true. Captured via a
+  // ref so we don't fire on the initial mount when isOnline starts
+  // true and there's nothing queued (the queue read is cheap but
+  // pointless).
+  const wasOnlineRef = useRef(isOnline);
+  useEffect(() => {
+    if (!wasOnlineRef.current && isOnline) {
+      void runSync('auto');
+    }
+    wasOnlineRef.current = isOnline;
+  }, [isOnline, runSync]);
 
   // Slice 6 (persistence floor; see docs/field-offline-areas.md):
   // surface whether the browser will keep our IndexedDB across
@@ -673,6 +770,20 @@ export function FieldRuntime({
           isOnline={isOnline}
           cachedAt={cachedDeployment?.cachedAt ?? null}
         />
+        {/* Slice 5 (queue + sync): surface how many records are
+            waiting for sync, with a click target to drain the queue
+            on demand. Only renders when there's something queued so
+            the header stays quiet during steady-state work. */}
+        {queueCount > 0 ? (
+          <QueueBadge
+            count={queueCount}
+            syncing={syncing}
+            isOnline={isOnline}
+            onSync={() => {
+              void runSync('manual');
+            }}
+          />
+        ) : null}
         {/* Slice 6 (persistence floor): surface whether the browser
             will keep our IndexedDB across disk-pressure events. The
             badge is intentionally subtle when persistent (green dot,
@@ -850,6 +961,7 @@ export function FieldRuntime({
           pickLists={effectivePickLists}
           boundForms={boundForms}
           currentUserId={currentUserId}
+          isOnline={isOnline}
           onClose={() => {
             clearPendingMarker();
             setFormModal(null);
@@ -861,17 +973,22 @@ export function FieldRuntime({
             // Refresh the MapLayer(s) backed by the data_layer that
             // just received a write so the new / updated feature
             // appears immediately. setData(url) on the existing
-            // GeoJSONSource forces a refetch (#194).
-            for (const ml of mapData.layers ?? []) {
-              const source = ml.source;
-              if (source?.kind !== 'data-layer') continue;
-              if (source.itemId !== submittedLayer.dataLayerId) continue;
-              if (source.layerKey && source.layerKey !== submittedLayer.layerKey) {
-                continue;
+            // GeoJSONSource forces a refetch (#194). Online-only;
+            // offline writes are surfaced through the
+            // offlineFeatures effect via offlineWriteCounter.
+            if (isOnline) {
+              for (const ml of mapData.layers ?? []) {
+                const source = ml.source;
+                if (source?.kind !== 'data-layer') continue;
+                if (source.itemId !== submittedLayer.dataLayerId) continue;
+                if (source.layerKey && source.layerKey !== submittedLayer.layerKey) {
+                  continue;
+                }
+                canvasRef.current?.refreshLayerSource(ml.id);
               }
-              canvasRef.current?.refreshLayerSource(ml.id);
             }
           }}
+          onLocalWriteApplied={() => setOfflineWriteCounter((n) => n + 1)}
         />
       ) : null}
 
@@ -1366,8 +1483,10 @@ function FormModal({
   pickLists,
   boundForms,
   currentUserId,
+  isOnline,
   onClose,
   onSubmitted,
+  onLocalWriteApplied,
 }: {
   dataCollectionId: string;
   modal:
@@ -1387,8 +1506,16 @@ function FormModal({
   pickLists: Record<string, PickListData>;
   boundForms: Record<string, FormSchema>;
   currentUserId: string;
+  /** Whether the runtime is currently online. Drives the choice
+   *  between direct write and enqueue-to-sync-later. */
+  isOnline: boolean;
   onClose: () => void;
   onSubmitted: () => void;
+  /** Fires after an offline write (or an online write that fell
+   *  back to the queue) has been applied locally. The runtime uses
+   *  this to bump its offline-feature refresh counter so the new /
+   *  edited feature appears on the map without a manual reload. */
+  onLocalWriteApplied: () => void;
 }) {
   const [error, setError] = useState<string | null>(null);
 
@@ -1437,57 +1564,140 @@ function FormModal({
 
   async function handleSubmit(response: FormResponse) {
     setError(null);
-    // Slice 4 caches reads only; the write-through queue is Slice 5
-    // (#199). Until that lands we refuse offline submits loudly so
-    // users don't think their edit saved when it didn't. Better
-    // than silently dropping the response.
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      const msg =
-        "You're offline. Saving edits while offline arrives in the next slice; reconnect to submit this form.";
-      setError(msg);
-      throw new Error(msg);
-    }
-    try {
-      const properties = response;
-      if (modal.mode === 'add') {
-        const res = await fetch(
-          `/api/portal/items/${modal.layer.dataLayerId}/layers/${encodeURIComponent(
-            modal.layer.layerKey,
-          )}/features`,
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              features: [
-                {
-                  geometry: modal.geometry,
-                  properties,
-                },
-              ],
-            }),
+    const properties = response;
+    // Identity. For inserts we generate the globalId client-side so
+    // the queue and the local feature row share a key with the
+    // eventual server row -- a re-drained queue (or a sync that
+    // succeeded server-side but lost the success response) doesn't
+    // double-create. The portal-api COALESCEs against gen_random_uuid()
+    // so the server accepts our id directly.
+    const featureId =
+      modal.mode === 'add' ? newGlobalId() : modal.featureId;
+    // Schema hash on the queued record lets sync detect drift later
+    // (Slice 5 doesn't act on it yet, but capturing it now means an
+    // upgraded portal can reconcile without a queue migration).
+    const schemaHash = await hashLayerSchema(modal.layer.fields);
+
+    // Local apply path (used by both offline mode and online mode's
+    // network-failure fallback). Enqueues the operation, writes the
+    // feature into IndexedDB so it's visible on the map immediately,
+    // and bumps the runtime's refresh counter via the callback.
+    const applyLocally = async (): Promise<void> => {
+      const queueRecord: QueueRecord = {
+        id: featureId, // queue id == globalId; one outstanding op per feature
+        dataCollectionId,
+        op: modal.mode === 'add' ? 'insert' : 'update',
+        dataLayerId: modal.layer.dataLayerId,
+        layerKey: modal.layer.layerKey,
+        globalId: featureId,
+        geometry: modal.geometry,
+        properties,
+        queuedAt: new Date().toISOString(),
+        schemaHash,
+        syncStatus: 'pending',
+      };
+      await enqueueRecord(queueRecord);
+      // Mirror into the cached features store so the map shows the
+      // feature on next render. For inserts this is a fresh row; for
+      // updates it overwrites the prior cached copy under the same
+      // composite key. The properties carry _global_id so the popup
+      // and the existing feature-id resolution paths keep working.
+      const cachedFeature: CachedFeature = {
+        dataCollectionId,
+        dataLayerId: modal.layer.dataLayerId,
+        layerKey: modal.layer.layerKey,
+        globalId: featureId,
+        feature: {
+          type: 'Feature',
+          id: featureId,
+          geometry: modal.geometry as GeoJSON.Geometry,
+          properties: {
+            ...properties,
+            _global_id: featureId,
+            _created_by: currentUserId,
+            _edited_by: currentUserId,
+            _created_at: queueRecord.queuedAt,
+            _edited_at: queueRecord.queuedAt,
           },
-        );
-        if (!res.ok) {
-          const body = await res.text().catch(() => '');
-          throw new Error(`POST failed (${res.status}): ${body || res.statusText}`);
+        },
+        cachedAt: queueRecord.queuedAt,
+      };
+      await putFeatures([cachedFeature]);
+      onLocalWriteApplied();
+    };
+
+    try {
+      if (isOnline) {
+        // Online path. Try the live API first. On non-2xx (validation
+        // error, schema mismatch, anything 4xx) we propagate to the
+        // user so they can fix and retry; this is NOT a queue case.
+        // On a network-level failure (TypeError from fetch) we DO
+        // fall back to the queue so the edit is preserved.
+        if (modal.mode === 'add') {
+          let res: Response;
+          try {
+            res = await fetch(
+              `/api/portal/items/${modal.layer.dataLayerId}/layers/${encodeURIComponent(
+                modal.layer.layerKey,
+              )}/features`,
+              {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                  features: [
+                    {
+                      globalId: featureId,
+                      geometry: modal.geometry,
+                      properties,
+                    },
+                  ],
+                }),
+              },
+            );
+          } catch {
+            // Likely network failure during a transient blip. Stash
+            // it in the queue so it doesn't get lost; auto-sync will
+            // retry as soon as the radio comes back.
+            await applyLocally();
+            onSubmitted();
+            return;
+          }
+          if (!res.ok) {
+            const body = await res.text().catch(() => '');
+            throw new Error(`POST failed (${res.status}): ${body || res.statusText}`);
+          }
+        } else {
+          let res: Response;
+          try {
+            res = await fetch(
+              `/api/portal/items/${modal.layer.dataLayerId}/layers/${encodeURIComponent(
+                modal.layer.layerKey,
+              )}/features/${modal.featureId}`,
+              {
+                method: 'PATCH',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ properties }),
+              },
+            );
+          } catch {
+            await applyLocally();
+            onSubmitted();
+            return;
+          }
+          if (!res.ok) {
+            const body = await res.text().catch(() => '');
+            throw new Error(
+              `PATCH failed (${res.status}): ${body || res.statusText}`,
+            );
+          }
         }
       } else {
-        const res = await fetch(
-          `/api/portal/items/${modal.layer.dataLayerId}/layers/${encodeURIComponent(
-            modal.layer.layerKey,
-          )}/features/${modal.featureId}`,
-          {
-            method: 'PATCH',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ properties }),
-          },
-        );
-        if (!res.ok) {
-          const body = await res.text().catch(() => '');
-          throw new Error(
-            `PATCH failed (${res.status}): ${body || res.statusText}`,
-          );
-        }
+        // Offline path. The browser reports !navigator.onLine so we
+        // know the network is down; skip the doomed fetch and go
+        // straight to the queue. The user sees the same "submitted"
+        // success state as online; the difference is the edit lives
+        // in IndexedDB until sync runs.
+        await applyLocally();
       }
       onSubmitted();
     } catch (err) {
@@ -1608,6 +1818,61 @@ function ConnectivityPill({
       <CircleSlash className="h-3 w-3" />
       No cache
     </span>
+  );
+}
+
+/**
+ * Queue badge + sync trigger (Slice 5). Renders only when there's
+ * something queued; the field worker shouldn't see queue-related
+ * chrome during normal online work. Three visual states:
+ *
+ *   - Online + queued: amber, clickable, runs sync on click.
+ *   - Online + syncing: amber + spinner, click-disabled.
+ *   - Offline + queued: muted gray, not clickable. Tooltip explains
+ *     that sync is paused until reconnect.
+ *
+ * The count is the live queue depth (pending + failed records). A
+ * failed record stays visible here until the next sync run resolves
+ * it or the user explicitly drops it from the admin recovery view
+ * (which lands later in this slice).
+ */
+function QueueBadge({
+  count,
+  syncing,
+  isOnline,
+  onSync,
+}: {
+  count: number;
+  syncing: boolean;
+  isOnline: boolean;
+  onSync: () => void;
+}) {
+  if (!isOnline) {
+    return (
+      <span
+        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-muted"
+        title={`${count} ${count === 1 ? 'edit' : 'edits'} waiting to sync. Reconnect to send.`}
+      >
+        <CloudOff className="h-3 w-3" />
+        {count} queued
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      disabled={syncing}
+      onClick={onSync}
+      className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-60"
+      title={`${count} ${count === 1 ? 'edit' : 'edits'} waiting to sync. Click to send now.`}
+    >
+      {syncing ? (
+        <Loader2 className="h-3 w-3 animate-spin" />
+      ) : (
+        <CloudDownload className="h-3 w-3 rotate-180" />
+      )}
+      {syncing ? 'Syncing...' : `Sync ${count}`}
+    </button>
   );
 }
 
