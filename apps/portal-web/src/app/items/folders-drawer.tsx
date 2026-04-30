@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Folder as FolderIcon, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { FolderRail, type FolderRailNode } from './folder-rail';
 
@@ -37,7 +38,23 @@ export function FoldersDrawer({ folders, activeFolderId, children }: Props) {
   // minimal (the rail just slides in on first mount when restoring)
   // and avoids a hydration mismatch.
   const [open, setOpen] = useState(false);
+  // ?folders=open in the URL forces the drawer open on land. The
+  // sidebar's "Folders" link uses this so a user clicking Folders
+  // actually sees the rail tree, regardless of their last
+  // localStorage preference. Already-active inside-folder views
+  // (?folder=<id>) also imply the drawer should be open: the user
+  // is browsing inside a specific folder and the rail is the
+  // primary nav surface for that view.
+  const searchParams = useSearchParams();
+  const wantOpenFromUrl =
+    searchParams?.get('folders') === 'open' ||
+    !!searchParams?.get('folder');
+
   useEffect(() => {
+    if (wantOpenFromUrl) {
+      setOpen(true);
+      return;
+    }
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw === 'true') setOpen(true);
@@ -47,7 +64,10 @@ export function FoldersDrawer({ folders, activeFolderId, children }: Props) {
          Their preference won't persist across reloads but the page
          still works. */
     }
-  }, []);
+    // wantOpenFromUrl flips at most once per mount (URL doesn't
+    // change without a navigate); listing it here keeps the eslint
+    // exhaustive-deps check happy without thrashing the effect.
+  }, [wantOpenFromUrl]);
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, String(open));

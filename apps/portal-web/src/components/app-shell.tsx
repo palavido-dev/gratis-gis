@@ -75,8 +75,15 @@ export async function AppShell({ children }: { children: ReactNode }) {
               the rail tree (the actual folder navigation surface).
               Folders aren't a separate destination -- they're how
               you organize items, so the link drops you where you
-              can see and use them. */}
-          <NavLink href="/items" icon={<FolderIcon className="h-4 w-4" />}>
+              can see and use them. The `folders=open` flag forces
+              the slide-in drawer open on landing so the user
+              actually sees the rail when they meant to click on
+              "Folders"; the drawer's normal closed-by-default
+              behaviour resumes on subsequent visits to /items. */}
+          <NavLink
+            href="/items?folders=open"
+            icon={<FolderIcon className="h-4 w-4" />}
+          >
             Folders
           </NavLink>
           <NavLink href="/groups" icon={<Users className="h-4 w-4" />}>Groups</NavLink>
