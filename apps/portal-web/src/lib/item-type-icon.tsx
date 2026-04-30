@@ -54,6 +54,7 @@ const ITEM_TYPE_ICONS: Record<ItemType, LucideIcon> = {
   wfs_service: Plug,
   folder: FolderIcon,
   editor: PencilRuler,
+  data_collection: ClipboardList,
 };
 
 /**
@@ -86,6 +87,7 @@ const ITEM_TYPE_LABELS: Record<ItemType, string> = {
   wfs_service: 'WFS service',
   folder: 'Folder',
   editor: 'Editor',
+  data_collection: 'Data collection',
 };
 
 export function getItemTypeLabel(t: ItemType): string {
@@ -118,6 +120,7 @@ const ITEM_TYPE_ACCENT: Record<ItemType, string> = {
   wfs_service: 'text-cyan-800',
   folder: 'text-amber-700',
   editor: 'text-purple-600',
+  data_collection: 'text-violet-700',
 };
 
 /** Tailwind class combos for the tile background used in compact
@@ -145,6 +148,7 @@ const ITEM_TYPE_TILE: Record<ItemType, string> = {
   wfs_service: 'bg-cyan-800/90 text-white',
   folder: 'bg-amber-600/90 text-white',
   editor: 'bg-purple-500/90 text-white',
+  data_collection: 'bg-violet-700/90 text-white',
 };
 
 export function getItemTypeIcon(type: ItemType): LucideIcon {
@@ -169,6 +173,10 @@ export function getItemTypeIcon(type: ItemType): LucideIcon {
  */
 export function getItemHref(item: { id: string; type: ItemType }): string {
   if (item.type === 'editor') return `/items/${item.id}/editor/run`;
+  // data_collection items go straight to field-mode runtime (#193).
+  // The config / sharing surface is still reachable via the back
+  // button or the Edit link from inside the runtime.
+  if (item.type === 'data_collection') return `/items/${item.id}/field`;
   return `/items/${item.id}`;
 }
 

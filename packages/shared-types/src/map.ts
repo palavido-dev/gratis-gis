@@ -340,7 +340,22 @@ export interface MapLayerFilter {
 export type MapLayerSource =
   | { kind: 'geojson-url'; url: string }
   | { kind: 'geojson-inline'; geojson: unknown }
-  | { kind: 'data-layer'; itemId: string }
+  | {
+      kind: 'data-layer';
+      itemId: string;
+      /**
+       * Optional sublayer key for v3 multi-layer data_layer items.
+       * When set, the renderer fetches
+       * `/items/<itemId>/layers/<layerKey>/geojson` (the per-sublayer
+       * v3 endpoint) instead of the legacy item-level
+       * `/items/<itemId>/geojson` (which only exists for v1 inline /
+       * v2 single-table items). The Add Layer dialog generates one
+       * MapLayer per sublayer with this set when an author drops a
+       * v3 data_layer onto the map; v1/v2 items omit it and continue
+       * to hit the item-level endpoint.
+       */
+      layerKey?: string;
+    }
   | {
       kind: 'arcgis-rest';
       /** Root service URL, without the trailing /<layerId>. */

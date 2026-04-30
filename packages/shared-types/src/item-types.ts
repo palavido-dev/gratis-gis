@@ -30,6 +30,7 @@ export const ITEM_TYPES = [
   'wfs_service',
   'folder',
   'editor',
+  'data_collection',
 ] as const;
 
 export type ItemType = (typeof ITEM_TYPES)[number];

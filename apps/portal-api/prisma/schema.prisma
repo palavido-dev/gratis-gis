@@ -125,6 +125,7 @@ enum ItemType {
   wfs_service                @map("wfs-service")
   folder
   editor
+  data_collection            @map("data-collection")
 }
 
 // ---------- Tables ----------
