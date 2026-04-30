@@ -536,7 +536,26 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
    * just `itemId` to the layer source) so they skip the hydrate.
    */
   async function submitPortalItem(item: Item) {
+    if (item.type === 'data_layer') {
+      // Hydrate so we can see `data.version` and `data.layers`. v3
+      // multi-layer items split features across one PostGIS table per
+      // sublayer, so a single map layer with bare itemId can't render
+      // them: the read endpoint needs ?layerKey=. We expand each
+      // spatial sublayer into its own MapLayer here, matching the
+      // convention the derived-layer source picker uses. v2 items
+      // hydrate too but keep the legacy single-layer behavior.
+      const hydrated = await hydratePortalItem(item);
+      if (hydrated === null) return;
+      addDataLayerPortalItem(hydrated);
+      reset();
+      onClose();
+      return;
+    }
     if (item.type !== 'arcgis_service') {
+      // derived_layer and any other compatible kind: passes through
+      // as a single data-layer source. derived_layer reads route
+      // through its own service path on the backend, which already
+      // resolves the source's sublayer internally.
       onAdd(makeLayer(item.title, { kind: 'data-layer', itemId: item.id }));
       reset();
       onClose();
@@ -559,6 +578,84 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
       'flat',
       new Set(ordered.map((l) => l.id)),
     );
+  }
+
+  /**
+   * Add a hydrated `data_layer` item to the map. Branches on schema
+   * version:
+   *
+   * - v3 multi-layer: one map layer per spatial sublayer. Layer
+   *   titles follow "Item - Sublayer" so a multi-sublayer add reads
+   *   clearly in the layer list. layerKey is stamped on each new
+   *   MapLayerSource so the canvas's URL builder routes to the
+   *   right per-sublayer table.
+   * - v3 single-spatial / v2 / v1: one map layer with no layerKey
+   *   (the API auto-picks for v3 single-spatial and the legacy path
+   *   handles v1/v2). Layer title is just the item title.
+   *
+   * Rare edge case: a v3 item with no spatial sublayers (only
+   * attribute-only related tables) yields nothing renderable. We
+   * surface the situation as a setError instead of silently adding
+   * a broken map layer.
+   */
+  function addDataLayerPortalItem(item: Item): void {
+    const data = item.data as
+      | { version?: unknown; layers?: unknown }
+      | null
+      | undefined;
+    const version = typeof data?.version === 'number' ? data.version : 0;
+    if (version !== 3) {
+      // v1 / v2 single-table item. layerKey absent.
+      onAdd(makeLayer(item.title, { kind: 'data-layer', itemId: item.id }));
+      return;
+    }
+    const layers = Array.isArray(data?.layers) ? data!.layers : [];
+    const spatial = (layers as Array<Record<string, unknown>>).filter((l) => {
+      const id = l.id;
+      const geom = l.geometryType;
+      return typeof id === 'string' && id.length > 0 && typeof geom === 'string';
+    });
+    if (spatial.length === 0) {
+      setError(
+        `${item.title} has no spatial sublayers; nothing to add to the map.`,
+      );
+      return;
+    }
+    if (spatial.length === 1) {
+      // Single spatial sublayer: stamp the layerKey explicitly so the
+      // canvas reads from fs_<id>_<layerKey> rather than relying on
+      // the server's auto-pick. Belt-and-suspenders: if the user later
+      // adds another sublayer to the source, the existing map layer
+      // keeps reading the originally-chosen one.
+      const layerKey = spatial[0]!.id as string;
+      onAdd(
+        makeLayer(item.title, {
+          kind: 'data-layer',
+          itemId: item.id,
+          layerKey,
+        }),
+      );
+      return;
+    }
+    // Multiple spatial sublayers: emit one MapLayer per sublayer.
+    // Each onAdd appends to the current map, so a user picking a v3
+    // item with three sublayers ends up with three map layers, each
+    // labeled "Item - Sublayer". The order matches the source's
+    // declared order, which the v3 builder controls.
+    for (const layer of spatial) {
+      const layerKey = layer.id as string;
+      const sublayerLabel =
+        typeof layer.label === 'string' && layer.label.length > 0
+          ? layer.label
+          : layerKey;
+      onAdd(
+        makeLayer(`${item.title} - ${sublayerLabel}`, {
+          kind: 'data-layer',
+          itemId: item.id,
+          layerKey,
+        }),
+      );
+    }
   }
 
   /**

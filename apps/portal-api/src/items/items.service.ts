@@ -29,10 +29,64 @@ import {
 } from './dependency-extractor.js';
 import {
   V3TablesService,
+  toV3TableName,
   type V3LayerShape,
 } from '../features-v3/v3-tables.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { DerivedLayersService } from '../derived-layers/derived-layers.service.js';
+
+/**
+ * Pick the right PostGIS feature table for a `data_layer` item read via
+ * the legacy `/items/:id/geojson` endpoint. Encapsulates the v2-vs-v3
+ * branch so the read path stays linear:
+ *
+ * - v2 single-table items return `fs_<itemId>`. The layerKey arg is
+ *   ignored because v2 has no sublayer concept; passing one would
+ *   imply structure that doesn't exist, but we deliberately don't
+ *   400 here so a client that always sends `?layerKey=` against a
+ *   mixed v2/v3 portal still works.
+ * - v3 multi-layer items return `fs_<itemId>_<layerKey>`. The key is
+ *   either supplied by the caller or auto-picked when the item has
+ *   exactly one spatial sublayer. Multiple spatial sublayers without
+ *   an explicit key, or an unknown key, raise BadRequestException.
+ */
+function resolveLegacyGeoJsonTable(
+  itemId: string,
+  data: { version?: number; layers?: unknown } | null,
+  layerKey: string | undefined,
+): string {
+  const v2TableName = `fs_${itemId.replace(/-/g, '')}`;
+  if (data?.version !== 3) return v2TableName;
+
+  // v3 from here on. The data blob carries a `layers` array of
+  // sublayer descriptors; only ones with a `geometryType` string
+  // back a feature table (attribute-only related tables don't).
+  const layers = Array.isArray(data.layers) ? data.layers : [];
+  const spatial = layers.filter((l): l is { id: string; geometryType: string } => {
+    if (!l || typeof l !== 'object') return false;
+    const id = (l as { id?: unknown }).id;
+    const geom = (l as { geometryType?: unknown }).geometryType;
+    return typeof id === 'string' && id.length > 0 && typeof geom === 'string';
+  });
+  if (spatial.length === 0) {
+    throw new BadRequestException(
+      'data_layer has no spatial sublayers; nothing to render',
+    );
+  }
+  if (layerKey === undefined) {
+    if (spatial.length === 1) return toV3TableName(itemId, spatial[0]!.id);
+    throw new BadRequestException(
+      'data_layer has multiple sublayers; pass ?layerKey=<id> to disambiguate, or use /items/:id/layers/:layerKey/geojson',
+    );
+  }
+  const match = spatial.find((l) => l.id === layerKey);
+  if (!match) {
+    throw new BadRequestException(
+      `data_layer sublayer "${layerKey}" not found`,
+    );
+  }
+  return toV3TableName(itemId, match.id);
+}
 
 // Optional fields use `| undefined` explicitly so class-validator DTOs
 // (which leave unset keys present-as-undefined) can satisfy these types
@@ -1067,6 +1121,18 @@ export class ItemsService {
       bbox?: [number, number, number, number];
       at?: string;
       boundaryClipId?: string;
+      /**
+       * v3 multi-layer items split features across one PostGIS table
+       * per sublayer. When the source is v3, callers MUST name which
+       * sublayer to read from via this option (or via the dedicated
+       * /items/:id/layers/:layerKey/geojson endpoint, which is the
+       * Editor's path). v1/v2 items ignore the option since they
+       * have a single feature table. When omitted on a v3 item with
+       * exactly one spatial sublayer, the service auto-picks it; if
+       * the v3 item has multiple spatial sublayers, the request
+       * fails with a 400 telling the caller to disambiguate.
+       */
+      layerKey?: string;
     } = {},
   ): Promise<{ type: 'FeatureCollection'; features: unknown[] }> {
     const item = await this.get(user, id);
@@ -1126,8 +1192,13 @@ export class ItemsService {
     }
 
     if (data?.storageType === 'postgis') {
-      // v2: query the PostGIS table.
-      const tbl = `fs_${id.replace(/-/g, '')}`;
+      // v2 reads `fs_<id>`; v3 reads `fs_<id>_<layerKey>`. Pick the
+      // right table now so the rest of this branch is shape-agnostic.
+      // For v3 the resolution requires either an explicit layerKey
+      // from the caller or exactly one spatial sublayer to auto-pick;
+      // anything else 400s with a clear message rather than silently
+      // querying a non-existent table.
+      const tbl = resolveLegacyGeoJsonTable(id, data, opts.layerKey);
       const params: unknown[] = [];
       const conditions: string[] = [];
 

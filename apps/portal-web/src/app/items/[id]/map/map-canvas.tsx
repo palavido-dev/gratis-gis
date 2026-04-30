@@ -2070,12 +2070,15 @@ function sourceData(layer: MapLayer): GeoJSON.FeatureCollection | string | null 
     // for data-layer sources only -- external sources (geojson-url,
     // arcgis-rest) are out of our control and would need a client-
     // side MapLibre filter for the same effect.
+    //
+    // layerKey, when present, names a v3 multi-layer item's specific
+    // sublayer. The server picks fs_<itemId>_<layerKey> instead of
+    // the v2 single-table fs_<itemId>. v1/v2 items don't carry one.
     const base = `/api/portal/items/${layer.source.itemId}/geojson`;
-    if (layer.boundaryFilterItemId) {
-      const qs = new URLSearchParams({ clip: layer.boundaryFilterItemId });
-      return `${base}?${qs}`;
-    }
-    return base;
+    const qs = new URLSearchParams();
+    if (layer.boundaryFilterItemId) qs.set('clip', layer.boundaryFilterItemId);
+    if (layer.source.layerKey) qs.set('layerKey', layer.source.layerKey);
+    return qs.toString() ? `${base}?${qs}` : base;
   }
   if (layer.source.kind === 'arcgis-rest') {
     // Start with an empty collection. The camera-driven refetch

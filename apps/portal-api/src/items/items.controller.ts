@@ -313,6 +313,7 @@ export class ItemsController {
     @Query('bbox') bbox?: string,
     @Query('at') at?: string,
     @Query('clip') clip?: string,
+    @Query('layerKey') layerKey?: string,
   ) {
     // Use conditional spread (not `undefined` values) to play nicely
     // with exactOptionalPropertyTypes; the destructure also narrows
@@ -322,6 +323,7 @@ export class ItemsController {
       bbox?: [number, number, number, number];
       at?: string;
       boundaryClipId?: string;
+      layerKey?: string;
     } = {};
     if (bbox) {
       const parts = bbox.split(',').map(Number);
@@ -336,6 +338,11 @@ export class ItemsController {
     // scope. Bypasses per-user authz on the boundary item; missing
     // / wrong-type / no-geometry is treated as no clip.
     if (clip) opts.boundaryClipId = clip;
+    // v3 multi-layer items split features across one PostGIS table
+    // per sublayer. layerKey names which to read; the service
+    // auto-picks when there's exactly one spatial sublayer, and
+    // rejects with a 400 otherwise. v1/v2 items ignore layerKey.
+    if (layerKey) opts.layerKey = layerKey;
     return this.items.getGeoJson(user, id, opts);
   }
 

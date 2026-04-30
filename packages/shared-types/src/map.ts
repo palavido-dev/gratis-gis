@@ -340,7 +340,20 @@ export interface MapLayerFilter {
 export type MapLayerSource =
   | { kind: 'geojson-url'; url: string }
   | { kind: 'geojson-inline'; geojson: unknown }
-  | { kind: 'data-layer'; itemId: string }
+  | {
+      kind: 'data-layer';
+      itemId: string;
+      /**
+       * Sublayer key when the source is a v3 multi-layer data layer.
+       * Absent / undefined means a v1 / v2 single-table item, OR a v3
+       * item with exactly one spatial sublayer (the API auto-picks).
+       * The map canvas threads this through to the `?layerKey=` query
+       * param on `/items/:id/geojson` so the right per-sublayer table
+       * is read. v3 items with multiple spatial sublayers REQUIRE this
+       * field; the add-layer dialog prompts for it on selection.
+       */
+      layerKey?: string;
+    }
   | {
       kind: 'arcgis-rest';
       /** Root service URL, without the trailing /<layerId>. */

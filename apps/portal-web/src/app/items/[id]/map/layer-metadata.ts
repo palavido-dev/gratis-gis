@@ -165,10 +165,20 @@ export async function discoverLayerMetadata(
       }
       raw = await res.json();
     } else {
-      const url =
-        layer.source.kind === 'geojson-url'
-          ? layer.source.url
-          : `/api/portal/items/${layer.source.itemId}/geojson`;
+      // For data-layer sources we route through the same legacy
+      // /items/:id/geojson endpoint MapCanvas uses. layerKey is
+      // threaded through so a v3 multi-layer source returns its
+      // specific sublayer's features rather than 400-ing on the
+      // ambiguous default.
+      const url = (() => {
+        if (layer.source.kind === 'geojson-url') return layer.source.url;
+        const base = `/api/portal/items/${layer.source.itemId}/geojson`;
+        if (layer.source.layerKey) {
+          const qs = new URLSearchParams({ layerKey: layer.source.layerKey });
+          return `${base}?${qs}`;
+        }
+        return base;
+      })();
       const init: RequestInit = {};
       if (signal) init.signal = signal;
       const res = await fetch(url, init);
