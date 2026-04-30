@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { ArrowRight, FlaskConical, Layers } from 'lucide-react';
 import {
+  AREA_UNIT_LABELS,
   UNIT_LABELS,
   type DerivedLayerData,
   type Item,
@@ -170,6 +171,28 @@ function labelForTool(step: ToolStep): string {
       return 'Buffer';
     case 'dissolve':
       return 'Dissolve';
+    case 'centroid':
+      return 'Centroid';
+    case 'convex-hull':
+      return 'Convex hull';
+    case 'bbox':
+      return 'Bounding box';
+    case 'simplify':
+      return 'Simplify';
+    case 'vertices':
+      return 'Vertices';
+    case 'densify':
+      return 'Densify';
+    case 'top-n':
+      return 'Top N';
+    case 'random-sample':
+      return 'Random sample';
+    case 'nearest-neighbor':
+      return 'Nearest-neighbor distance';
+    case 'fishnet':
+      return 'Fishnet';
+    case 'calculate-geometry':
+      return 'Calculate geometry';
     default:
       // Future tools land in this default until they grow a label;
       // shows the raw kind so the panel never goes silently blank
@@ -200,6 +223,43 @@ function summarizeStep(step: ToolStep): string {
       // geometries) are explained in the design doc and the
       // builder's step editor.
       return 'merge all features';
+    case 'centroid':
+      return 'center point per feature';
+    case 'convex-hull':
+      return 'smallest enclosing convex polygon';
+    case 'bbox':
+      return 'axis-aligned bounding rectangle';
+    case 'simplify': {
+      const u = UNIT_LABELS[step.params.unit] ?? step.params.unit;
+      return `tolerance ${step.params.tolerance.toLocaleString()} ${u}`;
+    }
+    case 'vertices':
+      return 'one point per vertex';
+    case 'densify': {
+      const u = UNIT_LABELS[step.params.unit] ?? step.params.unit;
+      return `max ${step.params.maxSegmentLength.toLocaleString()} ${u} per segment`;
+    }
+    case 'top-n': {
+      const dir = step.params.direction === 'asc' ? 'lowest' : 'highest';
+      return `${dir} ${step.params.n.toLocaleString()} by ${step.params.field}`;
+    }
+    case 'random-sample':
+      return step.params.mode === 'percentage'
+        ? `~${step.params.value}% of rows`
+        : `${step.params.value.toLocaleString()} rows`;
+    case 'nearest-neighbor':
+      return 'distance to closest neighbor (m)';
+    case 'fishnet': {
+      const u = UNIT_LABELS[step.params.unit] ?? step.params.unit;
+      return `${step.params.cellSize.toLocaleString()} ${u} cells (${step.params.output})`;
+    }
+    case 'calculate-geometry': {
+      const u =
+        step.params.measurement === 'area'
+          ? AREA_UNIT_LABELS[step.params.unit] ?? step.params.unit
+          : UNIT_LABELS[step.params.unit] ?? step.params.unit;
+      return `${step.params.measurement} -> ${step.params.fieldName} (${u})`;
+    }
     default:
       return '';
   }

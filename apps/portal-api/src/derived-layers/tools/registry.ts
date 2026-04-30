@@ -1,8 +1,19 @@
 import { BadRequestException } from '@nestjs/common';
 import type { ToolStep } from '@gratis-gis/shared-types';
 
+import { bboxGenerator } from './bbox.js';
 import { bufferGenerator } from './buffer.js';
+import { calculateGeometryGenerator } from './calculate-geometry.js';
+import { centroidGenerator } from './centroid.js';
+import { convexHullGenerator } from './convex-hull.js';
+import { densifyGenerator } from './densify.js';
 import { dissolveGenerator } from './dissolve.js';
+import { fishnetGenerator } from './fishnet.js';
+import { nearestNeighborGenerator } from './nearest-neighbor.js';
+import { randomSampleGenerator } from './random-sample.js';
+import { simplifyGenerator } from './simplify.js';
+import { topNGenerator } from './top-n.js';
+import { verticesGenerator } from './vertices.js';
 import type { ToolGenerator } from './types.js';
 
 /**
@@ -19,6 +30,26 @@ import type { ToolGenerator } from './types.js';
 const REGISTRY: Map<string, ToolGenerator<unknown>> = new Map([
   [bufferGenerator.kind, bufferGenerator as ToolGenerator<unknown>],
   [dissolveGenerator.kind, dissolveGenerator as ToolGenerator<unknown>],
+  [centroidGenerator.kind, centroidGenerator as ToolGenerator<unknown>],
+  [convexHullGenerator.kind, convexHullGenerator as ToolGenerator<unknown>],
+  [bboxGenerator.kind, bboxGenerator as ToolGenerator<unknown>],
+  [simplifyGenerator.kind, simplifyGenerator as ToolGenerator<unknown>],
+  [verticesGenerator.kind, verticesGenerator as ToolGenerator<unknown>],
+  [densifyGenerator.kind, densifyGenerator as ToolGenerator<unknown>],
+  [topNGenerator.kind, topNGenerator as ToolGenerator<unknown>],
+  [
+    randomSampleGenerator.kind,
+    randomSampleGenerator as ToolGenerator<unknown>,
+  ],
+  [
+    nearestNeighborGenerator.kind,
+    nearestNeighborGenerator as ToolGenerator<unknown>,
+  ],
+  [fishnetGenerator.kind, fishnetGenerator as ToolGenerator<unknown>],
+  [
+    calculateGeometryGenerator.kind,
+    calculateGeometryGenerator as ToolGenerator<unknown>,
+  ],
 ]);
 
 /**

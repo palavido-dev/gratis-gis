@@ -82,3 +82,76 @@ export const LENGTH_UNITS: ReadonlyArray<LengthUnit> = [
   'yards',
   'miles',
 ];
+
+/**
+ * Area units used by the calculate-geometry tool's area mode. Square
+ * versions of the length units, plus hectares and acres which are the
+ * conventional "land parcel" units in metric and imperial respectively.
+ */
+export type AreaUnit =
+  | 'square-meters'
+  | 'square-kilometers'
+  | 'hectares'
+  | 'square-feet'
+  | 'square-yards'
+  | 'acres'
+  | 'square-miles';
+
+/**
+ * Square meters in one unit of `AreaUnit`. Multiply by a value in
+ * that unit to get square meters; divide a square-meters value to
+ * convert into that unit.
+ *
+ * Constants chosen to match international definitions: 1 ha = 10_000
+ * square meters, 1 acre = 4046.8564224 square meters (exactly), 1
+ * square mile = 1609.344 squared. Square versions of the LengthUnit
+ * factors are exact under `Math.pow(metersPerUnit, 2)` so we keep
+ * them factored that way for the linear units; ha and acres are
+ * spelled out.
+ */
+export const SQ_METERS_PER_AREA_UNIT: Record<AreaUnit, number> = {
+  'square-meters': 1,
+  'square-kilometers': 1_000_000,
+  hectares: 10_000,
+  'square-feet': 0.3048 * 0.3048,
+  'square-yards': 0.9144 * 0.9144,
+  acres: 4046.8564224,
+  'square-miles': 1609.344 * 1609.344,
+};
+
+export const AREA_UNIT_LABELS: Record<AreaUnit, string> = {
+  'square-meters': 'm2',
+  'square-kilometers': 'km2',
+  hectares: 'ha',
+  'square-feet': 'ft2',
+  'square-yards': 'yd2',
+  acres: 'ac',
+  'square-miles': 'mi2',
+};
+
+export const AREA_UNITS: ReadonlyArray<AreaUnit> = [
+  'square-meters',
+  'square-kilometers',
+  'hectares',
+  'square-feet',
+  'square-yards',
+  'acres',
+  'square-miles',
+];
+
+export function isAreaUnit(value: unknown): value is AreaUnit {
+  return (
+    typeof value === 'string' &&
+    Object.prototype.hasOwnProperty.call(SQ_METERS_PER_AREA_UNIT, value)
+  );
+}
+
+/**
+ * Convert a square-meters value into `unit`. Used by tools that
+ * compute on geography (which returns square meters) and want to
+ * surface a user-friendly unit. Divide-by-the-factor; pure.
+ */
+export function areaInUnit(squareMeters: number, unit: AreaUnit): number {
+  if (unit === 'square-meters') return squareMeters;
+  return squareMeters / SQ_METERS_PER_AREA_UNIT[unit];
+}
