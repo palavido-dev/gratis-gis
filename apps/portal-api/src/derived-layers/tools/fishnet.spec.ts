@@ -58,6 +58,96 @@ describe('fishnetGenerator.validate', () => {
   });
 });
 
+describe('fishnetGenerator.enrich (cell-count safety check)', () => {
+  /**
+   * The bbox is roughly San Francisco peninsula (about 17 km wide,
+   * 17 km tall). At a 100m cellSize that's ~28,900 cells; well under
+   * the 1M cap.
+   */
+  const SF_BBOX = {
+    xmin: -122.5,
+    ymin: 37.7,
+    xmax: -122.35,
+    ymax: 37.85,
+  };
+
+  it('accepts a recipe whose source bbox fits within the cell-count cap', async () => {
+    const queryRaw = jest.fn().mockResolvedValue([SF_BBOX]);
+    const result = await fishnetGenerator.enrich!(
+      { cellSize: 100, unit: 'meters', output: 'polygons' },
+      { sourceSchema: [], sourceTable: '"fs_xyz"', queryRaw },
+    );
+    expect(result).toEqual({
+      cellSize: 100,
+      unit: 'meters',
+      output: 'polygons',
+    });
+    expect(queryRaw).toHaveBeenCalled();
+  });
+
+  it('rejects a recipe whose cell count exceeds the safety cap', async () => {
+    // SF-wide bbox at 1m cells = ~280M cells; well over the 1M cap.
+    const queryRaw = jest.fn().mockResolvedValue([SF_BBOX]);
+    await expect(
+      fishnetGenerator.enrich!(
+        { cellSize: 1, unit: 'meters', output: 'polygons' },
+        { sourceSchema: [], sourceTable: '"fs_xyz"', queryRaw },
+      ),
+    ).rejects.toThrow(/safety cap/);
+  });
+
+  it('rejects a recipe whose cell count exceeds the cap, accounting for unit conversion', async () => {
+    // SF-wide bbox; 0.001 km = 1m cells = the same too-many-cells case.
+    const queryRaw = jest.fn().mockResolvedValue([SF_BBOX]);
+    await expect(
+      fishnetGenerator.enrich!(
+        { cellSize: 0.001, unit: 'kilometers', output: 'polygons' },
+        { sourceSchema: [], sourceTable: '"fs_xyz"', queryRaw },
+      ),
+    ).rejects.toThrow(/safety cap/);
+  });
+
+  it('accepts an empty source (ST_Extent returns null)', async () => {
+    const queryRaw = jest.fn().mockResolvedValue([
+      { xmin: null, ymin: null, xmax: null, ymax: null },
+    ]);
+    await expect(
+      fishnetGenerator.enrich!(
+        { cellSize: 1, unit: 'meters', output: 'polygons' },
+        { sourceSchema: [], sourceTable: '"fs_xyz"', queryRaw },
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  it('queries the source via ST_Extent', async () => {
+    const queryRaw = jest.fn().mockResolvedValue([SF_BBOX]);
+    await fishnetGenerator.enrich!(
+      { cellSize: 100, unit: 'meters', output: 'polygons' },
+      { sourceSchema: [], sourceTable: '"fs_xyz"', queryRaw },
+    );
+    const [sql] = queryRaw.mock.calls[0]!;
+    expect(sql).toMatch(/ST_Extent\(geom\)/);
+    expect(sql).toMatch(/ST_XMin/);
+    expect(sql).toMatch(/ST_XMax/);
+  });
+
+  it('coerces string-typed bbox columns from PostgreSQL drivers', async () => {
+    const queryRaw = jest.fn().mockResolvedValue([
+      {
+        xmin: '-122.5',
+        ymin: '37.7',
+        xmax: '-122.35',
+        ymax: '37.85',
+      },
+    ]);
+    const result = await fishnetGenerator.enrich!(
+      { cellSize: 100, unit: 'meters', output: 'polygons' },
+      { sourceSchema: [], sourceTable: '"fs_xyz"', queryRaw },
+    );
+    expect(result.cellSize).toBe(100);
+  });
+});
+
 describe('fishnetGenerator.outputSchema', () => {
   it('drops source attributes and emits cell_row + cell_col', () => {
     const out = fishnetGenerator.outputSchema(
