@@ -848,6 +848,58 @@ const TOOL_DESCRIPTIONS: Record<ToolStep['tool'], string> = {
 };
 
 /**
+ * Logical tool groups for the toolbox modal. Borrows from PostGIS's
+ * own categorization (Geometry Processing / Accessors / Constructors /
+ * Measurement Functions) where it cleanly maps to user intent, and
+ * invents a UX-only category ('Filter') where it doesn't. Each group
+ * is rendered as its own section in the toolbox; adding a tool is two
+ * lines: extend TOOL_LABELS / TOOL_DESCRIPTIONS and append the kind
+ * to its group's `tools` array here.
+ *
+ * Order matters: groups render top-to-bottom in the order declared.
+ * A user opening the toolbox for the first time sees Reshape first,
+ * which covers the most common single-feature transforms.
+ */
+interface ToolGroup {
+  label: string;
+  description: string;
+  tools: Array<ToolStep['tool']>;
+}
+const TOOL_GROUPS: ToolGroup[] = [
+  {
+    label: 'Reshape',
+    description:
+      'Modify each feature’s geometry. Same row count out, attributes pass through.',
+    tools: ['buffer', 'simplify', 'densify', 'convex-hull', 'bbox'],
+  },
+  {
+    label: 'Extract',
+    description: 'Replace each feature with a piece extracted from it.',
+    tools: ['centroid', 'vertices'],
+  },
+  {
+    label: 'Combine',
+    description: 'Reduce many features to one or fewer.',
+    tools: ['dissolve'],
+  },
+  {
+    label: 'Measure',
+    description: 'Add a numeric attribute computed from each feature.',
+    tools: ['calculate-geometry', 'nearest-neighbor'],
+  },
+  {
+    label: 'Filter',
+    description: 'Keep a subset of rows, no geometry change.',
+    tools: ['top-n', 'random-sample'],
+  },
+  {
+    label: 'Generate',
+    description: 'Create new features from scratch.',
+    tools: ['fishnet'],
+  },
+];
+
+/**
  * Renders the pipeline as a vertical list of step cards. Between
  * each pair (and after the last, and before the first) sits an
  * "Add a step" button that opens a small picker showing every
@@ -871,6 +923,11 @@ function PipelineSection({
   onRemoveStep: (index: number) => void;
   onInsertStep: (index: number, kind: ToolStep['tool']) => void;
 }) {
+  // Toolbox modal state lives at the section level so a single modal
+  // instance serves every "Add a step" affordance. `pickerSlotIndex`
+  // is the pipeline index where the picked tool will be spliced in
+  // when the user makes a selection; null means the modal is closed.
+  const [pickerSlotIndex, setPickerSlotIndex] = useState<number | null>(null);
   return (
     <section className="space-y-2">
       <h4 className="text-xs font-medium uppercase tracking-wide text-muted">
@@ -887,7 +944,7 @@ function PipelineSection({
             a step without first having to add at the end and then
             reorder. */}
         <AddStepRow
-          onPick={(kind) => onInsertStep(0, kind)}
+          onClick={() => setPickerSlotIndex(0)}
           variant="slot"
         />
 
@@ -906,7 +963,7 @@ function PipelineSection({
                 list, so we lift it to a primary visual when it's
                 the last slot. */}
             <AddStepRow
-              onPick={(kind) => onInsertStep(idx + 1, kind)}
+              onClick={() => setPickerSlotIndex(idx + 1)}
               variant={idx === pipeline.length - 1 ? 'primary' : 'slot'}
             />
           </div>
@@ -918,6 +975,17 @@ function PipelineSection({
           </p>
         ) : null}
       </div>
+
+      <ToolToolbox
+        open={pickerSlotIndex !== null}
+        onClose={() => setPickerSlotIndex(null)}
+        onPick={(kind) => {
+          if (pickerSlotIndex !== null) {
+            onInsertStep(pickerSlotIndex, kind);
+          }
+          setPickerSlotIndex(null);
+        }}
+      />
     </section>
   );
 }
@@ -1036,80 +1104,201 @@ function StepCard({
 }
 
 /**
- * Inline insertion row. The "slot" variant is the small dashed-line
- * affordance between two cards; the "primary" variant is the
- * call-to-action button after the last step. Both open the same
- * picker; the variant is purely visual.
+ * Insertion-slot trigger between (or after) pipeline cards. The "slot"
+ * variant is the small dashed-line affordance between two cards; the
+ * "primary" variant is the call-to-action button after the last step.
+ * Both trigger the same toolbox modal; the parent owns the modal
+ * state so multiple slots share one modal instance.
  */
 function AddStepRow({
-  onPick,
+  onClick,
   variant,
 }: {
-  onPick: (kind: ToolStep['tool']) => void;
+  onClick: () => void;
   variant: 'slot' | 'primary';
 }) {
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  // Close on outside click. Same pattern the source picker uses;
-  // each AddStepRow is independent so concurrent open states across
-  // multiple slots don't collide.
-  useEffect(() => {
-    if (!open) return;
-    const onDocClick = (e: MouseEvent) => {
-      if (!containerRef.current) return;
-      if (!containerRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
-  }, [open]);
-
   const triggerClasses =
     variant === 'primary'
       ? 'inline-flex h-9 items-center gap-1 rounded-md border border-accent/40 bg-accent/5 px-3 text-xs font-medium text-accent hover:bg-accent/10'
       : 'inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-border bg-transparent px-2 text-[11px] text-muted hover:border-accent/50 hover:text-ink-1';
 
   return (
-    <div ref={containerRef} className="relative flex justify-center">
+    <div className="flex justify-center">
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={onClick}
         className={triggerClasses}
-        aria-haspopup="menu"
-        aria-expanded={open}
       >
         <Plus className="h-3.5 w-3.5" />
         Add a step
       </button>
-      {open ? (
-        <div
-          role="menu"
-          className="absolute top-full z-20 mt-1 w-64 overflow-hidden rounded-md border border-border bg-surface-0 shadow-lg"
-        >
-          <ul className="p-1">
-            {(Object.keys(TOOL_LABELS) as Array<ToolStep['tool']>).map((kind) => (
-              <li key={kind}>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    onPick(kind);
-                    setOpen(false);
-                  }}
-                  className="flex w-full flex-col items-start gap-0.5 rounded-md px-3 py-2 text-left text-sm hover:bg-surface-2"
-                >
-                  <span className="font-medium text-ink-0">
-                    {TOOL_LABELS[kind]}
-                  </span>
-                  <span className="text-[11px] text-muted">
-                    {TOOL_DESCRIPTIONS[kind]}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+    </div>
+  );
+}
+
+/**
+ * Modal "toolbox" for picking a tool to splice into the pipeline.
+ * Tools are organized into logical groups (see TOOL_GROUPS) so the
+ * list stays scannable as more tools are added. A search field at
+ * the top filters across all groups by name and description so a
+ * user who knows what they want doesn't have to scroll.
+ *
+ * Keyboard:
+ *   - Esc closes the modal
+ *   - "/" anywhere inside the modal jumps focus to the search input
+ *   - Tab / Shift-Tab walks through tool buttons in display order;
+ *     Enter on a focused button selects (this is just standard
+ *     button behavior, not custom)
+ *
+ * Click on the dimmed backdrop also dismisses; click on the inner
+ * card stops propagation so the modal stays open.
+ */
+function ToolToolbox({
+  open,
+  onClose,
+  onPick,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onPick: (kind: ToolStep['tool']) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const searchRef = useRef<HTMLInputElement | null>(null);
+
+  // Reset the search query and focus the search input when the modal
+  // opens. Using rAF so the input has been mounted before focus().
+  useEffect(() => {
+    if (!open) return;
+    setQuery('');
+    const id = requestAnimationFrame(() => searchRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, [open]);
+
+  // Global keyboard shortcuts while the modal is open. Esc closes;
+  // "/" focuses the search bar (skipped when the user is already
+  // typing in it so the slash isn't swallowed).
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+      if (e.key === '/' && document.activeElement !== searchRef.current) {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  // Filter tool list by query against label / description / kind.
+  // Empty query keeps every group; otherwise empty groups are
+  // dropped from the rendered output entirely so a search like
+  // "buffer" doesn't show empty Reshape / Filter / etc. headings.
+  const q = query.trim().toLowerCase();
+  const visibleGroups = TOOL_GROUPS.map((g) => ({
+    ...g,
+    tools: g.tools.filter((kind) => {
+      if (!q) return true;
+      const haystack = [TOOL_LABELS[kind], TOOL_DESCRIPTIONS[kind], kind]
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(q);
+    }),
+  })).filter((g) => g.tools.length > 0);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 sm:items-center"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Add a step"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-border bg-surface-0 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="border-b border-border p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-ink-0">
+                Add a step
+              </h2>
+              <p className="mt-0.5 text-xs text-muted">
+                Pick a tool. The output of this step becomes the input
+                of the next.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-ink-1"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="relative mt-3">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted"
+              aria-hidden="true"
+            />
+            <input
+              ref={searchRef}
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder='Filter tools (press "/" anywhere to focus)…'
+              className="h-10 w-full rounded-md border border-border bg-surface-1 pl-10 pr-3 text-sm text-ink-0 placeholder:text-muted focus:border-accent focus:outline-none"
+            />
+          </div>
+        </header>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          {visibleGroups.length === 0 ? (
+            <p className="text-center text-sm text-muted">
+              No tools match "{query}".
+            </p>
+          ) : (
+            <div className="space-y-5">
+              {visibleGroups.map((g) => (
+                <section key={g.label}>
+                  <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
+                    {g.label}
+                  </h3>
+                  <p className="mt-0.5 text-[11px] text-muted">
+                    {g.description}
+                  </p>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {g.tools.map((kind) => (
+                      <button
+                        key={kind}
+                        type="button"
+                        onClick={() => onPick(kind)}
+                        className="flex flex-col items-start gap-1 rounded-md border border-border bg-surface-1 p-3 text-left transition-colors hover:border-accent/50 hover:bg-surface-2 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+                      >
+                        <span className="text-sm font-medium text-ink-0">
+                          {TOOL_LABELS[kind]}
+                        </span>
+                        <span className="text-[11px] text-muted">
+                          {TOOL_DESCRIPTIONS[kind]}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }
