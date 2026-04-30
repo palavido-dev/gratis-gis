@@ -3,16 +3,18 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { ArrowRight, FlaskConical, Layers } from 'lucide-react';
-import type {
-  DerivedLayerData,
-  Item,
-  ToolStep,
+import {
+  UNIT_LABELS,
+  type DerivedLayerData,
+  type Item,
+  type ToolStep,
 } from '@gratis-gis/shared-types';
 
 /**
  * Read-only summary of a derived layer's recipe. Editing the recipe
- * (changing the source, tweaking buffer distance, adding tools) lives
- * on the standard /edit screen for now: this panel just shows what
+ * (changing the source, tweaking buffer distance, adding tools) is
+ * surfaced on the standard /edit screen, which renders the same
+ * builder used by the new-item wizard. This panel just shows what
  * the layer is so a viewer or owner can understand it at a glance,
  * and shows the cached output schema so people binding dashboards
  * to it can see the columns without running a query.
@@ -177,10 +179,35 @@ function labelForTool(step: ToolStep): string {
 function summarizeStep(step: ToolStep): string {
   switch (step.tool) {
     case 'buffer': {
-      const { distance, unit } = step.params;
-      return `${distance.toLocaleString()} ${unit}`;
+      const params = step.params;
+      const unitLabel = UNIT_LABELS[params.unit] ?? params.unit;
+      if (params.mode === 'field') {
+        // Field-driven buffer: show which column the per-feature
+        // distance reads from, the unit it's interpreted in, and the
+        // server-computed cap so a viewer understands the upper
+        // bound at a glance.
+        const cap = formatCap(params.cachedMaxMeters);
+        return `${params.field} (${unitLabel}, max ~${cap})`;
+      }
+      // Fixed: simple distance + unit.
+      return `${params.distance.toLocaleString()} ${unitLabel}`;
     }
     default:
       return '';
   }
+}
+
+/**
+ * Format a meters cap for display. Compact: bare meters under 1 km,
+ * km above. Used by the field-mode buffer summary so the cap reads
+ * naturally regardless of magnitude.
+ */
+function formatCap(meters: number): string {
+  if (!Number.isFinite(meters) || meters <= 0) return '0 m';
+  if (meters >= 1000) {
+    return `${(meters / 1000).toLocaleString(undefined, {
+      maximumFractionDigits: 2,
+    })} km`;
+  }
+  return `${Math.round(meters).toLocaleString()} m`;
 }

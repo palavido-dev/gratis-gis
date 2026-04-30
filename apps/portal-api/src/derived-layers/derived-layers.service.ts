@@ -60,17 +60,19 @@ export class DerivedLayersService {
   /**
    * Validate a derived_layer's `data` payload, run each tool's
    * validator, and compute the cached `outputSchema` and `bbox` from
-   * the source. Returns the enriched, persistable data. Throws
-   * `BadRequestException` for any validation failure.
+   * the source. Tools that declare an `enrich` hook (currently
+   * `buffer` field-mode for the per-feature distance cap) get a
+   * source-aware async pass. Returns the enriched, persistable data.
+   * Throws `BadRequestException` for any validation failure.
    *
    * The caller is expected to have already authorized the user
    * against `sourceItem`. This method only verifies the source's
    * type and shape.
    */
-  validateAndEnrich(
+  async validateAndEnrich(
     rawData: unknown,
     sourceItem: Pick<Item, 'id' | 'type' | 'data' | 'bbox'>,
-  ): DerivedLayerData {
+  ): Promise<DerivedLayerData> {
     if (!rawData || typeof rawData !== 'object') {
       throw new BadRequestException('derived_layer data must be an object');
     }
@@ -156,6 +158,13 @@ export class DerivedLayersService {
     const sourceSchema = sublayer
       ? sublayer.fields
       : readSourceSchema(sourceItem.data);
+    // Source feature table, pre-quoted, for any tool's `enrich` hook
+    // that needs to query against it (buffer's field-mode max
+    // computation is the only consumer in v1). v3 uses the per-
+    // sublayer table; v2 uses the single fs_<itemId> table.
+    const sourceTable = sublayer
+      ? `"${toV3TableName(sourceItem.id, sublayer.id)}"`
+      : `"fs_${sourceItem.id.replace(/-/g, '')}"`;
     let schema: FeatureField[] = sourceSchema;
     let totalReachMeters = 0;
     const validatedPipeline: ToolStep[] = [];
@@ -176,12 +185,24 @@ export class DerivedLayersService {
         tool,
         params: (stepRaw as { params?: unknown }).params,
       } as ToolStep);
-      const params = generator.validate(
+      const validated = generator.validate(
         (stepRaw as { params?: unknown }).params,
+        { sourceSchema: schema },
       );
-      schema = generator.outputSchema(schema, params);
-      totalReachMeters += generator.outwardReachMeters(params);
-      validatedPipeline.push({ tool, params } as ToolStep);
+      // Async enrichment hook: tools fill in any caches the recipe
+      // needs (buffer's field-mode `cachedMaxMeters`). Only fired at
+      // save time; reads trust the persisted shape.
+      const enrichedParams = generator.enrich
+        ? await generator.enrich(validated, {
+            sourceSchema: schema,
+            sourceTable,
+            queryRaw: <T = unknown>(sql: string, ...p: unknown[]) =>
+              this.prisma.$queryRawUnsafe<T[]>(sql, ...p),
+          })
+        : validated;
+      schema = generator.outputSchema(schema, enrichedParams);
+      totalReachMeters += generator.outwardReachMeters(enrichedParams);
+      validatedPipeline.push({ tool, params: enrichedParams } as ToolStep);
     }
 
     const bbox = padBboxByMeters(

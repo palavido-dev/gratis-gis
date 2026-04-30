@@ -55,6 +55,7 @@ export default async function EditItemPage({ params }: Props) {
           thumbnailUrl: item.thumbnailUrl,
           license: item.license,
         }}
+        initialData={item.data}
       />
     </div>
   );

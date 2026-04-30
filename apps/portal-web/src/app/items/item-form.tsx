@@ -11,13 +11,21 @@ import {
   Save,
   Sparkles,
 } from 'lucide-react';
-import type { Item, ItemAccess, ItemType } from '@gratis-gis/shared-types';
+import type {
+  DerivedLayerData,
+  Item,
+  ItemAccess,
+  ItemType,
+} from '@gratis-gis/shared-types';
 import {
   DEFAULT_ARCGIS_SERVICE,
   DEFAULT_DATA_LAYER,
+  DEFAULT_DERIVED_LAYER,
   DEFAULT_MAP,
+  isDerivedLayerData,
 } from '@gratis-gis/shared-types';
 import { ImageUploader } from '@/components/image-uploader';
+import { DerivedLayerBuilder } from './new/derived-layer-builder';
 
 type Mode =
   | { kind: 'create' }
@@ -37,6 +45,13 @@ interface Props {
       | 'license'
     >
   >;
+  /**
+   * Optional pre-loaded `data` blob, surfaced in edit mode for item
+   * types that have an inline recipe editor here (currently
+   * `derived_layer`). Untyped on the way in so this prop can carry any
+   * item type's data; consumers narrow against the type before reading.
+   */
+  initialData?: unknown;
   /** Item id in edit mode, used as a stable seed for the fallback badge. */
   itemId?: string;
 }
@@ -148,11 +163,17 @@ const accessOptions: Array<{
 ];
 
 /**
- * Create/edit form for item metadata. Data payload is not edited here
- * type-specific editors (map authoring, form designer, etc.) ship with
- * their respective pillars. On create, the payload defaults to {}.
+ * Create/edit form for item metadata. Most type-specific editors ship
+ * with their respective pillars (map authoring, form designer, etc.).
+ * Derived layers are an exception: the recipe (source + pipeline) is
+ * structural to the item's identity, so the same builder used in the
+ * new-item wizard is rendered inline here on the edit page so a saved
+ * derived layer can have its source or pipeline changed without a
+ * separate UI surface. The backend's PATCH handler re-runs
+ * `validateAndEnrich` whenever `data` is included in the body, so the
+ * cached `outputSchema` and `bbox` stay in sync.
  */
-export function ItemForm({ mode, initialValues, itemId }: Props) {
+export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [submitting, setSubmitting] = useState(false);
@@ -192,6 +213,20 @@ export function ItemForm({ mode, initialValues, itemId }: Props) {
   const [licenseCustom, setLicenseCustom] = useState<string>(
     initialPreset ? '' : initialLicense,
   );
+
+  // Derived-layer recipe state. Only consulted when type is
+  // `derived_layer` and the form is in edit mode; for create flows the
+  // wizard owns the builder. We seed from `initialData` when it looks
+  // like a valid recipe and fall back to the default scaffold so the
+  // builder always has a coherent value to render. The original recipe
+  // (stringified) is captured once so submit can decide whether `data`
+  // is actually dirty and should be sent in the PATCH body.
+  const initialDerivedLayer: DerivedLayerData = isDerivedLayerData(initialData)
+    ? initialData
+    : DEFAULT_DERIVED_LAYER;
+  const [derivedLayerData, setDerivedLayerData] =
+    useState<DerivedLayerData>(initialDerivedLayer);
+  const initialDerivedLayerJson = JSON.stringify(initialDerivedLayer);
 
   function parseTags(raw: string): string[] {
     return raw
@@ -239,6 +274,34 @@ export function ItemForm({ mode, initialValues, itemId }: Props) {
             : type === 'arcgis_service'
               ? DEFAULT_ARCGIS_SERVICE
               : {};
+    } else if (type === 'derived_layer') {
+      // Only attach `data` to the PATCH when the recipe actually
+      // changed. The backend re-runs validateAndEnrich whenever `data`
+      // is present, which loads the source layer and recomputes the
+      // schema, so omitting it on metadata-only edits keeps those
+      // edits cheap and side-steps the case where the source is
+      // currently inaccessible (a metadata-only save would otherwise
+      // 400 on enrichment for no good reason).
+      const nextJson = JSON.stringify(derivedLayerData);
+      if (nextJson !== initialDerivedLayerJson) {
+        // Mirror the wizard's create-time guards. Catching this on
+        // the client gives a friendlier error than the backend's
+        // "derived_layer.source.itemId is required" 400.
+        if (!derivedLayerData.source?.itemId) {
+          setError('Pick a source data layer for this derived layer.');
+          setSubmitting(false);
+          return;
+        }
+        if (
+          !Array.isArray(derivedLayerData.pipeline) ||
+          derivedLayerData.pipeline.length === 0
+        ) {
+          setError('Add at least one tool step to the pipeline.');
+          setSubmitting(false);
+          return;
+        }
+        payload.data = derivedLayerData;
+      }
     }
 
     const url =
@@ -472,6 +535,23 @@ export function ItemForm({ mode, initialValues, itemId }: Props) {
           </p>
         ) : null}
       </section>
+
+      {/* Derived-layer recipe editor. Mirrors the wizard's inline
+          builder so editing parity matches creation parity: source
+          and pipeline can be changed from the same UI a user already
+          knows. The backend re-enriches outputSchema and bbox on
+          save, so this surface stays purely structural. */}
+      {mode.kind === 'edit' && type === 'derived_layer' ? (
+        <section>
+          <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted">
+            Recipe
+          </label>
+          <DerivedLayerBuilder
+            value={derivedLayerData}
+            onChange={setDerivedLayerData}
+          />
+        </section>
+      ) : null}
 
       {error ? (
         <div

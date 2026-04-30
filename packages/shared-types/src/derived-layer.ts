@@ -18,6 +18,7 @@
  */
 
 import type { FeatureField } from './data-layer';
+import type { LengthUnit } from './length';
 
 /**
  * v1 always points at a single data_layer item. Stored as a tagged
@@ -37,22 +38,52 @@ export interface DerivedLayerSource {
 }
 
 /**
- * Buffer tool step. Expands every input geometry outward by `distance`
- * meters using PostGIS `ST_Buffer(geom::geography, distance)`. The
- * `geography` cast keeps distance correct globally regardless of
- * longitude.
+ * Buffer tool step. Expands every input geometry outward using PostGIS
+ * `ST_Buffer(geom::geography, distanceMeters)`. The `geography` cast
+ * keeps distance correct globally regardless of longitude.
+ *
+ * Distance can come from one of two places:
+ *   - `mode: 'fixed'` applies the same `distance` (interpreted in
+ *     `unit`) to every input feature.
+ *   - `mode: 'field'` reads a per-feature distance from the named
+ *     numeric field on the source schema, interpreted in `unit`. The
+ *     server stamps `cachedMaxMeters` at recipe-save time by querying
+ *     the source's MAX of that field, so the read path can pad the
+ *     bbox correctly without inspecting source rows on every call.
  */
+export type BufferParams =
+  | {
+      mode: 'fixed';
+      /** Buffer distance in `unit`. Must be a finite number > 0. */
+      distance: number;
+      unit: LengthUnit;
+    }
+  | {
+      mode: 'field';
+      /**
+       * Name of a field on the source schema whose value supplies the
+       * per-feature buffer distance. Must reference a `type: 'number'`
+       * FeatureField. NULL or non-numeric row values produce NULL
+       * geometry (skipped by the read path's `WHERE geom IS NOT NULL`).
+       */
+      field: string;
+      /** Unit the field's stored value is interpreted in. */
+      unit: LengthUnit;
+      /**
+       * Server-computed cap on the per-feature buffer in meters,
+       * derived from the source's MAX of `field` at recipe-save time.
+       * Drives bbox padding on the read path and clamps each feature's
+       * buffer in SQL so a stray oversized value can't generate a
+       * planet-spanning geometry. Persisted on the recipe; the wizard
+       * never asks the user for it. Stale-when-source-grows is
+       * acknowledged in v1; see docs/derived-layers.md.
+       */
+      cachedMaxMeters: number;
+    };
+
 export interface BufferStep {
   tool: 'buffer';
-  params: {
-    /** Buffer distance in `unit`. Must be a finite number > 0. */
-    distance: number;
-    /**
-     * v1 ships meters only. Other units arrive when reprojection
-     * lands as a separate tool; the union widens then.
-     */
-    unit: 'meters';
-  };
+  params: BufferParams;
 }
 
 /**
@@ -122,6 +153,17 @@ export const DEFAULT_DERIVED_LAYER_FEATURE_LIMIT = 1000;
  * enforces a matching ceiling (see backend `bufferGenerator`).
  */
 export const MAX_BUFFER_DISTANCE_METERS = 100_000;
+
+/**
+ * Default buffer step the wizard emits on first mount: 100 meters,
+ * fixed mode. Lifted into shared-types so the new-item wizard, the
+ * edit page builder, and any test that wants to seed a sane recipe
+ * agree on the same starting point.
+ */
+export const DEFAULT_BUFFER_STEP: BufferStep = {
+  tool: 'buffer',
+  params: { mode: 'fixed', distance: 100, unit: 'meters' },
+};
 
 /**
  * Empty scaffold for a brand-new derived layer. The wizard fills
