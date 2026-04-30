@@ -10,6 +10,7 @@ import {
   Grid3x3,
   List as ListIcon,
   Loader2,
+  SlidersHorizontal,
   Trash2,
   UserRound,
   Users as UsersIcon,
@@ -27,12 +28,14 @@ import type {
   ItemType,
   ItemWithShares,
 } from '@gratis-gis/shared-types';
+import { isItemType } from '@gratis-gis/shared-types';
 import {
   getItemHref,
   getItemTypeAccent,
   getItemTypeIcon,
   getItemTypeLabel,
 } from '@/lib/item-type-icon';
+import { FilterPopover } from './filter-popover';
 import { ItemSharingIndicator } from '@/components/item-sharing-indicator';
 import { ReassignOwnerDialog } from '@/components/reassign-owner-dialog';
 import { AreaSearchPanel } from './area-search-panel';
@@ -185,6 +188,42 @@ export function ItemsView({
       /* no localStorage, fall through to defaults */
     }
   }, []);
+
+  // Hydrate the type filter from `?type=foo,bar` on mount so a
+  // bookmarked / shared link with filters lands in the same state.
+  // Mount-only: subsequent toggles flow through the URL writer
+  // below and we don't want to fight the user. Unknown / stale type
+  // values are dropped silently rather than 400ing.
+  useEffect(() => {
+    const raw = searchParams?.get('type');
+    if (!raw) return;
+    const parsed = raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s): s is ItemType => isItemType(s));
+    if (parsed.length > 0) setTypeFilter(new Set(parsed));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional mount-only hydrate
+  }, []);
+
+  // Mirror the type filter back to the URL so reload + share work.
+  // We use `window.history.replaceState` rather than `router.replace`
+  // because the latter triggers a server round-trip in the App
+  // Router, which would re-fetch the items list every time the user
+  // toggles a chip. The URL change is purely cosmetic + bookmarkable;
+  // the items list is already client-filtered.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    if (typeFilter.size === 0) {
+      if (!url.searchParams.has('type')) return;
+      url.searchParams.delete('type');
+    } else {
+      const next = Array.from(typeFilter).sort().join(',');
+      if (url.searchParams.get('type') === next) return;
+      url.searchParams.set('type', next);
+    }
+    window.history.replaceState({}, '', url.toString());
+  }, [typeFilter]);
 
   function persistView(next: ViewMode) {
     setViewMode(next);
@@ -1299,9 +1338,38 @@ function Toolbar({
   onToggleAreaPanel,
   onClearAreaSearch,
 }: ToolbarProps) {
+  // Active-filter labels for the inline summary chip below the
+  // toolbar. Type labels resolve through getItemTypeLabel so the
+  // user-facing copy matches the rest of the UI ("Map" not
+  // "web_map"). The "Area" entry is a fixed string; the area's
+  // bbox/buffer detail lives in the popover, not the summary chip,
+  // since the chip is meant to be glanceable, not informative.
+  const summaryParts: Array<{ key: string; label: string; onClear: () => void }> = [];
+  if (typeFilter.size > 0) {
+    const labels = Array.from(typeFilter)
+      .map((t) => getItemTypeLabel(t))
+      .sort()
+      .join(', ');
+    summaryParts.push({
+      key: 'type',
+      label: `Type: ${labels}`,
+      onClear: onClearFilters,
+    });
+  }
+  if (areaActive && areaActiveLabel) {
+    summaryParts.push({
+      key: 'area',
+      label: `Area: ${areaActiveLabel}`,
+      onClear: onClearAreaSearch,
+    });
+  }
+
   return (
-    <div className="mb-4 space-y-3">
-      {/* Top row: view-mode toggle + group-by + showing-N summary */}
+    <div className="mb-4 space-y-2">
+      {/* Single toolbar row: view toggle, Filter pill, group-by,
+          sort, and the showing-N summary right-aligned. The chip
+          strip that used to live below this row has been folded
+          into the FilterPopover. */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="inline-flex overflow-hidden rounded-md border border-border bg-surface-1">
           <button
@@ -1333,6 +1401,17 @@ function Toolbar({
             List
           </button>
         </div>
+
+        <FilterPopover
+          typeFilter={typeFilter}
+          typeCounts={typeCounts}
+          onToggleType={onToggleType}
+          onClearTypes={onClearFilters}
+          areaActive={areaActive}
+          areaPanelOpen={areaPanelOpen}
+          onToggleAreaPanel={onToggleAreaPanel}
+          onClearAreaSearch={onClearAreaSearch}
+        />
 
         <label className="inline-flex items-center gap-1.5 text-xs text-muted">
           Group by
@@ -1371,83 +1450,35 @@ function Toolbar({
         </p>
       </div>
 
-      {areaActive && areaActiveLabel ? (
-        <div className="flex items-center gap-2 rounded-md border border-accent/30 bg-accent/5 px-2.5 py-1.5 text-xs text-ink-1">
-          <Crosshair className="h-3.5 w-3.5 text-accent" />
-          <span className="text-muted">Area:</span>
-          <span className="font-medium">{areaActiveLabel}</span>
-          <button
-            type="button"
-            onClick={onClearAreaSearch}
-            className="ml-auto inline-flex items-center gap-1 text-[11px] text-muted hover:text-ink-1"
-          >
-            <X className="h-3 w-3" />
-            Clear area
-          </button>
+      {/* Inline active-filter summary. Surfaces what's filtering the
+          grid without forcing the user to open the popover, and gives
+          a one-click clear per group. Renders nothing when no filters
+          are applied so the toolbar row stays the only chrome. */}
+      {summaryParts.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {summaryParts.map((part) => (
+            <span
+              key={part.key}
+              className="inline-flex h-7 items-center gap-1.5 rounded-full border border-accent/30 bg-accent/5 px-2 text-[11px] text-ink-1"
+            >
+              {part.key === 'area' ? (
+                <Crosshair className="h-3 w-3 text-accent" />
+              ) : (
+                <SlidersHorizontal className="h-3 w-3 text-accent" />
+              )}
+              {part.label}
+              <button
+                type="button"
+                onClick={part.onClear}
+                className="ml-0.5 -mr-1 inline-flex h-5 w-5 items-center justify-center rounded-full text-muted hover:bg-surface-2 hover:text-ink-1"
+                aria-label={`Clear ${part.key} filter`}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
         </div>
       ) : null}
-
-      {/* Filter chips. Only surface types that are actually present
-          in the data so a fresh org doesn't see 13 greyed-out chips.
-          The "Area" chip lives here too -- area is just another
-          filter the user can toggle on/off, not a separate kind of
-          search affordance. */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
-          Filter
-        </span>
-
-        <button
-          type="button"
-          onClick={onToggleAreaPanel}
-          aria-pressed={areaPanelOpen || areaActive}
-          title="Filter by geographic area"
-          className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[11px] transition-colors ${
-            areaPanelOpen || areaActive
-              ? 'border-accent bg-accent/10 text-accent'
-              : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
-          }`}
-        >
-          <Crosshair className="h-3 w-3" />
-          {areaActive ? 'Area' : 'Area...'}
-        </button>
-
-        {typeCounts.map(([t, count]) => {
-          const active = typeFilter.has(t);
-          const Icon = getItemTypeIcon(t);
-          const accent = getItemTypeAccent(t);
-          return (
-            <button
-              key={t}
-              type="button"
-              onClick={() => onToggleType(t)}
-              aria-pressed={active}
-              className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[11px] transition-colors ${
-                active
-                  ? 'border-accent bg-accent/10 text-accent'
-                  : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
-              }`}
-            >
-              <Icon className={`h-3 w-3 ${active ? '' : accent}`} />
-              {getItemTypeLabel(t)}
-              <span className="text-muted">({count})</span>
-            </button>
-          );
-        })}
-        {typeFilter.size > 0 || areaActive ? (
-          <button
-            type="button"
-            onClick={() => {
-              if (typeFilter.size > 0) onClearFilters();
-              if (areaActive) onClearAreaSearch();
-            }}
-            className="inline-flex h-7 items-center gap-1 rounded-full border border-transparent px-2 text-[11px] text-muted hover:bg-surface-2 hover:text-ink-1"
-          >
-            <X className="h-3 w-3" />
-            Clear filters
-          </button>
-        ) : null}
-      </div>
     </div>
   );
 }
