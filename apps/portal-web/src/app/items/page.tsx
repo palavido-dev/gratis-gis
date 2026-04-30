@@ -4,7 +4,8 @@ import type { ItemWithShares } from '@gratis-gis/shared-types';
 import { apiFetch } from '@/lib/api';
 import { EmptyState } from '@/components/empty-state';
 import { ItemsView } from './items-view';
-import { FolderRail, type FolderRailNode } from './folder-rail';
+import { type FolderRailNode } from './folder-rail';
+import { FoldersDrawer } from './folders-drawer';
 
 interface Props {
   searchParams: {
@@ -159,12 +160,11 @@ export default async function ItemsPage({ searchParams }: Props) {
         </div>
       ) : null}
 
-      <div className="flex flex-col gap-6 md:flex-row">
-        <FolderRail
-          folders={folders}
-          activeFolderId={folderId ?? undefined}
-        />
-        <div className="flex-1 min-w-0">
+      <FoldersDrawer
+        folders={folders}
+        {...(folderId ? { activeFolderId: folderId } : {})}
+      >
+        <>
           {activeFolder ? (
             <nav
               aria-label="Folder breadcrumb"
@@ -251,8 +251,8 @@ export default async function ItemsPage({ searchParams }: Props) {
               }
             />
           )}
-        </div>
-      </div>
+        </>
+      </FoldersDrawer>
     </div>
   );
 }
