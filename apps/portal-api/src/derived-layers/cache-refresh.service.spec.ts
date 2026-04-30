@@ -1,14 +1,31 @@
 import type { Item } from '@prisma/client';
 import {
+  type BufferParams,
   type BufferStep,
   type DerivedLayerData,
   type FeatureField,
+  type ToolStep,
 } from '@gratis-gis/shared-types';
 
 import {
   DerivedLayerCacheRefreshService,
   growCachedCaps,
 } from './cache-refresh.service.js';
+
+/**
+ * Narrow a generic ToolStep down to its BufferParams. The ToolStep
+ * union now spans a dozen tool kinds, several of which carry no
+ * `mode` discriminator at all, so accessing `step.params.mode` from
+ * outside this narrowing is a TS error. The tests below use this
+ * helper to assert "this step is a buffer" once and then read the
+ * buffer-specific params freely.
+ */
+function bufferParamsOf(step: ToolStep): BufferParams {
+  if (step.tool !== 'buffer') {
+    throw new Error(`expected a buffer step; got ${step.tool}`);
+  }
+  return step.params;
+}
 
 const NUMBER_FIELD: FeatureField = {
   name: 'radius_m',
@@ -66,7 +83,7 @@ describe('growCachedCaps', () => {
     const r = recipe([fieldStep('radius_m', 'meters', 100)]);
     const next = growCachedCaps(r, [{ radius_m: 250 }]);
     expect(next).not.toBeNull();
-    const params = next!.pipeline[0]!.params;
+    const params = bufferParamsOf(next!.pipeline[0]!);
     expect(params.mode === 'field' ? params.cachedMaxMeters : null).toBe(250);
   });
 
@@ -77,7 +94,7 @@ describe('growCachedCaps', () => {
       { radius_m: 999 },
       { radius_m: 50 },
     ]);
-    const params = next!.pipeline[0]!.params;
+    const params = bufferParamsOf(next!.pipeline[0]!);
     expect(params.mode === 'field' ? params.cachedMaxMeters : null).toBe(999);
   });
 
@@ -85,7 +102,7 @@ describe('growCachedCaps', () => {
     // Recipe stores radius in feet; payload value is 1000 ft = 304.8 m.
     const r = recipe([fieldStep('radius_m', 'feet', 100)]);
     const next = growCachedCaps(r, [{ radius_m: 1000 }]);
-    const params = next!.pipeline[0]!.params;
+    const params = bufferParamsOf(next!.pipeline[0]!);
     if (params.mode !== 'field') throw new Error('expected field mode');
     expect(params.cachedMaxMeters).toBeCloseTo(304.8, 4);
   });
@@ -94,7 +111,7 @@ describe('growCachedCaps', () => {
     // 100 km recipe unit, payload 1000 km = 1_000_000 m, ceiling 100_000 m.
     const r = recipe([fieldStep('radius_m', 'kilometers', 50_000)]);
     const next = growCachedCaps(r, [{ radius_m: 1000 }]);
-    const params = next!.pipeline[0]!.params;
+    const params = bufferParamsOf(next!.pipeline[0]!);
     if (params.mode !== 'field') throw new Error('expected field mode');
     expect(params.cachedMaxMeters).toBe(100_000);
   });
@@ -113,7 +130,7 @@ describe('growCachedCaps', () => {
   it('coerces numeric strings ("250") to numbers', () => {
     const r = recipe([fieldStep('radius_m', 'meters', 100)]);
     const next = growCachedCaps(r, [{ radius_m: '250' }]);
-    const params = next!.pipeline[0]!.params;
+    const params = bufferParamsOf(next!.pipeline[0]!);
     expect(params.mode === 'field' ? params.cachedMaxMeters : null).toBe(250);
   });
 
@@ -128,7 +145,7 @@ describe('growCachedCaps', () => {
       distance: 50,
       unit: 'meters',
     });
-    const second = next!.pipeline[1]!.params;
+    const second = bufferParamsOf(next!.pipeline[1]!);
     if (second.mode !== 'field') throw new Error('expected field mode');
     expect(second.cachedMaxMeters).toBe(250);
   });
@@ -186,7 +203,7 @@ describe('DerivedLayerCacheRefreshService.notifySourceWrite', () => {
     expect(updates).toHaveLength(1);
     const u = updates[0]! as { where: { id: string }; data: { data: DerivedLayerData; bbox: number[] } };
     expect(u.where.id).toBe('der-1');
-    const params = u.data.data.pipeline[0]!.params;
+    const params = bufferParamsOf(u.data.data.pipeline[0]!);
     expect(params.mode === 'field' ? params.cachedMaxMeters : null).toBe(250);
     // bbox repad happens too: the new total reach is 250 m, so the
     // padded bbox is wider than the source bbox.
