@@ -60,3 +60,33 @@ docs/handoff/
 .git-commit-msg
 # Stray temp files left behind by some Windows tools (#42 followup)
 _tmp_*
+
+# Commit-message scratch files. Various tools / editors / Claude
+# sessions write commit-message drafts to the repo root; they're
+# transient and should never land in history.
+COMMIT_MSG.txt
+COMMIT_MSG
+COMMIT_EDITMSG
+commit-msg-*.txt
+commit-msg-*.md
+
+# PR body / create-script scratch files (from `gh pr create -F`),
+# typecheck-output captures, and detached dev-server log captures.
+# All transient.
+pr-body-*.md
+pr-create-*.cmd
+pr-*.txt
+pr61-*.txt
+tc-*.txt
+diff-*.txt
+dev-api-bg.bat
+dev-web-bg.bat
+dev.out
+api.out
+web.out
+install.txt
+lint.txt
+test.txt
+schema-head.prisma
+items-service-head.ts
+page-head.tsx
