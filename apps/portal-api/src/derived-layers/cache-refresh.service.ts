@@ -73,23 +73,31 @@ export class DerivedLayerCacheRefreshService {
   ): Promise<void> {
     if (properties.length === 0) return;
     try {
-      const dependents = await this.findDependents(sourceItemId, layerKey);
+      // Load the source once: we need orgId to scope the dependent
+      // search to the same tenant, and bbox to repad on any
+      // dependent we end up updating. A vanished source (race with
+      // delete) means there are no live dependents to worry about.
+      const source = await this.prisma.item.findUnique({
+        where: { id: sourceItemId },
+        select: { orgId: true, bbox: true },
+      });
+      if (!source) return;
+      const dependents = await this.findDependents(
+        sourceItemId,
+        layerKey,
+        source.orgId,
+      );
       if (dependents.length === 0) return;
-      // Source bbox is needed if we end up updating any dependent
-      // (so we can repad). Loaded once and shared across all
-      // matching dependents.
-      let sourceBbox: number[] | null = null;
+      const sourceBbox = Array.isArray(source.bbox)
+        ? (source.bbox as number[])
+        : [];
       for (const item of dependents) {
         const data = item.data as unknown as DerivedLayerData | null;
         if (!data || data.version !== 1) continue;
         const next = growCachedCaps(data, properties);
         if (!next) continue; // No buffer step in this recipe needed updating.
-        // Recompute the bbox lazily (only when at least one cap grew).
-        if (sourceBbox === null) {
-          sourceBbox = await this.readSourceBbox(sourceItemId);
-        }
         const totalReach = totalOutwardReach(next.pipeline);
-        next.bbox = padBboxByMeters(sourceBbox ?? [], totalReach);
+        next.bbox = padBboxByMeters(sourceBbox, totalReach);
         await this.prisma.item.update({
           where: { id: item.id },
           data: {
@@ -114,10 +122,17 @@ export class DerivedLayerCacheRefreshService {
   }
 
   /**
-   * Pull every derived_layer that points at the source. Filters in
-   * memory rather than via a JSON-path Prisma `where`, since the
-   * dependent set is small (one row per derived layer in any org)
-   * and the JSON-path predicate is awkward to write portably.
+   * Pull every derived_layer that points at the source. Scoped to
+   * the source's orgId so a write in one tenant doesn't trigger a
+   * scan over every other tenant's derived-layer rows -- a
+   * derived_layer can only depend on a source in the same org
+   * anyway (cross-org references aren't a thing in v1), so the
+   * scope is correct and the wasteful cross-tenant scan goes away.
+   *
+   * Within the org, filters in memory rather than via a JSON-path
+   * Prisma `where`, since the dependent set is small (one row per
+   * derived layer in the org) and the JSON-path predicate is
+   * awkward to write portably.
    *
    * For v3 sources the layerKey must match too: a write to a
    * sublayer `A` shouldn't refresh derived layers that read from
@@ -126,11 +141,13 @@ export class DerivedLayerCacheRefreshService {
   private async findDependents(
     sourceItemId: string,
     layerKey: string | null,
+    orgId: string,
   ): Promise<Array<{ id: string; data: Item['data'] }>> {
     const rows = await this.prisma.item.findMany({
       where: {
         type: 'derived_layer',
         deletedAt: null,
+        orgId,
       },
       select: { id: true, data: true },
     });
@@ -140,20 +157,6 @@ export class DerivedLayerCacheRefreshService {
       const dependentLayerKey = d.source.layerKey ?? null;
       return dependentLayerKey === layerKey;
     });
-  }
-
-  /**
-   * Read just the source's bbox column. Pulled into a method so the
-   * notify path can avoid loading the full source row (the
-   * cache-refresh write doesn't need the source's data blob, only
-   * its spatial extent).
-   */
-  private async readSourceBbox(sourceItemId: string): Promise<number[]> {
-    const src = await this.prisma.item.findUnique({
-      where: { id: sourceItemId },
-      select: { bbox: true },
-    });
-    return Array.isArray(src?.bbox) ? (src!.bbox as number[]) : [];
   }
 }
 

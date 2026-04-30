@@ -343,7 +343,7 @@ export class FeaturesService {
     const tbl = toTableName(itemId);
     const now = new Date().toISOString();
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const expireResult = await tx.$executeRawUnsafe(
         `UPDATE "${tbl}"
             SET valid_to  = $1::timestamptz,
@@ -357,17 +357,20 @@ export class FeaturesService {
       const expired = typeof expireResult === 'number' ? expireResult : 0;
 
       const inserted = await this.bulkInsertCore(tx, tbl, features, user);
-      // Same staleness hook as bulkInsert. replaceAll is the bulk
-      // upload path the wizard / API caller uses to populate a v2
-      // layer; without this hook a freshly-uploaded source whose
-      // values exceed a stored cap would not propagate.
-      void this.cacheRefresh.notifySourceWrite(
-        itemId,
-        null,
-        features.map((f) => f.properties),
-      );
       return { inserted, expired };
     });
+    // Same staleness hook as bulkInsert. replaceAll is the bulk
+    // upload path the wizard / API caller uses to populate a v2
+    // layer; without this hook a freshly-uploaded source whose
+    // values exceed a stored cap would not propagate. Fire AFTER
+    // the transaction commits so the cache work sees the durable
+    // post-write state.
+    void this.cacheRefresh.notifySourceWrite(
+      itemId,
+      null,
+      features.map((f) => f.properties),
+    );
+    return result;
   }
 
   /**
@@ -394,7 +397,8 @@ export class FeaturesService {
     // us report that cleanly instead of leaking a half-done update).
     // SELECT ... FOR UPDATE serializes concurrent updaters on the gid
     // so only one proceeds to expire + insert.
-    return this.prisma.$transaction(async (tx) => {
+    let cacheProps: Record<string, unknown> | null = null;
+    const out = await this.prisma.$transaction(async (tx) => {
       const current = await tx.$queryRawUnsafe<FeatureRow[]>(
         `SELECT *,
                 ST_AsGeoJSON(geom) AS geom
@@ -449,14 +453,17 @@ export class FeaturesService {
         old.created_at.toISOString(),
       );
 
-      // Lazy-grow buffer-by-field caches on dependents. The merged
-      // newProps object is the absolute post-update state of the
-      // row, so it's the right input to the staleness check.
-      void this.cacheRefresh.notifySourceWrite(itemId, null, [
-        newProps as Record<string, unknown>,
-      ]);
+      cacheProps = newProps as Record<string, unknown>;
       return rowToFeature(inserted[0]!, true);
     });
+    // Lazy-grow buffer-by-field caches on dependents now that the
+    // transaction has committed. The merged newProps object is the
+    // absolute post-update state of the row, so it's the right
+    // input to the staleness check.
+    if (cacheProps !== null) {
+      void this.cacheRefresh.notifySourceWrite(itemId, null, [cacheProps]);
+    }
+    return out;
   }
 
   /**

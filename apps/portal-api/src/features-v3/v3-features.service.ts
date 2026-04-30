@@ -202,7 +202,14 @@ export class V3FeaturesService {
     opts: { ownRowsOnly?: boolean } = {},
   ): Promise<V3FeatureOut> {
     const tbl = toV3TableName(itemId, layerId);
-    return this.prisma.$transaction(async (tx) => {
+    // Capture the merged props inside the transaction so we can fire
+    // the cache-refresh hook AFTER the tx commits. Firing inside the
+    // transaction (even with `void`) means the cache work runs in
+    // parallel to commit, which can read a pre-commit view of the
+    // source on its own connection. Out here we know the write is
+    // durable.
+    let mergedProps: Record<string, unknown> | null = null;
+    const out = await this.prisma.$transaction(async (tx) => {
       const cur = await tx.$queryRawUnsafe<V3Row[]>(
         `
         SELECT gid, global_id, ST_AsGeoJSON(geom) AS geom, properties,
@@ -254,17 +261,16 @@ export class V3FeaturesService {
         user.id,
         cur[0]!.created_at,
       );
-      // Lazy-grow buffer-by-field caches on dependents. The merged
-      // properties object is what downstream reads will see, so it's
-      // also the right input to the staleness check. Fire after the
-      // transaction commits so a cache write can't bring down a
-      // user's edit.
-      const out = rowToFeature(inserted[0]!);
-      void this.cacheRefresh.notifySourceWrite(itemId, layerId, [
-        nextProps as Record<string, unknown>,
-      ]);
-      return out;
+      mergedProps = nextProps as Record<string, unknown>;
+      return rowToFeature(inserted[0]!);
     });
+    // Lazy-grow buffer-by-field caches on dependents now that the
+    // transaction has committed. notifySourceWrite swallows its own
+    // errors so a cache problem can't bring down a successful edit.
+    if (mergedProps !== null) {
+      void this.cacheRefresh.notifySourceWrite(itemId, layerId, [mergedProps]);
+    }
+    return out;
   }
 
   /** Expire (soft-delete) a feature. */

@@ -373,8 +373,13 @@ describe('bufferGenerator.toSql (field mode)', () => {
     expect(fragment.sql).toMatch(/LEAST\(/);
     expect(fragment.sql).toMatch(/\$3/);
     // Skips rows with non-numeric field values rather than erroring.
+    // The numeric-text gate accepts signed integers, decimals
+    // (including leading- and trailing-decimal forms), and
+    // scientific notation; the assertion just sniffs that a
+    // numeric-shaped Postgres regex literal is present.
     expect(fragment.sql).toMatch(/properties \? \$1/);
-    expect(fragment.sql).toMatch(/~ '\^-\?\[0-9\]/);
+    expect(fragment.sql).toMatch(/~ '\^-\?/);
+    expect(fragment.sql).toMatch(/\[eE\]/);
   });
 
   it('emits the kilometers unit factor (1000) for kilometer-unit recipes', () => {

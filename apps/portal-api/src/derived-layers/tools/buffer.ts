@@ -16,6 +16,25 @@ import type {
 } from './types.js';
 
 /**
+ * Postgres regex literal used to gate a `properties->>'<field>'` text
+ * value before casting it to `double precision`. Accepts:
+ *   - leading sign:        `-123`
+ *   - integers:            `123`, `0`
+ *   - leading-decimal:     `.5`, `-.5`
+ *   - trailing-decimal:    `5.`, `1.`
+ *   - decimal:             `1.5`, `-0.25`
+ *   - scientific notation: `1e3`, `1.5E-2`, `-2.5e+10`
+ *
+ * The earlier shape `^-?[0-9]+(\.[0-9]+)?$` rejected `1e3` and `.5`,
+ * which silently dropped legitimate rows on layers whose numeric
+ * fields had been imported from CSVs that used scientific notation
+ * for very large or very small distances. Doubled backslashes here
+ * are JS-string escaping; the SQL sees `^-?(...)$` literally.
+ */
+const NUMERIC_TEXT_REGEX_LITERAL =
+  "'^-?([0-9]+\\.?[0-9]*|\\.[0-9]+)([eE][+-]?[0-9]+)?$'";
+
+/**
  * Buffer generator. Wraps `ST_Buffer(geom::geography, distance)` so the
  * distance is interpreted in meters globally regardless of longitude.
  * Output is cast back to `geometry` (SRID 4326) so it round-trips
@@ -152,7 +171,7 @@ export const bufferGenerator: ToolGenerator<BufferParams> = {
       ) AS max_value
       FROM ${ctx.sourceTable}
       WHERE properties ? $1
-        AND (properties->>$1) ~ '^-?[0-9]+(\\.[0-9]+)?$'
+        AND (properties->>$1) ~ ${NUMERIC_TEXT_REGEX_LITERAL}
     `;
     type Row = { max_value: number | string | null };
     const rows = await ctx.queryRaw<Row>(sql, params.field);
@@ -251,7 +270,7 @@ export const bufferGenerator: ToolGenerator<BufferParams> = {
       FROM ${inputAlias}
       WHERE geom IS NOT NULL
         AND properties ? ${fieldPh}
-        AND (properties->>${fieldPh}) ~ '^-?[0-9]+(\\.[0-9]+)?$'
+        AND (properties->>${fieldPh}) ~ ${NUMERIC_TEXT_REGEX_LITERAL}
     `;
     const factor = METERS_PER_UNIT[params.unit];
     return {

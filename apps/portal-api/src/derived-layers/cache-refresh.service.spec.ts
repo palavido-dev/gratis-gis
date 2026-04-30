@@ -138,10 +138,18 @@ describe('DerivedLayerCacheRefreshService.notifySourceWrite', () => {
   function makeFakePrisma(opts: {
     dependents: Array<Pick<Item, 'id' | 'data'>>;
     sourceBbox?: number[];
+    sourceOrgId?: string;
   }) {
     const updates: Array<{ where: unknown; data: unknown }> = [];
+    // findMany is called with the orgId-scoped where clause now.
+    // The stub returns the fixture rows verbatim; assertions on
+    // org-scoping live in dedicated tests below.
     const findMany = jest.fn(async () => opts.dependents);
+    // The service loads {orgId, bbox} from the source upfront so it
+    // can scope the dependent search to the same tenant; the stub
+    // returns both shapes so individual tests don't have to.
     const findUnique = jest.fn(async () => ({
+      orgId: opts.sourceOrgId ?? 'org-1',
       bbox: opts.sourceBbox ?? [-122.5, 37.5, -122.0, 38.0],
     }));
     const update = jest.fn(async (args: unknown) => {
@@ -230,12 +238,15 @@ describe('DerivedLayerCacheRefreshService.notifySourceWrite', () => {
   });
 
   it('swallows errors from the database so a feature write is not rolled back', async () => {
+    // findUnique throws now (it runs before findMany in the
+    // refactored service). Whichever query fails first, the
+    // service must swallow rather than propagate.
     const prisma = {
       item: {
-        findMany: jest.fn(async () => {
+        findUnique: jest.fn(async () => {
           throw new Error('oh no');
         }),
-        findUnique: jest.fn(),
+        findMany: jest.fn(),
         update: jest.fn(),
       },
     } as unknown as ConstructorParameters<
@@ -246,6 +257,47 @@ describe('DerivedLayerCacheRefreshService.notifySourceWrite', () => {
     await expect(
       svc.notifySourceWrite('src-1', null, [{ radius_m: 250 }]),
     ).resolves.toBeUndefined();
+  });
+
+  it('scopes the dependents query to the source orgId', async () => {
+    const dep = {
+      id: 'der-1',
+      data: recipe([fieldStep('radius_m', 'meters', 100)]) as unknown as Item['data'],
+    };
+    const { prisma, findMany } = makeFakePrisma({
+      dependents: [dep],
+      sourceOrgId: 'org-tenant-A',
+    });
+    const svc = new DerivedLayerCacheRefreshService(prisma);
+    await svc.notifySourceWrite('src-1', null, [{ radius_m: 250 }]);
+    expect(findMany).toHaveBeenCalledTimes(1);
+    // jest.fn typed as a no-arg async function records calls as [][]
+    // tuples; cast through unknown to read the actual where clause.
+    const callArgs = findMany.mock.calls as unknown as Array<
+      [{ where?: { orgId?: string } } | undefined]
+    >;
+    expect(callArgs[0]?.[0]?.where?.orgId).toBe('org-tenant-A');
+  });
+
+  it('returns silently when the source has been deleted', async () => {
+    const prisma = {
+      item: {
+        findUnique: jest.fn(async () => null),
+        findMany: jest.fn(),
+        update: jest.fn(),
+      },
+    } as unknown as ConstructorParameters<
+      typeof DerivedLayerCacheRefreshService
+    >[0];
+    const svc = new DerivedLayerCacheRefreshService(prisma);
+    await expect(
+      svc.notifySourceWrite('src-gone', null, [{ radius_m: 250 }]),
+    ).resolves.toBeUndefined();
+    // findMany must NOT run when the source is missing -- there's
+    // nothing useful to scope against.
+    expect(
+      (prisma as unknown as { item: { findMany: jest.Mock } }).item.findMany,
+    ).not.toHaveBeenCalled();
   });
 
   it('updates several dependents in one call when each crosses its cap', async () => {
