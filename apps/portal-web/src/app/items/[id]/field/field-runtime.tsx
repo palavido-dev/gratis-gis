@@ -547,6 +547,8 @@ export function FieldRuntime({
         featuresFetched: 0,
         formsFetched: 0,
         pickListsFetched: 0,
+        tilesFetched: 0,
+        tilesTotal: 0,
         error: `Need ~${formatBytes(quota.shortfallBytes)} more space. Free up cached deployments or device storage and try again.`,
       });
       return;
@@ -577,6 +579,27 @@ export function FieldRuntime({
       if (l.boundFormItemId) out.boundFormItemId = l.boundFormItemId;
       return out;
     });
+    // Slice 10: collect tile URL templates from the currently
+    // rendered basemap and any raster/vector overlay sources. Read
+    // them off the live MapLibre style rather than parsing the
+    // basemap config -- that way we cover whatever basemap variant,
+    // provider, or proxy URL is actually in use, including stuff
+    // we'll add later (vector tile sources, ArcGIS rest tile URLs).
+    // Bbox: use the current viewport for v1. The cached deployment
+    // bbox would be more durable, but field workers download for
+    // "where I am right now," which the viewport captures naturally.
+    const tileUrlTemplates = collectTileTemplates(mapRef.current);
+    const viewportBbox = mapRef.current
+      ? (() => {
+          const b = mapRef.current.getBounds();
+          return [
+            b.getWest(),
+            b.getSouth(),
+            b.getEast(),
+            b.getNorth(),
+          ] as [number, number, number, number];
+        })()
+      : undefined;
     try {
       const manifest = await downloadDeployment(
         {
@@ -585,6 +608,10 @@ export function FieldRuntime({
           mapId: '', // will be set by the caller of FieldRuntime in a future pass; not load-bearing
           layers: downloadLayers,
           pickListIds: Array.from(pickListIdSet),
+          ...(viewportBbox !== undefined ? { bbox: viewportBbox } : {}),
+          ...(tileUrlTemplates.length > 0
+            ? { tileUrlTemplates, tileZoomRange: [12, 17] as [number, number] }
+            : {}),
         },
         (p) => setDownloadProgress({ ...p }),
       );
@@ -597,6 +624,8 @@ export function FieldRuntime({
         featuresFetched: 0,
         formsFetched: 0,
         pickListsFetched: 0,
+        tilesFetched: 0,
+        tilesTotal: 0,
         error: err instanceof Error ? err.message : String(err),
       });
     }
@@ -1016,6 +1045,52 @@ export function FieldRuntime({
  */
 function isPointGeometry(t: LayerGeometryType): boolean {
   return t === 'point';
+}
+
+/**
+ * Walk the live MapLibre style and collect tile URL templates from
+ * every raster + vector source that uses {z}/{x}/{y} addressing.
+ * Slice 10: the offline-download manager passes these to the tile
+ * warmer so the basemap (and any tiled overlays) are pre-cached for
+ * the deployment's bbox.
+ *
+ * Reading off the live style (rather than parsing the basemap config
+ * upstream) means we automatically support every basemap variant
+ * the runtime can render: built-in raster XYZs, the org's custom
+ * basemaps, vector style URLs (which maplibre expands into source
+ * objects internally), proxy-routed URLs, etc.
+ *
+ * Returns an empty array when the map isn't ready or when none of
+ * the active sources expose a tile template (vector-style sources
+ * that pull style.json + tile URLs internally fall through here;
+ * those tiles still get cached via the SW's passive interception
+ * as the user pans).
+ */
+function collectTileTemplates(map: maplibregl.Map | null): string[] {
+  if (!map) return [];
+  let style: ReturnType<maplibregl.Map['getStyle']> | null = null;
+  try {
+    style = map.getStyle();
+  } catch {
+    return [];
+  }
+  if (!style?.sources) return [];
+  const out: string[] = [];
+  for (const source of Object.values(style.sources)) {
+    if (
+      typeof source === 'object' &&
+      source !== null &&
+      'tiles' in source &&
+      Array.isArray((source as { tiles?: unknown }).tiles)
+    ) {
+      for (const t of (source as { tiles: unknown[] }).tiles) {
+        if (typeof t === 'string' && t.includes('{z}') && t.includes('{x}')) {
+          out.push(t);
+        }
+      }
+    }
+  }
+  return out;
 }
 
 /**

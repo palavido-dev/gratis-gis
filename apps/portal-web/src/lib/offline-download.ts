@@ -28,6 +28,7 @@ import {
   putForm,
   putPickList,
 } from './offline-store';
+import { warmTiles } from './offline-tile-warmer';
 
 /** One editable layer the manager should fetch features for. Same
  *  shape as field-runtime's EditableLayer minus the things this
@@ -49,6 +50,7 @@ export interface DownloadProgress {
     | 'fetching-features'
     | 'fetching-forms'
     | 'fetching-picklists'
+    | 'caching-tiles'
     | 'persisting'
     | 'done'
     | 'failed';
@@ -61,6 +63,11 @@ export interface DownloadProgress {
   featuresFetched: number;
   formsFetched: number;
   pickListsFetched: number;
+  /** Slice 10: tiles fetched and total tiles to fetch in this run.
+   *  When the deployment doesn't carry tile templates, both stay at
+   *  0 and the UI hides the tile progress row. */
+  tilesFetched: number;
+  tilesTotal: number;
   /** Set on 'failed'. */
   error?: string;
 }
@@ -76,6 +83,18 @@ export interface DownloadInput {
    *  the live runtime; the download manager pre-fetches the same
    *  set so offline forms render with populated choices. */
   pickListIds: string[];
+  /** Slice 10: basemap (and optional reference-layer) tile URL
+   *  templates with {z}/{x}/{y} placeholders. The download manager
+   *  pre-fetches every tile inside the deployment's bbox at the
+   *  configured zoom range so the field map renders offline.
+   *  Omitted when the deployment has no tiled basemap (vector-style
+   *  basemaps, MVT-only, or admin hasn't configured a basemap on
+   *  the map yet) — the runtime degrades to blank tiles offline,
+   *  same as today. */
+  tileUrlTemplates?: string[];
+  /** Inclusive zoom range to warm. Defaults to [12, 17] (urban /
+   *  mid-detail field work) when caller omits it. */
+  tileZoomRange?: [number, number];
 }
 
 /** Best-effort byte estimate per cached feature. Used by the
@@ -104,6 +123,8 @@ export async function downloadDeployment(
     featuresFetched: 0,
     formsFetched: 0,
     pickListsFetched: 0,
+    tilesFetched: 0,
+    tilesTotal: 0,
   };
   onProgress({ ...progress });
 
@@ -240,6 +261,55 @@ export async function downloadDeployment(
       progress.pickListsFetched += 1;
     } catch {
       /* same swallow rationale as forms above */
+    }
+  }
+
+  // Slice 10: warm the basemap tile cache so the field map renders
+  // offline. The service worker intercepts every fetch and writes
+  // responses into TILES_CACHE; the warmer's job is just to call
+  // fetch() for each tile coord in the bbox at the deployment's
+  // configured zoom range. Skipped silently when the deployment
+  // has no tile templates (vector-style basemap, MVT-only,
+  // unconfigured, etc) -- the runtime degrades to blank tiles
+  // offline as it did before, but feature data + forms still work.
+  if (
+    input.tileUrlTemplates &&
+    input.tileUrlTemplates.length > 0 &&
+    input.bbox
+  ) {
+    progress.phase = 'caching-tiles';
+    progress.message = 'Caching basemap tiles...';
+    onProgress({ ...progress });
+    try {
+      const warmResult = await warmTiles(
+        {
+          urlTemplates: input.tileUrlTemplates,
+          bbox: input.bbox,
+          zoomRange: input.tileZoomRange ?? [12, 17],
+        },
+        (p) => {
+          progress.tilesFetched = p.fetched;
+          progress.tilesTotal = p.total;
+          progress.message = `Caching tiles: ${p.fetched}/${p.total}`;
+          onProgress({ ...progress });
+        },
+      );
+      // Roll the tile bytes into the deployment manifest's size
+      // estimate so the field UI's "Cached: 14 MB" reflects the
+      // total footprint (features + tiles), not just the IndexedDB
+      // slice. This is what users want to see when deciding which
+      // areas to keep cached vs free up.
+      totalFeatureBytes += warmResult.bytes;
+      progress.message = `Cached ${warmResult.fetched} tiles (${warmResult.failed} failed)`;
+      onProgress({ ...progress });
+    } catch (err) {
+      // Tile-warming is best-effort; a failure here doesn't void
+      // the rest of the cache. Surface the message so the user
+      // knows tiles may be incomplete, then continue to persist.
+      progress.message = `Tile cache: ${
+        err instanceof Error ? err.message : 'failed'
+      } (continuing)`;
+      onProgress({ ...progress });
     }
   }
 

@@ -12,9 +12,14 @@
  * Versioning: bump CACHE_VERSION on every deploy so stale assets are evicted.
  */
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const STATIC_CACHE = `gratis-static-${CACHE_VERSION}`;
 const GEOJSON_CACHE = `gratis-geojson-${CACHE_VERSION}`;
+// Slice 10: basemap + reference tiles. Keyed separately from static
+// assets so the eviction policy can differ (tiles are large + we
+// retain them aggressively for offline; static assets churn with
+// every deploy and rotate via CACHE_VERSION).
+const TILES_CACHE = `gratis-tiles-${CACHE_VERSION}`;
 const SYNC_QUEUE_TAG = 'gratis-feature-sync';
 
 // Detect the Next.js dev server. Dev chunks under /_next/static/ reuse
@@ -41,6 +46,35 @@ const STATIC_PATTERNS = [
 
 const GEOJSON_PATTERN = /\/api\/portal\/items\/[^/]+\/geojson/;
 
+/**
+ * Tile URL patterns. Catches the conventions every basemap provider
+ * we ship today follows:
+ *
+ *   - XYZ raster: ends in /{z}/{x}/{y}.{png|jpg|jpeg|webp}
+ *   - Vector tiles: ends in /{z}/{x}/{y}.{pbf|mvt} (with optional
+ *     query string for tokens)
+ *   - WMS GetMap responses: contain ?REQUEST=GetMap or &REQUEST=GetMap
+ *     in the query string. Cache hit rate is low (URLs vary per bbox)
+ *     but caching them at all means a worker who pans back over an
+ *     area gets it instantly the second time.
+ *   - MapLibre style.json fetches: end in /style.json (or are returned
+ *     by a style URL), one-shot at runtime startup; caching protects
+ *     against a flaky load.
+ *
+ * We deliberately don't try to cache GeoJSON tiles here -- the
+ * GEOJSON_PATTERN above already handles our portal's feature endpoints.
+ */
+const TILE_PATH_PATTERN = /\/\d+\/\d+\/\d+(?:[@.][^/?]*)?(?:\.(?:png|jpe?g|webp|pbf|mvt))?(?:$|\?)/i;
+const TILE_QUERY_PATTERN = /[?&]request=getmap\b/i;
+const STYLE_JSON_PATTERN = /\/style\.json(?:$|\?)/i;
+
+function isTileRequest(url) {
+  if (TILE_PATH_PATTERN.test(url.pathname)) return true;
+  if (TILE_QUERY_PATTERN.test(url.search)) return true;
+  if (STYLE_JSON_PATTERN.test(url.pathname)) return true;
+  return false;
+}
+
 // -------------------------------------------------------------------------
 // Install: nothing special; let the browser manage static asset caching.
 // -------------------------------------------------------------------------
@@ -53,12 +87,11 @@ self.addEventListener('install', (event) => {
 // Activate: clean up old caches.
 // -------------------------------------------------------------------------
 self.addEventListener('activate', (event) => {
+  const keep = new Set([STATIC_CACHE, GEOJSON_CACHE, TILES_CACHE]);
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(
-        keys
-          .filter((k) => k !== STATIC_CACHE && k !== GEOJSON_CACHE)
-          .map((k) => caches.delete(k)),
+        keys.filter((k) => !keep.has(k)).map((k) => caches.delete(k)),
       ),
     ).then(() => self.clients.claim()),
   );
@@ -71,7 +104,19 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Only intercept same-origin requests. Third-party tiles, Keycloak, etc.
+  // Tile caching applies to BOTH same-origin and cross-origin
+  // requests. Most basemap providers (OSM, Carto, vector tile
+  // services) are cross-origin; if we filtered to same-origin we'd
+  // never cache the actual tiles a worker needs offline. We're
+  // permissive here on purpose -- the URL pattern is restrictive
+  // enough that we don't accidentally cache other people's APIs.
+  if (request.method === 'GET' && isTileRequest(url)) {
+    event.respondWith(tileCacheFirst(request));
+    return;
+  }
+
+  // Only intercept same-origin requests beyond this point. Third-
+  // party fetches that aren't tiles (auth flows, telemetry, etc.)
   // pass through unmodified.
   if (url.origin !== self.location.origin) return;
 
@@ -91,6 +136,28 @@ self.addEventListener('fetch', (event) => {
 
   // Everything else: pass through to the network. This includes auth flows
   // and API mutations which must be fresh.
+});
+
+/**
+ * Listen for cache-management messages from the main thread. The
+ * tile-warmer module fires these during offline area downloads so
+ * the SW can confirm pre-fetches landed and report progress.
+ */
+self.addEventListener('message', (event) => {
+  const data = event.data;
+  if (!data || typeof data !== 'object') return;
+  if (data.type === 'tile-cache-stats') {
+    void tileCacheStats().then((stats) => {
+      event.ports[0]?.postMessage(stats);
+    });
+    return;
+  }
+  if (data.type === 'tile-cache-clear') {
+    void caches.delete(TILES_CACHE).then(() => {
+      event.ports[0]?.postMessage({ ok: true });
+    });
+    return;
+  }
 });
 
 // -------------------------------------------------------------------------
@@ -115,6 +182,78 @@ async function cacheFirst(request, cacheName) {
     cache.put(request, response.clone());
   }
   return response;
+}
+
+/**
+ * Cache-first strategy for tiles. Tiles change rarely; serving from
+ * cache is correct almost always and dramatically faster on cellular.
+ * On a cache miss we fetch + populate so subsequent visits are
+ * instantaneous. On a cache miss + network failure (offline) we
+ * return a 504 so MapLibre paints the missing-tile placeholder
+ * rather than waiting indefinitely.
+ *
+ * Cross-origin tiles require special care: we must not throw away
+ * opaque responses (response.ok is false for cross-origin no-cors,
+ * but the response is still cacheable + usable by MapLibre). We
+ * cache any non-error response we receive.
+ */
+async function tileCacheFirst(request) {
+  const cache = await caches.open(TILES_CACHE);
+  const cached = await cache.match(request);
+  if (cached) return cached;
+  try {
+    const response = await fetch(request);
+    // Cache 200s and opaque (cross-origin no-cors) responses. Don't
+    // cache 4xx/5xx -- a 404 tile shouldn't poison the cache.
+    if (response && (response.ok || response.type === 'opaque')) {
+      // Clone before put: response body can only be consumed once.
+      cache.put(request, response.clone()).catch(() => {
+        /* quota exhaustion or storage failure -- ignore, the live
+           response still flows through to MapLibre */
+      });
+    }
+    return response;
+  } catch {
+    // Offline + no cache. Return a 504 so MapLibre's tile-error
+    // handler renders the placeholder rather than retrying forever.
+    return new Response('', {
+      status: 504,
+      statusText: 'Tile not in cache',
+    });
+  }
+}
+
+/**
+ * Aggregate stats for the tile cache. Used by the field UI's
+ * storage panel to surface "X tiles cached, Y MB" alongside the
+ * IndexedDB usage. Iterating the cache keys is O(N tile entries);
+ * fine for the few-thousand range a typical offline area produces.
+ */
+async function tileCacheStats() {
+  try {
+    const cache = await caches.open(TILES_CACHE);
+    const requests = await cache.keys();
+    let bytes = 0;
+    // Best-effort byte count: many cross-origin tile responses don't
+    // carry Content-Length, so we read the cached blob's size where
+    // available and estimate ~12KB per tile when not. Cheap because
+    // the cache is local; a few thousand tiny lookups complete fast.
+    for (const req of requests) {
+      const res = await cache.match(req);
+      if (!res) continue;
+      const len = res.headers.get('content-length');
+      if (len) {
+        const n = Number.parseInt(len, 10);
+        bytes += Number.isFinite(n) ? n : 12_000;
+      } else {
+        const blob = await res.clone().blob().catch(() => null);
+        bytes += blob?.size ?? 12_000;
+      }
+    }
+    return { count: requests.length, bytes };
+  } catch {
+    return { count: 0, bytes: 0 };
+  }
 }
 
 async function networkFirstWithCache(request, cacheName) {
