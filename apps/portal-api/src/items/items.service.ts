@@ -1730,45 +1730,108 @@ export class ItemsService {
     return rows;
   }
 
-  async listDependencies(user: AuthUser, id: string) {
+  /**
+   * Items THIS one references (forward edges).
+   *
+   * Two modes mirror listDependents:
+   *   - direct (default): every id named in the item's data.* refs.
+   *   - transitive: plus every item those reach in turn (a
+   *     data_collection -> map -> data_layers -> pick_lists chain).
+   *
+   * Implementation: BFS forward from the seed item. Each hop calls
+   * extractDependencies on the just-fetched row, adds newly-discovered
+   * itemIds to the frontier, and resolves any URL refs by scanning
+   * arcgis_service rows in the org once and matching normalised urls.
+   * Cycle-guarded by `seen`. The seed item itself is never included
+   * in the result.
+   */
+  async listDependencies(
+    user: AuthUser,
+    id: string,
+    opts: { transitive?: boolean } = {},
+  ) {
     const item = await this.get(user, id);
-    const { itemIds, urls } = extractDependencies(item);
-    if (itemIds.length === 0 && urls.length === 0) return [];
 
     const visible = this.sharing.visibleWhere(user);
 
-    // Resolve URL refs by scanning arcgis_service items in the org and
-    // matching their persisted `data.url` against any url the extractor
-    // collected. Normalization on both sides makes the match trailing-
-    // slash and trailing-layer-index tolerant.
-    let urlResolvedIds: string[] = [];
-    if (urls.length > 0) {
-      const normalized = new Set(urls.map((u) => normalizeArcgisUrl(u)));
-      const candidates = await this.prisma.item.findMany({
-        where: {
-          orgId: user.orgId,
-          type: 'arcgis_service',
-          deletedAt: null,
-        },
-        select: { id: true, data: true },
-      });
-      for (const c of candidates) {
-        const rowUrl = (c.data as { url?: unknown } | null)?.url;
-        if (
-          typeof rowUrl === 'string' &&
-          normalized.has(normalizeArcgisUrl(rowUrl))
-        ) {
-          urlResolvedIds.push(c.id);
+    // Pull every arcgis_service in the org once so URL refs at any
+    // BFS depth can resolve to item ids via the same matcher we use
+    // for the direct-only path. Cheap on a typical org (single-digit
+    // arcgis_service rows); cached for the duration of this call.
+    let arcgisIndex: Array<{ id: string; normalized: string }> | null = null;
+    const resolveUrls = async (urls: string[]): Promise<string[]> => {
+      if (urls.length === 0) return [];
+      if (arcgisIndex === null) {
+        const candidates = await this.prisma.item.findMany({
+          where: {
+            orgId: user.orgId,
+            type: 'arcgis_service',
+            deletedAt: null,
+          },
+          select: { id: true, data: true },
+        });
+        arcgisIndex = candidates
+          .map((c) => {
+            const rowUrl = (c.data as { url?: unknown } | null)?.url;
+            return typeof rowUrl === 'string'
+              ? { id: c.id, normalized: normalizeArcgisUrl(rowUrl) }
+              : null;
+          })
+          .filter((x): x is { id: string; normalized: string } => x !== null);
+      }
+      const wanted = new Set(urls.map((u) => normalizeArcgisUrl(u)));
+      const out: string[] = [];
+      for (const a of arcgisIndex) {
+        if (wanted.has(a.normalized)) out.push(a.id);
+      }
+      return out;
+    };
+
+    // Seed: extract from the item we already have in memory.
+    const seedDeps = extractDependencies(item);
+    const seedUrlIds = await resolveUrls(seedDeps.urls);
+    const collected = new Set<string>();
+    const frontier: string[] = [];
+    const enqueue = (newIds: string[]) => {
+      for (const nid of newIds) {
+        if (nid === id) continue; // never include the seed in its own result
+        if (collected.has(nid)) continue;
+        collected.add(nid);
+        frontier.push(nid);
+      }
+    };
+    enqueue([...seedDeps.itemIds, ...seedUrlIds]);
+
+    // BFS only fires when the caller asked for transitive. Direct
+    // mode stops with the seed's first-hop set, matching the
+    // historical behaviour of this endpoint.
+    if (opts.transitive && frontier.length > 0) {
+      // We need each frontier row's `data` to call extractDependencies
+      // again. Pull them in batches by id; ignore rows the caller can't
+      // see (visibility predicate is applied to the final result, but
+      // here we still want to traverse every edge so a private chain
+      // doesn't silently truncate the indirect set just because one
+      // intermediate node isn't shared with the caller -- the visibility
+      // gate at render time decides what they see).
+      while (frontier.length > 0) {
+        const batch = frontier.splice(0, frontier.length);
+        const rows = await this.prisma.item.findMany({
+          where: { id: { in: batch }, deletedAt: null },
+          select: { id: true, type: true, data: true },
+        });
+        for (const r of rows) {
+          const deps = extractDependencies({ type: r.type, data: r.data });
+          const urlIds = await resolveUrls(deps.urls);
+          enqueue([...deps.itemIds, ...urlIds]);
         }
       }
     }
 
-    const allIds = Array.from(new Set([...itemIds, ...urlResolvedIds]));
-    if (allIds.length === 0) return [];
+    if (collected.size === 0) return [];
 
     return this.prisma.item.findMany({
       where: {
-        id: { in: allIds },
+        id: { in: Array.from(collected) },
         deletedAt: null,
         ...visible,
       },
@@ -1781,6 +1844,7 @@ export class ItemsService {
         updatedAt: true,
         access: true,
       },
+      orderBy: { title: 'asc' },
     });
   }
 

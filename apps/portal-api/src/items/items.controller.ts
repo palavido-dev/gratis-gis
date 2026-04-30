@@ -262,10 +262,17 @@ export class ItemsController {
   }
 
   /** Items that THIS item references (e.g. feature services powering
-   *  the layers of a web map). */
+   *  the layers of a web map). Pass ?transitive=true to walk further
+   *  (a data_collection's map's layers, a map's layers' pick_lists). */
   @Get(':id/dependencies')
-  dependencies(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.items.listDependencies(user, id);
+  dependencies(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('transitive') transitive?: string,
+  ) {
+    return this.items.listDependencies(user, id, {
+      transitive: transitive === 'true' || transitive === '1',
+    });
   }
 
   /**

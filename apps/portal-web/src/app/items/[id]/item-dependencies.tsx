@@ -59,7 +59,9 @@ export function ItemDependencies({ itemId }: Props) {
         fetch(
           `/api/portal/items/${itemId}/dependents?transitive=${transitive ? 'true' : 'false'}`,
         ),
-        fetch(`/api/portal/items/${itemId}/dependencies`),
+        fetch(
+          `/api/portal/items/${itemId}/dependencies?transitive=${transitive ? 'true' : 'false'}`,
+        ),
       ]);
       // Include the response body in error messages so the UI actually
       // says why it failed instead of just echoing a status code.
