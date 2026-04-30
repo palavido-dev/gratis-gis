@@ -36,6 +36,7 @@ import {
 import type { CustomBasemap } from '@/lib/custom-basemap';
 import { MapCanvas, type MapCanvasHandle } from '../map/map-canvas';
 import { FormRuntime } from '@/components/form-runtime';
+import { PwaInstallButton } from '@/components/pwa-install-button';
 import {
   enqueueRecord,
   formatBytes,
@@ -790,6 +791,11 @@ export function FieldRuntime({
             no copy) and slightly louder when best-effort (amber)
             so users learn the difference without being nagged. */}
         <PersistenceBadge state={persistentState} />
+        {/* PWA install affordance: invisible when already installed
+            or when the browser hasn't fired beforeinstallprompt yet
+            (and on non-iOS where there's nothing to do). On iOS this
+            opens a Share-sheet hint dialog. */}
+        <PwaInstallButton variant="compact" />
       </header>
 
       <div className="relative min-h-0 flex-1">
