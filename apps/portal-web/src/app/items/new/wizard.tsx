@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   Building2,
   Check,
+  ClipboardList,
   ExternalLink,
   FileText,
   FlaskConical,
@@ -27,6 +28,7 @@ import {
 } from 'lucide-react';
 import type {
   ArcgisServiceData,
+  DataCollectionData,
   DataLayerDataV3,
   DerivedLayerData,
   ISODateString,
@@ -54,6 +56,7 @@ import {
   probeService,
   type ArcgisServiceDescription,
 } from '@/lib/arcgis-rest';
+import { DataCollectionBuilder } from './data-collection-builder';
 import { DataLayerBuilder } from './data-layer-builder';
 import { DerivedLayerBuilder } from './derived-layer-builder';
 import { MetadataXmlImporter } from './metadata-xml-importer';
@@ -173,6 +176,12 @@ const TYPE_GROUPS: TypeGroup[] = [
         label: 'Editor',
         desc: 'Online workspace for adding, editing, and deleting features in one or more data layers.',
         Icon: PencilRuler,
+      },
+      {
+        value: 'data_collection',
+        label: 'Data collection',
+        desc: 'Field-mode deployment: tap features on a map to add or edit them. Forms come from the layer schema by default.',
+        Icon: ClipboardList,
       },
       {
         value: 'report_template',
@@ -336,6 +345,15 @@ export function NewItemWizard() {
   // with an empty scaffold the user fills in on the detail page.
   const [derivedLayerData, setDerivedLayerData] =
     useState<DerivedLayerData>(DEFAULT_DERIVED_LAYER);
+
+  // data_collection wizard state: just the chosen map id. mapId is
+  // required at create-time (no map = nothing to deploy), and there's
+  // no "configure later" because the rest of the data_collection (form
+  // bindings, offline config) is purely additive on the detail page.
+  // Field Maps Slice 1 (#141).
+  const [dataCollectionMapId, setDataCollectionMapId] = useState<string | null>(
+    null,
+  );
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -658,6 +676,23 @@ export function NewItemWizard() {
       // an empty-state prompt until the first target is added. See
       // docs/editing-and-collection.md.
       data = DEFAULT_EDITOR;
+    } else if (type === 'data_collection') {
+      // mapId is structural: a data_collection without a map has
+      // nothing for collectors to tap on. Block create until the
+      // wizard's map picker has resolved a choice. Form bindings and
+      // offline config stay defaulted-empty; the field-mode runtime
+      // falls through to schema-derived forms (Field Maps default)
+      // and online-only mode until an author opts in on the detail
+      // page.
+      if (!dataCollectionMapId) {
+        setError('Pick a map for this data collection.');
+        return;
+      }
+      const dc: DataCollectionData = {
+        version: 1,
+        mapId: dataCollectionMapId,
+      };
+      data = dc;
     } else if (type === 'derived_layer') {
       // The wizard's DerivedLayerBuilder gathers the source layer +
       // pipeline up front (the recipe is structural, not optional).
@@ -1111,6 +1146,13 @@ export function NewItemWizard() {
         <DerivedLayerBuilder
           value={derivedLayerData}
           onChange={setDerivedLayerData}
+        />
+      ) : null}
+
+      {type === 'data_collection' ? (
+        <DataCollectionBuilder
+          value={dataCollectionMapId}
+          onChange={setDataCollectionMapId}
         />
       ) : null}
 

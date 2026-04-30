@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import type {
   BasemapData,
+  DataCollectionData,
   DerivedLayerData,
   FolderData,
   Item,
@@ -107,6 +108,7 @@ import { DerivedLayerDetail } from './derived-layer/detail';
 import { FolderDetail } from './folder/folder-detail';
 import { EditorDetail } from './editor/editor-detail';
 import { FormDesigner } from './form/designer';
+import { DataCollectionDetail } from './data-collection/data-collection-detail';
 import type { FormSchema } from '@gratis-gis/form-schema';
 import { DataLayerProvenance } from './data-layer/provenance-panel';
 import { DataLayerSchema } from './data-layer/schema-panel';
@@ -538,6 +540,22 @@ export default async function ItemDetailPage({ params }: Props) {
               ...((item.data ?? {}) as Partial<EditorData>),
             }}
             canEdit={canManage}
+          />
+        </section>
+      ) : item.type === 'data_collection' ? (
+        <section className="mb-6">
+          <DataCollectionDetail
+            itemId={item.id}
+            initial={
+              // The wizard always writes a complete DataCollectionData,
+              // but tolerate partial shapes the same way the other
+              // detail bodies do: a future migration that adds a field
+              // shouldn't 500 the page on items written before the
+              // bump. mapId is required by the type but we trust the
+              // server-side validation and the Slice 1 wizard's
+              // mapId guard.
+              (item.data ?? {}) as DataCollectionData
+            }
           />
         </section>
       ) : item.type === 'form' ? (

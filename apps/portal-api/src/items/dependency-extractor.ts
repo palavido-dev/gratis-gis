@@ -200,6 +200,36 @@ export function extractDependencies(
     }
   }
 
+  if (item.type === 'data_collection') {
+    // A data_collection references:
+    //   - data.mapId: the map item the deployment wraps. Every
+    //     data_collection has exactly one (structural).
+    //   - data.formBindings[layerKey].formItemId: optional explicit
+    //     form bound to a specific editable layer. Multiple bindings
+    //     each contribute one ref. Layers without a binding fall
+    //     through to schema-derived forms at runtime; nothing to
+    //     track for those.
+    // Tracking these surfaces the map and any custom forms in the
+    // data_collection's "Depends on" panel, and the deployment in
+    // each map's / form's "Used by" panel so authors can see what
+    // depends on a map before they restructure or trash it.
+    const mapRef = (data as { mapId?: unknown }).mapId;
+    if (typeof mapRef === 'string' && mapRef.length > 0) {
+      itemIds.add(mapRef);
+    }
+    const bindings = (data as { formBindings?: unknown }).formBindings;
+    if (bindings && typeof bindings === 'object' && !Array.isArray(bindings)) {
+      for (const b of Object.values(
+        bindings as Record<string, unknown>,
+      )) {
+        if (b && typeof b === 'object') {
+          const fid = (b as { formItemId?: unknown }).formItemId;
+          if (typeof fid === 'string' && fid.length > 0) itemIds.add(fid);
+        }
+      }
+    }
+  }
+
   // Hook points for other types: extend as those item types come online.
 
   return { itemIds: Array.from(itemIds), urls: Array.from(urls) };
@@ -303,4 +333,5 @@ export const REFERENCER_TYPES: ItemType[] = [
   'folder',
   'editor',
   'form',
+  'data_collection',
 ];
