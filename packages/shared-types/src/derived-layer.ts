@@ -87,12 +87,29 @@ export interface BufferStep {
 }
 
 /**
+ * Dissolve tool step. Merges every input geometry into a single
+ * feature via PostGIS `ST_Union(geom)`. Drops all attributes (since
+ * N rows collapse to 1, there is no deterministic answer for what
+ * each attribute should be in the merged row); v2 may add a
+ * `groupBy` parameter that aggregates by an attribute.
+ *
+ * Runs before downstream steps that don't depend on per-feature
+ * attributes; placing dissolve before a field-mode buffer is a
+ * validate-time error because the named field no longer exists in
+ * the merged step's schema.
+ */
+export interface DissolveStep {
+  tool: 'dissolve';
+  params: Record<string, never>;
+}
+
+/**
  * Discriminated union of every available tool step. Adding a new tool
  * means adding a member here, a generator file in
  * apps/portal-api/src/derived-layers/tools/, and a wizard step in
  * apps/portal-web. No schema migration required.
  */
-export type ToolStep = BufferStep;
+export type ToolStep = BufferStep | DissolveStep;
 
 /**
  * The recipe persisted in `item.data` when `type = 'derived_layer'`.
@@ -163,6 +180,29 @@ export const MAX_BUFFER_DISTANCE_METERS = 100_000;
 export const DEFAULT_BUFFER_STEP: BufferStep = {
   tool: 'buffer',
   params: { mode: 'fixed', distance: 100, unit: 'meters' },
+};
+
+/**
+ * Default dissolve step. Empty params shape since v1 dissolve takes
+ * no inputs. Exported for symmetry with `DEFAULT_BUFFER_STEP`; the
+ * pipeline builder uses it when the user picks "Dissolve" from the
+ * add-step picker.
+ */
+export const DEFAULT_DISSOLVE_STEP: DissolveStep = {
+  tool: 'dissolve',
+  params: {},
+};
+
+/**
+ * Lookup table of "what step should we splice into the pipeline when
+ * the user picks <tool>?" Exported alongside the per-step defaults so
+ * a UI surface can populate an add-step picker without copy-pasting
+ * the defaults map. Keys match the `tool` discriminator on each
+ * ToolStep variant.
+ */
+export const DEFAULT_STEPS: Record<ToolStep['tool'], ToolStep> = {
+  buffer: DEFAULT_BUFFER_STEP,
+  dissolve: DEFAULT_DISSOLVE_STEP,
 };
 
 /**

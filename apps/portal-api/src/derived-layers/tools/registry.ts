@@ -2,6 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import type { ToolStep } from '@gratis-gis/shared-types';
 
 import { bufferGenerator } from './buffer.js';
+import { dissolveGenerator } from './dissolve.js';
 import type { ToolGenerator } from './types.js';
 
 /**
@@ -17,6 +18,7 @@ import type { ToolGenerator } from './types.js';
  */
 const REGISTRY: Map<string, ToolGenerator<unknown>> = new Map([
   [bufferGenerator.kind, bufferGenerator as ToolGenerator<unknown>],
+  [dissolveGenerator.kind, dissolveGenerator as ToolGenerator<unknown>],
 ]);
 
 /**

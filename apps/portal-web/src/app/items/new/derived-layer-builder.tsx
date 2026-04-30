@@ -11,12 +11,15 @@ import {
   ChevronDown,
   FlaskConical,
   Layers,
+  Plus,
   Search,
+  Trash2,
   X,
 } from 'lucide-react';
 import {
   DEFAULT_BUFFER_STEP,
   DEFAULT_DERIVED_LAYER_FEATURE_LIMIT,
+  DEFAULT_STEPS,
   LENGTH_UNITS,
   MAX_BUFFER_DISTANCE_METERS,
   METERS_PER_UNIT,
@@ -52,35 +55,24 @@ export function DerivedLayerBuilder({
   value: DerivedLayerData;
   onChange: (next: DerivedLayerData) => void;
 }) {
-  // Buffer step is the only tool in v1, so we surface it directly
-  // rather than via a "pick a tool" intermediate step. When more
-  // tools land, this becomes a tool selector and per-tool form
-  // fragments.
-  const bufferStep = value.pipeline.find(
-    (s): s is Extract<ToolStep, { tool: 'buffer' }> => s.tool === 'buffer',
-  );
-  const bufferParams: BufferParams =
-    bufferStep?.params ?? DEFAULT_BUFFER_STEP.params;
-
-  // Seed the pipeline with a default buffer step the moment the
-  // builder mounts. Without this, the input shows "100" via the
-  // default fallback but `value.pipeline` stays empty until the user
-  // edits the field, which causes the wizard's "at least one step"
-  // guard to (correctly) reject the submit even though the form
-  // looks filled in.
+  // Seed the pipeline with a default buffer step on first mount when
+  // it's empty. Mount-only (gated by a ref) so a user who later
+  // removes every step doesn't see one re-appear -- removing the
+  // last step is a deliberate intermediate state until they add a
+  // fresh one via the picker. The wizard's submit-time validation
+  // still rejects an empty pipeline, so a user can never save one.
+  const seededRef = useRef(false);
   useEffect(() => {
+    if (seededRef.current) return;
+    seededRef.current = true;
     if (value.pipeline.length === 0) {
       onChange({
         ...value,
         pipeline: [DEFAULT_BUFFER_STEP],
       });
     }
-    // We deliberately depend only on the pipeline length so this
-    // effect doesn't re-fire on every keystroke that mutates
-    // `value`. The intent is "ensure a step exists at startup or
-    // after a reset"; per-keystroke mutations go through the
-    // setBuffer* helpers instead.
-  }, [value.pipeline.length]);
+    // Mount-only effect; deps intentionally empty.
+  }, []);
 
   const setSourceItem = useCallback(
     (ref: { itemId: string; layerKey?: string }) => {
@@ -124,102 +116,40 @@ export function DerivedLayerBuilder({
     };
   }, [value.source.itemId, value.source.layerKey]);
 
-  // Helper: write a new buffer params object back into the recipe.
-  // The pipeline is a one-element list in v1, so this is a single-
-  // step replace; the call sites below pass the params they want
-  // committed (post-clamping) and we wrap in the ToolStep envelope.
-  const setBufferParams = useCallback(
-    (params: BufferParams) => {
-      onChange({
-        ...value,
-        pipeline: [{ tool: 'buffer', params }],
-      });
+  // Pipeline-level mutations. Each helper writes a fresh array back
+  // into `value.pipeline` rather than mutating in place, so React's
+  // reconciliation sees a new reference every change.
+  const replaceStep = useCallback(
+    (index: number, next: ToolStep) => {
+      const pipeline = value.pipeline.map((s, i) => (i === index ? next : s));
+      onChange({ ...value, pipeline });
     },
     [value, onChange],
   );
 
-  const setBufferMode = useCallback(
-    (mode: 'fixed' | 'field') => {
-      if (mode === bufferParams.mode) return;
-      // Preserve the unit across mode switches so a user who chose
-      // "kilometers" doesn't have to re-pick when toggling to field
-      // mode and back. Other fields reset to sensible defaults.
-      if (mode === 'fixed') {
-        setBufferParams({
-          mode: 'fixed',
-          distance: 100,
-          unit: bufferParams.unit,
-        });
-      } else {
-        // Pre-pick the first numeric field if one is available; the
-        // user can change it. Without a default the picker shows a
-        // placeholder until they make a choice.
-        const firstNumeric = sourceFields.find((f) => f.type === 'number');
-        setBufferParams({
-          mode: 'field',
-          field: firstNumeric?.name ?? '',
-          unit: bufferParams.unit,
-          // cachedMaxMeters is server-computed at save time; the
-          // wizard always sends 0 and the API replaces it.
-          cachedMaxMeters: 0,
-        });
-      }
+  const removeStep = useCallback(
+    (index: number) => {
+      const pipeline = value.pipeline.filter((_, i) => i !== index);
+      onChange({ ...value, pipeline });
     },
-    [bufferParams, sourceFields, setBufferParams],
+    [value, onChange],
   );
 
-  const setBufferDistance = useCallback(
-    (distance: number) => {
-      if (bufferParams.mode !== 'fixed') return;
-      // Clamp the user-typed value to the meters ceiling, expressed
-      // in the chosen unit. A user typing "999" with unit=miles
-      // shouldn't sail past 100 km; converting to meters first keeps
-      // the cap absolute.
-      const meters = Number.isFinite(distance)
-        ? distance * METERS_PER_UNIT[bufferParams.unit]
-        : 0;
-      const cappedMeters = Math.max(0, Math.min(meters, MAX_BUFFER_DISTANCE_METERS));
-      const safe = cappedMeters / METERS_PER_UNIT[bufferParams.unit];
-      setBufferParams({
-        mode: 'fixed',
-        distance: safe,
-        unit: bufferParams.unit,
-      });
+  // Insert a fresh step at `index` (0 = before everything;
+  // pipeline.length = at the end). The picker passes the tool kind;
+  // we pull the corresponding default scaffold from shared-types so
+  // every freshly-added step starts in a coherent state.
+  const insertStepAt = useCallback(
+    (index: number, kind: ToolStep['tool']) => {
+      const fresh = DEFAULT_STEPS[kind];
+      const pipeline = [
+        ...value.pipeline.slice(0, index),
+        fresh,
+        ...value.pipeline.slice(index),
+      ];
+      onChange({ ...value, pipeline });
     },
-    [bufferParams, setBufferParams],
-  );
-
-  const setBufferUnit = useCallback(
-    (unit: LengthUnit) => {
-      if (bufferParams.mode === 'fixed') {
-        setBufferParams({
-          mode: 'fixed',
-          distance: bufferParams.distance,
-          unit,
-        });
-      } else {
-        setBufferParams({
-          mode: 'field',
-          field: bufferParams.field,
-          unit,
-          cachedMaxMeters: 0,
-        });
-      }
-    },
-    [bufferParams, setBufferParams],
-  );
-
-  const setBufferField = useCallback(
-    (field: string) => {
-      if (bufferParams.mode !== 'field') return;
-      setBufferParams({
-        mode: 'field',
-        field,
-        unit: bufferParams.unit,
-        cachedMaxMeters: 0,
-      });
-    },
-    [bufferParams, setBufferParams],
+    [value, onChange],
   );
 
   const setFeatureLimit = useCallback(
@@ -276,98 +206,14 @@ export function DerivedLayerBuilder({
         </p>
       </section>
 
-      <section className="space-y-2">
-        <h4 className="text-xs font-medium uppercase tracking-wide text-muted">
-          Tool: Buffer
-        </h4>
-        <p className="text-xs text-muted">
-          Expand each feature outward into a polygon halo. Distance
-          can be a fixed value applied to every feature, or read from
-          a numeric field on each row so different features get
-          different buffers.
-        </p>
-        <div
-          className="grid grid-cols-2 gap-2"
-          role="radiogroup"
-          aria-label="Buffer distance source"
-        >
-          <button
-            type="button"
-            role="radio"
-            aria-checked={bufferParams.mode === 'fixed'}
-            onClick={() => setBufferMode('fixed')}
-            className={`flex flex-col items-start gap-0.5 rounded-md border p-2.5 text-left transition-colors ${
-              bufferParams.mode === 'fixed'
-                ? 'border-accent bg-accent/5 ring-2 ring-accent/30'
-                : 'border-border bg-surface-0 hover:bg-surface-2'
-            }`}
-          >
-            <span className="text-sm font-medium text-ink-1">Fixed</span>
-            <span className="text-[11px] text-muted">
-              The same distance for every feature.
-            </span>
-          </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={bufferParams.mode === 'field'}
-            onClick={() => setBufferMode('field')}
-            disabled={!value.source.itemId}
-            title={
-              !value.source.itemId
-                ? 'Pick a source layer first to see its numeric fields'
-                : undefined
-            }
-            className={`flex flex-col items-start gap-0.5 rounded-md border p-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-              bufferParams.mode === 'field'
-                ? 'border-accent bg-accent/5 ring-2 ring-accent/30'
-                : 'border-border bg-surface-0 hover:bg-surface-2'
-            }`}
-          >
-            <span className="text-sm font-medium text-ink-1">From a field</span>
-            <span className="text-[11px] text-muted">
-              Read the distance from a numeric column on each row.
-            </span>
-          </button>
-        </div>
-
-        {bufferParams.mode === 'fixed' ? (
-          <label className="flex flex-col gap-1 pt-1 text-sm">
-            <span className="text-ink-1">Distance</span>
-            <span className="flex items-center gap-2">
-              <input
-                type="number"
-                min={0}
-                step={1}
-                value={
-                  Number.isFinite(bufferParams.distance)
-                    ? bufferParams.distance
-                    : 0
-                }
-                onChange={(e) => setBufferDistance(Number(e.target.value))}
-                className="h-10 w-32 rounded-md border border-border bg-surface-0 px-3 text-sm text-ink-0 focus:border-accent focus:outline-none"
-              />
-              <UnitSelect
-                value={bufferParams.unit}
-                onChange={setBufferUnit}
-              />
-            </span>
-            <span className="text-[11px] text-muted">
-              Up to {MAX_BUFFER_DISTANCE_METERS.toLocaleString()} m. Try
-              kilometers, feet, yards, or miles.
-            </span>
-          </label>
-        ) : (
-          <FieldModeControls
-            sourceFields={sourceFields}
-            field={bufferParams.field}
-            unit={bufferParams.unit}
-            onFieldChange={setBufferField}
-            onUnitChange={setBufferUnit}
-            sourcePicked={Boolean(value.source.itemId)}
-          />
-        )}
-      </section>
+      <PipelineSection
+        pipeline={value.pipeline}
+        sourceFields={sourceFields}
+        sourcePicked={Boolean(value.source.itemId)}
+        onReplaceStep={replaceStep}
+        onRemoveStep={removeStep}
+        onInsertStep={insertStepAt}
+      />
 
       <section className="space-y-2">
         <h4 className="text-xs font-medium uppercase tracking-wide text-muted">
@@ -952,4 +798,419 @@ function extractFields(data: unknown, layerKey: string | undefined): FeatureFiel
     return d.fields as FeatureField[];
   }
   return [];
+}
+
+// ---------------------------------------------------------------------
+// Pipeline UI: chained steps with add / remove / insert
+// ---------------------------------------------------------------------
+
+/**
+ * Friendly label for each tool kind. Drives the step-card header and
+ * the add-step picker. Kept as a flat record so adding a tool is a
+ * one-line change here plus a new step editor below.
+ */
+const TOOL_LABELS: Record<ToolStep['tool'], string> = {
+  buffer: 'Buffer',
+  dissolve: 'Dissolve',
+};
+
+const TOOL_DESCRIPTIONS: Record<ToolStep['tool'], string> = {
+  buffer: 'Expand features outward into polygon halos.',
+  dissolve: 'Merge every input geometry into a single feature.',
+};
+
+/**
+ * Renders the pipeline as a vertical list of step cards. Between
+ * each pair (and after the last, and before the first) sits an
+ * "Add a step" button that opens a small picker showing every
+ * available tool. Each card has a remove control. Step ordering is
+ * positional: the output of step N is the input of step N+1, and
+ * inserting a step in the middle is intentional, not a reorder
+ * action.
+ */
+function PipelineSection({
+  pipeline,
+  sourceFields,
+  sourcePicked,
+  onReplaceStep,
+  onRemoveStep,
+  onInsertStep,
+}: {
+  pipeline: ToolStep[];
+  sourceFields: FeatureField[];
+  sourcePicked: boolean;
+  onReplaceStep: (index: number, next: ToolStep) => void;
+  onRemoveStep: (index: number) => void;
+  onInsertStep: (index: number, kind: ToolStep['tool']) => void;
+}) {
+  return (
+    <section className="space-y-2">
+      <h4 className="text-xs font-medium uppercase tracking-wide text-muted">
+        Pipeline
+      </h4>
+      <p className="text-xs text-muted">
+        Each step takes the output of the one above it. The first step
+        reads from the source layer; the last step's output is the
+        derived layer's features.
+      </p>
+
+      <div className="space-y-2">
+        {/* Insertion slot before everything: lets the user prepend
+            a step without first having to add at the end and then
+            reorder. */}
+        <AddStepRow
+          onPick={(kind) => onInsertStep(0, kind)}
+          variant="slot"
+        />
+
+        {pipeline.map((step, idx) => (
+          <div key={idx} className="space-y-2">
+            <StepCard
+              index={idx}
+              step={step}
+              sourceFields={sourceFields}
+              sourcePicked={sourcePicked}
+              onChange={(next) => onReplaceStep(idx, next)}
+              onRemove={() => onRemoveStep(idx)}
+            />
+            {/* Insertion slot AFTER each step. The last one acts as
+                the "Add a step" call to action at the bottom of the
+                list, so we lift it to a primary visual when it's
+                the last slot. */}
+            <AddStepRow
+              onPick={(kind) => onInsertStep(idx + 1, kind)}
+              variant={idx === pipeline.length - 1 ? 'primary' : 'slot'}
+            />
+          </div>
+        ))}
+
+        {pipeline.length === 0 ? (
+          <p className="text-[11px] text-muted">
+            The pipeline is empty. Add at least one step before saving.
+          </p>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * One step in the pipeline. Renders a numbered badge, the tool's
+ * label, the per-tool editor, and a remove button. Per-tool editor
+ * dispatch lives here so the parent doesn't have to know which
+ * editor matches which kind.
+ */
+function StepCard({
+  index,
+  step,
+  sourceFields,
+  sourcePicked,
+  onChange,
+  onRemove,
+}: {
+  index: number;
+  step: ToolStep;
+  sourceFields: FeatureField[];
+  sourcePicked: boolean;
+  onChange: (next: ToolStep) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="rounded-md border border-border bg-surface-0 p-3">
+      <header className="mb-2 flex items-start justify-between gap-2">
+        <div className="flex items-start gap-2">
+          <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-700/90 text-[11px] font-semibold text-white">
+            {index + 1}
+          </span>
+          <div>
+            <p className="text-sm font-medium text-ink-0">
+              {TOOL_LABELS[step.tool] ?? step.tool}
+            </p>
+            <p className="text-[11px] text-muted">
+              {TOOL_DESCRIPTIONS[step.tool] ?? ''}
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label={`Remove step ${index + 1}`}
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-danger/10 hover:text-danger"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </header>
+
+      {step.tool === 'buffer' ? (
+        <BufferStepEditor
+          params={step.params}
+          onChange={(params) => onChange({ tool: 'buffer', params })}
+          sourceFields={sourceFields}
+          sourcePicked={sourcePicked}
+        />
+      ) : step.tool === 'dissolve' ? (
+        <DissolveStepEditor />
+      ) : (
+        // Forward-compat fallback for a tool kind a newer server
+        // might emit that this client doesn't recognize. Surface
+        // the raw kind so the user can still see the step exists.
+        <p className="text-xs text-muted">
+          Unknown tool kind {(step as { tool: string }).tool}; this
+          client may be older than the server.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Inline insertion row. The "slot" variant is the small dashed-line
+ * affordance between two cards; the "primary" variant is the
+ * call-to-action button after the last step. Both open the same
+ * picker; the variant is purely visual.
+ */
+function AddStepRow({
+  onPick,
+  variant,
+}: {
+  onPick: (kind: ToolStep['tool']) => void;
+  variant: 'slot' | 'primary';
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // Close on outside click. Same pattern the source picker uses;
+  // each AddStepRow is independent so concurrent open states across
+  // multiple slots don't collide.
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (!containerRef.current) return;
+      if (!containerRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [open]);
+
+  const triggerClasses =
+    variant === 'primary'
+      ? 'inline-flex h-9 items-center gap-1 rounded-md border border-accent/40 bg-accent/5 px-3 text-xs font-medium text-accent hover:bg-accent/10'
+      : 'inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-border bg-transparent px-2 text-[11px] text-muted hover:border-accent/50 hover:text-ink-1';
+
+  return (
+    <div ref={containerRef} className="relative flex justify-center">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={triggerClasses}
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        <Plus className="h-3.5 w-3.5" />
+        Add a step
+      </button>
+      {open ? (
+        <div
+          role="menu"
+          className="absolute top-full z-20 mt-1 w-64 overflow-hidden rounded-md border border-border bg-surface-0 shadow-lg"
+        >
+          <ul className="p-1">
+            {(Object.keys(TOOL_LABELS) as Array<ToolStep['tool']>).map((kind) => (
+              <li key={kind}>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    onPick(kind);
+                    setOpen(false);
+                  }}
+                  className="flex w-full flex-col items-start gap-0.5 rounded-md px-3 py-2 text-left text-sm hover:bg-surface-2"
+                >
+                  <span className="font-medium text-ink-0">
+                    {TOOL_LABELS[kind]}
+                  </span>
+                  <span className="text-[11px] text-muted">
+                    {TOOL_DESCRIPTIONS[kind]}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Self-contained editor for a buffer step's params. Owns the mode
+ * toggle (Fixed / From a field), the unit dropdown, and the
+ * mode-specific input (number for fixed, field combobox for
+ * field). Emits a fresh BufferParams via `onChange` for every
+ * change so the parent's pipeline state stays in sync.
+ *
+ * The editor also enforces the same client-side ceiling the
+ * old single-step UI did: a fixed distance is clamped to
+ * MAX_BUFFER_DISTANCE_METERS in the user's chosen unit, so a typed
+ * "999 miles" can't bypass the cap.
+ */
+function BufferStepEditor({
+  params,
+  onChange,
+  sourceFields,
+  sourcePicked,
+}: {
+  params: BufferParams;
+  onChange: (next: BufferParams) => void;
+  sourceFields: FeatureField[];
+  sourcePicked: boolean;
+}) {
+  const setMode = (mode: 'fixed' | 'field') => {
+    if (mode === params.mode) return;
+    if (mode === 'fixed') {
+      onChange({ mode: 'fixed', distance: 100, unit: params.unit });
+      return;
+    }
+    const firstNumeric = sourceFields.find((f) => f.type === 'number');
+    onChange({
+      mode: 'field',
+      field: firstNumeric?.name ?? '',
+      unit: params.unit,
+      cachedMaxMeters: 0,
+    });
+  };
+
+  const setUnit = (unit: LengthUnit) => {
+    if (params.mode === 'fixed') {
+      onChange({ mode: 'fixed', distance: params.distance, unit });
+    } else {
+      onChange({
+        mode: 'field',
+        field: params.field,
+        unit,
+        cachedMaxMeters: 0,
+      });
+    }
+  };
+
+  const setDistance = (raw: number) => {
+    if (params.mode !== 'fixed') return;
+    const meters = Number.isFinite(raw)
+      ? raw * METERS_PER_UNIT[params.unit]
+      : 0;
+    const cappedMeters = Math.max(
+      0,
+      Math.min(meters, MAX_BUFFER_DISTANCE_METERS),
+    );
+    onChange({
+      mode: 'fixed',
+      distance: cappedMeters / METERS_PER_UNIT[params.unit],
+      unit: params.unit,
+    });
+  };
+
+  const setField = (field: string) => {
+    if (params.mode !== 'field') return;
+    onChange({
+      mode: 'field',
+      field,
+      unit: params.unit,
+      cachedMaxMeters: 0,
+    });
+  };
+
+  return (
+    <div className="space-y-2">
+      <div
+        className="grid grid-cols-2 gap-2"
+        role="radiogroup"
+        aria-label="Buffer distance source"
+      >
+        <button
+          type="button"
+          role="radio"
+          aria-checked={params.mode === 'fixed'}
+          onClick={() => setMode('fixed')}
+          className={`flex flex-col items-start gap-0.5 rounded-md border p-2.5 text-left transition-colors ${
+            params.mode === 'fixed'
+              ? 'border-accent bg-accent/5 ring-2 ring-accent/30'
+              : 'border-border bg-surface-1 hover:bg-surface-2'
+          }`}
+        >
+          <span className="text-sm font-medium text-ink-1">Fixed</span>
+          <span className="text-[11px] text-muted">
+            The same distance for every feature.
+          </span>
+        </button>
+        <button
+          type="button"
+          role="radio"
+          aria-checked={params.mode === 'field'}
+          onClick={() => setMode('field')}
+          disabled={!sourcePicked}
+          title={
+            !sourcePicked
+              ? 'Pick a source layer first to see its numeric fields'
+              : undefined
+          }
+          className={`flex flex-col items-start gap-0.5 rounded-md border p-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+            params.mode === 'field'
+              ? 'border-accent bg-accent/5 ring-2 ring-accent/30'
+              : 'border-border bg-surface-1 hover:bg-surface-2'
+          }`}
+        >
+          <span className="text-sm font-medium text-ink-1">From a field</span>
+          <span className="text-[11px] text-muted">
+            Read the distance from a numeric column on each row.
+          </span>
+        </button>
+      </div>
+
+      {params.mode === 'fixed' ? (
+        <label className="flex flex-col gap-1 pt-1 text-sm">
+          <span className="text-ink-1">Distance</span>
+          <span className="flex items-center gap-2">
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={Number.isFinite(params.distance) ? params.distance : 0}
+              onChange={(e) => setDistance(Number(e.target.value))}
+              className="h-10 w-32 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-0 focus:border-accent focus:outline-none"
+            />
+            <UnitSelect value={params.unit} onChange={setUnit} />
+          </span>
+          <span className="text-[11px] text-muted">
+            Up to {MAX_BUFFER_DISTANCE_METERS.toLocaleString()} m. Try
+            kilometers, feet, yards, or miles.
+          </span>
+        </label>
+      ) : (
+        <FieldModeControls
+          sourceFields={sourceFields}
+          field={params.field}
+          unit={params.unit}
+          onFieldChange={setField}
+          onUnitChange={setUnit}
+          sourcePicked={sourcePicked}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Editor for a dissolve step. v1 has no parameters, so this is
+ * informational copy explaining the step's effect. The empty
+ * params shape on the wire keeps the door open for a future
+ * groupBy field without a UI rewrite.
+ */
+function DissolveStepEditor() {
+  return (
+    <p className="text-[11px] text-muted">
+      Merges every feature into a single combined geometry. All
+      attributes are dropped; downstream steps that need a specific
+      column will fail validation if they sit after dissolve.
+    </p>
+  );
 }

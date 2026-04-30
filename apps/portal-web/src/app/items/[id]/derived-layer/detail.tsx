@@ -168,6 +168,8 @@ function labelForTool(step: ToolStep): string {
   switch (step.tool) {
     case 'buffer':
       return 'Buffer';
+    case 'dissolve':
+      return 'Dissolve';
     default:
       // Future tools land in this default until they grow a label;
       // shows the raw kind so the panel never goes silently blank
@@ -192,6 +194,12 @@ function summarizeStep(step: ToolStep): string {
       // Fixed: simple distance + unit.
       return `${params.distance.toLocaleString()} ${unitLabel}`;
     }
+    case 'dissolve':
+      // v1 dissolve has no params worth surfacing; the label
+      // ("Dissolve") and the row's effect (drop attributes, merge
+      // geometries) are explained in the design doc and the
+      // builder's step editor.
+      return 'merge all features';
     default:
       return '';
   }
