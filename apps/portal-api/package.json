@@ -41,7 +41,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "cron": "3.2.1",
-    "fast-xml-parser": "^4.5.0",
+    "fast-xml-parser": "^5.8.0",
     "gdal-async": "^3.9.2",
     "jwks-rsa": "^3.1.0",
     "multer": "^2.1.1",
