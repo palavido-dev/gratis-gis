@@ -11,7 +11,7 @@
 # Built from the repo root so the build context can see the whole
 # monorepo:  docker build -f apps/portal-api/Dockerfile .
 
-FROM node:20-bookworm-slim AS base
+FROM node:26-bookworm-slim AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 RUN corepack enable
