@@ -45,7 +45,7 @@
     "gdal-async": "^3.9.2",
     "jwks-rsa": "^3.1.0",
     "multer": "^2.1.1",
-    "nodemailer": "^7.0.11",
+    "nodemailer": "^8.0.5",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pg": "^8.20.0",
