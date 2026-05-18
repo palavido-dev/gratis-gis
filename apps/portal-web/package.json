@@ -19,7 +19,7 @@
     "framer-motion": "^11.11.1",
     "gray-matter": "^4.0.3",
     "jszip": "^3.10.1",
-    "lucide-react": "^0.447.0",
+    "lucide-react": "^1.16.0",
     "maplibre-gl": "^4.7.1",
     "marked": "^18.0.3",
     "next": "^15.5.18",
