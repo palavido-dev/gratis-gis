@@ -8,7 +8,7 @@
 #
 # Built from the repo root:  docker build -f apps/portal-web/Dockerfile .
 
-FROM node:20-bookworm-slim AS base
+FROM node:26-bookworm-slim AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 RUN corepack enable
