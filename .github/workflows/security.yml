@@ -92,7 +92,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -140,7 +140,7 @@ jobs:
           tags: gratisgis-${{ matrix.image.name }}:ci
 
       - name: Trivy scan ${{ matrix.image.name }}
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: gratisgis-${{ matrix.image.name }}:ci
           format: sarif
