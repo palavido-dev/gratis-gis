@@ -9,7 +9,7 @@
 # image: this keeps the upstream chain short (postgres -> postgis ->
 # us) and lets us track postgis security updates without a second
 # maintainer in the loop.
-FROM postgis/postgis:16-3.4
+FROM postgis/postgis:17-3.5
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
