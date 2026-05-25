@@ -15,7 +15,7 @@
 # would break prod on next deploy (PG16 data dir is unreadable by
 # the PG17 binary). See docs/handoff/postgres-17-upgrade.md (TBD)
 # for the migration steps.
-FROM postgis/postgis:16-3.5
+FROM postgis/postgis:17-3.5
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
