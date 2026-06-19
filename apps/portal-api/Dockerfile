@@ -105,11 +105,13 @@ FROM base AS runtime
 WORKDIR /app
 # Runtime deps for GDAL, the Prisma engine, and TLS. No build chain.
 #
-# postgresql-client-16 is required by BackupService.runPgDump (#277):
-# the nightly cron shells out to `pg_dump` against the prod Postgres 16
-# server, so the binary needs to be on PATH inside this image AND match
-# the server's major version (pg_dump refuses to dump a newer server).
-# Debian bookworm only ships postgresql-client (15), so we pull 16 from
+# postgresql-client-17 is required by BackupService.runPgDump (#277):
+# the nightly cron shells out to `pg_dump` against the prod Postgres 17
+# server (postgis/postgis:17-3.5, see infra/postgres/Dockerfile), so the
+# binary needs to be on PATH inside this image AND match the server's
+# major version (pg_dump refuses to dump a newer server; keep this in
+# lockstep with infra/postgres/Dockerfile's base image major version).
+# Debian bookworm only ships postgresql-client (15), so we pull 17 from
 # the official PGDG apt repo. gnupg is needed to dearmor the repo key.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       libgdal-dev \
@@ -125,7 +127,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
        > /etc/apt/sources.list.d/pgdg.list \
     && apt-get update \
-    && apt-get install -y --no-install-recommends postgresql-client-16 \
+    && apt-get install -y --no-install-recommends postgresql-client-17 \
     && rm -rf /var/lib/apt/lists/*
 
 # Remove the globally-installed pnpm from the runtime image.
