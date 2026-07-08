@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { ChevronRight, Folder as FolderIcon, FolderOpen } from 'lucide-react';
 import { FolderRowMenu } from './folder-row-menu';
 import { useAlert } from '@/components/dialog-provider';
+import { useT } from '@/lib/i18n/locale-context';
 
 /** MIME-style key used to identify an item-card drag payload (#43).
  *  Kept narrow (`application/x-gratis-item`) so other dragged content
@@ -54,6 +55,7 @@ interface Props {
  * See docs/folders.md.
  */
 export function FolderRail({ folders, activeFolderId }: Props) {
+  const t = useT();
   const router = useRouter();
   const alert = useAlert();
   const folderById = useMemo(() => {
@@ -282,8 +284,8 @@ export function FolderRail({ folders, activeFolderId }: Props) {
     } catch (err) {
       void alert({
         tone: 'warn',
-        title: 'Move failed',
-        message: err instanceof Error ? err.message : 'Could not move item.',
+        title: t('folderRail.moveFailedTitle'),
+        message: err instanceof Error ? err.message : t('folderRail.moveFailedMessage'),
       });
     }
   }
@@ -293,10 +295,14 @@ export function FolderRail({ folders, activeFolderId }: Props) {
       <aside className="w-56 shrink-0 rounded-lg border border-dashed border-border bg-surface-1 px-3 py-3 text-xs text-muted">
         <div className="mb-2 flex items-center gap-1.5 font-medium uppercase tracking-wide">
           <FolderIcon className="h-3.5 w-3.5" />
-          Folders
+          {t('nav.folders')}
         </div>
         <p>
-          No folders yet. <Link href="/items/new?type=folder" className="text-accent hover:underline">Create one</Link> to organize your items.
+          {t('folderRail.emptyPrefix')}{' '}
+          <Link href="/items/new?type=folder" className="text-accent hover:underline">
+            {t('folderRail.createOne')}
+          </Link>{' '}
+          {t('folderRail.emptySuffix')}
         </p>
       </aside>
     );
@@ -312,14 +318,14 @@ export function FolderRail({ folders, activeFolderId }: Props) {
       <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-wide text-muted">
         <span className="inline-flex items-center gap-1.5 font-medium">
           <FolderIcon className="h-3.5 w-3.5" />
-          Folders
+          {t('nav.folders')}
         </span>
         <button
           type="button"
           onClick={() => startCreate('root')}
           className="text-[11px] normal-case tracking-normal text-accent hover:underline"
         >
-          + New
+          {t('folderRail.newButton')}
         </button>
       </div>
       <ul className="space-y-0.5 text-sm">
@@ -395,6 +401,7 @@ function FolderNode({
   onCommitCreate,
   onCancelCreate,
 }: NodeProps) {
+  const t = useT();
   // Children of this folder that are themselves folders (and that
   // the caller can see). Items that are not folders belong in the
   // grid, not the rail. Sorted by title (case-insensitive); the
@@ -452,7 +459,7 @@ function FolderNode({
         <button
           type="button"
           onClick={() => onToggle(folder.id)}
-          aria-label={isOpen ? 'Collapse folder' : 'Expand folder'}
+          aria-label={isOpen ? t('folderRail.collapse') : t('folderRail.expand')}
           aria-expanded={isOpen}
           className={`inline-flex h-4 w-4 items-center justify-center rounded text-muted hover:text-ink-1 ${
             hasSubs ? '' : 'invisible'
@@ -561,6 +568,7 @@ function FolderCreateRow({
   onCommit: (title: string) => void | Promise<void>;
   onCancel: () => void;
 }) {
+  const t = useT();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
@@ -607,7 +615,7 @@ function FolderCreateRow({
             }
           }}
           disabled={busy}
-          placeholder="Folder name"
+          placeholder={t('folderRail.folderNamePlaceholder')}
           className="min-w-0 flex-1 bg-transparent text-sm text-ink-1 placeholder:text-muted/60 focus:outline-none disabled:opacity-60"
         />
       </div>

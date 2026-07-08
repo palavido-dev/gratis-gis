@@ -9,6 +9,7 @@ import {
   getItemTypeIcon,
   getItemTypeLabel,
 } from '@/lib/item-type-icon';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Single Filter pill that opens a popover containing the per-type
@@ -71,17 +72,6 @@ interface Props {
   onToggleOwner?: (userId: string) => void;
 }
 
-/**
- * User-facing labels for web_app templates. The internal value is a
- * lowercase enum literal ('editor'); the popover and summary chip
- * render the human title here. Update as templates land.
- */
-const TEMPLATE_LABELS: Record<WebAppTemplate, string> = {
-  editor: 'Editor',
-  viewer: 'Viewer',
-  custom: 'Custom',
-};
-
 export function FilterPopover({
   typeFilter,
   typeCounts,
@@ -99,6 +89,7 @@ export function FilterPopover({
   ownerLabels,
   onToggleOwner,
 }: Props) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
 
@@ -145,7 +136,7 @@ export function FilterPopover({
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-haspopup="dialog"
-        title="Filter items"
+        title={t('filter.filterItems')}
         className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs transition-colors ${
           activeCount > 0
             ? 'border-accent bg-accent/10 text-accent'
@@ -153,11 +144,11 @@ export function FilterPopover({
         }`}
       >
         <SlidersHorizontal className="h-3.5 w-3.5" />
-        Filter
+        {t('filter.filter')}
         {activeCount > 0 ? (
           <span
             className="ml-0.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-none text-accent-foreground"
-            aria-label={`${activeCount} filter${activeCount === 1 ? '' : 's'} active`}
+            aria-label={t('filter.activeCount', { count: activeCount })}
           >
             {activeCount}
           </span>
@@ -167,7 +158,7 @@ export function FilterPopover({
       {open ? (
         <div
           role="dialog"
-          aria-label="Filter items"
+          aria-label={t('filter.filterItems')}
           // Anchored under the pill. On mobile we right-align so the
           // panel can't overflow off the right edge of the viewport
           // when the Filter button sits near the middle of the
@@ -179,7 +170,7 @@ export function FilterPopover({
         >
           <div className="mb-2 flex items-center justify-between">
             <span className="text-[11px] font-medium uppercase tracking-wide text-muted">
-              Type
+              {t('filter.type')}
             </span>
             {typeFilter.size > 0 ? (
               <button
@@ -187,14 +178,14 @@ export function FilterPopover({
                 onClick={onClearTypes}
                 className="text-[11px] text-muted hover:text-ink-1 hover:underline"
               >
-                Clear types
+                {t('filter.clearTypes')}
               </button>
             ) : null}
           </div>
 
           {typeCounts.length === 0 ? (
             <p className="text-xs text-muted">
-              No items in the current view to filter.
+              {t('filter.noItemsToFilter')}
             </p>
           ) : (
             <div className="flex flex-wrap items-center gap-1.5">
@@ -236,19 +227,19 @@ export function FilterPopover({
             <>
               <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
                 <span className="text-[11px] font-medium uppercase tracking-wide text-muted">
-                  Template
+                  {t('filter.template')}
                 </span>
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                {templateCounts.map(([t, count]) => {
-                  const active = templateFilter.has(t);
+                {templateCounts.map(([tpl, count]) => {
+                  const active = templateFilter.has(tpl);
                   const Icon = getItemTypeIcon('web_app');
                   const accent = getItemTypeAccent('web_app');
                   return (
                     <button
-                      key={t}
+                      key={tpl}
                       type="button"
-                      onClick={() => onToggleTemplate(t)}
+                      onClick={() => onToggleTemplate(tpl)}
                       aria-pressed={active}
                       className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[11px] transition-colors ${
                         active
@@ -257,7 +248,7 @@ export function FilterPopover({
                       }`}
                     >
                       <Icon className={`h-3 w-3 ${active ? '' : accent}`} />
-                      {TEMPLATE_LABELS[t] ?? t}
+                      {t(`items.template.${tpl}`)}
                       <span className="text-muted">({count})</span>
                     </button>
                   );
@@ -276,7 +267,7 @@ export function FilterPopover({
             <>
               <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
                 <span className="text-[11px] font-medium uppercase tracking-wide text-muted">
-                  Owner
+                  {t('filter.owner')}
                 </span>
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -307,7 +298,7 @@ export function FilterPopover({
 
           <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
             <span className="text-[11px] font-medium uppercase tracking-wide text-muted">
-              Area
+              {t('filter.area')}
             </span>
             {areaActive ? (
               <button
@@ -315,7 +306,7 @@ export function FilterPopover({
                 onClick={onClearAreaSearch}
                 className="text-[11px] text-muted hover:text-ink-1 hover:underline"
               >
-                Clear area
+                {t('filter.clearArea')}
               </button>
             ) : null}
           </div>
@@ -330,7 +321,7 @@ export function FilterPopover({
             }`}
           >
             <Crosshair className="h-3 w-3" />
-            {areaActive ? 'Filtering by area' : 'Filter by area...'}
+            {areaActive ? t('filter.filteringByArea') : t('filter.filterByArea')}
           </button>
 
           {(typeFilter.size > 0 || areaActive) ? (
@@ -343,7 +334,7 @@ export function FilterPopover({
               className="mt-3 inline-flex h-7 w-full items-center justify-center gap-1 rounded-md border border-border bg-surface-1 text-[11px] text-ink-1 hover:bg-surface-2"
             >
               <X className="h-3 w-3" />
-              Clear all filters
+              {t('filter.clearAll')}
             </button>
           ) : null}
         </div>

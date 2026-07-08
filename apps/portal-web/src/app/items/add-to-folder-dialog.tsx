@@ -4,6 +4,7 @@
 import { useMemo, useState } from 'react';
 import { Folder as FolderIcon, X } from 'lucide-react';
 import type { FolderRailNode } from './folder-rail';
+import { useT } from '@/lib/i18n/locale-context';
 
 interface Props {
   /** Folder UUIDs the caller can edit; we filter the rail set down
@@ -38,6 +39,7 @@ export function AddToFolderDialog({
   onSubmit,
   onClose,
 }: Props) {
+  const t = useT();
   const [q, setQ] = useState('');
   const [picked, setPicked] = useState<string | null>(null);
 
@@ -59,13 +61,13 @@ export function AddToFolderDialog({
           <div className="flex items-center gap-2">
             <FolderIcon className="h-4 w-4 text-amber-700" />
             <h2 className="text-sm font-semibold text-ink-1">
-              Add {itemIds.length} {itemIds.length === 1 ? 'item' : 'items'} to a folder
+              {t('addToFolder.heading', { count: itemIds.length })}
             </h2>
           </div>
           <button
             type="button"
             onClick={() => !saving && onClose()}
-            aria-label="Close"
+            aria-label={t('common.close')}
             className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-ink-1 disabled:cursor-not-allowed"
             disabled={saving}
           >
@@ -78,14 +80,14 @@ export function AddToFolderDialog({
             type="text"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search folders"
+            placeholder={t('addToFolder.searchPlaceholder')}
             className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-1 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
             autoFocus
           />
           <div className="mt-3 max-h-72 overflow-y-auto rounded-md border border-border bg-surface-2">
             {visible.length === 0 ? (
               <p className="px-3 py-6 text-center text-xs text-muted">
-                No folders match.
+                {t('addToFolder.noMatches')}
               </p>
             ) : (
               <ul className="divide-y divide-border">
@@ -106,7 +108,9 @@ export function AddToFolderDialog({
                       <FolderIcon className="h-4 w-4 shrink-0 text-amber-700" />
                       <span className="truncate">{f.title}</span>
                       <span className="ml-auto text-[11px] text-muted">
-                        {f.childItemIds.length} items
+                        {t('addToFolder.itemCount', {
+                          count: f.childItemIds.length,
+                        })}
                       </span>
                     </label>
                   </li>
@@ -123,7 +127,7 @@ export function AddToFolderDialog({
             disabled={saving}
             className="inline-flex h-8 items-center rounded-md border border-border bg-surface-1 px-3 text-xs text-ink-1 hover:bg-surface-2 disabled:cursor-not-allowed"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -131,7 +135,7 @@ export function AddToFolderDialog({
             disabled={!picked || saving}
             className="inline-flex h-8 items-center rounded-md border border-accent bg-accent px-3 text-xs font-medium text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {saving ? 'Adding...' : 'Add to folder'}
+            {saving ? t('items.adding') : t('items.addToFolder')}
           </button>
         </div>
       </div>

@@ -6,6 +6,7 @@ import { Globe2, Loader2 } from 'lucide-react';
 
 import { getItemTypeLabel } from '@/lib/item-type-icon';
 import type { ItemAccess, ItemType } from '@gratis-gis/shared-types';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Lean payload for the cascade list. Pulled from the existing
@@ -71,6 +72,7 @@ export function PublicCascadeDialog({
   onClose,
   onCancel,
 }: Props) {
+  const t = useT();
   const [deps, setDeps] = useState<DepRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -114,14 +116,14 @@ export function PublicCascadeDialog({
         setError(
           err instanceof Error
             ? err.message
-            : 'Failed to load referenced items',
+            : t('cascade.loadFailed'),
         );
       }
     })();
     return () => {
       abort = true;
     };
-  }, [open, parentId, onClose]);
+  }, [open, parentId, onClose, t]);
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -159,7 +161,10 @@ export function PublicCascadeDialog({
     setBusy(false);
     if (failed > 0) {
       setError(
-        `${failed} of ${selected.size} referenced items could not be made public. Try again or fix permissions.`,
+        t('cascade.partialFailure', {
+          failed,
+          total: selected.size,
+        }),
       );
       return;
     }
@@ -171,7 +176,7 @@ export function PublicCascadeDialog({
   return (
     <div
       role="dialog"
-      aria-label="Make referenced items public"
+      aria-label={t('cascade.dialogLabel')}
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40"
       onClick={onClose}
     >
@@ -183,13 +188,11 @@ export function PublicCascadeDialog({
           <Globe2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
           <div className="min-w-0 flex-1">
             <h2 className="text-sm font-semibold text-ink-0">
-              Make referenced items public too?
+              {t('cascade.title')}
             </h2>
             <p className="mt-1 text-xs text-muted">
               <span className="font-medium text-ink-1">{parentTitle}</span>{' '}
-              is now public, but it references items that are still
-              private. Anonymous visitors won&apos;t see those layers
-              until each one is also marked public.
+              {t('cascade.body')}
             </p>
           </div>
         </div>
@@ -197,7 +200,7 @@ export function PublicCascadeDialog({
         {deps === null ? (
           <div className="mt-4 flex items-center gap-2 text-xs text-muted">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading referenced items...
+            {t('cascade.loading')}
           </div>
         ) : (
           <ul className="mt-4 max-h-72 space-y-1 overflow-auto rounded-md border border-border bg-surface-0 p-2">
@@ -217,7 +220,7 @@ export function PublicCascadeDialog({
                     {getItemTypeLabel(d.type)}
                   </span>
                   <span className="text-[10px] uppercase tracking-wide text-muted">
-                    {d.access}
+                    {t(`sharing.access.${d.access}`)}
                   </span>
                 </label>
               </li>
@@ -245,7 +248,7 @@ export function PublicCascadeDialog({
                 disabled={busy}
                 className="rounded-md border border-border bg-surface-1 px-3 py-1.5 text-sm text-ink-1 hover:bg-surface-2 disabled:opacity-50"
               >
-                Cancel
+                {t('common.cancel')}
               </button>
             ) : null}
           </div>
@@ -256,7 +259,7 @@ export function PublicCascadeDialog({
               disabled={busy}
               className="rounded-md border border-border bg-surface-1 px-3 py-1.5 text-sm hover:bg-surface-2 disabled:opacity-50"
             >
-              Skip
+              {t('cascade.skip')}
             </button>
             <button
               type="button"
@@ -265,8 +268,7 @@ export function PublicCascadeDialog({
               className="inline-flex items-center gap-1.5 rounded-md bg-emerald-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Make {selected.size} item
-              {selected.size === 1 ? '' : 's'} public
+              {t('cascade.makePublic', { count: selected.size })}
             </button>
           </div>
         </div>

@@ -9,6 +9,7 @@ import type {
   DataLayerData,
   ItemWithShares,
 } from '@gratis-gis/shared-types';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Right-side drawer that shows a quick preview of a layer's
@@ -40,6 +41,7 @@ interface Props {
 }
 
 export function DataPreviewDrawer({ item, onClose }: Props) {
+  const t = useT();
   const sublayers = useMemo(() => extractSublayers(item), [item]);
   const [activeId, setActiveId] = useState<string | number | null>(
     sublayers[0]?.id ?? null,
@@ -96,7 +98,7 @@ export function DataPreviewDrawer({ item, onClose }: Props) {
           throw new Error(
             typeof err?.message === 'string'
               ? err.message
-              : 'Upstream returned an error',
+              : t('dataPreview.upstreamError'),
           );
         }
         const fc =
@@ -111,14 +113,14 @@ export function DataPreviewDrawer({ item, onClose }: Props) {
         setError(
           err instanceof Error
             ? err.message
-            : 'Could not load preview. Open the item to see details.',
+            : t('dataPreview.loadFailed'),
         );
       } finally {
         if (!controller.signal.aborted) setLoading(false);
       }
     })();
     return () => controller.abort();
-  }, [item, activeId]);
+  }, [item, activeId, t]);
 
   const fields = useMemo(() => collectFields(features), [features]);
   const activeSublayer = sublayers.find((s) => s.id === activeId) ?? null;
@@ -127,7 +129,7 @@ export function DataPreviewDrawer({ item, onClose }: Props) {
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Data preview"
+      aria-label={t('dataPreview.title')}
       className="fixed inset-0 z-40 flex"
       onMouseDown={(e) => {
         // Backdrop click closes; clicks inside the panel are
@@ -143,7 +145,7 @@ export function DataPreviewDrawer({ item, onClose }: Props) {
         <header className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
           <div className="min-w-0">
             <p className="text-[10px] font-medium uppercase tracking-wide text-muted">
-              Preview
+              {t('dataPreview.eyebrow')}
             </p>
             <h2 className="mt-0.5 truncate text-base font-semibold text-ink-0">
               {item.title}
@@ -152,14 +154,14 @@ export function DataPreviewDrawer({ item, onClose }: Props) {
               href={`/items/${item.id}`}
               className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted hover:text-accent hover:underline"
             >
-              Open item
+              {t('dataPreview.openItem')}
               <ExternalLink className="h-3 w-3" />
             </Link>
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close preview"
+            aria-label={t('dataPreview.closePreview')}
             className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-1"
           >
             <X className="h-4 w-4" />
@@ -172,7 +174,7 @@ export function DataPreviewDrawer({ item, onClose }: Props) {
         {sublayers.length > 1 ? (
           <div className="border-b border-border bg-surface-2 px-4 py-2 text-xs">
             <label className="flex items-center gap-2">
-              <span className="text-muted">Layer</span>
+              <span className="text-muted">{t('dataPreview.layer')}</span>
               <select
                 value={String(activeId ?? '')}
                 onChange={(e) => {
@@ -190,7 +192,7 @@ export function DataPreviewDrawer({ item, onClose }: Props) {
                 {sublayers.map((s) => (
                   <option key={String(s.id)} value={String(s.id)}>
                     {s.label}
-                    {s.isTable ? ' (table)' : ''}
+                    {s.isTable ? ` ${t('dataPreview.tableSuffix')}` : ''}
                   </option>
                 ))}
               </select>
@@ -202,7 +204,7 @@ export function DataPreviewDrawer({ item, onClose }: Props) {
           {loading ? (
             <div className="flex flex-1 items-center justify-center text-xs text-muted">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Loading...
+              {t('common.loading')}
             </div>
           ) : error ? (
             <div className="m-4 rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
@@ -210,16 +212,19 @@ export function DataPreviewDrawer({ item, onClose }: Props) {
             </div>
           ) : features.length === 0 ? (
             <div className="flex flex-1 items-center justify-center px-6 text-center text-xs text-muted">
-              No features in this layer.
+              {t('dataPreview.noFeatures')}
             </div>
           ) : (
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <div className="border-b border-border bg-surface-2 px-4 py-1.5 text-[11px] text-muted">
-                {features.length}
-                {overflow ? `+ of many` : ''} feature
-                {features.length === 1 ? '' : 's'}
-                {fields.length > 0 ? ` • ${fields.length} field` : ''}
-                {fields.length === 1 ? '' : fields.length > 0 ? 's' : ''}
+                {overflow
+                  ? t('dataPreview.featureCountOverflow', {
+                      count: features.length,
+                    })
+                  : t('dataPreview.featureCount', { count: features.length })}
+                {fields.length > 0
+                  ? ` • ${t('dataPreview.fieldCount', { count: fields.length })}`
+                  : ''}
               </div>
               {/* Compact, Excel-ish table: every row is a single
                   line with overflow ellipsised, so a long
@@ -273,8 +278,7 @@ export function DataPreviewDrawer({ item, onClose }: Props) {
               </div>
               {overflow ? (
                 <div className="border-t border-border bg-amber-50/50 px-4 py-2 text-[11px] text-amber-900">
-                  Showing the first {PREVIEW_LIMIT} features. Open the
-                  item&apos;s map editor for the full attribute table.
+                  {t('dataPreview.overflowNotice', { limit: PREVIEW_LIMIT })}
                 </div>
               ) : null}
             </div>
@@ -283,10 +287,11 @@ export function DataPreviewDrawer({ item, onClose }: Props) {
 
         {activeSublayer ? (
           <footer className="border-t border-border bg-surface-2 px-4 py-2 text-[11px] text-muted">
-            Layer: <span className="text-ink-1">{activeSublayer.label}</span>
+            {t('dataPreview.layerLabel')}{' '}
+            <span className="text-ink-1">{activeSublayer.label}</span>
             {activeSublayer.isTable ? (
               <span className="ml-2 rounded border border-border bg-surface-1 px-1.5 py-0.5 uppercase tracking-wide">
-                table
+                {t('dataPreview.table')}
               </span>
             ) : null}
           </footer>

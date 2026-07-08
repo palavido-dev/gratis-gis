@@ -49,6 +49,7 @@ import { AddToFolderDialog } from './add-to-folder-dialog';
 import { DataPreviewDrawer } from './data-preview-drawer';
 import { ItemRowMenu } from './item-row-menu';
 import { ITEM_DRAG_MIME, type FolderRailNode } from './folder-rail';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Client-side wrapper around the items list. Owns three bits of UI
@@ -109,20 +110,27 @@ const VIEW_MODE_KEY = 'gg.items.view';
 const GROUP_BY_KEY = 'gg.items.groupBy';
 const SORT_BY_KEY = 'gg.items.sortBy';
 
-const SORT_LABELS: Record<SortBy, string> = {
-  'updated-desc': 'Recently updated',
-  'updated-asc': 'Least recently updated',
-  'created-desc': 'Newest first',
-  'created-asc': 'Oldest first',
-  'title-asc': 'Name (A–Z)',
-  'title-desc': 'Name (Z–A)',
-};
+// Stable list of sort keys. Validation (localStorage rehydrate) and
+// the select options both walk this; the user-facing labels resolve
+// through i18n via sortLabel() so a returning user's stored key still
+// validates regardless of the active locale.
+const SORT_KEYS: SortBy[] = [
+  'updated-desc',
+  'updated-asc',
+  'created-desc',
+  'created-asc',
+  'title-asc',
+  'title-desc',
+];
 
-const ACCESS_LABELS: Record<string, string> = {
-  private: 'Private',
-  org: 'Organization',
-  public: 'Public',
-};
+type TranslateFn = (
+  key: string,
+  params?: Record<string, string | number>,
+) => string;
+
+function sortLabel(t: TranslateFn, key: SortBy): string {
+  return t(`items.sort.${key}`);
+}
 
 export function ItemsView({
   items,
@@ -131,6 +139,7 @@ export function ItemsView({
   activeFolder = null,
   geoBoundaries = [],
 }: Props) {
+  const t = useT();
   // Initial defaults match the "manage my own portal" workflow most
   // users hit: a dense list grouped by type, A-Z so the same item is
   // always in the same spot. The localStorage rehydrate below
@@ -241,7 +250,7 @@ export function ItemsView({
       const gb = localStorage.getItem(GROUP_BY_KEY);
       if (gb === 'none' || gb === 'type' || gb === 'access') setGroupBy(gb);
       const sb = localStorage.getItem(SORT_BY_KEY);
-      if (sb && sb in SORT_LABELS) setSortBy(sb as SortBy);
+      if (sb && (SORT_KEYS as string[]).includes(sb)) setSortBy(sb as SortBy);
     } catch {
       /* no localStorage, fall through to defaults */
     }
@@ -532,7 +541,7 @@ export function ItemsView({
       // Leave the panel mounted; the user closes it explicitly via
       // the X / Cancel button when they're done.
     } catch (e) {
-      setSpatialError(e instanceof Error ? e.message : 'Search failed');
+      setSpatialError(e instanceof Error ? e.message : t('items.searchFailed'));
     } finally {
       setSpatialBusy(false);
     }
@@ -564,7 +573,7 @@ export function ItemsView({
       // and don't have to trust the rail snapshot to be up to date.
       const fres = await fetch(`/api/portal/items/${folderId}`);
       if (!fres.ok) {
-        throw new Error(`Could not load folder: HTTP ${fres.status}`);
+        throw new Error(t('items.folderLoadFailed', { status: fres.status }));
       }
       const folder = (await fres.json()) as { data: FolderData | null };
       const existing = Array.isArray(folder.data?.childItemIds)
@@ -605,7 +614,7 @@ export function ItemsView({
         router.refresh();
       }
     } catch (e) {
-      setBulkError(e instanceof Error ? e.message : 'Add to folder failed');
+      setBulkError(e instanceof Error ? e.message : t('items.addToFolderFailed'));
     } finally {
       setFolderSaving(false);
     }
@@ -624,7 +633,7 @@ export function ItemsView({
     try {
       const fres = await fetch(`/api/portal/items/${activeFolder.id}`);
       if (!fres.ok) {
-        throw new Error(`Could not load folder: HTTP ${fres.status}`);
+        throw new Error(t('items.folderLoadFailed', { status: fres.status }));
       }
       const folder = (await fres.json()) as { data: FolderData | null };
       const existing = Array.isArray(folder.data?.childItemIds)
@@ -655,7 +664,7 @@ export function ItemsView({
       router.refresh();
     } catch (e) {
       setBulkError(
-        e instanceof Error ? e.message : 'Remove from folder failed',
+        e instanceof Error ? e.message : t('items.removeFromFolderFailed'),
       );
     }
   }
@@ -734,12 +743,10 @@ export function ItemsView({
         }
       }
       if (done === 0 && skipped > 0) {
-        setBulkError(
-          'No items moved to trash. You may not have admin rights on the selected items.',
-        );
+        setBulkError(t('items.bulkTrashNoneMoved'));
       } else if (skipped > 0) {
         setBulkError(
-          `Moved ${done} item${done === 1 ? '' : 's'} to trash; skipped ${skipped} (no admin rights).`,
+          t('items.bulkTrashPartial', { done, skipped }),
         );
       }
       setShowBulkTrash(false);
@@ -794,12 +801,10 @@ export function ItemsView({
         }
       }
       if (done === 0 && skipped > 0) {
-        setBulkError(
-          'No shares were written. You may not have admin rights on the selected items.',
-        );
+        setBulkError(t('items.bulkShareNoneWritten'));
       } else if (skipped > 0) {
         setBulkError(
-          `Shared ${done} item${done === 1 ? '' : 's'}; skipped ${skipped} (no admin rights).`,
+          t('items.bulkSharePartial', { done, skipped }),
         );
       }
       setShowBulkShare(false);
@@ -865,12 +870,10 @@ export function ItemsView({
         }
       }
       if (done === 0 && skipped > 0) {
-        setBulkError(
-          'No items were updated. You may not have admin rights on the selected items.',
-        );
+        setBulkError(t('items.bulkAccessNoneUpdated'));
       } else if (skipped > 0) {
         setBulkError(
-          `Updated ${done} item${done === 1 ? '' : 's'}; skipped ${skipped} (no admin rights).`,
+          t('items.bulkAccessPartial', { done, skipped }),
         );
       }
       setShowBulkShare(false);
@@ -920,7 +923,7 @@ export function ItemsView({
       // access" share rows the API may or may not have created.
       router.refresh();
     } catch (e) {
-      setBulkError(e instanceof Error ? e.message : 'Reassign failed');
+      setBulkError(e instanceof Error ? e.message : t('items.reassignFailed'));
     } finally {
       setBulkSaving(false);
     }
@@ -933,9 +936,9 @@ export function ItemsView({
           <div className="flex items-center gap-2 text-ink-1">
             <FolderPlus className="h-4 w-4 text-accent" />
             <span>
-              Adding items to:{' '}
-              <span className="font-medium">{targetFolder.title}</span>.
-              Tick items below and click "Add to {targetFolder.title}".
+              {t('items.addingItemsTo')}{' '}
+              <span className="font-medium">{targetFolder.title}</span>.{' '}
+              {t('items.addingItemsHint', { folder: targetFolder.title })}
             </span>
           </div>
           <button
@@ -943,7 +946,7 @@ export function ItemsView({
             onClick={() => router.push(`/items/${targetFolder.id}`)}
             className="inline-flex h-7 items-center rounded-md border border-border bg-surface-1 px-2.5 text-xs text-ink-1 hover:bg-surface-2"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
         </div>
       ) : null}
@@ -966,7 +969,7 @@ export function ItemsView({
         areaActive={!!spatialActive}
         areaActiveLabel={
           spatialActive
-            ? formatAreaLabel(spatialActive.bbox, spatialActive.bufferKm)
+            ? formatAreaLabel(spatialActive.bbox, spatialActive.bufferKm, t)
             : null
         }
         areaPanelOpen={areaPanelOpen}
@@ -1046,8 +1049,8 @@ export function ItemsView({
       />
       {showReassign ? (
         <ReassignOwnerDialog
-          heading={`Reassign ${selected.size} ${selected.size === 1 ? 'item' : 'items'}`}
-          subheading="Pick the new owner; each item's existing shares are preserved."
+          heading={t('items.reassignHeading', { count: selected.size })}
+          subheading={t('items.reassignSubheading')}
           saving={bulkSaving}
           onClose={() => {
             if (!bulkSaving) {
@@ -1095,7 +1098,7 @@ export function ItemsView({
         <PublicCascadeDialog
           open={true}
           parentId={bulkCascadeIds[0]!}
-          parentTitle="Selected item"
+          parentTitle={t('items.selectedItem')}
           onClose={() => {
             setBulkCascadeIds((prev) => prev.slice(1));
             router.refresh();
@@ -1161,6 +1164,7 @@ function BulkActionBar({
   targetFolderSaving?: boolean;
   onClear: () => void;
 }) {
+  const t = useT();
   return (
     <div className="sticky top-0 z-10 mb-3 flex items-center justify-between gap-3 rounded-md border border-accent/30 bg-accent/5 px-3 py-2 shadow-sm">
       <div className="flex items-center gap-3 text-sm">
@@ -1168,7 +1172,7 @@ function BulkActionBar({
           <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent text-[11px] font-semibold text-white">
             {count}
           </span>
-          selected
+          {t('items.selected')}
         </span>
         <button
           type="button"
@@ -1176,7 +1180,7 @@ function BulkActionBar({
           className="inline-flex items-center gap-1 text-xs text-muted hover:text-ink-1"
         >
           <X className="h-3 w-3" />
-          Clear
+          {t('items.clear')}
         </button>
       </div>
       <div className="flex items-center gap-2">
@@ -1189,8 +1193,8 @@ function BulkActionBar({
           >
             <FolderPlus className="h-3.5 w-3.5" />
             {targetFolderSaving
-              ? 'Adding...'
-              : `Add to ${targetFolder.title}`}
+              ? t('items.adding')
+              : t('items.addToNamedFolder', { folder: targetFolder.title })}
           </button>
         ) : (
           <>
@@ -1201,7 +1205,7 @@ function BulkActionBar({
                 className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 py-1 text-xs font-medium text-ink-1 hover:bg-surface-2"
               >
                 <FolderPlus className="h-3.5 w-3.5" />
-                Add to folder
+                {t('items.addToFolder')}
               </button>
             ) : null}
             <button
@@ -1210,7 +1214,7 @@ function BulkActionBar({
               className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 py-1 text-xs font-medium text-ink-1 hover:bg-surface-2"
             >
               <UsersIcon className="h-3.5 w-3.5" />
-              Share
+              {t('items.share')}
             </button>
             <button
               type="button"
@@ -1218,7 +1222,7 @@ function BulkActionBar({
               className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 py-1 text-xs font-medium text-ink-1 hover:bg-danger/5 hover:text-danger"
             >
               <Trash2 className="h-3.5 w-3.5" />
-              Move to trash
+              {t('items.moveToTrash')}
             </button>
             <button
               type="button"
@@ -1226,7 +1230,7 @@ function BulkActionBar({
               className="inline-flex items-center gap-1.5 rounded-md border border-accent bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent/90"
             >
               <UserRound className="h-3.5 w-3.5" />
-              Reassign owner
+              {t('items.reassignOwner')}
             </button>
           </>
         )}
@@ -1273,6 +1277,7 @@ function BulkShareDialog({
    *  boundary items exist yet. */
   geoBoundaries?: Array<{ id: string; title: string }>;
 }) {
+  const t = useT();
   // Tab between "share with a principal" (the existing flow) and
   // "raise visibility for everyone in the org / on the internet"
   // (the access-level flip). They produce different writes server
@@ -1344,7 +1349,7 @@ function BulkShareDialog({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Share selected items"
+      aria-label={t('items.shareSelectedTitle')}
       className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4"
       onClick={onClose}
     >
@@ -1355,12 +1360,10 @@ function BulkShareDialog({
         <div className="border-b border-border px-4 py-3">
           <h3 className="flex items-center gap-2 text-base font-semibold">
             <UsersIcon className="h-4 w-4" />
-            Share selected items
+            {t('items.shareSelectedTitle')}
           </h3>
           <p className="mt-1 text-xs text-muted">
-            Each of the {count} selected item{count === 1 ? '' : 's'} gets
-            its own share grant for the recipient you pick. Items where
-            you are not the owner or an admin are skipped automatically.
+            {t('items.shareSelectedBody', { count })}
           </p>
         </div>
 
@@ -1374,9 +1377,9 @@ function BulkShareDialog({
           <div className="grid grid-cols-3 gap-1 rounded-md border border-border bg-surface-1 p-0.5">
             {(
               [
-                { key: 'principal', label: 'User or group' },
-                { key: 'org', label: 'Org' },
-                { key: 'public', label: 'Public' },
+                { key: 'principal', label: t('items.shareTabPrincipal') },
+                { key: 'org', label: t('items.shareTabOrg') },
+                { key: 'public', label: t('sharing.access.public') },
               ] as const
             ).map((opt) => (
               <button
@@ -1396,17 +1399,11 @@ function BulkShareDialog({
 
           {mode === 'org' ? (
             <p className="text-xs text-muted">
-              Anyone signed into your organization will be able to see the {count}{' '}
-              selected item{count === 1 ? '' : 's'}. This raises the item&apos;s
-              access tier; existing user / group shares are kept intact.
+              {t('items.shareOrgBody', { count })}
             </p>
           ) : mode === 'public' ? (
             <p className="text-xs text-muted">
-              Anyone on the internet will be able to see the {count} selected
-              item{count === 1 ? '' : 's'} without signing in. Use this for
-              shareable map / viewer links. Items referenced by the selection
-              (layers, basemaps, etc.) need to be public too -- you&apos;ll be
-              prompted to cascade after this completes.
+              {t('items.sharePublicBody', { count })}
             </p>
           ) : null}
 
@@ -1422,7 +1419,7 @@ function BulkShareDialog({
                 htmlFor={`bulk-boundary-${mode}`}
                 className="block text-[10px] font-medium uppercase tracking-wide text-muted"
               >
-                Geographic scope
+                {t('items.geographicScope')}
               </label>
               <select
                 id={`bulk-boundary-${mode}`}
@@ -1441,8 +1438,8 @@ function BulkShareDialog({
               >
                 <option value="">
                   {geoBoundaries.length === 0
-                    ? 'No boundary items in this org yet'
-                    : 'No scope (unrestricted)'}
+                    ? t('items.noBoundaryItems')
+                    : t('items.noScope')}
                 </option>
                 {geoBoundaries.map((b) => (
                   <option key={b.id} value={b.id}>
@@ -1451,10 +1448,12 @@ function BulkShareDialog({
                 ))}
               </select>
               <p className="mt-1.5 text-[11px] text-muted">
-                When set, viewers reaching these items via{' '}
-                {mode === 'public' ? 'public access' : 'your organization'}{' '}
-                only see features inside the boundary. Enforced at the API
-                layer.
+                {t('items.geoScopeHint', {
+                  via:
+                    mode === 'public'
+                      ? t('items.geoScopeViaPublic')
+                      : t('items.geoScopeViaOrg'),
+                })}
               </p>
             </div>
           ) : null}
@@ -1462,7 +1461,7 @@ function BulkShareDialog({
           {mode !== 'principal' ? null : (
           <div>
             <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted">
-              Recipient
+              {t('items.recipient')}
             </span>
             {picked ? (
               <div className="flex items-center gap-2 rounded border border-border bg-surface-1 px-2 py-1.5 text-xs">
@@ -1470,7 +1469,7 @@ function BulkShareDialog({
                   {picked.title}
                   {picked.id.startsWith('group:') ? (
                     <span className="ml-1 text-[10px] uppercase tracking-wide text-muted">
-                      group
+                      {t('items.groupTag')}
                     </span>
                   ) : null}
                 </span>
@@ -1479,16 +1478,16 @@ function BulkShareDialog({
                   onClick={() => setPicked(null)}
                   className="h-6 rounded border border-border bg-surface-1 px-2 text-[11px] text-muted hover:bg-surface-2 hover:text-ink-1"
                 >
-                  Clear
+                  {t('items.clear')}
                 </button>
               </div>
             ) : (
               <PrincipalPicker
-                placeholder="Search for a user or group"
+                placeholder={t('items.searchUserOrGroup')}
                 search={search}
                 onPick={setPicked}
-                emptyMessage="No matching users or groups."
-                emptyInitialMessage="Start typing a name to search."
+                emptyMessage={t('items.noMatchingUsersOrGroups')}
+                emptyInitialMessage={t('items.startTypingName')}
               />
             )}
           </div>
@@ -1497,7 +1496,7 @@ function BulkShareDialog({
           {mode !== 'principal' ? null : (
           <div>
             <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted">
-              Permission
+              {t('items.permission')}
             </span>
             <div className="grid grid-cols-2 gap-1">
               {(['view', 'download', 'edit', 'admin'] as const).map((p) => (
@@ -1511,12 +1510,11 @@ function BulkShareDialog({
                       : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
                   }`}
                 >
-                  <div className="font-medium capitalize">{p}</div>
+                  <div className="font-medium capitalize">
+                    {t(`sharing.permission.${p}`)}
+                  </div>
                   <div className="text-[10px] text-muted">
-                    {p === 'view' && 'See the item'}
-                    {p === 'download' && 'See + export bulk data'}
-                    {p === 'edit' && 'See + change content'}
-                    {p === 'admin' && 'Full control, including sharing'}
+                    {t(`items.permissionDesc.${p}`)}
                   </div>
                 </button>
               ))}
@@ -1530,7 +1528,7 @@ function BulkShareDialog({
           {mode !== 'principal' ? null : (
           <div>
             <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted">
-              Expires
+              {t('sharing.expires')}
             </span>
             <ShareExpiryPicker
               value={expiresAt}
@@ -1548,7 +1546,7 @@ function BulkShareDialog({
             disabled={saving}
             className="h-9 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-1 hover:bg-surface-2 disabled:opacity-50"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -1572,16 +1570,16 @@ function BulkShareDialog({
             {saving ? (
               <span className="inline-flex items-center gap-1.5">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Sharing...
+                {t('items.sharingProgress')}
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5">
                 <Check className="h-3.5 w-3.5" />
                 {mode === 'principal'
-                  ? 'Share'
+                  ? t('items.share')
                   : mode === 'org'
-                    ? 'Make org-visible'
-                    : 'Make public'}
+                    ? t('items.makeOrgVisible')
+                    : t('items.makePublic')}
               </span>
             )}
           </button>
@@ -1615,11 +1613,12 @@ function BulkTrashDialog({
   onConfirm: () => void | Promise<void>;
   onClose: () => void;
 }) {
+  const t = useT();
   return (
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Move selected items to trash"
+      aria-label={t('items.bulkTrashTitle')}
       className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4"
       onClick={onClose}
     >
@@ -1630,18 +1629,15 @@ function BulkTrashDialog({
         <div className="border-b border-border px-4 py-3">
           <h3 className="flex items-center gap-2 text-base font-semibold">
             <Trash2 className="h-4 w-4 text-danger" />
-            Move {count} {count === 1 ? 'item' : 'items'} to trash?
+            {t('items.bulkTrashHeading', { count })}
           </h3>
         </div>
         <div className="px-4 py-4 text-sm">
           <p className="text-ink-1">
-            The selected {count === 1 ? 'item' : 'items'} will be moved to
-            the recycle bin. You can restore them from the
-            &quot;Recently deleted&quot; page.
+            {t('items.bulkTrashBody', { count })}
           </p>
           <p className="mt-2 text-xs text-muted">
-            Items where you are not the owner or an admin are skipped
-            automatically.
+            {t('items.skippedHint')}
           </p>
           {/* Aggregated warning: any other items in the org that
               reference one or more of the selection. The component
@@ -1656,7 +1652,7 @@ function BulkTrashDialog({
             disabled={saving}
             className="h-9 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-1 hover:bg-surface-2 disabled:opacity-50"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -1667,12 +1663,12 @@ function BulkTrashDialog({
             {saving ? (
               <span className="inline-flex items-center gap-1.5">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Moving...
+                {t('items.movingProgress')}
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5">
                 <Trash2 className="h-3.5 w-3.5" />
-                Move to trash
+                {t('items.moveToTrash')}
               </span>
             )}
           </button>
@@ -1693,6 +1689,7 @@ function BulkTrashDialog({
 function formatAreaLabel(
   bbox: [number, number, number, number],
   bufferKm: number,
+  t: TranslateFn,
 ): string {
   const [w, s, e, n] = bbox;
   const cx = (w + e) / 2;
@@ -1702,8 +1699,8 @@ function formatAreaLabel(
   const latRad = (cy * Math.PI) / 180;
   const widthKm = Math.max(1, Math.round((e - w) * 111.32 * Math.cos(latRad)));
   const center = `${cy.toFixed(2)}, ${cx.toFixed(2)}`;
-  const tail = bufferKm > 0 ? `, +${bufferKm}km buffer` : '';
-  return `centered at ${center} (~${widthKm}km wide${tail})`;
+  const tail = bufferKm > 0 ? t('items.areaBuffer', { km: bufferKm }) : '';
+  return t('items.areaLabel', { center, width: widthKm, buffer: tail });
 }
 
 /**
@@ -1798,6 +1795,7 @@ function Toolbar({
   ownerLabels,
   onToggleOwner,
 }: ToolbarProps) {
+  const t = useT();
   // Active-filter labels for the inline summary chip below the
   // toolbar. Type labels resolve through getItemTypeLabel so the
   // user-facing copy matches the rest of the UI ("Map" not
@@ -1812,7 +1810,7 @@ function Toolbar({
       .join(', ');
     summaryParts.push({
       key: 'type',
-      label: `Type: ${labels}`,
+      label: t('items.summaryType', { labels }),
       onClear: onClearFilters,
     });
   }
@@ -1826,14 +1824,14 @@ function Toolbar({
       .join(', ');
     summaryParts.push({
       key: 'template',
-      label: `Template: ${labels}`,
+      label: t('items.summaryTemplate', { labels }),
       onClear: onClearFilters,
     });
   }
   if (areaActive && areaActiveLabel) {
     summaryParts.push({
       key: 'area',
-      label: `Area: ${areaActiveLabel}`,
+      label: t('items.summaryArea', { label: areaActiveLabel }),
       onClear: onClearAreaSearch,
     });
   }
@@ -1855,10 +1853,10 @@ function Toolbar({
                 ? 'bg-accent/10 text-accent'
                 : 'text-muted hover:bg-surface-2 hover:text-ink-1'
             }`}
-            title="Card view"
+            title={t('items.cardView')}
           >
             <Grid3x3 className="h-3.5 w-3.5" />
-            Cards
+            {t('items.cards')}
           </button>
           <button
             type="button"
@@ -1869,10 +1867,10 @@ function Toolbar({
                 ? 'bg-accent/10 text-accent'
                 : 'text-muted hover:bg-surface-2 hover:text-ink-1'
             }`}
-            title="List view"
+            title={t('items.listView')}
           >
             <ListIcon className="h-3.5 w-3.5" />
-            List
+            {t('items.list')}
           </button>
         </div>
 
@@ -1895,39 +1893,40 @@ function Toolbar({
         />
 
         <label className="inline-flex items-center gap-1.5 text-xs text-muted">
-          Group by
+          {t('items.groupBy')}
           <select
             value={groupBy}
             onChange={(e) => onGroupBy(e.target.value as GroupBy)}
             className="h-8 rounded-md border border-border bg-surface-1 px-2 text-xs text-ink-1 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
           >
-            <option value="none">None</option>
-            <option value="type">Type</option>
-            <option value="access">Access</option>
+            <option value="none">{t('items.groupNone')}</option>
+            <option value="type">{t('items.groupTypeOption')}</option>
+            <option value="access">{t('items.groupAccessOption')}</option>
           </select>
         </label>
 
         <label className="inline-flex items-center gap-1.5 text-xs text-muted">
-          Sort
+          {t('items.sortLabel')}
           <select
             value={sortBy}
             onChange={(e) => onSortBy(e.target.value as SortBy)}
             className="h-8 rounded-md border border-border bg-surface-1 px-2 text-xs text-ink-1 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
           >
-            {(Object.entries(SORT_LABELS) as Array<[SortBy, string]>).map(
-              ([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ),
-            )}
+            {SORT_KEYS.map((value) => (
+              <option key={value} value={value}>
+                {sortLabel(t, value)}
+              </option>
+            ))}
           </select>
         </label>
 
         <p className="ml-auto text-xs text-muted">
           {filteredCount === totalCount
-            ? `${totalCount} item${totalCount === 1 ? '' : 's'}`
-            : `${filteredCount} of ${totalCount}`}
+            ? t('items.itemCount', { count: totalCount })
+            : t('items.filteredOfTotal', {
+                filtered: filteredCount,
+                total: totalCount,
+              })}
         </p>
       </div>
 
@@ -1952,7 +1951,7 @@ function Toolbar({
                 type="button"
                 onClick={part.onClear}
                 className="ml-0.5 -mr-1 inline-flex h-5 w-5 items-center justify-center rounded-full text-muted hover:bg-surface-2 hover:text-ink-1"
-                aria-label={`Clear ${part.key} filter`}
+                aria-label={t('items.clearFilter', { filter: part.key })}
               >
                 <X className="h-3 w-3" />
               </button>
@@ -2009,10 +2008,11 @@ function ItemsBody({
   onTagClick,
   activeTags,
 }: BodyProps) {
+  const t = useT();
   if (items.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-border bg-surface-1 px-6 py-10 text-center text-sm text-muted">
-        No items match your filters.
+        {t('items.noItemsMatch')}
       </div>
     );
   }
@@ -2057,7 +2057,7 @@ function ItemsBody({
   const labelFor = (key: string) =>
     groupBy === 'type'
       ? getItemTypeLabel(key as ItemType)
-      : (ACCESS_LABELS[key] ?? key);
+      : t(`sharing.access.${key}`);
   const ordered = Array.from(buckets.entries()).sort((a, b) =>
     labelFor(a[0]).localeCompare(labelFor(b[0]), undefined, {
       sensitivity: 'base',
@@ -2144,6 +2144,7 @@ function ItemGrid({
   onTagClick,
   activeTags,
 }: GridProps) {
+  const t = useT();
   if (viewMode === 'card') {
     return (
       <div className="grid auto-rows-fr gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -2186,7 +2187,7 @@ function ItemGrid({
                     checked={selected.has(item.id)}
                     onChange={() => onToggleSelected(item.id)}
                     className="h-3.5 w-3.5"
-                    aria-label={`Select ${item.title}`}
+                    aria-label={t('items.selectItem', { title: item.title })}
                   />
                 </label>
               ) : null}
@@ -2268,17 +2269,17 @@ function ItemGrid({
             checked={allManageableSelected}
             onChange={onToggleAll}
             className="h-3.5 w-3.5 cursor-pointer"
-            aria-label="Select all manageable items in this group"
+            aria-label={t('items.selectAll')}
           />
         ) : (
           <span className="h-3.5 w-3.5" aria-hidden="true" />
         )}
         <span className="h-4 w-4" aria-hidden="true" />
-        <span>Title</span>
-        <span>Type</span>
-        <span>Owner</span>
-        <span>Updated</span>
-        <span>Sharing</span>
+        <span>{t('items.colTitle')}</span>
+        <span>{t('items.colType')}</span>
+        <span>{t('items.colOwner')}</span>
+        <span>{t('items.colUpdated')}</span>
+        <span>{t('sharing.sharing')}</span>
         <span className="h-3.5 w-3.5" aria-hidden="true" />
       </li>
       {items.map((item) => {
@@ -2294,7 +2295,7 @@ function ItemGrid({
         // reach us without it (shouldn't happen in practice).
         const ownerLabel = item.owner
           ? item.owner.id === currentUser.id
-            ? 'you'
+            ? t('items.ownerYou')
             : (item.owner.fullName?.trim() || item.owner.username)
           : item.ownerId.slice(0, 8);
         const isSelected = selected.has(item.id);
@@ -2325,7 +2326,7 @@ function ItemGrid({
                     checked={isSelected}
                     onChange={() => onToggleSelected(item.id)}
                     className="h-3.5 w-3.5 cursor-pointer"
-                    aria-label={`Select ${item.title}`}
+                    aria-label={t('items.selectItem', { title: item.title })}
                   />
                 </label>
               ) : (

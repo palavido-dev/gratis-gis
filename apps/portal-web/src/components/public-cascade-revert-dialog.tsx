@@ -6,6 +6,7 @@ import { Lock, Loader2 } from 'lucide-react';
 
 import { getItemTypeLabel } from '@/lib/item-type-icon';
 import type { ItemAccess, ItemType } from '@gratis-gis/shared-types';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Lean payload for the cascade-revert list. Pulled from
@@ -75,6 +76,7 @@ export function PublicCascadeRevertDialog({
   downgradeTo = 'org',
   onClose,
 }: Props) {
+  const t = useT();
   const [candidates, setCandidates] = useState<CandidateRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -107,14 +109,14 @@ export function PublicCascadeRevertDialog({
         setError(
           err instanceof Error
             ? err.message
-            : 'Failed to load cascade-revert candidates',
+            : t('cascadeRevert.loadFailed'),
         );
       }
     })();
     return () => {
       abort = true;
     };
-  }, [open, parentId, onClose]);
+  }, [open, parentId, onClose, t]);
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -148,7 +150,10 @@ export function PublicCascadeRevertDialog({
     setBusy(false);
     if (failed > 0) {
       setError(
-        `${failed} of ${selected.size} referenced items could not be reverted. Try again or fix permissions.`,
+        t('cascadeRevert.partialFailure', {
+          failed,
+          total: selected.size,
+        }),
       );
       return;
     }
@@ -160,7 +165,7 @@ export function PublicCascadeRevertDialog({
   return (
     <div
       role="dialog"
-      aria-label="Revert referenced items from public"
+      aria-label={t('cascadeRevert.dialogLabel')}
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40"
       onClick={onClose}
     >
@@ -172,15 +177,11 @@ export function PublicCascadeRevertDialog({
           <Lock className="mt-0.5 h-5 w-5 shrink-0 text-slate-700" />
           <div className="min-w-0 flex-1">
             <h2 className="text-sm font-semibold text-ink-0">
-              Revert referenced items from public too?
+              {t('cascadeRevert.title')}
             </h2>
             <p className="mt-1 text-xs text-muted">
               <span className="font-medium text-ink-1">{parentTitle}</span>{' '}
-              is no longer public. These referenced items are public only
-              because of this one and aren&apos;t independently used by
-              any other public item, so you can safely take them out of
-              public access too. Items still powering another public
-              map / app aren&apos;t shown.
+              {t('cascadeRevert.body')}
             </p>
           </div>
         </div>
@@ -188,7 +189,7 @@ export function PublicCascadeRevertDialog({
         {candidates === null ? (
           <div className="mt-4 flex items-center gap-2 text-xs text-muted">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading referenced items...
+            {t('cascade.loading')}
           </div>
         ) : (
           <ul className="mt-4 max-h-72 space-y-1 overflow-auto rounded-md border border-border bg-surface-0 p-2">
@@ -208,7 +209,7 @@ export function PublicCascadeRevertDialog({
                     {getItemTypeLabel(d.type)}
                   </span>
                   <span className="text-[10px] uppercase tracking-wide text-emerald-700">
-                    public
+                    {t('sharing.access.public')}
                   </span>
                 </label>
               </li>
@@ -227,7 +228,7 @@ export function PublicCascadeRevertDialog({
             disabled={busy}
             className="rounded-md border border-border bg-surface-1 px-3 py-1.5 text-sm hover:bg-surface-2 disabled:opacity-50"
           >
-            Skip
+            {t('cascade.skip')}
           </button>
           <button
             type="button"
@@ -236,8 +237,10 @@ export function PublicCascadeRevertDialog({
             className="inline-flex items-center gap-1.5 rounded-md bg-slate-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Revert {selected.size} item
-            {selected.size === 1 ? '' : 's'} to {downgradeTo}
+            {t('cascadeRevert.revertButton', {
+              count: selected.size,
+              tier: t(`sharing.access.${downgradeTo}`),
+            })}
           </button>
         </div>
       </div>

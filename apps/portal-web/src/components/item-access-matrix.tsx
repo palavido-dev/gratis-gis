@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import type { ItemType } from '@gratis-gis/shared-types';
 import { getItemTypeLabel } from '@/lib/item-type-icon';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Generic principal x dependency-item access matrix.
@@ -96,6 +97,7 @@ export function ItemAccessMatrix({
   onClose,
   canManage,
 }: Props) {
+  const t = useT();
   const [filter, setFilter] = useState('');
   const [grantingKey, setGrantingKey] = useState<string | null>(null);
   const [bulkGranting, setBulkGranting] = useState(false);
@@ -146,7 +148,7 @@ export function ItemAccessMatrix({
     } catch (err) {
       setErrorByKey((prev) => ({
         ...prev,
-        [key]: err instanceof Error ? err.message : 'Grant failed',
+        [key]: err instanceof Error ? err.message : t('accessMatrix.grantFailed'),
       }));
     } finally {
       setGrantingKey(null);
@@ -166,7 +168,7 @@ export function ItemAccessMatrix({
       } catch (err) {
         setErrorByKey((prev) => ({
           ...prev,
-          [key]: err instanceof Error ? err.message : 'Grant failed',
+          [key]: err instanceof Error ? err.message : t('accessMatrix.grantFailed'),
         }));
       }
     }
@@ -184,15 +186,13 @@ export function ItemAccessMatrix({
               {title}
             </h2>
             <p className="text-xs text-muted">
-              These items power this composite at runtime. Each sharee
-              needs view access on every row, or they will see broken
-              layers when they open it.
+              {t('accessMatrix.intro')}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t('common.close')}
             className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted hover:bg-surface-2"
           >
             <X className="h-4 w-4" />
@@ -206,14 +206,15 @@ export function ItemAccessMatrix({
               type="text"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              placeholder="Filter dependency items..."
+              placeholder={t('accessMatrix.filterPlaceholder')}
               className="h-7 w-full rounded border border-border bg-surface-1 pl-7 pr-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
             />
           </label>
           <span className="text-xs text-muted">
-            {items.length} item{items.length === 1 ? '' : 's'} ·{' '}
-            {principals.length} sharee
-            {principals.length === 1 ? '' : 's'}
+            {t('accessMatrix.countsSummary', {
+              items: items.length,
+              sharees: principals.length,
+            })}
           </span>
           {gaps.length > 0 && canManage ? (
             <button
@@ -227,13 +228,12 @@ export function ItemAccessMatrix({
               ) : (
                 <AlertTriangle className="h-3.5 w-3.5" />
               )}
-              Grant {gaps.length} missing access
-              {gaps.length === 1 ? '' : 'es'}
+              {t('accessMatrix.grantMissing', { count: gaps.length })}
             </button>
           ) : gaps.length === 0 ? (
             <span className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800">
               <ShieldCheck className="h-3.5 w-3.5" />
-              No gaps
+              {t('accessMatrix.noGaps')}
             </span>
           ) : null}
         </div>
@@ -243,7 +243,7 @@ export function ItemAccessMatrix({
             <thead className="sticky top-0 z-10 bg-surface-2">
               <tr>
                 <th className="border-b border-border px-3 py-2 text-left font-medium text-ink-0">
-                  Item
+                  {t('accessMatrix.itemHeader')}
                 </th>
                 {principals.map((p) => (
                   <th
@@ -254,7 +254,7 @@ export function ItemAccessMatrix({
                       {p.name}
                     </div>
                     <div className="text-[10px] font-normal uppercase tracking-wide text-muted">
-                      {p.type}
+                      {t(`accessMatrix.principalType.${p.type}`)}
                     </div>
                   </th>
                 ))}
@@ -267,7 +267,7 @@ export function ItemAccessMatrix({
                     colSpan={1 + principals.length}
                     className="px-3 py-6 text-center text-xs text-muted"
                   >
-                    No items match the filter.
+                    {t('accessMatrix.noMatches')}
                   </td>
                 </tr>
               ) : (
@@ -298,7 +298,7 @@ export function ItemAccessMatrix({
                             {ok ? (
                               <span
                                 className="inline-flex items-center gap-1 text-emerald-700"
-                                title={`${p.name} has view access`}
+                                title={t('accessMatrix.hasViewAccess', { name: p.name })}
                               >
                                 <Check className="h-3.5 w-3.5" />
                               </span>
@@ -308,19 +308,19 @@ export function ItemAccessMatrix({
                                 onClick={() => void grantOne(item, p)}
                                 disabled={granting}
                                 className="inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
-                                title={`Grant view to ${p.name}`}
+                                title={t('accessMatrix.grantViewTo', { name: p.name })}
                               >
                                 {granting ? (
                                   <Loader2 className="h-3 w-3 animate-spin" />
                                 ) : (
                                   <AlertTriangle className="h-3 w-3" />
                                 )}
-                                Grant view
+                                {t('accessMatrix.grantView')}
                               </button>
                             ) : (
                               <span
                                 className="inline-flex items-center gap-1 text-amber-700"
-                                title={`${p.name} cannot see this item`}
+                                title={t('accessMatrix.cannotSee', { name: p.name })}
                               >
                                 <AlertTriangle className="h-3.5 w-3.5" />
                               </span>
@@ -350,7 +350,7 @@ export function ItemAccessMatrix({
             onClick={onClose}
             className="inline-flex h-7 items-center rounded border border-border bg-surface-1 px-3 text-xs font-medium text-ink-1 hover:bg-surface-2"
           >
-            Done
+            {t('accessMatrix.done')}
           </button>
         </div>
       </div>

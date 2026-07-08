@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Folder as FolderIcon, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { FolderRail, type FolderRailNode } from './folder-rail';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Wraps the items-page folder rail in a togglable side drawer (#201).
@@ -33,6 +34,7 @@ interface Props {
 }
 
 export function FoldersDrawer({ folders, activeFolderId, children }: Props) {
+  const t = useT();
   // Hydration-safe initial state. We can't read localStorage during
   // SSR; render closed on first mount and let the effect open the
   // drawer if the user previously had it open. The flicker is
@@ -97,7 +99,7 @@ export function FoldersDrawer({ folders, activeFolderId, children }: Props) {
             <PanelLeftOpen className="h-3.5 w-3.5" />
           )}
           <FolderIcon className="h-3.5 w-3.5" />
-          {open ? 'Hide folders' : 'Folders'}
+          {open ? t('folders.hide') : t('nav.folders')}
           {folders.length > 0 ? (
             <span className="rounded bg-surface-0 px-1 text-[10px] text-muted">
               {folders.length}

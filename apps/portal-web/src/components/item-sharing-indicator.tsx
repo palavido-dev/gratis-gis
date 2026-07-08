@@ -29,6 +29,12 @@ import type {
 
 import { PublicCascadeDialog } from './public-cascade-dialog';
 import { PublicCascadeRevertDialog } from './public-cascade-revert-dialog';
+import { useT } from '@/lib/i18n/locale-context';
+
+type TranslateFn = (
+  key: string,
+  params?: Record<string, string | number>,
+) => string;
 
 /**
  * Compact sharing indicator for rendering inline with an item card or
@@ -60,27 +66,29 @@ interface Props {
 
 const ACCESS_META: Record<
   ItemAccess,
-  { label: string; Icon: LucideIcon; chipBg: string; chipText: string }
+  { Icon: LucideIcon; chipBg: string; chipText: string }
 > = {
   private: {
-    label: 'Private',
     Icon: Lock,
     chipBg: 'bg-slate-100',
     chipText: 'text-slate-700',
   },
   org: {
-    label: 'Organization',
     Icon: Building2,
     chipBg: 'bg-sky-100',
     chipText: 'text-sky-800',
   },
   public: {
-    label: 'Public',
     Icon: Globe2,
     chipBg: 'bg-emerald-100',
     chipText: 'text-emerald-800',
   },
 };
+
+/** User-facing label for each access tier, resolved through i18n. */
+function accessLabel(t: TranslateFn, lvl: ItemAccess): string {
+  return t(`sharing.access.${lvl}`);
+}
 
 interface PrincipalMeta {
   id: string;
@@ -165,6 +173,7 @@ export function ItemSharingIndicator({
   currentUserId,
   stopParentLink,
 }: Props) {
+  const t = useT();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [currentAccess, setCurrentAccess] = useState<ItemAccess>(access);
@@ -304,7 +313,7 @@ export function ItemSharingIndicator({
       setSaving(null);
       if (!res.ok) {
         setCurrentAccess(prev);
-        setError(`Could not update: ${res.status}`);
+        setError(t('sharing.updateFailed', { status: res.status }));
         return;
       }
       // #310: prompt for cascade only when transitioning UP to
@@ -333,7 +342,7 @@ export function ItemSharingIndicator({
       }
       router.refresh();
     },
-    [currentAccess, itemId, router],
+    [currentAccess, itemId, router, t],
   );
 
   const removeShare = useCallback(
@@ -351,7 +360,7 @@ export function ItemSharingIndicator({
       });
       setSaving(null);
       if (!res.ok) {
-        setError(`Remove failed: ${res.status}`);
+        setError(t('sharing.removeFailed', { status: res.status }));
         return;
       }
       setCurrentShares((prev) =>
@@ -365,7 +374,7 @@ export function ItemSharingIndicator({
       );
       router.refresh();
     },
-    [itemId, router],
+    [itemId, router, t],
   );
 
   const popover =
@@ -373,7 +382,7 @@ export function ItemSharingIndicator({
       <div
         ref={popoverRef}
         role="dialog"
-        aria-label={`Sharing for ${itemTitle}`}
+        aria-label={t('sharing.dialogLabel', { title: itemTitle })}
         onClick={(e) => {
           if (stopParentLink) e.stopPropagation();
         }}
@@ -388,17 +397,18 @@ export function ItemSharingIndicator({
               {itemTitle}
             </p>
             <p className="text-[10px] uppercase tracking-wide text-muted">
-              Sharing
+              {t('sharing.sharing')}
             </p>
           </div>
 
           <div className="space-y-1 px-3 py-2">
             <p className="text-[10px] font-medium uppercase tracking-wide text-muted">
-              Who can see this
+              {t('sharing.whoCanSee')}
             </p>
             <div className="grid grid-cols-3 gap-1" role="radiogroup">
               {(['private', 'org', 'public'] as const).map((lvl) => {
                 const info = ACCESS_META[lvl];
+                const lvlLabel = accessLabel(t, lvl);
                 const selected = currentAccess === lvl;
                 return (
                   <button
@@ -413,29 +423,29 @@ export function ItemSharingIndicator({
                         ? 'border-accent bg-accent/10 text-accent'
                         : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
                     } disabled:opacity-50`}
-                    title={info.label}
+                    title={lvlLabel}
                   >
                     <info.Icon className="h-3.5 w-3.5" />
-                    <span>{info.label}</span>
+                    <span>{lvlLabel}</span>
                   </button>
                 );
               })}
             </div>
             {saving === 'access' ? (
               <p className="flex items-center gap-1 text-[10px] text-muted">
-                <Loader2 className="h-3 w-3 animate-spin" /> Saving
+                <Loader2 className="h-3 w-3 animate-spin" /> {t('sharing.saving')}
               </p>
             ) : null}
           </div>
 
           <div className="border-t border-border px-3 py-2">
             <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">
-              Explicit shares{' '}
+              {t('sharing.explicitShares')}{' '}
               <span className="text-muted">({shareCount})</span>
             </p>
             {visibleShares.length === 0 ? (
               <p className="text-[11px] text-muted">
-                No individual user or group shares.
+                {t('sharing.noExplicitShares')}
               </p>
             ) : (
               <ul className="max-h-40 space-y-0.5 overflow-y-auto">
@@ -475,7 +485,7 @@ export function ItemSharingIndicator({
               }}
               className="inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline"
             >
-              Manage sharing <ExternalLink className="h-3 w-3" />
+              {t('sharing.manageSharing')} <ExternalLink className="h-3 w-3" />
             </a>
           </div>
         </div>
@@ -498,14 +508,15 @@ export function ItemSharingIndicator({
         className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${meta.chipBg} ${meta.chipText} ring-1 ring-inset ring-transparent hover:ring-current/20`}
         title={
           shareCount > 0
-            ? `${meta.label} · shared with ${shareCount} ${
-                shareCount === 1 ? 'principal' : 'principals'
-              }`
-            : meta.label
+            ? t('sharing.chipTitleShared', {
+                label: accessLabel(t, currentAccess),
+                count: shareCount,
+              })
+            : accessLabel(t, currentAccess)
         }
       >
         <meta.Icon className="h-3 w-3" />
-        <span>{meta.label}</span>
+        <span>{accessLabel(t, currentAccess)}</span>
         {shareCount > 0 ? (
           <span className="ml-0.5 rounded-full bg-white/50 px-1 text-[10px] leading-4 text-current">
             +{shareCount}
@@ -573,10 +584,11 @@ function SharingRow({
   saving,
   onRemove,
 }: SharingRowProps) {
+  const t = useT();
   const Icon = share.principalType === 'group' ? UsersIcon : UserRound;
   const baseLabel =
     meta?.label ?? `${share.principalType} ${share.principalId.slice(0, 8)}`;
-  const label = isSelf ? `${baseLabel} (you)` : baseLabel;
+  const label = isSelf ? t('sharing.youSuffix', { label: baseLabel }) : baseLabel;
   const sublabel = meta?.sublabel;
   const perm: SharePermission = share.permission;
 
@@ -592,7 +604,7 @@ function SharingRow({
         ) : null}
       </div>
       <span className="shrink-0 rounded bg-surface-2 px-1 py-0.5 text-[9px] uppercase tracking-wide text-muted">
-        {perm}
+        {t(`sharing.permission.${perm}`)}
       </span>
       {canManage && !isSelf ? (
         <button
@@ -600,7 +612,7 @@ function SharingRow({
           onClick={onRemove}
           disabled={saving}
           className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted hover:bg-surface-1 hover:text-danger disabled:opacity-50"
-          aria-label={`Remove ${label}`}
+          aria-label={t('sharing.removePrincipal', { label })}
         >
           {saving ? (
             <Loader2 className="h-3 w-3 animate-spin" />

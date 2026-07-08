@@ -3,6 +3,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { AlertTriangle, Loader2 } from 'lucide-react';
+import { useT } from '@/lib/i18n/locale-context';
 
 export interface ConfirmDialogProps {
   open: boolean;
@@ -40,11 +41,14 @@ export function ConfirmDialog({
   title,
   description,
   requireTypedConfirmation,
-  confirmLabel = 'Confirm',
-  cancelLabel = 'Cancel',
+  confirmLabel,
+  cancelLabel,
   tone = 'danger',
   children,
 }: ConfirmDialogProps) {
+  const t = useT();
+  const resolvedConfirmLabel = confirmLabel ?? t('dialogs.confirm');
+  const resolvedCancelLabel = cancelLabel ?? t('common.cancel');
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [typed, setTyped] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -107,11 +111,11 @@ export function ConfirmDialog({
         {requireTypedConfirmation ? (
           <div className="mt-4">
             <label className="mb-1 block text-xs text-muted">
-              Type{' '}
+              {t('dialogs.typeToConfirmPrefix')}{' '}
               <code className="rounded bg-surface-2 px-1 py-0.5 font-mono text-[11px] text-ink-0">
                 {requireTypedConfirmation}
               </code>{' '}
-              to confirm:
+              {t('dialogs.typeToConfirmSuffix')}
             </label>
             <input
               type="text"
@@ -131,7 +135,7 @@ export function ConfirmDialog({
             disabled={submitting}
             className="h-9 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-1 hover:bg-surface-2 disabled:opacity-50"
           >
-            {cancelLabel}
+            {resolvedCancelLabel}
           </button>
           <button
             type="button"
@@ -144,7 +148,7 @@ export function ConfirmDialog({
             }`}
           >
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {confirmLabel}
+            {resolvedConfirmLabel}
           </button>
         </div>
       </div>

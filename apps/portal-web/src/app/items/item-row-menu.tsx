@@ -16,6 +16,7 @@ import {
 import type { ItemType } from '@gratis-gis/shared-types';
 
 import { getItemHref, hasRuntime } from '@/lib/item-type-icon';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Per-row kebab menu on the items list (#82). Surfaces the
@@ -70,6 +71,7 @@ export function ItemRowMenu({
   onRemoveFromFolder,
   folderTitle,
 }: Props) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
 
@@ -111,7 +113,7 @@ export function ItemRowMenu({
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="Item actions"
+        aria-label={t('itemMenu.actions')}
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -152,7 +154,7 @@ export function ItemRowMenu({
               className="flex items-center gap-2 px-3 py-2 text-ink-1 hover:bg-surface-2"
             >
               <ExternalLink className="h-3.5 w-3.5 text-muted" />
-              <span className="flex-1">Open</span>
+              <span className="flex-1">{t('itemMenu.open')}</span>
             </a>
           ) : null}
           {/* #328: forms get a second runnable entry alongside Open
@@ -174,7 +176,7 @@ export function ItemRowMenu({
               className="flex items-center gap-2 px-3 py-2 text-ink-1 hover:bg-surface-2"
             >
               <ClipboardList className="h-3.5 w-3.5 text-muted" />
-              <span className="flex-1">Responses</span>
+              <span className="flex-1">{t('itemMenu.responses')}</span>
             </a>
           ) : null}
           {/* Configure goes to the detail page. The detail page is
@@ -194,7 +196,7 @@ export function ItemRowMenu({
             }`}
           >
             <Settings className="h-3.5 w-3.5 text-muted" />
-            <span className="flex-1">Configure</span>
+            <span className="flex-1">{t('itemMenu.configure')}</span>
           </a>
           {previewable ? (
             <button
@@ -208,7 +210,7 @@ export function ItemRowMenu({
               className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-ink-1 hover:bg-surface-2"
             >
               <Eye className="h-3.5 w-3.5 text-muted" />
-              <span className="flex-1">Preview data</span>
+              <span className="flex-1">{t('itemMenu.previewData')}</span>
             </button>
           ) : null}
           {canManage && onShare ? (
@@ -223,7 +225,7 @@ export function ItemRowMenu({
               className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-ink-1 hover:bg-surface-2"
             >
               <UsersIcon className="h-3.5 w-3.5 text-muted" />
-              <span className="flex-1">Share</span>
+              <span className="flex-1">{t('items.share')}</span>
             </button>
           ) : null}
           {canManage && onMoveToFolder ? (
@@ -238,7 +240,7 @@ export function ItemRowMenu({
               className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-ink-1 hover:bg-surface-2"
             >
               <FolderPlus className="h-3.5 w-3.5 text-muted" />
-              <span className="flex-1">Move to folder</span>
+              <span className="flex-1">{t('itemMenu.moveToFolder')}</span>
             </button>
           ) : null}
           {canManage && onRemoveFromFolder ? (
@@ -255,8 +257,8 @@ export function ItemRowMenu({
               <FolderMinus className="h-3.5 w-3.5 text-muted" />
               <span className="flex-1">
                 {folderTitle
-                  ? `Remove from "${folderTitle}"`
-                  : 'Remove from this folder'}
+                  ? t('itemMenu.removeFromNamedFolder', { folder: folderTitle })
+                  : t('itemMenu.removeFromFolder')}
               </span>
             </button>
           ) : null}
@@ -272,7 +274,7 @@ export function ItemRowMenu({
               className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-danger hover:bg-danger/5"
             >
               <Trash2 className="h-3.5 w-3.5" />
-              <span className="flex-1">Move to trash</span>
+              <span className="flex-1">{t('items.moveToTrash')}</span>
             </button>
           ) : null}
         </div>

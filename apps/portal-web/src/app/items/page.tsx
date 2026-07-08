@@ -7,6 +7,8 @@ import { EmptyState } from '@/components/empty-state';
 import { ItemsView } from './items-view';
 import { type FolderRailNode } from './folder-rail';
 import { FoldersDrawer } from './folders-drawer';
+import { getServerLocale } from '@/lib/i18n/server';
+import { t } from '@/lib/i18n';
 
 interface Props {
   searchParams: Promise<{
@@ -31,6 +33,7 @@ interface Props {
  * straight to it).
  */
 export default async function ItemsPage(props: Props) {
+  const locale = await getServerLocale();
   const searchParams = await props.searchParams;
   const scope: 'mine' | 'all' =
     searchParams.scope === 'all'
@@ -146,8 +149,8 @@ export default async function ItemsPage(props: Props) {
     <div className="mx-auto w-full max-w-7xl px-6 py-10">
       <header className="mb-4 flex items-end justify-between gap-4">
         <div>
-          <p className="text-sm text-muted">Content</p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">Items</h1>
+          <p className="text-sm text-muted">{t('itemsPage.eyebrow', undefined, locale)}</p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight">{t('nav.items', undefined, locale)}</h1>
         </div>
 
         <Link
@@ -155,7 +158,7 @@ export default async function ItemsPage(props: Props) {
           className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground shadow-card hover:opacity-90"
         >
           <Plus className="h-4 w-4" />
-          New item
+          {t('itemsPage.newItem', undefined, locale)}
         </Link>
       </header>
       {/* Scope toggle disappears when a folder is selected: a folder
@@ -164,10 +167,10 @@ export default async function ItemsPage(props: Props) {
       {!folderId ? (
         <div className="mb-4 inline-flex rounded-md border border-border bg-surface-1 p-0.5 text-sm">
           <ScopeTab href={buildHref(searchParams, 'mine')} active={isMine}>
-            My items
+            {t('itemsPage.myItems', undefined, locale)}
           </ScopeTab>
           <ScopeTab href={buildHref(searchParams, 'all')} active={!isMine}>
-            All items
+            {t('itemsPage.allItems', undefined, locale)}
           </ScopeTab>
         </div>
       ) : null}
@@ -178,14 +181,14 @@ export default async function ItemsPage(props: Props) {
         <>
           {activeFolder ? (
             <nav
-              aria-label="Folder breadcrumb"
+              aria-label={t('itemsPage.folderBreadcrumb', undefined, locale)}
               className="mb-3 flex flex-wrap items-center gap-1 text-sm"
             >
               <Link
                 href="/items"
                 className="text-muted hover:text-ink-1 hover:underline"
               >
-                All items
+                {t('itemsPage.allItems', undefined, locale)}
               </Link>
               {breadcrumb.map((hop, idx) => {
                 const isLast = idx === breadcrumb.length - 1;
@@ -216,7 +219,7 @@ export default async function ItemsPage(props: Props) {
                   href={`/items/${activeFolder.id}`}
                   className="hover:text-ink-1 hover:underline"
                 >
-                  Folder details →
+                  {t('itemsPage.folderDetails', undefined, locale)}
                 </Link>
               </span>
             </nav>
@@ -229,23 +232,30 @@ export default async function ItemsPage(props: Props) {
             // "boggedy boggedy" into the search box.
             (searchParams.q && searchParams.q.trim().length > 0 ? (<EmptyState
               icon={<Layers className="h-5 w-5" />}
-              title="No items match your search"
-              description={`Nothing in ${activeFolder ? `"${activeFolder.title}"` : isMine ? 'your items' : 'items shared with you'} matches "${searchParams.q}". Try a different term or clear the search.`}
+              title={t('itemsPage.emptySearchTitle', undefined, locale)}
+              description={t('itemsPage.emptySearchDescription', {
+                scope: activeFolder
+                  ? `"${activeFolder.title}"`
+                  : isMine
+                    ? t('itemsPage.scopeYourItems', undefined, locale)
+                    : t('itemsPage.scopeSharedWithYou', undefined, locale),
+                query: searchParams.q,
+              }, locale)}
             />) : (<EmptyState
               icon={<Layers className="h-5 w-5" />}
               title={
                 activeFolder
-                  ? `${activeFolder.title} is empty`
+                  ? t('itemsPage.emptyFolderTitle', { folder: activeFolder.title }, locale)
                   : isMine
-                    ? 'No items yet'
-                    : 'Nothing shared with you yet'
+                    ? t('itemsPage.emptyMineTitle', undefined, locale)
+                    : t('itemsPage.emptySharedTitle', undefined, locale)
               }
               description={
                 activeFolder
-                  ? 'Use "Add items" on the folder details page or drag items here from the all-items view.'
+                  ? t('itemsPage.emptyFolderDescription', undefined, locale)
                   : isMine
-                    ? 'Create your first web map, form, or feature service to get started.'
-                    : 'When a teammate shares content with you or your group, it will show up here.'
+                    ? t('itemsPage.emptyMineDescription', undefined, locale)
+                    : t('itemsPage.emptySharedDescription', undefined, locale)
               }
               action={
                 isMine && !activeFolder ? (
@@ -254,7 +264,7 @@ export default async function ItemsPage(props: Props) {
                     className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground shadow-card hover:opacity-90"
                   >
                     <Plus className="h-4 w-4" />
-                    Create an item
+                    {t('itemsPage.createAnItem', undefined, locale)}
                   </Link>
                 ) : null
               }

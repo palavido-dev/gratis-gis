@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, Loader2 } from 'lucide-react';
 import { EntityBadge } from '@gratis-gis/ui';
+import { useT } from '@/lib/i18n/locale-context';
 
 export interface PrincipalOption {
   id: string;
@@ -48,10 +49,14 @@ export function PrincipalPicker({
   placeholder,
   search,
   onPick,
-  emptyMessage = 'No matches.',
-  emptyInitialMessage = 'Start typing to search.',
+  emptyMessage,
+  emptyInitialMessage,
   className = '',
 }: Props) {
+  const t = useT();
+  const resolvedEmptyMessage = emptyMessage ?? t('picker.noMatches');
+  const resolvedEmptyInitialMessage =
+    emptyInitialMessage ?? t('picker.startTyping');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<PrincipalOption[]>([]);
   const [open, setOpen] = useState(false);
@@ -150,7 +155,9 @@ export function PrincipalPicker({
         >
           {results.length === 0 ? (
             <div className="px-3 py-2 text-xs text-muted">
-              {query.length === 0 ? emptyInitialMessage : emptyMessage}
+              {query.length === 0
+                ? resolvedEmptyInitialMessage
+                : resolvedEmptyMessage}
             </div>
           ) : (
             results.map((r, i) => {
@@ -195,7 +202,7 @@ export function PrincipalPicker({
                   </div>
                   {r.disabled ? (
                     <span className="text-xs text-muted">
-                      {r.disabledReason ?? 'unavailable'}
+                      {r.disabledReason ?? t('picker.unavailable')}
                     </span>
                   ) : null}
                 </button>

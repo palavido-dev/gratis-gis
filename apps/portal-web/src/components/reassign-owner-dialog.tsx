@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import { Loader2, UserRound } from 'lucide-react';
 import { PrincipalPicker, type PrincipalOption } from './principal-picker';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Ownership-reassignment dialog.
@@ -56,6 +57,7 @@ export function ReassignOwnerDialog({
   onClose,
   onSubmit,
 }: Props) {
+  const t = useT();
   // When the caller passes a default owner (e.g. "you" on the
   // admin-disable flow), pre-select it so the admin can just click
   // Reassign for the common case.
@@ -71,13 +73,13 @@ export function ReassignOwnerDialog({
   async function submit() {
     setError(null);
     if (!pickedId) {
-      setError('Pick the new owner.');
+      setError(t('reassign.pickOwner'));
       return;
     }
     try {
       await onSubmit(pickedId, keep === 'none' ? null : keep);
     } catch (err) {
-      setError((err as Error).message || 'Reassign failed');
+      setError((err as Error).message || t('reassign.failed'));
     }
   }
 
@@ -125,10 +127,10 @@ export function ReassignOwnerDialog({
 
         <div>
           <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-muted">
-            New owner
+            {t('reassign.newOwner')}
           </label>
           <PrincipalPicker
-            placeholder="Search a user in your organization…"
+            placeholder={t('reassign.searchPlaceholder')}
             search={searchUsers}
             onPick={(p) => {
               setPickedId(p.id);
@@ -137,36 +139,37 @@ export function ReassignOwnerDialog({
           />
           {pickedId ? (
             <p className="mt-1 text-[11px] text-ink-1">
-              Transfer to <span className="font-medium">{pickedLabel}</span>
+              {t('reassign.transferTo')}{' '}
+              <span className="font-medium">{pickedLabel}</span>
             </p>
           ) : null}
         </div>
 
         <fieldset className="space-y-1">
           <legend className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">
-            Keep previous owner&apos;s access
+            {t('reassign.keepAccessLegend')}
           </legend>
           {(
             [
               {
                 value: 'view',
-                label: 'View: previous owner can still see it',
+                label: t('reassign.keepView'),
               },
               {
                 value: 'download',
-                label: 'Download: previous owner can also export raw data',
+                label: t('reassign.keepDownload'),
               },
               {
                 value: 'edit',
-                label: 'Edit: previous owner can still change it',
+                label: t('reassign.keepEdit'),
               },
               {
                 value: 'admin',
-                label: 'Admin: previous owner keeps full control',
+                label: t('reassign.keepAdmin'),
               },
               {
                 value: 'none',
-                label: 'None: previous owner loses access',
+                label: t('reassign.keepNone'),
               },
             ] as Array<{ value: KeepAccess; label: string }>
           ).map((opt) => (
@@ -200,7 +203,7 @@ export function ReassignOwnerDialog({
             disabled={saving}
             className="h-9 rounded-md border border-border bg-surface-1 px-3 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -213,7 +216,7 @@ export function ReassignOwnerDialog({
             ) : (
               <UserRound className="h-3.5 w-3.5" />
             )}
-            Reassign
+            {t('reassign.reassign')}
           </button>
         </div>
       </div>

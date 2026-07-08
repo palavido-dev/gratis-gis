@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 
 import { useAlert, useConfirm } from '@/components/dialog-provider';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Right-click + kebab menu attached to a folder row in the FolderRail.
@@ -47,6 +48,7 @@ export function FolderRowMenu({
   canEdit,
   onCreateSubfolder,
 }: Props) {
+  const t = useT();
   const router = useRouter();
   const confirm = useConfirm();
   const alert = useAlert();
@@ -112,20 +114,20 @@ export function FolderRowMenu({
       }
 
       const ok = await confirm({
-        title: 'Move folder to trash?',
+        title: t('folderMenu.trashTitle'),
         message:
           cascade && cascade.folders.length > 0
-            ? `Move "${folderTitle}" and the subfolders below to the recycle bin? Non-folder items inside stay where they are; only the folder arrangement is removed.`
-            : `Move "${folderTitle}" to the recycle bin? The folder's contents stay where they are; only the folder arrangement is removed.`,
-        confirmLabel: 'Move to trash',
+            ? t('folderMenu.trashMessageCascade', { folder: folderTitle })
+            : t('folderMenu.trashMessage', { folder: folderTitle }),
+        confirmLabel: t('items.moveToTrash'),
         variant: 'danger',
         body:
           cascade && cascade.folders.length > 0 ? (
             <div className="rounded-md border border-danger/40 bg-danger/5 p-3 text-xs">
               <p className="font-medium text-ink-0">
-                {cascade.folders.length === 1
-                  ? '1 subfolder will also be moved to trash:'
-                  : `${cascade.folders.length} subfolders will also be moved to trash:`}
+                {t('folderMenu.subfoldersAlsoTrashed', {
+                  count: cascade.folders.length,
+                })}
               </p>
               <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-ink-1">
                 {cascade.folders.slice(0, 12).map((f) => (
@@ -133,20 +135,21 @@ export function FolderRowMenu({
                 ))}
                 {cascade.folders.length > 12 ? (
                   <li className="text-muted">
-                    ...and {cascade.folders.length - 12} more.
+                    {t('folderMenu.andMore', {
+                      count: cascade.folders.length - 12,
+                    })}
                   </li>
                 ) : null}
               </ul>
               {cascade.unlinkedItemCount > 0 ? (
                 <p className="mt-2 text-muted">
-                  {cascade.unlinkedItemCount === 1
-                    ? '1 other item inside will lose its folder reference, but the item itself stays.'
-                    : `${cascade.unlinkedItemCount} other items inside will lose their folder reference, but the items themselves stay.`}
+                  {t('folderMenu.unlinkedItems', {
+                    count: cascade.unlinkedItemCount,
+                  })}
                 </p>
               ) : null}
               <p className="mt-2 text-muted">
-                Subfolders that are also filed under another folder
-                will survive this delete and aren&rsquo;t listed.
+                {t('folderMenu.multiParentNote')}
               </p>
             </div>
           ) : null,
@@ -166,8 +169,8 @@ export function FolderRowMenu({
       if (!res.ok) {
         await alert({
           tone: 'warn',
-          title: 'Could not move to trash',
-          message: `Move to trash failed: ${res.status}`,
+          title: t('folderMenu.trashFailedTitle'),
+          message: t('folderMenu.trashFailedMessage', { status: res.status }),
         });
         return;
       }
@@ -194,8 +197,8 @@ export function FolderRowMenu({
           e.stopPropagation();
           openAtPos(e.clientX, e.clientY);
         }}
-        aria-label={`Actions for ${folderTitle}`}
-        title="More actions"
+        aria-label={t('folderMenu.actionsFor', { folder: folderTitle })}
+        title={t('folderMenu.moreActions')}
         className="inline-flex h-5 w-5 items-center justify-center rounded text-muted opacity-0 transition-opacity group-hover:opacity-100 hover:bg-surface-1 hover:text-ink-1"
       >
         <MoreVertical className="h-3.5 w-3.5" />
@@ -208,7 +211,7 @@ export function FolderRowMenu({
       {open && pos ? (
         <div
           role="menu"
-          aria-label={`Actions for ${folderTitle}`}
+          aria-label={t('folderMenu.actionsFor', { folder: folderTitle })}
           style={{
             position: 'fixed',
             left: pos.x,
@@ -227,7 +230,7 @@ export function FolderRowMenu({
             className="flex items-center gap-2 px-3 py-1.5 text-ink-1 hover:bg-surface-2"
           >
             <ExternalLink className="h-3.5 w-3.5 text-muted" />
-            Configure
+            {t('itemMenu.configure')}
           </Link>
           <Link
             href={`/items/${folderId}#sharing`}
@@ -239,7 +242,7 @@ export function FolderRowMenu({
             className="flex items-center gap-2 px-3 py-1.5 text-ink-1 hover:bg-surface-2"
           >
             <Share2 className="h-3.5 w-3.5 text-muted" />
-            Share...
+            {t('folderMenu.share')}
           </Link>
           {onCreateSubfolder ? (
             <button
@@ -253,7 +256,7 @@ export function FolderRowMenu({
               className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-ink-1 hover:bg-surface-2"
             >
               <FolderPlus className="h-3.5 w-3.5 text-muted" />
-              New subfolder
+              {t('folderMenu.newSubfolder')}
             </button>
           ) : (
             // Fallback for surfaces that haven't wired the inline
@@ -268,7 +271,7 @@ export function FolderRowMenu({
               className="flex items-center gap-2 px-3 py-1.5 text-ink-1 hover:bg-surface-2"
             >
               <FolderPlus className="h-3.5 w-3.5 text-muted" />
-              New subfolder
+              {t('folderMenu.newSubfolder')}
             </Link>
           )}
           {canEdit ? (
@@ -282,7 +285,7 @@ export function FolderRowMenu({
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-danger hover:bg-danger/5 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Trash2 className="h-3.5 w-3.5" />
-                {busy ? 'Trashing...' : 'Move to trash'}
+                {busy ? t('folderMenu.trashing') : t('items.moveToTrash')}
               </button>
             </>
           ) : null}

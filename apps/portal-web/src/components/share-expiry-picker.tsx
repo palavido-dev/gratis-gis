@@ -3,6 +3,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Clock, X } from 'lucide-react';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Compact expiry picker for share rows (#84). Click the clock to
@@ -31,6 +32,7 @@ export function ShareExpiryPicker({
   disabled?: boolean;
   variant?: 'inline' | 'full';
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -63,8 +65,8 @@ export function ShareExpiryPicker({
   const expiresAt = value ? new Date(value) : null;
   const isExpired = expiresAt ? expiresAt.getTime() <= Date.now() : false;
   const subtitle = expiresAt
-    ? `${isExpired ? 'Expired' : 'Expires'} ${formatShortDate(expiresAt)}`
-    : 'Never expires';
+    ? `${isExpired ? t('sharing.expired') : t('sharing.expires')} ${formatShortDate(expiresAt)}`
+    : t('sharing.neverExpires');
 
   function pickPreset(days: number) {
     const d = new Date();
@@ -115,22 +117,22 @@ export function ShareExpiryPicker({
       >
         <Clock className="h-3.5 w-3.5" />
         {variant === 'full' ? (
-          <span>{value ? subtitle : 'Set expiry'}</span>
+          <span>{value ? subtitle : t('sharing.setExpiry')}</span>
         ) : null}
       </button>
       {open ? (
         <div
           role="dialog"
-          aria-label="Share expiry"
+          aria-label={t('sharing.expiryDialogLabel')}
           className="absolute right-0 top-9 z-30 w-64 rounded-md border border-border bg-surface-1 p-2 shadow-overlay"
           onMouseDown={(e) => e.stopPropagation()}
         >
           <div className="mb-2 flex items-center justify-between text-[11px] uppercase tracking-wide text-muted">
-            <span>Expires</span>
+            <span>{t('sharing.expires')}</span>
             <button
               type="button"
               onClick={() => setOpen(false)}
-              aria-label="Close"
+              aria-label={t('common.close')}
               className="h-5 w-5 rounded text-muted hover:bg-surface-2"
             >
               <X className="h-3 w-3" />
@@ -139,9 +141,9 @@ export function ShareExpiryPicker({
           <p className="mb-2 text-xs text-ink-1">{subtitle}</p>
           <div className="mb-2 grid grid-cols-3 gap-1">
             {[
-              { d: 7, label: '7 days' },
-              { d: 30, label: '30 days' },
-              { d: 90, label: '90 days' },
+              { d: 7, label: t('sharing.days', { count: 7 }) },
+              { d: 30, label: t('sharing.days', { count: 30 }) },
+              { d: 90, label: t('sharing.days', { count: 90 }) },
             ].map(({ d, label }) => (
               <button
                 key={d}
@@ -167,7 +169,7 @@ export function ShareExpiryPicker({
               disabled={!draft}
               className="h-7 rounded border border-accent bg-accent px-2 text-[11px] font-medium text-white disabled:opacity-50"
             >
-              Set
+              {t('sharing.set')}
             </button>
           </div>
           <button
@@ -176,7 +178,7 @@ export function ShareExpiryPicker({
             disabled={!value}
             className="w-full rounded border border-border px-2 py-1 text-[11px] text-muted hover:bg-surface-2 hover:text-ink-1 disabled:opacity-50"
           >
-            Never expires
+            {t('sharing.neverExpires')}
           </button>
         </div>
       ) : null}

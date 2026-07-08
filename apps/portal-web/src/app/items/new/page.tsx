@@ -6,10 +6,13 @@ import {
   NewItemWizard,
   type AppTemplateSummary,
 } from './wizard';
+import { getServerLocale } from '@/lib/i18n/server';
+import { t } from '@/lib/i18n';
 
 export const metadata = { title: 'New item' };
 
 export default async function NewItemPage() {
+  const locale = await getServerLocale();
   // #22: load all app_template items the user can read so the
   // Custom Web App gallery can show built-in starters AND any
   // user-saved templates side-by-side.  Failure here drops to an
@@ -46,18 +49,16 @@ export default async function NewItemPage() {
         className="mb-6 inline-flex items-center gap-1 text-sm text-muted hover:text-ink-0"
       >
         <ArrowLeft className="h-4 w-4" />
-        Back to items
+        {t('common.backToItems', undefined, locale)}
       </Link>
 
       <header className="mb-8">
-        <p className="text-sm text-muted">Content</p>
+        <p className="text-sm text-muted">{t('itemsPage.eyebrow', undefined, locale)}</p>
         <h1 className="mt-1 text-3xl font-semibold tracking-tight">
-          Create a new item
+          {t('newItem.pageTitle', undefined, locale)}
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-muted">
-          Pick what you&apos;re creating, then fill in the details. For services
-          and uploads, we&apos;ll gather what we need on the next screen so the
-          item lands ready to use.
+          {t('newItem.pageIntro', undefined, locale)}
         </p>
       </header>
 

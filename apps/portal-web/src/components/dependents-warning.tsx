@@ -8,6 +8,7 @@ import {
   getItemTypeIcon,
   getItemTypeLabel,
 } from '@/lib/item-type-icon';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Lightweight projection of /items/:id/dependents responses. The
@@ -39,6 +40,7 @@ export function DependentsWarning({
    *  being trashed isn't a surprise. */
   itemIds: string[];
 }) {
+  const t = useT();
   const ids = useMemo(() => Array.from(new Set(itemIds)), [itemIds]);
   const idsKey = useMemo(() => ids.slice().sort().join(','), [ids]);
   const [loading, setLoading] = useState(true);
@@ -84,7 +86,7 @@ export function DependentsWarning({
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : 'Could not load dependents.');
+        setError(err instanceof Error ? err.message : t('dependents.loadFailed'));
         setLoading(false);
       });
 
@@ -96,7 +98,7 @@ export function DependentsWarning({
 
   if (loading) {
     return (
-      <p className="mt-3 text-xs text-muted">Checking what depends on this...</p>
+      <p className="mt-3 text-xs text-muted">{t('dependents.checking')}</p>
     );
   }
   if (error) {
@@ -105,7 +107,7 @@ export function DependentsWarning({
     // panel is empty.
     return (
       <p className="mt-3 text-xs text-muted">
-        Could not check dependents ({error}). Proceed with caution.
+        {t('dependents.checkFailed', { error: error ?? '' })}
       </p>
     );
   }
@@ -146,13 +148,10 @@ export function DependentsWarning({
         <Link2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-700" />
         <div>
           <p className="text-xs font-semibold text-amber-900">
-            {rows.length === 1
-              ? '1 other item references this'
-              : `${rows.length} other items reference these`}
+            {t('dependents.referencedBy', { count: rows.length })}
           </p>
           <p className="mt-0.5 text-[11px] text-amber-900/80">
-            Trashing removes the reference from each of them. You can
-            restore from Recently deleted if you change your mind.
+            {t('dependents.trashHint')}
           </p>
         </div>
       </div>
@@ -195,7 +194,7 @@ export function DependentsWarning({
       </ul>
       {rows.length > VISIBLE_CAP ? (
         <p className="mt-2 text-[11px] text-amber-900/80">
-          +{rows.length - VISIBLE_CAP} more not shown.
+          {t('dependents.moreNotShown', { count: rows.length - VISIBLE_CAP })}
         </p>
       ) : null}
     </div>

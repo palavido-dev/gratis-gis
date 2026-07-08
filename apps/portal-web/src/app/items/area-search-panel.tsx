@@ -5,6 +5,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import { Crosshair, MapPin, X } from 'lucide-react';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Inset MapLibre canvas that lets the user pick an area of interest
@@ -52,6 +53,7 @@ export function AreaSearchPanel({
   onApply,
   onClose,
 }: Props) {
+  const t = useT();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [bufferKm, setBufferKm] = useState<number>(initialBufferKm);
@@ -176,16 +178,16 @@ export function AreaSearchPanel({
       <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
         <div className="flex items-center gap-2 text-sm text-ink-1">
           <Crosshair className="h-4 w-4 text-accent" />
-          <span className="font-medium">Search by area</span>
+          <span className="font-medium">{t('areaSearch.title')}</span>
           <span className="text-xs text-muted">
-            Pan and zoom; the list updates automatically.
+            {t('areaSearch.hint')}
           </span>
         </div>
         <button
           type="button"
           onClick={onClose}
           className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-ink-1"
-          aria-label="Close area search"
+          aria-label={t('areaSearch.close')}
         >
           <X className="h-3.5 w-3.5" />
         </button>
@@ -200,13 +202,13 @@ export function AreaSearchPanel({
           type="button"
           onClick={flyToMyLocation}
           className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-xs text-ink-1 hover:bg-surface-2"
-          title="Center the map on your current location"
+          title={t('areaSearch.myLocationTitle')}
         >
           <MapPin className="h-3 w-3" />
-          My location
+          {t('areaSearch.myLocation')}
         </button>
         <label className="inline-flex items-center gap-2 text-xs text-muted">
-          Pad area by
+          {t('areaSearch.padAreaBy')}
           <input
             type="number"
             inputMode="decimal"
@@ -224,7 +226,7 @@ export function AreaSearchPanel({
             onClick={onClose}
             className="inline-flex h-7 items-center rounded-md border border-border bg-surface-1 px-2.5 text-xs text-ink-1 hover:bg-surface-2"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           {/* #86: the area filter is live (debounced moveend pushes
               the new bbox to onApply). The button is kept as a
@@ -238,7 +240,7 @@ export function AreaSearchPanel({
             disabled={busy}
             className="inline-flex h-7 items-center rounded-md border border-accent bg-accent px-2.5 text-xs font-medium text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {busy ? 'Searching...' : 'Refresh now'}
+            {busy ? t('areaSearch.searching') : t('areaSearch.refreshNow')}
           </button>
         </div>
       </div>

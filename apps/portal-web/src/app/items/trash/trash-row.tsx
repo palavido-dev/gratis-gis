@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { RotateCcw, Trash2 } from 'lucide-react';
 import type { Item } from '@gratis-gis/shared-types';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { useT } from '@/lib/i18n/locale-context';
 
 interface Props {
   item: Item;
@@ -19,6 +20,7 @@ interface Props {
  * triggers fetches and needs router.refresh() afterward.
  */
 export function TrashRow({ item, retentionDays }: Props) {
+  const t = useT();
   const router = useRouter();
   const [pending, setPending] = useState<'restore' | 'purge' | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +47,7 @@ export function TrashRow({ item, retentionDays }: Props) {
         method: 'POST',
       });
       if (!res.ok) {
-        setError(`Restore failed: ${res.status} ${await res.text()}`);
+        setError(t('trash.restoreFailed', { status: res.status, detail: await res.text() }));
         return;
       }
       router.refresh();
@@ -62,7 +64,7 @@ export function TrashRow({ item, retentionDays }: Props) {
         method: 'DELETE',
       });
       if (!res.ok) {
-        setError(`Purge failed: ${res.status} ${await res.text()}`);
+        setError(t('trash.purgeFailed', { status: res.status, detail: await res.text() }));
         return;
       }
       setConfirmPurge(false);
@@ -83,9 +85,7 @@ export function TrashRow({ item, retentionDays }: Props) {
       </td>
       <td className="py-3 pr-4 text-xs text-muted">
         {daysLeft !== null ? (
-          <span>
-            {daysLeft} day{daysLeft === 1 ? '' : 's'} left
-          </span>
+          <span>{t('trash.daysLeft', { count: daysLeft })}</span>
         ) : null}
       </td>
       <td className="py-3 text-right">
@@ -97,7 +97,7 @@ export function TrashRow({ item, retentionDays }: Props) {
             className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 text-xs font-medium text-ink-1 shadow-card hover:bg-surface-2 disabled:opacity-50"
           >
             <RotateCcw className="h-3.5 w-3.5" />
-            {pending === 'restore' ? 'Restoring' : 'Restore'}
+            {pending === 'restore' ? t('trash.restoring') : t('trash.restore')}
           </button>
           <button
             type="button"
@@ -106,7 +106,7 @@ export function TrashRow({ item, retentionDays }: Props) {
             className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 text-xs font-medium text-danger shadow-card hover:bg-danger/5 disabled:opacity-50"
           >
             <Trash2 className="h-3.5 w-3.5" />
-            Delete forever
+            {t('trash.deleteForever')}
           </button>
         </div>
         {error ? (
@@ -118,10 +118,10 @@ export function TrashRow({ item, retentionDays }: Props) {
           open={confirmPurge}
           onCancel={() => setConfirmPurge(false)}
           onConfirm={doPurge}
-          title={`Permanently delete "${item.title}"?`}
-          description="This immediately removes the item and every share attached to it. For feature services this also drops the underlying data table. This cannot be undone."
+          title={t('trash.purgeConfirmTitle', { title: item.title })}
+          description={t('trash.purgeConfirmDescription')}
           requireTypedConfirmation={item.title}
-          confirmLabel="Delete forever"
+          confirmLabel={t('trash.deleteForever')}
         />
       </td>
     </tr>

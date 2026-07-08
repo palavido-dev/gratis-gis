@@ -29,6 +29,7 @@ import {
 } from '@gratis-gis/shared-types';
 import { ThumbnailDesigner } from '@/components/thumbnail-designer';
 import { DerivedLayerBuilder } from './new/derived-layer-builder';
+import { useT } from '@/lib/i18n/locale-context';
 
 type Mode =
   | { kind: 'create' }
@@ -67,98 +68,55 @@ interface Props {
  * want to use that isn't in the menu. Surfaced on DCAT feeds as
  * the dcat:license field.
  */
-const LICENSE_OPTIONS: Array<{ value: string; label: string; hint?: string }> = [
-  { value: '', label: 'Not specified', hint: 'Treated as "rights reserved"' },
-  { value: 'CC0-1.0', label: 'CC0 (public domain)', hint: 'No rights reserved' },
-  { value: 'CC-BY-4.0', label: 'CC BY 4.0', hint: 'Reuse with attribution' },
-  {
-    value: 'CC-BY-SA-4.0',
-    label: 'CC BY-SA 4.0',
-    hint: 'Attribution + share-alike',
-  },
-  {
-    value: 'CC-BY-NC-4.0',
-    label: 'CC BY-NC 4.0',
-    hint: 'Attribution, non-commercial',
-  },
-  { value: 'OGL-UK-3.0', label: 'UK Open Government Licence v3', hint: '' },
-  { value: 'ODbL-1.0', label: 'Open Database License 1.0', hint: '' },
-  { value: 'MIT', label: 'MIT', hint: 'Permissive; common for datasets too' },
-  {
-    value: 'proprietary',
-    label: 'Proprietary / rights reserved',
-    hint: 'Internal use only',
-  },
-  { value: 'custom', label: 'Custom…', hint: 'Specify your own value' },
+// i18n key per license value. The catalog supplies `.label` and
+// `.hint` under itemForm.licenseOption.<key> (not itemForm.license,
+// which is the section label string). The empty value and 'custom'
+// get stable keys so the lookup never collides with an SPDX id.
+const LICENSE_KEY: Record<string, string> = {
+  '': 'notSpecified',
+  'CC0-1.0': 'cc0',
+  'CC-BY-4.0': 'ccBy',
+  'CC-BY-SA-4.0': 'ccBySa',
+  'CC-BY-NC-4.0': 'ccByNc',
+  'OGL-UK-3.0': 'oglUk',
+  'ODbL-1.0': 'odbl',
+  MIT: 'mit',
+  proprietary: 'proprietary',
+  custom: 'custom',
+};
+const LICENSE_VALUES: string[] = [
+  '',
+  'CC0-1.0',
+  'CC-BY-4.0',
+  'CC-BY-SA-4.0',
+  'CC-BY-NC-4.0',
+  'OGL-UK-3.0',
+  'ODbL-1.0',
+  'MIT',
+  'proprietary',
+  'custom',
 ];
 
-const ITEM_TYPE_OPTIONS: Array<{ value: ItemType; label: string; desc: string }> = [
-  {
-    value: 'map' as ItemType,
-    label: 'Map',
-    desc: 'A basemap + overlay layers with styling.',
-  },
-  {
-    value: 'data_layer' as ItemType,
-    label: 'Data layer',
-    desc: 'A shareable vector layer backed by PostGIS.',
-  },
-  {
-    value: 'arcgis_service' as ItemType,
-    label: 'ArcGIS service',
-    desc: 'Live pointer at an ArcGIS MapServer or FeatureServer.',
-  },
-  {
-    value: 'form' as ItemType,
-    label: 'Form',
-    desc: 'A collection form for fieldwork or survey data.',
-  },
-  {
-    value: 'web_app' as ItemType,
-    label: 'Web app',
-    desc: 'A configurable app built from widgets.',
-  },
-  {
-    value: 'report_template' as ItemType,
-    label: 'Report template',
-    desc: 'A document template that renders data.',
-  },
-  {
-    value: 'dashboard' as ItemType,
-    label: 'Dashboard',
-    desc: 'Live panels showing feature data.',
-  },
-  {
-    value: 'file' as ItemType,
-    label: 'File',
-    desc: 'Any uploaded file (PDF, image, zip, etc.).',
-  },
+// Item types offered in the create form. Labels + descriptions
+// resolve through i18n at render (itemForm.type.<value>.label / .desc).
+const ITEM_TYPE_VALUES: ItemType[] = [
+  'map',
+  'data_layer',
+  'arcgis_service',
+  'form',
+  'web_app',
+  'report_template',
+  'dashboard',
+  'file',
 ];
 
 const accessOptions: Array<{
   value: ItemAccess;
-  label: string;
-  desc: string;
   Icon: typeof Lock;
 }> = [
-  {
-    value: 'private',
-    label: 'Private',
-    desc: 'Only you and people you share with.',
-    Icon: Lock,
-  },
-  {
-    value: 'org',
-    label: 'Your organization',
-    desc: 'Everyone with a login in your org.',
-    Icon: Building2,
-  },
-  {
-    value: 'public',
-    label: 'Public',
-    desc: 'Anyone on the internet.',
-    Icon: Globe2,
-  },
+  { value: 'private', Icon: Lock },
+  { value: 'org', Icon: Building2 },
+  { value: 'public', Icon: Globe2 },
 ];
 
 /**
@@ -173,6 +131,7 @@ const accessOptions: Array<{
  * cached `outputSchema` and `bbox` stay in sync.
  */
 export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
+  const t = useT();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [submitting, setSubmitting] = useState(false);
@@ -231,14 +190,12 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
   // known preset whose value equals the initial license auto-picks;
   // otherwise we drop into custom mode so the existing value shows.
   const initialLicense = initialValues?.license ?? '';
-  const initialPreset = LICENSE_OPTIONS.find(
-    (o) => o.value === initialLicense,
-  );
+  const initialPresetMatch = LICENSE_VALUES.includes(initialLicense);
   const [licensePreset, setLicensePreset] = useState<string>(
-    initialPreset ? initialPreset.value : initialLicense ? 'custom' : '',
+    initialPresetMatch ? initialLicense : initialLicense ? 'custom' : '',
   );
   const [licenseCustom, setLicenseCustom] = useState<string>(
-    initialPreset ? '' : initialLicense,
+    initialPresetMatch ? '' : initialLicense,
   );
 
   // Derived-layer recipe state. Only consulted when type is
@@ -265,7 +222,7 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
   async function submit() {
     setError(null);
     if (title.trim().length === 0) {
-      setError('Title is required.');
+      setError(t('itemForm.titleRequired'));
       return;
     }
     setSubmitting(true);
@@ -316,7 +273,7 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
         // the client gives a friendlier error than the backend's
         // "derived_layer.source.itemId is required" 400.
         if (!derivedLayerData.source?.itemId) {
-          setError('Pick a source data layer for this derived layer.');
+          setError(t('itemForm.pickSourceLayer'));
           setSubmitting(false);
           return;
         }
@@ -324,7 +281,7 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
           !Array.isArray(derivedLayerData.pipeline) ||
           derivedLayerData.pipeline.length === 0
         ) {
-          setError('Add at least one tool step to the pipeline.');
+          setError(t('itemForm.addPipelineStep'));
           setSubmitting(false);
           return;
         }
@@ -345,7 +302,13 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
     });
     setSubmitting(false);
     if (!res.ok) {
-      setError(`${method} failed: ${res.status} ${await res.text()}`);
+      setError(
+        t('itemForm.saveFailed', {
+          method,
+          status: res.status,
+          detail: await res.text(),
+        }),
+      );
       return;
     }
     const saved = (await res.json()) as Item;
@@ -376,18 +339,18 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
       {mode.kind === 'create' ? (
         <section>
           <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted">
-            Item type
+            {t('itemForm.itemType')}
           </label>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {ITEM_TYPE_OPTIONS.map((opt) => {
-              const selected = type === opt.value;
+            {ITEM_TYPE_VALUES.map((value) => {
+              const selected = type === value;
               return (
                 <button
-                  key={opt.value}
+                  key={value}
                   type="button"
                   role="radio"
                   aria-checked={selected}
-                  onClick={() => setType(opt.value)}
+                  onClick={() => setType(value)}
                   className={`flex flex-col items-start gap-1 rounded-md border p-3 text-left transition-colors ${
                     selected
                       ? 'border-accent bg-accent/5 ring-2 ring-accent/30'
@@ -395,9 +358,11 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
                   }`}
                 >
                   <span className="text-sm font-medium text-ink-1">
-                    {opt.label}
+                    {t(`itemForm.type.${value}.label`)}
                   </span>
-                  <span className="text-xs text-muted">{opt.desc}</span>
+                  <span className="text-xs text-muted">
+                    {t(`itemForm.type.${value}.desc`)}
+                  </span>
                 </button>
               );
             })}
@@ -415,14 +380,14 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
             htmlFor="title"
             className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted"
           >
-            Title
+            {t('itemForm.title')}
           </label>
           <input
             id="title"
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="My layer, report, form..."
+            placeholder={t('itemForm.titlePlaceholder')}
             maxLength={200}
             className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
           />
@@ -433,13 +398,13 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
             htmlFor="description"
             className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted"
           >
-            Description
+            {t('itemForm.description')}
           </label>
           <textarea
             id="description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="What is this, and who's it for?"
+            placeholder={t('itemForm.descriptionPlaceholder')}
             maxLength={5000}
             rows={4}
             className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
@@ -451,25 +416,25 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
             htmlFor="tags"
             className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted"
           >
-            Tags
+            {t('itemForm.tags')}
           </label>
           <input
             id="tags"
             type="text"
             value={tagsText}
             onChange={(e) => setTagsText(e.target.value)}
-            placeholder="Comma separated, e.g. buildings, parcels, campus"
+            placeholder={t('itemForm.tagsPlaceholder')}
             className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
           />
           <p className="mt-1 text-xs text-muted">
-            Used for search and filtering.
+            {t('itemForm.tagsHint')}
           </p>
         </div>
       </section>
 
       <section>
         <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted">
-          Thumbnail
+          {t('itemForm.thumbnail')}
         </label>
         <ThumbnailDesigner
           type={type}
@@ -481,10 +446,10 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
 
       <section>
         <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted">
-          Visibility
+          {t('itemForm.visibility')}
         </label>
         <div className="grid grid-cols-3 gap-2" role="radiogroup">
-          {accessOptions.map(({ value, label, desc, Icon }) => {
+          {accessOptions.map(({ value, Icon }) => {
             const selected = access === value;
             return (
               <button
@@ -503,19 +468,21 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
                   <Icon
                     className={`h-4 w-4 ${selected ? 'text-accent' : 'text-muted'}`}
                   />
-                  <span className="text-sm font-medium text-ink-1">{label}</span>
+                  <span className="text-sm font-medium text-ink-1">
+                    {t(`itemForm.access.${value}.label`)}
+                  </span>
                 </div>
-                <span className="text-xs text-muted">{desc}</span>
+                <span className="text-xs text-muted">
+                  {t(`itemForm.access.${value}.desc`)}
+                </span>
               </button>
             );
           })}
         </div>
         <p className="mt-2 text-xs text-muted">
-          {mode.kind === 'create' ? (
-            <>You can change this later and add explicit shares from the item detail page.</>
-          ) : (
-            <>Refine with per-user or per-group shares from the detail page.</>
-          )}
+          {mode.kind === 'create'
+            ? t('itemForm.visibilityHintCreate')
+            : t('itemForm.visibilityHintEdit')}
         </p>
       </section>
 
@@ -524,12 +491,12 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
           htmlFor="license-preset"
           className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted"
         >
-          License
+          {t('itemForm.license')}
         </label>
         <p className="mb-2 text-xs text-muted">
-          How others are allowed to reuse this item. Surfaced in the
-          org's open-data catalog (<code className="font-mono">/public/catalog.json</code>)
-          for public items.
+          {t('itemForm.licenseHintPrefix')}{' '}
+          (<code className="font-mono">/public/catalog.json</code>){' '}
+          {t('itemForm.licenseHintSuffix')}
         </p>
         <div className="flex flex-col gap-2 sm:flex-row">
           <select
@@ -538,9 +505,9 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
             onChange={(e) => setLicensePreset(e.target.value)}
             className="h-10 rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 sm:w-72"
           >
-            {LICENSE_OPTIONS.map((o) => (
-              <option key={o.value || 'none'} value={o.value}>
-                {o.label}
+            {LICENSE_VALUES.map((value) => (
+              <option key={value || 'none'} value={value}>
+                {t(`itemForm.licenseOption.${LICENSE_KEY[value]}.label`)}
               </option>
             ))}
           </select>
@@ -549,14 +516,14 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
               type="text"
               value={licenseCustom}
               onChange={(e) => setLicenseCustom(e.target.value)}
-              placeholder="SPDX id or license URL (e.g. https://creativecommons.org/licenses/by/4.0/)"
+              placeholder={t('itemForm.licenseCustomPlaceholder')}
               className="h-10 flex-1 rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
             />
           ) : null}
         </div>
         {licensePreset && licensePreset !== 'custom' ? (
           <p className="mt-1 text-[11px] text-muted">
-            {LICENSE_OPTIONS.find((o) => o.value === licensePreset)?.hint}
+            {t(`itemForm.licenseOption.${LICENSE_KEY[licensePreset]}.hint`)}
           </p>
         ) : null}
       </section>
@@ -569,7 +536,7 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
       {mode.kind === 'edit' && type === 'derived_layer' ? (
         <section>
           <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted">
-            Recipe
+            {t('itemForm.recipe')}
           </label>
           <DerivedLayerBuilder
             value={derivedLayerData}
@@ -591,7 +558,7 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
         {saved ? (
           <span className="inline-flex items-center gap-1 text-sm text-success">
             <Check className="h-4 w-4" />
-            Saved
+            {t('mapEditor.savedIndicator')}
           </span>
         ) : null}
         <button
@@ -600,7 +567,7 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
           disabled={submitting || pending}
           className="h-10 rounded-md border border-border bg-surface-1 px-4 text-sm text-ink-1 hover:bg-surface-2 disabled:opacity-50"
         >
-          Cancel
+          {t('common.cancel')}
         </button>
         <button
           type="button"
@@ -615,7 +582,9 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
           ) : (
             <Save className="h-4 w-4" />
           )}
-          {mode.kind === 'create' ? 'Create item' : 'Save changes'}
+          {mode.kind === 'create'
+            ? t('newItem.createButton')
+            : t('itemForm.saveChanges')}
         </button>
       </div>
     </div>
