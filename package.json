@@ -49,15 +49,15 @@
     "infra:reset": "docker compose -f infra/docker-compose.yml down -v && pnpm infra:up"
   },
   "devDependencies": {
-    "@next/eslint-plugin-next": "^16.2.6",
+    "@next/eslint-plugin-next": "^16.2.10",
     "@types/node": "^25.9.1",
     "concurrently": "^9.2.1",
     "eslint": "^9.39.4",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "globals": "^17.6.0",
-    "prettier": "^3.8.3",
-    "turbo": "^2.9.14",
+    "globals": "^17.7.0",
+    "prettier": "^3.9.5",
+    "turbo": "^2.10.4",
     "typescript": "^6.0.3"
   },
   "pnpm": {
