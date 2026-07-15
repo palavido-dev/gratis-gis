@@ -68,16 +68,21 @@
       "fast-xml-builder": "^1.1.7",
       "lodash": "^4.18.0",
       "picomatch": "^4.0.4",
-      "undici": "^6.24.0",
-      "multer": "^2.1.1",
-      "nodemailer": "^8.0.5",
+      "undici": "^6.27.0",
+      "multer": "^2.2.0",
+      "nodemailer": "^9.0.1",
       "brace-expansion": "^5.0.6",
       "file-type": "^21.3.2",
       "ip-address": "^10.1.1",
-      "js-yaml": "^4.1.1",
+      "js-yaml": "^4.2.0",
       "postcss": "^8.5.10",
       "fast-xml-parser": "^5.7.0",
-      "uuid": "^11.1.1"
+      "uuid": "^11.1.1",
+      "shell-quote": "^1.8.4",
+      "hono": "^4.12.25",
+      "@hono/node-server": "^1.19.13",
+      "esbuild": "^0.28.1",
+      "tar": "^7.5.16"
     }
   }
 }
