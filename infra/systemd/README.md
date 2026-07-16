@@ -8,8 +8,9 @@ level on the box.
 
 Runs daily at 03:30 UTC and prunes:
 
-  - Buildx cache trimmed to <= 10 GB (preserves recent layers for
-    fast incremental rebuilds; sweeps the rest).
+  - Buildx cache trimmed to ~2 GB via `--reserved-space` (preserves
+    the newest layers for a fast incremental rebuild; sweeps the
+    rest).
   - All dangling and unreferenced docker images.
 
 This exists because every `docker compose build` of portal-api or
@@ -17,6 +18,16 @@ portal-web produces ~2 GB of new layers, and Docker doesn't garbage-
 collect them on its own. Without this timer the host disk fills up
 within a couple of weeks of active development. It came up multiple
 times in 2026-04 / 2026-05 before getting wired in properly.
+
+Note (2026-07-15): the retention was originally `--keep-storage
+10GB`, but that flag was deprecated + renamed to `--reserved-space`
+in Docker 29 and had stopped reclaiming, and 10 GB was too generous
+for the 75 GB box, so a deploy still filled the disk. Lowered to
+`--reserved-space 2GB`. If a deploy build still hits "no space left",
+the cause is usually NOT build cache: check `du -shx /opt/* /var/lib/
+docker/volumes/*` and `find / -xdev -type f -size +500M` for large
+one-off artifacts (e.g. old DB migration dumps) that this timer
+deliberately does not touch.
 
 The compose stack uses `restart: unless-stopped`, so every legitimate
 image stays referenced by a running container -- `image prune -af`

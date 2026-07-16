@@ -5,14 +5,21 @@ Requires=docker.service
 
 [Service]
 Type=oneshot
-# Cap the buildx cache at 10 GB. Preserves recent layers for fast
-# incremental rebuilds, sweeps everything older. --force is needed
-# because the command otherwise prompts.
-ExecStart=/usr/bin/docker builder prune --keep-storage 10GB --force
+# Trim the buildx cache down to ~2 GB of the most recent layers.
+# This was --keep-storage 10GB, but two problems let the disk fill
+# during deploys anyway: (a) --keep-storage is deprecated in Docker
+# 29 (renamed --reserved-space), so it had silently stopped
+# reclaiming, and (b) 10 GB was too much to give up on a 75 GB box
+# that is mostly data volumes plus live images. 2 GB still preserves
+# the newest layers for a fast incremental rebuild while leaving real
+# headroom for the next build. --force skips the confirm prompt.
+ExecStart=/usr/bin/docker builder prune --force --reserved-space 2GB
 # Drop dangling and unused images. -a removes every image not
 # referenced by a running OR stopped container; we run -af because
 # our compose stack is `restart: unless-stopped`, so legitimate
 # images are always referenced. Anything else is leftover from a
 # rebuild cycle.
 ExecStart=/usr/bin/docker image prune -af
-ExecStart=/bin/sh -c "echo gg-docker-cleanup completed at $(date -Iseconds); docker system df"
+# Record the outcome and resulting root-fs free space in the journal
+# so a creeping disk is visible via journalctl without SSHing in.
+ExecStart=/bin/sh -c 'echo "gg-docker-cleanup completed at $(date -Iseconds)"; df -h / | tail -1; docker system df'
