@@ -4,8 +4,8 @@
   "description": "Open-source geographic information system portal",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0f0f10",
-  "theme_color": "#0f0f10",
+  "background_color": "#fbfaf6",
+  "theme_color": "#5c6b58",
   "orientation": "any",
   "scope": "/",
   "icons": [
@@ -16,7 +16,10 @@
       "purpose": "any"
     }
   ],
-  "categories": ["productivity", "utilities"],
+  "categories": [
+    "productivity",
+    "utilities"
+  ],
   "shortcuts": [
     {
       "name": "My items",

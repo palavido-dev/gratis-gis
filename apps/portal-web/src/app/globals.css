@@ -7,46 +7,56 @@
    to design iteration but the token *names* are stable. */
 @layer base {
   :root {
-    --surface-0: 0 0% 100%;         /* page background */
-    --surface-0-ink: 222 47% 11%;
-    --surface-1: 210 40% 98%;       /* elevated card */
-    --surface-1-ink: 222 47% 11%;
-    --surface-2: 210 40% 96%;       /* inputs, popovers */
-    --surface-2-ink: 222 47% 11%;
-    --muted: 215 20% 65%;
-    --muted-ink: 222 47% 11%;
-    --accent: 221 83% 53%;
+    /* Contour brand (#173): warm paper neutrals + deep sage accent.
+       The three --brand-* hues are the mark's contours (sage, clay,
+       mauve) and the only place the full triad appears; UI chrome
+       leans on sage alone so the accent stays calm. */
+    --surface-0: 45 30% 98%;        /* page background (warm paper) */
+    --surface-0-ink: 40 12% 13%;
+    --surface-1: 45 27% 96%;        /* elevated card */
+    --surface-1-ink: 40 12% 13%;
+    --surface-2: 45 22% 93%;        /* inputs, popovers */
+    --surface-2-ink: 40 12% 13%;
+    --muted: 40 7% 44%;
+    --muted-ink: 40 12% 13%;
+    --accent: 124 8% 38%;           /* deep sage; white ink passes AA */
     --accent-ink: 0 0% 100%;
-    --success: 142 72% 29%;
-    --warn: 35 92% 50%;
-    --danger: 0 72% 51%;
-    --info: 199 89% 48%;
-    --focus-ring: 221 83% 53%;
-    --border: 214 32% 91%;
+    --success: 142 60% 30%;
+    --warn: 33 85% 47%;
+    --danger: 0 68% 49%;
+    --info: 205 75% 42%;
+    --focus-ring: 124 8% 38%;
+    --border: 43 18% 87%;
     --radius: 0.5rem;
+    --brand-sage: 124 8% 40%;
+    --brand-clay: 33 33% 54%;
+    --brand-mauve: 350 18% 46%;
   }
 
   .dark {
-    --surface-0: 222 47% 6%;
-    --surface-0-ink: 210 40% 96%;
-    --surface-1: 222 47% 10%;
-    --surface-1-ink: 210 40% 96%;
-    --surface-2: 222 47% 13%;
-    --surface-2-ink: 210 40% 96%;
+    --surface-0: 40 9% 7%;          /* warm charcoal, not blue-black */
+    --surface-0-ink: 43 20% 93%;
+    --surface-1: 40 8% 11%;
+    --surface-1-ink: 43 20% 93%;
+    --surface-2: 40 7% 14%;
+    --surface-2-ink: 43 20% 93%;
     /* muted is overwhelmingly used as secondary TEXT (2000+ sites) and
        only rarely as a bg (always opacity-modified), so its dark value
        must stay readable on surface-0..2. The original 27% lightness
-       was near-invisible (<2:1); 62% lands ~5.5:1 on surface-1. */
-    --muted: 215 16% 62%;
-    --muted-ink: 210 40% 96%;
-    --accent: 217 91% 60%;
-    --accent-ink: 222 47% 11%;
-    --success: 142 64% 52%;
-    --warn: 35 92% 58%;
-    --danger: 0 74% 62%;
-    --info: 199 89% 58%;
-    --focus-ring: 217 91% 60%;
-    --border: 217 19% 20%;
+       was near-invisible (<2:1); 63% lands ~5.5:1 on surface-1. */
+    --muted: 40 9% 63%;
+    --muted-ink: 43 20% 93%;
+    --accent: 118 16% 66%;          /* lifted sage; dark ink passes AA */
+    --accent-ink: 40 9% 10%;
+    --success: 142 45% 55%;
+    --warn: 35 80% 58%;
+    --danger: 0 65% 62%;
+    --info: 205 70% 60%;
+    --focus-ring: 118 16% 66%;
+    --border: 40 7% 20%;
+    --brand-sage: 118 16% 66%;
+    --brand-clay: 33 42% 67%;
+    --brand-mauve: 350 25% 66%;
   }
 
   html,

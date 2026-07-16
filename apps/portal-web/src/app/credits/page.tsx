@@ -2,7 +2,8 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { getServerSession } from 'next-auth';
-import { ArrowLeft, Compass, LogIn } from 'lucide-react';
+import { ArrowLeft, LogIn } from 'lucide-react';
+import { BrandMark } from '@/components/brand-mark';
 import { authOptions } from '@/lib/auth';
 
 /**
@@ -242,7 +243,7 @@ function TopBar() {
   return (
     <header className="flex items-center justify-between border-b border-border bg-surface-1 px-6 pt-[env(safe-area-inset-top)] [height:calc(3.5rem+env(safe-area-inset-top))]">
       <Link href="/" className="flex items-center gap-2">
-        <Compass className="h-6 w-6 text-accent" />
+        <BrandMark size={26} />
         <span className="text-base font-semibold tracking-tight">
           GratisGIS
         </span>

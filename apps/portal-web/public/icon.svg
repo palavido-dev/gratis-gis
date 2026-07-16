@@ -1,12 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- Placeholder brand icon. Swap in a proper logo when brand
-       assets land — keep the 512×512 viewBox so the manifest
-       references don't need updating. -->
-  <rect width="512" height="512" rx="96" fill="#0f0f10"/>
-  <g fill="none" stroke="#60a5fa" stroke-width="32" stroke-linejoin="round" stroke-linecap="round">
-    <!-- Map pin silhouette — evokes "map" without naming any existing brand. -->
-    <path d="M256 96 C 192 96 144 144 144 208 C 144 288 256 432 256 432 C 256 432 368 288 368 208 C 368 144 320 96 256 96 Z"/>
-    <circle cx="256" cy="208" r="44"/>
+  <rect width="512" height="512" rx="96" fill="#5c6b58"/>
+  <g fill="none" stroke="#f6f3ea" stroke-linecap="round">
+    <path d="M272 88 C 152 88 88 176 88 256 C 88 356 164 424 272 424 C 348 424 402 378 418 316 L 288 316" stroke-width="44"/>
+    <path d="M272 176 C 196 176 164 214 164 256 C 164 306 208 340 272 340" stroke-width="34" stroke="#dcc39a"/>
   </g>
 </svg>

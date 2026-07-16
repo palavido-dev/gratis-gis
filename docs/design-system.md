@@ -146,3 +146,38 @@ Reviewers must:
 3. Toggle dark mode.
 4. Resize the viewport to 360px wide.
 5. Only approve if all four check out.
+
+
+## Brand: Contour
+
+The GratisGIS mark is a "G" drawn as three nested elevation
+contours, the Contour identity (#173). It encodes what the product
+is (terrain, layers of information) without borrowing the layer-stack
+cliche every GIS product uses.
+
+Palette (the `--brand-*` tokens in globals.css; light / dark):
+
+- Sage `hsl(124 8% 40%)` / `hsl(118 16% 66%)`: primary. Also the
+  app-wide `--accent`, so interactive chrome and the brand agree.
+- Clay `hsl(33 33% 54%)` / `hsl(33 42% 67%)`: second contour, warm
+  supporting hue.
+- Mauve `hsl(350 18% 46%)` / `hsl(350 25% 66%)`: inner contour,
+  sparing use only.
+
+Neutrals are warm (hue ~40-45 paper in light, warm charcoal in
+dark), not blue-gray. Status colors (success/warn/danger/info)
+remain functional hues and are not brand colors.
+
+Usage rules:
+
+- `<BrandMark />` and `<BrandWordmark />` from
+  `components/brand-mark.tsx` are the only sanctioned renderings.
+  Never rebuild the mark ad hoc, never use a lucide icon as a logo.
+- Below 20px, use the `small` variant (single heavy contour). The
+  favicon (public/icon.svg) uses a two-contour tile for legibility.
+- The full three-hue triad appears only in the mark and marketing
+  surfaces (OG card, landing hero). In-app chrome uses sage alone.
+- The wordmark is "Gratis" in ink + "GIS" in sage, Inter semibold.
+  Do not letterspace, outline, or recolor it.
+- Static exports that must stay in sync when geometry changes:
+  public/icon.svg, app/opengraph-image.tsx, components/brand-mark.tsx.

@@ -10,7 +10,6 @@ import {
   ArrowRightLeft,
   Bell,
   ClipboardList,
-  Compass,
   Folder as FolderIcon,
   LayoutGrid,
   Map as MapIcon,
@@ -28,6 +27,7 @@ import { useT } from '@/lib/i18n/locale-context';
 import { TopBarSearch } from './top-bar-search';
 import { HelpButton } from './help-button';
 import { UserMenu } from './user-menu';
+import { BrandWordmark } from './brand-mark';
 
 /**
  * Client wrapper that owns the conditional render of the global
@@ -149,8 +149,7 @@ export function AppShellChrome({
           renders the same content as a slide-in overlay. */}
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 self-start overflow-y-auto border-r border-border bg-surface-1 px-3 py-4 md:block">
         <Link href="/" className="flex items-center gap-2 px-2 py-2">
-          <Compass className="h-6 w-6 text-accent" />
-          <span className="text-base font-semibold tracking-tight">GratisGIS</span>
+          <BrandWordmark markSize={26} />
         </Link>
         <NavList orgRole={me?.orgRole ?? null} />
       </aside>
@@ -399,10 +398,7 @@ function MobileNavTrigger({
                   onClick={() => setOpen(false)}
                   className="flex items-center gap-2"
                 >
-                  <Compass className="h-6 w-6 text-accent" />
-                  <span className="text-base font-semibold tracking-tight">
-                    GratisGIS
-                  </span>
+                  <BrandWordmark markSize={26} />
                 </Link>
                 <button
                   type="button"

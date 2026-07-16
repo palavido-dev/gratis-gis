@@ -3,7 +3,6 @@ import Link from 'next/link';
 import {
   Bell,
   Brush,
-  Compass,
   Database,
   Github,
   Globe,
@@ -18,6 +17,7 @@ import {
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
+import { BrandMark } from '@/components/brand-mark';
 import type { ItemType } from '@gratis-gis/shared-types';
 import {
   getItemHref,
@@ -546,7 +546,7 @@ function TopBar({ orgName }: { orgName: string }) {
   return (
     <header className="flex items-center justify-between border-b border-border bg-surface-1 px-6 pt-[env(safe-area-inset-top)] [height:calc(3.5rem+env(safe-area-inset-top))]">
       <div className="flex items-center gap-2">
-        <Compass className="h-6 w-6 text-accent" />
+        <BrandMark size={26} />
         <span className="text-base font-semibold tracking-tight">
           {orgName}
         </span>

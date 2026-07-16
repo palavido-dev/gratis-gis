@@ -87,8 +87,8 @@ export const viewport: Viewport = {
   // so the status bar matches whichever mode the user runs; the
   // values are surface-0 in each theme.
   themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#ffffff' },
-    { media: '(prefers-color-scheme: dark)', color: '#080d16' },
+    { media: '(prefers-color-scheme: light)', color: '#fbfaf6' },
+    { media: '(prefers-color-scheme: dark)', color: '#141310' },
   ],
 };
 
