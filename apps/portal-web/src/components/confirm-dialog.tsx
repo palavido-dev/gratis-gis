@@ -1,9 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import { useT } from '@/lib/i18n/locale-context';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 export interface ConfirmDialogProps {
   open: boolean;
@@ -14,7 +21,7 @@ export interface ConfirmDialogProps {
   /**
    * If provided, the confirm button stays disabled until the user types this
    * exact string. Reserve for destructive actions on high-value data (e.g.
-   * "Delete feature service: type the layer name to confirm").
+   * "Delete data layer: type the layer name to confirm").
    */
   requireTypedConfirmation?: string;
   confirmLabel?: string;
@@ -28,11 +35,11 @@ export interface ConfirmDialogProps {
 }
 
 /**
- * Minimal accessible confirm dialog built on the native <dialog> element.
- * - Focus-trapped by the browser when opened as a modal.
- * - Escape to cancel.
- * - For destructive ops, `requireTypedConfirmation` gates the confirm button
- *   until the user types the exact expected string. Forces deliberation.
+ * Shared confirm dialog, built on the ui/dialog primitive (#173).
+ * Radix supplies focus trapping, escape-to-cancel, scroll lock, and
+ * aria wiring; this component keeps the typed-confirmation gate for
+ * destructive operations. The public props API is unchanged from the
+ * previous native-<dialog> implementation.
  */
 export function ConfirmDialog({
   open,
@@ -49,19 +56,8 @@ export function ConfirmDialog({
   const t = useT();
   const resolvedConfirmLabel = confirmLabel ?? t('dialogs.confirm');
   const resolvedCancelLabel = cancelLabel ?? t('common.cancel');
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const [typed, setTyped] = useState('');
   const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    const el = dialogRef.current;
-    if (!el) return;
-    if (open && !el.open) {
-      el.showModal();
-    } else if (!open && el.open) {
-      el.close();
-    }
-  }, [open]);
 
   useEffect(() => {
     if (!open) {
@@ -84,32 +80,32 @@ export function ConfirmDialog({
   }
 
   return (
-    <dialog
-      ref={dialogRef}
-      onCancel={(e) => {
-        e.preventDefault();
-        onCancel();
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && !submitting) onCancel();
       }}
-      className="rounded-lg border border-border bg-surface-1 p-0 text-ink-0 shadow-overlay backdrop:bg-black/40 backdrop:backdrop-blur-sm"
     >
-      <div className="w-[28rem] max-w-[90vw] p-6">
-        <div className="flex items-start gap-3">
+      <DialogContent hideCloseButton>
+        <div className="flex items-start gap-3 px-5 pt-5">
           {tone === 'danger' ? (
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-danger/10 text-danger">
               <AlertTriangle className="h-4 w-4" />
             </div>
           ) : null}
           <div className="min-w-0">
-            <h2 className="text-base font-semibold text-ink-0">{title}</h2>
+            <DialogTitle>{title}</DialogTitle>
             {description ? (
-              <p className="mt-1 text-sm text-muted">{description}</p>
+              <DialogDescription className="mt-1">
+                {description}
+              </DialogDescription>
             ) : null}
             {children}
           </div>
         </div>
 
         {requireTypedConfirmation ? (
-          <div className="mt-4">
+          <div className="px-5 pt-4">
             <label className="mb-1 block text-xs text-muted">
               {t('dialogs.typeToConfirmPrefix')}{' '}
               <code className="rounded bg-surface-2 px-1 py-0.5 font-mono text-[11px] text-ink-0">
@@ -128,7 +124,7 @@ export function ConfirmDialog({
           </div>
         ) : null}
 
-        <div className="mt-6 flex items-center justify-end gap-2">
+        <DialogFooter className="mt-5 border-t-0 bg-transparent pb-5">
           <button
             type="button"
             onClick={onCancel}
@@ -150,8 +146,8 @@ export function ConfirmDialog({
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {resolvedConfirmLabel}
           </button>
-        </div>
-      </div>
-    </dialog>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

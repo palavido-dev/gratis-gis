@@ -13,6 +13,13 @@ import {
 } from 'react';
 import { AlertTriangle, Info } from 'lucide-react';
 
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
+
 /**
  * In-app replacement for window.confirm / window.alert (#138).
  *
@@ -127,17 +134,15 @@ export function DialogProvider({ children }: { children: ReactNode }) {
     setPending(null);
   }, []);
 
-  // Esc / Enter shortcuts. Esc cancels (confirm: false; alert:
-  // dismiss). Enter accepts confirm primary. We bind on document so
-  // the modal doesn't have to be focused for the keyboard to work.
+  // Enter accepts the confirm primary. Escape and backdrop clicks
+  // are handled by the Radix dialog (onOpenChange fires with false
+  // and we resolve-cancel there), so only Enter needs a document
+  // listener. Bound on document so the modal doesn't have to be
+  // focused for the keyboard to work.
   useEffect(() => {
     if (!pending) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        if (pendingRef.current?.kind === 'confirm') closeConfirm(false);
-        else if (pendingRef.current?.kind === 'alert') closeAlert();
-      } else if (e.key === 'Enter') {
+      if (e.key === 'Enter') {
         // Don't hijack Enter when the focus is in a textarea; in
         // text inputs Enter accepts so it's fine.
         const tag = (e.target as HTMLElement | null)?.tagName ?? '';
@@ -201,11 +206,11 @@ function ConfirmDialog({
   const cancelLabel = opts.cancelLabel ?? 'Cancel';
   const title = opts.title ?? (variant === 'danger' ? 'Confirm delete' : 'Confirm');
   return (
-    <Backdrop onClose={() => onClose(false)}>
-      <DialogShell>
-        <DialogHeader>
+    <Dialog open onOpenChange={(next) => (next ? undefined : onClose(false))}>
+      <DialogContent hideCloseButton>
+        <div className="flex items-center gap-3 px-5 pb-3 pt-4">
           <span
-            className={`flex h-9 w-9 items-center justify-center rounded-full ${
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
               variant === 'danger'
                 ? 'bg-danger/10 text-danger'
                 : 'bg-accent/10 text-accent'
@@ -213,10 +218,8 @@ function ConfirmDialog({
           >
             <AlertTriangle className="h-4 w-4" />
           </span>
-          <h2 className="text-base font-semibold tracking-tight text-ink-0">
-            {title}
-          </h2>
-        </DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </div>
         <p className="px-5 pb-2 text-sm leading-relaxed text-ink-1">
           {opts.message}
         </p>
@@ -244,8 +247,8 @@ function ConfirmDialog({
             {confirmLabel}
           </button>
         </DialogFooter>
-      </DialogShell>
-    </Backdrop>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -260,11 +263,11 @@ function AlertDialog({
   const title = opts.title ?? (tone === 'warn' ? 'Heads up' : 'Notice');
   const Icon = tone === 'warn' ? AlertTriangle : Info;
   return (
-    <Backdrop onClose={onClose}>
-      <DialogShell>
-        <DialogHeader>
+    <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+      <DialogContent hideCloseButton>
+        <div className="flex items-center gap-3 px-5 pb-3 pt-4">
           <span
-            className={`flex h-9 w-9 items-center justify-center rounded-full ${
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
               tone === 'warn'
                 ? 'bg-warn/15 text-warn'
                 : 'bg-accent/10 text-accent'
@@ -272,10 +275,8 @@ function AlertDialog({
           >
             <Icon className="h-4 w-4" />
           </span>
-          <h2 className="text-base font-semibold tracking-tight text-ink-0">
-            {title}
-          </h2>
-        </DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </div>
         <p className="whitespace-pre-line px-5 pb-4 text-sm leading-relaxed text-ink-1">
           {opts.message}
         </p>
@@ -289,50 +290,7 @@ function AlertDialog({
             {opts.okLabel ?? 'OK'}
           </button>
         </DialogFooter>
-      </DialogShell>
-    </Backdrop>
-  );
-}
-
-function Backdrop({
-  onClose,
-  children,
-}: {
-  onClose: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      onClick={onClose}
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
-    >
-      <div onClick={(e) => e.stopPropagation()} className="contents">
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function DialogShell({ children }: { children: ReactNode }) {
-  return (
-    <div className="w-full max-w-md rounded-lg border border-border bg-surface-1 shadow-raised">
-      {children}
-    </div>
-  );
-}
-
-function DialogHeader({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex items-center gap-3 px-5 pb-3 pt-4">{children}</div>
-  );
-}
-
-function DialogFooter({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
-      {children}
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
