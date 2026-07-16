@@ -1,0 +1,13 @@
+{
+  "type": "FeatureCollection",
+  "name": "Randolph County boundary (simplified sample)",
+  "description": "Heavily simplified outline of Randolph County, WV for the GratisGIS sample workspace. Not authoritative; for demonstration only.",
+  "features": [
+    { "type": "Feature", "id": "sample-bnd-01", "properties": { "name": "Randolph County (simplified)" }, "geometry": { "type": "Polygon", "coordinates": [[
+      [-80.0932, 38.9721], [-80.0281, 39.0378], [-79.8951, 39.0742], [-79.7852, 39.0655],
+      [-79.6871, 39.0521], [-79.5262, 38.9754], [-79.4571, 38.9012], [-79.4492, 38.7841],
+      [-79.5231, 38.6602], [-79.6412, 38.5921], [-79.7331, 38.5502], [-79.8622, 38.5461],
+      [-79.9541, 38.6172], [-80.0392, 38.7141], [-80.1121, 38.8302], [-80.0932, 38.9721]
+    ]] } }
+  ]
+}

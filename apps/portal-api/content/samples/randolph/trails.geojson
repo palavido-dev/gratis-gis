@@ -1,0 +1,12 @@
+{
+  "type": "FeatureCollection",
+  "name": "Trails (sample)",
+  "description": "Representative trail segments in and around Randolph County, WV for the GratisGIS sample workspace. Alignments are approximate and for demonstration only.",
+  "features": [
+    { "type": "Feature", "id": "sample-trl-01", "properties": { "name": "Allegheny Trail (Valley segment)", "difficulty": "moderate", "length_mi": 4.2 }, "geometry": { "type": "LineString", "coordinates": [[-79.8062, 38.8851], [-79.7921, 38.8968], [-79.7808, 38.9105], [-79.7752, 38.9246], [-79.7671, 38.9385]] } },
+    { "type": "Feature", "id": "sample-trl-02", "properties": { "name": "Bickle Knob Tower Trail", "difficulty": "strenuous", "length_mi": 2.8 }, "geometry": { "type": "LineString", "coordinates": [[-79.7402, 38.9312], [-79.7311, 38.9288], [-79.7204, 38.9331], [-79.7098, 38.9296]] } },
+    { "type": "Feature", "id": "sample-trl-03", "properties": { "name": "Otter Creek Access Spur", "difficulty": "moderate", "length_mi": 1.6 }, "geometry": { "type": "LineString", "coordinates": [[-79.6612, 38.9744], [-79.6524, 38.9791], [-79.6437, 38.9762]] } },
+    { "type": "Feature", "id": "sample-trl-04", "properties": { "name": "Elkins Rail Trail", "difficulty": "easy", "length_mi": 1.2 }, "geometry": { "type": "LineString", "coordinates": [[-79.8531, 38.9224], [-79.8468, 38.9257], [-79.8395, 38.9301], [-79.8334, 38.9352]] } },
+    { "type": "Feature", "id": "sample-trl-05", "properties": { "name": "Stuart Recreation Area Loop", "difficulty": "easy", "length_mi": 0.9 }, "geometry": { "type": "LineString", "coordinates": [[-79.7851, 38.9524], [-79.7808, 38.9561], [-79.7772, 38.9538], [-79.7794, 38.9501], [-79.7851, 38.9524]] } }
+  ]
+}

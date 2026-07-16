@@ -1,0 +1,12 @@
+{
+  "type": "FeatureCollection",
+  "name": "Parks and public lands (sample)",
+  "description": "Representative parks and public lands in Randolph County, WV for the GratisGIS sample workspace. Boundaries are approximate and for demonstration only.",
+  "features": [
+    { "type": "Feature", "id": "sample-prk-01", "properties": { "name": "Elkins City Park", "acres": 38, "managed_by": "City of Elkins" }, "geometry": { "type": "Polygon", "coordinates": [[[-79.8438, 38.9201], [-79.8381, 38.9203], [-79.8378, 38.9166], [-79.8434, 38.9163], [-79.8438, 38.9201]]] } },
+    { "type": "Feature", "id": "sample-prk-02", "properties": { "name": "Glendale Park", "acres": 22, "managed_by": "City of Elkins" }, "geometry": { "type": "Polygon", "coordinates": [[[-79.8629, 38.9345], [-79.8577, 38.9351], [-79.8569, 38.9312], [-79.8621, 38.9306], [-79.8629, 38.9345]]] } },
+    { "type": "Feature", "id": "sample-prk-03", "properties": { "name": "Stuart Recreation Area", "acres": 92, "managed_by": "US Forest Service" }, "geometry": { "type": "Polygon", "coordinates": [[[-79.7898, 38.9569], [-79.7741, 38.9581], [-79.7723, 38.9478], [-79.7884, 38.9466], [-79.7898, 38.9569]]] } },
+    { "type": "Feature", "id": "sample-prk-04", "properties": { "name": "Rich Mountain Battlefield", "acres": 65, "managed_by": "Rich Mountain Battlefield Foundation" }, "geometry": { "type": "Polygon", "coordinates": [[[-79.9351, 38.8624], [-79.9228, 38.8639], [-79.9207, 38.8551], [-79.9331, 38.8536], [-79.9351, 38.8624]]] } },
+    { "type": "Feature", "id": "sample-prk-05", "properties": { "name": "Beverly Town Square", "acres": 4, "managed_by": "Town of Beverly" }, "geometry": { "type": "Polygon", "coordinates": [[[-79.8741, 38.8466], [-79.8706, 38.8469], [-79.8703, 38.8443], [-79.8738, 38.8440], [-79.8741, 38.8466]]] } }
+  ]
+}

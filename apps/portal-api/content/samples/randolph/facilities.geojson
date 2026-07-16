@@ -1,0 +1,19 @@
+{
+  "type": "FeatureCollection",
+  "name": "County facilities (sample)",
+  "description": "Representative Randolph County, WV public facilities for the GratisGIS sample workspace. Coordinates are approximate and for demonstration only.",
+  "features": [
+    { "type": "Feature", "id": "sample-fac-01", "properties": { "name": "Randolph County Courthouse", "type": "courthouse", "community": "Elkins", "notes": "County seat; historic 1904 courthouse on Randolph Avenue." }, "geometry": { "type": "Point", "coordinates": [-79.8461, 38.9251] } },
+    { "type": "Feature", "id": "sample-fac-02", "properties": { "name": "Davis Medical Center", "type": "hospital", "community": "Elkins", "notes": "Regional hospital serving the Tygart Valley." }, "geometry": { "type": "Point", "coordinates": [-79.8712, 38.9198] } },
+    { "type": "Feature", "id": "sample-fac-03", "properties": { "name": "Elkins High School", "type": "school", "community": "Elkins", "notes": "Public high school, home of the Tigers." }, "geometry": { "type": "Point", "coordinates": [-79.8288, 38.9312] } },
+    { "type": "Feature", "id": "sample-fac-04", "properties": { "name": "Phil Gainer Community Center", "type": "community-center", "community": "Elkins", "notes": "Events, recreation programs, and public meetings." }, "geometry": { "type": "Point", "coordinates": [-79.8443, 38.9282] } },
+    { "type": "Feature", "id": "sample-fac-05", "properties": { "name": "Elkins-Randolph County Public Library", "type": "library", "community": "Elkins", "notes": "Main branch on Davis Avenue." }, "geometry": { "type": "Point", "coordinates": [-79.8478, 38.9239] } },
+    { "type": "Feature", "id": "sample-fac-06", "properties": { "name": "Elkins Fire Department", "type": "fire", "community": "Elkins", "notes": "Career and volunteer combination department." }, "geometry": { "type": "Point", "coordinates": [-79.8502, 38.9264] } },
+    { "type": "Feature", "id": "sample-fac-07", "properties": { "name": "Randolph County EMS", "type": "ems", "community": "Elkins", "notes": "Countywide ambulance service headquarters." }, "geometry": { "type": "Point", "coordinates": [-79.8558, 38.9147] } },
+    { "type": "Feature", "id": "sample-fac-08", "properties": { "name": "Beverly Heritage Center", "type": "museum", "community": "Beverly", "notes": "Civil War and frontier history at the old county seat." }, "geometry": { "type": "Point", "coordinates": [-79.8724, 38.8455] } },
+    { "type": "Feature", "id": "sample-fac-09", "properties": { "name": "Mill Creek Public Library", "type": "library", "community": "Mill Creek", "notes": "Branch library serving the upper valley." }, "geometry": { "type": "Point", "coordinates": [-79.9724, 38.7327] } },
+    { "type": "Feature", "id": "sample-fac-10", "properties": { "name": "Huttonsville Volunteer Fire Department", "type": "fire", "community": "Huttonsville", "notes": "Volunteer company covering the southern valley." }, "geometry": { "type": "Point", "coordinates": [-79.9767, 38.7169] } },
+    { "type": "Feature", "id": "sample-fac-11", "properties": { "name": "Jennings Randolph Elementary School", "type": "school", "community": "Elkins", "notes": "Elementary school on the north side." }, "geometry": { "type": "Point", "coordinates": [-79.8397, 38.9418] } },
+    { "type": "Feature", "id": "sample-fac-12", "properties": { "name": "Elkins City Park Pavilion", "type": "park", "community": "Elkins", "notes": "Pavilion rentals and summer programs in the city park." }, "geometry": { "type": "Point", "coordinates": [-79.8409, 38.9186] } }
+  ]
+}

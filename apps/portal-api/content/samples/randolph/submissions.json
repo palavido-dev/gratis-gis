@@ -1,0 +1,49 @@
+{
+  "description": "Sample submissions for the 'Road and trail issue report' form. clientId is the idempotency key (formSubmission is unique on formId+clientId).",
+  "submissions": [
+    {
+      "clientId": "sample-sub-1",
+      "capturedAt": "2026-06-02T14:21:00.000Z",
+      "response": {
+        "issue_type": "washout",
+        "severity": "high",
+        "description": "Shoulder washout on Files Creek Road after the storm; one lane partially undermined.",
+        "reporter": "Sample: M. Currence",
+        "location": { "type": "Point", "coordinates": [-79.8281, 38.9042] }
+      }
+    },
+    {
+      "clientId": "sample-sub-2",
+      "capturedAt": "2026-06-05T09:47:00.000Z",
+      "response": {
+        "issue_type": "downed-tree",
+        "severity": "medium",
+        "description": "Red oak down across the Bickle Knob Tower Trail about half a mile below the tower.",
+        "reporter": "Sample: T. Wamsley",
+        "location": { "type": "Point", "coordinates": [-79.7288, 38.9301] }
+      }
+    },
+    {
+      "clientId": "sample-sub-3",
+      "capturedAt": "2026-06-11T16:05:00.000Z",
+      "response": {
+        "issue_type": "pothole",
+        "severity": "low",
+        "description": "Cluster of potholes on Georgetown Road near the school bus turnaround.",
+        "reporter": "Sample: A. Pingley",
+        "location": { "type": "Point", "coordinates": [-79.8611, 38.9377] }
+      }
+    },
+    {
+      "clientId": "sample-sub-4",
+      "capturedAt": "2026-06-14T11:30:00.000Z",
+      "response": {
+        "issue_type": "signage",
+        "severity": "low",
+        "description": "Loop trail marker missing at the second junction in Stuart Recreation Area.",
+        "reporter": "Sample: R. Bodkin",
+        "location": { "type": "Point", "coordinates": [-79.7802, 38.9531] }
+      }
+    }
+  ]
+}
