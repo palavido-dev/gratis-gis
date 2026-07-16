@@ -1,11 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Portal brand mark. Mirrors the lucide Compass icon used in the
-  portal's sidebar so the login surface and the authenticated app
-  share the same glyph.
+  Contour brand mark (#173). Mirrors components/brand-mark.tsx in
+  portal-web (full three-contour variant, light-mode hues) so the
+  login surface and the authenticated app share the same identity.
+  Keep in sync with that component and public/icon.svg when the
+  geometry changes.
 -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="40" height="40"
-     fill="none" stroke="#0ea5e9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <circle cx="12" cy="12" r="10" />
-  <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" fill="#0ea5e9" stroke="#0ea5e9"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="48" height="48" fill="none">
+  <path d="M34 8 C16 8 8 20 8 32 C8 46 19 56 34 56 C45 56 53 49 55 40 L37 40"
+        stroke="#59695a" stroke-width="5" stroke-linecap="round"/>
+  <path d="M34 18 C22 18 17 24 17 32 C17 40 24 46 34 46"
+        stroke="#b08e62" stroke-width="4" stroke-linecap="round"/>
+  <path d="M34 27 C29 27 26 29 26 32 C26 35 29 37 34 37"
+        stroke="#8a5f66" stroke-width="3.5" stroke-linecap="round"/>
 </svg>

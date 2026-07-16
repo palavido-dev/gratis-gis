@@ -12,16 +12,20 @@
  */
 
 :root {
-  --portal-accent: #0ea5e9;
-  --portal-accent-hover: #0284c7;
+  /* Contour brand palette (#173). These mirror the portal's
+     globals.css light-mode tokens: deep sage accent, warm paper
+     neutrals. Keep in sync with apps/portal-web/src/app/globals.css
+     and docs/design-system.md "Brand: Contour". */
+  --portal-accent: #59695a;
+  --portal-accent-hover: #4a584b;
   --portal-accent-foreground: #ffffff;
-  --portal-ink-0: #0f172a;
-  --portal-ink-1: #1e293b;
-  --portal-muted: #64748b;
-  --portal-border: #e2e8f0;
-  --portal-surface-0: #f8fafc;
+  --portal-ink-0: #262521;
+  --portal-ink-1: #33322d;
+  --portal-muted: #78756d;
+  --portal-border: #e2ded3;
+  --portal-surface-0: #fbfaf6;
   --portal-surface-1: #ffffff;
-  --portal-danger: #dc2626;
+  --portal-danger: #cb2f2f;
 
   /* PF5 exposes color tokens as CSS variables. Re-map the ones the
      parent theme actually uses so every downstream rule picks up our
@@ -196,15 +200,15 @@ label {
   color: var(--portal-muted);
 }
 
-/* Inject the portal compass above the card header. Scoped to the
+/* Inject the Contour mark above the card header. Scoped to the
    header element (not ::before on the whole card) so it sits above
    the "Sign in to Portal" title exactly like a brand mark. */
 .pf-v5-c-login__main-header::before,
 #kc-header-wrapper::before {
   content: "";
   display: block;
-  width: 40px;
-  height: 40px;
+  width: 48px;
+  height: 48px;
   margin: 0 auto 12px;
   background-image: url("../img/logo.svg");
   background-size: contain;
