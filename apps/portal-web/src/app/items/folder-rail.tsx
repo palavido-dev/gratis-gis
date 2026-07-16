@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { ChevronRight, Folder as FolderIcon, FolderOpen } from 'lucide-react';
 import { FolderRowMenu } from './folder-row-menu';
 import { useAlert } from '@/components/dialog-provider';
+import { toast } from '@/lib/toast';
 import { useT } from '@/lib/i18n/locale-context';
 
 /** MIME-style key used to identify an item-card drag payload (#43).
@@ -282,10 +283,12 @@ export function FolderRail({ folders, activeFolderId }: Props) {
       }
       router.refresh();
     } catch (err) {
-      void alert({
-        tone: 'warn',
-        title: t('folderRail.moveFailedTitle'),
-        message: err instanceof Error ? err.message : t('folderRail.moveFailedMessage'),
+      // Transient failure feedback: a drag-drop miss shouldn't block
+      // the user behind a modal, so this is a toast rather than
+      // useAlert (#173).
+      toast.error(t('folderRail.moveFailedTitle'), {
+        description:
+          err instanceof Error ? err.message : t('folderRail.moveFailedMessage'),
       });
     }
   }

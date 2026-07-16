@@ -5,6 +5,7 @@ import { SessionProvider } from 'next-auth/react';
 import { ThemeProvider } from 'next-themes';
 import type { ReactNode } from 'react';
 
+import { AppToaster } from '@/components/app-toaster';
 import { DialogProvider } from '@/components/dialog-provider';
 import { HelpDrawerProvider } from '@/components/help-drawer';
 import { LocaleProvider } from '@/lib/i18n/locale-context';
@@ -30,6 +31,7 @@ export function Providers({
           <DialogProvider>
             <HelpDrawerProvider>{children}</HelpDrawerProvider>
           </DialogProvider>
+          <AppToaster />
         </LocaleProvider>
       </ThemeProvider>
     </SessionProvider>
