@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
-import { Inter } from 'next/font/google';
+import { Geist_Mono, Inter } from 'next/font/google';
 import { AppShell } from '@/components/app-shell';
 import { SwRegistrar } from '@/components/sw-registrar';
 import { getPortalUrl } from '@/lib/portal-url';
@@ -10,6 +10,11 @@ import { Providers } from './providers';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-sans' });
+// The Tailwind config has declared "Geist Mono" as font-mono since the
+// design system landed, but the face was never loaded, so every
+// font-mono surface silently fell back to the system mono. Load it
+// the same way as Inter and expose it as a variable for the config.
+const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-mono' });
 
 const PORTAL_URL = getPortalUrl();
 const SITE_DESCRIPTION =
@@ -97,7 +102,11 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
     // suppressHydrationWarning: next-themes mutates <html> class/style
     // before hydration to avoid a light-flash; React would otherwise
     // warn about the server/client attribute mismatch.
-    <html lang={locale} className={inter.variable} suppressHydrationWarning>
+    <html
+      lang={locale}
+      className={`${inter.variable} ${geistMono.variable}`}
+      suppressHydrationWarning
+    >
       <body className="font-sans antialiased">
         <Providers locale={locale}>
           <AppShell>{children}</AppShell>

@@ -49,8 +49,11 @@ const config: Config = {
         overlay: '0 20px 40px hsl(var(--surface-0-ink) / 0.14), 0 8px 16px hsl(var(--surface-0-ink) / 0.08)',
       },
       fontFamily: {
-        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-        mono: ['"Geist Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+        // Both faces load through next/font in the root layout and
+        // arrive as CSS variables; the literal names remain as
+        // fallbacks for surfaces rendered outside the app shell.
+        sans: ['var(--font-sans)', 'Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ['var(--font-mono)', '"Geist Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
       },
       keyframes: {
         'fade-in': { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
