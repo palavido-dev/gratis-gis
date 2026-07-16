@@ -232,7 +232,7 @@ export function AddTargetDialog({
                         onClick={() => void pickItem(item)}
                         className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-surface-2"
                       >
-                        <Layers className="h-4 w-4 shrink-0 text-sky-600" />
+                        <Layers className="h-4 w-4 shrink-0 text-info" />
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-sm font-medium text-ink-0">
                             {item.title}
@@ -301,7 +301,7 @@ export function AddTargetDialog({
                             : 'hover:bg-surface-2'
                         }`}
                       >
-                        <Layers className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" />
+                        <Layers className="mt-0.5 h-4 w-4 shrink-0 text-info" />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <span className="truncate text-sm font-medium text-ink-0">

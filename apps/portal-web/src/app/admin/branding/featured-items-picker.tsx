@@ -251,18 +251,18 @@ function FeaturedRow({
   // rather than silently dropping it, so the admin can clean up.
   if (!item) {
     return (
-      <li className="flex items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs">
-        <span className="min-w-0 truncate text-amber-900">
+      <li className="flex items-center justify-between gap-2 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-xs">
+        <span className="min-w-0 truncate text-warn">
           Unknown item{' '}
           <code className="font-mono">{id.slice(0, 8)}…</code>
-          <span className="ml-2 text-amber-700">
+          <span className="ml-2 text-warn">
             (not public any more? Deleted?)
           </span>
         </span>
         <button
           type="button"
           onClick={onRemove}
-          className="inline-flex items-center gap-1 rounded border border-amber-400 bg-white px-2 py-0.5 text-[11px] text-amber-800 hover:bg-amber-100"
+          className="inline-flex items-center gap-1 rounded border border-warn/50 bg-white px-2 py-0.5 text-[11px] text-warn hover:bg-warn/20"
         >
           <Trash2 className="h-3 w-3" />
           Remove

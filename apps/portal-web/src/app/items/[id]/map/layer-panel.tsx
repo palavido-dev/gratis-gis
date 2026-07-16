@@ -489,7 +489,7 @@ export function LayerPanel({
                       key={layer.id}
                       style={depth > 0 ? { paddingLeft: '14px' } : undefined}
                       className={
-                        depth > 0 ? 'border-l-2 border-amber-200/70' : ''
+                        depth > 0 ? 'border-l-2 border-warn/25' : ''
                       }
                     >
                       <GroupHeaderRow
@@ -532,7 +532,7 @@ export function LayerPanel({
                     key={layer.id}
                     style={depth > 0 ? { paddingLeft: '14px' } : undefined}
                     className={
-                      depth > 0 ? 'border-l-2 border-amber-200/70' : ''
+                      depth > 0 ? 'border-l-2 border-warn/25' : ''
                     }
                   >
                     <LayerRow
@@ -1030,7 +1030,7 @@ function LayerRow({
                             }}
                             className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-ink-1 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            <Folder className="h-3.5 w-3.5 text-amber-700" />
+                            <Folder className="h-3.5 w-3.5 text-warn" />
                             <span className="truncate">{g.title}</span>
                             {g.id === layer.groupId ? (
                               <span className="ml-auto text-[10px] uppercase tracking-wide text-muted">
@@ -2069,8 +2069,8 @@ function GroupHeaderRow({
   const [scaleOpen, setScaleOpen] = useState(false);
   return (
     <li
-      className={`border-b border-border bg-amber-50/50 px-2 py-1.5 transition-colors ${
-        dragOverHeader ? 'ring-1 ring-amber-500 ring-inset' : ''
+      className={`border-b border-border bg-warn/5 px-2 py-1.5 transition-colors ${
+        dragOverHeader ? 'ring-1 ring-warn ring-inset' : ''
       } ${dragging ? 'opacity-50' : ''}`}
       onDragOver={
         canEdit
@@ -2116,7 +2116,7 @@ function GroupHeaderRow({
             }}
             onDragEnd={onDragEnd}
             aria-label="Drag group to reorder"
-            className="inline-flex h-6 w-5 shrink-0 cursor-grab items-center justify-center text-amber-700 hover:text-amber-900 active:cursor-grabbing"
+            className="inline-flex h-6 w-5 shrink-0 cursor-grab items-center justify-center text-warn hover:text-warn active:cursor-grabbing"
             title="Drag group to reorder"
           >
             <GripVertical className="h-3.5 w-3.5" />
@@ -2161,12 +2161,12 @@ function GroupHeaderRow({
           <button
             type="button"
             onClick={() => canEdit && setEditingTitle(true)}
-            className="flex flex-1 items-center gap-1.5 truncate text-left text-xs font-semibold uppercase tracking-wide text-amber-900 hover:text-amber-700"
+            className="flex flex-1 items-center gap-1.5 truncate text-left text-xs font-semibold uppercase tracking-wide text-warn hover:text-warn"
             title={canEdit ? 'Click to rename' : layer.title}
           >
-            <Folder className="h-3.5 w-3.5 shrink-0 text-amber-700" />
+            <Folder className="h-3.5 w-3.5 shrink-0 text-warn" />
             <span className="truncate">{layer.title}</span>
-            <span className="ml-1 shrink-0 rounded-full bg-amber-200/80 px-1.5 text-[10px] font-medium text-amber-900">
+            <span className="ml-1 shrink-0 rounded-full bg-warn/20 px-1.5 text-[10px] font-medium text-warn">
               {childCount}
             </span>
           </button>
@@ -2224,7 +2224,7 @@ function GroupHeaderRow({
             type="button"
             onClick={() => setScaleOpen((v) => !v)}
             aria-expanded={scaleOpen}
-            className="flex w-full items-center gap-1.5 rounded px-1 py-1 text-[10px] font-medium uppercase tracking-wide text-muted hover:bg-amber-100/60 hover:text-amber-900"
+            className="flex w-full items-center gap-1.5 rounded px-1 py-1 text-[10px] font-medium uppercase tracking-wide text-muted hover:bg-warn/15 hover:text-warn"
           >
             {scaleOpen ? (
               <ChevronDown className="h-3 w-3" />
@@ -2235,7 +2235,7 @@ function GroupHeaderRow({
             Scale
           </button>
           {scaleOpen ? (
-            <div className="rounded border border-amber-200/70 bg-surface-1/70 px-2 py-2">
+            <div className="rounded border border-warn/25 bg-surface-1/70 px-2 py-2">
               <ScaleEditor
                 value={layer.scale ?? DEFAULT_LAYER_SCALE}
                 currentZoom={currentZoom}

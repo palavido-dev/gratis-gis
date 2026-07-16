@@ -124,7 +124,7 @@ export function RespondClient({ form, formItemTitle }: Props) {
           <span className="truncate">{formItemTitle}</span>
           <span
             className={`inline-flex items-center gap-1 ${
-              online ? 'text-emerald-700' : 'text-amber-700'
+              online ? 'text-success' : 'text-warn'
             }`}
           >
             {online ? <Wifi className="h-3.5 w-3.5" /> : <CloudOff className="h-3.5 w-3.5" />}
@@ -164,7 +164,7 @@ export function RespondClient({ form, formItemTitle }: Props) {
                   <span
                     className={`inline-flex rounded-full px-1.5 text-[10px] uppercase tracking-wide ${
                       r.status === 'failed'
-                        ? 'bg-amber-100 text-amber-900'
+                        ? 'bg-warn/15 text-warn'
                         : 'bg-surface-2 text-muted'
                     }`}
                   >

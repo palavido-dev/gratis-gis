@@ -830,13 +830,13 @@ export function CustomAppDetail({
   const toolbarRight = (
     <>
       {error && (
-        <span className="inline-flex items-center gap-1 text-xs text-rose-600">
+        <span className="inline-flex items-center gap-1 text-xs text-danger">
           <AlertTriangle className="h-3.5 w-3.5" />
           {error}
         </span>
       )}
       {saved && (
-        <span className="text-xs font-medium text-emerald-600">Saved</span>
+        <span className="text-xs font-medium text-success">Saved</span>
       )}
       <button
         type="button"
@@ -935,7 +935,7 @@ export function CustomAppDetail({
         storageKey="builder-shell:web-app-custom"
         backHref={`/items/${itemId}`}
         title={titleSummary}
-        icon={<Sparkles className="h-4 w-4 text-amber-500" strokeWidth={1.75} />}
+        icon={<Sparkles className="h-4 w-4 text-warn" strokeWidth={1.75} />}
         toolbarRight={toolbarRight}
         leftPanel={<Palette canEdit={canEdit} />}
         leftPanelTitle="Widgets"
@@ -1673,7 +1673,7 @@ function PageTabs({
                     }
                     onRemove(i);
                   }}
-                  className="rounded p-0.5 text-muted hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-30"
+                  className="rounded p-0.5 text-muted hover:bg-danger/10 hover:text-danger disabled:cursor-not-allowed disabled:opacity-30"
                 >
                   <X className="h-3.5 w-3.5" strokeWidth={1.75} />
                 </button>
@@ -3243,7 +3243,7 @@ function AppProperties({
         >
           {app.mapId ? (
             <div className="flex items-center gap-1.5 rounded-md bg-surface-2 px-2 py-1">
-              <MapIcon className="h-3.5 w-3.5 text-emerald-600" />
+              <MapIcon className="h-3.5 w-3.5 text-success" />
               <span className="flex-1 truncate text-ink-1">
                 {mapTitle ?? app.mapId.slice(0, 8)}
               </span>
@@ -3259,7 +3259,7 @@ function AppProperties({
                   <button
                     type="button"
                     onClick={onClearMap}
-                    className="text-muted hover:text-rose-600"
+                    className="text-muted hover:text-danger"
                     aria-label="Remove map"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -3294,7 +3294,7 @@ function AppProperties({
                   key={`${t.dataLayerId}:${t.layerKey}`}
                   className="flex items-center gap-1.5 rounded-md bg-surface-2 px-2 py-1 text-[11px]"
                 >
-                  <LayersIcon className="h-3.5 w-3.5 text-sky-600" />
+                  <LayersIcon className="h-3.5 w-3.5 text-info" />
                   <span className="flex-1 truncate">
                     {t.dataLayerId.slice(0, 8)} / {t.layerKey}
                   </span>
@@ -3307,7 +3307,7 @@ function AppProperties({
                         );
                         onUpdateApp({ targets });
                       }}
-                      className="text-muted hover:text-rose-600"
+                      className="text-muted hover:text-danger"
                       aria-label="Remove target"
                     >
                       <Trash2 className="h-3 w-3" />
@@ -3364,7 +3364,7 @@ function WidgetProperties({
             <button
               type="button"
               onClick={onRemove}
-              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-rose-600"
+              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-danger"
               title="Remove widget"
             >
               <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
@@ -3890,7 +3890,7 @@ function MapWidgetConfig({
         hint="Per-widget override. Leave empty to inherit the app's default map."
       >
         <div className="flex items-center gap-1.5 rounded-md border border-border bg-surface-2 px-2 py-1">
-          <MapIcon className="h-3.5 w-3.5 text-emerald-600" />
+          <MapIcon className="h-3.5 w-3.5 text-success" />
           <span className="flex-1 truncate text-ink-1">
             {config.mapId ? (
               widgetMapTitle ? (
@@ -3923,7 +3923,7 @@ function MapWidgetConfig({
             <button
               type="button"
               onClick={() => onChangeConfig({ mapId: undefined })}
-              className="text-muted hover:text-rose-600"
+              className="text-muted hover:text-danger"
               title="Use app default"
               aria-label="Reset to app default"
             >
@@ -4568,7 +4568,7 @@ function ToolWidgetCanvasPreview({
   return (
     <div className="flex flex-1 items-center justify-center p-2">
       <span
-        className="pointer-events-none inline-flex h-8 items-center justify-center gap-1.5 rounded-full bg-teal-500/10 px-2 text-teal-700"
+        className="pointer-events-none inline-flex h-8 items-center justify-center gap-1.5 rounded-full bg-teal-500/10 px-2 text-teal-700 dark:text-teal-400"
         style={{ minWidth: '2rem' }}
       >
         {iconHtml ? (
@@ -4786,7 +4786,7 @@ function BookmarkWidgetConfig({
                     title="Delete"
                     disabled={!canEdit}
                     onClick={() => remove(i)}
-                    className="rounded p-1 text-muted hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-30"
+                    className="rounded p-1 text-muted hover:bg-danger/10 hover:text-danger disabled:cursor-not-allowed disabled:opacity-30"
                   >
                     <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
                   </button>
@@ -6368,7 +6368,7 @@ function TabsWidgetConfig({
                 title="Delete tab"
                 disabled={!canEdit || config.tabs.length === 1}
                 onClick={() => remove(i)}
-                className="rounded p-1 text-muted hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-30"
+                className="rounded p-1 text-muted hover:bg-danger/10 hover:text-danger disabled:cursor-not-allowed disabled:opacity-30"
               >
                 <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
               </button>

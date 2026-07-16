@@ -428,7 +428,7 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
                         {u.isProtected ? (
                           <span
                             title="Protected master account: mutations are blocked at the API."
-                            className="inline-flex items-center gap-0.5 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-800"
+                            className="inline-flex items-center gap-0.5 rounded bg-warn/15 px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-warn"
                           >
                             <Lock className="h-2.5 w-2.5" />
                             Protected
@@ -1195,8 +1195,8 @@ function CapabilitiesSection({
                   <span
                     className={
                       row.effective
-                        ? 'rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700'
-                        : 'rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-medium text-rose-700'
+                        ? 'rounded bg-success/15 px-1.5 py-0.5 text-[10px] font-medium text-success'
+                        : 'rounded bg-danger/15 px-1.5 py-0.5 text-[10px] font-medium text-danger'
                     }
                   >
                     {row.effective ? 'override granted' : 'override revoked'}

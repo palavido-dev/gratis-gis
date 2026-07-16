@@ -394,12 +394,12 @@ function RegexBuilderModal({
                   Enter a sample to test the pattern.
                 </p>
               ) : previewResult.match ? (
-                <p className="text-emerald-700">
+                <p className="text-success">
                   <Check className="mr-1 inline h-3 w-3" />
                   Sample matches the pattern.
                 </p>
               ) : (
-                <p className="text-amber-700">
+                <p className="text-warn">
                   Sample does not match. Adjust pattern or sample.
                 </p>
               )}

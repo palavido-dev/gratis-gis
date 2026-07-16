@@ -143,14 +143,14 @@ export function DependentsWarning({
   let visibleCount = 0;
 
   return (
-    <div className="mt-3 rounded-md border border-amber-300/50 bg-amber-50/50 p-3">
+    <div className="mt-3 rounded-md border border-warn/30 bg-warn/5 p-3">
       <div className="mb-2 flex items-start gap-2">
-        <Link2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-700" />
+        <Link2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warn" />
         <div>
-          <p className="text-xs font-semibold text-amber-900">
+          <p className="text-xs font-semibold text-warn">
             {t('dependents.referencedBy', { count: rows.length })}
           </p>
-          <p className="mt-0.5 text-[11px] text-amber-900/80">
+          <p className="mt-0.5 text-[11px] text-warn/90">
             {t('dependents.trashHint')}
           </p>
         </div>
@@ -165,7 +165,7 @@ export function DependentsWarning({
           );
           return (
             <li key={type}>
-              <p className="text-[10px] font-medium uppercase tracking-wide text-amber-900/70">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-warn/80">
                 {label} ({list.length})
               </p>
               <ul className="mt-0.5 space-y-0.5">
@@ -193,7 +193,7 @@ export function DependentsWarning({
         })}
       </ul>
       {rows.length > VISIBLE_CAP ? (
-        <p className="mt-2 text-[11px] text-amber-900/80">
+        <p className="mt-2 text-[11px] text-warn/90">
           {t('dependents.moreNotShown', { count: rows.length - VISIBLE_CAP })}
         </p>
       ) : null}

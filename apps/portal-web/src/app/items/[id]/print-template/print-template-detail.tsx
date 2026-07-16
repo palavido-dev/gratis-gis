@@ -489,7 +489,7 @@ export function PrintTemplateDetail({
         ))}
       </div>
       {seedKind ? (
-        <div className="mt-3 rounded bg-amber-100 px-2 py-1 text-[10px] font-medium text-amber-800">
+        <div className="mt-3 rounded bg-warn/15 px-2 py-1 text-[10px] font-medium text-warn">
           Built-in starter
         </div>
       ) : null}
@@ -527,7 +527,7 @@ export function PrintTemplateDetail({
       storageKey="builder-shell:print-template"
       backHref={`/items/${itemId}`}
       title={titleSummary}
-      icon={<Printer className="h-4 w-4 text-slate-700" strokeWidth={1.75} />}
+      icon={<Printer className="h-4 w-4 text-ink-1" strokeWidth={1.75} />}
       toolbarRight={toolbarRight}
       leftPanel={leftPanel}
       leftPanelTitle="Elements"
@@ -538,7 +538,7 @@ export function PrintTemplateDetail({
     >
       <div className="absolute inset-0 overflow-auto bg-surface-2/40 p-6">
         {saveError ? (
-          <div className="mx-auto mb-3 max-w-3xl rounded border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-900">
+          <div className="mx-auto mb-3 max-w-3xl rounded border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
             Save failed: {saveError}
           </div>
         ) : null}
@@ -554,7 +554,7 @@ export function PrintTemplateDetail({
         >
           {/* Margin guide */}
           <div
-            className="pointer-events-none absolute border border-dashed border-slate-300"
+            className="pointer-events-none absolute border border-dashed border-border"
             style={{
               left: margin * DESIGN_DPI * zoom,
               top: margin * DESIGN_DPI * zoom,
@@ -752,7 +752,7 @@ function SegmentToken({
 function ImageElementBody({ element }: { element: PrintImageElement }) {
   if (!element.url) {
     return (
-      <div className="flex h-full w-full items-center justify-center bg-slate-100 text-[10px] text-slate-500">
+      <div className="flex h-full w-full items-center justify-center bg-surface-2 text-[10px] text-muted">
         Image: set URL in properties
       </div>
     );
@@ -778,7 +778,7 @@ function MapElementPreview({ element }: { element: PrintMapElement }) {
     : {};
   return (
     <div
-      className="flex h-full w-full items-center justify-center bg-emerald-50 text-[10px] text-emerald-800"
+      className="flex h-full w-full items-center justify-center bg-success/10 text-[10px] text-success"
       style={borderStyle}
     >
       <MapIcon className="mr-1 h-4 w-4" /> Map
@@ -795,7 +795,7 @@ function LegendElementPreview({ element }: { element: PrintLegendElement }) {
     : {};
   return (
     <div
-      className="flex h-full w-full flex-col p-1 text-[9px] text-slate-700"
+      className="flex h-full w-full flex-col p-1 text-[9px] text-ink-1"
       style={{ ...borderStyle, background: element.backgroundColor ?? '#fff' }}
     >
       <strong className="mb-0.5 text-[10px]">{element.title ?? 'Legend'}</strong>
@@ -808,7 +808,7 @@ function LegendElementPreview({ element }: { element: PrintLegendElement }) {
 
 function ScalebarElementPreview({ element }: { element: PrintScalebarElement }) {
   return (
-    <div className="flex h-full w-full flex-col justify-center text-[9px] text-slate-700">
+    <div className="flex h-full w-full flex-col justify-center text-[9px] text-ink-1">
       <div className="flex h-2 w-full">
         <div className="flex-1 bg-slate-900" />
         <div className="flex-1 bg-white" />
@@ -825,7 +825,7 @@ function ScalebarElementPreview({ element }: { element: PrintScalebarElement }) 
 
 function NorthArrowElementPreview({ element: _element }: { element: PrintNorthArrowElement }) {
   return (
-    <div className="flex h-full w-full items-center justify-center text-slate-700">
+    <div className="flex h-full w-full items-center justify-center text-ink-1">
       <Compass className="h-full w-full" strokeWidth={1.25} />
     </div>
   );
@@ -958,7 +958,7 @@ function ElementPanel({
           type="button"
           disabled={!canEdit}
           onClick={onDelete}
-          className="text-xs text-rose-600 hover:underline disabled:opacity-50"
+          className="text-xs text-danger hover:underline disabled:opacity-50"
         >
           <Trash2 className="inline h-3 w-3" /> Delete
         </button>
@@ -1111,7 +1111,7 @@ function TextProps({
                   type="button"
                   disabled={!canEdit}
                   onClick={() => removeSegment(i)}
-                  className="ml-0.5 text-muted hover:text-rose-600"
+                  className="ml-0.5 text-muted hover:text-danger"
                   aria-label="Remove text"
                 >
                   ×
@@ -1129,7 +1129,7 @@ function TextProps({
                   type="button"
                   disabled={!canEdit}
                   onClick={() => removeSegment(i)}
-                  className="text-accent hover:text-rose-600"
+                  className="text-accent hover:text-danger"
                   aria-label="Remove chip"
                 >
                   ×
@@ -1184,7 +1184,7 @@ function TextProps({
                   type="button"
                   disabled={!canEdit}
                   onClick={() => insertBinding('dynamic', id)}
-                  className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] text-slate-700 hover:bg-slate-300"
+                  className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-1 hover:bg-surface-2"
                 >
                   {DYNAMIC_TOKEN_LABELS[id]}
                 </button>
@@ -1478,7 +1478,7 @@ function ParameterPanel({
                   type="button"
                   disabled={!canEdit}
                   onClick={() => onDelete(p.id)}
-                  className="text-xs text-rose-600 hover:underline disabled:opacity-50"
+                  className="text-xs text-danger hover:underline disabled:opacity-50"
                   aria-label="Delete parameter"
                 >
                   <Trash2 className="h-3 w-3" />

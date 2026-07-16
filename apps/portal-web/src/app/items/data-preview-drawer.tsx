@@ -277,7 +277,7 @@ export function DataPreviewDrawer({ item, onClose }: Props) {
                 </table>
               </div>
               {overflow ? (
-                <div className="border-t border-border bg-amber-50/50 px-4 py-2 text-[11px] text-amber-900">
+                <div className="border-t border-border bg-warn/5 px-4 py-2 text-[11px] text-warn">
                   {t('dataPreview.overflowNotice', { limit: PREVIEW_LIMIT })}
                 </div>
               ) : null}

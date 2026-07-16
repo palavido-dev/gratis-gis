@@ -2357,7 +2357,7 @@ export function EditorRuntime({
               for runnable viewer apps. */}
           <span className="inline-flex items-center gap-1.5 text-base font-semibold text-ink-0">
             {canEdit ? (
-              <PencilRuler className="h-4 w-4 text-purple-600" />
+              <PencilRuler className="h-4 w-4 text-purple-600 dark:text-purple-400" />
             ) : (
               <Sparkles className="h-4 w-4 text-orange-500" />
             )}
@@ -2426,7 +2426,7 @@ export function EditorRuntime({
                 type="button"
                 onClick={() => setBasemapMenuOpen((v) => !v)}
                 className={`inline-flex h-9 w-9 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-0 ${
-                  basemapMenuOpen ? 'bg-purple-100 text-purple-800' : ''
+                  basemapMenuOpen ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300' : ''
                 }`}
                 title="Basemap"
                 aria-label="Basemap"
@@ -2462,7 +2462,7 @@ export function EditorRuntime({
                               }}
                               className={`flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-2 ${
                                 active
-                                  ? 'bg-purple-100 text-purple-800'
+                                  ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300'
                                   : 'text-ink-1'
                               }`}
                             >
@@ -2485,7 +2485,7 @@ export function EditorRuntime({
               type="button"
               onClick={() => setLayersOpen((v) => !v)}
               className={`inline-flex h-9 w-9 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-0 ${
-                layersOpen ? 'bg-purple-100 text-purple-800' : ''
+                layersOpen ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300' : ''
               }`}
               title="Layers"
               aria-label="Layers"
@@ -2500,7 +2500,7 @@ export function EditorRuntime({
                 if (!tableOpen) setTableFocusLayerId(null);
               }}
               className={`inline-flex h-9 w-9 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-0 ${
-                tableOpen ? 'bg-purple-100 text-purple-800' : ''
+                tableOpen ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300' : ''
               }`}
               title="Attribute table"
               aria-label="Attribute table"
@@ -2517,7 +2517,7 @@ export function EditorRuntime({
                 type="button"
                 onClick={() => setFormViewOpen((v) => !v)}
                 className={`inline-flex h-9 w-9 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-0 ${
-                  formViewOpen ? 'bg-purple-100 text-purple-800' : ''
+                  formViewOpen ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300' : ''
                 }`}
                 title="Form view"
                 aria-label="Form view"
@@ -2532,7 +2532,7 @@ export function EditorRuntime({
                 onClick={() => onToolClick('measure')}
                 className={`inline-flex h-9 w-9 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-0 ${
                   activeTool === 'measure'
-                    ? 'bg-purple-100 text-purple-800'
+                    ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300'
                     : ''
                 }`}
                 title="Measure"
@@ -2562,7 +2562,7 @@ export function EditorRuntime({
                     type="button"
                     onClick={() => onToolClick('select')}
                     className={`inline-flex h-9 w-9 items-center justify-center rounded-l text-muted hover:bg-surface-2 hover:text-ink-0 ${
-                      isActive ? 'bg-purple-100 text-purple-800' : ''
+                      isActive ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300' : ''
                     }`}
                     title={`Select (${selectMode})`}
                     aria-label={`Select (${selectMode})`}
@@ -2574,7 +2574,7 @@ export function EditorRuntime({
                     type="button"
                     onClick={() => setSelectMenuOpen((v) => !v)}
                     className={`inline-flex h-9 w-5 items-center justify-center rounded-r text-muted hover:bg-surface-2 hover:text-ink-0 ${
-                      isActive ? 'bg-purple-100 text-purple-800' : ''
+                      isActive ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300' : ''
                     }`}
                     aria-label="Select mode"
                     aria-haspopup="menu"
@@ -2642,7 +2642,7 @@ export function EditorRuntime({
                 type="button"
                 onClick={() => setEditorPaneOpen((v) => !v)}
                 className={`inline-flex h-9 w-9 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-0 ${
-                  editorPaneOpen ? 'bg-purple-100 text-purple-800' : ''
+                  editorPaneOpen ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300' : ''
                 }`}
                 title={editorPaneOpen ? 'Close editor pane' : 'Open editor pane'}
                 aria-label="Editor pane"
@@ -2909,7 +2909,7 @@ export function EditorRuntime({
                           // form.
                           cancelPending();
                         }}
-                        className="inline-flex items-center gap-1 rounded-md border border-red-300 bg-red-50 px-2 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+                        className="inline-flex items-center gap-1 rounded-md border border-danger/40 bg-danger/10 px-2 py-1.5 text-xs font-medium text-danger hover:bg-danger/15 disabled:opacity-50"
                         title="Delete this feature"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -2982,7 +2982,7 @@ export function EditorRuntime({
                               onClick={() => onToolClick(t.key)}
                               className={`inline-flex h-9 w-9 items-center justify-center rounded-l text-muted hover:bg-surface-2 hover:text-ink-0 disabled:cursor-not-allowed disabled:opacity-40 ${
                                 isActive
-                                  ? 'bg-purple-100 text-purple-800'
+                                  ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300'
                                   : ''
                               }`}
                               title={`Select (${selectMode})`}
@@ -2997,7 +2997,7 @@ export function EditorRuntime({
                               onClick={() => setSelectMenuOpen((v) => !v)}
                               className={`inline-flex h-9 w-5 items-center justify-center rounded-r text-muted hover:bg-surface-2 hover:text-ink-0 disabled:cursor-not-allowed disabled:opacity-40 ${
                                 isActive
-                                  ? 'bg-purple-100 text-purple-800'
+                                  ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300'
                                   : ''
                               }`}
                               aria-label="Select mode"
@@ -3070,8 +3070,8 @@ export function EditorRuntime({
                           className={`inline-flex h-9 w-9 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-0 disabled:cursor-not-allowed disabled:opacity-40 ${
                             isActive
                               ? isToggle
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : 'bg-purple-100 text-purple-800'
+                                ? 'bg-success/15 text-success'
+                                : 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300'
                               : ''
                           }`}
                           title={
@@ -3106,7 +3106,7 @@ export function EditorRuntime({
                   user can still toggle snap and use undo/redo
                   while editing. */}
               {pendingGeometryEdit ? (
-                <section className="rounded-md border border-purple-300 bg-purple-50 px-3 py-2 text-xs text-purple-900">
+                <section className="rounded-md border border-purple-300 dark:border-purple-800 bg-purple-50 dark:bg-purple-950 px-3 py-2 text-xs text-purple-900 dark:text-purple-200">
                   <div>
                     <p className="font-medium">
                       Editing{' '}
@@ -3114,7 +3114,7 @@ export function EditorRuntime({
                         ?.label ?? 'feature'}{' '}
                       geometry
                     </p>
-                    <p className="mt-0.5 text-[11px] text-purple-700">
+                    <p className="mt-0.5 text-[11px] text-purple-700 dark:text-purple-400">
                       {pendingGeometryEdit.geometryType === 'point'
                         ? 'Drag the point to move it.'
                         : 'Drag vertices to move them. Click midpoints to add a vertex. Alt-click a vertex to delete it.'}
@@ -3141,7 +3141,7 @@ export function EditorRuntime({
                       type="button"
                       onClick={() => void switchToAttributeEdit()}
                       disabled={geomEditSaving}
-                      className="inline-flex h-7 items-center rounded border border-purple-300 bg-white px-2 text-xs font-medium text-purple-900 hover:bg-purple-100 disabled:opacity-50"
+                      className="inline-flex h-7 items-center rounded border border-purple-300 dark:border-purple-800 bg-white px-2 text-xs font-medium text-purple-900 dark:text-purple-200 hover:bg-purple-100 dark:hover:bg-purple-900 disabled:opacity-50"
                     >
                       Edit attributes
                     </button>
@@ -3195,7 +3195,7 @@ export function EditorRuntime({
                           setPendingGeometryEdit(null);
                         }}
                         disabled={geomEditSaving}
-                        className="ml-auto inline-flex h-7 items-center gap-1 rounded border border-red-300 bg-red-50 px-2 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+                        className="ml-auto inline-flex h-7 items-center gap-1 rounded border border-danger/40 bg-danger/10 px-2 text-xs font-medium text-danger hover:bg-danger/15 disabled:opacity-50"
                         title="Delete this feature"
                         aria-label="Delete this feature"
                       >
@@ -3206,7 +3206,7 @@ export function EditorRuntime({
                   </div>
                 </section>
               ) : activeTool === 'edit' ? (
-                <section className="flex items-start gap-2 rounded-md border border-purple-300 bg-purple-50 px-3 py-2 text-xs text-purple-900">
+                <section className="flex items-start gap-2 rounded-md border border-purple-300 dark:border-purple-800 bg-purple-50 dark:bg-purple-950 px-3 py-2 text-xs text-purple-900 dark:text-purple-200">
                   <div className="min-w-0 flex-1">
                     <p className="font-medium">Edit mode</p>
                     <p className="mt-0.5">
@@ -3221,7 +3221,7 @@ export function EditorRuntime({
                       setActiveTargetKey(null);
                       cancelGeometryEdit();
                     }}
-                    className="shrink-0 rounded-md p-0.5 text-purple-900 hover:bg-purple-100"
+                    className="shrink-0 rounded-md p-0.5 text-purple-900 dark:text-purple-200 hover:bg-purple-100 dark:hover:bg-purple-900"
                     aria-label="Exit edit mode"
                     title="Exit edit mode"
                   >
@@ -3303,7 +3303,7 @@ export function EditorRuntime({
                                   aria-pressed={isActive}
                                   className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs ${
                                     isActive
-                                      ? 'bg-purple-100 text-purple-900'
+                                      ? 'bg-purple-100 dark:bg-purple-950 text-purple-900 dark:text-purple-200'
                                       : 'text-ink-1 hover:bg-surface-2'
                                   }`}
                                 >
@@ -3345,7 +3345,7 @@ export function EditorRuntime({
                                   title={`${tpl.label} - ${tpl.geometryTool}`}
                                   className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs ${
                                     isActive
-                                      ? 'bg-purple-100 text-purple-900'
+                                      ? 'bg-purple-100 dark:bg-purple-950 text-purple-900 dark:text-purple-200'
                                       : 'text-ink-1 hover:bg-surface-2'
                                   }`}
                                 >
@@ -3429,7 +3429,7 @@ export function EditorRuntime({
                   onClick={() => switchMeasureMode('distance')}
                   className={`inline-flex items-center gap-1 px-3 py-1 text-xs ${
                     measureMode === 'distance'
-                      ? 'bg-purple-100 text-purple-900'
+                      ? 'bg-purple-100 dark:bg-purple-950 text-purple-900 dark:text-purple-200'
                       : 'text-muted hover:bg-surface-2'
                   }`}
                   title="Distance"
@@ -3444,7 +3444,7 @@ export function EditorRuntime({
                   onClick={() => switchMeasureMode('area')}
                   className={`inline-flex items-center gap-1 border-l border-border px-3 py-1 text-xs ${
                     measureMode === 'area'
-                      ? 'bg-purple-100 text-purple-900'
+                      ? 'bg-purple-100 dark:bg-purple-950 text-purple-900 dark:text-purple-200'
                       : 'text-muted hover:bg-surface-2'
                   }`}
                   title="Area"
@@ -3805,7 +3805,7 @@ function SelectModeItem({
       role="menuitem"
       onClick={onClick}
       className={`flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-surface-2 ${
-        active ? 'bg-purple-100 text-purple-800' : 'text-ink-1'
+        active ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300' : 'text-ink-1'
       }`}
     >
       <Icon className="h-4 w-4" />

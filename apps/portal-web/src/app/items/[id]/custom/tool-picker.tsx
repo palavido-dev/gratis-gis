@@ -291,7 +291,7 @@ function CreateToolModal({
         </div>
 
         {error ? (
-          <div className="mt-3 rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-[11px] text-rose-900">
+          <div className="mt-3 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-danger">
             {error}
           </div>
         ) : null}

@@ -781,7 +781,7 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
         storageKey="builder-shell:form"
         backHref={`/items/${itemId}`}
         title="Form designer"
-        icon={<FileText className="h-4 w-4 text-orange-600" />}
+        icon={<FileText className="h-4 w-4 text-orange-600 dark:text-orange-400" />}
         toolbarRight={toolbarRight}
         leftPanel={palettePanel}
         leftPanelTitle="Add question"
@@ -799,7 +799,7 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
             </p>
           ) : null}
           {savedAt && !error ? (
-            <p className="shrink-0 border-b border-emerald-300 bg-emerald-50 px-4 py-1 text-[11px] text-emerald-800">
+            <p className="shrink-0 border-b border-success/40 bg-success/10 px-4 py-1 text-[11px] text-success">
               Saved {savedAt.toLocaleTimeString()}.
             </p>
           ) : null}
@@ -908,7 +908,7 @@ function ResponsesIntro({
           ) : null}
         </div>
         {!linkedLayerId ? (
-          <p className="mx-auto mt-4 max-w-md rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+          <p className="mx-auto mt-4 max-w-md rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-[11px] text-warn">
             This form has no paired data layer yet. Save the form
             once with at least one question to materialize the
             layer; the Responses viewer will then have somewhere to
@@ -1952,7 +1952,7 @@ function QuestionRow({
               {q.type === 'group' && isAttachmentGroup(q, layerSchema) ? (
                 <span
                   title="This group binds to the layer's attachments. Each instance is one attached file. To capture per-photo metadata (caption, photographer, GPS, etc.) wrap your attachment in a related event layer instead."
-                  className="ml-1.5 inline-flex rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-emerald-800"
+                  className="ml-1.5 inline-flex rounded-full bg-success/15 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-success"
                 >
                   attachment
                 </span>
@@ -2021,7 +2021,7 @@ function QuestionRow({
                 with photos attached to each event row). For now we
                 warn authors instead of silently storing nothing. */}
             {isAttachmentGroup(q, layerSchema) ? (
-              <p className="mb-2 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] text-emerald-900">
+              <p className="mb-2 rounded border border-success/30 bg-success/10 px-2 py-1 text-[11px] text-success">
                 <span className="font-semibold">One attached file per
                 instance.</span> This group binds to the layer's
                 attachments and stores files only. Per-photo metadata
@@ -3304,7 +3304,7 @@ function GroupRepeatEditor({
         <span>Repeat (capture multiple instances)</span>
       </label>
       {locked ? (
-        <p className="mt-1 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-900">
+        <p className="mt-1 rounded border border-warn/30 bg-warn/10 px-2 py-1 text-[11px] text-warn">
           {lockedReason}
         </p>
       ) : null}
@@ -4309,7 +4309,7 @@ function ExpressionEditor({
             Builder
           </button>
         </div>
-        <div className="rounded border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-900">
+        <div className="rounded border border-warn/30 bg-warn/10 p-2 text-[11px] text-warn">
           <p className="mb-1">
             This expression uses features the inline editor can&apos;t
             visualize yet (nested groups, functions). Open the Builder
@@ -4324,7 +4324,7 @@ function ExpressionEditor({
               setShowComplexFallback(false);
               onChange(undefined);
             }}
-            className="inline-flex items-center gap-1 rounded border border-amber-300 bg-white px-1.5 py-0.5 text-[11px] hover:bg-amber-100 disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded border border-warn/40 bg-white px-1.5 py-0.5 text-[11px] hover:bg-warn/20 disabled:opacity-50"
           >
             Clear and start over
           </button>
@@ -5951,7 +5951,7 @@ function LinkStatusBadge({ status }: { status: LinkStatus }) {
     return (
       <span
         title={tip}
-        className="ml-1.5 inline-flex rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-emerald-800"
+        className="ml-1.5 inline-flex rounded-full bg-success/15 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-success"
       >
         bound
       </span>
@@ -5961,7 +5961,7 @@ function LinkStatusBadge({ status }: { status: LinkStatus }) {
     return (
       <span
         title="No matching column on the layer yet. Will be added on save."
-        className="ml-1.5 inline-flex rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-amber-900"
+        className="ml-1.5 inline-flex rounded-full bg-warn/15 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-warn"
       >
         new column
       </span>
@@ -6042,7 +6042,7 @@ function LinkedLayerSummary({
           bypass row scoping by design. The form designer can't read
           the paired layer's access tier from here, so we phrase this
           as guidance + caveat. */}
-      <p className="mt-1 text-[11px] text-emerald-700">
+      <p className="mt-1 text-[11px] text-success">
         Privacy: respondents see only their own submissions in the
         layer&apos;s map and attribute table. Owners and admins still
         see everything. (Setting the linked layer to public access
@@ -6050,7 +6050,7 @@ function LinkedLayerSummary({
         matters.)
       </p>
       {geoCount > 1 ? (
-        <p className="mt-1 text-[11px] text-amber-700">
+        <p className="mt-1 text-[11px] text-warn">
           Multiple map questions on this form. Only the first one drives
           the layer&apos;s geometry; the rest are stored as data on each
           submission but won&apos;t plot on the map.

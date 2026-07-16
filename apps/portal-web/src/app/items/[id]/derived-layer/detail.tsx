@@ -75,7 +75,7 @@ export function DerivedLayerDetail({
             href={`/items/${sourceItem.id}`}
             className="inline-flex items-start gap-2 rounded-md border border-border bg-surface-0 px-3 py-2 text-sm hover:bg-surface-2"
           >
-            <Layers className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" />
+            <Layers className="mt-0.5 h-4 w-4 shrink-0 text-info" />
             <span className="min-w-0 flex-1">
               <span className="block font-medium text-ink-0">
                 {sourceItem.title}

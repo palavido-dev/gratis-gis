@@ -110,7 +110,7 @@ export default async function AdminUsersPage() {
       </header>
 
       {!meta.configured ? (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <div className="rounded-lg border border-warn/40 bg-warn/10 px-4 py-3 text-sm text-warn">
           <p className="font-medium">Admin API not configured</p>
           <p className="mt-1">
             Set <code className="font-mono">KEYCLOAK_ADMIN_CLIENT_ID</code>{' '}

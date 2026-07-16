@@ -221,7 +221,7 @@ export function ItemAccessMatrix({
               type="button"
               disabled={bulkGranting}
               onClick={() => void grantAll()}
-              className="inline-flex h-7 items-center gap-1 rounded border border-amber-300 bg-amber-50 px-2 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+              className="inline-flex h-7 items-center gap-1 rounded border border-warn/40 bg-warn/10 px-2 text-xs font-medium text-warn hover:bg-warn/20 disabled:opacity-50"
             >
               {bulkGranting ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -231,7 +231,7 @@ export function ItemAccessMatrix({
               {t('accessMatrix.grantMissing', { count: gaps.length })}
             </button>
           ) : gaps.length === 0 ? (
-            <span className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800">
+            <span className="inline-flex items-center gap-1 rounded border border-success/30 bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
               <ShieldCheck className="h-3.5 w-3.5" />
               {t('accessMatrix.noGaps')}
             </span>
@@ -297,7 +297,7 @@ export function ItemAccessMatrix({
                           <div className="flex flex-col items-center gap-1">
                             {ok ? (
                               <span
-                                className="inline-flex items-center gap-1 text-emerald-700"
+                                className="inline-flex items-center gap-1 text-success"
                                 title={t('accessMatrix.hasViewAccess', { name: p.name })}
                               >
                                 <Check className="h-3.5 w-3.5" />
@@ -307,7 +307,7 @@ export function ItemAccessMatrix({
                                 type="button"
                                 onClick={() => void grantOne(item, p)}
                                 disabled={granting}
-                                className="inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                                className="inline-flex items-center gap-1 rounded border border-warn/40 bg-warn/10 px-2 py-0.5 text-[11px] font-medium text-warn hover:bg-warn/20 disabled:opacity-50"
                                 title={t('accessMatrix.grantViewTo', { name: p.name })}
                               >
                                 {granting ? (
@@ -319,7 +319,7 @@ export function ItemAccessMatrix({
                               </button>
                             ) : (
                               <span
-                                className="inline-flex items-center gap-1 text-amber-700"
+                                className="inline-flex items-center gap-1 text-warn"
                                 title={t('accessMatrix.cannotSee', { name: p.name })}
                               >
                                 <AlertTriangle className="h-3.5 w-3.5" />

@@ -474,37 +474,37 @@ function ProjectAboutSection() {
  */
 function TestingBanner() {
   return (
-    <div className="border-b border-amber-300 bg-amber-50 px-6 py-3 text-sm">
+    <div className="border-b border-warn/40 bg-warn/10 px-6 py-3 text-sm">
       <div className="mx-auto flex w-full max-w-5xl items-start gap-3">
-        <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
-        <div className="flex-1 text-amber-900">
+        <Info className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
+        <div className="flex-1 text-warn">
           <p className="font-medium">
             This is a public test instance. Resets to a curated
             golden state every day at 04:00 UTC.
           </p>
           <p className="mt-1 leading-relaxed">
             Sign in with{' '}
-            <code className="rounded bg-amber-100 px-1 font-mono text-[12px]">
+            <code className="rounded bg-warn/15 px-1 font-mono text-[12px]">
               tester-admin
             </code>
             {' / '}
-            <code className="rounded bg-amber-100 px-1 font-mono text-[12px]">
+            <code className="rounded bg-warn/15 px-1 font-mono text-[12px]">
               Admin123!
             </code>
             ,{' '}
-            <code className="rounded bg-amber-100 px-1 font-mono text-[12px]">
+            <code className="rounded bg-warn/15 px-1 font-mono text-[12px]">
               tester-contributor
             </code>
             {' / '}
-            <code className="rounded bg-amber-100 px-1 font-mono text-[12px]">
+            <code className="rounded bg-warn/15 px-1 font-mono text-[12px]">
               Contributor123!
             </code>
             , or{' '}
-            <code className="rounded bg-amber-100 px-1 font-mono text-[12px]">
+            <code className="rounded bg-warn/15 px-1 font-mono text-[12px]">
               tester-viewer
             </code>
             {' / '}
-            <code className="rounded bg-amber-100 px-1 font-mono text-[12px]">
+            <code className="rounded bg-warn/15 px-1 font-mono text-[12px]">
               Viewer123!
             </code>
             . Items, users, and edits you create vanish at the next

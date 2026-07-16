@@ -97,7 +97,7 @@ export function StarterTemplatesCard({ initial }: Props) {
           }`}
           strokeWidth={2}
         />
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-amber-700/10 text-amber-700">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-warn/10 text-warn">
           <Wand2 className="h-4 w-4" />
         </span>
         <div className="min-w-0 flex-1">

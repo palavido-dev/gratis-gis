@@ -10,10 +10,12 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variantClasses: Record<Variant, string> = {
-  primary: 'bg-slate-900 text-white hover:bg-slate-800',
-  secondary: 'bg-slate-100 text-slate-900 hover:bg-slate-200',
-  ghost: 'bg-transparent text-slate-900 hover:bg-slate-100',
-  danger: 'bg-red-600 text-white hover:bg-red-700',
+  // ink/surface tokens invert with the theme, so "primary" stays a
+  // strong-contrast neutral button in both light and dark mode.
+  primary: 'bg-ink-1 text-surface-0 hover:opacity-90',
+  secondary: 'bg-surface-2 text-ink-1 hover:bg-muted/20',
+  ghost: 'bg-transparent text-ink-1 hover:bg-surface-2',
+  danger: 'bg-danger text-white hover:bg-danger/90',
 };
 
 export function Button({

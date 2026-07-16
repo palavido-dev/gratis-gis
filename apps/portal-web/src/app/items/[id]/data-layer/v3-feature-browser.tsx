@@ -849,7 +849,7 @@ function BundleExportModal({
           <div
             className={`mx-4 mb-3 rounded-md border px-3 py-2 text-[11px] ${
               error
-                ? 'border-rose-300 bg-rose-50 text-rose-900'
+                ? 'border-danger/40 bg-danger/10 text-danger'
                 : 'border-border bg-surface-2 text-ink-1'
             }`}
           >

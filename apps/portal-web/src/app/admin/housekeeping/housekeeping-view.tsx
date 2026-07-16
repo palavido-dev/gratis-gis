@@ -498,7 +498,7 @@ export function HousekeepingView({ bundle }: Props) {
       </div>
 
       {flash ? (
-        <div className="rounded-md border border-emerald-400 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+        <div className="rounded-md border border-success/50 bg-success/10 px-3 py-2 text-xs text-success">
           <CheckCircle2 className="mr-1 inline h-3.5 w-3.5" />
           {flash}
         </div>
@@ -791,7 +791,7 @@ function BulkBar({
             className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium disabled:opacity-50 ${
               a.tone === 'danger'
                 ? 'border-danger bg-danger/10 text-danger hover:bg-danger/20'
-                : 'border-amber-400 bg-amber-50 text-amber-900 hover:bg-amber-100'
+                : 'border-warn/50 bg-warn/10 text-warn hover:bg-warn/20'
             }`}
           >
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : a.icon}
@@ -820,7 +820,7 @@ function SummaryBar({
         value={summary.totalItemCount.toLocaleString()}
       />
       <StatCard
-        icon={<Clock className="h-4 w-4 text-amber-700" />}
+        icon={<Clock className="h-4 w-4 text-warn" />}
         label={`Stale (${summary.staleItemDays}d+ no activity, zero shares)`}
         value={summary.staleItemCount.toLocaleString()}
         tone={summary.staleItemCount > 0 ? 'warn' : 'ok'}
@@ -832,13 +832,13 @@ function SummaryBar({
         tone={summary.staleUserCount > 0 ? 'warn' : 'ok'}
       />
       <StatCard
-        icon={<CalendarClock className="h-4 w-4 text-amber-700" />}
+        icon={<CalendarClock className="h-4 w-4 text-warn" />}
         label={`Shares expiring (next ${summary.expiryWindowDays}d)`}
         value={summary.expiringShareCount.toLocaleString()}
         tone={summary.expiringShareCount > 0 ? 'warn' : 'ok'}
       />
       <StatCard
-        icon={<Timer className="h-4 w-4 text-amber-700" />}
+        icon={<Timer className="h-4 w-4 text-warn" />}
         label={`Users auto-disabling (next ${summary.expiryWindowDays}d)`}
         value={summary.expiringUserCount.toLocaleString()}
         tone={summary.expiringUserCount > 0 ? 'warn' : 'ok'}
@@ -862,7 +862,7 @@ function StatCard({
     <div
       className={`rounded-lg border px-4 py-3 ${
         tone === 'warn'
-          ? 'border-amber-300 bg-amber-50'
+          ? 'border-warn/40 bg-warn/10'
           : 'border-border bg-surface-1'
       }`}
     >
@@ -1142,7 +1142,7 @@ function StaleUsersTable({
               </td>
               <td className="px-4 py-2 text-muted">
                 {r.ownedItemCount > 0 ? (
-                  <span className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-900">
+                  <span className="inline-flex items-center gap-1 rounded bg-warn/15 px-1.5 py-0.5 text-[11px] font-medium text-warn">
                     {r.ownedItemCount} to reassign
                   </span>
                 ) : (
@@ -1191,7 +1191,7 @@ function StorageCard({
     usedPct >= 90
       ? 'bg-danger'
       : usedPct >= 75
-        ? 'bg-amber-400'
+        ? 'bg-warn'
         : 'bg-accent';
   return (
     <section className="rounded-md border border-border bg-surface-1">
@@ -1226,7 +1226,7 @@ function StorageCard({
               />
             </div>
             {usedPct >= 75 ? (
-              <p className="mt-1 text-[11px] text-amber-700">
+              <p className="mt-1 text-[11px] text-warn">
                 Free space is running low. Backups, MinIO uploads, and
                 Postgres autovacuum all need headroom on this volume.
               </p>
@@ -1404,7 +1404,7 @@ function ExpiringSharesTable({
                 className={
                   r.isExpired
                     ? 'inline-flex items-center gap-1 rounded bg-danger/10 px-1.5 py-0.5 text-[11px] font-medium text-danger'
-                    : 'inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-900'
+                    : 'inline-flex items-center gap-1 rounded bg-warn/15 px-1.5 py-0.5 text-[11px] font-medium text-warn'
                 }
                 title={new Date(r.expiresAt).toLocaleString()}
               >
@@ -1486,7 +1486,7 @@ function ExpiringUsersTable({
                 className={
                   r.isExpired
                     ? 'inline-flex items-center gap-1 rounded bg-danger/10 px-1.5 py-0.5 text-[11px] font-medium text-danger'
-                    : 'inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-900'
+                    : 'inline-flex items-center gap-1 rounded bg-warn/15 px-1.5 py-0.5 text-[11px] font-medium text-warn'
                 }
                 title={new Date(r.autoDisableAt).toLocaleString()}
               >
@@ -1496,7 +1496,7 @@ function ExpiringUsersTable({
             </td>
             <td className="px-4 py-2 text-muted">
               {r.ownedItemCount > 0 ? (
-                <span className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-900">
+                <span className="inline-flex items-center gap-1 rounded bg-warn/15 px-1.5 py-0.5 text-[11px] font-medium text-warn">
                   {r.ownedItemCount}
                 </span>
               ) : (

@@ -148,7 +148,7 @@ export function VersionHistoryPanel({ itemId, canEdit, userNames }: Props) {
               Loading history…
             </p>
           ) : error ? (
-            <p className="inline-flex items-center gap-2 text-xs text-red-600">
+            <p className="inline-flex items-center gap-2 text-xs text-danger">
               <AlertTriangle className="h-3.5 w-3.5" />
               {error}
             </p>
@@ -207,7 +207,7 @@ export function VersionHistoryPanel({ itemId, canEdit, userNames }: Props) {
                               type="button"
                               onClick={() => handleRevert(s.id)}
                               disabled={isReverting}
-                              className="inline-flex items-center gap-1 rounded border border-amber-400 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-60"
+                              className="inline-flex items-center gap-1 rounded border border-warn/50 bg-warn/10 px-2 py-0.5 text-[11px] font-medium text-warn hover:bg-warn/20 disabled:opacity-60"
                             >
                               {isReverting ? (
                                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -229,7 +229,7 @@ export function VersionHistoryPanel({ itemId, canEdit, userNames }: Props) {
                         )}
                       </div>
                       {isConfirming && !isReverting ? (
-                        <p className="rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
+                        <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">
                           This replaces the current data with the
                           version from {createdAt.toLocaleString()}. A
                           fresh snapshot of right-now is saved first,

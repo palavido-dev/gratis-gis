@@ -146,10 +146,10 @@ function DocView({
           <span
             className={`mt-2 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
               fm.complexity === 'basic'
-                ? 'bg-emerald-100 text-emerald-900'
+                ? 'bg-success/15 text-success'
                 : fm.complexity === 'intermediate'
-                  ? 'bg-amber-100 text-amber-900'
-                  : 'bg-rose-100 text-rose-900'
+                  ? 'bg-warn/15 text-warn'
+                  : 'bg-danger/15 text-danger'
             }`}
           >
             {fm.complexity}
@@ -157,7 +157,7 @@ function DocView({
         ) : null}
       </header>
       {fm.prerequisites && fm.prerequisites.length > 0 ? (
-        <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+        <div className="mb-4 rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn">
           <strong className="font-semibold">Before you start:</strong>
           <ul className="mt-1 ml-5 list-disc">
             {fm.prerequisites.map((p) => {

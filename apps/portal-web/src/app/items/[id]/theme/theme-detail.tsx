@@ -307,7 +307,7 @@ export function AppThemeDetail({
   return (
     <section className="mb-6 rounded-lg border border-border bg-surface-1 shadow-card">
       <header className="flex items-center gap-3 border-b border-border px-5 py-4">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-pink-500/10 text-pink-600">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-pink-500/10 text-pink-600 dark:text-pink-400">
           <Palette className="h-4 w-4" />
         </span>
         <div className="min-w-0 flex-1">
@@ -329,7 +329,7 @@ export function AppThemeDetail({
         />
         <div className="flex items-center gap-2">
           {saved && (
-            <span className="text-xs font-medium text-emerald-600">Saved</span>
+            <span className="text-xs font-medium text-success">Saved</span>
           )}
           {error && (
             <span

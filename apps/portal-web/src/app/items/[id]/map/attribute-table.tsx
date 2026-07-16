@@ -1368,7 +1368,7 @@ export function AttributeTable({
       </div>
 
       {serverMode && serverPage?.truncated ? (
-        <div className="flex items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-700">
+        <div className="flex items-center gap-2 border-b border-warn/30 bg-warn/10 px-3 py-1.5 text-[11px] text-warn">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
           <span>
             Showing 5,000+ rows
@@ -2115,7 +2115,7 @@ function AttrTableExportMenu({
               <div
                 className={`mx-4 mb-3 rounded-md border px-3 py-2 text-[11px] ${
                   bundleError
-                    ? 'border-rose-300 bg-rose-50 text-rose-900'
+                    ? 'border-danger/40 bg-danger/10 text-danger'
                     : 'border-border bg-surface-2 text-ink-1'
                 }`}
               >
@@ -2514,7 +2514,7 @@ function AttachmentDrawer({
         <Paperclip className="h-3.5 w-3.5 text-muted" />
         <span className="text-xs font-semibold text-ink-0">Attachments</span>
         {attachments && attachments.length > 0 ? (
-          <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-normal text-violet-800">
+          <span className="rounded-full bg-violet-100 dark:bg-violet-950 px-1.5 py-0.5 text-[9px] font-normal text-violet-800 dark:text-violet-300">
             {attachments.length}
           </span>
         ) : null}

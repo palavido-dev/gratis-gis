@@ -266,7 +266,7 @@ function AlertDialog({
           <span
             className={`flex h-9 w-9 items-center justify-center rounded-full ${
               tone === 'warn'
-                ? 'bg-amber-100 text-amber-800'
+                ? 'bg-warn/15 text-warn'
                 : 'bg-accent/10 text-accent'
             }`}
           >

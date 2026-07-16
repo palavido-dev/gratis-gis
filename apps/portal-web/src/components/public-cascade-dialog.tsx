@@ -185,7 +185,7 @@ export function PublicCascadeDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start gap-3">
-          <Globe2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
+          <Globe2 className="mt-0.5 h-5 w-5 shrink-0 text-success" />
           <div className="min-w-0 flex-1">
             <h2 className="text-sm font-semibold text-ink-0">
               {t('cascade.title')}
@@ -229,7 +229,7 @@ export function PublicCascadeDialog({
         )}
 
         {error ? (
-          <p className="mt-3 text-xs text-rose-700">{error}</p>
+          <p className="mt-3 text-xs text-danger">{error}</p>
         ) : null}
 
         <div className="mt-5 flex items-center justify-between gap-2">
@@ -265,7 +265,7 @@ export function PublicCascadeDialog({
               type="button"
               onClick={() => void confirm()}
               disabled={busy || deps === null || selected.size === 0}
-              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-md bg-success px-3 py-1.5 text-sm font-medium text-white hover:bg-success/80 disabled:opacity-50"
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               {t('cascade.makePublic', { count: selected.size })}

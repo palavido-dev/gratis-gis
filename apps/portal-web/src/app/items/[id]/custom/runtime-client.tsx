@@ -595,7 +595,7 @@ export function CustomRuntimeClient({
           // widgets gate on this context and disable themselves, and
           // the engine rejects writes that target past observations
           // independently of the UI.
-          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-amber-300 bg-amber-100 px-4 py-1.5 text-xs text-amber-900">
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-warn/40 bg-warn/15 px-4 py-1.5 text-xs text-warn">
             <span>
               Viewing as of{' '}
               <strong>{new Date(appAt).toLocaleString()}</strong>{' '}
@@ -604,7 +604,7 @@ export function CustomRuntimeClient({
             <button
               type="button"
               onClick={() => setAppAt(null)}
-              className="rounded-md border border-amber-400 bg-white px-2 py-0.5 text-amber-900 hover:bg-amber-50"
+              className="rounded-md border border-warn/50 bg-white px-2 py-0.5 text-warn hover:bg-warn/10"
             >
               Return to Now
             </button>
@@ -2419,7 +2419,7 @@ function SessionSymbologyDialog({
             <XIcon className="h-4 w-4" />
           </button>
         </div>
-        <p className="border-b border-border bg-amber-50 px-4 py-2 text-[11px] text-amber-900">
+        <p className="border-b border-border bg-warn/10 px-4 py-2 text-[11px] text-warn">
           Changes apply to this session only. Refresh the page to
           reset to the saved style.
         </p>
@@ -3150,7 +3150,7 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
               {rendering ? 'Generating PDF…' : 'Print'}
             </button>
             {renderError ? (
-              <div className="rounded border border-rose-300 bg-rose-50 px-2 py-1 text-[11px] text-rose-900">
+              <div className="rounded border border-danger/40 bg-danger/10 px-2 py-1 text-[11px] text-danger">
                 {renderError}
               </div>
             ) : null}
@@ -3398,7 +3398,7 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
           </div>
         </label>
         {error ? (
-          <p className="rounded-md border border-rose-300 bg-rose-50 px-2 py-1 text-[11px] text-rose-900">
+          <p className="rounded-md border border-danger/40 bg-danger/10 px-2 py-1 text-[11px] text-danger">
             {error}
           </p>
         ) : null}
@@ -3874,7 +3874,7 @@ const TEXT_PRESET_CLS: Record<string, string> = {
   header: 'text-2xl font-bold text-ink-0',
   subheader: 'text-lg font-semibold text-ink-0',
   body: 'text-sm text-ink-1',
-  callout: 'rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900',
+  callout: 'rounded-md bg-warn/10 px-3 py-2 text-sm text-warn',
 };
 
 function TextWidgetRender({ widget }: { widget: CustomWidget }) {
@@ -4103,7 +4103,7 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
       {data.loading ? (
         <p className="p-2 text-xs italic text-muted">Loading…</p>
       ) : data.error ? (
-        <p className="p-2 text-xs text-rose-600">{data.error}</p>
+        <p className="p-2 text-xs text-danger">{data.error}</p>
       ) : (
         <ChartCanvas rows={data.rows} cfg={cfg} />
       )}
@@ -4422,7 +4422,7 @@ function ToolWidgetRender({ widget }: { widget: CustomWidget }) {
     // Vertical stack matching ToolWidgetSlot's in-bar idle state.
     className = `group/tool flex h-full min-w-[64px] flex-col items-center justify-center gap-0.5 rounded-md px-2.5 py-1.5 transition-colors text-[hsl(var(--app-header-ink)/0.85)] hover:bg-[hsl(var(--app-header-ink)/0.12)] hover:text-[hsl(var(--app-header-ink))] disabled:opacity-50`;
   } else if (d === 'toolbar') {
-    className = `inline-flex h-8 items-center justify-center gap-1.5 rounded-full px-2 text-xs font-medium transition-colors bg-teal-500/10 text-teal-700 hover:bg-teal-500/20`;
+    className = `inline-flex h-8 items-center justify-center gap-1.5 rounded-full px-2 text-xs font-medium transition-colors bg-teal-500/10 text-teal-700 dark:text-teal-400 hover:bg-teal-500/20`;
   } else {
     className = `inline-flex h-9 items-center justify-center gap-1.5 rounded-md px-4 text-sm font-medium transition-colors ${
       v === 'primary'
@@ -4906,23 +4906,23 @@ function OsmAttributionChip({
       // (top-center) so users notice the result state. Originally
       // bottom-right; testers reported almost missing it.
       <div className="pointer-events-none fixed left-0 right-0 top-20 z-[900] flex justify-center">
-        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-3 py-1.5 text-[11px] shadow-raised">
-          <span className="font-medium text-amber-900">
+        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-warn/40 bg-warn/10 px-3 py-1.5 text-[11px] shadow-raised">
+          <span className="font-medium text-warn">
             No matches in this area
           </span>
-          <span className="text-amber-700">·</span>
+          <span className="text-warn">·</span>
           <a
             href="https://www.openstreetmap.org/copyright"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-amber-700 underline hover:text-amber-900"
+            className="text-warn underline hover:text-warn"
           >
             {attribution}
           </a>
           <button
             type="button"
             onClick={onDismiss}
-            className="rounded-md border border-amber-300 bg-amber-100 px-1.5 text-[10px] text-amber-900 hover:bg-amber-200"
+            className="rounded-md border border-warn/40 bg-warn/15 px-1.5 text-[10px] text-warn hover:bg-warn/25"
             aria-label="Dismiss"
           >
             ×
@@ -4979,7 +4979,7 @@ function OsmAttributionChip({
         ) : null}
         {saveState.kind === 'error' ? (
           <>
-            <span className="text-rose-600" title={saveState.message}>
+            <span className="text-danger" title={saveState.message}>
               Save failed
             </span>
             <button
@@ -6101,7 +6101,7 @@ function MyLocationWidgetRender({ widget }: { widget: CustomWidget }) {
           {busy ? 'Locating...' : 'Show my location'}
         </button>
         {error ? (
-          <p className="text-xs text-rose-600">{error}</p>
+          <p className="text-xs text-danger">{error}</p>
         ) : !map ? (
           <p className="text-xs text-muted">Bind a map widget to enable.</p>
         ) : null}
@@ -6648,7 +6648,7 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
           {schema.loading ? (
             <p className="p-3 text-xs italic text-muted">Loading schema…</p>
           ) : schema.error ? (
-            <p className="p-3 text-xs text-rose-600">{schema.error}</p>
+            <p className="p-3 text-xs text-danger">{schema.error}</p>
           ) : needsGeometry && !phase.point ? (
             <div className="space-y-2 p-3 text-xs text-ink-1">
               <p>
@@ -6881,7 +6881,7 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
           {schema.loading ? (
             <p className="p-3 text-xs italic text-muted">Loading schema…</p>
           ) : schema.error ? (
-            <p className="p-3 text-xs text-rose-600">{schema.error}</p>
+            <p className="p-3 text-xs text-danger">{schema.error}</p>
           ) : (
             <AttributeForm
               fields={schema.fields}
@@ -6998,7 +6998,7 @@ function DeleteFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
         type="button"
         disabled={inTimeTravel || totalSelected === 0}
         onClick={() => setConfirming(true)}
-        className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-2 py-1 text-xs font-medium text-ink-0 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
+        className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-2 py-1 text-xs font-medium text-ink-0 hover:bg-danger/10 hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
         title={
           inTimeTravel
             ? 'Editing is disabled while viewing a past snapshot.'
@@ -7014,7 +7014,7 @@ function DeleteFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
         ) : null}
       </button>
       {confirming ? (
-        <div className="space-y-2 rounded-md border border-rose-300 bg-rose-50 p-3 text-xs text-rose-900">
+        <div className="space-y-2 rounded-md border border-danger/40 bg-danger/10 p-3 text-xs text-danger">
           <p>
             Delete <strong>{totalSelected}</strong> feature
             {totalSelected === 1 ? '' : 's'}?
@@ -7026,19 +7026,19 @@ function DeleteFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
               </li>
             ))}
           </ul>
-          <p className="text-[11px] text-rose-800">
+          <p className="text-[11px] text-danger">
             This is recorded as a delete observation; read the layer
             "as of" a moment before this action to recover.
           </p>
           {busy.state === 'error' ? (
-            <p className="text-rose-700">{busy.message}</p>
+            <p className="text-danger">{busy.message}</p>
           ) : null}
           <div className="flex gap-2">
             <button
               type="button"
               disabled={busy.state === 'submitting'}
               onClick={doDelete}
-              className="rounded-md bg-rose-700 px-3 py-1 text-xs font-medium text-white hover:bg-rose-800 disabled:opacity-50"
+              className="rounded-md bg-danger px-3 py-1 text-xs font-medium text-white hover:bg-danger/80 disabled:opacity-50"
             >
               {busy.state === 'submitting' ? 'Deleting…' : 'Delete'}
             </button>
@@ -7049,7 +7049,7 @@ function DeleteFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
                 setConfirming(false);
                 setBusy({ state: 'idle' });
               }}
-              className="rounded-md border border-rose-300 bg-white px-3 py-1 text-xs text-rose-700 hover:bg-rose-100 disabled:opacity-50"
+              className="rounded-md border border-danger/40 bg-white px-3 py-1 text-xs text-danger hover:bg-danger/15 disabled:opacity-50"
             >
               Cancel
             </button>

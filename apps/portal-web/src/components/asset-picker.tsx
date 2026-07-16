@@ -329,7 +329,7 @@ export function AssetPicker({
                     setError(null);
                     onChange(null);
                   }}
-                  className="ml-auto inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-[11px] text-muted hover:bg-surface-2 hover:text-rose-600 disabled:opacity-50"
+                  className="ml-auto inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-[11px] text-muted hover:bg-surface-2 hover:text-danger disabled:opacity-50"
                 >
                   <Trash2 className="h-3 w-3" />
                   Clear
@@ -425,7 +425,7 @@ export function AssetPicker({
       {error ? (
         <p
           role="alert"
-          className="inline-flex items-center gap-1 text-[11px] text-rose-600"
+          className="inline-flex items-center gap-1 text-[11px] text-danger"
         >
           <AlertTriangle className="h-3 w-3" />
           {error}
@@ -563,7 +563,7 @@ function FileItemPicker({
           {error ? (
             <p
               role="alert"
-              className="rounded border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-700"
+              className="rounded border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger"
             >
               {error}
             </p>

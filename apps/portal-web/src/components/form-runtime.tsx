@@ -160,7 +160,7 @@ export function FormRuntime({
   if (submitted) {
     return (
       <div className="mx-auto flex w-full max-w-xl flex-col items-center gap-3 px-4 py-12 text-center">
-        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-success/15 text-success">
           <Check className="h-6 w-6" />
         </span>
         <h2 className="text-lg font-semibold tracking-tight text-ink-0">
@@ -1354,7 +1354,7 @@ function PhotoInput({
         ) : null}
       </div>
       {err ? (
-        <p className="text-[11px] text-amber-700">{err}</p>
+        <p className="text-[11px] text-warn">{err}</p>
       ) : null}
       <p className="text-[11px] text-muted">
         {photos.length} of {max} {max === 1 ? 'photo' : 'photos'}
@@ -1567,7 +1567,7 @@ function MediaCaptureInput({
         </label>
       ) : null}
       {err ? (
-        <p className="text-[11px] text-amber-700">{err}</p>
+        <p className="text-[11px] text-warn">{err}</p>
       ) : null}
       <p className="text-[11px] text-muted">
         {clips.length} of {max}{' '}
@@ -2018,7 +2018,7 @@ function FileInput({
           />
         </label>
       ) : null}
-      {err ? <p className="text-[11px] text-amber-700">{err}</p> : null}
+      {err ? <p className="text-[11px] text-warn">{err}</p> : null}
       <p className="text-[11px] text-muted">
         {files.length} of {max} {max === 1 ? 'file' : 'files'} attached
       </p>

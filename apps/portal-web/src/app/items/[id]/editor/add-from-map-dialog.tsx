@@ -370,7 +370,7 @@ export function AddFromMapDialog({
                         className="mt-1 h-4 w-4 cursor-pointer disabled:cursor-not-allowed"
                         aria-label={`Import ${c.dataLayerTitle} / ${c.layer.label}`}
                       />
-                      <Layers className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" />
+                      <Layers className="mt-0.5 h-4 w-4 shrink-0 text-info" />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="truncate text-sm font-medium text-ink-0">

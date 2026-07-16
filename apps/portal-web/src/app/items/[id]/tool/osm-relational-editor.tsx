@@ -42,7 +42,7 @@ const sectionHeaderCls =
 const sectionAddBtnCls =
   'inline-flex items-center gap-1 rounded-md border border-dashed border-border bg-surface-2 px-2 py-1 text-[11px] text-ink-1 hover:bg-surface-1 disabled:opacity-50';
 const rowRemoveBtnCls =
-  'self-start rounded-md border border-border bg-surface-0 px-2 py-1 text-[11px] text-rose-700 hover:bg-rose-50';
+  'self-start rounded-md border border-border bg-surface-0 px-2 py-1 text-[11px] text-danger hover:bg-danger/10';
 
 type Catalog = Array<{ id: string; label: string; category: string }>;
 
@@ -656,7 +656,7 @@ function TagFilterRows({
                 type="button"
                 onClick={() => remove(i)}
                 aria-label="Remove tag filter"
-                className="rounded-md border border-border bg-surface-0 px-2 text-[11px] text-rose-700 hover:bg-rose-50"
+                className="rounded-md border border-border bg-surface-0 px-2 text-[11px] text-danger hover:bg-danger/10"
               >
                 ×
               </button>
@@ -785,7 +785,7 @@ function PresetPickerSingle({
                 type="button"
                 onClick={() => onChange('')}
                 aria-label="Clear preset"
-                className="text-muted hover:text-rose-700"
+                className="text-muted hover:text-danger"
               >
                 ×
               </button>

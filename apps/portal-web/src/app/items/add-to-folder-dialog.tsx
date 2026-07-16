@@ -59,7 +59,7 @@ export function AddToFolderDialog({
       <div className="w-full max-w-md overflow-hidden rounded-lg border border-border bg-surface-1 shadow-raised">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <div className="flex items-center gap-2">
-            <FolderIcon className="h-4 w-4 text-amber-700" />
+            <FolderIcon className="h-4 w-4 text-warn" />
             <h2 className="text-sm font-semibold text-ink-1">
               {t('addToFolder.heading', { count: itemIds.length })}
             </h2>
@@ -105,7 +105,7 @@ export function AddToFolderDialog({
                         onChange={() => setPicked(f.id)}
                         className="h-3.5 w-3.5"
                       />
-                      <FolderIcon className="h-4 w-4 shrink-0 text-amber-700" />
+                      <FolderIcon className="h-4 w-4 shrink-0 text-warn" />
                       <span className="truncate">{f.title}</span>
                       <span className="ml-auto text-[11px] text-muted">
                         {t('addToFolder.itemCount', {

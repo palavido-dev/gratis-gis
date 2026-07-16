@@ -174,7 +174,7 @@ export function PublicCascadeRevertDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start gap-3">
-          <Lock className="mt-0.5 h-5 w-5 shrink-0 text-slate-700" />
+          <Lock className="mt-0.5 h-5 w-5 shrink-0 text-ink-1" />
           <div className="min-w-0 flex-1">
             <h2 className="text-sm font-semibold text-ink-0">
               {t('cascadeRevert.title')}
@@ -208,7 +208,7 @@ export function PublicCascadeRevertDialog({
                   <span className="text-[10px] uppercase tracking-wide text-muted">
                     {getItemTypeLabel(d.type)}
                   </span>
-                  <span className="text-[10px] uppercase tracking-wide text-emerald-700">
+                  <span className="text-[10px] uppercase tracking-wide text-success">
                     {t('sharing.access.public')}
                   </span>
                 </label>
@@ -218,7 +218,7 @@ export function PublicCascadeRevertDialog({
         )}
 
         {error ? (
-          <p className="mt-3 text-xs text-rose-700">{error}</p>
+          <p className="mt-3 text-xs text-danger">{error}</p>
         ) : null}
 
         <div className="mt-5 flex items-center justify-end gap-2">

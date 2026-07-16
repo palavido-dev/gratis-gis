@@ -321,7 +321,7 @@ export function UserAccessDialog({ userId, username, onClose }: Props) {
         ) : null}
 
         {flash ? (
-          <div className="mx-3 mt-2 inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-[11px] text-emerald-900">
+          <div className="mx-3 mt-2 inline-flex items-center gap-1 rounded-md border border-success/40 bg-success/10 px-2 py-1 text-[11px] text-success">
             <CheckCircle2 className="h-3.5 w-3.5" />
             {flash}
           </div>
@@ -342,7 +342,7 @@ export function UserAccessDialog({ userId, username, onClose }: Props) {
           ) : !bundle ? (
             <p className="text-sm text-muted">No data.</p>
           ) : bundle.neverSignedIn ? (
-            <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+            <p className="rounded-md border border-warn/40 bg-warn/10 px-3 py-3 text-sm text-warn">
               This user is in Keycloak but has never signed in to the
               portal, so there&apos;s no portal activity to show. Once
               they sign in for the first time, their access will appear
@@ -676,7 +676,7 @@ function ViaBadge(props: ViaBadgeProps) {
         className={
           expired
             ? 'rounded bg-danger/10 px-1.5 py-0.5 text-[11px] font-medium text-danger'
-            : 'rounded bg-emerald-500/10 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700'
+            : 'rounded bg-success/10 px-1.5 py-0.5 text-[11px] font-medium text-success'
         }
         {...(expiresAt
           ? {
@@ -692,7 +692,7 @@ function ViaBadge(props: ViaBadgeProps) {
   const groupNames = props.viaGroups.map((g) => g.name).join(', ');
   return (
     <span
-      className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-900"
+      className="rounded bg-warn/15 px-1.5 py-0.5 text-[11px] font-medium text-warn"
       title={`Via group: ${groupNames}`}
     >
       via {props.viaGroups.length > 1 ? `${props.viaGroups.length} groups` : `group "${groupNames}"`}
@@ -761,7 +761,7 @@ function BulkBar({
         className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium disabled:opacity-50 ${
           tone === 'danger'
             ? 'border-danger bg-danger/10 text-danger hover:bg-danger/20'
-            : 'border-amber-400 bg-amber-50 text-amber-900 hover:bg-amber-100'
+            : 'border-warn/50 bg-warn/10 text-warn hover:bg-warn/20'
         }`}
       >
         {busy ? (

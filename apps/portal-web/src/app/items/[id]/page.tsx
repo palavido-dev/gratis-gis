@@ -159,16 +159,16 @@ interface Props {
 type ItemWithShares = Item & { shares: ItemShare[] };
 
 const typeBadge: Record<string, string> = {
-  map: 'bg-emerald-100 text-emerald-800',
-  data_layer: 'bg-sky-100 text-sky-800',
-  arcgis_service: 'bg-cyan-100 text-cyan-800',
-  form: 'bg-violet-100 text-violet-800',
-  web_app: 'bg-amber-100 text-amber-800',
-  report_template: 'bg-rose-100 text-rose-800',
-  dashboard: 'bg-indigo-100 text-indigo-800',
-  file: 'bg-slate-100 text-slate-800',
-  tool: 'bg-teal-100 text-teal-800',
-  editor: 'bg-purple-100 text-purple-800',
+  map: 'bg-success/15 text-success',
+  data_layer: 'bg-info/15 text-info',
+  arcgis_service: 'bg-cyan-100 dark:bg-cyan-950 text-cyan-800 dark:text-cyan-300',
+  form: 'bg-violet-100 dark:bg-violet-950 text-violet-800 dark:text-violet-300',
+  web_app: 'bg-warn/15 text-warn',
+  report_template: 'bg-danger/15 text-danger',
+  dashboard: 'bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300',
+  file: 'bg-surface-2 text-ink-1',
+  tool: 'bg-teal-100 dark:bg-teal-950 text-teal-800 dark:text-teal-300',
+  editor: 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300',
 };
 
 const accessIcon = {
@@ -387,7 +387,7 @@ export default async function ItemDetailPage(props: Props) {
     }
   }
 
-  const badgeClass = typeBadge[item.type] ?? 'bg-slate-100 text-slate-800';
+  const badgeClass = typeBadge[item.type] ?? 'bg-surface-2 text-ink-1';
   // "Workspace" item types are content-heavy (map, feature service,
   // arcgis service). For those, we collapse the metadata header so the
   // actual editor is the first thing the user sees. Other types keep

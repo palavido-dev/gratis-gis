@@ -92,33 +92,33 @@ export { getItemTypeLabel } from '@gratis-gis/shared-types';
  *  Mirrors the tile palette in @gratis-gis/ui so the two contexts
  *  stay visually coherent. */
 const ITEM_TYPE_ACCENT: Record<ItemType, string> = {
-  map: 'text-emerald-600',
-  data_layer: 'text-sky-600',
-  derived_layer: 'text-blue-700',
-  arcgis_service: 'text-cyan-600',
-  form: 'text-violet-600',
-  form_submission_collection: 'text-violet-500',
-  web_app: 'text-amber-600',
-  report_template: 'text-rose-600',
-  dashboard: 'text-indigo-600',
-  file: 'text-slate-600',
-  layer_package: 'text-emerald-700',
-  tool: 'text-teal-600',
-  widget_package: 'text-teal-700',
-  pick_list: 'text-lime-600',
-  geo_boundary: 'text-orange-600',
-  basemap: 'text-slate-600',
-  wms_service: 'text-cyan-700',
-  wfs_service: 'text-cyan-800',
-  service: 'text-cyan-600',
-  folder: 'text-amber-700',
-  editor: 'text-purple-600',
-  data_collection: 'text-violet-700',
-  geocoding_service: 'text-orange-700',
-  tile_layer: 'text-fuchsia-600',
-  app_template: 'text-amber-700',
-  theme: 'text-pink-600',
-  print_template: 'text-slate-700',
+  map: 'text-emerald-600 dark:text-emerald-400',
+  data_layer: 'text-sky-600 dark:text-sky-400',
+  derived_layer: 'text-blue-700 dark:text-blue-400',
+  arcgis_service: 'text-cyan-600 dark:text-cyan-400',
+  form: 'text-violet-600 dark:text-violet-400',
+  form_submission_collection: 'text-violet-500 dark:text-violet-400',
+  web_app: 'text-amber-600 dark:text-amber-400',
+  report_template: 'text-rose-600 dark:text-rose-400',
+  dashboard: 'text-indigo-600 dark:text-indigo-400',
+  file: 'text-slate-600 dark:text-slate-400',
+  layer_package: 'text-emerald-700 dark:text-emerald-400',
+  tool: 'text-teal-600 dark:text-teal-400',
+  widget_package: 'text-teal-700 dark:text-teal-400',
+  pick_list: 'text-lime-600 dark:text-lime-400',
+  geo_boundary: 'text-orange-600 dark:text-orange-400',
+  basemap: 'text-slate-600 dark:text-slate-400',
+  wms_service: 'text-cyan-700 dark:text-cyan-400',
+  wfs_service: 'text-cyan-800 dark:text-cyan-300',
+  service: 'text-cyan-600 dark:text-cyan-400',
+  folder: 'text-amber-700 dark:text-amber-400',
+  editor: 'text-purple-600 dark:text-purple-400',
+  data_collection: 'text-violet-700 dark:text-violet-400',
+  geocoding_service: 'text-orange-700 dark:text-orange-400',
+  tile_layer: 'text-fuchsia-600 dark:text-fuchsia-400',
+  app_template: 'text-amber-700 dark:text-amber-400',
+  theme: 'text-pink-600 dark:text-pink-400',
+  print_template: 'text-slate-700 dark:text-slate-400',
 };
 
 /** Tailwind class combos for the tile background used in compact
@@ -282,7 +282,7 @@ export function getItemConfigureHref(item: { id: string }): string {
 }
 
 export function getItemTypeAccent(type: ItemType): string {
-  return ITEM_TYPE_ACCENT[type] ?? 'text-slate-600';
+  return ITEM_TYPE_ACCENT[type] ?? 'text-slate-600 dark:text-slate-400';
 }
 
 export function getItemTypeTileClasses(type: ItemType): string {

@@ -43,9 +43,9 @@ export async function PairedLayerSharingNotice({ formId: _formId, linkedLayerId 
   void _formId;
   if (!linkedLayerId) {
     return (
-      <div className="mb-4 rounded-md border border-dashed border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+      <div className="mb-4 rounded-md border border-dashed border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
         <div className="font-medium">Responses are stored in a paired data layer</div>
-        <p className="mt-1 text-amber-800">
+        <p className="mt-1 text-warn">
           This form hasn&apos;t saved its paired data layer yet. Save the
           form with at least one question to materialize it; once it
           exists, control who can view submissions by managing the
@@ -139,12 +139,12 @@ function describeAccess(access: ItemAccess): AccessSummary {
     case 'public':
       return {
         label: 'Public (anyone with the link)',
-        Icon: <Globe2 className="h-3.5 w-3.5 text-emerald-700" />,
+        Icon: <Globe2 className="h-3.5 w-3.5 text-success" />,
       };
     case 'org':
       return {
         label: 'Everyone in your organization',
-        Icon: <Users2 className="h-3.5 w-3.5 text-sky-700" />,
+        Icon: <Users2 className="h-3.5 w-3.5 text-info" />,
       };
     case 'private':
     default:

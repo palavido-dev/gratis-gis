@@ -102,7 +102,7 @@ export default async function GroupDetailPage(props: Props) {
                     '  - Items shared to the group through your personal access\n' +
                     '    (that’s a member-only path; add yourself back to see them)'
                   }
-                  className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-900"
+                  className="inline-flex items-center gap-1 rounded-full border border-warn/40 bg-warn/10 px-2 py-0.5 text-[11px] font-medium text-warn"
                 >
                   Owner, not a member
                 </span>

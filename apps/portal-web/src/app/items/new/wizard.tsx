@@ -160,7 +160,7 @@ interface TypeGroup {
 const TYPE_GROUPS: TypeGroup[] = [
   {
     label: 'Data',
-    iconTileClass: 'bg-sky-500/10 text-sky-700',
+    iconTileClass: 'bg-info/10 text-info',
     options: [
       {
         // Basemap lives under Data rather than Maps because it's a
@@ -250,7 +250,7 @@ const TYPE_GROUPS: TypeGroup[] = [
   },
   {
     label: 'Maps',
-    iconTileClass: 'bg-emerald-500/10 text-emerald-700',
+    iconTileClass: 'bg-success/10 text-success',
     options: [
       {
         value: 'map',
@@ -262,7 +262,7 @@ const TYPE_GROUPS: TypeGroup[] = [
   },
   {
     label: 'Apps',
-    iconTileClass: 'bg-amber-500/10 text-amber-700',
+    iconTileClass: 'bg-warn/10 text-warn',
     options: [
       // #22: Dashboard / Editor / Viewer pulled from the picker.
       // Editor and Viewer are just specific layouts of the same
@@ -331,7 +331,7 @@ const TYPE_GROUPS: TypeGroup[] = [
   },
   {
     label: 'Analysis',
-    iconTileClass: 'bg-violet-500/10 text-violet-700',
+    iconTileClass: 'bg-violet-500/10 text-violet-700 dark:text-violet-400',
     options: [
       {
         value: 'derived_layer',
@@ -343,7 +343,7 @@ const TYPE_GROUPS: TypeGroup[] = [
   },
   {
     label: 'Organize',
-    iconTileClass: 'bg-slate-500/10 text-slate-700',
+    iconTileClass: 'bg-surface-2 text-ink-1',
     options: [
       {
         value: 'folder',
@@ -2705,8 +2705,8 @@ function ArcgisConfigSection({
           wizard; it gets POSTed to the new item's credential endpoint
           right after Create succeeds. */}
       {needsAuth || credentialUsed ? (
-        <div className="rounded-md border border-amber-300/50 bg-amber-50/50 p-3">
-          <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-amber-900">
+        <div className="rounded-md border border-warn/30 bg-warn/5 p-3">
+          <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-warn">
             <Lock className="h-3.5 w-3.5" />
             Authentication required
             {credentialUsed ? (
@@ -2715,7 +2715,7 @@ function ArcgisConfigSection({
               </span>
             ) : null}
           </div>
-          <p className="mb-2 text-[11px] text-amber-900/80">
+          <p className="mb-2 text-[11px] text-warn/90">
             The credential is stored encrypted on this item once it&apos;s
             created. Calls from the map go through a server-side proxy
             so the secret never reaches the browser.
@@ -2791,7 +2791,7 @@ function ArcgisConfigSection({
             type="button"
             onClick={() => void onProbeWithCredential()}
             disabled={probing}
-            className="inline-flex h-8 items-center gap-1 rounded-md border border-amber-400 bg-amber-100 px-3 text-xs font-medium text-amber-900 hover:bg-amber-200 disabled:opacity-50"
+            className="inline-flex h-8 items-center gap-1 rounded-md border border-warn/50 bg-warn/15 px-3 text-xs font-medium text-warn hover:bg-warn/25 disabled:opacity-50"
           >
             {probing ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />

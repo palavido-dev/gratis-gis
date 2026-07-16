@@ -529,7 +529,7 @@ function SettingsCard({
             {saving ? 'Saving…' : 'Save settings'}
           </button>
           {saved ? (
-            <span className="inline-flex items-center gap-1 text-xs text-emerald-700">
+            <span className="inline-flex items-center gap-1 text-xs text-success">
               <CheckCircle2 className="h-3.5 w-3.5" />
               Saved
             </span>
@@ -660,14 +660,14 @@ function StatusBadge({
   switch (status) {
     case 'running':
       return (
-        <span className="inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-800">
+        <span className="inline-flex items-center gap-1 rounded bg-warn/10 px-1.5 py-0.5 text-[11px] font-medium text-warn">
           <Loader2 className="h-3 w-3 animate-spin" />
           In progress
         </span>
       );
     case 'succeeded':
       return (
-        <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] font-medium text-emerald-800">
+        <span className="inline-flex items-center gap-1 rounded bg-success/10 px-1.5 py-0.5 text-[11px] font-medium text-success">
           <CheckCircle2 className="h-3 w-3" />
           Success
         </span>
@@ -675,7 +675,7 @@ function StatusBadge({
     case 'failed':
       return (
         <span
-          className="inline-flex items-center gap-1 rounded bg-red-50 px-1.5 py-0.5 text-[11px] font-medium text-red-800"
+          className="inline-flex items-center gap-1 rounded bg-danger/10 px-1.5 py-0.5 text-[11px] font-medium text-danger"
           title={error ?? undefined}
         >
           <XCircle className="h-3 w-3" />

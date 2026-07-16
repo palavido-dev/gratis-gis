@@ -160,7 +160,7 @@ export function AttributeForm({
           );
         })}
         {missing.length > 0 && !submitting ? (
-          <p className="text-xs text-amber-800">
+          <p className="text-xs text-warn">
             Required: {missing.join(', ')}
           </p>
         ) : null}
@@ -334,7 +334,7 @@ function FieldRow({
             }}
             className="mt-1 h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
           />
-          <p className="mt-0.5 text-[11px] text-amber-800">
+          <p className="mt-0.5 text-[11px] text-warn">
             This multi-select references a pick list that could not be
             loaded. Edit as comma-separated codes; validation is not
             enforced here.
@@ -351,7 +351,7 @@ function FieldRow({
           {label}
           {required ? <span className="ml-1 text-danger">*</span> : null}
         </span>
-        <p className="mt-1 rounded-md border border-border bg-surface-1 px-2 py-1 text-[11px] text-amber-800">
+        <p className="mt-1 rounded-md border border-border bg-surface-1 px-2 py-1 text-[11px] text-warn">
           This multi-select field has no choices configured. Edit the
           layer schema to add a pick list.
         </p>
@@ -432,7 +432,7 @@ function FieldRow({
             onChange={(e) => onChange(e.target.value || null)}
             className="mt-1 h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
           />
-          <p className="mt-0.5 text-[11px] text-amber-800">
+          <p className="mt-0.5 text-[11px] text-warn">
             This field references a pick list that could not be loaded.
             Validation is not enforced here; double-check the value.
           </p>

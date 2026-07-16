@@ -173,8 +173,8 @@ export function FieldCatalog({ rows }: { rows: FieldDeploymentRow[] }) {
       <div
         className={`flex items-center gap-2 rounded-md border px-3 py-2 text-xs ${
           isOnline
-            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-            : 'border-amber-200 bg-amber-50 text-amber-700'
+            ? 'border-success/30 bg-success/10 text-success'
+            : 'border-warn/30 bg-warn/10 text-warn'
         }`}
       >
         {isOnline ? (
@@ -223,7 +223,7 @@ export function FieldCatalog({ rows }: { rows: FieldDeploymentRow[] }) {
                   <span
                     aria-hidden="true"
                     className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-surface-1 ${
-                      cached ? 'bg-emerald-500' : 'bg-muted/50'
+                      cached ? 'bg-success' : 'bg-muted/50'
                     }`}
                     title={
                       cached
@@ -263,7 +263,7 @@ export function FieldCatalog({ rows }: { rows: FieldDeploymentRow[] }) {
                               e.stopPropagation();
                               void syncOne(row.id);
                             }}
-                            className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700 hover:bg-amber-100 disabled:opacity-60"
+                            className="inline-flex items-center gap-1 rounded-full border border-warn/30 bg-warn/10 px-2 py-0.5 text-warn hover:bg-warn/20 disabled:opacity-60"
                           >
                             {syncing[row.id] ? (
                               <Loader2 className="h-3 w-3 animate-spin" />
@@ -296,7 +296,7 @@ export function FieldCatalog({ rows }: { rows: FieldDeploymentRow[] }) {
                           }}
                           className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 disabled:opacity-60 ${
                             confirmingId === row.id
-                              ? 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100'
+                              ? 'border-danger/40 bg-danger/10 text-danger hover:bg-danger/15'
                               : 'border-border bg-surface-2 text-muted hover:bg-surface-1'
                           }`}
                           title={

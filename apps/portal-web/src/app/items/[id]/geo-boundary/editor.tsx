@@ -213,7 +213,7 @@ export function GeoBoundaryEditor({ itemId, initial, canEdit }: Props) {
                 </button>
               ) : null}
               {savedNotice ? (
-                <span className="text-xs text-emerald-700">Saved</span>
+                <span className="text-xs text-success">Saved</span>
               ) : dirty ? (
                 <span className="text-xs text-muted">Unsaved changes</span>
               ) : null}

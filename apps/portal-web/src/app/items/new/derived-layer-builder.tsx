@@ -580,7 +580,7 @@ function SourceLayerPicker({
         onClick={() => setOpen((o) => !o)}
         className="flex w-full items-start gap-3 rounded-md border border-border bg-surface-0 px-3 py-2 text-left hover:bg-surface-2 focus:border-accent focus:outline-none"
       >
-        <Layers className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" />
+        <Layers className="mt-0.5 h-4 w-4 shrink-0 text-info" />
         <span className="min-w-0 flex-1">
           <span
             className={`block truncate text-sm font-medium ${
@@ -690,8 +690,8 @@ function SourceLayerPicker({
                         <Layers
                           className={`mt-0.5 h-4 w-4 shrink-0 ${
                             row.sourceKind === 'derived_layer'
-                              ? 'text-violet-600'
-                              : 'text-sky-600'
+                              ? 'text-violet-600 dark:text-violet-400'
+                              : 'text-info'
                           }`}
                         />
                         <span className="min-w-0 flex-1">
@@ -709,11 +709,11 @@ function SourceLayerPicker({
                           // user knows they're picking a recipe, not a
                           // raw layer.  Violet matches the FlaskConical
                           // recipe accent in the wizard header.
-                          <span className="ml-2 mt-0.5 shrink-0 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-violet-800">
+                          <span className="ml-2 mt-0.5 shrink-0 rounded bg-violet-100 dark:bg-violet-950 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-violet-800 dark:text-violet-300">
                             Derived
                           </span>
                         ) : row.geometryType ? (
-                          <span className="ml-2 mt-0.5 shrink-0 rounded bg-sky-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-sky-800">
+                          <span className="ml-2 mt-0.5 shrink-0 rounded bg-info/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-info">
                             {row.geometryType}
                           </span>
                         ) : null}
@@ -823,7 +823,7 @@ function FieldModeControls({
       </label>
 
       {sourcePicked && numericFields.length === 0 ? (
-        <p className="text-[11px] text-amber-700">
+        <p className="text-[11px] text-warn">
           The selected source has no numeric fields. Add a numeric
           column to the source layer or switch to fixed mode.
         </p>
@@ -2662,7 +2662,7 @@ function ExpressionEditor({
           ))}
         </ul>
       ) : value.trim().length > 0 ? (
-        <p className="text-[11px] text-emerald-600">
+        <p className="text-[11px] text-success">
           Expression parses cleanly.
         </p>
       ) : null}
@@ -2721,7 +2721,7 @@ function ContourStepEditor({
           ))}
         </select>
         {numericFields.length === 0 ? (
-          <span className="text-[11px] text-amber-700">
+          <span className="text-[11px] text-warn">
             The source layer has no numeric fields. Add one (e.g. via
             Calculate field) earlier in the pipeline.
           </span>

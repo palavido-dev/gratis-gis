@@ -86,7 +86,7 @@ export function StarterThemesCard({ initial }: Props) {
           }`}
           strokeWidth={2}
         />
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-pink-500/10 text-pink-600">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-pink-500/10 text-pink-600 dark:text-pink-400">
           <Palette className="h-4 w-4" />
         </span>
         <div className="min-w-0 flex-1">

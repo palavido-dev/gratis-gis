@@ -874,7 +874,7 @@ export function MapEditor({
             type="button"
             onClick={() => setBasemapMenuOpen((v) => !v)}
             className={`inline-flex h-9 w-9 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-0 ${
-              basemapMenuOpen ? 'bg-purple-100 text-purple-800' : ''
+              basemapMenuOpen ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300' : ''
             }`}
             title={`Basemap${selectedBasemap ? `: ${selectedBasemap.label}` : ''}`}
             aria-label="Basemap"
@@ -910,7 +910,7 @@ export function MapEditor({
                           }}
                           className={`flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-2 ${
                             active
-                              ? 'bg-purple-100 text-purple-800'
+                              ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300'
                               : 'text-ink-1'
                           }`}
                         >
@@ -1312,7 +1312,7 @@ function ToolbarIconToggle({
       title={label}
       aria-label={label}
       className={`inline-flex h-9 w-9 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-0 ${
-        active ? 'bg-purple-100 text-purple-800' : ''
+        active ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300' : ''
       }`}
     >
       <Icon className="h-5 w-5" />

@@ -149,7 +149,7 @@ export function PickMapDialog({
                     }}
                     className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-surface-2"
                   >
-                    <MapIcon className="h-4 w-4 shrink-0 text-emerald-600" />
+                    <MapIcon className="h-4 w-4 shrink-0 text-success" />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium text-ink-0">
                         {item.title}

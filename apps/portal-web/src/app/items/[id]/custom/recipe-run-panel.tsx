@@ -436,7 +436,7 @@ export function RecipeRunPanel({
         </div>
 
         {error ? (
-          <div className="mt-3 rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-[11px] text-rose-900">
+          <div className="mt-3 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-danger">
             {error}
           </div>
         ) : null}
@@ -714,7 +714,7 @@ function FeatureSourceInput({
             Use current map view
           </button>
           {inlineGeo ? (
-            <span className="rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-[11px] text-emerald-900">
+            <span className="rounded-md border border-success/40 bg-success/10 px-2 py-1 text-[11px] text-success">
               AOI set
             </span>
           ) : null}
@@ -1102,7 +1102,7 @@ function OsmPresetMultiSelectRuntime({
                 <button
                   type="button"
                   onClick={() => onChange(selected.filter((x) => x !== id))}
-                  className="text-muted hover:text-rose-700"
+                  className="text-muted hover:text-danger"
                   aria-label={`Remove ${p?.label ?? id}`}
                 >
                   ×
@@ -1297,7 +1297,7 @@ function OsmTagFilterRowsRuntime({
           <button
             type="button"
             onClick={() => remove(i)}
-            className="rounded-md border border-border bg-surface-1 px-2 text-[11px] text-rose-700 hover:bg-rose-50"
+            className="rounded-md border border-border bg-surface-1 px-2 text-[11px] text-danger hover:bg-danger/10"
             aria-label="Remove filter"
           >
             ×
@@ -1319,7 +1319,7 @@ function Label({ parameter }: { parameter: ToolParameter }) {
   return (
     <label className="block text-[11px] font-medium text-ink-1">
       {parameter.label}
-      {parameter.required ? <span className="text-rose-700"> *</span> : null}
+      {parameter.required ? <span className="text-danger"> *</span> : null}
       {parameter.hint ? (
         <span className="block text-[10px] font-normal text-muted">
           {parameter.hint}

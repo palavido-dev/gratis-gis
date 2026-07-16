@@ -209,14 +209,14 @@ export function RestoreDialog({ runId, filename, orgName, onClose }: Props) {
             className={`w-full rounded border px-2 py-1.5 text-sm ${
               confirmText &&
               confirmText.trim().toLowerCase() !== orgName.trim().toLowerCase()
-                ? 'border-amber-400 bg-amber-50'
+                ? 'border-warn/50 bg-warn/10'
                 : 'border-border bg-surface-0'
             }`}
             placeholder={orgName}
           />
         </div>
 
-        <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+        <p className="rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-[11px] text-warn">
           <AlertTriangle className="mr-1 inline h-3 w-3" />
           While the restore is running, the portal will be temporarily
           unavailable to everyone: other people will see a
@@ -232,7 +232,7 @@ export function RestoreDialog({ runId, filename, orgName, onClose }: Props) {
           </div>
         ) : null}
         {result === 'success' ? (
-          <div className="rounded-md border border-emerald-400 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+          <div className="rounded-md border border-success/50 bg-success/10 px-3 py-2 text-xs text-success">
             <CheckCircle2 className="mr-1 inline h-3.5 w-3.5" />
             Restore succeeded. Reloading the page…
           </div>

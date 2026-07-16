@@ -198,7 +198,7 @@ export default async function ItemsPage(props: Props) {
                     className="inline-flex items-center gap-1"
                   >
                     <ChevronRight className="h-3.5 w-3.5 text-muted/60" />
-                    <FolderIcon className="h-3.5 w-3.5 text-amber-700" />
+                    <FolderIcon className="h-3.5 w-3.5 text-warn" />
                     {isLast ? (
                       <span className="font-medium text-ink-1">
                         {hop.title}

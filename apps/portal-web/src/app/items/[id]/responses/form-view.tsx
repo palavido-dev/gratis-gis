@@ -255,7 +255,7 @@ export function FormView({
             {/* Title + submission metadata */}
             <div>
               <h2 className="inline-flex items-center gap-2 text-base font-semibold text-ink-0">
-                <ClipboardList className="h-4 w-4 text-violet-600" />
+                <ClipboardList className="h-4 w-4 text-violet-600 dark:text-violet-400" />
                 {schema.title || 'Submission'}
               </h2>
               {(submittedBy || submittedAt) && (
@@ -326,7 +326,7 @@ function AttachmentsSection({
         <Paperclip className="h-3.5 w-3.5" />
         Attachments
         {attachments && attachments.length > 0 ? (
-          <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-normal normal-case tracking-normal text-violet-800">
+          <span className="rounded-full bg-violet-100 dark:bg-violet-950 px-1.5 py-0.5 text-[9px] font-normal normal-case tracking-normal text-violet-800 dark:text-violet-300">
             {attachments.length}
           </span>
         ) : null}
@@ -433,11 +433,11 @@ function QuestionAnswer({
           )
         : [];
       return (
-        <section className="space-y-2 border-l-2 border-violet-200 pl-3">
+        <section className="space-y-2 border-l-2 border-violet-200 dark:border-violet-800 pl-3">
           {question.label && (
             <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
               {question.label}{' '}
-              <span className="ml-1 rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-normal normal-case tracking-normal text-violet-800">
+              <span className="ml-1 rounded-full bg-violet-100 dark:bg-violet-950 px-1.5 py-0.5 text-[9px] font-normal normal-case tracking-normal text-violet-800 dark:text-violet-300">
                 {instances.length}{' '}
                 {instances.length === 1 ? 'entry' : 'entries'}
               </span>
@@ -473,7 +473,7 @@ function QuestionAnswer({
       );
     }
     return (
-      <section className="space-y-2 border-l-2 border-violet-200 pl-3">
+      <section className="space-y-2 border-l-2 border-violet-200 dark:border-violet-800 pl-3">
         {question.label && (
           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
             {question.label}

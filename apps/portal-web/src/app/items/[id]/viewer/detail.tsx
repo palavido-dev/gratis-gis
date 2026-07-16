@@ -351,11 +351,11 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
   const toolbarRight = (
     <div className="flex items-center gap-2">
       {canEdit && dirty ? (
-        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900">
+        <span className="rounded-full bg-warn/15 px-2 py-0.5 text-[11px] font-medium text-warn">
           Unsaved changes
         </span>
       ) : canEdit && saved ? (
-        <span className="text-[11px] text-emerald-700">Saved</span>
+        <span className="text-[11px] text-success">Saved</span>
       ) : null}
       <a
         href={`/items/${itemId}/viewer/run`}
@@ -469,12 +469,12 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
         {viewer.mapId ? (
           <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-border bg-surface-0 px-2 py-1.5">
             <div className="flex min-w-0 items-center gap-2">
-              <MapIcon className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+              <MapIcon className="h-3.5 w-3.5 shrink-0 text-success" />
               <span className="truncate text-xs font-medium text-ink-0">
                 {mapTitle ?? <span className="text-muted">Loading...</span>}
               </span>
               {mapMissing ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-900">
+                <span className="inline-flex items-center gap-1 rounded-full border border-warn/40 bg-warn/10 px-1.5 py-0.5 text-[10px] font-medium text-warn">
                   <AlertTriangle className="h-3 w-3" />
                   Missing
                 </span>
@@ -561,7 +561,7 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
         storageKey="builder-shell:viewer"
         backHref={`/items/${itemId}`}
         title="Viewer configuration"
-        icon={<Eye className="h-4 w-4 text-purple-600" />}
+        icon={<Eye className="h-4 w-4 text-purple-600 dark:text-purple-400" />}
         toolbarRight={toolbarRight}
         leftPanel={layersPanel}
         leftPanelTitle="Layers"
@@ -711,7 +711,7 @@ function TargetRow({ target, resolved, resolving, canEdit, onRemove }: TargetRow
           </Link>
         ) : null}
         {broken ? (
-          <p className="mt-2 inline-flex items-center gap-1 text-xs text-amber-800">
+          <p className="mt-2 inline-flex items-center gap-1 text-xs text-warn">
             <AlertTriangle className="h-3.5 w-3.5" />
             The referenced layer could not be loaded. It may have been
             deleted or renamed.

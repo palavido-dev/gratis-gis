@@ -1530,10 +1530,10 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                     let typeClasses: string;
                     if (item.type === 'arcgis_service') {
                       typeLabel = 'ArcGIS';
-                      typeClasses = 'bg-cyan-100 text-cyan-800';
+                      typeClasses = 'bg-cyan-100 dark:bg-cyan-950 text-cyan-800 dark:text-cyan-300';
                     } else if (item.type === 'derived_layer') {
                       typeLabel = 'Derived';
-                      typeClasses = 'bg-blue-100 text-blue-800';
+                      typeClasses = 'bg-info/15 text-info';
                     } else if (item.type === 'service') {
                       const protocol = (item.data as { protocol?: string } | null)
                         ?.protocol;
@@ -1547,16 +1547,16 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                               : protocol === 'wmts'
                                 ? 'WMTS'
                                 : 'Service';
-                      typeClasses = 'bg-cyan-100 text-cyan-800';
+                      typeClasses = 'bg-cyan-100 dark:bg-cyan-950 text-cyan-800 dark:text-cyan-300';
                     } else if (item.type === 'wms_service') {
                       typeLabel = 'WMS';
-                      typeClasses = 'bg-cyan-100 text-cyan-800';
+                      typeClasses = 'bg-cyan-100 dark:bg-cyan-950 text-cyan-800 dark:text-cyan-300';
                     } else if (item.type === 'wfs_service') {
                       typeLabel = 'WFS';
-                      typeClasses = 'bg-cyan-100 text-cyan-800';
+                      typeClasses = 'bg-cyan-100 dark:bg-cyan-950 text-cyan-800 dark:text-cyan-300';
                     } else {
                       typeLabel = 'Feature';
-                      typeClasses = 'bg-sky-100 text-sky-800';
+                      typeClasses = 'bg-info/15 text-info';
                     }
                     return (
                     <li key={item.id}>
@@ -1571,7 +1571,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                           </div>
                           {sublayerCount > 1 ? (
                             <span
-                              className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800"
+                              className="shrink-0 rounded bg-warn/15 px-1.5 py-0.5 text-[10px] font-medium text-warn"
                               title={`This service exposes ${sublayerCount} sublayers; clicking adds them all.`}
                             >
                               +{sublayerCount} layers
@@ -2162,7 +2162,7 @@ function PortalItemRow({
   // #304 slice 5: type-aware label + classes. Connected Service items
   // surface the protocol when present; legacy types map directly.
   let typeLabel: string;
-  let typeClasses = 'bg-cyan-100 text-cyan-800';
+  let typeClasses = 'bg-cyan-100 dark:bg-cyan-950 text-cyan-800 dark:text-cyan-300';
   if (item.type === 'arcgis_service') {
     typeLabel = 'ArcGIS';
   } else if (item.type === 'service') {
@@ -2183,7 +2183,7 @@ function PortalItemRow({
     typeLabel = 'WFS';
   } else {
     typeLabel = 'Feature';
-    typeClasses = 'bg-sky-100 text-sky-800';
+    typeClasses = 'bg-info/15 text-info';
   }
   return (
     <li>
@@ -2198,7 +2198,7 @@ function PortalItemRow({
           </div>
           {sublayerCount > 1 ? (
             <span
-              className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800"
+              className="shrink-0 rounded bg-warn/15 px-1.5 py-0.5 text-[10px] font-medium text-warn"
               title={`This service exposes ${sublayerCount} sublayers; clicking adds them all.`}
             >
               +{sublayerCount} layers

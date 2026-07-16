@@ -336,7 +336,7 @@ function DrawerUI({
         </button>
       </header>
       {state.picking ? (
-        <div className="border-b border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+        <div className="border-b border-warn/40 bg-warn/10 px-3 py-2 text-[11px] text-warn">
           Click any control on the page to open its help.  Press Cancel
           (or Escape) to back out.
         </div>
@@ -355,7 +355,7 @@ function DrawerUI({
           {docLoading ? (
             <p className="px-3 py-4 text-xs text-muted">Loading…</p>
           ) : docError ? (
-            <p className="px-3 py-4 text-xs text-rose-700">{docError}</p>
+            <p className="px-3 py-4 text-xs text-danger">{docError}</p>
           ) : doc ? (
             <article className="px-4 py-3">
               <h3 className="mb-1 text-base font-semibold text-ink-0">

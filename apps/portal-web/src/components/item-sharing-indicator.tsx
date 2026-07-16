@@ -70,18 +70,18 @@ const ACCESS_META: Record<
 > = {
   private: {
     Icon: Lock,
-    chipBg: 'bg-slate-100',
-    chipText: 'text-slate-700',
+    chipBg: 'bg-surface-2',
+    chipText: 'text-ink-1',
   },
   org: {
     Icon: Building2,
-    chipBg: 'bg-sky-100',
-    chipText: 'text-sky-800',
+    chipBg: 'bg-info/15',
+    chipText: 'text-info',
   },
   public: {
     Icon: Globe2,
-    chipBg: 'bg-emerald-100',
-    chipText: 'text-emerald-800',
+    chipBg: 'bg-success/15',
+    chipText: 'text-success',
   },
 };
 

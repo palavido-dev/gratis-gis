@@ -75,19 +75,19 @@ const typeTileBg: Record<string, string> = {
 };
 
 const typeBadgeColor: Record<string, string> = {
-  map: 'bg-emerald-100 text-emerald-800',
-  data_layer: 'bg-sky-100 text-sky-800',
-  derived_layer: 'bg-blue-100 text-blue-800',
-  arcgis_service: 'bg-cyan-100 text-cyan-800',
-  form: 'bg-violet-100 text-violet-800',
-  form_submission_collection: 'bg-violet-100 text-violet-800',
-  web_app: 'bg-amber-100 text-amber-800',
-  report_template: 'bg-rose-100 text-rose-800',
-  dashboard: 'bg-indigo-100 text-indigo-800',
-  file: 'bg-slate-100 text-slate-800',
-  layer_package: 'bg-emerald-100 text-emerald-800',
-  tool: 'bg-teal-100 text-teal-800',
-  widget_package: 'bg-teal-100 text-teal-800',
+  map: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300',
+  data_layer: 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300',
+  derived_layer: 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300',
+  arcgis_service: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300',
+  form: 'bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300',
+  form_submission_collection: 'bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300',
+  web_app: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
+  report_template: 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300',
+  dashboard: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300',
+  file: 'bg-slate-100 text-slate-800 dark:bg-slate-950 dark:text-slate-300',
+  layer_package: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300',
+  tool: 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300',
+  widget_package: 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300',
 };
 
 // The card defers to `getItemTypeLabel` from shared-types so new
@@ -108,7 +108,7 @@ export function ItemCard({
   activeTags,
   className,
 }: ItemCardProps) {
-  const badgeClass = typeBadgeColor[item.type] ?? 'bg-slate-100 text-slate-800';
+  const badgeClass = typeBadgeColor[item.type] ?? 'bg-slate-100 text-slate-800 dark:bg-slate-950 dark:text-slate-300';
   // h-full lets the card fill its grid cell; consumers that use a
   // grid with `auto-rows-fr` (the items list does) then get
   // uniform-height cards regardless of how much description /

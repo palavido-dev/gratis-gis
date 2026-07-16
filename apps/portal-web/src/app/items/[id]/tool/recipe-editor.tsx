@@ -367,7 +367,7 @@ function ParameterCard({
             <button
               type="button"
               onClick={onRemove}
-              className="rounded-md border border-border bg-surface-1 p-1 text-rose-700 hover:bg-rose-50"
+              className="rounded-md border border-border bg-surface-1 p-1 text-danger hover:bg-danger/10"
               title="Remove parameter"
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -1205,7 +1205,7 @@ function OsmPresetMultiSelect({
                   <button
                     type="button"
                     onClick={() => onChange(selected.filter((x) => x !== id))}
-                    className="text-muted hover:text-rose-700"
+                    className="text-muted hover:text-danger"
                     aria-label={`Remove ${p?.label ?? id}`}
                   >
                     ×
@@ -1303,7 +1303,7 @@ function OsmTagFilterRows({
             <button
               type="button"
               onClick={() => remove(i)}
-              className="rounded-md border border-border bg-surface-1 px-2 text-[11px] text-rose-700 hover:bg-rose-50"
+              className="rounded-md border border-border bg-surface-1 px-2 text-[11px] text-danger hover:bg-danger/10"
             >
               <Trash2 className="h-3 w-3" />
             </button>
@@ -1440,7 +1440,7 @@ function StepCard({
           <button
             type="button"
             onClick={onRemove}
-            className="rounded-md border border-border bg-surface-1 p-1 text-rose-700 hover:bg-rose-50"
+            className="rounded-md border border-border bg-surface-1 p-1 text-danger hover:bg-danger/10"
             title="Remove step"
           >
             <Trash2 className="h-3.5 w-3.5" />

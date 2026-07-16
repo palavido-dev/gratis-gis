@@ -103,14 +103,14 @@ export function ShareExpiryPicker({
                 value
                   ? isExpired
                     ? 'border-danger/40 bg-danger/5 text-danger'
-                    : 'border-amber-300 bg-amber-50 text-amber-900'
+                    : 'border-warn/40 bg-warn/10 text-warn'
                   : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
               }`
             : `inline-flex h-8 w-8 items-center justify-center rounded-md disabled:opacity-50 ${
                 value
                   ? isExpired
                     ? 'text-danger hover:bg-danger/5'
-                    : 'text-amber-700 hover:bg-amber-50'
+                    : 'text-warn hover:bg-warn/10'
                   : 'text-muted hover:bg-surface-2 hover:text-ink-1'
               }`
         }

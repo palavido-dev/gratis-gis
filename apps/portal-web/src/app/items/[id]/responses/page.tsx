@@ -431,8 +431,8 @@ function UnboundShell({
       </header>
       <div className="flex flex-1 items-center justify-center p-10">
         <div className="max-w-md rounded-lg border border-dashed border-border bg-surface-1 p-8 text-center shadow-card">
-          <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-amber-50">
-            <AlertTriangle className="h-5 w-5 text-amber-600" />
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-warn/10">
+            <AlertTriangle className="h-5 w-5 text-warn" />
           </span>
           <h2 className="mt-3 text-base font-semibold text-ink-0">
             Responses not ready to render

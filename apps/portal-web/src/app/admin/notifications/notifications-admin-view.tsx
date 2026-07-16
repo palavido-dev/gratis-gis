@@ -322,7 +322,7 @@ export function NotificationsAdminView({
                         <StatusBadge status={row.status} />
                         {failed && row.lastError ? (
                           <p
-                            className="mt-0.5 max-w-xs truncate text-[11px] text-amber-800"
+                            className="mt-0.5 max-w-xs truncate text-[11px] text-warn"
                             title={row.lastError}
                           >
                             {row.lastError}
@@ -516,14 +516,14 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
           <span
             className={`ml-2 inline-flex rounded-full px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${
               form.enabled
-                ? 'bg-emerald-100 text-emerald-800'
+                ? 'bg-success/15 text-success'
                 : 'bg-surface-2 text-muted'
             }`}
           >
             {form.enabled ? 'enabled' : 'paused'}
           </span>
         ) : (
-          <span className="ml-2 inline-flex rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-900">
+          <span className="ml-2 inline-flex rounded-full bg-warn/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-warn">
             not configured
           </span>
         )}
@@ -670,9 +670,9 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
         <p
           className={`mt-2 text-xs ${
             msg.kind === 'ok'
-              ? 'text-emerald-700'
+              ? 'text-success'
               : msg.kind === 'warn'
-                ? 'text-amber-700'
+                ? 'text-warn'
                 : 'text-danger'
           }`}
         >
@@ -764,7 +764,7 @@ function DefaultsCard({
                 <td className="py-1.5 text-ink-1">
                   {row.label}
                   {row.isOverride ? (
-                    <span className="ml-1.5 inline-flex rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-900">
+                    <span className="ml-1.5 inline-flex rounded-full bg-warn/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-warn">
                       override
                     </span>
                   ) : null}
@@ -777,7 +777,7 @@ function DefaultsCard({
                 </td>
                 <td
                   className={`py-1.5 text-right tabular-nums ${
-                    (s?.failed ?? 0) > 0 ? 'text-amber-700' : ''
+                    (s?.failed ?? 0) > 0 ? 'text-warn' : ''
                   }`}
                 >
                   {(s?.failed ?? 0).toLocaleString()}
@@ -812,7 +812,7 @@ function DefaultsCard({
                         <Pencil className="h-3 w-3" />
                         {hasOverride ? 'Edit' : 'Customize'}
                         {hasOverride ? (
-                          <span className="ml-0.5 inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
+                          <span className="ml-0.5 inline-block h-1.5 w-1.5 rounded-full bg-warn" />
                         ) : null}
                       </button>
                     );
@@ -1487,7 +1487,7 @@ function Metric({
   return (
     <div
       className={`rounded-lg border bg-surface-1 p-4 shadow-card ${
-        tone === 'warn' ? 'border-amber-300' : 'border-border'
+        tone === 'warn' ? 'border-warn/40' : 'border-border'
       }`}
     >
       <div className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-muted">
@@ -1505,11 +1505,11 @@ function Metric({
 function StatusBadge({ status }: { status: RecentRow['status'] }) {
   const tone =
     status === 'sent'
-      ? 'bg-emerald-100 text-emerald-800'
+      ? 'bg-success/15 text-success'
       : status === 'failed'
-        ? 'bg-amber-100 text-amber-900'
+        ? 'bg-warn/15 text-warn'
         : status === 'sending'
-          ? 'bg-sky-100 text-sky-800'
+          ? 'bg-info/15 text-info'
           : 'bg-surface-2 text-muted';
   return (
     <span

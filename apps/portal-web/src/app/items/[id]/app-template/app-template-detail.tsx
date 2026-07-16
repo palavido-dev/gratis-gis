@@ -39,7 +39,7 @@ export function AppTemplateDetail({ itemId, blueprint, seedKind }: Props) {
   return (
     <section className="mb-6 rounded-lg border border-border bg-surface-1 p-5 shadow-card">
       <header className="mb-4 flex items-start gap-3">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-amber-700/10 text-amber-700">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-warn/10 text-warn">
           <Wand2 className="h-4 w-4" />
         </span>
         <div className="min-w-0 flex-1">

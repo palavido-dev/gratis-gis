@@ -284,13 +284,13 @@ function DeviceRow({
           </p>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
             {stuck > 0 ? (
-              <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-medium text-amber-700">
+              <span className="inline-flex items-center gap-1 rounded-full border border-warn/30 bg-warn/10 px-2 py-0.5 font-medium text-warn">
                 <AlertTriangle className="h-3 w-3" />
                 {stuck} queued
                 {failed > 0 ? ` (${failed} failed)` : ''}
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700">
+              <span className="inline-flex items-center gap-1 rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-success">
                 Queue clear
               </span>
             )}
@@ -302,7 +302,7 @@ function DeviceRow({
             <span
               className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 ${
                 silent
-                  ? 'border-amber-200 bg-amber-50 text-amber-700'
+                  ? 'border-warn/30 bg-warn/10 text-warn'
                   : 'border-border bg-surface-2 text-muted'
               }`}
               title={new Date(row.reportedAt).toLocaleString()}
@@ -313,7 +313,7 @@ function DeviceRow({
               <span
                 className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 ${
                   tightStorage
-                    ? 'border-amber-200 bg-amber-50 text-amber-700'
+                    ? 'border-warn/30 bg-warn/10 text-warn'
                     : 'border-border bg-surface-2 text-muted'
                 }`}
               >

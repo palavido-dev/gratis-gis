@@ -425,11 +425,11 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
               </div>
             ) : null}
             {data.processingState === 'tiling' ? (
-              <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-ink-1">
-                <span className="font-medium text-blue-900">
+              <div className="flex items-start gap-2 rounded-md border border-info/30 bg-info/10 px-3 py-2 text-xs text-ink-1">
+                <span className="font-medium text-info">
                   Building pyramid...
                 </span>
-                <span className="text-blue-900/70">
+                <span className="text-info/80">
                   This can take several minutes for large rasters.
                   Map is currently served from the source COG; it
                   will switch to PMTiles automatically when the
@@ -441,11 +441,11 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
               </div>
             ) : null}
             {data.processingState === 'pmtiles-ready' ? (
-              <div className="flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-ink-1">
-                <span className="font-medium text-emerald-900">
+              <div className="flex items-start gap-2 rounded-md border border-success/30 bg-success/10 px-3 py-2 text-xs text-ink-1">
+                <span className="font-medium text-success">
                   Serving as PMTiles.
                 </span>
-                <span className="text-emerald-900/70">
+                <span className="text-success/80">
                   Pyramid build completed
                   {data.tilingCompletedAt
                     ? ` ${humanDate(data.tilingCompletedAt)}`
@@ -460,11 +460,11 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
             ) : null}
             {data.processingState === 'tiling-failed' ? (
               <div className="space-y-2">
-                <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-ink-1">
-                  <span className="font-medium text-amber-900">
+                <div className="flex items-start gap-2 rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-ink-1">
+                  <span className="font-medium text-warn">
                     Pyramid build failed.
                   </span>
-                  <span className="text-amber-900/70">
+                  <span className="text-warn/80">
                     Map is still being served from the source COG.
                     Retry the build, or contact the admin if it
                     keeps failing.

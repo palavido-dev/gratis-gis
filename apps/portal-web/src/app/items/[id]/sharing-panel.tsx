@@ -1022,20 +1022,20 @@ export function SharingPanel({
         <div
           className={`flex items-center justify-between gap-3 border-b px-4 py-2.5 ${
             dependencyGapCount > 0
-              ? 'border-amber-200 bg-amber-50'
-              : 'border-emerald-200 bg-emerald-50'
+              ? 'border-warn/30 bg-warn/10'
+              : 'border-success/30 bg-success/10'
           }`}
         >
           <div className="flex items-start gap-2 text-xs">
             <AlertTriangle
               className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${
-                dependencyGapCount > 0 ? 'text-amber-700' : 'text-emerald-700'
+                dependencyGapCount > 0 ? 'text-warn' : 'text-success'
               }`}
             />
             <div>
               <div
                 className={`font-medium ${
-                  dependencyGapCount > 0 ? 'text-amber-900' : 'text-emerald-900'
+                  dependencyGapCount > 0 ? 'text-warn' : 'text-success'
                 }`}
               >
                 {dependencyGapCount > 0
@@ -1048,7 +1048,7 @@ export function SharingPanel({
               </div>
               <div
                 className={
-                  dependencyGapCount > 0 ? 'text-amber-800' : 'text-emerald-800'
+                  dependencyGapCount > 0 ? 'text-warn' : 'text-success'
                 }
               >
                 {dependencyGapCount > 0
@@ -1062,8 +1062,8 @@ export function SharingPanel({
             onClick={() => setMatrixOpen(true)}
             className={`shrink-0 rounded border px-2 py-1 text-xs font-medium ${
               dependencyGapCount > 0
-                ? 'border-amber-300 bg-white text-amber-900 hover:bg-amber-100'
-                : 'border-emerald-300 bg-white text-emerald-900 hover:bg-emerald-100'
+                ? 'border-warn/40 bg-white text-warn hover:bg-warn/20'
+                : 'border-success/40 bg-white text-success hover:bg-success/20'
             }`}
           >
             {dependencyGapCount > 0 ? 'Review and grant' : 'Open access matrix'}
@@ -1440,7 +1440,7 @@ export function SharingPanel({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-lg bg-surface-1 shadow-raised">
             <div className="flex items-start gap-3 border-b border-border px-4 py-3">
-              <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-800">
+              <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-warn/15 text-warn">
                 <AlertTriangle className="h-4 w-4" />
               </span>
               <div className="min-w-0">
@@ -1464,12 +1464,12 @@ export function SharingPanel({
                 {pendingShare.missing.map((dep) => (
                   <li
                     key={dep.id}
-                    className="rounded border border-amber-200 bg-amber-50 px-3 py-2"
+                    className="rounded border border-warn/30 bg-warn/10 px-3 py-2"
                   >
                     <div className="text-sm font-medium text-ink-1">
                       {dep.title}
                     </div>
-                    <div className="text-[11px] uppercase tracking-wide text-amber-800">
+                    <div className="text-[11px] uppercase tracking-wide text-warn">
                       {getItemTypeLabel(dep.type)}
                       {dep.rationale ? ` · ${dep.rationale}` : ''}
                     </div>
@@ -1491,7 +1491,7 @@ export function SharingPanel({
                 type="button"
                 disabled={confirmingShare}
                 onClick={() => void confirmGrantAndShare()}
-                className="inline-flex h-8 items-center gap-1 rounded bg-amber-600 px-3 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                className="inline-flex h-8 items-center gap-1 rounded bg-warn px-3 text-xs font-medium text-white hover:bg-warn/80 disabled:opacity-50"
               >
                 {confirmingShare ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />

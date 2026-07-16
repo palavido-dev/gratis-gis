@@ -347,7 +347,7 @@ function EventLayerWizard({
         evidence)
       </label>
 
-      <p className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-[11px] text-emerald-900">
+      <p className="rounded border border-success/30 bg-success/10 px-2 py-1.5 text-[11px] text-success">
         We'll seed two default fields ("Date", "Notes") that you can
         edit in the schema below before saving. The new layer will
         link to the parent via a foreign-key column on save.

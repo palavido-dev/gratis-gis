@@ -397,11 +397,11 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
   const toolbarRight = (
     <div className="flex items-center gap-2">
       {canEdit && dirty ? (
-        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900">
+        <span className="rounded-full bg-warn/15 px-2 py-0.5 text-[11px] font-medium text-warn">
           Unsaved changes
         </span>
       ) : canEdit && saved ? (
-        <span className="text-[11px] text-emerald-700">Saved</span>
+        <span className="text-[11px] text-success">Saved</span>
       ) : null}
       <a
         href={`/items/${itemId}/editor/run`}
@@ -516,12 +516,12 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
         {editor.mapId ? (
           <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-border bg-surface-0 px-2 py-1.5">
             <div className="flex min-w-0 items-center gap-2">
-              <MapIcon className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+              <MapIcon className="h-3.5 w-3.5 shrink-0 text-success" />
               <span className="truncate text-xs font-medium text-ink-0">
                 {mapTitle ?? <span className="text-muted">Loading...</span>}
               </span>
               {mapMissing ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-900">
+                <span className="inline-flex items-center gap-1 rounded-full border border-warn/40 bg-warn/10 px-1.5 py-0.5 text-[10px] font-medium text-warn">
                   <AlertTriangle className="h-3 w-3" />
                   Missing
                 </span>
@@ -667,7 +667,7 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
         storageKey="builder-shell:editor"
         backHref={`/items/${itemId}`}
         title="Editor configuration"
-        icon={<PencilRuler className="h-4 w-4 text-purple-600" />}
+        icon={<PencilRuler className="h-4 w-4 text-purple-600 dark:text-purple-400" />}
         toolbarRight={toolbarRight}
         leftPanel={targetsPanel}
         leftPanelTitle="Targets"
@@ -819,18 +819,18 @@ function TargetRow({
               <span>Layer policy: own-rows-only</span>
             ) : null}
             {!layerEditable ? (
-              <span className="text-amber-700">Editing disabled on layer</span>
+              <span className="text-warn">Editing disabled on layer</span>
             ) : null}
           </div>
           {broken ? (
-            <p className="mt-2 inline-flex items-center gap-1 text-xs text-amber-800">
+            <p className="mt-2 inline-flex items-center gap-1 text-xs text-warn">
               <AlertTriangle className="h-3.5 w-3.5" />
               The referenced layer could not be loaded. It may have been
               deleted or renamed.
             </p>
           ) : null}
           {!broken && !layerEditable ? (
-            <p className="mt-2 text-xs text-amber-800">
+            <p className="mt-2 text-xs text-warn">
               The runtime will block edits on this target until the underlying
               layer's "editing enabled" toggle is on.
             </p>
@@ -1263,7 +1263,7 @@ function TemplateEditor({
             <option value="polygon">polygon</option>
           </select>
           {layerGeometry && template.geometryTool !== layerGeometry ? (
-            <span className="text-[10px] text-amber-700">
+            <span className="text-[10px] text-warn">
               Layer is {layerGeometry}; runtime today uses the layer's
               type. Mismatch is allowed for forward compatibility.
             </span>

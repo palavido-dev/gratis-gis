@@ -499,9 +499,9 @@ function FolderNode({
           }}
         >
           {isOpen ? (
-            <FolderOpen className="h-3.5 w-3.5 shrink-0 text-amber-700" />
+            <FolderOpen className="h-3.5 w-3.5 shrink-0 text-warn" />
           ) : (
-            <FolderIcon className="h-3.5 w-3.5 shrink-0 text-amber-700" />
+            <FolderIcon className="h-3.5 w-3.5 shrink-0 text-warn" />
           )}
           <span className="truncate">{folder.title}</span>
         </Link>
@@ -593,7 +593,7 @@ function FolderCreateRow({
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
       >
         <span className="inline-flex w-3.5 shrink-0" aria-hidden />
-        <FolderIcon className="h-3.5 w-3.5 shrink-0 text-amber-700" />
+        <FolderIcon className="h-3.5 w-3.5 shrink-0 text-warn" />
         <input
           ref={inputRef}
           value={value}

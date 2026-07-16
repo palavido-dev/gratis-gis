@@ -350,7 +350,7 @@ export function FolderDetail({
         >
           {breadcrumb.map((hop, idx) => (
             <span key={hop.id} className="inline-flex items-center gap-1">
-              <FolderIcon className="h-3 w-3 text-amber-700" />
+              <FolderIcon className="h-3 w-3 text-warn" />
               <Link
                 href={`/items/${hop.id}`}
                 className="hover:text-ink-1 hover:underline"

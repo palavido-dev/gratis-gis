@@ -2077,12 +2077,12 @@ export function FieldRuntime({
                 (() => {
                   const band = gpsAccuracyBand(gps.position.accuracyM);
                   if (band === 'excellent' || band === 'good') {
-                    return 'border-emerald-200 bg-emerald-50/95 text-emerald-700';
+                    return 'border-success/40 bg-surface-1/95 text-success';
                   }
                   if (band === 'fair') {
-                    return 'border-amber-200 bg-amber-50/95 text-amber-700';
+                    return 'border-warn/40 bg-surface-1/95 text-warn';
                   }
-                  return 'border-rose-200 bg-rose-50/95 text-rose-700';
+                  return 'border-danger/40 bg-surface-1/95 text-danger';
                 })()
               }`}
             >
@@ -3243,7 +3243,7 @@ function LayerVisibilityPanel({
                 Make persistent
               </button>
             ) : persistentState === 'persistent' ? (
-              <span className="text-[10px] text-emerald-700">Persistent</span>
+              <span className="text-[10px] text-success">Persistent</span>
             ) : null}
           </div>
           <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-ink-1">
@@ -3260,9 +3260,9 @@ function LayerVisibilityPanel({
             <div
               className={`h-full transition-all ${
                 storage.usagePercent >= 0.95
-                  ? 'bg-rose-500'
+                  ? 'bg-danger'
                   : storage.usagePercent >= 0.8
-                    ? 'bg-amber-500'
+                    ? 'bg-warn'
                     : 'bg-accent'
               }`}
               style={{
@@ -3271,7 +3271,7 @@ function LayerVisibilityPanel({
             />
           </div>
           {storage.usagePercent >= 0.95 ? (
-            <p className="mt-1 text-[10px] text-rose-600">
+            <p className="mt-1 text-[10px] text-danger">
               Storage nearly full. Free up space before downloading more areas.
             </p>
           ) : null}
@@ -4176,7 +4176,7 @@ function FormModal({
                           enforces a 44 px thumb target. */}
                       {state && !state.loading ? (
                         state.error ? (
-                          <p className="text-sm text-rose-700">
+                          <p className="text-sm text-danger">
                             Couldn&apos;t load existing {c.layerLabel}
                             {' '}records ({state.error}). Tap Add to
                             create a new one.
@@ -4203,7 +4203,7 @@ function FormModal({
                                   className={
                                     'flex min-h-[44px] items-center justify-between gap-2 rounded-md border px-3 py-2 ' +
                                     (pending
-                                      ? 'border-amber-300 bg-amber-50'
+                                      ? 'border-warn/40 bg-warn/10'
                                       : 'border-border bg-surface-0')
                                   }
                                 >
@@ -4212,7 +4212,7 @@ function FormModal({
                                       {pickRelatedRowTitle(row.properties) ??
                                         row.id.slice(0, 8)}
                                       {pending ? (
-                                        <span className="ml-2 inline-flex items-center rounded bg-amber-200 px-1.5 py-0.5 text-xs font-medium text-amber-900">
+                                        <span className="ml-2 inline-flex items-center rounded bg-warn/25 px-1.5 py-0.5 text-xs font-medium text-warn">
                                           unsynced
                                         </span>
                                       ) : null}
@@ -4738,7 +4738,7 @@ function FieldFeaturePopupSheet({
                         {!rowsState || rowsState.loading ? (
                           <p className="text-sm text-muted">Loading...</p>
                         ) : rowsState.error ? (
-                          <p className="text-sm text-rose-700">
+                          <p className="text-sm text-danger">
                             Couldn&apos;t load {c.layerLabel} records
                             ({rowsState.error}).
                           </p>
@@ -4757,7 +4757,7 @@ function FieldFeaturePopupSheet({
                                   className={
                                     'flex min-h-[44px] items-center justify-between gap-2 rounded-md border px-3 py-2 ' +
                                     (pending
-                                      ? 'border-amber-300 bg-amber-50'
+                                      ? 'border-warn/40 bg-warn/10'
                                       : 'border-border bg-surface-0')
                                   }
                                 >
@@ -4766,7 +4766,7 @@ function FieldFeaturePopupSheet({
                                       {pickRelatedRowTitle(row.properties) ??
                                         row.id.slice(0, 8)}
                                       {pending ? (
-                                        <span className="ml-2 inline-flex items-center rounded bg-amber-200 px-1.5 py-0.5 text-xs font-medium text-amber-900">
+                                        <span className="ml-2 inline-flex items-center rounded bg-warn/25 px-1.5 py-0.5 text-xs font-medium text-warn">
                                           unsynced
                                         </span>
                                       ) : null}
@@ -4838,10 +4838,10 @@ function FieldGpsStrip({
   const band = gpsAccuracyBand(accuracyM);
   const tone =
     band === 'excellent' || band === 'good'
-      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+      ? 'bg-success/10 text-success border-success/30'
       : band === 'fair'
-        ? 'bg-amber-50 text-amber-700 border-amber-200'
-        : 'bg-rose-50 text-rose-700 border-rose-200';
+        ? 'bg-warn/10 text-warn border-warn/30'
+        : 'bg-danger/10 text-danger border-danger/30';
   return (
     <div
       aria-live="polite"
@@ -5016,10 +5016,10 @@ function FieldMoreMenu({
   }, [open]);
 
   const connStatus = isOnline
-    ? { label: 'Online', tone: 'text-emerald-600' as const }
+    ? { label: 'Online', tone: 'text-success' as const }
     : hasCache
-      ? { label: 'Offline (cached)', tone: 'text-amber-600' as const }
-      : { label: 'Offline (no cache)', tone: 'text-rose-600' as const };
+      ? { label: 'Offline (cached)', tone: 'text-warn' as const }
+      : { label: 'Offline (no cache)', tone: 'text-danger' as const };
 
   return (
     <div ref={rootRef} className="relative shrink-0">
@@ -5064,8 +5064,8 @@ function FieldMoreMenu({
                 <span
                   className={
                     persistentState === 'persistent'
-                      ? 'text-emerald-700'
-                      : 'text-amber-700'
+                      ? 'text-success'
+                      : 'text-warn'
                   }
                 >
                   {persistentState === 'persistent'
@@ -5086,16 +5086,16 @@ function FieldMoreMenu({
                 <span
                   className={
                     gpsStatus === 'denied' || gpsStatus === 'unavailable'
-                      ? 'text-rose-700'
+                      ? 'text-danger'
                       : gpsStatus === 'requesting'
                         ? 'text-muted'
                         : (() => {
                             const band = gpsAccuracyBand(gpsAccuracyM);
                             return band === 'excellent' || band === 'good'
-                              ? 'text-emerald-700'
+                              ? 'text-success'
                               : band === 'fair'
-                                ? 'text-amber-700'
-                                : 'text-rose-700';
+                                ? 'text-warn'
+                                : 'text-danger';
                           })()
                   }
                 >
@@ -5128,7 +5128,7 @@ function FieldMoreMenu({
                 them the option to sync first. With an empty queue,
                 refresh runs straight through. */}
             {confirmingRefresh && hasCache && queueCount > 0 ? (
-              <p className="px-2 pt-1 text-[11px] text-amber-700">
+              <p className="px-2 pt-1 text-[11px] text-warn">
                 {queueCount} edit{queueCount === 1 ? '' : 's'} not yet
                 synced. Refresh anyway?
               </p>
@@ -5150,7 +5150,7 @@ function FieldMoreMenu({
               disabled={downloadInFlight}
               className={`flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm disabled:opacity-50 ${
                 confirmingRefresh && hasCache && queueCount > 0
-                  ? 'bg-amber-50 text-amber-800 hover:bg-amber-100'
+                  ? 'bg-warn/10 text-warn hover:bg-warn/20'
                   : 'text-ink-0 hover:bg-surface-2'
               }`}
             >
@@ -5160,7 +5160,7 @@ function FieldMoreMenu({
                 <RefreshCw
                   className={`h-4 w-4 ${
                     confirmingRefresh && queueCount > 0
-                      ? 'text-amber-700'
+                      ? 'text-warn'
                       : 'text-muted'
                   }`}
                 />
@@ -5186,7 +5186,7 @@ function FieldMoreMenu({
             {hasCache ? (
               <>
                 {confirmingRemove && queueCount > 0 ? (
-                  <p className="px-2 pt-1 text-[11px] text-rose-600">
+                  <p className="px-2 pt-1 text-[11px] text-danger">
                     {queueCount} unsynced edit{queueCount === 1 ? '' : 's'}{' '}
                     will be lost.
                   </p>
@@ -5204,13 +5204,13 @@ function FieldMoreMenu({
                   disabled={downloadInFlight}
                   className={`flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm disabled:opacity-50 ${
                     confirmingRemove
-                      ? 'bg-rose-50 text-rose-700 hover:bg-rose-100'
+                      ? 'bg-danger/10 text-danger hover:bg-danger/15'
                       : 'text-ink-0 hover:bg-surface-2'
                   }`}
                 >
                   <Trash2
                     className={`h-4 w-4 ${
-                      confirmingRemove ? 'text-rose-600' : 'text-muted'
+                      confirmingRemove ? 'text-danger' : 'text-muted'
                     }`}
                   />
                   <span>
@@ -5273,7 +5273,7 @@ function QueueBadge({
       type="button"
       disabled={syncing}
       onClick={onSync}
-      className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-60"
+      className="inline-flex shrink-0 items-center gap-1 rounded-full border border-warn/30 bg-warn/10 px-2 py-0.5 text-[10px] font-medium text-warn hover:bg-warn/20 disabled:opacity-60"
       title={`${count} ${count === 1 ? 'edit' : 'edits'} waiting to sync. Click to send now.`}
     >
       {syncing ? (
@@ -5312,7 +5312,7 @@ function DownloadProgressModal({
           {progress.phase === 'failed' ? (
             <CircleSlash className="h-5 w-5 text-danger" />
           ) : finished ? (
-            <Check className="h-5 w-5 text-emerald-600" />
+            <Check className="h-5 w-5 text-success" />
           ) : (
             <Loader2 className="h-5 w-5 animate-spin text-accent" />
           )}

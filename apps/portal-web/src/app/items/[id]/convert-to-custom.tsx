@@ -162,7 +162,7 @@ export function ConvertToCustomButton({
         className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 py-1 text-xs font-medium text-ink-1 hover:bg-surface-2"
         title="Convert this app to a free-form Custom Web App layout"
       >
-        <Sparkles className="h-3.5 w-3.5 text-amber-600" />
+        <Sparkles className="h-3.5 w-3.5 text-warn" />
         Convert to custom
       </button>
       {open && (
@@ -171,7 +171,7 @@ export function ConvertToCustomButton({
             <div className="flex items-start justify-between gap-2">
               <div>
                 <h3 className="inline-flex items-center gap-2 text-sm font-semibold text-ink-0">
-                  <Sparkles className="h-4 w-4 text-amber-600" />
+                  <Sparkles className="h-4 w-4 text-warn" />
                   Convert to custom web app?
                 </h3>
                 <p className="mt-1 text-xs text-muted">
@@ -191,7 +191,7 @@ export function ConvertToCustomButton({
               </button>
             </div>
             {error && (
-              <div className="mt-3 inline-flex items-start gap-2 rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-700">
+              <div className="mt-3 inline-flex items-start gap-2 rounded-md bg-danger/10 px-3 py-2 text-xs text-danger">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 {error}
               </div>
@@ -209,7 +209,7 @@ export function ConvertToCustomButton({
                 type="button"
                 onClick={onConfirm}
                 disabled={submitting}
-                className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-md bg-warn px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-warn/80 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 Convert
