@@ -10,7 +10,7 @@ import { ImageResponse } from 'next/og';
  *
  * Generated dynamically rather than shipped as a static .png so the
  * card visual lives next to the code that informs it (project
- * tagline, accent colors).  Replace this file with a hand-tuned PNG
+ * tagline, brand palette).  Replace this file with a hand-tuned PNG
  * later if you want pixel-perfect typography; the route name +
  * exports stay the same.
  *
@@ -100,4 +100,34 @@ export default function OgImage() {
             style={{
               fontSize: 36,
               fontWeight: 500,
-              col
+              color: '#5c6b58',
+              lineHeight: 1.3,
+              maxWidth: 1040,
+            }}
+          >
+            Maps · app builder · offline field collection · visual
+            tool builder. Built on PostGIS + MapLibre.
+          </div>
+          <div
+            style={{
+              display: 'flex',
+              gap: 24,
+              fontSize: 24,
+              color: '#7a8a7b',
+              marginTop: 16,
+            }}
+          >
+            <span>gratisgis.org</span>
+            <span>·</span>
+            <span>AGPL-3.0</span>
+            <span>·</span>
+            <span>github.com/palavido-dev/gratis-gis</span>
+          </div>
+        </div>
+      </div>
+    ),
+    {
+      ...size,
+    },
+  );
+}
