@@ -2,6 +2,7 @@
 'use client';
 
 import { SessionProvider } from 'next-auth/react';
+import { ThemeProvider } from 'next-themes';
 import type { ReactNode } from 'react';
 
 import { DialogProvider } from '@/components/dialog-provider';
@@ -21,11 +22,16 @@ export function Providers({
 }) {
   return (
     <SessionProvider>
-      <LocaleProvider locale={locale}>
-        <DialogProvider>
-          <HelpDrawerProvider>{children}</HelpDrawerProvider>
-        </DialogProvider>
-      </LocaleProvider>
+      {/* class strategy matches tailwind darkMode: 'class'; system
+          default means anonymous visitors get their OS preference
+          without ever touching the toggle. */}
+      <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+        <LocaleProvider locale={locale}>
+          <DialogProvider>
+            <HelpDrawerProvider>{children}</HelpDrawerProvider>
+          </DialogProvider>
+        </LocaleProvider>
+      </ThemeProvider>
     </SessionProvider>
   );
 }

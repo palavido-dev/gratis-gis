@@ -560,4 +560,10 @@ export const en = {
     keepNone: 'None: previous owner loses access',
     reassign: 'Reassign',
   },
+  theme: {
+    label: 'Appearance',
+    light: 'Light',
+    dark: 'Dark',
+    system: 'System',
+  },
 } as const;

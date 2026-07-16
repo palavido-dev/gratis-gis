@@ -575,4 +575,10 @@ export const ptBR: Partial<CatalogShape> = {
     keepNone: 'Nenhum: o proprietário anterior perde o acesso',
     reassign: 'Reatribuir',
   },
+  theme: {
+    label: 'Aparência',
+    light: 'Claro',
+    dark: 'Escuro',
+    system: 'Sistema',
+  },
 };

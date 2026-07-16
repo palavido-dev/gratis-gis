@@ -9,6 +9,7 @@ import { EntityBadge } from '@gratis-gis/ui';
 
 import { useT } from '@/lib/i18n/locale-context';
 import { LocaleSwitcher } from './locale-switcher';
+import { ThemeSwitcher } from './theme-switcher';
 
 interface Props {
   /** Stable id used for the fallback badge color. Email works when the DB id isn't available. */
@@ -94,8 +95,9 @@ export function UserMenu({ seed, displayName, orgName, avatarUrl }: Props) {
               <UserCircle className="h-4 w-4 text-muted" />
               {t('nav.profile')}
             </Link>
-            <div className="border-t border-border px-3 py-2">
+            <div className="flex flex-col gap-2 border-t border-border px-3 py-2">
               <LocaleSwitcher />
+              <ThemeSwitcher />
             </div>
             {/* Sign out via NextAuth's client signOut() so the
                 session cookies are cleared by NextAuth's own

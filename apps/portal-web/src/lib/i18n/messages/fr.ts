@@ -575,4 +575,10 @@ export const fr: Partial<CatalogShape> = {
     keepNone: "Aucun : l'ancien propriétaire perd l'accès",
     reassign: 'Réattribuer',
   },
+  theme: {
+    label: 'Apparence',
+    light: 'Clair',
+    dark: 'Sombre',
+    system: 'Système',
+  },
 };

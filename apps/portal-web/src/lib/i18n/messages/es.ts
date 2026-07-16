@@ -575,4 +575,10 @@ export const es: Partial<CatalogShape> = {
     keepNone: 'Ninguno: el propietario anterior pierde el acceso',
     reassign: 'Reasignar',
   },
+  theme: {
+    label: 'Apariencia',
+    light: 'Claro',
+    dark: 'Oscuro',
+    system: 'Sistema',
+  },
 };

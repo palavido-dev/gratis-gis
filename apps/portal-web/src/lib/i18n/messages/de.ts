@@ -586,4 +586,10 @@ export const de: Partial<CatalogShape> = {
     keepNone: 'Keiner: der bisherige Besitzer verliert den Zugriff',
     reassign: 'Neu zuweisen',
   },
+  theme: {
+    label: 'Erscheinungsbild',
+    light: 'Hell',
+    dark: 'Dunkel',
+    system: 'System',
+  },
 };

@@ -78,9 +78,13 @@ export const viewport: Viewport = {
   // indicator.
   viewportFit: 'cover',
   // Theme color appears in both the OS status bar (Android Chrome
-  // standalone) and the iOS splash screen. Matches manifest.json
-  // for consistency.
-  themeColor: '#0f0f10',
+  // standalone) and the iOS splash screen. Paired per color-scheme
+  // so the status bar matches whichever mode the user runs; the
+  // values are surface-0 in each theme.
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#ffffff' },
+    { media: '(prefers-color-scheme: dark)', color: '#080d16' },
+  ],
 };
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
@@ -90,7 +94,10 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   // browser auto-translation respect the user's choice.
   const locale = await getServerLocale();
   return (
-    <html lang={locale} className={inter.variable}>
+    // suppressHydrationWarning: next-themes mutates <html> class/style
+    // before hydration to avoid a light-flash; React would otherwise
+    // warn about the server/client attribute mismatch.
+    <html lang={locale} className={inter.variable} suppressHydrationWarning>
       <body className="font-sans antialiased">
         <Providers locale={locale}>
           <AppShell>{children}</AppShell>

@@ -33,7 +33,11 @@
     --surface-1-ink: 210 40% 96%;
     --surface-2: 222 47% 13%;
     --surface-2-ink: 210 40% 96%;
-    --muted: 217 19% 27%;
+    /* muted is overwhelmingly used as secondary TEXT (2000+ sites) and
+       only rarely as a bg (always opacity-modified), so its dark value
+       must stay readable on surface-0..2. The original 27% lightness
+       was near-invisible (<2:1); 62% lands ~5.5:1 on surface-1. */
+    --muted: 215 16% 62%;
     --muted-ink: 210 40% 96%;
     --accent: 217 91% 60%;
     --accent-ink: 222 47% 11%;
