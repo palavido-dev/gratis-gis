@@ -24,6 +24,7 @@
     "@aws-sdk/client-s3": "^3.1053.0",
     "@aws-sdk/s3-request-presigner": "^3.1053.0",
     "@cedar-policy/cedar-wasm": "4.10.0",
+    "@duckdb/node-api": "1.5.4-r.1",
     "@gratis-gis/engine": "workspace:*",
     "@gratis-gis/form-schema": "workspace:*",
     "@gratis-gis/shared-types": "workspace:*",

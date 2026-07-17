@@ -185,6 +185,20 @@ COPY --from=build --chown=app:app /repo/apps/portal-web/content/osm /app/apps/po
 # chose to include in /out.
 COPY --from=build --chown=app:app /repo/apps/portal-api/content /app/apps/portal-api/content
 
+# Bake the DuckDB spatial extension for GeoParquet ingest. Prod runs
+# air-gapped at runtime, so DuckDB must never fetch extensions on
+# demand; this step INSTALLs spatial while the build still has
+# network. The target directory is DUCKDB_EXTENSION_DIR, a constant
+# exported by parquet-reader.ts. We require the compiled module and
+# call its bakeSpatialExtension() instead of repeating the path here,
+# so the path lives in exactly one place. The bake also LOADs the
+# extension and runs a spatial query, so a corrupt download fails the
+# image build rather than the first import in prod. Runs as root
+# (before USER app): the baked files end up read-only for the app
+# user, which is all LOAD needs. portal-worker shares this image
+# (same Dockerfile, different CMD), so one bake covers both.
+RUN node -e "require('/app/dist/ingest/parquet-reader.js').bakeSpatialExtension().then(function(dir){console.log('duckdb spatial baked at ' + dir)}).catch(function(err){console.error(err);process.exit(1)})"
+
 # BackupService writes archives to BACKUP_DIR (default ./backups), and
 # that has to be a writable path for the non-root `app` user. Pre-create
 # it with the right ownership so a volume mount onto this path inherits

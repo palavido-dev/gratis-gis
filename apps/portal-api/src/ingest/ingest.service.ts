@@ -10,6 +10,14 @@ import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 
 import { detectCsvCoordinates } from './csv-smart-detect.js';
+import {
+  DuckDbUnavailableError,
+  ParquetUserError,
+  collectParquetFromPath,
+  isParquetPath,
+  probeParquetFromPath,
+  streamParquetFromPath,
+} from './parquet-reader.js';
 
 /**
  * Opens an uploaded vector file with GDAL and returns a GeoJSON
@@ -56,6 +64,27 @@ export class IngestService {
       throw new BadRequestException(
         `File is too large. Current cap is ${this.maxBytes / 1024 / 1024} MB.`,
       );
+    }
+
+    // GeoParquet routes through DuckDB, not GDAL: the bundled
+    // gdal-async prebuild has no Parquet driver. The reader needs a
+    // real file path, so we materialize the buffer the same way the
+    // GDAL path does further down.
+    if (isParquetPath(originalName)) {
+      const tmp = await this.materializeBufferToTemp(buffer, originalName);
+      try {
+        const out = await collectParquetFromPath(tmp.filePath, undefined);
+        return {
+          geojson: out.geojson,
+          fields: out.fields,
+          driver: out.driver,
+          sourceSrs: out.sourceSrs,
+        };
+      } catch (err) {
+        throw mapParquetError(err);
+      } finally {
+        await tmp.cleanup();
+      }
     }
 
     // #160 Smart upload Phase 1: when the upload is a CSV / TSV,
@@ -252,6 +281,16 @@ export class IngestService {
       featureCount: number;
     }>;
   }> {
+    // GeoParquet branch. The buffer variant (probeFile) lands here
+    // too because it writes to a temp path that keeps the original
+    // extension. Single layer, named after the file stem.
+    if (isParquetPath(filePath)) {
+      try {
+        return await probeParquetFromPath(filePath);
+      } catch (err) {
+        throw mapParquetError(err);
+      }
+    }
     const gdal = await this.loadGdal();
     const openPath = filePath.toLowerCase().endsWith('.zip')
       ? `/vsizip/${filePath}`
@@ -414,6 +453,16 @@ export class IngestService {
     layerName: string;
     sourceSrs: string | null;
   }> {
+    // GeoParquet branch: collect through the DuckDB reader. The
+    // buffer variant (fileLayerToGeoJson) lands here via its temp
+    // write, same as the GDAL path.
+    if (isParquetPath(filePath)) {
+      try {
+        return await collectParquetFromPath(filePath, sourceLayer);
+      } catch (err) {
+        throw mapParquetError(err);
+      }
+    }
     const gdal = await this.loadGdal();
     const openPath = filePath.toLowerCase().endsWith('.zip')
       ? `/vsizip/${filePath}`
@@ -561,6 +610,18 @@ export class IngestService {
     total: number;
   }> {
     const batchSize = opts.batchSize ?? 5000;
+    // GeoParquet branch: DuckDB streams vector-sized chunks, so peak
+    // memory stays bounded by batchSize exactly like the GDAL cursor
+    // walk below. The batch and return contracts are identical.
+    if (isParquetPath(filePath)) {
+      try {
+        return await streamParquetFromPath(filePath, sourceLayer, onBatch, {
+          batchSize,
+        });
+      } catch (err) {
+        throw mapParquetError(err);
+      }
+    }
     const gdal = await this.loadGdal();
     const openPath = filePath.toLowerCase().endsWith('.zip')
       ? `/vsizip/${filePath}`
@@ -728,6 +789,35 @@ function looksLikeTabularText(name: string): boolean {
   );
 }
 
+/**
+ * Translate parquet-reader errors into the HTTP vocabulary the GDAL
+ * branches use. The reader is Nest-free (the Dockerfile requires it
+ * standalone to bake the DuckDB spatial extension), so the mapping
+ * to HttpExceptions has to happen here: ParquetUserError carries a
+ * user-actionable message and surfaces verbatim as a 400, a missing
+ * DuckDB binding is a 500 exactly like a missing gdal-async prebuild,
+ * and anything else gets the same "could not read that file" framing
+ * the GDAL catch blocks produce.
+ */
+function mapParquetError(err: unknown): Error {
+  if (
+    err instanceof BadRequestException ||
+    err instanceof InternalServerErrorException
+  ) {
+    return err;
+  }
+  if (err instanceof ParquetUserError) {
+    return new BadRequestException(err.message);
+  }
+  if (err instanceof DuckDbUnavailableError) {
+    return new InternalServerErrorException(err.message);
+  }
+  const msg = err instanceof Error ? err.message : String(err);
+  return new BadRequestException(
+    `DuckDB could not read that Parquet file: ${msg}`,
+  );
+}
+
 function safeFilename(name: string): string {
   const fileOnly = basename(name);
   let base = fileOnly.replace(/[^\w.-]/g, '_');
@@ -821,7 +911,7 @@ function gdalGeomToSimple(
  *
  * Returns a Set of allowed table names. If anything goes wrong
  * (no gpkg_contents, executeSQL fails, etc.) we return an empty
- * set rather than failing — the caller treats null vs empty
+ * set rather than failing; the caller treats null vs empty
  * differently: null skips filtering entirely (non-GPKG drivers);
  * empty set means "we tried to filter and nothing qualified."
  *
@@ -880,7 +970,7 @@ function readGpkgFeatureTables(ds: unknown): Set<string> {
  * generic 'GEOMETRY' type show up as zero-geometry tables.
  *
  * Returns null when the layer has no features or none of them have
- * geometry — in that case the layer probably IS attribute-only.
+ * geometry; in that case the layer probably IS attribute-only.
  */
 function peekFirstFeatureGeomType(
   layer: unknown,

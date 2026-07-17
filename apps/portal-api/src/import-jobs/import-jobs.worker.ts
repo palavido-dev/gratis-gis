@@ -412,6 +412,7 @@ function driverToFormat(
   driver: string,
 ):
   | 'geojson'
+  | 'geoparquet'
   | 'kml'
   | 'kmz'
   | 'shapefile'
@@ -422,6 +423,7 @@ function driverToFormat(
   | 'api' {
   const d = driver.toLowerCase();
   if (d.includes('geojson')) return 'geojson';
+  if (d.includes('parquet')) return 'geoparquet';
   if (d.includes('kmz')) return 'kmz';
   if (d.includes('kml')) return 'kml';
   if (d.includes('shape') || d.includes('esri shapefile')) return 'shapefile';

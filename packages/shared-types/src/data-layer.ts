@@ -132,6 +132,7 @@ export interface DataLayerSource {
    *  seeded schemas; 'api' covers non-UI replace calls. */
   format:
     | 'geojson'
+    | 'geoparquet'
     | 'kml'
     | 'kmz'
     | 'shapefile'
