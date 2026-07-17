@@ -566,4 +566,20 @@ export const en = {
     dark: 'Dark',
     system: 'System',
   },
+  welcome: {
+    title: 'Welcome to GratisGIS',
+    intro: 'Your workspace is empty. Pick a starting point.',
+    createMap: 'Create a map',
+    createMapDesc: 'Start from a blank map on the default basemap.',
+    uploadData: 'Upload data',
+    uploadDataDesc: 'Bring in GeoJSON, Shapefile, or CSV as a data layer.',
+    loadSample: 'Load sample data',
+    loadSampleDesc:
+      'Explore a ready-made Randolph County workspace: layers, maps, a form, apps, and a field survey.',
+    loading: 'Loading sample data...',
+    loaded: '{count, plural, one {# sample item created} other {# sample items created}}',
+    allSkipped: 'Sample data is already loaded',
+    failed: 'Could not load sample data',
+    dismiss: 'Dismiss welcome panel',
+  },
 } as const;

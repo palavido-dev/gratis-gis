@@ -7,6 +7,7 @@ import { EmptyState } from '@/components/empty-state';
 import { ItemsView } from './items-view';
 import { type FolderRailNode } from './folder-rail';
 import { FoldersDrawer } from './folders-drawer';
+import { WelcomePanel } from './welcome-panel';
 import { getServerLocale } from '@/lib/i18n/server';
 import { t } from '@/lib/i18n';
 
@@ -241,7 +242,13 @@ export default async function ItemsPage(props: Props) {
                     : t('itemsPage.scopeSharedWithYou', undefined, locale),
                 query: searchParams.q,
               }, locale)}
-            />) : (<EmptyState
+            />) : isMine && !activeFolder && me.orgRole !== 'viewer' ? (
+              // #147 Phase 1: publishers with an empty workspace get
+              // three concrete starting points (including the sample
+              // data seeder) instead of a gray dashed box. Viewers
+              // and folder/shared scopes keep the plain empty state.
+              <WelcomePanel canPublish />
+            ) : (<EmptyState
               icon={<Layers className="h-5 w-5" />}
               title={
                 activeFolder

@@ -581,4 +581,20 @@ export const fr: Partial<CatalogShape> = {
     dark: 'Sombre',
     system: 'Système',
   },
+  welcome: {
+    title: 'Bienvenue dans GratisGIS',
+    intro: 'Votre espace de travail est vide. Choisissez un point de départ.',
+    createMap: 'Créer une carte',
+    createMapDesc: 'Partez d\'une carte vierge sur le fond de carte par défaut.',
+    uploadData: 'Importer des données',
+    uploadDataDesc: 'Importez du GeoJSON, un Shapefile ou un CSV comme couche de données.',
+    loadSample: 'Charger des données d\'exemple',
+    loadSampleDesc:
+      'Explorez un espace de travail prêt à l\'emploi du comté de Randolph : couches, cartes, un formulaire, des applications et un relevé de terrain.',
+    loading: 'Chargement des données d\'exemple...',
+    loaded: '{count, plural, one {# élément d\'exemple créé} other {# éléments d\'exemple créés}}',
+    allSkipped: 'Les données d\'exemple sont déjà chargées',
+    failed: 'Impossible de charger les données d\'exemple',
+    dismiss: 'Fermer le panneau de bienvenue',
+  },
 };

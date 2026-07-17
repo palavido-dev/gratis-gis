@@ -581,4 +581,20 @@ export const es: Partial<CatalogShape> = {
     dark: 'Oscuro',
     system: 'Sistema',
   },
+  welcome: {
+    title: 'Bienvenido a GratisGIS',
+    intro: 'Tu espacio de trabajo está vacío. Elige por dónde empezar.',
+    createMap: 'Crear un mapa',
+    createMapDesc: 'Empieza con un mapa en blanco sobre el mapa base predeterminado.',
+    uploadData: 'Subir datos',
+    uploadDataDesc: 'Importa GeoJSON, Shapefile o CSV como una capa de datos.',
+    loadSample: 'Cargar datos de ejemplo',
+    loadSampleDesc:
+      'Explora un espacio de trabajo listo del condado de Randolph: capas, mapas, un formulario, aplicaciones y un levantamiento de campo.',
+    loading: 'Cargando datos de ejemplo...',
+    loaded: '{count, plural, one {# elemento de ejemplo creado} other {# elementos de ejemplo creados}}',
+    allSkipped: 'Los datos de ejemplo ya están cargados',
+    failed: 'No se pudieron cargar los datos de ejemplo',
+    dismiss: 'Descartar el panel de bienvenida',
+  },
 };

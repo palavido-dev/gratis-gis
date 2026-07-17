@@ -592,4 +592,20 @@ export const de: Partial<CatalogShape> = {
     dark: 'Dunkel',
     system: 'System',
   },
+  welcome: {
+    title: 'Willkommen bei GratisGIS',
+    intro: 'Ihr Arbeitsbereich ist leer. Wählen Sie einen Startpunkt.',
+    createMap: 'Karte erstellen',
+    createMapDesc: 'Beginnen Sie mit einer leeren Karte auf der Standard-Grundkarte.',
+    uploadData: 'Daten hochladen',
+    uploadDataDesc: 'Importieren Sie GeoJSON, Shapefile oder CSV als Datenlayer.',
+    loadSample: 'Beispieldaten laden',
+    loadSampleDesc:
+      'Erkunden Sie einen fertigen Randolph-County-Arbeitsbereich: Layer, Karten, ein Formular, Apps und eine Felderhebung.',
+    loading: 'Beispieldaten werden geladen...',
+    loaded: '{count, plural, one {# Beispielelement erstellt} other {# Beispielelemente erstellt}}',
+    allSkipped: 'Beispieldaten sind bereits geladen',
+    failed: 'Beispieldaten konnten nicht geladen werden',
+    dismiss: 'Willkommensbereich ausblenden',
+  },
 };
