@@ -20,7 +20,10 @@ import {
   Table,
   X,
 } from 'lucide-react';
-import { exportFeatures, type ExportFormat } from '@/lib/layer-export';
+// Client-side formats only: this menu converts rows already loaded
+// in the table. The server-built GeoParquet export lives on the
+// layer detail page's export menu.
+import { exportFeatures, type ClientExportFormat } from '@/lib/layer-export';
 import { exportBundle } from '@/lib/bundle-export';
 import type {
   FeatureField,
@@ -1899,7 +1902,7 @@ function AttrTableExportMenu({
     }
   }
 
-  function run(format: ExportFormat, onlySelection: boolean): void {
+  function run(format: ClientExportFormat, onlySelection: boolean): void {
     setOpen(false);
     const source = onlySelection
       ? features.filter((_, i) => activeSelection.has(featureKeyAt(i)))
@@ -2018,7 +2021,7 @@ function AttrTableExportMenu({
                   }}
                   className="block w-full px-3 py-1.5 text-left hover:bg-surface-2"
                 >
-                  Bundle (.zip) — Excel + related + attachments
+                  Bundle (.zip): Excel + related + attachments
                 </button>
               </>
             ) : null}

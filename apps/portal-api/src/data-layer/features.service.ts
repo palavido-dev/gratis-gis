@@ -151,6 +151,54 @@ export class DataLayerFeaturesService {
     return result;
   }
 
+  /** Keyset-paginated read of EVERY current-state feature in a
+   *  layer (#174 GeoParquet export). Same filter semantics as
+   *  listFeatures but no result cap: listFeatures buffers and
+   *  silently truncates at its 100k default, which would corrupt a
+   *  whole-layer export. Pages come from the engine's cursor walk
+   *  on the stable entity key; see
+   *  `DataLayerEngine.iterateFeatures` for the no-drop /
+   *  no-duplicate argument. */
+  async *iterateFeatures(
+    itemId: string,
+    layerId: string,
+    opts: {
+      bbox?: [number, number, number, number];
+      at?: string;
+      geoLimit?: unknown;
+      boundaryClip?: unknown;
+      ownRowsOnly?: { userId: string };
+      isTable?: boolean;
+      parentFkFilter?: { column: string; parentId: string };
+      timeFilter?: { column: string; from?: string; to?: string };
+    } = {},
+    pageSize?: number,
+  ): AsyncGenerator<DataLayerFeatureOut[], void, undefined> {
+    yield* this.dataLayer.iterateFeatures({
+      itemId,
+      layerId,
+      ...(opts.at !== undefined ? { asOf: new Date(opts.at) } : {}),
+      ...(opts.bbox !== undefined ? { bbox: opts.bbox } : {}),
+      ...(opts.geoLimit !== undefined
+        ? { geoLimit: opts.geoLimit as GeoJsonGeometry }
+        : {}),
+      ...(opts.boundaryClip !== undefined
+        ? { boundaryClip: opts.boundaryClip as GeoJsonGeometry }
+        : {}),
+      ...(opts.ownRowsOnly !== undefined
+        ? { ownRowsOnly: opts.ownRowsOnly }
+        : {}),
+      ...(opts.parentFkFilter !== undefined
+        ? { parentFkFilter: opts.parentFkFilter }
+        : {}),
+      ...(opts.timeFilter !== undefined
+        ? { timeFilter: opts.timeFilter }
+        : {}),
+      ...(opts.isTable === true ? { isTable: true } : {}),
+      ...(pageSize !== undefined ? { pageSize } : {}),
+    });
+  }
+
   /** Bulk-insert features. Optional client-supplied `globalId` is
    *  passed through as the entity id (idempotency for retried POSTs).
    *  Routes the batch through `DataLayerEngine.writeFeaturesCreate`,

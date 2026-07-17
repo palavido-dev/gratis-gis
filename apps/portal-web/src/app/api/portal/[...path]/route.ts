@@ -15,40 +15,45 @@ import { authOptions, type SessionWithToken } from '@/lib/auth';
 const API_BASE = process.env.PORTAL_API_URL ?? 'http://localhost:4000';
 
 /**
- * Long-running upstream dispatcher for ingest + per-layer import
- * routes. Default undici fetch() caps the response-headers wait at
- * 30 s, which is plenty for an admin click but nowhere near long
- * enough for a county-scale parcel ingest where GDAL parse + bulk
- * insert can run for several minutes. We use a dedicated Agent so
- * normal API calls keep their tight defaults: only requests routed
- * here get the loosened budget.
+ * Long-running upstream dispatcher for ingest, per-layer import,
+ * and whole-layer export routes. Default undici fetch() caps the
+ * response-headers wait at 30 s, which is plenty for an admin click
+ * but nowhere near long enough for a county-scale parcel ingest
+ * (GDAL parse + bulk insert) or a GeoParquet export of the same
+ * layer (the api walks every feature before the first response
+ * byte). We use a dedicated Agent so normal API calls keep their
+ * tight defaults: only requests routed here get the loosened
+ * budget.
  *
- * Both the import AND the constructor are deferred to first ingest
- * hit. A static `import { Agent } from 'undici'` loads undici's
- * Agent module at evaluation time, and that module body references
- * `util.markAsUncloneable`, a Node 22+ builtin that doesn't exist on
- * the older Node our build container runs. Next.js's "Collect page
- * data" phase evaluates every route module, so the build crashed
- * even though we never instantiated the Agent. Dynamic import keeps
- * undici entirely out of build-time evaluation.
+ * Both the import AND the constructor are deferred to the first
+ * matching hit. A static `import { Agent } from 'undici'` loads
+ * undici's Agent module at evaluation time, and that module body
+ * references `util.markAsUncloneable`, a Node 22+ builtin that
+ * doesn't exist on the older Node our build container runs.
+ * Next.js's "Collect page data" phase evaluates every route module,
+ * so the build crashed even though we never instantiated the Agent.
+ * Dynamic import keeps undici entirely out of build-time
+ * evaluation.
  */
-let _ingestAgent: unknown = null;
-async function getIngestAgent(): Promise<unknown> {
-  if (!_ingestAgent) {
+let _longRunningAgent: unknown = null;
+async function getLongRunningAgent(): Promise<unknown> {
+  if (!_longRunningAgent) {
     const { Agent } = await import('undici');
-    _ingestAgent = new Agent({
+    _longRunningAgent = new Agent({
       headersTimeout: 15 * 60 * 1000,
       bodyTimeout: 15 * 60 * 1000,
       connectTimeout: 30 * 1000,
     });
   }
-  return _ingestAgent;
+  return _longRunningAgent;
 }
 
-/** Match v3 per-layer ingest, v2 ingest, and the wizard probe path.
- *  Conservative: only widens for endpoints we know can take minutes. */
-function isLongRunningIngestPath(suffix: string): boolean {
+/** Match v3 per-layer ingest, v2 ingest, the wizard probe path, and
+ *  the per-layer GeoParquet export. Conservative: only widens for
+ *  endpoints we know can take minutes. */
+function isLongRunningPath(suffix: string): boolean {
   return (/^items\/[^/]+\/layers\/[^/]+\/import$/.test(suffix) ||
+  /^items\/[^/]+\/layers\/[^/]+\/geoparquet$/.test(suffix) ||
   /^items\/[^/]+\/ingest$/.test(suffix) || suffix === 'ingest/probe');
 }
 
@@ -323,11 +328,12 @@ async function forward(req: NextRequest, pathSegments: string[]) {
   // serialises behind the previous one's still-running query.
   init.signal = req.signal;
 
-  // Long-running ingest endpoints get a custom dispatcher with 15 min
-  // headers + body timeouts. Everything else falls through to the
-  // built-in 30 s defaults so a misbehaving upstream still fails fast.
-  if (isLongRunningIngestPath(suffix)) {
-    init.dispatcher = await getIngestAgent();
+  // Long-running ingest / export endpoints get a custom dispatcher
+  // with 15 min headers + body timeouts. Everything else falls
+  // through to the built-in 30 s defaults so a misbehaving upstream
+  // still fails fast.
+  if (isLongRunningPath(suffix)) {
+    init.dispatcher = await getLongRunningAgent();
   }
 
   const upstream = await fetch(target, init);
@@ -388,6 +394,17 @@ async function forward(req: NextRequest, pathSegments: string[]) {
       // cache doesn't try to coalesce the chunks.
       ...(upstream.headers.get('cache-control')
         ? { 'cache-control': upstream.headers.get('cache-control')! }
+        : {}),
+      // Download endpoints (layer CSV / GeoParquet exports) mark
+      // themselves `attachment; filename=...`; without forwarding
+      // this the browser loses the server-chosen filename and
+      // save-as behavior.
+      ...(upstream.headers.get('content-disposition')
+        ? {
+            'content-disposition': upstream.headers.get(
+              'content-disposition',
+            )!,
+          }
         : {}),
     },
   });

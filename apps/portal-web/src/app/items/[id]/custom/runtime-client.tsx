@@ -90,7 +90,10 @@ import { customBasemapToData } from '@/lib/custom-basemap';
 import {
   exportFeatures,
   type ExportFeature,
-  type ExportFormat,
+  // Client-side formats only: the Export widget + tool action build
+  // files from features already in the browser. GeoParquet (the one
+  // server-side format) is not offered on these surfaces.
+  type ClientExportFormat,
 } from '@/lib/layer-export';
 import { BasemapPreview } from '@/components/basemap-preview';
 import type { SelectToolMode } from '../map/select-tool';
@@ -1710,7 +1713,7 @@ function LayerListWidgetRender({ widget }: { widget: CustomWidget }) {
   // / arcgis-rest sources would need a fetch path that we can add
   // when needed.
   const onExportLayer = useCallback(
-    (layer: MapLayer, format: ExportFormat) => {
+    (layer: MapLayer, format: ClientExportFormat) => {
       if (layer.source.kind !== 'geojson-inline') return;
       const fc = layer.source.geojson as GeoJSON.FeatureCollection | null;
       if (!fc || !Array.isArray(fc.features)) return;
@@ -2015,7 +2018,7 @@ function LayerListRow({
   /** #145: kebab-menu action handlers. All session-scoped. */
   onZoomToLayer: (layer: MapLayer) => void;
   onRemoveLayer: (id: string) => void;
-  onExportLayer: (layer: MapLayer, format: ExportFormat) => void;
+  onExportLayer: (layer: MapLayer, format: ClientExportFormat) => void;
   onPatchLayerStyle: (id: string, style: MapLayerStyle) => void;
 }) {
   const isGroup = layer.source.kind === 'group';
@@ -2131,7 +2134,7 @@ function LayerRowKebabMenu({
   layer: MapLayer;
   onZoomToLayer: (layer: MapLayer) => void;
   onRemoveLayer: (id: string) => void;
-  onExportLayer: (layer: MapLayer, format: ExportFormat) => void;
+  onExportLayer: (layer: MapLayer, format: ClientExportFormat) => void;
   onPatchLayerStyle: (id: string, style: MapLayerStyle) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -3262,7 +3265,7 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
   const [targetIndex, setTargetIndex] = useState<number>(
     cfg.defaultTargetIndex ?? 0,
   );
-  const [format, setFormat] = useState<ExportFormat>(cfg.defaultFormat ?? 'xlsx');
+  const [format, setFormat] = useState<ClientExportFormat>(cfg.defaultFormat ?? 'xlsx');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -4974,7 +4977,7 @@ function OsmAttributionChip({
             rel="noopener noreferrer"
             className="rounded-md border border-accent/40 bg-accent/10 px-2 text-2xs font-medium text-accent hover:bg-accent/20"
           >
-            Saved — open layer
+            Saved. Open layer
           </a>
         ) : null}
         {saveState.kind === 'error' ? (

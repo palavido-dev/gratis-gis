@@ -4,9 +4,11 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Headers,
   HttpCode,
+  InternalServerErrorException,
   NotFoundException,
   Param,
   Patch,
@@ -16,6 +18,11 @@ import {
   Res,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { createReadStream } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pipeline } from 'node:stream/promises';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   ArrayMaxSize,
@@ -50,6 +57,8 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { DataLayerFeaturesService } from './features.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { featuresToCsv } from './csv-export.js';
+import { writeGeoParquetExport } from './geoparquet-export.js';
+import { DuckDbUnavailableError } from '../ingest/parquet-reader.js';
 
 class AppendFeatureDto {
   @IsOptional() @IsString() globalId?: string;
@@ -139,13 +148,16 @@ export class DataLayerFeaturesController {
     @Query('timeFrom') timeFrom?: string,
     @Query('timeTo') timeTo?: string,
   ) {
-    const { geoLimit, rowScope, isTable, layer } = await this.assertV3Layer(
-      user,
-      itemId,
-      layerId,
-      'read',
-    );
-    const opts: {
+    const { opts } = await this.buildScopedReadOpts(user, itemId, layerId, {
+      bbox,
+      clip,
+      parentFk,
+      parentId,
+      timeField,
+      timeFrom,
+      timeTo,
+    });
+    const fullOpts: {
       bbox?: [number, number, number, number];
       at?: string;
       geoLimit?: unknown;
@@ -155,16 +167,73 @@ export class DataLayerFeaturesController {
       parentFkFilter?: { column: string; parentId: string };
       timeFilter?: { column: string; from?: string; to?: string };
       entity?: string;
+    } = { ...opts };
+    if (at) fullOpts.at = at;
+    if (entity) fullOpts.entity = entity;
+    return this.v3.listFeatures(itemId, layerId, fullOpts);
+  }
+
+  /**
+   * Resolve the sharing-scoped read options every feature read on
+   * this controller applies: bbox parse, per-share geo limit,
+   * layer-level boundary clip, own-rows scope, and the validated
+   * parent-FK / time-window filters. Extracted from listFeatures so
+   * the GeoParquet export iterates under EXACTLY the same scoping
+   * as the buffered reads; a filter added here reaches both.
+   *
+   * Also surfaces the asserted item so callers that need a further
+   * permission check (the export's canDownload gate) reuse the row
+   * the visibility check already fetched.
+   */
+  private async buildScopedReadOpts(
+    user: AuthUser,
+    itemId: string,
+    layerId: string,
+    q: {
+      bbox: string | undefined;
+      clip: string | undefined;
+      parentFk: string | undefined;
+      parentId: string | undefined;
+      timeField: string | undefined;
+      timeFrom: string | undefined;
+      timeTo: string | undefined;
+    },
+  ): Promise<{
+    opts: {
+      bbox?: [number, number, number, number];
+      geoLimit?: unknown;
+      boundaryClip?: unknown;
+      ownRowsOnly?: { userId: string };
+      isTable?: boolean;
+      parentFkFilter?: { column: string; parentId: string };
+      timeFilter?: { column: string; from?: string; to?: string };
+    };
+    isTable: boolean;
+    layer: {
+      id: string;
+      fields?: Array<{ name: string }>;
+      parentFkColumn?: string;
+    };
+    item: Awaited<ReturnType<ItemsService['get']>>;
+  }> {
+    const { geoLimit, rowScope, isTable, layer, item } =
+      await this.assertV3Layer(user, itemId, layerId, 'read');
+    const opts: {
+      bbox?: [number, number, number, number];
+      geoLimit?: unknown;
+      boundaryClip?: unknown;
+      ownRowsOnly?: { userId: string };
+      isTable?: boolean;
+      parentFkFilter?: { column: string; parentId: string };
+      timeFilter?: { column: string; from?: string; to?: string };
     } = {};
     if (isTable) opts.isTable = true;
-    if (entity) opts.entity = entity;
-    if (bbox) {
-      const parts = bbox.split(',').map(Number);
+    if (q.bbox) {
+      const parts = q.bbox.split(',').map(Number);
       if (parts.length === 4 && parts.every((n) => !isNaN(n))) {
         opts.bbox = [parts[0]!, parts[1]!, parts[2]!, parts[3]!];
       }
     }
-    if (at) opts.at = at;
     if (geoLimit) opts.geoLimit = geoLimit;
     // Layer-level boundary clip (#34). Resolves the geo_boundary
     // item id supplied by the client to its geometry. We bypass
@@ -175,8 +244,8 @@ export class DataLayerFeaturesController {
     // directly. Missing / wrong-type / no-geometry boundary is
     // treated as "no clip" so a deleted boundary cannot silently
     // expand or shrink the result set in unexpected ways.
-    if (clip) {
-      const geom = await this.resolveBoundaryGeometry(clip);
+    if (q.clip) {
+      const geom = await this.resolveBoundaryGeometry(q.clip);
       if (geom) opts.boundaryClip = geom;
     }
     if (rowScope === 'own') opts.ownRowsOnly = { userId: user.id };
@@ -194,21 +263,21 @@ export class DataLayerFeaturesController {
     //      the field runtime show every related row under every
     //      parent (#268).
     // parentId is parameterized so any string is fine.
-    if (parentFk && parentId) {
-      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(parentFk)) {
+    if (q.parentFk && q.parentId) {
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(q.parentFk)) {
         // Silently drop malformed identifiers rather than 400ing the
         // request -- the runtime might fall back to "show no related
         // rows" gracefully and the worker can still tap Add. Logging
         // this would also be reasonable; for now the silent drop
         // matches how a missing geo_boundary clip is handled above.
       } else if (
-        !schemaHasField(layer, parentFk) &&
-        !layerHasParentFk(layer, parentFk)
+        !schemaHasField(layer, q.parentFk) &&
+        !layerHasParentFk(layer, q.parentFk)
       ) {
         // Column not on this layer's schema -- same silent-drop
         // rationale as the regex case.
       } else {
-        opts.parentFkFilter = { column: parentFk, parentId };
+        opts.parentFkFilter = { column: q.parentFk, parentId: q.parentId };
       }
     }
     // #58: time-attribute window filter. Validate the column the
@@ -217,31 +286,33 @@ export class DataLayerFeaturesController {
     // to be omitted (open-ended window). Empty strings degrade to
     // "not set" so a slider that hasn't dragged its handle yet
     // doesn't accidentally constrain the result.
-    if (timeField) {
-      const safeFrom = typeof timeFrom === 'string' && timeFrom.length > 0
-        ? timeFrom
-        : undefined;
-      const safeTo = typeof timeTo === 'string' && timeTo.length > 0
-        ? timeTo
-        : undefined;
+    if (q.timeField) {
+      const safeFrom =
+        typeof q.timeFrom === 'string' && q.timeFrom.length > 0
+          ? q.timeFrom
+          : undefined;
+      const safeTo =
+        typeof q.timeTo === 'string' && q.timeTo.length > 0
+          ? q.timeTo
+          : undefined;
       const haveBound = safeFrom !== undefined || safeTo !== undefined;
       if (haveBound) {
-        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(timeField)) {
+        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(q.timeField)) {
           // Silently drop. Same rationale as the parentFk path:
           // the runtime should fall back to "no filter" rather
           // than 400ing a request from a slider widget.
-        } else if (!schemaHasField(layer, timeField)) {
+        } else if (!schemaHasField(layer, q.timeField)) {
           // Field not on this layer; drop.
         } else {
           opts.timeFilter = {
-            column: timeField,
+            column: q.timeField,
             ...(safeFrom !== undefined ? { from: safeFrom } : {}),
             ...(safeTo !== undefined ? { to: safeTo } : {}),
           };
         }
       }
     }
-    return this.v3.listFeatures(itemId, layerId, opts);
+    return { opts, isTable, layer, item };
   }
 
   /**
@@ -693,6 +764,134 @@ export class DataLayerFeaturesController {
   }
 
   /**
+   * GeoParquet export of a single layer (#174, export side).
+   *
+   * Same read scoping as /csv and /geojson (share geo limits,
+   * boundary clip, own-rows scope, bbox / at / parentFk params) but
+   * with one gate the older exports never had: the caller must hold
+   * the DOWNLOAD tier, not just read. SharingService.canDownload
+   * has described that tier since #32 and the item payload has
+   * surfaced it to clients, yet no endpoint enforced it until now;
+   * this route is deliberately the first. The csv / geojson routes
+   * keep their historical read-only gating: retrofitting them is a
+   * behavior change for existing integrations and is raised
+   * separately rather than smuggled in here.
+   *
+   * Unlike /csv this endpoint does NOT buffer the layer through
+   * listFeatures (whose 100k default cap silently truncates big
+   * layers). It walks the engine's keyset iterator so every current
+   * feature lands in the file, streams the rows into DuckDB, and
+   * COPYs to parquet with the spatial extension loaded, which
+   * writes real GeoParquet `geo` metadata. Table-mode sublayers
+   * export as plain parquet (attributes only), mirroring the CSV
+   * geometry omission.
+   *
+   * The file is staged under a mkdtemp dir (cleaned in finally) and
+   * streamed to the response with a Content-Disposition attachment
+   * name derived from the item title + layer name.
+   */
+  @Get('geoparquet')
+  async geoparquet(
+    @Res() res: Response,
+    @CurrentUser() user: AuthUser,
+    @Param('id') itemId: string,
+    @Param('layerId') layerId: string,
+    @Query('bbox') bbox?: string,
+    @Query('at') at?: string,
+    @Query('clip') clip?: string,
+    @Query('parentFk') parentFk?: string,
+    @Query('parentId') parentId?: string,
+  ) {
+    const { opts, isTable, layer, item } = await this.buildScopedReadOpts(
+      user,
+      itemId,
+      layerId,
+      {
+        bbox,
+        clip,
+        parentFk,
+        parentId,
+        timeField: undefined,
+        timeFrom: undefined,
+        timeTo: undefined,
+      },
+    );
+
+    // Download-tier gate (#32): bulk extract requires more than
+    // view. Owners, org admins, and public / org items pass (same
+    // scope as canRead there); an explicit share must carry the
+    // download, edit, or admin permission. 403, not 404: the caller
+    // already proved they can read the item, so existence is not a
+    // secret.
+    const withShares = item as typeof item & { shares?: ItemShare[] };
+    if (!this.sharing.canDownload(user, item, withShares.shares ?? [])) {
+      throw new ForbiddenException(
+        'This layer is shared with you as view only. Downloading the data requires a share with download permission.',
+      );
+    }
+
+    const iterOpts: {
+      bbox?: [number, number, number, number];
+      at?: string;
+      geoLimit?: unknown;
+      boundaryClip?: unknown;
+      ownRowsOnly?: { userId: string };
+      isTable?: boolean;
+      parentFkFilter?: { column: string; parentId: string };
+      timeFilter?: { column: string; from?: string; to?: string };
+    } = { ...opts };
+    if (at) iterOpts.at = at;
+
+    const fields: FeatureField[] = (layer?.fields ?? []) as FeatureField[];
+
+    // mkdtemp: atomic + 0700, same rationale as the ingest temp
+    // dirs (CodeQL js/insecure-temporary-file).
+    const workDir = await mkdtemp(join(tmpdir(), 'gg-export-'));
+    try {
+      let result: { path: string; rows: number };
+      try {
+        result = await writeGeoParquetExport({
+          workDir,
+          fields,
+          includeGeometry: !isTable,
+          batches: this.v3.iterateFeatures(itemId, layerId, iterOpts),
+        });
+      } catch (err) {
+        // Same mapping IngestService applies on the import side: a
+        // missing binding / extension is an operator problem, not a
+        // request problem.
+        if (err instanceof DuckDbUnavailableError) {
+          throw new InternalServerErrorException(err.message);
+        }
+        throw err;
+      }
+
+      const filenameStem = exportFilenameStem(item, layerId);
+      // application/vnd.apache.parquet is the IANA-registered type;
+      // the BFF forwards Content-Type and (as of this change)
+      // Content-Disposition verbatim, so the browser sees both.
+      res.setHeader('content-type', 'application/vnd.apache.parquet');
+      res.setHeader(
+        'content-disposition',
+        `attachment; filename="${filenameStem}.parquet"`,
+      );
+      try {
+        await pipeline(createReadStream(result.path), res);
+      } catch {
+        // Headers are already gone once streaming starts, so a
+        // client abort / socket error cannot become an HTTP error
+        // response. pipeline() has destroyed both streams; the
+        // finally below still removes the temp dir.
+      }
+    } finally {
+      await rm(workDir, { recursive: true, force: true }).catch(() => {
+        // Best-effort cleanup; a leaked temp dir is not worth
+        // failing the response over.
+      });
+    }
+  }
+
+  /**
    * Look up a geo_boundary item by id and return its geometry. Used
    * by the layer-level clip path (#34). Bypasses per-user authz
    * because the clip is layer-content scope, not access (see the
@@ -1136,6 +1335,13 @@ export class DataLayerFeaturesController {
       fields?: Array<{ name: string }>;
       parentFkColumn?: string;
     };
+    /**
+     * The asserted item row, shares included, exactly as the
+     * visibility check fetched it. Surfaced so follow-up permission
+     * decisions (the GeoParquet export's canDownload gate) evaluate
+     * against the same snapshot without a second lookup.
+     */
+    item: Awaited<ReturnType<ItemsService['get']>>;
   }> {
     const item = await this.items.get(user, itemId);
     if (item.type !== 'data_layer') {
@@ -1205,8 +1411,37 @@ export class DataLayerFeaturesController {
     // missing its geometryType field would silently lose geometry
     // otherwise.
     const isTable = layer.geometryType === null;
-    return { geoLimit, rowScope, isTable, layer };
+    return { geoLimit, rowScope, isTable, layer, item };
   }
+}
+
+/**
+ * Attachment filename stem for the GeoParquet export: item title +
+ * layer label (or name), sanitized to header-safe ASCII. The CSV
+ * route predates assertV3Layer surfacing the item and falls back to
+ * the layer id; here we have the real title, so use it. Underscore
+ * runs collapse and the stem is length-capped so a florid title
+ * cannot produce an unwieldy or header-breaking filename.
+ */
+function exportFilenameStem(
+  item: { title: string; data: unknown },
+  layerId: string,
+): string {
+  const layers =
+    (item.data as {
+      layers?: Array<{ id: string; name?: string; label?: string }>;
+    } | null)?.layers ?? [];
+  const layerMeta = layers.find((l) => l.id === layerId);
+  const layerPart = layerMeta?.label || layerMeta?.name || layerId;
+  const stem = `${item.title}_${layerPart}`
+    // \w without the unicode flag is [A-Za-z0-9_]: everything else
+    // (spaces, quotes, accents, path separators) collapses to _,
+    // which keeps the Content-Disposition value trivially safe.
+    .replace(/[^\w.-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 120);
+  return stem.length > 0 ? stem : 'layer';
 }
 
 /**

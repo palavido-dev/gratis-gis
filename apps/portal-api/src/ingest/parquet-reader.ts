@@ -104,8 +104,13 @@ type DuckDBValue = import('@duckdb/node-api').DuckDBValue;
  * defers gdal-async: an eager import would crash portal-api boot on
  * any platform whose prebuild is missing, and non-Parquet ingest
  * must keep working there.
+ *
+ * Exported so the GeoParquet export side (data-layer/geoparquet-
+ * export.ts) can reach value-level module exports (timestampTZValue
+ * and friends) without taking its own eager import and breaking the
+ * lazy-load contract.
  */
-async function loadDuckDb(): Promise<DuckDbModule> {
+export async function loadDuckDb(): Promise<DuckDbModule> {
   try {
     const mod = await import('@duckdb/node-api');
     return mod;
@@ -123,12 +128,24 @@ async function loadDuckDb(): Promise<DuckDbModule> {
  * operation keeps failure domains small (a poisoned connection can
  * not leak into the next import) at a few milliseconds of setup cost,
  * which is noise next to reading a real file.
+ *
+ * Exported (with escapeSqlLiteral / quoteIdent below) so the export
+ * path shares one lifecycle + extension-provisioning implementation
+ * instead of growing a drift-prone copy.
+ *
+ * `opts.dbPath` swaps the `:memory:` instance for a file-backed
+ * database. Readers never need it, but the GeoParquet export
+ * stages every row in a table before COPY; on-disk staging lets
+ * DuckDB page that table out under the memory cap, so exports
+ * larger than DUCKDB_MAX_MEMORY still complete. The caller owns
+ * the file's directory lifecycle (temp dir + cleanup).
  */
-async function withSpatialConnection<T>(
-  fn: (connection: DuckDBConnection) => Promise<T>,
+export async function withSpatialConnection<T>(
+  fn: (connection: DuckDBConnection, duckdb: DuckDbModule) => Promise<T>,
+  opts: { dbPath?: string } = {},
 ): Promise<T> {
   const duckdb = await loadDuckDb();
-  const instance = await duckdb.DuckDBInstance.create(':memory:', {
+  const instance = await duckdb.DuckDBInstance.create(opts.dbPath ?? ':memory:', {
     max_memory: DUCKDB_MAX_MEMORY,
   });
   const connection = await instance.connect();
@@ -151,7 +168,10 @@ async function withSpatialConnection<T>(
         `DuckDB spatial extension could not be loaded: ${msg}`,
       );
     }
-    return await fn(connection);
+    // The loaded module rides along so callbacks can reach value
+    // classes (instanceof checks in duckValueToJson) and value
+    // factories without a second dynamic import.
+    return await fn(connection, duckdb);
   } finally {
     connection.closeSync();
     instance.closeSync();
@@ -532,7 +552,7 @@ export async function streamParquetFromPath(
   if (sourceLayer !== undefined && sourceLayer !== layerName) {
     throw new ParquetUserError(`File has no layer named "${sourceLayer}".`);
   }
-  return withSpatialConnection(async (connection) => {
+  return withSpatialConnection(async (connection, duckdb) => {
     const source = await describeSource(connection, filePath);
     const total = await countRows(connection, filePath);
 
@@ -568,7 +588,7 @@ export async function streamParquetFromPath(
         for (let i = 0; i < source.propertyColumns.length; i += 1) {
           const column = source.propertyColumns[i];
           if (!column) continue;
-          properties[column.name] = duckValueToJson(row[i + 1] ?? null);
+          properties[column.name] = duckValueToJson(row[i + 1] ?? null, duckdb);
         }
         batch.push({ geometry: JSON.parse(geoJsonText), properties });
         if (batch.length >= batchSize) {
@@ -686,8 +706,17 @@ function isGeometryType(t: string): boolean {
  * when it fits a JS number), temporal values become their canonical
  * string forms (same as GDAL's string dates), blobs become base64,
  * and nested types fall back to their DuckDB text rendering.
+ *
+ * TIMESTAMPTZ is the one temporal type that must NOT go through
+ * String(value): the binding renders it in the session time zone,
+ * so the same file would import different attribute strings on
+ * hosts in different time zones. We convert its epoch micros to
+ * ISO-8601 UTC ourselves, which is deterministic everywhere and
+ * matches the app's stored date contract. Naive TIMESTAMP and DATE
+ * have no zone to shift through, so their text forms are already
+ * deterministic.
  */
-function duckValueToJson(value: DuckDBValue): unknown {
+function duckValueToJson(value: DuckDBValue, duckdb: DuckDbModule): unknown {
   if (value === null || value === undefined) return null;
   switch (typeof value) {
     case 'string':
@@ -699,6 +728,9 @@ function duckValueToJson(value: DuckDBValue): unknown {
       return Number.isSafeInteger(asNumber) ? asNumber : value.toString();
     }
     case 'object': {
+      if (value instanceof duckdb.DuckDBTimestampTZValue) {
+        return timestampTzMicrosToIso(value.micros);
+      }
       const wrapped = value as {
         toDouble?: () => number;
         bytes?: unknown;
@@ -714,10 +746,29 @@ function duckValueToJson(value: DuckDBValue): unknown {
   }
 }
 
-function escapeSqlLiteral(s: string): string {
+/**
+ * Epoch microseconds to ISO-8601 UTC. Sub-millisecond digits are
+ * appended when present so a microsecond-precision source column
+ * loses nothing; floor division keeps pre-1970 instants correct
+ * (bigint / truncates toward zero, which would pair a too-high
+ * millisecond with a negative remainder).
+ */
+function timestampTzMicrosToIso(micros: bigint): string {
+  let ms = micros / 1000n;
+  let subMsMicros = micros % 1000n;
+  if (subMsMicros < 0n) {
+    subMsMicros += 1000n;
+    ms -= 1n;
+  }
+  const iso = new Date(Number(ms)).toISOString();
+  if (subMsMicros === 0n) return iso;
+  return iso.replace('Z', `${subMsMicros.toString().padStart(3, '0')}Z`);
+}
+
+export function escapeSqlLiteral(s: string): string {
   return s.replace(/'/g, "''");
 }
 
-function quoteIdent(name: string): string {
+export function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }

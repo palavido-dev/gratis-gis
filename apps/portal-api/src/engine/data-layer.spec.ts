@@ -5,6 +5,7 @@ import {
   DataLayerEngine,
   dataLayerScope,
   type CreateFeatureArgs,
+  type DataLayerFeature,
   type DeleteFeatureArgs,
   type UpdateFeatureArgs,
 } from './data-layer.js';
@@ -661,6 +662,219 @@ describe('DataLayerEngine.listFeatures', () => {
       expect(seenAttrs[0]?.cost).toBe(99);
       expect(seenAttrs[0]?.classification).toBe('A');
       expect(seenAttrs[0]?._global_id).toBe(e1);
+    });
+  });
+});
+
+describe('DataLayerEngine.iterateFeatures', () => {
+  // Fixed, readable, ascending entity ids so cursor assertions are
+  // eyeball-able. The fake prisma doesn't order anything; the SQL
+  // does in production, and the JS walk only relies on "last row of
+  // the page is the page maximum," which these uphold.
+  const E = [
+    '00000000-0000-7000-8000-00000000000a',
+    '00000000-0000-7000-8000-00000000000b',
+    '00000000-0000-7000-8000-00000000000c',
+    '00000000-0000-7000-8000-00000000000d',
+    '00000000-0000-7000-8000-00000000000e',
+  ] as const;
+
+  type FakeIterRow = FakeFeatureRow & { kind: string };
+
+  function iterRow(
+    entity: string,
+    overrides: Partial<FakeIterRow> = {},
+  ): FakeIterRow {
+    return {
+      entity,
+      observation_id: uuidv7(),
+      attrs: { name: `feature-${entity.slice(-1)}` },
+      geom_geojson: { type: 'Point', coordinates: [-79.85, 38.92] },
+      edited_by: 'editor-user',
+      edited_at: new Date('2026-04-01T00:00:00Z'),
+      created_by: 'creator-user',
+      created_at: new Date('2026-01-01T00:00:00Z'),
+      kind: 'create',
+      ...overrides,
+    };
+  }
+
+  /**
+   * Scripted fake: each $queryRaw call consumes the next page and
+   * records the tagged-template arguments so tests can assert the
+   * keyset cursor actually reached the SQL. Off-script calls get an
+   * empty page, which the iterator treats as end-of-data.
+   */
+  function makeScriptedPrisma(pages: FakeIterRow[][]) {
+    const calls: Array<{ values: unknown[] }> = [];
+    let next = 0;
+    return {
+      calls,
+      fake: {
+        async $queryRaw(_strings: TemplateStringsArray, ...values: unknown[]) {
+          calls.push({ values });
+          const page = pages[next] ?? [];
+          next += 1;
+          return page;
+        },
+      } as unknown as PrismaService,
+    };
+  }
+
+  /** Recursively unwrap nested Prisma.Sql fragments down to their
+   *  bound primitives, so a cursor bound inside the `AND entity >
+   *  ${cursor}::uuid` sub-fragment is visible to assertions. */
+  function flattenBoundValues(values: unknown[]): unknown[] {
+    const out: unknown[] = [];
+    for (const v of values) {
+      if (
+        v !== null &&
+        typeof v === 'object' &&
+        'strings' in v &&
+        'values' in v
+      ) {
+        out.push(...flattenBoundValues((v as { values: unknown[] }).values));
+      } else {
+        out.push(v);
+      }
+    }
+    return out;
+  }
+
+  function makeAdapter(prisma: PrismaService): DataLayerEngine {
+    return new DataLayerEngine(
+      makeFakeEngine().fake,
+      prisma,
+      makeFakeLensPolicy(),
+      makeTileCache(),
+    );
+  }
+
+  async function collect(
+    gen: AsyncGenerator<
+      Array<{ id: string }>,
+      void,
+      undefined
+    >,
+  ): Promise<string[]> {
+    const ids: string[] = [];
+    for await (const batch of gen) {
+      ids.push(...batch.map((f) => f.id));
+    }
+    return ids;
+  }
+
+  it('crosses page boundaries without dropping or duplicating rows', async () => {
+    const prisma = makeScriptedPrisma([
+      [iterRow(E[0]), iterRow(E[1])],
+      [iterRow(E[2]), iterRow(E[3])],
+      [iterRow(E[4])], // short page = end of data
+    ]);
+    const adapter = makeAdapter(prisma.fake);
+
+    const ids = await collect(
+      adapter.iterateFeatures({
+        itemId: ITEM_ID,
+        layerId: LAYER_ID,
+        pageSize: 2,
+      }),
+    );
+
+    // Every scripted entity exactly once, in walk order.
+    expect(ids).toEqual([E[0], E[1], E[2], E[3], E[4]]);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(prisma.calls).toHaveLength(3);
+    // Page 1 has no cursor; pages 2 and 3 must carry the previous
+    // page's last entity as the strict lower bound.
+    expect(flattenBoundValues(prisma.calls[0]!.values)).not.toContain(E[1]);
+    expect(flattenBoundValues(prisma.calls[1]!.values)).toContain(E[1]);
+    expect(flattenBoundValues(prisma.calls[2]!.values)).toContain(E[3]);
+  });
+
+  it('skips tombstones without ending the walk early', async () => {
+    // Page 2 is 100% tombstones: nothing to yield, but the cursor
+    // must still advance past it or the walk would either stop
+    // short (treating an empty yield as done) or spin forever.
+    const prisma = makeScriptedPrisma([
+      [iterRow(E[0]), iterRow(E[1], { kind: 'delete' })],
+      [
+        iterRow(E[2], { kind: 'delete' }),
+        iterRow(E[3], { kind: 'delete' }),
+      ],
+      [iterRow(E[4])],
+    ]);
+    const adapter = makeAdapter(prisma.fake);
+
+    const ids = await collect(
+      adapter.iterateFeatures({
+        itemId: ITEM_ID,
+        layerId: LAYER_ID,
+        pageSize: 2,
+      }),
+    );
+
+    expect(ids).toEqual([E[0], E[4]]);
+    expect(prisma.calls).toHaveLength(3);
+    // The all-tombstone page still moved the cursor to its last
+    // scanned entity.
+    expect(flattenBoundValues(prisma.calls[2]!.values)).toContain(E[3]);
+  });
+
+  it('stops after a short page without an extra round-trip', async () => {
+    const prisma = makeScriptedPrisma([[iterRow(E[0])]]);
+    const adapter = makeAdapter(prisma.fake);
+
+    const ids = await collect(
+      adapter.iterateFeatures({
+        itemId: ITEM_ID,
+        layerId: LAYER_ID,
+        pageSize: 2,
+      }),
+    );
+
+    expect(ids).toEqual([E[0]]);
+    expect(prisma.calls).toHaveLength(1);
+  });
+
+  it('issues one follow-up query when the final page is exactly full', async () => {
+    // A full page cannot distinguish "done" from "more"; the walk
+    // must probe once more and terminate on the empty result.
+    const prisma = makeScriptedPrisma([[iterRow(E[0]), iterRow(E[1])]]);
+    const adapter = makeAdapter(prisma.fake);
+
+    const ids = await collect(
+      adapter.iterateFeatures({
+        itemId: ITEM_ID,
+        layerId: LAYER_ID,
+        pageSize: 2,
+      }),
+    );
+
+    expect(ids).toEqual([E[0], E[1]]);
+    expect(prisma.calls).toHaveLength(2);
+  });
+
+  it('maps rows to the v3 wire shape with editor tracking', async () => {
+    const prisma = makeScriptedPrisma([[iterRow(E[0])]]);
+    const adapter = makeAdapter(prisma.fake);
+
+    const pages: DataLayerFeature[][] = [];
+    for await (const batch of adapter.iterateFeatures({
+      itemId: ITEM_ID,
+      layerId: LAYER_ID,
+      pageSize: 2,
+    })) {
+      pages.push(batch);
+    }
+    expect(pages).toHaveLength(1);
+    const feat = pages[0]![0]!;
+    expect(feat.id).toBe(E[0]);
+    expect(feat.properties._global_id).toBe(E[0]);
+    expect(feat.properties._created_by).toBe('creator-user');
+    expect(feat.properties._edited_by).toBe('editor-user');
+    expect(feat.geometry).toEqual({
+      type: 'Point',
+      coordinates: [-79.85, 38.92],
     });
   });
 });

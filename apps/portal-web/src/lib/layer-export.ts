@@ -40,7 +40,17 @@ export interface ExportFieldHint {
   label?: string;
 }
 
-export type ExportFormat = 'csv' | 'xlsx' | 'geojson';
+export type ExportFormat = 'csv' | 'xlsx' | 'geojson' | 'geoparquet';
+
+/**
+ * The subset of formats built in the browser from already-loaded
+ * features. GeoParquet is the exception: it is produced server-side
+ * (DuckDB writes the file from the FULL layer, not just the rows the
+ * table happens to have loaded) and downloaded via
+ * `exportLayerGeoParquet`, so `exportFeatures` deliberately does not
+ * accept it and the type system pushes callers to the right helper.
+ */
+export type ClientExportFormat = Exclude<ExportFormat, 'geoparquet'>;
 
 interface ExportOptions {
   /** Filename root without extension. */
@@ -296,7 +306,7 @@ export function exportFeaturesToGeoJson(
  *  fire-and-forget can still ignore the promise. */
 export function exportFeatures(
   features: ExportFeature[],
-  format: ExportFormat,
+  format: ClientExportFormat,
   opts: ExportOptions,
 ): Promise<void> {
   if (format === 'csv') {
@@ -308,4 +318,58 @@ export function exportFeatures(
     return Promise.resolve();
   }
   return exportFeaturesToXlsx(features, opts);
+}
+
+/**
+ * GeoParquet export. Server-side, unlike every other format here:
+ * the portal's /geoparquet endpoint walks the WHOLE layer (no 5k
+ * table cap) and writes a real GeoParquet file (typed columns,
+ * geometry column, `geo` metadata) via DuckDB, which a browser-side
+ * transform of the loaded rows could not produce.
+ *
+ * Throws with the server's message on failure so callers can
+ * surface it; the important case is 403 when the caller's share
+ * lacks the download permission.
+ */
+export async function exportLayerGeoParquet(args: {
+  itemId: string;
+  layerId: string;
+  /** Fallback filename root (no extension) used only when the
+   *  server's Content-Disposition is missing or unparseable. */
+  filename: string;
+}): Promise<void> {
+  const res = await fetch(
+    `/api/portal/items/${args.itemId}/layers/${args.layerId}/geoparquet`,
+  );
+  if (!res.ok) {
+    let message = `Export failed (${res.status})`;
+    try {
+      const body = (await res.json()) as { message?: string | string[] };
+      const m = Array.isArray(body.message) ? body.message[0] : body.message;
+      if (m) message = m;
+    } catch {
+      // Non-JSON error body; keep the status-based message.
+    }
+    throw new Error(message);
+  }
+  const blob = await res.blob();
+  const filename =
+    filenameFromContentDisposition(res.headers.get('content-disposition')) ??
+    `${args.filename}.parquet`;
+  downloadBlob(blob, filename);
+}
+
+/** Pull `filename="..."` (or an unquoted token) out of a
+ *  Content-Disposition header. The server sanitizes the name to
+ *  ASCII word characters, so the simple grammar below covers every
+ *  value it can actually send; anything else returns null and the
+ *  caller falls back to its own name. */
+function filenameFromContentDisposition(
+  header: string | null,
+): string | null {
+  if (!header) return null;
+  const quoted = /filename="([^"]+)"/i.exec(header);
+  if (quoted?.[1]) return quoted[1];
+  const bare = /filename=([^;\s]+)/i.exec(header);
+  return bare?.[1] ?? null;
 }

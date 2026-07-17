@@ -174,6 +174,29 @@ export interface ListFeaturesArgs {
   };
 }
 
+/**
+ * Argument bag for `iterateFeatures`, the keyset-paginated sibling of
+ * `listFeatures`. Same filters, no result cap: iteration walks the
+ * whole (filtered) layer in pages, so the 100k `limit` default that
+ * protects the buffering read path does not apply. Two members are
+ * deliberately absent:
+ *
+ *   - `entity`: a single-entity lookup has nothing to iterate;
+ *     callers that want one feature use `listFeatures`.
+ *   - `lensPolicy`: no iterating caller needs row policies yet, and
+ *     adding them later should be a conscious decision (the per-page
+ *     filter would silently change page sizes).
+ */
+export type IterateFeaturesArgs = Omit<
+  ListFeaturesArgs,
+  'limit' | 'entity' | 'lensPolicy'
+> & {
+  /** Entities fetched per page. Exposed for tests; the default keeps
+   *  per-query memory modest while bounding round-trips on big
+   *  layers. */
+  pageSize?: number;
+};
+
 export interface DataLayerFeature {
   type: 'Feature';
   /** Stable entity id. Identical to v3's `global_id`. */
@@ -185,6 +208,39 @@ export interface DataLayerFeature {
     _created_at: string;
     _edited_by: string;
     _edited_at: string;
+  };
+}
+
+/**
+ * Row shape both current-state read paths (`listFeatures`,
+ * `iterateFeatures`) select from the observation log. Hoisted to
+ * module scope so the two paths cannot drift apart.
+ */
+interface FeatureRow {
+  entity: string;
+  observation_id: string;
+  attrs: Record<string, unknown> | null;
+  geom_geojson: GeoJsonGeometry | null;
+  edited_by: string;
+  edited_at: Date;
+  created_by: string;
+  created_at: Date;
+}
+
+/** Map a log row to the v3 wire shape. Shared by both read paths. */
+function rowToFeature(row: FeatureRow): DataLayerFeature {
+  return {
+    type: 'Feature',
+    id: row.entity,
+    geometry: row.geom_geojson,
+    properties: {
+      ...(row.attrs ?? {}),
+      _global_id: row.entity,
+      _created_by: row.created_by,
+      _created_at: row.created_at.toISOString(),
+      _edited_by: row.edited_by,
+      _edited_at: row.edited_at.toISOString(),
+    },
   };
 }
 
@@ -471,100 +527,11 @@ export class DataLayerEngine {
   async listFeatures(
     args: ListFeaturesArgs,
   ): Promise<{ type: 'FeatureCollection'; features: DataLayerFeature[] }> {
-    // Bound user-supplied geometry size before it reaches PostGIS;
-    // throws GeometryTooLargeError (BadRequest at the controller).
-    validateGeoJson(args.geoLimit);
-    validateGeoJson(args.boundaryClip);
     const scope = this.scope(args.itemId, args.layerId);
     const asOf = args.asOf ?? new Date();
     const limit = args.limit ?? 100000;
 
-    const candidateFilters: Prisma.Sql[] = [];
-    const currentFilters: Prisma.Sql[] = [];
-
-    if (args.ownRowsOnly !== undefined) {
-      candidateFilters.push(
-        Prisma.sql`AND author_sub = ${args.ownRowsOnly.userId}`,
-      );
-    }
-
-    if (args.entity !== undefined) {
-      candidateFilters.push(
-        Prisma.sql`AND entity = ${args.entity}::uuid`,
-      );
-    }
-
-    if (!args.isTable) {
-      if (args.bbox !== undefined) {
-        const [w, s, e, n] = args.bbox;
-        currentFilters.push(
-          Prisma.sql`AND geom && ST_MakeEnvelope(${w}, ${s}, ${e}, ${n}, 4326)`,
-        );
-      }
-      if (args.geoLimit !== undefined) {
-        const json = JSON.stringify(args.geoLimit);
-        currentFilters.push(
-          Prisma.sql`AND (geom IS NULL OR ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
-        );
-      }
-      if (args.boundaryClip !== undefined) {
-        const json = JSON.stringify(args.boundaryClip);
-        currentFilters.push(
-          Prisma.sql`AND geom IS NOT NULL AND ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326))`,
-        );
-      }
-    }
-
-    if (args.parentFkFilter !== undefined) {
-      // Column name is caller-validated against the layer schema in
-      // the v3 controller. Quote-safe by virtue of the schema regex
-      // matching only [a-z0-9_]+; we still wrap in a JSONB key
-      // expression that uses single quotes so the column name lives
-      // inside the SQL string, not as a bound parameter (JSONB key
-      // operators do not bind via $params).
-      const col = sanitizeJsonbKey(args.parentFkFilter.column);
-      currentFilters.push(
-        Prisma.sql`AND attrs->>${col} = ${args.parentFkFilter.parentId}`,
-      );
-    }
-
-    if (args.timeFilter !== undefined) {
-      // Same sanitize / interpolation discipline as parentFkFilter:
-      // the column is validated against the layer schema upstream
-      // and the value is rendered into the SQL string via the
-      // sanitizeJsonbKey helper (PostgreSQL doesn't bind JSONB key
-      // operators through $params).
-      //
-      // The regex guard `~` filters to ISO-8601-shaped strings
-      // before the ::timestamptz cast so a single malformed row
-      // (`attrs->>field = "n/a"`) can't 500 the whole query. The
-      // pattern matches `YYYY-MM-DD` plus an optional time tail; any
-      // value that doesn't start with a date drops to NULL via the
-      // CASE expression and naturally fails the comparison.
-      const col = sanitizeJsonbKey(args.timeFilter.column);
-      const dateRe = '^[0-9]{4}-[0-9]{2}-[0-9]{2}';
-      if (args.timeFilter.from !== undefined) {
-        currentFilters.push(
-          Prisma.sql`AND (CASE WHEN attrs->>${col} ~ ${dateRe} THEN (attrs->>${col})::timestamptz END) >= ${args.timeFilter.from}::timestamptz`,
-        );
-      }
-      if (args.timeFilter.to !== undefined) {
-        currentFilters.push(
-          Prisma.sql`AND (CASE WHEN attrs->>${col} ~ ${dateRe} THEN (attrs->>${col})::timestamptz END) <= ${args.timeFilter.to}::timestamptz`,
-        );
-      }
-    }
-
-    interface FeatureRow {
-      entity: string;
-      observation_id: string;
-      attrs: Record<string, unknown> | null;
-      geom_geojson: GeoJsonGeometry | null;
-      edited_by: string;
-      edited_at: Date;
-      created_by: string;
-      created_at: Date;
-    }
+    const { candidateFilters, currentFilters } = this.buildReadFilters(args);
 
     // Prisma.join() rejects an empty array, so collapse to Prisma.empty
     // when no extra filter fragments were collected. Each fragment
@@ -685,19 +652,7 @@ export class DataLayerEngine {
       LIMIT ${limit}
     `;
 
-    const features: DataLayerFeature[] = rows.map((row) => ({
-      type: 'Feature',
-      id: row.entity,
-      geometry: row.geom_geojson,
-      properties: {
-        ...(row.attrs ?? {}),
-        _global_id: row.entity,
-        _created_by: row.created_by,
-        _created_at: row.created_at.toISOString(),
-        _edited_by: row.edited_by,
-        _edited_at: row.edited_at.toISOString(),
-      },
-    }));
+    const features: DataLayerFeature[] = rows.map(rowToFeature);
 
     // Phase D: row-level filter through LensPolicyService when the
     // caller attached a lens with policy text. The service short-
@@ -706,6 +661,264 @@ export class DataLayerEngine {
     const filtered = this.applyLensPolicy(features, args.lensPolicy);
 
     return { type: 'FeatureCollection', features: filtered };
+  }
+
+  /**
+   * Translate the caller-facing read filters into SQL fragments.
+   * Split out of `listFeatures` so `iterateFeatures` applies the
+   * exact same semantics; any new filter added here reaches both
+   * paths automatically.
+   *
+   * `candidateFilters` apply to the entity's `create` observation
+   * (ownRowsOnly must match the creator even after someone else
+   * edits the row); `currentFilters` apply to the current-state
+   * observation rows.
+   */
+  private buildReadFilters(
+    args: Pick<
+      ListFeaturesArgs,
+      | 'ownRowsOnly'
+      | 'entity'
+      | 'isTable'
+      | 'bbox'
+      | 'geoLimit'
+      | 'boundaryClip'
+      | 'parentFkFilter'
+      | 'timeFilter'
+    >,
+  ): { candidateFilters: Prisma.Sql[]; currentFilters: Prisma.Sql[] } {
+    // Bound user-supplied geometry size before it reaches PostGIS;
+    // throws GeometryTooLargeError (BadRequest at the controller).
+    validateGeoJson(args.geoLimit);
+    validateGeoJson(args.boundaryClip);
+
+    const candidateFilters: Prisma.Sql[] = [];
+    const currentFilters: Prisma.Sql[] = [];
+
+    if (args.ownRowsOnly !== undefined) {
+      candidateFilters.push(
+        Prisma.sql`AND author_sub = ${args.ownRowsOnly.userId}`,
+      );
+    }
+
+    if (args.entity !== undefined) {
+      candidateFilters.push(
+        Prisma.sql`AND entity = ${args.entity}::uuid`,
+      );
+    }
+
+    if (!args.isTable) {
+      if (args.bbox !== undefined) {
+        const [w, s, e, n] = args.bbox;
+        currentFilters.push(
+          Prisma.sql`AND geom && ST_MakeEnvelope(${w}, ${s}, ${e}, ${n}, 4326)`,
+        );
+      }
+      if (args.geoLimit !== undefined) {
+        const json = JSON.stringify(args.geoLimit);
+        currentFilters.push(
+          Prisma.sql`AND (geom IS NULL OR ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
+        );
+      }
+      if (args.boundaryClip !== undefined) {
+        const json = JSON.stringify(args.boundaryClip);
+        currentFilters.push(
+          Prisma.sql`AND geom IS NOT NULL AND ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326))`,
+        );
+      }
+    }
+
+    if (args.parentFkFilter !== undefined) {
+      // Column name is caller-validated against the layer schema in
+      // the v3 controller. Quote-safe by virtue of the schema regex
+      // matching only [a-z0-9_]+; we still wrap in a JSONB key
+      // expression that uses single quotes so the column name lives
+      // inside the SQL string, not as a bound parameter (JSONB key
+      // operators do not bind via $params).
+      const col = sanitizeJsonbKey(args.parentFkFilter.column);
+      currentFilters.push(
+        Prisma.sql`AND attrs->>${col} = ${args.parentFkFilter.parentId}`,
+      );
+    }
+
+    if (args.timeFilter !== undefined) {
+      // Same sanitize / interpolation discipline as parentFkFilter:
+      // the column is validated against the layer schema upstream
+      // and the value is rendered into the SQL string via the
+      // sanitizeJsonbKey helper (PostgreSQL doesn't bind JSONB key
+      // operators through $params).
+      //
+      // The regex guard `~` filters to ISO-8601-shaped strings
+      // before the ::timestamptz cast so a single malformed row
+      // (`attrs->>field = "n/a"`) can't 500 the whole query. The
+      // pattern matches `YYYY-MM-DD` plus an optional time tail; any
+      // value that doesn't start with a date drops to NULL via the
+      // CASE expression and naturally fails the comparison.
+      const col = sanitizeJsonbKey(args.timeFilter.column);
+      const dateRe = '^[0-9]{4}-[0-9]{2}-[0-9]{2}';
+      if (args.timeFilter.from !== undefined) {
+        currentFilters.push(
+          Prisma.sql`AND (CASE WHEN attrs->>${col} ~ ${dateRe} THEN (attrs->>${col})::timestamptz END) >= ${args.timeFilter.from}::timestamptz`,
+        );
+      }
+      if (args.timeFilter.to !== undefined) {
+        currentFilters.push(
+          Prisma.sql`AND (CASE WHEN attrs->>${col} ~ ${dateRe} THEN (attrs->>${col})::timestamptz END) <= ${args.timeFilter.to}::timestamptz`,
+        );
+      }
+    }
+
+    return { candidateFilters, currentFilters };
+  }
+
+  /**
+   * Stream the current-state features of a sublayer in stable,
+   * bounded pages. This is the read surface for whole-layer exports
+   * (GeoParquet today): `listFeatures` buffers and silently caps at
+   * its `limit` (default 100k), which is exactly wrong for an export
+   * that must contain every row.
+   *
+   * Mechanics: keyset pagination on `entity`, the stable unique key
+   * of the current-state read (`DISTINCT ON (entity)` yields exactly
+   * one row per entity, and the query orders by entity). Each page
+   * selects the first `pageSize` entities strictly greater than the
+   * previous page's last entity, so consecutive pages partition the
+   * entity keyspace into contiguous, non-overlapping ranges:
+   *
+   *   - no duplicates: the cursor advances strictly (`entity >
+   *     cursor`), so an entity emitted once can never match again;
+   *   - no drops: pages take the *smallest* remaining entities in
+   *     order, so every entity that matches the filters falls into
+   *     exactly one page; iteration only stops when a page comes
+   *     back shorter than `pageSize`, i.e. no matching entities
+   *     remain above the cursor.
+   *
+   * No OFFSET is involved anywhere, so concurrent writes cannot
+   * shift rows between pages. The as-of instant is pinned once at
+   * the first page: entities created, edited, or tombstoned after
+   * iteration starts carry `valid_from > asOf` and are invisible to
+   * every page, giving the export snapshot semantics. (The one
+   * exception is a write back-dated to `valid_from <= asOf` landing
+   * mid-export; it can change a not-yet-visited row's content, but
+   * never duplicates or drops an entity.)
+   *
+   * Tombstones are handled inside the loop rather than in SQL:
+   * deleted entities still occupy page slots (the cursor must
+   * advance past them or a page of 100% tombstones would loop
+   * forever) but are filtered from the yielded batch. This is also
+   * why the method cannot ride on `listFeatures`: its outer
+   * `kind <> 'delete'` filter runs after an inner `LIMIT limit+10`,
+   * so a tombstone-heavy stretch would silently shorten a page and
+   * a short page is this method's end-of-data signal.
+   *
+   * ownRowsOnly keeps the candidate-CTE shape from `listFeatures`
+   * (the creator filter must look at the `create` observation, not
+   * current state) but skips its LIMIT push-down: a per-user create
+   * set is small, and an unbounded candidate CTE keeps the cursor
+   * logic obviously correct.
+   */
+  async *iterateFeatures(
+    args: IterateFeaturesArgs,
+  ): AsyncGenerator<DataLayerFeature[], void, undefined> {
+    const scope = this.scope(args.itemId, args.layerId);
+    // Pinned once; every page reads the same valid-time snapshot.
+    const asOf = args.asOf ?? new Date();
+    const pageSize = Math.min(
+      Math.max(Math.floor(args.pageSize ?? 10_000), 1),
+      50_000,
+    );
+
+    const { candidateFilters, currentFilters } = this.buildReadFilters(args);
+    const candidateExtras =
+      candidateFilters.length > 0
+        ? Prisma.join(candidateFilters, ' ')
+        : Prisma.empty;
+    const currentExtras =
+      currentFilters.length > 0
+        ? Prisma.join(currentFilters, ' ')
+        : Prisma.empty;
+    const usesCandidateCte = candidateFilters.length > 0;
+    const candidateCte = usesCandidateCte
+      ? Prisma.sql`
+        candidate_entities AS (
+          SELECT entity
+          FROM observation
+          WHERE scope = ${scope}
+            AND kind = 'create'
+            ${candidateExtras}
+        ),`
+      : Prisma.empty;
+    const currentsCandidateFilter = usesCandidateCte
+      ? Prisma.sql`AND entity IN (SELECT entity FROM candidate_entities)`
+      : Prisma.empty;
+
+    type IterRow = FeatureRow & { kind: string };
+
+    let cursor: string | null = null;
+    for (;;) {
+      // ::uuid cast so the comparison uses uuid btree ordering, the
+      // same ordering ORDER BY entity produces; a text comparison
+      // would disagree with it and corrupt the pagination.
+      //
+      // Explicit annotations on cursorFilter / rows: the loop wires
+      // cursor -> cursorFilter -> rows -> cursor, and tsc refuses
+      // to infer through that cycle (TS7022) even though each hop
+      // is individually well-typed.
+      const cursorFilter: Prisma.Sql =
+        cursor === null
+          ? Prisma.empty
+          : Prisma.sql`AND entity > ${cursor}::uuid`;
+      const rows: IterRow[] = await this.prisma.$queryRaw<IterRow[]>`
+        WITH ${candidateCte}
+        currents AS (
+          SELECT DISTINCT ON (entity)
+            id AS observation_id,
+            entity,
+            attrs,
+            ST_AsGeoJSON(geom)::jsonb AS geom_geojson,
+            kind,
+            author_sub AS edited_by,
+            tx_time AS edited_at
+          FROM observation
+          WHERE scope = ${scope}
+            AND valid_from <= ${asOf}
+            ${cursorFilter}
+            ${currentsCandidateFilter}
+            ${currentExtras}
+          ORDER BY entity, valid_from DESC, tx_time DESC
+          LIMIT ${pageSize}
+        ),
+        creates AS (
+          SELECT entity,
+                 author_sub AS created_by,
+                 tx_time    AS created_at
+          FROM observation
+          WHERE scope = ${scope}
+            AND kind = 'create'
+            AND entity IN (SELECT entity FROM currents)
+        )
+        SELECT
+          c.entity,
+          c.observation_id,
+          c.attrs,
+          c.geom_geojson,
+          c.kind,
+          c.edited_by,
+          c.edited_at,
+          cr.created_by,
+          cr.created_at
+        FROM currents c
+        JOIN creates cr ON cr.entity = c.entity
+        ORDER BY c.entity
+      `;
+      if (rows.length === 0) return;
+      // Advance past every scanned entity, tombstones included; the
+      // rows are entity-ordered so the last one is the page maximum.
+      cursor = rows[rows.length - 1]!.entity;
+      const live = rows.filter((r) => r.kind !== 'delete').map(rowToFeature);
+      if (live.length > 0) yield live;
+      if (rows.length < pageSize) return;
+    }
   }
 
   /**

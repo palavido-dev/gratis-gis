@@ -59,6 +59,26 @@ scripts can ingest anything the browser parsers don't. The default
 client-side flow still handles GeoJSON / KML / KMZ / Shapefile zips
 with zero round-trip; server-side only fires when needed.
 
+### GeoParquet (import and export)
+
+GeoParquet works in both directions and rides a different engine:
+the bundled gdal-async prebuild ships without the Parquet driver, so
+`.parquet` / `.geoparquet` files go through DuckDB's spatial
+extension instead (`apps/portal-api/src/ingest/parquet-reader.ts`).
+Import accepts GeoParquet with a declared CRS (reprojected to WGS84
+on the way in) and plain Parquet that carries a conventionally named
+WKB geometry column; probe, wizard, and async import job all handle
+the format like any other upload.
+
+Export is the reverse path: `GET
+/api/items/:id/layers/:layerId/geoparquet` writes a v3 data_layer
+sublayer to a GeoParquet file (typed columns from the layer schema,
+geometry column, `geo` file metadata) and streams it back as a
+download. Unlike the CSV export it walks the whole layer via the
+engine's keyset iterator, so there is no row cap. It is also the
+first endpoint that enforces the sharing model's `download`
+permission tier: a view-only share gets a 403.
+
 ## Storage roadmap
 
 1. **v1 (here now):** inline GeoJSON in `item.data`. Works for demos,

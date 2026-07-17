@@ -15,8 +15,13 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { exportFeatures, type ExportFormat } from '@/lib/layer-export';
+import {
+  exportFeatures,
+  exportLayerGeoParquet,
+  type ClientExportFormat,
+} from '@/lib/layer-export';
 import { exportBundle } from '@/lib/bundle-export';
+import { toast } from '@/lib/toast';
 import type {
   FeatureRecord,
   DataLayerSublayer,
@@ -492,11 +497,11 @@ export function V3FeatureBrowser({
 // ---------------------------------------------------------------------------
 
 /**
- * #107: Export-this-layer dropdown.  Two formats today (CSV +
- * XLSX), both built client-side from the already-loaded feature
- * set.  Geometry rides along as a `geometry_wkt` column on XLSX so
- * the user can round-trip into desktop GIS without losing shape;
- * CSV stays text-only by convention.
+ * #107: Export-this-layer dropdown.  CSV + XLSX are built client-
+ * side from the already-loaded feature set.  Geometry rides along
+ * as a `geometry_wkt` column on XLSX so the user can round-trip
+ * into desktop GIS without losing shape; CSV stays text-only by
+ * convention.
  *
  * Why "what's loaded" instead of always re-fetching: the feature
  * browser loads the whole layer on open (capped at whatever the
@@ -505,6 +510,13 @@ export function V3FeatureBrowser({
  * you see is what you get" -- if the cap matters the table also
  * shows it.  Bundle export (related tables + attachments) is the
  * follow-up that needs a server-side ZIP endpoint.
+ *
+ * GeoParquet (#174) is the exception to the client-side rule: the
+ * server walks the FULL layer (no table cap) and writes a typed
+ * GeoParquet file via DuckDB.  It is also the first surface gated
+ * on the download share tier; a view-only share gets a 403 that we
+ * surface as a toast, matching how the other entries let the
+ * server govern access.
  */
 function ExportMenu({
   itemId,
@@ -531,6 +543,9 @@ function ExportMenu({
   const [bundleRunning, setBundleRunning] = useState(false);
   const [bundleProgress, setBundleProgress] = useState<string>('');
   const [bundleError, setBundleError] = useState<string | null>(null);
+  // Server round-trip in flight for the GeoParquet entry; used to
+  // debounce re-clicks while the layer is being written.
+  const [parquetRunning, setParquetRunning] = useState(false);
 
   // Related tables = sibling layers whose parentLayerId points at
   // THIS layer.  Used to gate the "Include related" toggle so the
@@ -539,7 +554,32 @@ function ExportMenu({
     (l) => l.parentLayerId === layer.id,
   ).length;
 
-  function run(format: ExportFormat): void {
+  /**
+   * GeoParquet goes through the server (full layer, typed columns,
+   * real geo metadata) rather than the client-side writers below.
+   * Failures surface as a toast; the interesting one is the 403 a
+   * view-only share receives from the endpoint's download gate.
+   */
+  async function runGeoParquet(): Promise<void> {
+    setOpen(false);
+    if (parquetRunning) return;
+    setParquetRunning(true);
+    try {
+      await exportLayerGeoParquet({
+        itemId,
+        layerId: layer.id,
+        filename: sanitizeFilename(layer.label || layer.name || 'layer'),
+      });
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'GeoParquet export failed',
+      );
+    } finally {
+      setParquetRunning(false);
+    }
+  }
+
+  function run(format: ClientExportFormat): void {
     setOpen(false);
     if (features.length === 0) return;
     const filename = sanitizeFilename(layer.label || layer.name || 'layer');
@@ -652,6 +692,14 @@ function ExportMenu({
               className="block w-full px-3 py-1.5 text-left hover:bg-surface-2"
             >
               CSV
+            </button>
+            <button
+              type="button"
+              onClick={() => void runGeoParquet()}
+              disabled={parquetRunning}
+              className="block w-full px-3 py-1.5 text-left hover:bg-surface-2 disabled:opacity-50"
+            >
+              {parquetRunning ? 'GeoParquet (preparing…)' : 'GeoParquet'}
             </button>
             <div className="my-1 border-t border-border" />
             <button

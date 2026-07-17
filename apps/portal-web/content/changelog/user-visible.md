@@ -12,6 +12,15 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-07-17 - GeoParquet import and export
+Data layers now speak GeoParquet in both directions. Drop a
+.parquet or .geoparquet file into the import wizard to load it as a
+layer, and export any portal-hosted layer back out as GeoParquet
+from the layer page's Export menu. Exports cover every feature in
+the layer (no table cap), keep typed columns and geometry, and open
+directly in QGIS, DuckDB, pandas, and other modern data tools.
+Exporting requires download permission on layers shared with you.
+
 ## 2026-07-17 - A guided sample workspace
 New portals no longer start empty. An admin or contributor with a
 fresh workspace gets a welcome panel with three starting points,
