@@ -3,25 +3,33 @@
 [![CI](https://github.com/palavido-dev/gratis-gis/actions/workflows/ci.yml/badge.svg)](https://github.com/palavido-dev/gratis-gis/actions/workflows/ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL%20v3-blue.svg)](./LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)](https://www.typescriptlang.org/)
-[![PostgreSQL + PostGIS](https://img.shields.io/badge/PostgreSQL%20%2B%20PostGIS-16%20%2F%203-336791?logo=postgresql&logoColor=white)](https://postgis.net/)
+[![PostgreSQL + PostGIS](https://img.shields.io/badge/PostgreSQL%20%2B%20PostGIS-17%20%2F%203.5-336791?logo=postgresql&logoColor=white)](https://postgis.net/)
 
 A self-hosted, open-source platform for geospatial portals: maps, layers, forms,
 field data collection, dashboards, and reports. Runs on your own infrastructure.
 Open file formats throughout (PostGIS, GeoJSON, MVT, OGC API). No license fees;
 your only cost is the hardware (or cloud bill) you choose to run it on.
 
-**Status:** Active development, pre-v1. The portal, web map authoring with
-PostGIS-backed data layers, vector-tile rendering for large datasets,
-Esri WebMap JSON import/export, form authoring + submissions, dashboards,
-App Builder (runtime + designer), the field PWA with offline support,
-derived-layer tools, and per-share row/column/geographic access controls
-are all working today. Underneath all of it is the observation-log engine
-plus Cedar-based geometry-aware authorization. ~400 backend tests, CI on
-every push.
+**Status:** Active development, pre-v1. Working today: the portal (items,
+groups, sharing with row/column/geographic limits), web map authoring on
+PostGIS-backed data layers with vector-tile rendering for large datasets,
+Esri WebMap JSON import/export plus an ArcGIS Online content importer,
+form authoring + submissions, App Builder (viewer, editor, and custom
+widget apps), the offline-capable field PWA, derived-layer analysis
+tools and a visual tool builder with OSM as a first-class source, live
+PostgreSQL/PostGIS connections, print/PDF layouts, OGC API endpoints
+(Features, Tiles, Styles, Records), an open MCP server, a QGIS plugin,
+light and dark themes, five UI languages, and one-click sample data
+that seeds a complete demonstration workspace. Underneath all of it is
+the observation-log engine plus Cedar-based geometry-aware
+authorization. 700+ backend tests, CI on every push.
 
 **Try it:** [gratisgis.org](https://gratisgis.org) hosts a public test
 instance during the open feedback period. The landing page lists test
-credentials and the daily-reset window. Items, users, and edits made by
+credentials and the daily-reset window. The demo runs the bundled
+Randolph County, West Virginia sample workspace, the same content the
+in-app "Load sample data" button seeds on a fresh portal, so what you
+explore there is what you get at home. Items, users, and edits made by
 testers get rolled back every 24 hours to a curated golden state so
 everyone gets a clean slate. Found a bug or want to chat?
 [Open an issue](https://github.com/palavido-dev/gratis-gis/issues) or
@@ -217,7 +225,8 @@ Deeper design references:
 - [docs/architecture/observation-log-engine.md](./docs/architecture/observation-log-engine.md): the engine substrate (observation log, lenses, bitemporal reads, provenance)
 - [docs/architecture/cedar-policy-integration.md](./docs/architecture/cedar-policy-integration.md): Cedar as the policy engine, entity model, three-phase rollout
 - [docs/tool-builder.md](./docs/tool-builder.md): visual tool/widget builder (planned)
-- [docs/design-system.md](./docs/design-system.md): UI principles, tokens, components
+- [docs/design-system.md](./docs/design-system.md): UI principles, tokens, components, the Contour brand
+- [docs/sample-data.md](./docs/sample-data.md): the one-click Randolph County sample workspace
 - [docs/deployment.md](./docs/deployment.md): how admins install and operate
 - [docs/discoverability.md](./docs/discoverability.md): repo tags, badges, launch targets
 - [CONTRIBUTING.md](./CONTRIBUTING.md): how to contribute

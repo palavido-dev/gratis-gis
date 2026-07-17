@@ -511,6 +511,14 @@ function TestingBanner() {
             reset. Feedback is welcome via the GitHub Issues link
             below.
           </p>
+          <p className="mt-1 leading-relaxed">
+            New here? Open the{' '}
+            <span className="font-medium">Sample: Randolph County</span>{' '}
+            folder after signing in: a complete demo workspace with
+            styled layers, a map, a form with responses, a field
+            survey, and public apps, all built on one small West
+            Virginia county.
+          </p>
         </div>
       </div>
     </div>

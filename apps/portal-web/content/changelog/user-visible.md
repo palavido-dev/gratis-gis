@@ -12,6 +12,47 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-07-17 - A guided sample workspace
+New portals no longer start empty. An admin or contributor with a
+fresh workspace gets a welcome panel with three starting points,
+including one-click sample data: a complete Randolph County, West
+Virginia workspace with styled map layers, a derived analysis
+layer, an issue-report form with mapped responses, a field survey,
+public viewer and explorer apps, and a search tool. The public demo
+at gratisgis.org now runs this same workspace, so what you explore
+there is exactly what you get at home.
+
+## 2026-07-16 - Dark mode
+The portal now follows your system's light or dark preference, and
+an appearance picker in the user menu (next to the language picker)
+lets you pin light, dark, or system. Every surface, from the items
+list to the map editor chrome to toasts and dialogs, renders in
+both themes.
+
+## 2026-07-16 - A new look
+GratisGIS has a real identity now: the Contour mark (a "G" drawn as
+nested elevation contours), a warm paper-and-sage palette across
+the whole portal, a matching sign-in page, and a refreshed type
+scale that makes small labels easier to read. Dialogs gained
+consistent keyboard and focus behavior, and quick actions now
+confirm with unobtrusive toast notices instead of blocking popups.
+
+## 2026-07-15 - More of the portal in your language
+The items area and every sharing surface (share dialogs, access
+tiers, expiry, the trash) now translate into Spanish, Portuguese,
+French, and German, roughly 270 new strings per language on top of
+the app chrome that already translated. The seed is still machine
+translated and tagged "(MT)" in the language picker; native-speaker
+fixes are welcome.
+
+## 2026-06-19 - Search finds features by their attributes
+The search bar on maps and apps now searches the features inside
+portal-hosted data layers, not just layer names. Type an owner,
+road name, or facility and matching features appear with a
+fly-to-and-highlight on pick. Works for signed-in users and on
+public maps for anonymous visitors, wherever a layer's fields are
+marked searchable.
+
 ## 2026-06-01 — Spanish, Portuguese, French, German seed translations
 The four non-English catalogs are now seeded across every
 already-wired UI key, so the menu items, dialogs, and other
