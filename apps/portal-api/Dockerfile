@@ -179,6 +179,12 @@ COPY --from=build --chown=app:app /repo/apps/portal-api/prisma /app/prisma
 # a path the preset-catalog resolver looks for.
 COPY --from=build --chown=app:app /repo/apps/portal-web/content/osm /app/apps/portal-web/content/osm
 
+# Bundled sample datasets for "Load sample data" (#147). Copied
+# explicitly (same pattern as the OSM catalog above) so the
+# SamplesService resolver finds them regardless of what `pnpm deploy`
+# chose to include in /out.
+COPY --from=build --chown=app:app /repo/apps/portal-api/content /app/apps/portal-api/content
+
 # BackupService writes archives to BACKUP_DIR (default ./backups), and
 # that has to be a writable path for the non-root `app` user. Pre-create
 # it with the right ownership so a volume mount onto this path inherits

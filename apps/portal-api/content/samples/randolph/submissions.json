@@ -1,5 +1,5 @@
 {
-  "description": "Sample submissions for the 'Road and trail issue report' form. clientId is the idempotency key (formSubmission is unique on formId+clientId).",
+  "description": "Sample submissions for the 'Road and trail issue report' form. clientId is the idempotency key (formSubmission is unique on formId+clientId). The 'location' answer uses the form runtime's native geopoint shape ({ lat, lng }) so the stored responses match what a real capture produces and the paired-layer mirror extracts the geometry.",
   "submissions": [
     {
       "clientId": "sample-sub-1",
@@ -9,7 +9,7 @@
         "severity": "high",
         "description": "Shoulder washout on Files Creek Road after the storm; one lane partially undermined.",
         "reporter": "Sample: M. Currence",
-        "location": { "type": "Point", "coordinates": [-79.8281, 38.9042] }
+        "location": { "lat": 38.9042, "lng": -79.8281 }
       }
     },
     {
@@ -20,7 +20,7 @@
         "severity": "medium",
         "description": "Red oak down across the Bickle Knob Tower Trail about half a mile below the tower.",
         "reporter": "Sample: T. Wamsley",
-        "location": { "type": "Point", "coordinates": [-79.7288, 38.9301] }
+        "location": { "lat": 38.9301, "lng": -79.7288 }
       }
     },
     {
@@ -31,7 +31,7 @@
         "severity": "low",
         "description": "Cluster of potholes on Georgetown Road near the school bus turnaround.",
         "reporter": "Sample: A. Pingley",
-        "location": { "type": "Point", "coordinates": [-79.8611, 38.9377] }
+        "location": { "lat": 38.9377, "lng": -79.8611 }
       }
     },
     {
@@ -42,7 +42,7 @@
         "severity": "low",
         "description": "Loop trail marker missing at the second junction in Stuart Recreation Area.",
         "reporter": "Sample: R. Bodkin",
-        "location": { "type": "Point", "coordinates": [-79.7802, 38.9531] }
+        "location": { "lat": 38.9531, "lng": -79.7802 }
       }
     }
   ]
