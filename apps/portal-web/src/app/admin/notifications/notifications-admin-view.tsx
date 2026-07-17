@@ -18,6 +18,8 @@ import {
   X,
 } from 'lucide-react';
 
+import { Skeleton } from '@/components/ui/skeleton';
+
 export interface Stats {
   queueDepth: number;
   failedTotal: number;
@@ -1253,9 +1255,14 @@ function TemplateEditModal({
         </div>
 
         {loading ? (
-          <div className="flex items-center gap-2 px-4 py-6 text-xs text-muted">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Loading template...
+          // Content-shaped skeleton (#173): the template editor is a
+          // stack of labeled fields, so telegraph field blocks.
+          <div className="space-y-3 px-4 py-6">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-24 w-full" />
+            <span className="sr-only">Loading template...</span>
           </div>
         ) : loadError ? (
           <div className="px-4 py-6 text-xs text-danger">{loadError}</div>

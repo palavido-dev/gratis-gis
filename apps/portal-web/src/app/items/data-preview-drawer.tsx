@@ -3,13 +3,14 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ExternalLink, Loader2, X } from 'lucide-react';
+import { ExternalLink, X } from 'lucide-react';
 import type {
   ArcgisServiceData,
   DataLayerData,
   ItemWithShares,
 } from '@gratis-gis/shared-types';
 import { useT } from '@/lib/i18n/locale-context';
+import { SkeletonRows } from '@/components/ui/skeleton';
 
 /**
  * Right-side drawer that shows a quick preview of a layer's
@@ -202,9 +203,11 @@ export function DataPreviewDrawer({ item, onClose }: Props) {
 
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {loading ? (
-            <div className="flex flex-1 items-center justify-center text-xs text-muted">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              {t('common.loading')}
+            // Content-shaped skeleton (#173): the preview is a table,
+            // so telegraph rows rather than centering a spinner.
+            <div className="p-4">
+              <SkeletonRows rows={8} />
+              <span className="sr-only">{t('common.loading')}</span>
             </div>
           ) : error ? (
             <div className="m-4 rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">

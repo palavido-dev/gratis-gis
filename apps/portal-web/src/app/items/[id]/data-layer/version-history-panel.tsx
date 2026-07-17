@@ -11,6 +11,8 @@ import {
   RotateCcw,
 } from 'lucide-react';
 
+import { SkeletonRows } from '@/components/ui/skeleton';
+
 /**
  * Version history panel for a data_layer item.
  *
@@ -143,10 +145,12 @@ export function VersionHistoryPanel({ itemId, canEdit, userNames }: Props) {
       {open ? (
         <div className="border-t border-border p-3">
           {loading ? (
-            <p className="inline-flex items-center gap-2 text-xs text-muted">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              Loading history…
-            </p>
+            // Content-shaped skeleton (#173): history renders as a
+            // short list, so telegraph list rows.
+            <div>
+              <SkeletonRows rows={4} />
+              <span className="sr-only">Loading history…</span>
+            </div>
           ) : error ? (
             <p className="inline-flex items-center gap-2 text-xs text-danger">
               <AlertTriangle className="h-3.5 w-3.5" />
