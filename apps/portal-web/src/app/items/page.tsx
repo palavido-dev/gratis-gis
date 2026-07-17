@@ -265,7 +265,29 @@ export default async function ItemsPage(props: Props) {
                     : t('itemsPage.emptySharedDescription', undefined, locale)
               }
               action={
-                isMine && !activeFolder ? (
+                activeFolder && me.orgRole !== 'viewer' ? (
+                  // Empty folder: offer the add-items picker right
+                  // here instead of only describing where it lives
+                  // (user feedback: the described path was a dead
+                  // end from this page). Primary action opens the
+                  // all-items view in pick mode; secondary creates
+                  // something new.
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <Link
+                      href={`/items?scope=all&addToFolder=${activeFolder.id}`}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground shadow-card hover:opacity-90"
+                    >
+                      <Plus className="h-4 w-4" />
+                      {t('itemsPage.addItems', undefined, locale)}
+                    </Link>
+                    <Link
+                      href="/items/new"
+                      className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 hover:bg-surface-2"
+                    >
+                      {t('itemsPage.newItem', undefined, locale)}
+                    </Link>
+                  </div>
+                ) : isMine && !activeFolder ? (
                   <Link
                     href="/items/new"
                     className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground shadow-card hover:opacity-90"

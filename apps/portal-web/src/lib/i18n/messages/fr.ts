@@ -430,6 +430,7 @@ export const fr: Partial<CatalogShape> = {
   itemsPage: {
     eyebrow: 'Contenu',
     newItem: 'Nouvel élément',
+    addItems: 'Ajouter des éléments',
     myItems: 'Mes éléments',
     allItems: 'Tous les éléments',
     folderBreadcrumb: "Fil d'Ariane des dossiers",
@@ -441,7 +442,7 @@ export const fr: Partial<CatalogShape> = {
     scopeSharedWithYou: 'les éléments partagés avec vous',
     emptyFolderTitle: '{folder} est vide',
     emptyFolderDescription:
-      'Utilisez "Ajouter des éléments" sur la page de détails du dossier ou faites glisser des éléments ici depuis la vue de tous les éléments.',
+      'Ajoutez des éléments existants, créez quelque chose de nouveau ou faites glisser des éléments ici depuis la vue de tous les éléments.',
     emptyMineTitle: "Aucun élément pour l'instant",
     emptyMineDescription:
       'Créez votre première carte, votre premier formulaire ou votre première couche de données pour commencer.',

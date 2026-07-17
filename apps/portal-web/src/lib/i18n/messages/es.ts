@@ -430,6 +430,7 @@ export const es: Partial<CatalogShape> = {
   itemsPage: {
     eyebrow: 'Contenido',
     newItem: 'Nuevo elemento',
+    addItems: 'Añadir elementos',
     myItems: 'Mis elementos',
     allItems: 'Todos los elementos',
     folderBreadcrumb: 'Ruta de carpetas',
@@ -441,7 +442,7 @@ export const es: Partial<CatalogShape> = {
     scopeSharedWithYou: 'los elementos compartidos contigo',
     emptyFolderTitle: '{folder} está vacía',
     emptyFolderDescription:
-      'Usa "Añadir elementos" en la página de detalles de la carpeta o arrastra elementos aquí desde la vista de todos los elementos.',
+      'Añade elementos existentes, crea algo nuevo o arrastra elementos aquí desde la vista de todos los elementos.',
     emptyMineTitle: 'Aún no hay elementos',
     emptyMineDescription:
       'Crea tu primer mapa, formulario o capa de datos para empezar.',

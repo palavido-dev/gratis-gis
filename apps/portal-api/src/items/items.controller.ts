@@ -440,6 +440,7 @@ export class ItemsController {
       title: item.title,
       typeLabel: getItemTypeLabel(item.type),
       design: inlinedDesign,
+      type: item.type,
     });
     res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
     // 5 min revalidation; the URL has an updatedAt cache-buster so

@@ -86,32 +86,33 @@ export interface ThumbnailDesign {
  * so the two work as a pair when there's no background image.
  */
 const TYPE_PALETTE: Record<string, { sidebar: string; background: string }> = {
-  map: { sidebar: '#10b981', background: '#ecfdf5' },
-  data_layer: { sidebar: '#0284c7', background: '#f0f9ff' },
-  derived_layer: { sidebar: '#1d4ed8', background: '#eff6ff' },
-  arcgis_service: { sidebar: '#0891b2', background: '#ecfeff' },
-  form: { sidebar: '#7c3aed', background: '#f5f3ff' },
-  form_submission_collection: { sidebar: '#8b5cf6', background: '#f5f3ff' },
-  web_app: { sidebar: '#d97706', background: '#fffbeb' },
-  report_template: { sidebar: '#e11d48', background: '#fff1f2' },
-  dashboard: { sidebar: '#4f46e5', background: '#eef2ff' },
-  file: { sidebar: '#475569', background: '#f8fafc' },
-  layer_package: { sidebar: '#047857', background: '#ecfdf5' },
-  tool: { sidebar: '#0d9488', background: '#f0fdfa' },
-  widget_package: { sidebar: '#0f766e', background: '#f0fdfa' },
-  pick_list: { sidebar: '#65a30d', background: '#f7fee7' },
-  geo_boundary: { sidebar: '#ea580c', background: '#fff7ed' },
-  basemap: { sidebar: '#334155', background: '#f1f5f9' },
-  wms_service: { sidebar: '#0e7490', background: '#ecfeff' },
-  wfs_service: { sidebar: '#155e75', background: '#ecfeff' },
-  service: { sidebar: '#0891b2', background: '#ecfeff' },
-  folder: { sidebar: '#b45309', background: '#fffbeb' },
-  editor: { sidebar: '#9333ea', background: '#faf5ff' },
-  data_collection: { sidebar: '#6d28d9', background: '#f5f3ff' },
-  geocoding_service: { sidebar: '#c2410c', background: '#fff7ed' },
-  tile_layer: { sidebar: '#c026d3', background: '#fdf4ff' },
-  app_template: { sidebar: '#b45309', background: '#fffbeb' },
-  theme: { sidebar: '#db2777', background: '#fdf2f8' },
+  map: { sidebar: '#5c6b58', background: '#eef1ec' },
+  data_layer: { sidebar: '#55677a', background: '#edf1f5' },
+  derived_layer: { sidebar: '#4c5f45', background: '#edf1eb' },
+  arcgis_service: { sidebar: '#4e6e69', background: '#ecf2f1' },
+  form: { sidebar: '#7d5a64', background: '#f4eef0' },
+  form_submission_collection: { sidebar: '#8d6a74', background: '#f4eef0' },
+  web_app: { sidebar: '#9c7648', background: '#f5f0e8' },
+  report_template: { sidebar: '#8a5252', background: '#f4eded' },
+  dashboard: { sidebar: '#8f7440', background: '#f4f0e6' },
+  file: { sidebar: '#6e675e', background: '#f2f0ec' },
+  layer_package: { sidebar: '#6f6b3f', background: '#f2f1e7' },
+  tool: { sidebar: '#85683f', background: '#f3efe6' },
+  widget_package: { sidebar: '#74573b', background: '#f2ede7' },
+  pick_list: { sidebar: '#837448', background: '#f3f0e6' },
+  geo_boundary: { sidebar: '#96573b', background: '#f5eee9' },
+  basemap: { sidebar: '#625f55', background: '#f1f0ec' },
+  wms_service: { sidebar: '#43625e', background: '#ecf2f1' },
+  wfs_service: { sidebar: '#3a5652', background: '#ecf2f1' },
+  service: { sidebar: '#4e6e69', background: '#ecf2f1' },
+  folder: { sidebar: '#a1793f', background: '#f5f0e6' },
+  editor: { sidebar: '#6d5570', background: '#f1edf2' },
+  data_collection: { sidebar: '#7c6280', background: '#f1edf2' },
+  geocoding_service: { sidebar: '#92603a', background: '#f5efe9' },
+  tile_layer: { sidebar: '#715e6e', background: '#f1eef1' },
+  app_template: { sidebar: '#8f6c42', background: '#f5f0e8' },
+  theme: { sidebar: '#94606b', background: '#f5eef0' },
+  print_template: { sidebar: '#565049', background: '#f1f0ee' },
 };
 
 /**
@@ -167,13 +168,120 @@ export function defaultThumbnailDesign(type: ItemType): ThumbnailDesign {
  *   6. title text (on title bar, right of sidebar)
  *   7. rotated type label (on sidebar)
  */
+/**
+ * Type-keyed background motifs (#173). When a thumbnail has no
+ * background image, the bare fill used to read as unfinished next to
+ * basemap items (which derive a real map tile). Each type family gets
+ * a subtle deterministic vector motif drawn in the sidebar hue at low
+ * opacity: contours for map-shaped things, a dot grid for data,
+ * document rules for forms and files, panel blocks for apps, a node
+ * graph for tools and services, and a folder silhouette for folders.
+ * Deterministic on purpose: no randomness, so renders are stable and
+ * cacheable.
+ */
+type MotifKind = 'contour' | 'dots' | 'rules' | 'panels' | 'nodes' | 'folder';
+
+const MOTIF_BY_TYPE: Record<string, MotifKind> = {
+  map: 'contour',
+  basemap: 'contour',
+  geo_boundary: 'contour',
+  derived_layer: 'contour',
+  tile_layer: 'contour',
+  layer_package: 'contour',
+  data_layer: 'dots',
+  pick_list: 'dots',
+  form: 'rules',
+  form_submission_collection: 'rules',
+  report_template: 'rules',
+  file: 'rules',
+  print_template: 'rules',
+  web_app: 'panels',
+  app_template: 'panels',
+  dashboard: 'panels',
+  widget_package: 'panels',
+  editor: 'panels',
+  data_collection: 'panels',
+  theme: 'panels',
+  tool: 'nodes',
+  service: 'nodes',
+  arcgis_service: 'nodes',
+  wms_service: 'nodes',
+  wfs_service: 'nodes',
+  geocoding_service: 'nodes',
+  folder: 'folder',
+};
+
+function renderMotif(kind: MotifKind, hue: string): string {
+  const c = escapeXml(hue);
+  switch (kind) {
+    case 'contour':
+      return `<g fill="none" stroke="${c}" stroke-width="3" stroke-linecap="round" opacity="0.14">
+    <path d="M-20 250 C 90 200 150 260 260 215 C 370 175 420 235 550 190"/>
+    <path d="M-20 200 C 90 150 160 205 265 165 C 375 128 430 185 550 140"/>
+    <path d="M-20 150 C 95 105 165 155 270 118 C 380 82 435 135 550 92"/>
+    <path d="M-20 100 C 100 60 170 105 275 72 C 385 40 440 88 550 48"/>
+  </g>`;
+    case 'dots': {
+      const dots: string[] = [];
+      for (let row = 0; row < 5; row += 1) {
+        const y = 45 + row * 58;
+        const offset = row % 2 === 0 ? 0 : 30;
+        for (let col = 0; col < 9; col += 1) {
+          const x = 40 + offset + col * 58;
+          if (x > 505) continue;
+          dots.push(`<circle cx="${x}" cy="${y}" r="5" fill="${c}"/>`);
+        }
+      }
+      return `<g opacity="0.14">
+    ${dots.join('\n    ')}
+  </g>`;
+    }
+    case 'rules':
+      return `<g stroke="${c}" stroke-linecap="round" opacity="0.14">
+    <line x1="40" y1="58" x2="240" y2="58" stroke-width="12"/>
+    <line x1="40" y1="112" x2="500" y2="112" stroke-width="6"/>
+    <line x1="40" y1="152" x2="500" y2="152" stroke-width="6"/>
+    <line x1="40" y1="192" x2="500" y2="192" stroke-width="6"/>
+    <line x1="40" y1="232" x2="380" y2="232" stroke-width="6"/>
+  </g>`;
+    case 'panels':
+      return `<g fill="${c}" opacity="0.12">
+    <rect x="40" y="40" width="212" height="118" rx="14"/>
+    <rect x="278" y="40" width="212" height="118" rx="14"/>
+    <rect x="40" y="184" width="212" height="118" rx="14"/>
+    <rect x="278" y="184" width="212" height="118" rx="14"/>
+  </g>`;
+    case 'nodes':
+      return `<g opacity="0.14">
+    <g stroke="${c}" stroke-width="5">
+      <line x1="112" y1="92" x2="300" y2="198" />
+      <line x1="300" y1="198" x2="152" y2="268" />
+      <line x1="300" y1="198" x2="428" y2="92" />
+    </g>
+    <g fill="${c}">
+      <circle cx="112" cy="92" r="26"/>
+      <circle cx="300" cy="198" r="26"/>
+      <circle cx="152" cy="268" r="20"/>
+      <circle cx="428" cy="92" r="20"/>
+    </g>
+  </g>`;
+    case 'folder':
+      return `<g fill="${c}" opacity="0.12">
+    <path d="M84 118 h118 l30 30 h204 a16 16 0 0 1 16 16 v122 a16 16 0 0 1 -16 16 H100 a16 16 0 0 1 -16 -16 z"/>
+  </g>`;
+  }
+}
+
 export function renderThumbnailSvg(args: {
   title: string;
   /** Resolved type label (e.g. via getItemTypeLabel(type)). */
   typeLabel: string;
   design: ThumbnailDesign;
+  /** Raw item type; enables the type-keyed background motif when no
+   *  background image is set. Optional for callers that predate it. */
+  type?: string;
 }): string {
-  const { title, typeLabel, design } = args;
+  const { title, typeLabel, design, type } = args;
   const label = design.sidebarLabelOverride ?? typeLabel;
 
   // Effective opacities + colors with sensible fallbacks so older
@@ -225,8 +333,14 @@ export function renderThumbnailSvg(args: {
   const bgImageHref = design.backgroundImage;
   const logoHref = design.logo;
 
+  // Motif renders only on bare backgrounds: an image already fills
+  // the space, and layering a pattern under a translucent image
+  // muddies both.
+  const motifKind = !bgImageHref && type ? MOTIF_BY_TYPE[type] : undefined;
+
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice" role="img" aria-label="${escapeXml(label)}: ${escapeXml(title)}">
   <rect width="${W}" height="${H}" fill="${escapeXml(design.background)}"/>
+  ${motifKind ? renderMotif(motifKind, design.sidebar) : ''}
   ${
     bgImageHref
       ? `<image href="${escapeXml(bgImageHref)}" x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="xMidYMid slice" opacity="${bgImageOpacity}"/>`

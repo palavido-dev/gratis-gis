@@ -419,6 +419,7 @@ export const en = {
   itemsPage: {
     eyebrow: 'Content',
     newItem: 'New item',
+    addItems: 'Add items',
     myItems: 'My items',
     allItems: 'All items',
     folderBreadcrumb: 'Folder breadcrumb',
@@ -430,7 +431,7 @@ export const en = {
     scopeSharedWithYou: 'items shared with you',
     emptyFolderTitle: '{folder} is empty',
     emptyFolderDescription:
-      'Use "Add items" on the folder details page or drag items here from the all-items view.',
+      'Add existing items, create something new, or drag items here from the all-items view.',
     emptyMineTitle: 'No items yet',
     emptyMineDescription:
       'Create your first map, form, or data layer to get started.',

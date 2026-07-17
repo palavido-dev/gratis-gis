@@ -441,6 +441,7 @@ export const de: Partial<CatalogShape> = {
   itemsPage: {
     eyebrow: 'Inhalt',
     newItem: 'Neues Element',
+    addItems: 'Elemente hinzufügen',
     myItems: 'Meine Elemente',
     allItems: 'Alle Elemente',
     folderBreadcrumb: 'Ordnerpfad',
@@ -452,7 +453,7 @@ export const de: Partial<CatalogShape> = {
     scopeSharedWithYou: 'den mit Ihnen geteilten Elementen',
     emptyFolderTitle: '{folder} ist leer',
     emptyFolderDescription:
-      'Verwenden Sie "Elemente hinzufügen" auf der Ordner-Detailseite oder ziehen Sie Elemente aus der Ansicht aller Elemente hierher.',
+      'Fügen Sie vorhandene Elemente hinzu, erstellen Sie etwas Neues oder ziehen Sie Elemente aus der Ansicht aller Elemente hierher.',
     emptyMineTitle: 'Noch keine Elemente',
     emptyMineDescription:
       'Erstellen Sie Ihre erste Karte, Ihr erstes Formular oder Ihren ersten Datenlayer, um loszulegen.',

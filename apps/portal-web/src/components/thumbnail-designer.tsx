@@ -54,6 +54,7 @@ export function ThumbnailDesigner({ type, title, value, onChange }: Props) {
         title: title || '(Untitled)',
         typeLabel: getItemTypeLabel(type),
         design,
+        type,
       }),
     [title, type, design],
   );

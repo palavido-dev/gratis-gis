@@ -59,36 +59,25 @@ export interface ItemCardProps {
  * caller via `fallbackIcon` so this package stays free of lucide.
  */
 const typeTileBg: Record<string, string> = {
-  map: 'bg-emerald-500/90 text-white',
-  data_layer: 'bg-sky-500/90 text-white',
-  derived_layer: 'bg-blue-700/90 text-white',
-  arcgis_service: 'bg-cyan-600/90 text-white',
-  form: 'bg-violet-500/90 text-white',
-  form_submission_collection: 'bg-violet-400/90 text-white',
-  web_app: 'bg-amber-500/90 text-white',
-  report_template: 'bg-rose-500/90 text-white',
-  dashboard: 'bg-indigo-500/90 text-white',
-  file: 'bg-slate-500/90 text-white',
-  layer_package: 'bg-emerald-600/90 text-white',
-  tool: 'bg-teal-500/90 text-white',
-  widget_package: 'bg-teal-600/90 text-white',
+  map: 'bg-[#5c6b58]/95 text-[#f8f6f0]',
+  data_layer: 'bg-[#55677a]/95 text-[#f8f6f0]',
+  derived_layer: 'bg-[#4c5f45]/95 text-[#f8f6f0]',
+  arcgis_service: 'bg-[#4e6e69]/95 text-[#f8f6f0]',
+  form: 'bg-[#7d5a64]/95 text-[#f8f6f0]',
+  form_submission_collection: 'bg-[#8d6a74]/95 text-[#f8f6f0]',
+  web_app: 'bg-[#9c7648]/95 text-[#f8f6f0]',
+  report_template: 'bg-[#8a5252]/95 text-[#f8f6f0]',
+  dashboard: 'bg-[#8f7440]/95 text-[#f8f6f0]',
+  file: 'bg-[#6e675e]/95 text-[#f8f6f0]',
+  layer_package: 'bg-[#6f6b3f]/95 text-[#f8f6f0]',
+  tool: 'bg-[#85683f]/95 text-[#f8f6f0]',
+  widget_package: 'bg-[#74573b]/95 text-[#f8f6f0]',
 };
 
-const typeBadgeColor: Record<string, string> = {
-  map: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300',
-  data_layer: 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300',
-  derived_layer: 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300',
-  arcgis_service: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300',
-  form: 'bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300',
-  form_submission_collection: 'bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300',
-  web_app: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
-  report_template: 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300',
-  dashboard: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300',
-  file: 'bg-slate-100 text-slate-800 dark:bg-slate-950 dark:text-slate-300',
-  layer_package: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300',
-  tool: 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300',
-  widget_package: 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300',
-};
+// Type badges are deliberately neutral (#173): the tile and
+// thumbnail carry the type hue; a second colored chip per card
+// added noise without adding information.
+const typeBadgeColor: Record<string, string> = {};
 
 // The card defers to `getItemTypeLabel` from shared-types so new
 // item types pick up their friendly label automatically without
@@ -108,7 +97,7 @@ export function ItemCard({
   activeTags,
   className,
 }: ItemCardProps) {
-  const badgeClass = typeBadgeColor[item.type] ?? 'bg-slate-100 text-slate-800 dark:bg-slate-950 dark:text-slate-300';
+  const badgeClass = typeBadgeColor[item.type] ?? 'bg-surface-2 text-ink-1';
   // h-full lets the card fill its grid cell; consumers that use a
   // grid with `auto-rows-fr` (the items list does) then get
   // uniform-height cards regardless of how much description /

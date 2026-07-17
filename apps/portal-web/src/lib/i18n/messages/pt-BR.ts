@@ -429,6 +429,7 @@ export const ptBR: Partial<CatalogShape> = {
   itemsPage: {
     eyebrow: 'Conteúdo',
     newItem: 'Novo item',
+    addItems: 'Adicionar itens',
     myItems: 'Meus itens',
     allItems: 'Todos os itens',
     folderBreadcrumb: 'Trilha de pastas',
@@ -440,7 +441,7 @@ export const ptBR: Partial<CatalogShape> = {
     scopeSharedWithYou: 'os itens compartilhados com você',
     emptyFolderTitle: '{folder} está vazia',
     emptyFolderDescription:
-      'Use "Adicionar itens" na página de detalhes da pasta ou arraste itens para cá a partir da visualização de todos os itens.',
+      'Adicione itens existentes, crie algo novo ou arraste itens para cá a partir da visualização de todos os itens.',
     emptyMineTitle: 'Ainda não há itens',
     emptyMineDescription:
       'Crie seu primeiro mapa, formulário ou camada de dados para começar.',
