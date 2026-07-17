@@ -2,6 +2,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import {
   AlertTriangle,
@@ -9,6 +10,7 @@ import {
   ChevronDown,
   ChevronRight,
   Database,
+  FlaskConical,
   Plus,
   Table2,
   Upload,
@@ -20,6 +22,14 @@ import {
   type UploadBusy,
 } from '@/components/upload-progress-panel';
 import { V3FeatureBrowser } from './v3-feature-browser';
+
+// Analyze (#175) lazy-loads: the DuckDB-WASM chunk is multiple MB
+// and must cost nothing on detail pages where nobody analyzes.
+// ssr:false because the module boots a Worker at first use.
+const LayerAnalyzePanel = dynamic(
+  () => import('./layer-analyze-panel').then((m) => m.LayerAnalyzePanel),
+  { ssr: false },
+);
 
 /**
  * Per-layer data panel for a v3 data_layer item on the detail
@@ -97,6 +107,7 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
   // can see what's happening at every step.
   const [busy, setBusy] = useState<UploadBusy | null>(null);
   const [browseOpen, setBrowseOpen] = useState(false);
+  const [analyzeOpen, setAnalyzeOpen] = useState(false);
   const [message, setMessage] = useState<
     | { kind: 'success'; text: string }
     | { kind: 'error'; text: string }
@@ -232,12 +243,31 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
           <Table2 className="h-3.5 w-3.5" />
           {browseOpen ? 'Hide' : 'Browse'}
         </button>
+        {/* Analyze (#175): in-browser SQL over the layer. Gated on
+            the download tier because the panel pulls the full layer
+            through the GeoParquet export endpoint, which 403s
+            without it; hiding beats offering a doomed button. */}
+        {canDownload ? (
+          <button
+            type="button"
+            onClick={() => setAnalyzeOpen((v) => !v)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2 text-xs font-medium text-ink-1 hover:bg-surface-2"
+            title={
+              analyzeOpen
+                ? 'Hide analysis'
+                : 'Analyze with SQL, in your browser'
+            }
+          >
+            <FlaskConical className="h-3.5 w-3.5" />
+            Analyze
+          </button>
+        ) : null}
         {canEdit ? (
           <>
             <input
               ref={inputRef}
               type="file"
-              accept=".geojson,.json,.kml,.kmz,.zip,.gdb"
+              accept=".geojson,.json,.parquet,.geoparquet,.kml,.kmz,.zip,.gdb"
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0];
@@ -275,6 +305,9 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
           )}
           {message.text}
         </p>
+      ) : null}
+      {analyzeOpen ? (
+        <LayerAnalyzePanel itemId={itemId} layer={layer} />
       ) : null}
       {browseOpen ? (
         <V3FeatureBrowser

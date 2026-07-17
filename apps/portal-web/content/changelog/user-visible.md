@@ -12,6 +12,15 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-07-17 - Analyze layers with SQL, right in your browser
+Every data layer now has an Analyze button that opens a SQL
+workbench powered by an in-browser database engine. Preview rows,
+profile every column in one click, group and count, or write any
+query you like. Queries run entirely on your machine: nothing is
+sent to the server, results appear in milliseconds, and it works on
+layers of any size your browser can hold. Spatial functions and
+saving results as new layers are coming next.
+
 ## 2026-07-17 - Download permission now covers every export
 Layer exports (CSV and GeoParquet) now respect the download
 permission consistently: if a layer is shared with you as view
