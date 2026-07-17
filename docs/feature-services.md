@@ -75,9 +75,13 @@ Export is the reverse path: `GET
 sublayer to a GeoParquet file (typed columns from the layer schema,
 geometry column, `geo` file metadata) and streams it back as a
 download. Unlike the CSV export it walks the whole layer via the
-engine's keyset iterator, so there is no row cap. It is also the
-first endpoint that enforces the sharing model's `download`
-permission tier: a view-only share gets a 403.
+engine's keyset iterator, so there is no row cap.
+
+Both attachment-download endpoints (`/csv` and `/geoparquet`)
+enforce the sharing model's `download` permission tier: a view-only
+share gets a 403, and the item page hides the export menu for those
+callers. `/geojson` stays read-gated on purpose; it is the map
+renderer's overlay source, not a download.
 
 ## Storage roadmap
 

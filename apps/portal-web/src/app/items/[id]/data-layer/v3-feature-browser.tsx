@@ -59,6 +59,12 @@ interface Props {
    *  bundle option in that case). */
   allLayers?: DataLayerSublayer[];
   canEdit: boolean;
+  /** Download tier (#32). When false the export menu (CSV / XLSX /
+   *  GeoJSON / GeoParquet / bundle) is hidden entirely: the server
+   *  now 403s the bulk endpoints for these callers, and offering
+   *  client-built exports of the loaded page would make the UI
+   *  disagree with the policy. */
+  canDownload: boolean;
   onRefreshCounts?: () => void;
 }
 
@@ -67,6 +73,7 @@ export function V3FeatureBrowser({
   layer,
   allLayers,
   canEdit,
+  canDownload,
   onRefreshCounts,
 }: Props) {
   const [features, setFeatures] = useState<FeatureRecord[]>([]);
@@ -277,16 +284,18 @@ export function V3FeatureBrowser({
           {/* #107: export current feature set to CSV / XLSX.  Uses
               whatever's already loaded in `features` so there's no
               extra round-trip; matches what the table is showing.
-              Bundle export (related tables + attachments) is a
-              follow-up that lands a server-side ZIP endpoint -- see
-              docs/handoff/reference/bundle-export-notes.md. */}
-          <ExportMenu
-            itemId={itemId}
-            features={features}
-            layer={layer}
-            {...(allLayers ? { allLayers } : {})}
-            disabled={loading || features.length === 0}
-          />
+              Hidden outright without the download tier (#32): the
+              server 403s the bulk endpoints for those callers and a
+              visible-but-doomed menu would just be a trap. */}
+          {canDownload ? (
+            <ExportMenu
+              itemId={itemId}
+              features={features}
+              layer={layer}
+              {...(allLayers ? { allLayers } : {})}
+              disabled={loading || features.length === 0}
+            />
+          ) : null}
         </div>
       </header>
 

@@ -681,8 +681,13 @@ export class DataLayerFeaturesController {
   }
 
   /**
-   * CSV export of a single layer (#107). Same auth + sharing
-   * gates as /geojson; the only difference is the response shape.
+   * CSV export of a single layer (#107). Same read scoping as
+   * /geojson, plus the download-tier gate (#32): as of the
+   * consistency pass that followed the GeoParquet export (#174),
+   * every attachment-download endpoint on this controller requires
+   * SharingService.canDownload, while /geojson stays read-gated
+   * because it is the map renderer's overlay source, not a
+   * download.
    *
    * For multi_select fields, the canonical jsonb-array storage gets
    * flattened to a comma-joined RFC-4180 quoted cell so downstream
@@ -711,6 +716,22 @@ export class DataLayerFeaturesController {
     @Query('parentId') parentId?: string,
     @Query('geometry') geometry?: 'none' | 'wkt' | 'lonlat' | 'auto',
   ) {
+    // Visibility + download gate BEFORE any feature read, so a
+    // denied caller never pulls rows (same shape as /geoparquet).
+    // The layer schema from the same assert drives CSV column order
+    // (declared field order, human-friendly labels).
+    const { layer, isTable, item } = await this.assertV3Layer(
+      user,
+      itemId,
+      layerId,
+      'read',
+    );
+    const withShares = item as typeof item & { shares?: ItemShare[] };
+    if (!this.sharing.canDownload(user, item, withShares.shares ?? [])) {
+      throw new ForbiddenException(
+        'This layer is shared with you as view only. Downloading the data requires a share with download permission.',
+      );
+    }
     const fc = await this.listFeatures(
       user,
       itemId,
@@ -720,15 +741,6 @@ export class DataLayerFeaturesController {
       clip,
       parentFk,
       parentId,
-    );
-    // listFeatures returns a FeatureCollection-shaped object. Resolve
-    // the layer's schema separately so the CSV column order matches
-    // the user's declared field order (and labels stay human-friendly).
-    const { layer, isTable } = await this.assertV3Layer(
-      user,
-      itemId,
-      layerId,
-      'read',
     );
     const fields: FeatureField[] = (layer?.fields ?? []) as FeatureField[];
     const features = ((fc as { features?: FeatureRecord[] }).features ??
@@ -768,14 +780,14 @@ export class DataLayerFeaturesController {
    *
    * Same read scoping as /csv and /geojson (share geo limits,
    * boundary clip, own-rows scope, bbox / at / parentFk params) but
-   * with one gate the older exports never had: the caller must hold
-   * the DOWNLOAD tier, not just read. SharingService.canDownload
+   * with a gate the older exports lacked at first: the caller must
+   * hold the DOWNLOAD tier, not just read. SharingService.canDownload
    * has described that tier since #32 and the item payload has
-   * surfaced it to clients, yet no endpoint enforced it until now;
-   * this route is deliberately the first. The csv / geojson routes
-   * keep their historical read-only gating: retrofitting them is a
-   * behavior change for existing integrations and is raised
-   * separately rather than smuggled in here.
+   * surfaced it to clients; this route was the first enforcer, and
+   * /csv now shares the gate (consistency decision after #174).
+   * /geojson stays read-gated on purpose: it is the map renderer's
+   * overlay source, and download-gating it would blank maps for
+   * view-only users.
    *
    * Unlike /csv this endpoint does NOT buffer the layer through
    * listFeatures (whose 100k default cap silently truncates big

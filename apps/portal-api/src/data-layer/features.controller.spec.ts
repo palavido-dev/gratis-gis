@@ -115,21 +115,27 @@ describe('DataLayerFeaturesController.geoparquet download gate', () => {
     expect(iterateFeatures).not.toHaveBeenCalled();
   });
 
-  it('does not gate the pre-existing csv route (behavior change reserved for a separate task)', async () => {
+  it('gates the csv route on the same download tier', async () => {
+    // Originally csv kept its historical read-only gating and this
+    // spec pinned that; the consistency decision after #174 gates
+    // every attachment-download endpoint identically. /geojson is
+    // deliberately NOT gated (map overlay source, read tier).
     const { controller, sharing } = makeController({ canDownload: false });
     const res = makeRes();
     const send = jest.fn();
     (res as unknown as { send: jest.Mock }).send = send;
-    // The csv handler buffers through listFeatures; stub it to keep
-    // the fake service surface minimal.
     const listFeatures = jest
       .spyOn(controller, 'listFeatures')
       .mockResolvedValue({ type: 'FeatureCollection', features: [] });
 
-    await controller.csv(res, makeUser(), ITEM_ID, LAYER_ID);
+    await expect(
+      controller.csv(res, makeUser(), ITEM_ID, LAYER_ID),
+    ).rejects.toThrow(ForbiddenException);
 
-    expect(send).toHaveBeenCalled();
-    expect(sharing.canDownload).not.toHaveBeenCalled();
+    expect(sharing.canDownload).toHaveBeenCalledTimes(1);
+    // The denied caller never pulls rows and never gets a body.
+    expect(listFeatures).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
     listFeatures.mockRestore();
   });
 });

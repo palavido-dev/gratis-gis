@@ -227,15 +227,12 @@ export default async function ItemDetailPage(props: Props) {
     throw err;
   }
   const canManage = me.id === item.ownerId || me.orgRole === 'admin';
-  // #296 + #32: download tier on the viewer side. Mirrors the
-  // server-side SharingService.canDownload conditions that don't
-  // require knowing the user's group memberships: owner/admin,
-  // public access, or same-org access. An explicit per-share
-  // 'download' grant against a private item won't surface the
-  // affordance here in Phase 1 because we don't load the user's
-  // groupIds on this page; the user can still hit the storage URL
-  // directly (bucket is public-read like every other portal asset),
-  // so this only gates the visible button.
+  // #296 + #32: client-side approximation of the download tier
+  // (owner/admin, public access, or same-org access). Kept only as
+  // the FALLBACK for the real permissions fetch in the parallel
+  // batch below, which does see per-share 'download' grants; this
+  // approximation cannot, because the page never loads the user's
+  // group memberships.
   const viewerCanDownload =
     item.access === 'public' || (item.access === 'org' && item.orgId === me.orgId);
   const isMap = item.type === 'map';
@@ -257,6 +254,7 @@ export default async function ItemDetailPage(props: Props) {
     geoBoundaries,
     groups,
     themeItems,
+    canDownload,
   ] = await Promise.all([
     // Web map basemap library.
     isMap
@@ -325,6 +323,18 @@ export default async function ItemDetailPage(props: Props) {
             data: { swatch?: string };
           }>,
         ),
+    // Real download-tier decision (#32) for the surfaces that gate
+    // bulk extract (file download button, data_layer export menu).
+    // The permissions endpoint sees per-share 'download' grants the
+    // viewerCanDownload approximation above cannot (it lacks the
+    // user's group memberships). Owners and org admins skip the
+    // round-trip; a failed fetch falls back to the approximation so
+    // the page still renders.
+    !canManage && (item.type === 'file' || item.type === 'data_layer')
+      ? apiFetch<{ canDownload: boolean }>(`/api/items/${item.id}/permissions`)
+          .then((p) => p.canDownload)
+          .catch(() => viewerCanDownload)
+      : Promise.resolve(true),
   ]);
 
   // Folder breadcrumb: walk up the parent chain so the detail page
@@ -679,6 +689,7 @@ export default async function ItemDetailPage(props: Props) {
                   item.data as unknown as import('@gratis-gis/shared-types').DataLayerDataV3
                 }
                 canEdit={canManage}
+                canDownload={canDownload}
               />
             </section>
           ) : (
@@ -985,11 +996,9 @@ export default async function ItemDetailPage(props: Props) {
                 ? fileData.uploadedAt
                 : new Date(0).toISOString()) as FileData['uploadedAt'],
             };
-            // Owner/admin can always download; everyone else needs the
-            // 'download' permission tier (#32). canManage covers owner
-            // + org admin; viewerCanDownload reads the share-level
-            // permission resolved server-side.
-            const canDownload = canManage || viewerCanDownload;
+            // canDownload comes from the server's permissions
+            // endpoint (#32) via the parallel fetch batch above, so
+            // per-share download grants are honored here too.
             return <FileDetail data={safe} canDownload={canDownload} />;
           })()}
         </section>

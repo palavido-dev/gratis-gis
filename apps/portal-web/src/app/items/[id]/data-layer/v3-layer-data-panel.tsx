@@ -40,9 +40,12 @@ interface Props {
   itemId: string;
   layers: DataLayerSublayer[];
   canEdit: boolean;
+  /** Download tier (#32); hides the feature browser's export
+   *  affordances for view-only shares. */
+  canDownload: boolean;
 }
 
-export function V3LayerDataPanel({ itemId, layers, canEdit }: Props) {
+export function V3LayerDataPanel({ itemId, layers, canEdit, canDownload }: Props) {
   if (layers.length === 0) {
     return null;
   }
@@ -63,6 +66,7 @@ export function V3LayerDataPanel({ itemId, layers, canEdit }: Props) {
             layer={layer}
             allLayers={layers}
             canEdit={canEdit}
+            canDownload={canDownload}
           />
         ))}
       </ul>
@@ -80,9 +84,10 @@ interface RowProps {
    *  related tables (#109). */
   allLayers: DataLayerSublayer[];
   canEdit: boolean;
+  canDownload: boolean;
 }
 
-function LayerRow({ itemId, layer, allLayers, canEdit }: RowProps) {
+function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) {
   const router = useRouter();
   // Busy carries the prominent upload-progress state. The previous
   // tiny inline spinner on the Import features button was easy to
@@ -277,6 +282,7 @@ function LayerRow({ itemId, layer, allLayers, canEdit }: RowProps) {
           layer={layer}
           allLayers={allLayers}
           canEdit={canEdit}
+          canDownload={canDownload}
           onRefreshCounts={() => router.refresh()}
         />
       ) : null}

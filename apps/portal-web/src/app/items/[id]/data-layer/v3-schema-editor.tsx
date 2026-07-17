@@ -29,12 +29,16 @@ interface Props {
   itemId: string;
   initial: DataLayerDataV3;
   canEdit: boolean;
+  /** Download tier (#32), resolved server-side by the detail page.
+   *  Gates the export affordances down in the feature browser. */
+  canDownload: boolean;
 }
 
 export function DataLayerV3SchemaEditor({
   itemId,
   initial,
   canEdit,
+  canDownload,
 }: Props) {
   const router = useRouter();
   const [data, setData] = useState<DataLayerDataV3>(initial);
@@ -113,6 +117,7 @@ export function DataLayerV3SchemaEditor({
         itemId={itemId}
         layers={data.layers}
         canEdit={canEdit}
+        canDownload={canDownload}
       />
 
       {/* Quick wizard for the most common related-table pattern: the

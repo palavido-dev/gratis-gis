@@ -12,6 +12,14 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-07-17 - Download permission now covers every export
+Layer exports (CSV and GeoParquet) now respect the download
+permission consistently: if a layer is shared with you as view
+only, the export options are hidden and the server declines bulk
+downloads. Viewing maps and browsing attributes work exactly as
+before. Owners, org members on org-shared items, and shares that
+include download are unaffected.
+
 ## 2026-07-17 - GeoParquet import and export
 Data layers now speak GeoParquet in both directions. Drop a
 .parquet or .geoparquet file into the import wizard to load it as a
