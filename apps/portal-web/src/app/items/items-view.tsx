@@ -50,6 +50,7 @@ import { DataPreviewDrawer } from './data-preview-drawer';
 import { ItemRowMenu } from './item-row-menu';
 import { ITEM_DRAG_MIME, type FolderRailNode } from './folder-rail';
 import { useT } from '@/lib/i18n/locale-context';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 
 /**
  * Client-side wrapper around the items list. Owns three bits of UI
@@ -1346,17 +1347,8 @@ function BulkShareDialog({
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={t('items.shareSelectedTitle')}
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-md rounded-lg border border-border bg-surface-1 shadow-overlay"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+      <DialogContent hideCloseButton srTitle={t('items.shareSelectedTitle')}>
         <div className="border-b border-border px-4 py-3">
           <h3 className="flex items-center gap-2 text-base font-semibold">
             <UsersIcon className="h-4 w-4" />
@@ -1584,8 +1576,8 @@ function BulkShareDialog({
             )}
           </button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1615,17 +1607,8 @@ function BulkTrashDialog({
 }) {
   const t = useT();
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={t('items.bulkTrashTitle')}
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-md rounded-lg border border-border bg-surface-1 shadow-overlay"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+      <DialogContent hideCloseButton srTitle={t('items.bulkTrashTitle')}>
         <div className="border-b border-border px-4 py-3">
           <h3 className="flex items-center gap-2 text-base font-semibold">
             <Trash2 className="h-4 w-4 text-danger" />
@@ -1673,8 +1656,8 @@ function BulkTrashDialog({
             )}
           </button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

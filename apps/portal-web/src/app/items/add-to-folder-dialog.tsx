@@ -2,9 +2,16 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Folder as FolderIcon, X } from 'lucide-react';
+import { Folder as FolderIcon } from 'lucide-react';
 import type { FolderRailNode } from './folder-rail';
 import { useT } from '@/lib/i18n/locale-context';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface Props {
   /** Folder UUIDs the caller can edit; we filter the rail set down
@@ -21,9 +28,10 @@ interface Props {
 
 /**
  * Modal "Add to folder" picker fired from the bulk-action bar on
- * the items page. Keeps the picker simple: a flat searchable list
- * of folders the caller can edit. A subsequent slice can render the
- * folders as a tree if the flat list gets unwieldy.
+ * the items page, built on the ui/dialog primitive (#173). Keeps the
+ * picker simple: a flat searchable list of folders the caller can
+ * edit. A subsequent slice can render the folders as a tree if the
+ * flat list gets unwieldy.
  *
  * The dialog does not perform the save itself; the parent's onSubmit
  * fetches the folder, appends the item ids, and PATCHes. That keeps
@@ -50,30 +58,21 @@ export function AddToFolderDialog({
   }, [folders, q]);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={(e) => {
-        if (!saving && e.currentTarget === e.target) onClose();
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next && !saving) onClose();
       }}
     >
-      <div className="w-full max-w-md overflow-hidden rounded-lg border border-border bg-surface-1 shadow-raised">
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+      <DialogContent hideCloseButton={saving}>
+        <DialogHeader>
           <div className="flex items-center gap-2">
             <FolderIcon className="h-4 w-4 text-warn" />
-            <h2 className="text-sm font-semibold text-ink-1">
+            <DialogTitle className="text-sm">
               {t('addToFolder.heading', { count: itemIds.length })}
-            </h2>
+            </DialogTitle>
           </div>
-          <button
-            type="button"
-            onClick={() => !saving && onClose()}
-            aria-label={t('common.close')}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-ink-1 disabled:cursor-not-allowed"
-            disabled={saving}
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+        </DialogHeader>
 
         <div className="px-4 py-3">
           <input
@@ -120,7 +119,7 @@ export function AddToFolderDialog({
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-border bg-surface-2 px-4 py-3">
+        <DialogFooter>
           <button
             type="button"
             onClick={() => !saving && onClose()}
@@ -137,8 +136,8 @@ export function AddToFolderDialog({
           >
             {saving ? t('items.adding') : t('items.addToFolder')}
           </button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
