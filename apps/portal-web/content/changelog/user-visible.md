@@ -18,8 +18,10 @@ workbench powered by an in-browser database engine. Preview rows,
 profile every column in one click, group and count, or write any
 query you like. Queries run entirely on your machine: nothing is
 sent to the server, results appear in milliseconds, and it works on
-layers of any size your browser can hold. Spatial functions and
-saving results as new layers are coming next.
+layers of any size your browser can hold. Any result can be saved
+as a new private layer with one click, ready to share, map, and
+export like anything else in your portal. Spatial functions are
+coming next.
 
 ## 2026-07-17 - Download permission now covers every export
 Layer exports (CSV and GeoParquet) now respect the download

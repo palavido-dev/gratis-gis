@@ -10,20 +10,26 @@
  * query after that runs on the visitor's own machine. Free at any
  * scale, offline once loaded, and invisible to the server.
  *
- * Unit 1 is attributes only: the geometry column is present as WKB
- * binary but there are no spatial functions yet; the spatial
- * extension (self-hosted, air-gap rules) is the next unit, and
- * saving results back as a portal layer follows it.
+ * Attribute queries plus save-as-layer (units 1 and 3): the
+ * geometry column is present as WKB binary but there are no spatial
+ * functions yet; the spatial extension (self-hosted, air-gap rules)
+ * is the remaining unit.
  *
  * Deliberately a workbench, not a wizard: a query box, a result
  * grid, and a few one-click starters. The audience for this panel
  * reads SQL; the guided experience belongs to the tool builder.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Loader2, Play, Sparkles } from 'lucide-react';
-import type { DataLayerSublayer } from '@gratis-gis/shared-types';
+import { useRouter } from 'next/navigation';
+import { AlertTriangle, Loader2, Play, Save, Sparkles } from 'lucide-react';
+import type {
+  DataLayerSublayer,
+  FeatureField,
+} from '@gratis-gis/shared-types';
 import type { AsyncDuckDBConnection } from '@duckdb/duckdb-wasm';
+import { toast } from '@/lib/toast';
 import {
+  getDuckDb,
   registerParquetView,
   runQuery,
   RESULT_ROW_CAP,
@@ -56,6 +62,121 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
   >(null);
   const [queryError, setQueryError] = useState<string | null>(null);
   const connRef = useRef<AsyncDuckDBConnection | null>(null);
+  const router = useRouter();
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saveTitle, setSaveTitle] = useState('');
+  const [saveBusy, setSaveBusy] = useState(false);
+
+  /**
+   * Unit 3 of #175: persist the CURRENT query's result as a brand
+   * new data_layer item. The result is COPY'd to Parquet inside the
+   * WASM engine (so types survive exactly as DuckDB computed them),
+   * a layer schema is derived from DESCRIBE on that file, the item
+   * is created through the same POST the new-item wizard uses, and
+   * the bytes upload through the existing per-layer import, whose
+   * server side already reads Parquet. A result with a WKB
+   * geometry column becomes a spatial layer inheriting this source
+   * layer's geometry type (an attribute query does not change the
+   * family); without one it becomes an attribute-only table.
+   */
+  async function saveAsLayer(): Promise<void> {
+    const conn = connRef.current;
+    const title = saveTitle.trim();
+    if (!conn || title.length === 0 || saveBusy) return;
+    setSaveBusy(true);
+    const outFile = `analysis-out-${Date.now()}.parquet`;
+    try {
+      // Trailing semicolons would terminate the COPY's inner SELECT.
+      const inner = sql.trim().replace(/;+\s*$/, '');
+      await conn.query(
+        `COPY (${inner}) TO '${outFile}' (FORMAT PARQUET)`,
+      );
+      const described = await runQuery(
+        conn,
+        `DESCRIBE SELECT * FROM read_parquet('${outFile}')`,
+      );
+      const fields: FeatureField[] = [];
+      let hasGeometry = false;
+      for (const row of described.rows) {
+        const colName = String(row[0] ?? '');
+        const colType = String(row[1] ?? '');
+        if (isWkbGeometryColumn(colName, colType)) {
+          hasGeometry = true;
+          continue;
+        }
+        fields.push({
+          name: sanitizeFieldName(colName),
+          label: colName,
+          type: duckdbTypeToFieldType(colType),
+          nullable: true,
+        });
+      }
+      const db = await getDuckDb();
+      const bytes = await db.copyFileToBuffer(outFile);
+
+      const createRes = await fetch('/api/portal/items', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          type: 'data_layer',
+          title,
+          description: `Created from an in-browser SQL analysis of "${layer.label || layer.name}".`,
+          tags: [],
+          access: 'private',
+          data: {
+            version: 3,
+            storageType: 'postgis',
+            layers: [
+              {
+                id: 'layer-1',
+                label: title,
+                name: sanitizeFieldName(title).slice(0, 40) || 'analysis',
+                geometryType: hasGeometry ? layer.geometryType : null,
+                fields,
+                editingEnabled: true,
+              },
+            ],
+          },
+        }),
+      });
+      if (!createRes.ok) {
+        throw new Error(
+          `Could not create the layer (${createRes.status}): ${await createRes
+            .text()
+            .catch(() => '')}`,
+        );
+      }
+      const created = (await createRes.json()) as { id: string };
+
+      const form = new FormData();
+      form.append(
+        'file',
+        new File([bytes as BlobPart], 'analysis.parquet'),
+      );
+      const importRes = await fetch(
+        `/api/portal/items/${created.id}/layers/layer-1/import?mode=replace`,
+        { method: 'POST', body: form },
+      );
+      if (!importRes.ok) {
+        // The empty item exists at this point; say so instead of
+        // silently deleting work the user may want to retry into.
+        throw new Error(
+          `The layer was created but loading the rows failed (${importRes.status}). Open the new item to retry the import.`,
+        );
+      }
+      toast.success(`Layer "${title}" created`);
+      router.push(`/items/${created.id}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      // Scratch file cleanup is best-effort; the WASM FS dies with
+      // the tab anyway.
+      void getDuckDb()
+        .then((db) => db.dropFile(outFile))
+        .catch(() => undefined);
+      setSaveBusy(false);
+    }
+  }
 
   const execute = useCallback(async (statement: string) => {
     const conn = connRef.current;
@@ -208,6 +329,21 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
             Run (Ctrl+Enter)
           </button>
           {result ? (
+            <button
+              type="button"
+              onClick={() => {
+                setSaveTitle(`${layer.label || layer.name} analysis`);
+                setSaveOpen((v) => !v);
+              }}
+              disabled={running || saveBusy}
+              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+              title="Run this query server-free and keep the result as a new portal layer"
+            >
+              <Save className="h-3 w-3" />
+              Save as layer
+            </button>
+          ) : null}
+          {result ? (
             <span className="text-2xs text-muted">
               {result.rowCount.toLocaleString()} row
               {result.rowCount === 1 ? '' : 's'} in {result.elapsedMs} ms
@@ -217,6 +353,42 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
             </span>
           ) : null}
         </div>
+        {saveOpen ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-surface-1 p-2">
+            <label className="text-2xs font-medium text-ink-1" htmlFor="analyze-save-title">
+              New layer title
+            </label>
+            <input
+              id="analyze-save-title"
+              type="text"
+              value={saveTitle}
+              onChange={(e) => setSaveTitle(e.target.value)}
+              className="h-7 min-w-56 flex-1 rounded border border-border bg-surface-0 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+            />
+            <button
+              type="button"
+              onClick={() => void saveAsLayer()}
+              disabled={saveBusy || saveTitle.trim().length === 0}
+              className="inline-flex h-7 items-center gap-1.5 rounded-md bg-ink-1 px-2.5 text-xs font-medium text-surface-0 hover:opacity-90 disabled:opacity-50"
+            >
+              {saveBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+              {saveBusy ? 'Creating' : 'Create layer'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setSaveOpen(false)}
+              disabled={saveBusy}
+              className="h-7 rounded-md border border-border bg-surface-1 px-2.5 text-xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <p className="w-full text-2xs text-muted">
+              The current query re-runs in your browser and the result
+              becomes a private data layer you can share, map, and
+              export like any other.
+            </p>
+          </div>
+        ) : null}
         {queryError ? (
           <div className="flex items-start gap-1.5 rounded-md bg-danger/5 px-2 py-1.5 text-2xs text-danger">
             <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
@@ -275,4 +447,67 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
 function firstTextField(layer: DataLayerSublayer): string | null {
   const f = (layer.fields ?? []).find((fl) => fl.type === 'string');
   return f?.name ?? null;
+}
+
+/**
+ * Mirror of the server importer's geometry-column fallback: a BLOB
+ * column with a conventional geometry name is WKB. Results that keep
+ * the source's geometry column match this exactly, so the saved
+ * parquet round-trips through the same server path a hand-uploaded
+ * file would.
+ */
+function isWkbGeometryColumn(name: string, type: string): boolean {
+  return (
+    baseType(type) === 'BLOB' &&
+    ['geometry', 'geom', 'wkb_geometry'].includes(name.toLowerCase())
+  );
+}
+
+/** "DECIMAL(10,2)" to "DECIMAL". */
+function baseType(t: string): string {
+  return t.trim().toUpperCase().replace(/\(.*$/, '').trim();
+}
+
+const NUMERIC_BASE_TYPES = new Set([
+  'TINYINT',
+  'SMALLINT',
+  'INTEGER',
+  'BIGINT',
+  'HUGEINT',
+  'UTINYINT',
+  'USMALLINT',
+  'UINTEGER',
+  'UBIGINT',
+  'UHUGEINT',
+  'FLOAT',
+  'DOUBLE',
+  'REAL',
+  'DECIMAL',
+  'NUMERIC',
+  'VARINT',
+  'BIGNUM',
+]);
+
+/** DuckDB column type to portal field type; token-based like the
+ *  server-side mapping so INTERVAL does not misfile as number. */
+function duckdbTypeToFieldType(t: string): FeatureField['type'] {
+  const base = baseType(t);
+  if (NUMERIC_BASE_TYPES.has(base)) return 'number';
+  if (base === 'BOOLEAN' || base === 'BOOL') return 'boolean';
+  if (base === 'DATE' || base.startsWith('TIMESTAMP') || base.startsWith('TIME')) {
+    return 'date';
+  }
+  return 'string';
+}
+
+/** Field names must satisfy the schema validator ([a-z0-9_], not
+ *  starting with a digit). Derived from whatever the user aliased
+ *  their result columns to, so normalize hard and keep it stable. */
+function sanitizeFieldName(name: string): string {
+  const cleaned = name
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .replace(/^(\d)/, 'f_$1');
+  return cleaned.length > 0 ? cleaned : 'field';
 }
