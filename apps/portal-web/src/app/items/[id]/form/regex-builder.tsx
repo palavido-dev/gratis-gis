@@ -48,14 +48,14 @@ export function RegexQuestionFields({
     <>
       <div>
         <div className="mb-0.5 flex items-center justify-between">
-          <p className="text-[10px] uppercase tracking-wide text-muted">
+          <p className="text-2xs uppercase tracking-wide text-muted">
             Pattern
           </p>
           <button
             type="button"
             disabled={!canEdit}
             onClick={() => setBuilderOpen(true)}
-            className="inline-flex items-center gap-1 text-[10px] text-accent hover:underline disabled:opacity-50"
+            className="inline-flex items-center gap-1 text-2xs text-accent hover:underline disabled:opacity-50"
           >
             <Sparkles className="h-3 w-3" />
             Pattern builder
@@ -68,12 +68,12 @@ export function RegexQuestionFields({
           onChange={(e) => onChange({ pattern: e.target.value })}
           className={`${inputCls} font-mono`}
         />
-        <p className="mt-1 text-[11px] text-muted">
+        <p className="mt-1 text-2xs text-muted">
           Regex applied with implicit ^...$ anchors.
         </p>
       </div>
       <div className="mt-3">
-        <p className="mb-0.5 text-[10px] uppercase tracking-wide text-muted">
+        <p className="mb-0.5 text-2xs uppercase tracking-wide text-muted">
           Flags
         </p>
         <input
@@ -84,12 +84,12 @@ export function RegexQuestionFields({
           className={`${inputCls} font-mono`}
           maxLength={6}
         />
-        <p className="mt-1 text-[11px] text-muted">
+        <p className="mt-1 text-2xs text-muted">
           e.g. "i" for case-insensitive.
         </p>
       </div>
       <div className="mt-3">
-        <p className="mb-0.5 text-[10px] uppercase tracking-wide text-muted">
+        <p className="mb-0.5 text-2xs uppercase tracking-wide text-muted">
           Error message
         </p>
         <input
@@ -294,7 +294,7 @@ function RegexBuilderModal({
       >
         <header className="flex items-center justify-between border-b border-border bg-surface-1 px-4 py-2">
           <div>
-            <p className="text-[10px] uppercase tracking-wide text-muted">
+            <p className="text-2xs uppercase tracking-wide text-muted">
               Pattern builder
             </p>
             <h2 className="text-sm font-medium text-ink-0">
@@ -313,7 +313,7 @@ function RegexBuilderModal({
         <div className="grid grid-cols-[1fr_300px] divide-x divide-border overflow-hidden">
           {/* Left: preset list */}
           <div className="overflow-auto p-3">
-            <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted">
+            <p className="mb-2 text-2xs font-medium uppercase tracking-wide text-muted">
               Common patterns
             </p>
             <ul className="space-y-1">
@@ -334,10 +334,10 @@ function RegexBuilderModal({
                       ) : null}
                       <span className="font-medium text-ink-0">{p.name}</span>
                     </div>
-                    <p className="mt-0.5 text-[11px] text-muted">
+                    <p className="mt-0.5 text-2xs text-muted">
                       {p.description}
                     </p>
-                    <p className="mt-1 truncate font-mono text-[10px] text-muted">
+                    <p className="mt-1 truncate font-mono text-2xs text-muted">
                       {p.pattern}
                     </p>
                   </button>
@@ -348,7 +348,7 @@ function RegexBuilderModal({
 
           {/* Right: pattern + preview */}
           <aside className="flex min-h-0 flex-col overflow-auto bg-surface-1 p-3 text-xs">
-            <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">
+            <p className="mb-1 text-2xs font-medium uppercase tracking-wide text-muted">
               Pattern
             </p>
             <textarea
@@ -360,7 +360,7 @@ function RegexBuilderModal({
               }}
               className={`${inputCls} font-mono`}
             />
-            <p className="mt-2 mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">
+            <p className="mt-2 mb-1 text-2xs font-medium uppercase tracking-wide text-muted">
               Flags
             </p>
             <input
@@ -370,11 +370,11 @@ function RegexBuilderModal({
               maxLength={6}
               className={`${inputCls} font-mono`}
             />
-            <p className="mt-1 text-[11px] text-muted">
+            <p className="mt-1 text-2xs text-muted">
               i = case-insensitive, m = multi-line, s = . matches newline.
             </p>
 
-            <p className="mt-4 mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">
+            <p className="mt-4 mb-1 text-2xs font-medium uppercase tracking-wide text-muted">
               Live preview
             </p>
             <input
@@ -384,7 +384,7 @@ function RegexBuilderModal({
               placeholder="Type a sample value..."
               className={inputCls}
             />
-            <div className="mt-2 rounded-md border border-border bg-surface-0 px-2 py-1.5 text-[11px]">
+            <div className="mt-2 rounded-md border border-border bg-surface-0 px-2 py-1.5 text-2xs">
               {!previewResult.ok ? (
                 <p className="text-danger">
                   Invalid pattern: {previewResult.error}
@@ -404,7 +404,7 @@ function RegexBuilderModal({
                 </p>
               )}
             </div>
-            <p className="mt-3 text-[10px] text-muted">
+            <p className="mt-3 text-2xs text-muted">
               The runtime anchors with implicit ^...$, so the pattern
               has to match the whole value -- not just any substring.
             </p>

@@ -264,7 +264,7 @@ function ConnectionModal({
             </li>
             <li>
               <strong>Redirect URI:</strong>{' '}
-              <code className="break-all rounded bg-surface-0 px-1 text-[10px]">
+              <code className="break-all rounded bg-surface-0 px-1 text-2xs">
                 {redirectUri}
               </code>
             </li>

@@ -384,18 +384,18 @@ export function AppThemeDetail({
                       {g.label}
                     </p>
                     {!open && (
-                      <p className="truncate text-[10px] text-muted">
+                      <p className="truncate text-2xs text-muted">
                         {g.description}
                       </p>
                     )}
                   </div>
-                  <span className="text-[10px] text-muted">
+                  <span className="text-2xs text-muted">
                     {g.fields.length}
                   </span>
                 </button>
                 {open && (
                   <div className="border-t border-border px-1.5 pb-1.5">
-                    <p className="px-1 py-1.5 text-[11px] text-muted">
+                    <p className="px-1 py-1.5 text-2xs text-muted">
                       {g.description}
                     </p>
                     <div className="space-y-1.5">
@@ -472,9 +472,9 @@ function TokenRow({
           <p className="truncate text-xs font-medium text-ink-0">
             {field.label}
           </p>
-          <p className="truncate text-[10px] text-muted">{field.hint}</p>
+          <p className="truncate text-2xs text-muted">{field.hint}</p>
         </div>
-        <span className="font-mono text-[10px] text-muted">{hex}</span>
+        <span className="font-mono text-2xs text-muted">{hex}</span>
       </div>
     );
   }
@@ -483,19 +483,19 @@ function TokenRow({
   // typically tweaks rarely.
   return (
     <div className="flex items-center gap-2 rounded px-2 py-1 hover:bg-surface-2/60">
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-surface-2 text-[10px] text-muted">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-surface-2 text-2xs text-muted">
         {field.kind === 'length' ? 'rem' : '#'}
       </span>
       <div className="min-w-0 flex-1">
         <p className="truncate text-xs font-medium text-ink-0">{field.label}</p>
-        <p className="truncate text-[10px] text-muted">{field.hint}</p>
+        <p className="truncate text-2xs text-muted">{field.hint}</p>
       </div>
       <input
         type="text"
         disabled={!canEdit}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-20 rounded border border-border bg-surface-1 px-2 py-0.5 font-mono text-[11px]"
+        className="w-20 rounded border border-border bg-surface-1 px-2 py-0.5 font-mono text-2xs"
       />
     </div>
   );
@@ -527,7 +527,7 @@ function SampleAppShell() {
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold">Sample app</p>
           <p
-            className="truncate text-[10px]"
+            className="truncate text-2xs"
             style={{ color: 'hsl(var(--app-header-muted))' }}
           >
             Live preview of this theme
@@ -553,7 +553,7 @@ function SampleAppShell() {
             style={{ borderColor: 'hsl(var(--app-border))' }}
           >
             <p
-              className="text-[11px] font-semibold uppercase tracking-wide"
+              className="text-2xs font-semibold uppercase tracking-wide"
               style={{ color: 'hsl(var(--app-muted))' }}
             >
               Layers
@@ -632,7 +632,7 @@ function SampleAppShell() {
           </div>
           {/* Popover preview */}
           <div
-            className="absolute right-3 top-3 w-44 rounded-md border p-2 text-[11px] shadow-md"
+            className="absolute right-3 top-3 w-44 rounded-md border p-2 text-2xs shadow-md"
             style={{
               background: 'hsl(var(--app-surface-2))',
               borderColor: 'hsl(var(--app-border))',
@@ -680,7 +680,7 @@ function ToolbarIcon({
       }
     >
       <Icon className="h-3.5 w-3.5" />
-      <span className="text-[9px]">{label}</span>
+      <span className="text-2xs">{label}</span>
     </button>
   );
 }
@@ -700,7 +700,7 @@ function StatusChip({
   };
   return (
     <span
-      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
+      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-medium"
       style={{
         background: `${palette[kind]} / 0.15` as unknown as string,
         backgroundColor: palette[kind].replace(

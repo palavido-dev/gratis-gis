@@ -198,7 +198,7 @@ function LayerRow({ itemId, layer, allLayers, canEdit }: RowProps) {
           <p className="truncate text-sm font-medium text-ink-0">
             {layer.label}
           </p>
-          <p className="text-[11px] text-muted">
+          <p className="text-2xs text-muted">
             <span className="uppercase">
               {layer.geometryType ?? 'table'}
             </span>
@@ -259,7 +259,7 @@ function LayerRow({ itemId, layer, allLayers, canEdit }: RowProps) {
       {message ? (
         <p
           role={message.kind === 'error' ? 'alert' : undefined}
-          className={`mt-1.5 inline-flex items-center gap-1 text-[11px] ${
+          className={`mt-1.5 inline-flex items-center gap-1 text-2xs ${
             message.kind === 'error' ? 'text-danger' : 'text-success'
           }`}
         >
@@ -386,7 +386,7 @@ function ImportButtonCluster({
               <span className="block font-medium text-ink-0">
                 Append instead
               </span>
-              <span className="block text-[10px] text-muted">
+              <span className="block text-2xs text-muted">
                 Add the new file&apos;s features alongside the existing rows.
               </span>
             </span>

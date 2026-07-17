@@ -61,7 +61,7 @@ function NavRow({
       <li>
         <Link
           href={`/help/${node.slug}`}
-          className={`block border-l-2 py-1 pr-2 text-[12px] ${
+          className={`block border-l-2 py-1 pr-2 text-xs ${
             isActive
               ? 'border-accent bg-accent/10 font-medium text-accent'
               : 'border-transparent text-ink-1 hover:border-border hover:bg-surface-2'
@@ -85,8 +85,8 @@ function NavRow({
         onClick={() => setOpen((v) => !v)}
         className={
           isTopCategory
-            ? 'flex w-full items-center gap-1 rounded px-1.5 py-1 text-left text-[10px] font-semibold uppercase tracking-wider text-muted hover:bg-surface-2'
-            : 'flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-left text-[11px] font-medium text-ink-0 hover:bg-surface-2'
+            ? 'flex w-full items-center gap-1 rounded px-1.5 py-1 text-left text-2xs font-semibold uppercase tracking-wider text-muted hover:bg-surface-2'
+            : 'flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-left text-2xs font-medium text-ink-0 hover:bg-surface-2'
         }
         style={{
           paddingLeft: isTopCategory ? '6px' : `${Math.max(0, depth - 1) * 10 + 6}px`,

@@ -224,7 +224,7 @@ function CreateToolModal({
             <h2 id="create-tool-title" className="text-sm font-medium text-ink-0">
               New tool
             </h2>
-            <p className="text-[11px] text-muted">
+            <p className="text-2xs text-muted">
               Stamp out a working tool item from a starter template.
               You can edit anything on the tool&apos;s detail page
               after it&apos;s saved.
@@ -242,7 +242,7 @@ function CreateToolModal({
 
         <div className="space-y-3">
           <div>
-            <label className="block text-[11px] font-medium uppercase tracking-wide text-muted">
+            <label className="block text-2xs font-medium uppercase tracking-wide text-muted">
               Title
             </label>
             <input
@@ -256,7 +256,7 @@ function CreateToolModal({
           </div>
 
           <div>
-            <label className="block text-[11px] font-medium uppercase tracking-wide text-muted">
+            <label className="block text-2xs font-medium uppercase tracking-wide text-muted">
               Starter template
             </label>
             <div className="mt-1 space-y-1">
@@ -280,7 +280,7 @@ function CreateToolModal({
                     <span className="block font-medium text-ink-0">
                       {tpl.label}
                     </span>
-                    <span className="block text-[10px] text-muted">
+                    <span className="block text-2xs text-muted">
                       {tpl.description}
                     </span>
                   </span>
@@ -291,7 +291,7 @@ function CreateToolModal({
         </div>
 
         {error ? (
-          <div className="mt-3 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-danger">
+          <div className="mt-3 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-2xs text-danger">
             {error}
           </div>
         ) : null}

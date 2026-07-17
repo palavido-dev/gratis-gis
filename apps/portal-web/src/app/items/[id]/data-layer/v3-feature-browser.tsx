@@ -236,7 +236,7 @@ export function V3FeatureBrowser({
   return (
     <div className="mt-2 rounded-md border border-border bg-surface-0">
       <header className="flex items-center justify-between gap-2 border-b border-border px-3 py-1.5">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-muted">
+        <p className="text-2xs font-medium uppercase tracking-wide text-muted">
           Features
           {loading ? '' : ` · ${features.length}`}
         </p>
@@ -246,7 +246,7 @@ export function V3FeatureBrowser({
               type="button"
               onClick={addBlank}
               disabled={adding}
-              className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-[11px] font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+              className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
             >
               {adding ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -260,7 +260,7 @@ export function V3FeatureBrowser({
             type="button"
             onClick={() => void reload()}
             disabled={loading}
-            className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-[11px] font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+            className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
           >
             {loading ? (
               <Loader2 className="h-3 w-3 animate-spin" />
@@ -286,14 +286,14 @@ export function V3FeatureBrowser({
       </header>
 
       {error ? (
-        <div className="flex items-start gap-1.5 border-b border-border bg-danger/5 px-3 py-1.5 text-[11px] text-danger">
+        <div className="flex items-start gap-1.5 border-b border-border bg-danger/5 px-3 py-1.5 text-2xs text-danger">
           <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
           <span>{error}</span>
         </div>
       ) : null}
 
       {truncated ? (
-        <div className="flex items-start gap-1.5 border-b border-border bg-warning/5 px-3 py-1.5 text-[11px] text-warning">
+        <div className="flex items-start gap-1.5 border-b border-border bg-warning/5 px-3 py-1.5 text-2xs text-warning">
           <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
           <span>
             Showing the first {PAGE_LIMIT.toLocaleString()} rows. This layer
@@ -313,7 +313,7 @@ export function V3FeatureBrowser({
         </p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-[11px]">
+          <table className="w-full text-2xs">
             <thead className="bg-surface-2 text-muted">
               <tr>
                 <th className="px-2 py-1 text-left font-medium">#</th>
@@ -324,7 +324,7 @@ export function V3FeatureBrowser({
                     title={fieldByName.get(k)?.label ?? k}
                   >
                     {fieldByName.get(k)?.label || k}
-                    <span className="ml-1 text-[9px] uppercase text-muted">
+                    <span className="ml-1 text-2xs uppercase text-muted">
                       {fieldByName.get(k)?.type ?? ''}
                     </span>
                   </th>
@@ -342,7 +342,7 @@ export function V3FeatureBrowser({
                 return (
                   <tr key={f.id} className="border-t border-border">
                     <td
-                      className="px-2 py-1 font-mono text-[10px] text-muted"
+                      className="px-2 py-1 font-mono text-2xs text-muted"
                       title={f.id}
                     >
                       {f._meta?.gid ?? f.id.slice(0, 6)}
@@ -479,7 +479,7 @@ export function V3FeatureBrowser({
       )}
 
       {features.length > 0 && canEdit ? (
-        <footer className="flex items-center gap-1 border-t border-border bg-surface-1 px-3 py-1.5 text-[10px] text-muted">
+        <footer className="flex items-center gap-1 border-t border-border bg-surface-1 px-3 py-1.5 text-2xs text-muted">
           <Check className="h-3 w-3" />
           Edits save to the feature table; history is preserved via the
           temporal valid_from/valid_to pattern.
@@ -621,7 +621,7 @@ function ExportMenu({
         type="button"
         onClick={() => setOpen((v) => !v)}
         disabled={disabled}
-        className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-[11px] font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+        className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
         title={
           features.length === 0
             ? 'No features to export'
@@ -798,7 +798,7 @@ function BundleExportModal({
           {includeAttachments ? (
             <>
               <div>
-                <label className="block text-[10px] font-medium uppercase tracking-wide text-muted">
+                <label className="block text-2xs font-medium uppercase tracking-wide text-muted">
                   Attachment filename prefix (optional)
                 </label>
                 <select
@@ -814,14 +814,14 @@ function BundleExportModal({
                     </option>
                   ))}
                 </select>
-                <p className="mt-1 text-[11px] text-muted">
+                <p className="mt-1 text-2xs text-muted">
                   When set, each attachment&apos;s filename starts with
                   this field&apos;s value -- matches the convention
                   used by the ArcGIS Pro export script.
                 </p>
               </div>
               <div>
-                <label className="block text-[10px] font-medium uppercase tracking-wide text-muted">
+                <label className="block text-2xs font-medium uppercase tracking-wide text-muted">
                   Organize attachments by field (optional)
                 </label>
                 <select
@@ -837,7 +837,7 @@ function BundleExportModal({
                     </option>
                   ))}
                 </select>
-                <p className="mt-1 text-[11px] text-muted">
+                <p className="mt-1 text-2xs text-muted">
                   Each attachment lands in a subfolder named for this
                   field&apos;s value (eg <code>Site A/</code>).
                 </p>
@@ -847,7 +847,7 @@ function BundleExportModal({
         </div>
         {progress || error ? (
           <div
-            className={`mx-4 mb-3 rounded-md border px-3 py-2 text-[11px] ${
+            className={`mx-4 mb-3 rounded-md border px-3 py-2 text-2xs ${
               error
                 ? 'border-danger/40 bg-danger/10 text-danger'
                 : 'border-border bg-surface-2 text-ink-1'
@@ -932,7 +932,7 @@ function FieldEditor({
           const raw = e.target.value;
           onChange(raw === '' ? null : Number(raw));
         }}
-        className="h-6 w-24 rounded border border-border bg-surface-1 px-1 text-[11px] focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+        className="h-6 w-24 rounded border border-border bg-surface-1 px-1 text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
       />
     );
   }
@@ -947,7 +947,7 @@ function FieldEditor({
         type="date"
         value={dateVal}
         onChange={(e) => onChange(e.target.value || null)}
-        className="h-6 rounded border border-border bg-surface-1 px-1 text-[11px] focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+        className="h-6 rounded border border-border bg-surface-1 px-1 text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
       />
     );
   }
@@ -958,7 +958,7 @@ function FieldEditor({
       <select
         value={stringValue}
         onChange={(e) => onChange(e.target.value || null)}
-        className="h-6 rounded border border-border bg-surface-1 px-1 text-[11px] focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+        className="h-6 rounded border border-border bg-surface-1 px-1 text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
       >
         <option value="">-</option>
         {field.domain.values.map((v) => (
@@ -976,7 +976,7 @@ function FieldEditor({
       value={stringValue}
       onChange={(e) => onChange(e.target.value)}
       placeholder={name}
-      className="h-6 w-40 rounded border border-border bg-surface-1 px-1 text-[11px] focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+      className="h-6 w-40 rounded border border-border bg-surface-1 px-1 text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
     />
   );
 }

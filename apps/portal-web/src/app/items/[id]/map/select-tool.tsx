@@ -97,7 +97,7 @@ export function SelectToolbar({
           <button
             type="button"
             onClick={onClearSelection}
-            className="inline-flex h-7 items-center gap-1 rounded px-2 text-[11px] text-muted hover:bg-surface-2 hover:text-ink-0"
+            className="inline-flex h-7 items-center gap-1 rounded px-2 text-2xs text-muted hover:bg-surface-2 hover:text-ink-0"
             title="Clear selection"
           >
             <X className="h-3 w-3" />

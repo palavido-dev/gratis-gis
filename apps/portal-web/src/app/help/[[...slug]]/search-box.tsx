@@ -65,7 +65,7 @@ export function HelpSearchBox({ index }: { index: IndexEntry[] }) {
                 className="block px-3 py-1.5 hover:bg-surface-2"
               >
                 <div className="font-medium text-ink-0">{doc.title}</div>
-                <div className="line-clamp-2 text-[10px] text-muted">
+                <div className="line-clamp-2 text-2xs text-muted">
                   {doc.summary}
                 </div>
               </Link>

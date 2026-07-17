@@ -271,15 +271,15 @@ function ImportJobRow({ job, onCancel, terminal = false }: RowProps) {
             <span className="truncate font-medium text-ink-0">
               {job.sourceLayerName}
             </span>
-            <span className="text-[11px] text-muted">
+            <span className="text-2xs text-muted">
               from {job.sourceFileName}
             </span>
           </div>
           <div
             className={
               job.status === 'failed'
-                ? 'mt-0.5 text-[11px] text-danger'
-                : 'mt-0.5 text-[11px] text-muted'
+                ? 'mt-0.5 text-2xs text-danger'
+                : 'mt-0.5 text-2xs text-muted'
             }
           >
             {detail}
@@ -299,7 +299,7 @@ function ImportJobRow({ job, onCancel, terminal = false }: RowProps) {
           <button
             type="button"
             onClick={onCancel}
-            className="shrink-0 rounded border border-border bg-surface-0 px-2 py-0.5 text-[11px] text-ink-1 hover:bg-surface-2"
+            className="shrink-0 rounded border border-border bg-surface-0 px-2 py-0.5 text-2xs text-ink-1 hover:bg-surface-2"
           >
             Cancel
           </button>

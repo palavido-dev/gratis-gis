@@ -205,7 +205,7 @@ export function PresenceOverlay({
             <path d="M2 2 L2 14 L6 11 L8 16 L10 15 L8 10 L13 10 Z" fill={member.color} />
           </svg>
           <span
-            className="ml-2 inline-block whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-medium text-white shadow"
+            className="ml-2 inline-block whitespace-nowrap rounded px-1.5 py-0.5 text-2xs font-medium text-white shadow"
             style={{ backgroundColor: member.color }}
           >
             {member.displayName}
@@ -239,7 +239,7 @@ function renderChipStrip(
       {members.map((m) => (
         <div
           key={m.connectionId}
-          className="flex h-6 w-6 items-center justify-center rounded-full border border-white text-[10px] font-semibold text-white shadow"
+          className="flex h-6 w-6 items-center justify-center rounded-full border border-white text-2xs font-semibold text-white shadow"
           style={{ backgroundColor: m.color }}
           title={
             m.connectionId === connectionId

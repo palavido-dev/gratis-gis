@@ -322,7 +322,7 @@ export function NotificationsAdminView({
                         <StatusBadge status={row.status} />
                         {failed && row.lastError ? (
                           <p
-                            className="mt-0.5 max-w-xs truncate text-[11px] text-warn"
+                            className="mt-0.5 max-w-xs truncate text-2xs text-warn"
                             title={row.lastError}
                           >
                             {row.lastError}
@@ -344,7 +344,7 @@ export function NotificationsAdminView({
                             type="button"
                             disabled={retryingId === row.id}
                             onClick={() => void retry(row.id)}
-                            className="inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-1.5 py-0.5 text-[11px] font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+                            className="inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-1.5 py-0.5 text-2xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
                           >
                             {retryingId === row.id ? (
                               <Loader2 className="h-3 w-3 animate-spin" />
@@ -514,7 +514,7 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
         <h2 className="text-sm font-medium tracking-tight">SMTP</h2>
         {form.host ? (
           <span
-            className={`ml-2 inline-flex rounded-full px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${
+            className={`ml-2 inline-flex rounded-full px-1.5 py-0.5 text-2xs uppercase tracking-wide ${
               form.enabled
                 ? 'bg-success/15 text-success'
                 : 'bg-surface-2 text-muted'
@@ -523,7 +523,7 @@ function SmtpCard({ initial }: { initial: SmtpState }) {
             {form.enabled ? 'enabled' : 'paused'}
           </span>
         ) : (
-          <span className="ml-2 inline-flex rounded-full bg-warn/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-warn">
+          <span className="ml-2 inline-flex rounded-full bg-warn/15 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-warn">
             not configured
           </span>
         )}
@@ -764,7 +764,7 @@ function DefaultsCard({
                 <td className="py-1.5 text-ink-1">
                   {row.label}
                   {row.isOverride ? (
-                    <span className="ml-1.5 inline-flex rounded-full bg-warn/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-warn">
+                    <span className="ml-1.5 inline-flex rounded-full bg-warn/15 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-warn">
                       override
                     </span>
                   ) : null}
@@ -783,7 +783,7 @@ function DefaultsCard({
                   {(s?.failed ?? 0).toLocaleString()}
                 </td>
                 <td className="py-1.5 text-right">
-                  <label className="inline-flex items-center gap-1 text-[11px]">
+                  <label className="inline-flex items-center gap-1 text-2xs">
                     <input
                       type="checkbox"
                       checked={row.effective}
@@ -802,7 +802,7 @@ function DefaultsCard({
                       <button
                         type="button"
                         onClick={() => onCustomize(row)}
-                        className="inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-1.5 py-0.5 text-[11px] font-medium text-ink-1 hover:bg-surface-2"
+                        className="inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-1.5 py-0.5 text-2xs font-medium text-ink-1 hover:bg-surface-2"
                         title={
                           hasOverride
                             ? 'Editing your saved template'
@@ -822,7 +822,7 @@ function DefaultsCard({
                   <button
                     type="button"
                     onClick={() => onPreview(row.type)}
-                    className="inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-1.5 py-0.5 text-[11px] font-medium text-ink-1 hover:bg-surface-2"
+                    className="inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-1.5 py-0.5 text-2xs font-medium text-ink-1 hover:bg-surface-2"
                   >
                     <Eye className="h-3 w-3" />
                     Preview
@@ -833,7 +833,7 @@ function DefaultsCard({
           })}
         </tbody>
       </table>
-      <p className="mt-2 text-[11px] text-muted">
+      <p className="mt-2 text-2xs text-muted">
         Off here mutes the type platform-wide for users who haven&apos;t
         explicitly opted in. Per-user opt-ins still win. Customize
         rewrites the email body for your org; saved templates
@@ -880,13 +880,13 @@ function PreviewModal({
         </div>
         <div className="space-y-3 px-4 py-3 text-xs">
           <div>
-            <p className="text-[11px] uppercase tracking-wide text-muted">
+            <p className="text-2xs uppercase tracking-wide text-muted">
               Subject
             </p>
             <p className="mt-0.5 text-sm text-ink-0">{preview.subject}</p>
           </div>
           <div>
-            <p className="text-[11px] uppercase tracking-wide text-muted">
+            <p className="text-2xs uppercase tracking-wide text-muted">
               HTML
             </p>
             <div
@@ -896,10 +896,10 @@ function PreviewModal({
             />
           </div>
           <details>
-            <summary className="cursor-pointer text-[11px] uppercase tracking-wide text-muted">
+            <summary className="cursor-pointer text-2xs uppercase tracking-wide text-muted">
               Plain-text fallback
             </summary>
-            <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded border border-border bg-surface-0 p-3 text-[11px] text-ink-1">
+            <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded border border-border bg-surface-0 p-3 text-2xs text-ink-1">
               {preview.text}
             </pre>
           </details>
@@ -1271,7 +1271,7 @@ function TemplateEditModal({
                   ones sit closest to the inputs. */}
               {variables.length > 0 ? (
                 <div className="rounded-md border border-border bg-surface-0 p-2">
-                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
+                  <p className="mb-1.5 text-2xs font-semibold uppercase tracking-wide text-muted">
                     Insert variable
                   </p>
                   <div className="flex flex-wrap gap-1">
@@ -1284,7 +1284,7 @@ function TemplateEditModal({
                           (v.description ? `${v.description}\n\n` : '') +
                           (v.example ? `Example: ${v.example}` : '')
                         }
-                        className="inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-1.5 py-0.5 text-[10px] text-ink-1 hover:bg-surface-2"
+                        className="inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-1.5 py-0.5 text-2xs text-ink-1 hover:bg-surface-2"
                       >
                         <span className="font-mono text-muted">
                           {`{{${v.name}}}`}
@@ -1330,7 +1330,7 @@ function TemplateEditModal({
                   onFocus={() => {
                     lastFocused.current = 'bodyHtml';
                   }}
-                  className="w-full rounded-md border border-border bg-surface-1 p-2 font-mono text-[11px] focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+                  className="w-full rounded-md border border-border bg-surface-1 p-2 font-mono text-2xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
                 />
               </Field>
 
@@ -1350,12 +1350,12 @@ function TemplateEditModal({
                     onFocus={() => {
                       lastFocused.current = 'bodyText';
                     }}
-                    className="w-full rounded-md border border-border bg-surface-1 p-2 font-mono text-[11px] focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+                    className="w-full rounded-md border border-border bg-surface-1 p-2 font-mono text-2xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
                   />
                   <button
                     type="button"
                     onClick={derivePlainTextFromHtml}
-                    className="text-[10px] text-accent hover:underline"
+                    className="text-2xs text-accent hover:underline"
                   >
                     Generate from HTML body
                   </button>
@@ -1370,12 +1370,12 @@ function TemplateEditModal({
             </div>
 
             <div className="space-y-3">
-              <p className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-muted">
+              <p className="flex items-center gap-2 text-2xs uppercase tracking-wide text-muted">
                 Live preview
                 {previewing ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
               </p>
               <div>
-                <p className="text-[11px] uppercase tracking-wide text-muted">
+                <p className="text-2xs uppercase tracking-wide text-muted">
                   Subject
                 </p>
                 <p className="mt-0.5 text-sm text-ink-0">
@@ -1383,7 +1383,7 @@ function TemplateEditModal({
                 </p>
               </div>
               <div>
-                <p className="text-[11px] uppercase tracking-wide text-muted">
+                <p className="text-2xs uppercase tracking-wide text-muted">
                   HTML
                 </p>
                 <div
@@ -1393,10 +1393,10 @@ function TemplateEditModal({
                 />
               </div>
               <details>
-                <summary className="cursor-pointer text-[11px] uppercase tracking-wide text-muted">
+                <summary className="cursor-pointer text-2xs uppercase tracking-wide text-muted">
                   Plain-text fallback
                 </summary>
-                <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap rounded border border-border bg-surface-0 p-3 text-[11px] text-ink-1">
+                <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap rounded border border-border bg-surface-0 p-3 text-2xs text-ink-1">
                   {preview?.text ?? ''}
                 </pre>
               </details>
@@ -1466,7 +1466,7 @@ function Field({
         {label}
       </span>
       {children}
-      {hint ? <p className="mt-0.5 text-[11px] text-muted">{hint}</p> : null}
+      {hint ? <p className="mt-0.5 text-2xs text-muted">{hint}</p> : null}
     </label>
   );
 }
@@ -1497,7 +1497,7 @@ function Metric({
       <p className="mt-1.5 text-2xl font-semibold tabular-nums text-ink-0">
         {value}
       </p>
-      {help ? <p className="mt-0.5 text-[11px] text-muted">{help}</p> : null}
+      {help ? <p className="mt-0.5 text-2xs text-muted">{help}</p> : null}
     </div>
   );
 }
@@ -1513,7 +1513,7 @@ function StatusBadge({ status }: { status: RecentRow['status'] }) {
           : 'bg-surface-2 text-muted';
   return (
     <span
-      className={`inline-flex rounded-full px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${tone}`}
+      className={`inline-flex rounded-full px-1.5 py-0.5 text-2xs uppercase tracking-wide ${tone}`}
     >
       {status}
     </span>

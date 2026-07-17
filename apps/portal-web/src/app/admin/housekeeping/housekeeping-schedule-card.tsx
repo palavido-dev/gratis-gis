@@ -458,7 +458,7 @@ export function HousekeepingScheduleCard({
                 key={r.id}
                 className="flex flex-wrap items-center gap-2 text-xs text-ink-1"
               >
-                <span className="font-mono text-[11px] text-muted">
+                <span className="font-mono text-2xs text-muted">
                   {new Date(r.startedAt).toLocaleString()}
                 </span>
                 <StatusPill status={r.status} />
@@ -501,7 +501,7 @@ function StatusPill({ status }: { status: HousekeepingRun['status'] }) {
         : 'bg-warning/15 text-warning';
   return (
     <span
-      className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${cls}`}
+      className={`rounded px-1.5 py-0.5 text-2xs font-medium ${cls}`}
     >
       {label}
     </span>

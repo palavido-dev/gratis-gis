@@ -139,7 +139,7 @@ export function BrandingForm({ initial }: Props) {
             required
             className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
           />
-          <p className="mt-1 text-[11px] text-muted">
+          <p className="mt-1 text-2xs text-muted">
             The display name used in headers, navigation, emails,
             and anywhere else your organization is named. Cannot be
             empty.
@@ -162,7 +162,7 @@ export function BrandingForm({ initial }: Props) {
             maxLength={200}
             className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
           />
-          <p className="mt-1 text-[11px] text-muted">
+          <p className="mt-1 text-2xs text-muted">
             Shown as the hero heading. Leave blank to fall back to the
             organization name (&ldquo;{initial.name}&rdquo;).
           </p>
@@ -184,7 +184,7 @@ export function BrandingForm({ initial }: Props) {
             maxLength={500}
             className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
           />
-          <p className="mt-1 text-[11px] text-muted">
+          <p className="mt-1 text-2xs text-muted">
             One-line tagline under the title. Optional.
           </p>
         </div>
@@ -218,7 +218,7 @@ export function BrandingForm({ initial }: Props) {
             <span className="font-medium text-ink-0">
               Show public items on the landing page
             </span>
-            <span className="mt-0.5 block text-[11px] text-muted">
+            <span className="mt-0.5 block text-2xs text-muted">
               When off, the landing page shows only the title, optional
               hero, and a Sign-in button. Pick this for a clean logo-only
               page if you don&apos;t want the public browse grid.
@@ -230,7 +230,7 @@ export function BrandingForm({ initial }: Props) {
           <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">
             Featured items
           </p>
-          <p className="mb-2 text-[11px] text-muted">
+          <p className="mb-2 text-2xs text-muted">
             Pick the public items you want pinned to the top of the
             landing page, in the order they should appear. Leave the
             list empty to show every public item in the org, newest

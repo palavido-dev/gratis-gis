@@ -253,7 +253,7 @@ export function ItemAccessMatrix({
                     <div className="truncate" title={p.name}>
                       {p.name}
                     </div>
-                    <div className="text-[10px] font-normal uppercase tracking-wide text-muted">
+                    <div className="text-2xs font-normal uppercase tracking-wide text-muted">
                       {t(`accessMatrix.principalType.${p.type}`)}
                     </div>
                   </th>
@@ -278,7 +278,7 @@ export function ItemAccessMatrix({
                         <span className="font-medium text-ink-1">
                           {item.title}
                         </span>
-                        <span className="text-[10px] uppercase tracking-wide text-muted">
+                        <span className="text-2xs uppercase tracking-wide text-muted">
                           {getItemTypeLabel(item.type)}
                           {item.rationale ? ` · ${item.rationale}` : ''}
                         </span>
@@ -307,7 +307,7 @@ export function ItemAccessMatrix({
                                 type="button"
                                 onClick={() => void grantOne(item, p)}
                                 disabled={granting}
-                                className="inline-flex items-center gap-1 rounded border border-warn/40 bg-warn/10 px-2 py-0.5 text-[11px] font-medium text-warn hover:bg-warn/20 disabled:opacity-50"
+                                className="inline-flex items-center gap-1 rounded border border-warn/40 bg-warn/10 px-2 py-0.5 text-2xs font-medium text-warn hover:bg-warn/20 disabled:opacity-50"
                                 title={t('accessMatrix.grantViewTo', { name: p.name })}
                               >
                                 {granting ? (
@@ -327,7 +327,7 @@ export function ItemAccessMatrix({
                             )}
                             {err ? (
                               <span
-                                className="text-[10px] text-danger"
+                                className="text-2xs text-danger"
                                 role="alert"
                               >
                                 {err}

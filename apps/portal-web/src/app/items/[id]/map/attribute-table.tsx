@@ -1182,7 +1182,7 @@ export function AttributeTable({
               className="h-7 w-full rounded border border-border bg-surface-1 pl-7 pr-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
             />
           </label>
-          <span className="text-[11px] text-muted">
+          <span className="text-2xs text-muted">
             {serverLoading
               ? 'Loading...'
               : `${visibleIndexes.length.toLocaleString()} rows`}
@@ -1210,7 +1210,7 @@ export function AttributeTable({
                     ? 'Show all records (capped at 5,000)'
                     : 'Show only records in the current map extent'
               }
-              className={`inline-flex h-7 items-center gap-1 rounded border px-2 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+              className={`inline-flex h-7 items-center gap-1 rounded border px-2 text-2xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                 extentOnly
                   ? 'border-accent bg-accent/10 text-accent'
                   : 'border-border bg-surface-1 text-muted hover:text-ink-1'
@@ -1237,7 +1237,7 @@ export function AttributeTable({
                   ? 'Show all rows'
                   : 'Show only the selected rows'
             }
-            className={`inline-flex h-7 items-center gap-1 rounded border px-2 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+            className={`inline-flex h-7 items-center gap-1 rounded border px-2 text-2xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
               showOnlySelected
                 ? 'border-accent bg-accent/10 text-accent'
                 : 'border-border bg-surface-1 text-muted hover:text-ink-1'
@@ -1266,7 +1266,7 @@ export function AttributeTable({
                   ? 'Hide edit history columns'
                   : 'Show edit history columns (who created / edited each row)'
               }
-              className={`inline-flex h-7 items-center gap-1 rounded border px-2 text-[11px] transition-colors ${
+              className={`inline-flex h-7 items-center gap-1 rounded border px-2 text-2xs transition-colors ${
                 showEditorTracking
                   ? 'border-accent bg-accent/10 text-accent'
                   : 'border-border bg-surface-1 text-muted hover:text-ink-1'
@@ -1368,7 +1368,7 @@ export function AttributeTable({
       </div>
 
       {serverMode && serverPage?.truncated ? (
-        <div className="flex items-center gap-2 border-b border-warn/30 bg-warn/10 px-3 py-1.5 text-[11px] text-warn">
+        <div className="flex items-center gap-2 border-b border-warn/30 bg-warn/10 px-3 py-1.5 text-2xs text-warn">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
           <span>
             Showing 5,000+ rows
@@ -1661,7 +1661,7 @@ export function AttributeTable({
                                 e.stopPropagation();
                                 setAttachmentDrawer({ featureId: fid });
                               }}
-                              className="inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-2 py-0.5 text-[10px] text-ink-1 hover:border-accent/40 hover:bg-surface-2"
+                              className="inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-2 py-0.5 text-2xs text-ink-1 hover:border-accent/40 hover:bg-surface-2"
                               title="View attachments"
                             >
                               <Paperclip className="h-3 w-3 text-muted" />
@@ -1681,7 +1681,7 @@ export function AttributeTable({
 
       {canEdit ? (
         onPatchFeature ? (
-          <div className="flex items-center justify-between border-t border-border px-3 py-1.5 text-[11px]">
+          <div className="flex items-center justify-between border-t border-border px-3 py-1.5 text-2xs">
             <span className="text-muted">
               Double-click a cell to edit. Enter to save, Esc to cancel.
             </span>
@@ -1694,7 +1694,7 @@ export function AttributeTable({
             ) : null}
           </div>
         ) : (
-          <div className="border-t border-border px-3 py-1.5 text-[11px] text-muted">
+          <div className="border-t border-border px-3 py-1.5 text-2xs text-muted">
             Row-level editing lands when feature services store data in
             PostGIS. For now, edit the dataset by replacing the whole
             FeatureCollection from the feature-service detail page.
@@ -1967,7 +1967,7 @@ function AttrTableExportMenu({
             onClick={() => setOpen(false)}
           />
           <div className="absolute right-0 top-8 z-40 w-56 rounded-md border border-border bg-surface-0 py-1 text-xs shadow-lg">
-            <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-muted">
+            <div className="px-3 py-1 text-2xs uppercase tracking-wide text-muted">
               All rows ({features.length})
             </div>
             <button
@@ -1987,7 +1987,7 @@ function AttrTableExportMenu({
             {hasSelection ? (
               <>
                 <div className="my-1 border-t border-border" />
-                <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-muted">
+                <div className="px-3 py-1 text-2xs uppercase tracking-wide text-muted">
                   Selected rows ({activeSelection.size})
                 </div>
                 <button
@@ -2045,7 +2045,7 @@ function AttrTableExportMenu({
             </header>
             <div className="space-y-3 px-4 py-3 text-xs">
               <div>
-                <label className="block text-[10px] font-medium uppercase tracking-wide text-muted">
+                <label className="block text-2xs font-medium uppercase tracking-wide text-muted">
                   Scope
                 </label>
                 <div className="mt-1 inline-flex rounded-md border border-border bg-surface-2 p-0.5">
@@ -2053,7 +2053,7 @@ function AttrTableExportMenu({
                     type="button"
                     disabled={bundleRunning}
                     onClick={() => setBundleScope('all')}
-                    className={`px-3 py-1 text-[11px] ${
+                    className={`px-3 py-1 text-2xs ${
                       bundleScope === 'all'
                         ? 'rounded bg-surface-1 text-ink-0 shadow-sm'
                         : 'text-muted'
@@ -2070,7 +2070,7 @@ function AttrTableExportMenu({
                         ? `Export only the ${activeSelection.size} selected feature(s)`
                         : 'Select features in the table to use this scope'
                     }
-                    className={`px-3 py-1 text-[11px] ${
+                    className={`px-3 py-1 text-2xs ${
                       bundleScope === 'selection'
                         ? 'rounded bg-surface-1 text-ink-0 shadow-sm'
                         : 'text-muted'
@@ -2113,7 +2113,7 @@ function AttrTableExportMenu({
             </div>
             {bundleProgress || bundleError ? (
               <div
-                className={`mx-4 mb-3 rounded-md border px-3 py-2 text-[11px] ${
+                className={`mx-4 mb-3 rounded-md border px-3 py-2 text-2xs ${
                   bundleError
                     ? 'border-danger/40 bg-danger/10 text-danger'
                     : 'border-border bg-surface-2 text-ink-1'
@@ -2293,7 +2293,7 @@ function CalculateFieldModal({
         <div className="space-y-4 p-4">
           <div className="space-y-1">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] uppercase tracking-wide text-muted">
+              <span className="text-2xs uppercase tracking-wide text-muted">
                 Expression
               </span>
               <select
@@ -2301,14 +2301,14 @@ function CalculateFieldModal({
                 onChange={(e) =>
                   setOutputType(e.target.value as 'number' | 'string' | 'boolean')
                 }
-                className="h-7 rounded border border-border bg-surface-1 px-2 text-[11px] focus:border-accent focus:outline-none"
+                className="h-7 rounded border border-border bg-surface-1 px-2 text-2xs focus:border-accent focus:outline-none"
               >
                 <option value="number">Number</option>
                 <option value="string">String</option>
                 <option value="boolean">Boolean</option>
               </select>
             </div>
-            <p className="text-[11px] text-muted">
+            <p className="text-2xs text-muted">
               Reference fields with{' '}
               <code className="rounded bg-surface-2 px-1 font-mono">
                 {`{{field}}`}
@@ -2322,7 +2322,7 @@ function CalculateFieldModal({
                   key={f}
                   type="button"
                   onClick={() => insertFieldRef(f)}
-                  className="inline-flex items-center gap-0.5 rounded-md border border-border bg-surface-1 px-2 py-0.5 font-mono text-[11px] text-ink-1 hover:bg-surface-2"
+                  className="inline-flex items-center gap-0.5 rounded-md border border-border bg-surface-1 px-2 py-0.5 font-mono text-2xs text-ink-1 hover:bg-surface-2"
                 >
                   <span className="text-muted">{'{{'}</span>
                   {f}
@@ -2347,7 +2347,7 @@ function CalculateFieldModal({
           </div>
 
           <div className="space-y-1">
-            <p className="text-[11px] uppercase tracking-wide text-muted">
+            <p className="text-2xs uppercase tracking-wide text-muted">
               Apply to
             </p>
             <div className="flex flex-col gap-1">
@@ -2393,7 +2393,7 @@ function CalculateFieldModal({
               </p>
               <table className="w-full">
                 <thead>
-                  <tr className="text-left text-[10px] uppercase tracking-wide text-muted">
+                  <tr className="text-left text-2xs uppercase tracking-wide text-muted">
                     <th className="pb-1 pr-3">Row</th>
                     <th className="pb-1 pr-3">Old</th>
                     <th className="pb-1">New</th>
@@ -2401,7 +2401,7 @@ function CalculateFieldModal({
                 </thead>
                 <tbody>
                   {preview.sample.map((row) => (
-                    <tr key={row.id} className="font-mono text-[11px]">
+                    <tr key={row.id} className="font-mono text-2xs">
                       <td className="pr-3 text-muted">
                         {row.id.slice(0, 8)}
                       </td>
@@ -2514,7 +2514,7 @@ function AttachmentDrawer({
         <Paperclip className="h-3.5 w-3.5 text-muted" />
         <span className="text-xs font-semibold text-ink-0">Attachments</span>
         {attachments && attachments.length > 0 ? (
-          <span className="rounded-full bg-violet-100 dark:bg-violet-950 px-1.5 py-0.5 text-[9px] font-normal text-violet-800 dark:text-violet-300">
+          <span className="rounded-full bg-violet-100 dark:bg-violet-950 px-1.5 py-0.5 text-2xs font-normal text-violet-800 dark:text-violet-300">
             {attachments.length}
           </span>
         ) : null}
@@ -2568,7 +2568,7 @@ function AttachmentDrawerTile({
           className="h-24 w-full object-cover"
           loading="lazy"
         />
-        <div className="truncate px-1.5 py-1 text-[10px] text-muted group-hover:text-ink-1">
+        <div className="truncate px-1.5 py-1 text-2xs text-muted group-hover:text-ink-1">
           {attachment.fileName}
         </div>
       </a>
@@ -2589,10 +2589,10 @@ function AttachmentDrawerTile({
           <FileIcon className="h-5 w-5 text-muted" />
         )}
       </div>
-      <div className="truncate text-[10px] text-ink-1" title={attachment.fileName}>
+      <div className="truncate text-2xs text-ink-1" title={attachment.fileName}>
         {attachment.fileName}
       </div>
-      <div className="text-[9px] text-muted">
+      <div className="text-2xs text-muted">
         {Math.max(1, Math.round(attachment.sizeBytes / 1024))} KB
       </div>
     </a>

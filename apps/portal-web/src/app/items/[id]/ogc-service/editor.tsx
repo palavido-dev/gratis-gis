@@ -371,7 +371,7 @@ export function OgcServiceEditor({ itemId, kind, initial, canEdit }: Props) {
                       ) : null}
                     </div>
                     {bboxLabel ? (
-                      <div className="mt-0.5 truncate font-mono text-[11px] text-muted">
+                      <div className="mt-0.5 truncate font-mono text-2xs text-muted">
                         {bboxLabel}
                       </div>
                     ) : null}

@@ -65,7 +65,7 @@ export function FilterEditor({ value, metadata, onChange }: Props) {
     <div>
       <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-[10px] uppercase tracking-wide text-muted">
+          <span className="text-2xs uppercase tracking-wide text-muted">
             {active ? 'Clauses' : 'No filter'}
           </span>
           {active ? (
@@ -74,7 +74,7 @@ export function FilterEditor({ value, metadata, onChange }: Props) {
               onChange={(e) =>
                 update({ ...value, combinator: e.target.value as 'all' | 'any' })
               }
-              className="h-6 rounded border border-border bg-surface-1 px-1 text-[11px] focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+              className="h-6 rounded border border-border bg-surface-1 px-1 text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
             >
               <option value="all">match ALL</option>
               <option value="any">match ANY</option>
@@ -85,7 +85,7 @@ export function FilterEditor({ value, metadata, onChange }: Props) {
           <button
             type="button"
             onClick={() => onChange(null)}
-            className="inline-flex h-6 items-center gap-1 rounded text-[11px] text-muted hover:text-danger"
+            className="inline-flex h-6 items-center gap-1 rounded text-2xs text-muted hover:text-danger"
           >
             <X className="h-3 w-3" />
             Clear
@@ -94,7 +94,7 @@ export function FilterEditor({ value, metadata, onChange }: Props) {
           <button
             type="button"
             onClick={start}
-            className="inline-flex h-6 items-center gap-1 rounded text-[11px] text-accent hover:underline"
+            className="inline-flex h-6 items-center gap-1 rounded text-2xs text-accent hover:underline"
           >
             <Plus className="h-3 w-3" />
             Add filter
@@ -116,15 +116,15 @@ export function FilterEditor({ value, metadata, onChange }: Props) {
           <button
             type="button"
             onClick={addClause}
-            className="inline-flex h-7 items-center gap-1 rounded text-[11px] text-accent hover:underline"
+            className="inline-flex h-7 items-center gap-1 rounded text-2xs text-accent hover:underline"
           >
             <Plus className="h-3 w-3" />
             Add clause
           </button>
           {metadata.loading ? (
-            <p className="text-[11px] text-muted">Loading fields...</p>
+            <p className="text-2xs text-muted">Loading fields...</p>
           ) : metadata.error ? (
-            <p className="text-[11px] text-warn">{metadata.error}</p>
+            <p className="text-2xs text-warn">{metadata.error}</p>
           ) : null}
         </div>
       ) : null}

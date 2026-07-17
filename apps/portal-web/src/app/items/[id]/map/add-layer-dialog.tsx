@@ -1243,7 +1243,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                 onFile={submitFile}
                 accept=".kml,.kmz,.geojson,.json,.zip,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz,application/geo+json,application/json,application/zip"
               />
-              <p className="text-[11px] text-muted">
+              <p className="text-2xs text-muted">
                 Accepts GeoJSON, KML, KMZ, and zipped Shapefiles. Files are
                 parsed in your browser and stored inline on the layer;
                 keep them under a few hundred KB. For larger datasets,
@@ -1571,14 +1571,14 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                           </div>
                           {sublayerCount > 1 ? (
                             <span
-                              className="shrink-0 rounded bg-warn/15 px-1.5 py-0.5 text-[10px] font-medium text-warn"
+                              className="shrink-0 rounded bg-warn/15 px-1.5 py-0.5 text-2xs font-medium text-warn"
                               title={`This service exposes ${sublayerCount} sublayers; clicking adds them all.`}
                             >
                               +{sublayerCount} layers
                             </span>
                           ) : null}
                           <span
-                            className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${typeClasses}`}
+                            className={`shrink-0 rounded px-1.5 py-0.5 text-2xs uppercase tracking-wide ${typeClasses}`}
                           >
                             {typeLabel}
                           </span>
@@ -1595,7 +1595,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                 </ul>
                 )
               )}
-              <p className="text-[11px] text-muted">
+              <p className="text-2xs text-muted">
                 Feature services stream from PostGIS; ArcGIS services
                 query the origin live as you pan and zoom.
               </p>
@@ -1665,7 +1665,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                       <div className="text-sm font-medium">
                         {arcgisService.name}
                       </div>
-                      <div className="text-[11px] text-muted">
+                      <div className="text-2xs text-muted">
                         {arcgisService.serviceType} • {arcgisService.layers.length}{' '}
                         layer{arcgisService.layers.length === 1 ? '' : 's'}
                       </div>
@@ -1676,7 +1676,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                       {arcgisService.description}
                     </p>
                   ) : null}
-                  <label className="mb-1 block text-[10px] uppercase tracking-wide text-muted">
+                  <label className="mb-1 block text-2xs uppercase tracking-wide text-muted">
                     Pick a layer
                   </label>
                   <ArcgisLayerPicker
@@ -1692,7 +1692,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                   />
                 </div>
               ) : null}
-              <p className="text-[11px] text-muted">
+              <p className="text-2xs text-muted">
                 The service must allow cross-origin requests from this
                 portal. Paginated fetches cap at ~5000 features per
                 viewport: zoom in for denser layers, or pull the data
@@ -1855,7 +1855,7 @@ function SublayerChoiceModal({
                     <span className="min-w-0 flex-1 truncate text-sm text-ink-0">
                       {subName}
                     </span>
-                    <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted">
+                    <span className="shrink-0 text-2xs uppercase tracking-wide text-muted">
                       {geom}
                     </span>
                   </label>
@@ -1880,7 +1880,7 @@ function SublayerChoiceModal({
                 <span className="text-sm font-medium text-ink-0">
                   Add {selected.size > 1 ? `${selected.size} ` : ''}as a group
                 </span>
-                <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-accent">
+                <span className="rounded bg-accent/10 px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wide text-accent">
                   Recommended
                 </span>
               </div>
@@ -2064,10 +2064,10 @@ function ArcgisLayerPicker({
                 <span className="tabular-nums text-muted">{l.id}</span>{' '}
                 {l.name}
                 {isGroup ? (
-                  <span className="ml-1 text-[10px] text-muted">(group)</span>
+                  <span className="ml-1 text-2xs text-muted">(group)</span>
                 ) : null}
               </span>
-              <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted">
+              <span className="shrink-0 text-2xs uppercase tracking-wide text-muted">
                 {geometryShort(l.geometryType)}
               </span>
             </button>
@@ -2198,14 +2198,14 @@ function PortalItemRow({
           </div>
           {sublayerCount > 1 ? (
             <span
-              className="shrink-0 rounded bg-warn/15 px-1.5 py-0.5 text-[10px] font-medium text-warn"
+              className="shrink-0 rounded bg-warn/15 px-1.5 py-0.5 text-2xs font-medium text-warn"
               title={`This service exposes ${sublayerCount} sublayers; clicking adds them all.`}
             >
               +{sublayerCount} layers
             </span>
           ) : null}
           <span
-            className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${typeClasses}`}
+            className={`shrink-0 rounded px-1.5 py-0.5 text-2xs uppercase tracking-wide ${typeClasses}`}
           >
             {typeLabel}
           </span>

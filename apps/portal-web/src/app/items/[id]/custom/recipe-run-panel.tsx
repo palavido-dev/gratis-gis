@@ -361,7 +361,7 @@ export function RecipeRunPanel({
             <button
               type="button"
               onClick={cancelDrawing}
-              className="rounded-md border border-border bg-surface-1 px-2 py-0.5 text-[11px] text-ink-1 hover:bg-surface-2"
+              className="rounded-md border border-border bg-surface-1 px-2 py-0.5 text-2xs text-ink-1 hover:bg-surface-2"
             >
               Cancel
             </button>
@@ -389,7 +389,7 @@ export function RecipeRunPanel({
             <h2 id="recipe-run-title" className="text-sm font-medium text-ink-0">
               {toolTitle}
             </h2>
-            <p className="text-[11px] text-muted">
+            <p className="text-2xs text-muted">
               Fill in the inputs below, then click Run.
             </p>
           </div>
@@ -405,7 +405,7 @@ export function RecipeRunPanel({
 
         <div className="space-y-3">
           {visibleParams.length === 0 ? (
-            <div className="rounded-md border border-dashed border-border bg-surface-2 px-3 py-3 text-[11px] text-ink-1">
+            <div className="rounded-md border border-dashed border-border bg-surface-2 px-3 py-3 text-2xs text-ink-1">
               {/* Prefer the action's hint, then the tool item's
                   description, then a generic placeholder. Lets a
                   tool that runs without runtime inputs still tell
@@ -436,7 +436,7 @@ export function RecipeRunPanel({
         </div>
 
         {error ? (
-          <div className="mt-3 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-danger">
+          <div className="mt-3 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-2xs text-danger">
             {error}
           </div>
         ) : null}
@@ -690,7 +690,7 @@ function FeatureSourceInput({
     return (
       <div className="space-y-2">
         <Label parameter={parameter} />
-        <p className="text-[11px] text-muted">
+        <p className="text-2xs text-muted">
           Draw an area on the map, snap the current view as a
           rectangle, or paste GeoJSON.
         </p>
@@ -699,7 +699,7 @@ function FeatureSourceInput({
             <button
               type="button"
               onClick={() => onStartDraw(parameter.name, drawGeometryType)}
-              className="inline-flex items-center gap-1 rounded-md border border-accent bg-accent/5 px-2 py-1 text-[11px] text-ink-0 hover:bg-accent/10"
+              className="inline-flex items-center gap-1 rounded-md border border-accent bg-accent/5 px-2 py-1 text-2xs text-ink-0 hover:bg-accent/10"
             >
               <Pencil className="h-3 w-3 text-accent" />
               Draw on map
@@ -709,17 +709,17 @@ function FeatureSourceInput({
             type="button"
             onClick={useBboxAsRectangle}
             disabled={!hostBbox && !hostLayers[0]?.mapBbox}
-            className="rounded-md border border-border bg-surface-1 px-2 py-1 text-[11px] hover:bg-surface-2 disabled:opacity-50"
+            className="rounded-md border border-border bg-surface-1 px-2 py-1 text-2xs hover:bg-surface-2 disabled:opacity-50"
           >
             Use current map view
           </button>
           {inlineGeo ? (
-            <span className="rounded-md border border-success/40 bg-success/10 px-2 py-1 text-[11px] text-success">
+            <span className="rounded-md border border-success/40 bg-success/10 px-2 py-1 text-2xs text-success">
               AOI set
             </span>
           ) : null}
         </div>
-        <details className="text-[11px]">
+        <details className="text-2xs">
           <summary className="cursor-pointer text-muted">
             Paste GeoJSON (advanced)
           </summary>
@@ -738,7 +738,7 @@ function FeatureSourceInput({
             }}
             rows={4}
             placeholder='{"type":"Polygon","coordinates":[[[...]]]}'
-            className="mt-1 w-full rounded-md border border-border bg-surface-0 px-2 py-1.5 font-mono text-[10px]"
+            className="mt-1 w-full rounded-md border border-border bg-surface-0 px-2 py-1.5 font-mono text-2xs"
           />
         </details>
       </div>
@@ -757,7 +757,7 @@ function FeatureSourceInput({
     return (
       <div className="space-y-1">
         <Label parameter={parameter} />
-        <p className="text-[11px] text-muted">
+        <p className="text-2xs text-muted">
           Uses the current selection on the chosen layer.
         </p>
         <select
@@ -1003,10 +1003,10 @@ function OsmFeatureInput({
       />
       {allowFilters ? (
         <div>
-          <label className="block text-[10px] font-medium uppercase tracking-wide text-muted">
+          <label className="block text-2xs font-medium uppercase tracking-wide text-muted">
             Filters (optional)
           </label>
-          <p className="mb-1 text-[10px] text-muted">
+          <p className="mb-1 text-2xs text-muted">
             Narrow the result, e.g. <code>brand = Citgo</code> or
             <code className="ml-1">cuisine = pizza</code>.
           </p>
@@ -1096,7 +1096,7 @@ function OsmPresetMultiSelectRuntime({
             return (
               <span
                 key={id}
-                className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-0 px-2 py-0.5 text-[11px]"
+                className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-0 px-2 py-0.5 text-2xs"
               >
                 {p?.label ?? id}
                 <button
@@ -1136,7 +1136,7 @@ function OsmPresetMultiSelectRuntime({
               className="block w-full px-2 py-1 text-left text-xs hover:bg-surface-2"
             >
               <span className="font-medium text-ink-0">{p.label}</span>
-              <span className="ml-2 text-[10px] text-muted">{p.category}</span>
+              <span className="ml-2 text-2xs text-muted">{p.category}</span>
             </button>
           ))}
         </div>
@@ -1194,18 +1194,18 @@ function PointInput({
           {hasPoint ? 'Drop new pin' : 'Drop pin on map'}
         </button>
         {hasPoint ? (
-          <span className="self-center text-[11px] font-mono text-muted">
+          <span className="self-center text-2xs font-mono text-muted">
             {lat!.toFixed(6)}, {lng!.toFixed(6)}
           </span>
         ) : (
-          <span className="self-center text-[11px] italic text-muted">
+          <span className="self-center text-2xs italic text-muted">
             No location set
           </span>
         )}
       </div>
       <div className="flex gap-1.5">
         <div className="flex-1">
-          <label className="block text-[10px] uppercase tracking-wide text-muted">
+          <label className="block text-2xs uppercase tracking-wide text-muted">
             Latitude
           </label>
           <input
@@ -1218,7 +1218,7 @@ function PointInput({
           />
         </div>
         <div className="flex-1">
-          <label className="block text-[10px] uppercase tracking-wide text-muted">
+          <label className="block text-2xs uppercase tracking-wide text-muted">
             Longitude
           </label>
           <input
@@ -1297,7 +1297,7 @@ function OsmTagFilterRowsRuntime({
           <button
             type="button"
             onClick={() => remove(i)}
-            className="rounded-md border border-border bg-surface-1 px-2 text-[11px] text-danger hover:bg-danger/10"
+            className="rounded-md border border-border bg-surface-1 px-2 text-2xs text-danger hover:bg-danger/10"
             aria-label="Remove filter"
           >
             ×
@@ -1307,7 +1307,7 @@ function OsmTagFilterRowsRuntime({
       <button
         type="button"
         onClick={add}
-        className="inline-flex items-center gap-1 rounded-md border border-dashed border-border bg-surface-2 px-2 py-1 text-[11px] text-ink-1 hover:bg-surface-1"
+        className="inline-flex items-center gap-1 rounded-md border border-dashed border-border bg-surface-2 px-2 py-1 text-2xs text-ink-1 hover:bg-surface-1"
       >
         + Add filter
       </button>
@@ -1317,11 +1317,11 @@ function OsmTagFilterRowsRuntime({
 
 function Label({ parameter }: { parameter: ToolParameter }) {
   return (
-    <label className="block text-[11px] font-medium text-ink-1">
+    <label className="block text-2xs font-medium text-ink-1">
       {parameter.label}
       {parameter.required ? <span className="text-danger"> *</span> : null}
       {parameter.hint ? (
-        <span className="block text-[10px] font-normal text-muted">
+        <span className="block text-2xs font-normal text-muted">
           {parameter.hint}
         </span>
       ) : null}

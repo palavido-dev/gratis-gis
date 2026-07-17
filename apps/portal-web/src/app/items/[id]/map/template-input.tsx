@@ -118,7 +118,7 @@ export function TemplateInput({
     <div className="space-y-2">
       {fields.length > 0 ? (
         <div>
-          <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">
+          <p className="mb-1 text-2xs uppercase tracking-wide text-muted">
             Insert a field
           </p>
           <div className="flex flex-wrap gap-1">
@@ -127,7 +127,7 @@ export function TemplateInput({
                 key={f}
                 type="button"
                 onClick={() => insert(`{{${f}}}`)}
-                className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-2 py-0.5 font-mono text-[11px] text-ink-1 hover:bg-surface-2"
+                className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-2 py-0.5 font-mono text-2xs text-ink-1 hover:bg-surface-2"
                 title={`Insert {{${f}}}`}
               >
                 <span className="text-muted">{'{{'}</span>
@@ -138,7 +138,7 @@ export function TemplateInput({
           </div>
         </div>
       ) : (
-        <p className="text-[11px] text-muted">
+        <p className="text-2xs text-muted">
           No field schema loaded yet. Type your template directly, then
           re-open this layer to see field chips once the canvas reports
           the schema.
@@ -154,7 +154,7 @@ export function TemplateInput({
                 if (e.target.value) insert(e.target.value);
                 e.target.value = '';
               }}
-              className="h-7 rounded border border-border bg-surface-1 px-2 text-[11px] focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+              className="h-7 rounded border border-border bg-surface-1 px-2 text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
             >
               <option value="">Insert formatter...</option>
               {FORMATTERS.map((f) => (
@@ -169,7 +169,7 @@ export function TemplateInput({
               key={x.label}
               type="button"
               onClick={() => insert(x.insert)}
-              className="h-7 rounded border border-border bg-surface-1 px-2 text-[11px] text-ink-1 hover:bg-surface-2"
+              className="h-7 rounded border border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2"
             >
               {x.label}
             </button>
@@ -195,13 +195,13 @@ export function TemplateInput({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
-          className="h-8 w-full rounded border border-border bg-surface-1 px-2 font-mono text-[11px] focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+          className="h-8 w-full rounded border border-border bg-surface-1 px-2 font-mono text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
         />
       )}
 
       {preview !== null ? (
         <div>
-          <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">
+          <p className="mb-1 text-2xs uppercase tracking-wide text-muted">
             Preview
           </p>
           {previewAsHtml ? (

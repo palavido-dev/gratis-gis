@@ -241,7 +241,7 @@ export function FieldCatalog({ rows }: { rows: FieldDeploymentRow[] }) {
                   {/* Description hides on mobile to keep rows
                       single-line. Desktop sees it on a second line. */}
                   {row.description ? (
-                    <p className="hidden truncate text-[11px] text-muted sm:block">
+                    <p className="hidden truncate text-2xs text-muted sm:block">
                       {row.description}
                     </p>
                   ) : null}
@@ -252,7 +252,7 @@ export function FieldCatalog({ rows }: { rows: FieldDeploymentRow[] }) {
                       Both stop propagation so the row's primary tap
                       keeps opening the deployment. */}
                   {(overlay.queueCount > 0 || cached) ? (
-                    <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px]">
+                    <div className="mt-1 flex flex-wrap items-center gap-1 text-2xs">
                       {overlay.queueCount > 0 ? (
                         isOnline ? (
                           <button

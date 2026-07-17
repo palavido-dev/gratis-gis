@@ -150,7 +150,7 @@ export function DependentsWarning({
           <p className="text-xs font-semibold text-warn">
             {t('dependents.referencedBy', { count: rows.length })}
           </p>
-          <p className="mt-0.5 text-[11px] text-warn/90">
+          <p className="mt-0.5 text-2xs text-warn/90">
             {t('dependents.trashHint')}
           </p>
         </div>
@@ -165,7 +165,7 @@ export function DependentsWarning({
           );
           return (
             <li key={type}>
-              <p className="text-[10px] font-medium uppercase tracking-wide text-warn/80">
+              <p className="text-2xs font-medium uppercase tracking-wide text-warn/80">
                 {label} ({list.length})
               </p>
               <ul className="mt-0.5 space-y-0.5">
@@ -193,7 +193,7 @@ export function DependentsWarning({
         })}
       </ul>
       {rows.length > VISIBLE_CAP ? (
-        <p className="mt-2 text-[11px] text-warn/90">
+        <p className="mt-2 text-2xs text-warn/90">
           {t('dependents.moreNotShown', { count: rows.length - VISIBLE_CAP })}
         </p>
       ) : null}

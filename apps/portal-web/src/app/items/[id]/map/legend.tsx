@@ -115,7 +115,7 @@ function LayerSwatch({
   if (r.kind === 'unique-values' && r.categories.length > 0 && r.field) {
     return (
       <div>
-        <div className="mb-1 text-[10px] uppercase tracking-wide text-muted">
+        <div className="mb-1 text-2xs uppercase tracking-wide text-muted">
           by {r.field}
         </div>
         <ul className="space-y-1">
@@ -146,7 +146,7 @@ function LayerSwatch({
     const gradient = r.colors.join(', ');
     return (
       <div>
-        <div className="mb-1 text-[10px] uppercase tracking-wide text-muted">
+        <div className="mb-1 text-2xs uppercase tracking-wide text-muted">
           {r.field}
         </div>
         <div
@@ -154,7 +154,7 @@ function LayerSwatch({
           className="h-2 rounded border border-border"
           style={{ backgroundImage: `linear-gradient(to right, ${gradient})` }}
         />
-        <ul className="mt-1 space-y-0.5 text-[11px]">
+        <ul className="mt-1 space-y-0.5 text-2xs">
           {r.colors.map((color, i) => {
             const label =
               i === 0

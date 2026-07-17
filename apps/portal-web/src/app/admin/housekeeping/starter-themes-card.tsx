@@ -93,7 +93,7 @@ export function StarterThemesCard({ initial }: Props) {
           <h2 className="inline-flex items-center gap-2 text-base font-semibold text-ink-0">
             Starter themes
             {missingCount > 0 ? (
-              <span className="inline-flex h-5 min-w-[1.5rem] items-center justify-center rounded-full bg-warn/15 px-1.5 text-[11px] font-medium text-warn">
+              <span className="inline-flex h-5 min-w-[1.5rem] items-center justify-center rounded-full bg-warn/15 px-1.5 text-2xs font-medium text-warn">
                 {missingCount} missing
               </span>
             ) : null}

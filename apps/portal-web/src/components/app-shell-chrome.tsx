@@ -246,7 +246,7 @@ function NavList({
       </NavLink>
       {orgRole === 'admin' ? (
         <>
-          <p className="mt-4 px-2 text-[10px] font-medium uppercase tracking-wide text-muted">
+          <p className="mt-4 px-2 text-2xs font-medium uppercase tracking-wide text-muted">
             {t('nav.admin')}
           </p>
           <NavLink

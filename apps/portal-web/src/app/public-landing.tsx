@@ -270,7 +270,7 @@ function WhatsNewSection({ entries }: { entries: WhatsNewEntry[] }) {
               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                 <time
                   dateTime={e.date}
-                  className="font-mono text-[11px] uppercase tracking-wide text-muted"
+                  className="font-mono text-2xs uppercase tracking-wide text-muted"
                 >
                   {formatChangelogDate(e.date)}
                 </time>
@@ -484,27 +484,27 @@ function TestingBanner() {
           </p>
           <p className="mt-1 leading-relaxed">
             Sign in with{' '}
-            <code className="rounded bg-warn/15 px-1 font-mono text-[12px]">
+            <code className="rounded bg-warn/15 px-1 font-mono text-xs">
               tester-admin
             </code>
             {' / '}
-            <code className="rounded bg-warn/15 px-1 font-mono text-[12px]">
+            <code className="rounded bg-warn/15 px-1 font-mono text-xs">
               Admin123!
             </code>
             ,{' '}
-            <code className="rounded bg-warn/15 px-1 font-mono text-[12px]">
+            <code className="rounded bg-warn/15 px-1 font-mono text-xs">
               tester-contributor
             </code>
             {' / '}
-            <code className="rounded bg-warn/15 px-1 font-mono text-[12px]">
+            <code className="rounded bg-warn/15 px-1 font-mono text-xs">
               Contributor123!
             </code>
             , or{' '}
-            <code className="rounded bg-warn/15 px-1 font-mono text-[12px]">
+            <code className="rounded bg-warn/15 px-1 font-mono text-xs">
               tester-viewer
             </code>
             {' / '}
-            <code className="rounded bg-warn/15 px-1 font-mono text-[12px]">
+            <code className="rounded bg-warn/15 px-1 font-mono text-xs">
               Viewer123!
             </code>
             . Items, users, and edits you create vanish at the next
@@ -653,7 +653,7 @@ function ItemCard({ item }: { item: LandingData['items'][number] }) {
           </div>
         )}
         <div className="flex flex-1 flex-col p-3">
-          <p className="text-[11px] uppercase tracking-wide text-muted">
+          <p className="text-2xs uppercase tracking-wide text-muted">
             {item.type.replace(/_/g, ' ')}
           </p>
           <h3 className="mt-0.5 truncate text-sm font-semibold text-ink-0">

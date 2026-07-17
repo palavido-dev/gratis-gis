@@ -309,7 +309,7 @@ function DrawerUI({
               ? 'Cancel pick-a-control'
               : 'Pick a control on the page to open its help'
           }
-          className={`inline-flex h-6 items-center gap-1 rounded border px-1.5 text-[11px] font-medium transition-colors ${
+          className={`inline-flex h-6 items-center gap-1 rounded border px-1.5 text-2xs font-medium transition-colors ${
             state.picking
               ? 'border-accent bg-accent/10 text-accent'
               : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
@@ -321,7 +321,7 @@ function DrawerUI({
         <Link
           href="/help"
           onClick={close}
-          className="inline-flex h-6 items-center rounded border border-border bg-surface-1 px-1.5 text-[11px] font-medium text-ink-1 hover:bg-surface-2"
+          className="inline-flex h-6 items-center rounded border border-border bg-surface-1 px-1.5 text-2xs font-medium text-ink-1 hover:bg-surface-2"
           title="Open full help in a new page"
         >
           Open full
@@ -336,7 +336,7 @@ function DrawerUI({
         </button>
       </header>
       {state.picking ? (
-        <div className="border-b border-warn/40 bg-warn/10 px-3 py-2 text-[11px] text-warn">
+        <div className="border-b border-warn/40 bg-warn/10 px-3 py-2 text-2xs text-warn">
           Click any control on the page to open its help.  Press Cancel
           (or Escape) to back out.
         </div>
@@ -347,7 +347,7 @@ function DrawerUI({
             <button
               type="button"
               onClick={back}
-              className="text-[11px] text-accent hover:underline"
+              className="text-2xs text-accent hover:underline"
             >
               ← Back to search
             </button>
@@ -363,7 +363,7 @@ function DrawerUI({
               </h3>
               <p className="mb-3 text-xs text-muted">{doc.summary}</p>
               <div
-                className="prose prose-sm text-sm text-ink-1 [&_a]:text-accent [&_a]:underline [&_code]:rounded [&_code]:bg-surface-2 [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.95em] [&_h2]:mb-1 [&_h2]:mt-4 [&_h2]:text-sm [&_h2]:font-semibold [&_h2]:text-ink-0 [&_h3]:mb-1 [&_h3]:mt-3 [&_h3]:text-[13px] [&_h3]:font-semibold [&_h3]:text-ink-0 [&_li]:my-0.5 [&_ol]:my-2 [&_ol]:ml-5 [&_ol]:list-decimal [&_p]:my-2 [&_pre]:my-2 [&_pre]:rounded [&_pre]:bg-surface-2 [&_pre]:p-2 [&_pre]:text-[11px] [&_table]:my-2 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:p-1 [&_td]:text-xs [&_th]:border [&_th]:border-border [&_th]:bg-surface-1 [&_th]:p-1 [&_th]:text-left [&_th]:text-xs [&_ul]:my-2 [&_ul]:ml-5 [&_ul]:list-disc"
+                className="prose prose-sm text-sm text-ink-1 [&_a]:text-accent [&_a]:underline [&_code]:rounded [&_code]:bg-surface-2 [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.95em] [&_h2]:mb-1 [&_h2]:mt-4 [&_h2]:text-sm [&_h2]:font-semibold [&_h2]:text-ink-0 [&_h3]:mb-1 [&_h3]:mt-3 [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:text-ink-0 [&_li]:my-0.5 [&_ol]:my-2 [&_ol]:ml-5 [&_ol]:list-decimal [&_p]:my-2 [&_pre]:my-2 [&_pre]:rounded [&_pre]:bg-surface-2 [&_pre]:p-2 [&_pre]:text-2xs [&_table]:my-2 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:p-1 [&_td]:text-xs [&_th]:border [&_th]:border-border [&_th]:bg-surface-1 [&_th]:p-1 [&_th]:text-left [&_th]:text-xs [&_ul]:my-2 [&_ul]:ml-5 [&_ul]:list-disc"
                 dangerouslySetInnerHTML={{ __html: doc.html }}
               />
             </article>
@@ -405,7 +405,7 @@ function DrawerUI({
                     <div className="text-xs font-medium text-ink-0">
                       {doc.title}
                     </div>
-                    <div className="line-clamp-2 text-[10px] text-muted">
+                    <div className="line-clamp-2 text-2xs text-muted">
                       {doc.summary}
                     </div>
                   </button>

@@ -101,7 +101,7 @@ export function FoldersDrawer({ folders, activeFolderId, children }: Props) {
           <FolderIcon className="h-3.5 w-3.5" />
           {open ? t('folders.hide') : t('nav.folders')}
           {folders.length > 0 ? (
-            <span className="rounded bg-surface-0 px-1 text-[10px] text-muted">
+            <span className="rounded bg-surface-0 px-1 text-2xs text-muted">
               {folders.length}
             </span>
           ) : null}

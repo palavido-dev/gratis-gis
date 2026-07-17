@@ -332,12 +332,12 @@ export function PickListEditor({ itemId, initial, canEdit }: Props) {
 
         {canEdit ? (
           <div className="border-b border-border bg-surface-0 px-3 py-2">
-            <label className="flex items-center gap-2 text-[11px] text-muted">
+            <label className="flex items-center gap-2 text-2xs text-muted">
               On duplicate code during import:
               <select
                 value={dupePolicy}
                 onChange={(e) => setDupePolicy(e.target.value as DupePolicy)}
-                className="h-7 rounded border border-border bg-surface-1 px-1 text-[11px]"
+                className="h-7 rounded border border-border bg-surface-1 px-1 text-2xs"
               >
                 <option value="replace">replace label + description (import wins)</option>
                 <option value="reject">skip duplicate rows (existing wins)</option>
@@ -348,7 +348,7 @@ export function PickListEditor({ itemId, initial, canEdit }: Props) {
 
         {pasteOpen ? (
           <div className="border-b border-border bg-surface-0 p-3">
-            <p className="mb-1.5 flex items-center gap-1 text-[11px] text-muted">
+            <p className="mb-1.5 flex items-center gap-1 text-2xs text-muted">
               <FileSpreadsheet className="h-3 w-3" />
               Paste CSV/TSV rows. First row can be headers (
               <code className="rounded bg-surface-2 px-1">code,label,description</code>
@@ -471,7 +471,7 @@ export function PickListEditor({ itemId, initial, canEdit }: Props) {
               rows={2}
               className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
             />
-            <span className="mt-1 block text-[11px] text-muted">
+            <span className="mt-1 block text-2xs text-muted">
               Only shown to authors with edit access.
             </span>
           </label>

@@ -351,11 +351,11 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
   const toolbarRight = (
     <div className="flex items-center gap-2">
       {canEdit && dirty ? (
-        <span className="rounded-full bg-warn/15 px-2 py-0.5 text-[11px] font-medium text-warn">
+        <span className="rounded-full bg-warn/15 px-2 py-0.5 text-2xs font-medium text-warn">
           Unsaved changes
         </span>
       ) : canEdit && saved ? (
-        <span className="text-[11px] text-success">Saved</span>
+        <span className="text-2xs text-success">Saved</span>
       ) : null}
       <a
         href={`/items/${itemId}/viewer/run`}
@@ -423,7 +423,7 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
           </button>
         </div>
       ) : null}
-      <p className="text-[11px] text-muted">
+      <p className="text-2xs text-muted">
         Layers exposed in the layer panel, legend, and attribute
         table. Symbology comes from the underlying data layer.
       </p>
@@ -461,7 +461,7 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
           <MapIcon className="h-3.5 w-3.5" />
           Reference map
         </h3>
-        <p className="text-[11px] text-muted">
+        <p className="text-2xs text-muted">
           The viewer opens against this map's basemap, viewport, and
           layer order. Layers in the map that are not viewer targets
           render as read-only reference context.
@@ -474,7 +474,7 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
                 {mapTitle ?? <span className="text-muted">Loading...</span>}
               </span>
               {mapMissing ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-warn/40 bg-warn/10 px-1.5 py-0.5 text-[10px] font-medium text-warn">
+                <span className="inline-flex items-center gap-1 rounded-full border border-warn/40 bg-warn/10 px-1.5 py-0.5 text-2xs font-medium text-warn">
                   <AlertTriangle className="h-3 w-3" />
                   Missing
                 </span>
@@ -482,7 +482,7 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
               {!mapMissing && mapTitle ? (
                 <Link
                   href={`/items/${viewer.mapId}`}
-                  className="inline-flex shrink-0 items-center gap-1 text-[11px] text-muted hover:text-accent"
+                  className="inline-flex shrink-0 items-center gap-1 text-2xs text-muted hover:text-accent"
                 >
                   <ExternalLink className="h-3 w-3" />
                 </Link>
@@ -501,7 +501,7 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
             ) : null}
           </div>
         ) : (
-          <p className="mt-2 rounded-md border border-dashed border-border px-2 py-2 text-[11px] text-muted">
+          <p className="mt-2 rounded-md border border-dashed border-border px-2 py-2 text-2xs text-muted">
             No reference map.
             {canEdit
               ? ' Without one, the viewer opens on a default basemap.'
@@ -523,7 +523,7 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
           <Wrench className="h-3.5 w-3.5" />
           Toolbar
         </h3>
-        <p className="text-[11px] text-muted">
+        <p className="text-2xs text-muted">
           Read-side tools the viewer exposes. Every tool here is
           non-destructive.
         </p>
@@ -545,7 +545,7 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
                 />
                 <span>
                   <span className="font-medium text-ink-1">{label}</span>
-                  <span className="block text-[10px] text-muted">{hint}</span>
+                  <span className="block text-2xs text-muted">{hint}</span>
                 </span>
               </label>
             );
@@ -697,7 +697,7 @@ function TargetRow({ target, resolved, resolving, canEdit, onRemove }: TargetRow
             {layer?.label ?? target.layerKey}
           </span>
           {layer?.geometryType ? (
-            <span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+            <span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-muted">
               {layer.geometryType}
             </span>
           ) : null}

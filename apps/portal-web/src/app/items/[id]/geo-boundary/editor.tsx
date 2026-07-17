@@ -172,7 +172,7 @@ export function GeoBoundaryEditor({ itemId, initial, canEdit }: Props) {
           ) : (
             // Draw tab uses the map preview itself for input; no
             // extra panel below the tabs.
-            <p className="text-[11px] text-muted">
+            <p className="text-2xs text-muted">
               Click the map to drop polygon vertices. Double-click the
               last point or close the ring back on the first vertex
               to finish. Use the trash icon to clear and start over.
@@ -240,7 +240,7 @@ export function GeoBoundaryEditor({ itemId, initial, canEdit }: Props) {
         </p>
       )}
 
-      <p className="rounded-md border border-dashed border-border bg-surface-0 px-3 py-2 text-[11px] text-muted">
+      <p className="rounded-md border border-dashed border-border bg-surface-0 px-3 py-2 text-2xs text-muted">
         <Info className="mr-1 inline h-3 w-3" />
         Need fancier authoring (rings, holes, multipart edits)? Author
         in ArcGIS Pro / QGIS / geojson.io and bring the result back
@@ -575,7 +575,7 @@ function DrawPanel({
         type="button"
         onClick={clearAndDraw}
         title="Clear the polygon and start a new one"
-        className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-md border border-border bg-surface-1/95 px-2 py-1 text-[11px] font-medium text-ink-1 shadow-card hover:bg-surface-2"
+        className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-md border border-border bg-surface-1/95 px-2 py-1 text-2xs font-medium text-ink-1 shadow-card hover:bg-surface-2"
       >
         <Trash2 className="h-3 w-3" />
         Clear and start over
@@ -732,7 +732,7 @@ function PastePanel({
         onChange={(e) => setText(e.target.value)}
         rows={6}
         placeholder='{"type":"Polygon","coordinates":[[[-122.5,37.6],…]]}'
-        className="block w-full rounded border border-border bg-surface-0 p-2 font-mono text-[11px]"
+        className="block w-full rounded border border-border bg-surface-0 p-2 font-mono text-2xs"
       />
       <div className="mt-2 flex items-center justify-end gap-2">
         <button
@@ -762,7 +762,7 @@ function NoteField({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-muted">
+      <span className="mb-1 block text-2xs font-medium uppercase tracking-wide text-muted">
         Author note (optional)
       </span>
       <textarea

@@ -51,7 +51,7 @@ export function PopupEditor({ value, metadata, onChange }: Props) {
           <TitleEditor value={value} metadata={metadata} onPatch={patch} />
 
           <div>
-            <label className="mb-2 block text-[10px] uppercase tracking-wide text-muted">
+            <label className="mb-2 block text-2xs uppercase tracking-wide text-muted">
               Body
             </label>
             <div className="grid grid-cols-3 gap-2">
@@ -100,7 +100,7 @@ function TitleEditor({
   );
   return (
     <div>
-      <label className="mb-1 block text-[10px] uppercase tracking-wide text-muted">
+      <label className="mb-1 block text-2xs uppercase tracking-wide text-muted">
         Title template
       </label>
       <TemplateInput
@@ -144,7 +144,7 @@ function PickedEditor({
   return (
     <div className="space-y-2 rounded-md border border-border bg-surface-1 p-2">
       {value.fields.length === 0 ? (
-        <p className="text-[11px] text-muted">
+        <p className="text-2xs text-muted">
           No fields yet. Add one from the dropdown below.
         </p>
       ) : (
@@ -216,7 +216,7 @@ function PickedEditor({
           />
         )}
         {metadata.loading ? (
-          <span className="self-center text-[11px] text-muted">loading...</span>
+          <span className="self-center text-2xs text-muted">loading...</span>
         ) : null}
       </div>
     </div>
@@ -252,7 +252,7 @@ function TemplateEditor({
         previewAsHtml
         extraInserts={[{ label: '+line break', insert: '<br>' }]}
       />
-      <p className="text-[11px] text-muted">
+      <p className="text-2xs text-muted">
         <code className="rounded bg-surface-2 px-1">{`{{field}}`}</code> reads
         a property;{' '}
         <code className="rounded bg-surface-2 px-1">{`{{field | fmt}}`}</code>{' '}

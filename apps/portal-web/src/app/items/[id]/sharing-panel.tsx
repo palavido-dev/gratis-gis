@@ -1469,7 +1469,7 @@ export function SharingPanel({
                     <div className="text-sm font-medium text-ink-1">
                       {dep.title}
                     </div>
-                    <div className="text-[11px] uppercase tracking-wide text-warn">
+                    <div className="text-2xs uppercase tracking-wide text-warn">
                       {getItemTypeLabel(dep.type)}
                       {dep.rationale ? ` · ${dep.rationale}` : ''}
                     </div>

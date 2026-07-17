@@ -598,7 +598,7 @@ export function QuestionPreview({ q }: { q: Question }) {
                       ? 'Area (buffer)'
                       : 'File upload';
     return (
-      <div className="rounded-md border border-dashed border-border bg-surface-2/30 px-3 py-2 text-[11px] text-muted">
+      <div className="rounded-md border border-dashed border-border bg-surface-2/30 px-3 py-2 text-2xs text-muted">
         {label}
       </div>
     );
@@ -1074,7 +1074,7 @@ function Input({
               </button>
             ))}
           </div>
-          <div className="mt-1 flex items-center justify-between text-[11px] text-muted">
+          <div className="mt-1 flex items-center justify-between text-2xs text-muted">
             <span>{q.leftLabel ?? ''}</span>
             {q.centerLabel ? <span>{q.centerLabel}</span> : null}
             <span>{q.rightLabel ?? ''}</span>
@@ -1115,7 +1115,7 @@ function Input({
               </button>
             ))}
           </div>
-          <div className="mt-1 flex justify-between text-[11px] text-muted">
+          <div className="mt-1 flex justify-between text-2xs text-muted">
             <span>Not at all likely</span>
             <span>Extremely likely</span>
           </div>
@@ -1160,7 +1160,7 @@ function Input({
       return (
         <div className="my-1">
           {q.caption ? (
-            <p className="mb-1 text-[11px] uppercase tracking-wide text-muted">
+            <p className="mb-1 text-2xs uppercase tracking-wide text-muted">
               {q.caption}
             </p>
           ) : null}
@@ -1354,9 +1354,9 @@ function PhotoInput({
         ) : null}
       </div>
       {err ? (
-        <p className="text-[11px] text-warn">{err}</p>
+        <p className="text-2xs text-warn">{err}</p>
       ) : null}
-      <p className="text-[11px] text-muted">
+      <p className="text-2xs text-muted">
         {photos.length} of {max} {max === 1 ? 'photo' : 'photos'}
       </p>
     </div>
@@ -1478,7 +1478,7 @@ function MediaCaptureInput({
             ) : (
               <audio src={clipSrc(c)} controls className="w-full" />
             )}
-            <div className="mt-1 flex items-center justify-between text-[11px] text-muted">
+            <div className="mt-1 flex items-center justify-between text-2xs text-muted">
               <span className="truncate">
                 {c.name}
                 {' · '}
@@ -1567,9 +1567,9 @@ function MediaCaptureInput({
         </label>
       ) : null}
       {err ? (
-        <p className="text-[11px] text-warn">{err}</p>
+        <p className="text-2xs text-warn">{err}</p>
       ) : null}
-      <p className="text-[11px] text-muted">
+      <p className="text-2xs text-muted">
         {clips.length} of {max}{' '}
         {max === 1 ? captureLabel.toLowerCase() : `${captureLabel.toLowerCase()}s`}
         {typeof q.maxDurationSec === 'number'
@@ -1619,7 +1619,7 @@ function BarcodeInput({
         onChange={(e) => onChange(e.target.value || null)}
         className="h-11 w-full rounded-md border border-border bg-surface-1 px-3 font-mono text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
       />
-      <p className="text-[11px] text-muted">
+      <p className="text-2xs text-muted">
         Hardware scanners (USB / Bluetooth) type into this field
         like a keyboard. Camera-based scanning will be added in a
         future release. Accepted: {formats}.
@@ -1861,7 +1861,7 @@ function AcknowledgeInput({
         <span>
           <span>{q.agreeLabel ?? 'I have read and agree.'}</span>
           {checked && typeof at === 'string' ? (
-            <span className="ml-2 text-[11px] text-muted">
+            <span className="ml-2 text-2xs text-muted">
               ({new Date(at).toLocaleString()})
             </span>
           ) : null}
@@ -1986,7 +1986,7 @@ function FileInput({
               <span className="flex-1 truncate" title={f.name}>
                 {f.name}
               </span>
-              <span className="text-[11px] text-muted">{fmtSize(f.sizeBytes)}</span>
+              <span className="text-2xs text-muted">{fmtSize(f.sizeBytes)}</span>
               {!readOnly ? (
                 <button
                   type="button"
@@ -2018,8 +2018,8 @@ function FileInput({
           />
         </label>
       ) : null}
-      {err ? <p className="text-[11px] text-warn">{err}</p> : null}
-      <p className="text-[11px] text-muted">
+      {err ? <p className="text-2xs text-warn">{err}</p> : null}
+      <p className="text-2xs text-muted">
         {files.length} of {max} {max === 1 ? 'file' : 'files'} attached
       </p>
     </div>
@@ -2075,7 +2075,7 @@ function ImageChoiceInput({
                   className="h-full w-full object-cover"
                 />
               ) : (
-                <div className="flex h-full w-full items-center justify-center text-[11px] text-muted">
+                <div className="flex h-full w-full items-center justify-center text-2xs text-muted">
                   No image
                 </div>
               )}
@@ -2118,7 +2118,7 @@ function ImageDisplay({
         className="block h-auto w-full object-contain"
       />
       {q.caption ? (
-        <figcaption className="border-t border-border bg-surface-2/40 px-3 py-1.5 text-[11px] text-muted">
+        <figcaption className="border-t border-border bg-surface-2/40 px-3 py-1.5 text-2xs text-muted">
           {q.caption}
         </figcaption>
       ) : null}
@@ -2200,13 +2200,13 @@ function ImageHotspotInput({
             style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` }}
             className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2"
           >
-            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-accent text-[10px] font-medium text-white shadow">
+            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-accent text-2xs font-medium text-white shadow">
               {i + 1}
             </div>
           </div>
         ))}
       </div>
-      <div className="flex items-center justify-between text-[11px] text-muted">
+      <div className="flex items-center justify-between text-2xs text-muted">
         <span>
           {points.length} of {max} {max === 1 ? 'point' : 'points'} placed
         </span>
@@ -2260,7 +2260,7 @@ function NameInput({
     <div className="grid grid-cols-1 gap-2 sm:grid-cols-6">
       {components.map((c) => (
         <label key={c} className={`flex flex-col gap-1 ${spanFor(c)}`}>
-          <span className="text-[11px] text-muted">
+          <span className="text-2xs text-muted">
             {labelForNameComponent(c)}
           </span>
           <input
@@ -2355,7 +2355,7 @@ function AddressInput({
     <div className="grid grid-cols-1 gap-2 sm:grid-cols-6">
       {components.map((c) => (
         <label key={c} className={`flex flex-col gap-1 ${spanFor(c)}`}>
-          <span className="text-[11px] text-muted">
+          <span className="text-2xs text-muted">
             {labelForAddressComponent(c)}
           </span>
           <input
@@ -2419,7 +2419,7 @@ function GeoPointInput({
             {point.lat.toFixed(6)}, {point.lng.toFixed(6)}
           </p>
           {point.accuracy !== undefined ? (
-            <p className="text-[11px] text-muted">
+            <p className="text-2xs text-muted">
               ± {point.accuracy.toFixed(0)} m
             </p>
           ) : null}
@@ -2506,7 +2506,7 @@ function MatrixSingleInput({
           {q.columns.map((c) => (
             <div
               key={c.value}
-              className="px-1 text-center text-[11px] font-medium text-muted"
+              className="px-1 text-center text-2xs font-medium text-muted"
             >
               {c.label}
             </div>
@@ -2652,7 +2652,7 @@ function MatrixMultiInput({
           {q.columns.map((c) => (
             <div
               key={c.value}
-              className="px-1 text-center text-[11px] font-medium text-muted"
+              className="px-1 text-center text-2xs font-medium text-muted"
             >
               {c.label}
             </div>
@@ -2775,7 +2775,7 @@ function MatrixDropdownInput({
           {q.columns.map((c) => (
             <div
               key={c.value}
-              className="px-1 text-center text-[11px] font-medium text-muted"
+              className="px-1 text-center text-2xs font-medium text-muted"
             >
               {c.label}
             </div>
@@ -2989,7 +2989,7 @@ function RankingInput({
   return (
     <div className="space-y-2">
       <div className="rounded-md border border-border bg-surface-1 p-2">
-        <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">
+        <p className="mb-1 text-2xs font-medium uppercase tracking-wide text-muted">
           Ranked
         </p>
         {ranked.length === 0 ? (
@@ -3034,7 +3034,7 @@ function RankingInput({
       </div>
       {unranked.length > 0 ? (
         <div className="rounded-md border border-dashed border-border bg-surface-2/30 p-2">
-          <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">
+          <p className="mb-1 text-2xs font-medium uppercase tracking-wide text-muted">
             Available
           </p>
           <div className="flex flex-wrap gap-1.5">

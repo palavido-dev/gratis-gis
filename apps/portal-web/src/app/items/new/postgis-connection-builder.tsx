@@ -190,7 +190,7 @@ export function PostgisConnectionBuilder({
             className="mt-1 h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm"
             autoComplete="off"
           />
-          <span className="mt-0.5 inline-block text-[10px] text-muted">
+          <span className="mt-0.5 inline-block text-2xs text-muted">
             Tables in this schema show up in the layer picker by
             default. Other schemas stay reachable via the detail
             page.
@@ -238,7 +238,7 @@ export function PostgisConnectionBuilder({
           Save connection
         </button>
         {!testResult?.ok ? (
-          <span className="text-[11px] text-muted">
+          <span className="text-2xs text-muted">
             Run "Test connection" first.
           </span>
         ) : null}

@@ -173,7 +173,7 @@ export function V3FeatureAttachments({
   return (
     <div className="rounded border border-border bg-surface-0 p-2">
       <div className="mb-1.5 flex items-center justify-between">
-        <p className="inline-flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide text-muted">
+        <p className="inline-flex items-center gap-1 text-2xs font-medium uppercase tracking-wide text-muted">
           <Paperclip className="h-3 w-3" />
           Attachments
           {!loading && items.length > 0 ? ` · ${items.length}` : ''}
@@ -194,7 +194,7 @@ export function V3FeatureAttachments({
               type="button"
               onClick={() => fileRef.current?.click()}
               disabled={uploading}
-              className="inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-1.5 text-[11px] font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+              className="inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-1.5 text-2xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
             >
               {uploading ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -208,16 +208,16 @@ export function V3FeatureAttachments({
       </div>
 
       {error ? (
-        <p className="mb-1.5 inline-flex items-center gap-1 text-[11px] text-danger">
+        <p className="mb-1.5 inline-flex items-center gap-1 text-2xs text-danger">
           <AlertTriangle className="h-3 w-3" />
           {error}
         </p>
       ) : null}
 
       {loading ? (
-        <p className="px-1 py-2 text-[11px] text-muted">Loading…</p>
+        <p className="px-1 py-2 text-2xs text-muted">Loading…</p>
       ) : items.length === 0 ? (
-        <p className="px-1 py-2 text-[11px] text-muted">
+        <p className="px-1 py-2 text-2xs text-muted">
           {canEdit
             ? 'No attachments yet. Upload photos, PDFs, or other files up to 25 MB.'
             : 'No attachments yet.'}
@@ -253,13 +253,13 @@ export function V3FeatureAttachments({
                 </a>
                 <div className="flex items-start justify-between gap-1 border-t border-border p-1.5">
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-[11px] text-ink-1" title={a.fileName}>
+                    <p className="truncate text-2xs text-ink-1" title={a.fileName}>
                       {isImage ? (
                         <ImageIcon className="mr-1 inline h-3 w-3 text-muted" />
                       ) : null}
                       {a.fileName}
                     </p>
-                    <p className="text-[10px] text-muted">
+                    <p className="text-2xs text-muted">
                       {formatSize(a.sizeBytes)}
                     </p>
                   </div>

@@ -2253,7 +2253,7 @@ export function FieldRuntime({
                     <p className="truncate text-sm font-medium text-ink-0">
                       {activeTemplate.label}
                     </p>
-                    <p className="truncate text-[11px] text-muted">
+                    <p className="truncate text-2xs text-muted">
                       {/* #273: in vertex-collection mode the
                           subtitle reports the in-progress vertex
                           count + the threshold so the worker knows
@@ -2915,7 +2915,7 @@ function TemplatePicker({
           ) : (
             groups.map(([groupLabel, groupTemplates]) => (
               <div key={groupLabel} className="border-b border-border last:border-b-0">
-                <h3 className="bg-surface-0 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                <h3 className="bg-surface-0 px-3 py-1.5 text-2xs font-semibold uppercase tracking-wide text-muted">
                   {groupLabel}
                 </h3>
                 <ul>
@@ -3161,12 +3161,12 @@ function LayerVisibilityPanel({
           can see "this'll be 24,500 tiles" before tapping
           Download. */}
       <div className="border-b border-border px-3 py-2">
-        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
+        <p className="mb-1.5 text-2xs font-semibold uppercase tracking-wide text-muted">
           Map detail to cache
         </p>
         <div className="grid grid-cols-2 gap-2">
           <label className="flex flex-col gap-1">
-            <span className="text-[10px] uppercase tracking-wide text-muted">
+            <span className="text-2xs uppercase tracking-wide text-muted">
               Least detail
             </span>
             <select
@@ -3182,7 +3182,7 @@ function LayerVisibilityPanel({
             </select>
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-[10px] uppercase tracking-wide text-muted">
+            <span className="text-2xs uppercase tracking-wide text-muted">
               Most detail
             </span>
             <select
@@ -3198,7 +3198,7 @@ function LayerVisibilityPanel({
             </select>
           </label>
         </div>
-        <p className="mt-1.5 text-[10px] text-muted">
+        <p className="mt-1.5 text-2xs text-muted">
           ~{estimatedTileCount.toLocaleString('en-US')} tiles at the
           current viewport. Cap is 200,000.
         </p>
@@ -3218,7 +3218,7 @@ function LayerVisibilityPanel({
           {cachedDeployment ? 'Refresh offline cache' : 'Download for offline'}
         </button>
         {cachedDeployment ? (
-          <p className="mt-1 text-[10px] text-muted">
+          <p className="mt-1 text-2xs text-muted">
             Cached {formatRelativeTime(cachedDeployment.cachedAt)} ·{' '}
             {formatBytes(cachedDeployment.estimatedSize)}
           </p>
@@ -3231,22 +3231,22 @@ function LayerVisibilityPanel({
       {storage && storage.available ? (
         <div className="border-b border-border px-3 py-2">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
+            <span className="text-2xs font-medium uppercase tracking-wide text-muted">
               Storage
             </span>
             {persistentState === 'best-effort' ? (
               <button
                 type="button"
                 onClick={onRequestPersist}
-                className="text-[10px] text-accent hover:underline"
+                className="text-2xs text-accent hover:underline"
               >
                 Make persistent
               </button>
             ) : persistentState === 'persistent' ? (
-              <span className="text-[10px] text-success">Persistent</span>
+              <span className="text-2xs text-success">Persistent</span>
             ) : null}
           </div>
-          <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-ink-1">
+          <div className="mt-1 flex items-center justify-between gap-2 text-2xs text-ink-1">
             <span>{formatBytes(storage.usage)}</span>
             <span className="text-muted">of {formatBytes(storage.quota)}</span>
           </div>
@@ -3271,7 +3271,7 @@ function LayerVisibilityPanel({
             />
           </div>
           {storage.usagePercent >= 0.95 ? (
-            <p className="mt-1 text-[10px] text-danger">
+            <p className="mt-1 text-2xs text-danger">
               Storage nearly full. Free up space before downloading more areas.
             </p>
           ) : null}
@@ -3282,7 +3282,7 @@ function LayerVisibilityPanel({
               features + queued edits stay put because they're
               load-bearing for offline work. */}
           {tileCache && tileCache.count > 0 ? (
-            <div className="mt-2 flex items-center justify-between gap-2 border-t border-border pt-2 text-[11px] text-muted">
+            <div className="mt-2 flex items-center justify-between gap-2 border-t border-border pt-2 text-2xs text-muted">
               <span>
                 Map tiles: {tileCache.count.toLocaleString()} (
                 {formatBytes(tileCache.bytes)})
@@ -3290,7 +3290,7 @@ function LayerVisibilityPanel({
               <button
                 type="button"
                 onClick={onClearTiles}
-                className="text-[10px] text-accent hover:underline"
+                className="text-2xs text-accent hover:underline"
               >
                 Clear tiles
               </button>
@@ -3990,7 +3990,7 @@ function FormModal({
                 ? `New ${modal.layer.layerLabel}`
                 : `Edit ${modal.layer.layerLabel}`}
             </h2>
-            <p className="truncate text-[11px] text-muted">
+            <p className="truncate text-2xs text-muted">
               {modal.layer.dataLayerTitle}
             </p>
           </div>
@@ -4013,7 +4013,7 @@ function FormModal({
         {modal.mode === 'add' && modal.layer.geometryType === 'point' ? (
           <div className="flex shrink-0 items-center gap-3 border-b border-border bg-surface-0 px-3 py-2">
             <div className="min-w-0 flex-1">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-muted">
+              <p className="text-2xs font-medium uppercase tracking-wide text-muted">
                 Location
               </p>
               <p className="truncate font-mono text-sm tabular-nums text-ink-0">
@@ -4555,7 +4555,7 @@ function FieldFeaturePopupSheet({
                   {pickRelatedRowTitle(concrete.hit.properties) ??
                     concrete.hit.layerLabel}
                 </h2>
-                <p className="truncate text-[11px] text-muted">
+                <p className="truncate text-2xs text-muted">
                   {concrete.hit.layerLabel}
                 </p>
               </>
@@ -4645,7 +4645,7 @@ function FieldFeaturePopupSheet({
                     className="flex w-full items-start gap-3 px-3 py-3 text-left hover:bg-surface-2"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-[10px] font-semibold uppercase tracking-wide text-muted">
+                      <p className="truncate text-2xs font-semibold uppercase tracking-wide text-muted">
                         {hit.layerLabel}
                       </p>
                       <p className="truncate text-base font-medium text-ink-0">
@@ -4667,7 +4667,7 @@ function FieldFeaturePopupSheet({
               <dl className="divide-y divide-border">
                 {Object.entries(concrete.hit.properties).map(([k, v]) => (
                   <div key={k} className="px-3 py-2">
-                    <dt className="text-[11px] uppercase tracking-wide text-muted">
+                    <dt className="text-2xs uppercase tracking-wide text-muted">
                       {k}
                     </dt>
                     <dd className="mt-0.5 break-words text-sm text-ink-0">
@@ -4725,11 +4725,11 @@ function FieldFeaturePopupSheet({
                         className="border-t border-border first:border-t-0 px-3 py-3"
                       >
                         <div className="mb-2 flex items-baseline justify-between gap-2">
-                          <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+                          <h3 className="text-2xs font-semibold uppercase tracking-wide text-muted">
                             {c.layerLabel}
                           </h3>
                           {rowsState && !rowsState.loading ? (
-                            <span className="text-[11px] text-muted">
+                            <span className="text-2xs text-muted">
                               {rowsState.rows.length} row
                               {rowsState.rows.length === 1 ? '' : 's'}
                             </span>
@@ -5038,7 +5038,7 @@ function FieldMoreMenu({
           className="absolute right-0 top-full z-30 mt-1 w-64 overflow-hidden rounded-md border border-border bg-surface-1 shadow-overlay"
         >
           <div className="border-b border-border px-3 py-2">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted">
+            <p className="text-2xs font-medium uppercase tracking-wide text-muted">
               Map
             </p>
             <p className="mt-0.5 truncate text-sm text-ink-0">{mapTitle}</p>
@@ -5128,7 +5128,7 @@ function FieldMoreMenu({
                 them the option to sync first. With an empty queue,
                 refresh runs straight through. */}
             {confirmingRefresh && hasCache && queueCount > 0 ? (
-              <p className="px-2 pt-1 text-[11px] text-warn">
+              <p className="px-2 pt-1 text-2xs text-warn">
                 {queueCount} edit{queueCount === 1 ? '' : 's'} not yet
                 synced. Refresh anyway?
               </p>
@@ -5186,7 +5186,7 @@ function FieldMoreMenu({
             {hasCache ? (
               <>
                 {confirmingRemove && queueCount > 0 ? (
-                  <p className="px-2 pt-1 text-[11px] text-danger">
+                  <p className="px-2 pt-1 text-2xs text-danger">
                     {queueCount} unsynced edit{queueCount === 1 ? '' : 's'}{' '}
                     will be lost.
                   </p>
@@ -5260,7 +5260,7 @@ function QueueBadge({
   if (!isOnline) {
     return (
       <span
-        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-muted"
+        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border bg-surface-2 px-2 py-0.5 text-2xs font-medium text-muted"
         title={`${count} ${count === 1 ? 'edit' : 'edits'} waiting to sync. Reconnect to send.`}
       >
         <CloudOff className="h-3 w-3" />
@@ -5273,7 +5273,7 @@ function QueueBadge({
       type="button"
       disabled={syncing}
       onClick={onSync}
-      className="inline-flex shrink-0 items-center gap-1 rounded-full border border-warn/30 bg-warn/10 px-2 py-0.5 text-[10px] font-medium text-warn hover:bg-warn/20 disabled:opacity-60"
+      className="inline-flex shrink-0 items-center gap-1 rounded-full border border-warn/30 bg-warn/10 px-2 py-0.5 text-2xs font-medium text-warn hover:bg-warn/20 disabled:opacity-60"
       title={`${count} ${count === 1 ? 'edit' : 'edits'} waiting to sync. Click to send now.`}
     >
       {syncing ? (
@@ -5329,7 +5329,7 @@ function DownloadProgressModal({
             number even on a fresh deployment with no features yet.
             Features, Forms, and Pick lists below are secondary
             detail. */}
-        <dl className="mt-3 grid grid-cols-4 gap-2 text-[11px]">
+        <dl className="mt-3 grid grid-cols-4 gap-2 text-2xs">
           <div className="rounded border border-border bg-surface-0 p-2 text-center">
             <dt className="text-muted">Layers</dt>
             <dd className="text-sm font-semibold text-ink-0">
@@ -5356,7 +5356,7 @@ function DownloadProgressModal({
           </div>
         </dl>
         {progress.estimatedSize > 0 ? (
-          <p className="mt-2 text-[11px] text-muted">
+          <p className="mt-2 text-2xs text-muted">
             ~{formatBytes(progress.estimatedSize)} cached
           </p>
         ) : null}
@@ -5663,7 +5663,7 @@ function FieldAddressSearch({
           {anyLayerSearchable && featureResults.length > 0
             ? groupFeatureResultsByLayer(featureResults).map((group) => (
                 <li key={`layer-${group.layerId}`}>
-                  <div className="border-b border-border bg-surface-2 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted">
+                  <div className="border-b border-border bg-surface-2 px-3 py-1 text-2xs font-semibold uppercase tracking-wide text-muted">
                     {group.layerTitle}
                   </div>
                   {group.results.map((r, i) => (
@@ -5679,7 +5679,7 @@ function FieldAddressSearch({
                           {r.kind === 'feature' ? r.label : ''}
                         </div>
                         {r.kind === 'feature' && r.subtitle ? (
-                          <div className="truncate text-[10px] text-muted">
+                          <div className="truncate text-2xs text-muted">
                             {r.subtitle}
                           </div>
                         ) : null}
@@ -5697,7 +5697,7 @@ function FieldAddressSearch({
           anyLayerSearchable &&
           featureResults.length > 0 ? (
             <li>
-              <div className="border-b border-border bg-surface-2 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted">
+              <div className="border-b border-border bg-surface-2 px-3 py-1 text-2xs font-semibold uppercase tracking-wide text-muted">
                 Places
               </div>
             </li>

@@ -2440,7 +2440,7 @@ export function EditorRuntime({
                   role="menu"
                   className="absolute right-0 top-11 z-30 w-56 overflow-hidden rounded-md border border-border bg-surface-1 text-xs shadow-overlay"
                 >
-                  <div className="border-b border-border bg-surface-2 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
+                  <div className="border-b border-border bg-surface-2 px-3 py-1.5 text-2xs font-semibold uppercase tracking-wide text-muted">
                     Basemap
                   </div>
                   {basemaps.length === 0 ? (
@@ -2468,7 +2468,7 @@ export function EditorRuntime({
                             >
                               <span className="truncate">{b.label}</span>
                               {active ? (
-                                <span className="ml-auto text-[10px] uppercase tracking-wide">
+                                <span className="ml-auto text-2xs uppercase tracking-wide">
                                   active
                                 </span>
                               ) : null}
@@ -3114,7 +3114,7 @@ export function EditorRuntime({
                         ?.label ?? 'feature'}{' '}
                       geometry
                     </p>
-                    <p className="mt-0.5 text-[11px] text-purple-700 dark:text-purple-400">
+                    <p className="mt-0.5 text-2xs text-purple-700 dark:text-purple-400">
                       {pendingGeometryEdit.geometryType === 'point'
                         ? 'Drag the point to move it.'
                         : 'Drag vertices to move them. Click midpoints to add a vertex. Alt-click a vertex to delete it.'}
@@ -3122,7 +3122,7 @@ export function EditorRuntime({
                   </div>
                   {geomEditError ? (
                     <p
-                      className="mt-1 text-[11px] text-danger"
+                      className="mt-1 text-2xs text-danger"
                       role="alert"
                     >
                       {geomEditError}
@@ -3269,7 +3269,7 @@ export function EditorRuntime({
                       // by the per-template swatch.
                       return (
                         <div key={e.key}>
-                          <p className="mb-1 text-[11px] font-medium text-muted">
+                          <p className="mb-1 text-2xs font-medium text-muted">
                             {dataLayerTitle && dataLayerTitle !== layerTitle
                               ? `${dataLayerTitle} / ${layerTitle}`
                               : layerTitle}
@@ -3516,7 +3516,7 @@ export function EditorRuntime({
                       ? formatAreaIn(measureAreaSqm, measureAreaUnit)
                       : '—'}
                 </p>
-                <p className="mt-1 text-[11px] text-muted">
+                <p className="mt-1 text-2xs text-muted">
                   {measureMode === 'area'
                     ? 'Click to add vertices on the map. Double-click to finish.'
                     : 'Click to add points on the map. Double-click to finish.'}
@@ -3811,7 +3811,7 @@ function SelectModeItem({
       <Icon className="h-4 w-4" />
       <span className="flex-1">{label}</span>
       {active ? (
-        <span className="text-[10px] uppercase tracking-wide">active</span>
+        <span className="text-2xs uppercase tracking-wide">active</span>
       ) : null}
     </button>
   );

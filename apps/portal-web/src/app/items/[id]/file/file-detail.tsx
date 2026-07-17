@@ -88,7 +88,7 @@ export function FileDetail({ data, canDownload }: { data: FileData; canDownload:
             title={data.fileName}
             className="h-[70vh] w-full rounded border border-border bg-white"
           />
-          <p className="mt-2 text-[11px] text-muted">
+          <p className="mt-2 text-2xs text-muted">
             Preview from your portal&rsquo;s storage. Use Download to grab a copy.
           </p>
         </div>

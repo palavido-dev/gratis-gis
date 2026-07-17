@@ -146,7 +146,7 @@ export function RespondClient({ form, formItemTitle }: Props) {
                 type="button"
                 onClick={() => void drainOnce()}
                 disabled={draining || !online}
-                className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-[11px] font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+                className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
               >
                 <RefreshCcw className="h-3 w-3" />
                 {draining ? 'Sending...' : online ? 'Try again' : 'Offline'}
@@ -162,7 +162,7 @@ export function RespondClient({ form, formItemTitle }: Props) {
                     {new Date(r.capturedAt).toLocaleString()}
                   </span>
                   <span
-                    className={`inline-flex rounded-full px-1.5 text-[10px] uppercase tracking-wide ${
+                    className={`inline-flex rounded-full px-1.5 text-2xs uppercase tracking-wide ${
                       r.status === 'failed'
                         ? 'bg-warn/15 text-warn'
                         : 'bg-surface-2 text-muted'

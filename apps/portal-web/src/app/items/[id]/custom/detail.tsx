@@ -1448,7 +1448,7 @@ function Palette({ canEdit }: { canEdit: boolean }) {
   // scroll container. We only need the categorized tile list here.
   return (
     <div className="flex flex-col pb-2">
-      <p className="border-b border-border bg-surface-2 px-3 py-1.5 text-[11px] text-muted">
+      <p className="border-b border-border bg-surface-2 px-3 py-1.5 text-2xs text-muted">
         {canEdit ? 'Drag a widget onto the canvas' : 'Read only'}
       </p>
       {grouped.map((group) => (
@@ -2794,7 +2794,7 @@ function WidgetCard({
             const cfg = widget.config as { panelArrangement?: { labelMode?: string } };
             const iconOnly = cfg.panelArrangement?.labelMode === 'icon-only';
             return iconOnly ? null : (
-              <span className="truncate text-[10px] font-medium text-muted">
+              <span className="truncate text-2xs font-medium text-muted">
                 {label}
               </span>
             );
@@ -2885,10 +2885,10 @@ function WidgetCard({
         // splash's title so the author can confirm it's wired up.
         <div className="flex h-full w-full flex-col items-center justify-center gap-1 rounded-md border border-dashed border-border bg-surface-2 p-2 text-center">
           <MessageSquare className="h-4 w-4 text-muted" />
-          <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
+          <span className="text-2xs font-medium uppercase tracking-wide text-muted">
             Splash
           </span>
-          <span className="text-[11px] text-ink-1">
+          <span className="text-2xs text-ink-1">
             {widget.config.title?.trim() || '(no title)'}
           </span>
         </div>
@@ -3217,7 +3217,7 @@ function AppProperties({
                         {opt.label}
                       </p>
                       {opt.description ? (
-                        <p className="truncate text-[11px] text-muted">
+                        <p className="truncate text-2xs text-muted">
                           {opt.description}
                         </p>
                       ) : null}
@@ -3252,7 +3252,7 @@ function AppProperties({
                   <button
                     type="button"
                     onClick={onPickMap}
-                    className="text-[10px] text-accent hover:underline"
+                    className="text-2xs text-accent hover:underline"
                   >
                     Change
                   </button>
@@ -3272,7 +3272,7 @@ function AppProperties({
               type="button"
               disabled={!canEdit}
               onClick={onPickMap}
-              className="inline-flex h-7 w-full items-center justify-center gap-1 rounded-md border border-dashed border-border bg-surface-2/30 px-2 text-[11px] text-muted hover:border-accent/40 hover:text-ink-1 disabled:opacity-50"
+              className="inline-flex h-7 w-full items-center justify-center gap-1 rounded-md border border-dashed border-border bg-surface-2/30 px-2 text-2xs text-muted hover:border-accent/40 hover:text-ink-1 disabled:opacity-50"
             >
               <Plus className="h-3 w-3" />
               Pick a map
@@ -3292,7 +3292,7 @@ function AppProperties({
               {app.targets.map((t, i) => (
                 <li
                   key={`${t.dataLayerId}:${t.layerKey}`}
-                  className="flex items-center gap-1.5 rounded-md bg-surface-2 px-2 py-1 text-[11px]"
+                  className="flex items-center gap-1.5 rounded-md bg-surface-2 px-2 py-1 text-2xs"
                 >
                   <LayersIcon className="h-3.5 w-3.5 text-info" />
                   <span className="flex-1 truncate">
@@ -3896,7 +3896,7 @@ function MapWidgetConfig({
               widgetMapTitle ? (
                 <span>{widgetMapTitle}</span>
               ) : (
-                <span className="font-mono text-[10px]">
+                <span className="font-mono text-2xs">
                   {config.mapId.slice(0, 12)}...
                 </span>
               )
@@ -3913,7 +3913,7 @@ function MapWidgetConfig({
             <button
               type="button"
               onClick={onPickMap}
-              className="text-[10px] font-medium text-accent hover:underline"
+              className="text-2xs font-medium text-accent hover:underline"
               title={config.mapId ? 'Change override' : 'Pick a map override'}
             >
               {config.mapId ? 'Change' : 'Pick'}
@@ -3945,7 +3945,7 @@ function MapWidgetConfig({
           <option value="no">Hide</option>
         </select>
       </Field>
-      <p className="rounded-md border border-dashed border-border bg-surface-2/40 px-2 py-2 text-[10px] text-muted">
+      <p className="rounded-md border border-dashed border-border bg-surface-2/40 px-2 py-2 text-2xs text-muted">
         {appTargetCount === 0
           ? 'No targets on the app yet. The runtime will render the map with just the basemap until targets are added.'
           : `${appTargetCount} target layer${appTargetCount === 1 ? '' : 's'} on the app -- this map renders all of them by default.`}
@@ -4476,7 +4476,7 @@ function ToolIconPicker({
             if (inCat.length === 0) return null;
             return (
               <div key={cat} className="mb-2">
-                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">
+                <p className="mb-1 text-2xs font-semibold uppercase tracking-wide text-muted">
                   {cat.replace(/-/g, ' ')}
                 </p>
                 <div className="grid grid-cols-6 gap-1">
@@ -4792,7 +4792,7 @@ function BookmarkWidgetConfig({
                   </button>
                 </div>
                 <div className="mt-1.5 grid grid-cols-3 gap-1.5">
-                  <label className="text-[10px] text-muted">
+                  <label className="text-2xs text-muted">
                     lng
                     <input
                       type="number"
@@ -4807,7 +4807,7 @@ function BookmarkWidgetConfig({
                       className="mt-0.5 w-full rounded border border-border bg-surface-1 px-1.5 py-0.5 text-xs text-ink-1 focus:border-ink-1 focus:outline-none"
                     />
                   </label>
-                  <label className="text-[10px] text-muted">
+                  <label className="text-2xs text-muted">
                     lat
                     <input
                       type="number"
@@ -4822,7 +4822,7 @@ function BookmarkWidgetConfig({
                       className="mt-0.5 w-full rounded border border-border bg-surface-1 px-1.5 py-0.5 text-xs text-ink-1 focus:border-ink-1 focus:outline-none"
                     />
                   </label>
-                  <label className="text-[10px] text-muted">
+                  <label className="text-2xs text-muted">
                     zoom
                     <input
                       type="number"
@@ -5316,7 +5316,7 @@ function DesignerChild({
       >
         <div className={`overflow-hidden ${presetCls}`}>
           {child.config.markdown.trim().length === 0 ? (
-            <span className="text-[10px] italic text-[hsl(var(--app-header-ink)/0.6)]">
+            <span className="text-2xs italic text-[hsl(var(--app-header-ink)/0.6)]">
               (empty)
             </span>
           ) : (
@@ -5368,7 +5368,7 @@ function DesignerChild({
     >
       <Icon className="h-5 w-5" strokeWidth={1.75} />
       {iconOnly ? null : (
-        <span className="text-[10px] font-medium leading-none">{label}</span>
+        <span className="text-2xs font-medium leading-none">{label}</span>
       )}
     </div>
   );
@@ -5796,7 +5796,7 @@ function RichTextEditor({
   }
 
   const btn =
-    'inline-flex h-7 items-center justify-center rounded border border-border bg-surface-0 px-2 text-[11px] font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50';
+    'inline-flex h-7 items-center justify-center rounded border border-border bg-surface-0 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50';
 
   return (
     <div className="space-y-1.5">
@@ -6232,7 +6232,7 @@ function TabsWidgetCanvas({
         {active && active.widgets.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-1 rounded-md border border-dashed border-border bg-surface-1/60 p-4 text-center">
             <p className="text-xs font-medium text-ink-0">{active.title}</p>
-            <p className="text-[11px] text-muted">
+            <p className="text-2xs text-muted">
               Drag a widget here to add it to this tab.
             </p>
           </div>
@@ -6342,7 +6342,7 @@ function TabsWidgetConfig({
                 onChange={(e) => update(i, { title: e.target.value })}
                 className="flex-1 rounded border-0 bg-transparent px-1 text-sm focus:outline-none"
               />
-              <span className="text-[10px] text-muted">
+              <span className="text-2xs text-muted">
                 {t.widgets.length}w
               </span>
               <button

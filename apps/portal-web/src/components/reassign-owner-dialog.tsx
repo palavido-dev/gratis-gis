@@ -126,7 +126,7 @@ export function ReassignOwnerDialog({
         </div>
 
         <div>
-          <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-muted">
+          <label className="mb-1 block text-2xs font-medium uppercase tracking-wide text-muted">
             {t('reassign.newOwner')}
           </label>
           <PrincipalPicker
@@ -138,7 +138,7 @@ export function ReassignOwnerDialog({
             }}
           />
           {pickedId ? (
-            <p className="mt-1 text-[11px] text-ink-1">
+            <p className="mt-1 text-2xs text-ink-1">
               {t('reassign.transferTo')}{' '}
               <span className="font-medium">{pickedLabel}</span>
             </p>
@@ -146,7 +146,7 @@ export function ReassignOwnerDialog({
         </div>
 
         <fieldset className="space-y-1">
-          <legend className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">
+          <legend className="mb-1 text-2xs font-medium uppercase tracking-wide text-muted">
             {t('reassign.keepAccessLegend')}
           </legend>
           {(

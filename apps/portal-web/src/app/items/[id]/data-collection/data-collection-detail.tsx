@@ -130,7 +130,7 @@ export function DataCollectionDetail({
               </li>
             ))}
           </ul>
-          <p className="mt-2 text-[11px] text-muted">
+          <p className="mt-2 text-2xs text-muted">
             Layers without a binding fall through to a form drawn from
             the layer&apos;s field schema.
           </p>
@@ -153,7 +153,7 @@ export function DataCollectionDetail({
         >
           Open field-mode runtime
         </Link>
-        <p className="mt-2 text-[11px] text-muted">
+        <p className="mt-2 text-2xs text-muted">
           Offline collection (download an area, queue edits, sync) lands
           in a follow-up slice.
         </p>

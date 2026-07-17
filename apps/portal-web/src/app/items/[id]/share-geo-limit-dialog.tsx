@@ -291,13 +291,13 @@ export function ShareGeoLimitDialog({
                 ))}
               </select>
             </label>
-            <p className="mt-1 text-[11px] text-muted">
+            <p className="mt-1 text-2xs text-muted">
               The share stores a reference to the boundary item. Edits
               to the boundary&apos;s geometry flow through to every
               share that points at it without re-saving.
             </p>
             {boundaries.length === 0 ? (
-              <p className="mt-2 rounded-md border border-dashed border-border bg-surface-0 px-2 py-1.5 text-[11px] text-muted">
+              <p className="mt-2 rounded-md border border-dashed border-border bg-surface-0 px-2 py-1.5 text-2xs text-muted">
                 Need to draw one?{' '}
                 <a
                   href="/items/new"
@@ -327,7 +327,7 @@ export function ShareGeoLimitDialog({
                 className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 font-mono text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
               />
             </label>
-            <p className="mt-1 text-[11px] text-muted">
+            <p className="mt-1 text-2xs text-muted">
               Accepts a Polygon, MultiPolygon, Feature, or FeatureCollection.
               EPSG:4326 coordinates (lng, lat).
             </p>
@@ -342,7 +342,7 @@ export function ShareGeoLimitDialog({
         )}
 
         {validated?.ok ? (
-          <div className="rounded border border-success/30 bg-success/5 px-2 py-1 text-[11px] text-success">
+          <div className="rounded border border-success/30 bg-success/5 px-2 py-1 text-2xs text-success">
             <Check className="mr-1 inline h-3 w-3" />
             {validated.summary}
           </div>
@@ -351,7 +351,7 @@ export function ShareGeoLimitDialog({
         {error || (validated && !validated.ok) ? (
           <div
             role="alert"
-            className="flex items-start gap-1.5 rounded border border-danger/30 bg-danger/5 px-2 py-1 text-[11px] text-danger"
+            className="flex items-start gap-1.5 rounded border border-danger/30 bg-danger/5 px-2 py-1 text-2xs text-danger"
           >
             <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
             <span>{error ?? (validated && !validated.ok ? validated.error : '')}</span>

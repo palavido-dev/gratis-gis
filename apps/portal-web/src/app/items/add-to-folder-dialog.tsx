@@ -107,7 +107,7 @@ export function AddToFolderDialog({
                       />
                       <FolderIcon className="h-4 w-4 shrink-0 text-warn" />
                       <span className="truncate">{f.title}</span>
-                      <span className="ml-auto text-[11px] text-muted">
+                      <span className="ml-auto text-2xs text-muted">
                         {t('addToFolder.itemCount', {
                           count: f.childItemIds.length,
                         })}

@@ -242,7 +242,7 @@ export function AssetPicker({
   return (
     <div className="space-y-2">
       {label ? (
-        <label className="block text-[11px] font-medium uppercase tracking-wide text-muted">
+        <label className="block text-2xs font-medium uppercase tracking-wide text-muted">
           {label}
         </label>
       ) : null}
@@ -259,7 +259,7 @@ export function AssetPicker({
                   <p className="truncate text-xs font-medium text-ink-0">
                     {currentLabel ?? 'Asset'}
                   </p>
-                  <p className="truncate text-[11px] text-muted">
+                  <p className="truncate text-2xs text-muted">
                     {value.kind === 'file-item' ? (
                       <>
                         File item ·{' '}
@@ -291,7 +291,7 @@ export function AssetPicker({
                   setUrlDraft(value?.kind === 'external-url' ? value.url : '');
                   setMode('paste-url');
                 }}
-                className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-[11px] font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+                className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
               >
                 <LinkIcon className="h-3 w-3" />
                 Paste URL
@@ -303,7 +303,7 @@ export function AssetPicker({
                   setError(null);
                   setMode('pick-existing');
                 }}
-                className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-[11px] font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+                className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
               >
                 <ImageIcon className="h-3 w-3" />
                 Pick file
@@ -312,7 +312,7 @@ export function AssetPicker({
                 type="button"
                 disabled={disabled || mode === 'uploading'}
                 onClick={() => fileInputRef.current?.click()}
-                className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-[11px] font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+                className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
               >
                 {mode === 'uploading' ? (
                   <Loader2 className="h-3 w-3 animate-spin" />
@@ -329,7 +329,7 @@ export function AssetPicker({
                     setError(null);
                     onChange(null);
                   }}
-                  className="ml-auto inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-[11px] text-muted hover:bg-surface-2 hover:text-danger disabled:opacity-50"
+                  className="ml-auto inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs text-muted hover:bg-surface-2 hover:text-danger disabled:opacity-50"
                 >
                   <Trash2 className="h-3 w-3" />
                   Clear
@@ -345,7 +345,7 @@ export function AssetPicker({
           right-rail. */}
       {mode === 'paste-url' && (
         <div className="space-y-1.5 rounded-md border border-accent bg-surface-1 p-2">
-          <label htmlFor={pasteId} className="block text-[11px] font-medium text-muted">
+          <label htmlFor={pasteId} className="block text-2xs font-medium text-muted">
             URL
           </label>
           <input
@@ -364,20 +364,20 @@ export function AssetPicker({
               }
             }}
             placeholder="https://example.com/image.png"
-            className="h-8 w-full rounded-md border border-border bg-surface-1 px-2 font-mono text-[11px]"
+            className="h-8 w-full rounded-md border border-border bg-surface-1 px-2 font-mono text-2xs"
           />
           <div className="flex justify-end gap-1.5">
             <button
               type="button"
               onClick={() => setMode('preview')}
-              className="inline-flex h-7 items-center rounded border border-border bg-surface-1 px-2 text-[11px] text-ink-1 hover:bg-surface-2"
+              className="inline-flex h-7 items-center rounded border border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2"
             >
               Cancel
             </button>
             <button
               type="button"
               onClick={commitUrl}
-              className="inline-flex h-7 items-center gap-1 rounded bg-accent px-2 text-[11px] font-medium text-accent-foreground hover:opacity-90"
+              className="inline-flex h-7 items-center gap-1 rounded bg-accent px-2 text-2xs font-medium text-accent-foreground hover:opacity-90"
             >
               <Check className="h-3 w-3" />
               Use URL
@@ -425,14 +425,14 @@ export function AssetPicker({
       {error ? (
         <p
           role="alert"
-          className="inline-flex items-center gap-1 text-[11px] text-danger"
+          className="inline-flex items-center gap-1 text-2xs text-danger"
         >
           <AlertTriangle className="h-3 w-3" />
           {error}
         </p>
       ) : null}
 
-      {hint ? <p className="text-[11px] text-muted">{hint}</p> : null}
+      {hint ? <p className="text-2xs text-muted">{hint}</p> : null}
     </div>
   );
 }
@@ -588,7 +588,7 @@ function FileItemPicker({
                         <p className="truncate text-xs font-medium text-ink-0">
                           {it.title}
                         </p>
-                        <p className="truncate text-[11px] text-muted">
+                        <p className="truncate text-2xs text-muted">
                           {data?.fileName ?? '(no filename)'}
                         </p>
                       </div>

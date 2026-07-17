@@ -214,7 +214,7 @@ export function StyleEditor({ value, onChange, geometryTypes }: Props) {
                   />
                 ) : null}
               </div>
-              <p className="mt-2 text-[11px] text-muted">
+              <p className="mt-2 text-2xs text-muted">
                 Tinting renders the icon as a signed-distance field
                 so the fill color applies cleanly at any size.
                 Un-tick if you want the icon to stay in its shipped
@@ -225,7 +225,7 @@ export function StyleEditor({ value, onChange, geometryTypes }: Props) {
                   Google-Maps "marker with icon" pattern. Defaults
                   to 'none' so existing layers don't change look. */}
               <div className="mt-4 border-t border-border pt-3">
-                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                <p className="mb-2 text-2xs font-semibold uppercase tracking-wide text-muted">
                   Background
                 </p>
                 <div className="space-y-3">
@@ -279,7 +279,7 @@ export function StyleEditor({ value, onChange, geometryTypes }: Props) {
                 </div>
                 {(value.point.backgroundShape ?? 'none') ===
                 'rounded-square' ? (
-                  <p className="mt-2 text-[11px] text-muted">
+                  <p className="mt-2 text-2xs text-muted">
                     Rounded square renders as a soft pill until the
                     sprite-bake renderer ships; appearance is close
                     but the corners read as fully circular.
@@ -480,7 +480,7 @@ function IconPicker({
             </option>
           ))}
         </select>
-        <label className="flex h-7 cursor-pointer items-center rounded border border-border bg-surface-1 px-2 text-[11px] hover:bg-surface-2">
+        <label className="flex h-7 cursor-pointer items-center rounded border border-border bg-surface-1 px-2 text-2xs hover:bg-surface-2">
           + SVG
           <input
             type="file"
@@ -492,18 +492,18 @@ function IconPicker({
         </label>
       </div>
       {uploadingName ? (
-        <div className="mb-2 rounded border border-border bg-surface-0 px-2 py-1 text-[11px] text-muted">
+        <div className="mb-2 rounded border border-border bg-surface-0 px-2 py-1 text-2xs text-muted">
           Uploading {uploadingName}...
         </div>
       ) : null}
       {uploadError ? (
-        <div className="mb-2 rounded border border-danger/30 bg-danger/5 px-2 py-1 text-[11px] text-danger">
+        <div className="mb-2 rounded border border-danger/30 bg-danger/5 px-2 py-1 text-2xs text-danger">
           {uploadError}
         </div>
       ) : null}
       {filteredUploads.length > 0 ? (
         <>
-          <div className="mb-1 text-[10px] uppercase tracking-wide text-muted">
+          <div className="mb-1 text-2xs uppercase tracking-wide text-muted">
             Your uploads
           </div>
           <div className="mb-2 grid grid-cols-6 gap-1">
@@ -553,7 +553,7 @@ function IconPicker({
           );
         })}
         {filtered.length === 0 && filteredUploads.length === 0 ? (
-          <div className="col-span-6 py-4 text-center text-[11px] text-muted">
+          <div className="col-span-6 py-4 text-center text-2xs text-muted">
             No icons match.
           </div>
         ) : null}
@@ -581,7 +581,7 @@ export function Color({
 }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-[10px] text-muted">{label}</span>
+      <span className="text-2xs text-muted">{label}</span>
       <div className="flex items-center gap-2">
         <input
           type="color"
@@ -623,7 +623,7 @@ export function Slider({
 }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="flex items-center justify-between text-[10px] text-muted">
+      <span className="flex items-center justify-between text-2xs text-muted">
         <span>{label}</span>
         <span className="tabular-nums">{value}</span>
       </span>
@@ -654,7 +654,7 @@ function DashSelect({
 }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-[10px] text-muted">{label}</span>
+      <span className="text-2xs text-muted">{label}</span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value as DashStyle)}
@@ -685,7 +685,7 @@ function CapJoinSelect({
 }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-[10px] text-muted">{label}</span>
+      <span className="text-2xs text-muted">{label}</span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}

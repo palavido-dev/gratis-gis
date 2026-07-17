@@ -342,7 +342,7 @@ export function SearchBar({
                     }}
                   />
                 ))}
-                <div className="px-3 py-1 text-[10px] text-muted">
+                <div className="px-3 py-1 text-2xs text-muted">
                   Places via © OpenStreetMap contributors (Nominatim)
                 </div>
               </Section>
@@ -378,7 +378,7 @@ function Section({
 }) {
   return (
     <div>
-      <div className="sticky top-0 bg-surface-2 px-3 py-1 text-[10px] font-medium uppercase tracking-wide text-muted">
+      <div className="sticky top-0 bg-surface-2 px-3 py-1 text-2xs font-medium uppercase tracking-wide text-muted">
         {title}
       </div>
       <ul>{children}</ul>

@@ -164,7 +164,7 @@ export function CreateSharedPickListDialog({
         </label>
 
         {seedEntries.length > 0 ? (
-          <div className="rounded border border-border bg-surface-0 p-2 text-[11px]">
+          <div className="rounded border border-border bg-surface-0 p-2 text-2xs">
             <p className="mb-1 uppercase tracking-wide text-muted">
               Entries to be copied
             </p>

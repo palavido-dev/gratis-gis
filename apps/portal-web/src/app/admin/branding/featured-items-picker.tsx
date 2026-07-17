@@ -262,7 +262,7 @@ function FeaturedRow({
         <button
           type="button"
           onClick={onRemove}
-          className="inline-flex items-center gap-1 rounded border border-warn/50 bg-white px-2 py-0.5 text-[11px] text-warn hover:bg-warn/20"
+          className="inline-flex items-center gap-1 rounded border border-warn/50 bg-white px-2 py-0.5 text-2xs text-warn hover:bg-warn/20"
         >
           <Trash2 className="h-3 w-3" />
           Remove
@@ -274,7 +274,7 @@ function FeaturedRow({
   const accent = getItemTypeAccent(item.type);
   return (
     <li className="flex items-center gap-2 rounded-md border border-border bg-surface-1 px-3 py-2">
-      <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded bg-surface-2 text-[11px] font-semibold text-muted">
+      <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded bg-surface-2 text-2xs font-semibold text-muted">
         {position}
       </span>
       <Icon className={`h-4 w-4 shrink-0 ${accent}`} />
@@ -282,7 +282,7 @@ function FeaturedRow({
         <p className="truncate text-sm font-medium text-ink-0">
           {item.title}
         </p>
-        <p className="truncate text-[11px] text-muted">
+        <p className="truncate text-2xs text-muted">
           {prettyType(item.type)}
         </p>
       </div>
@@ -382,7 +382,7 @@ function Adder({
                     <p className="truncate font-medium text-ink-0">
                       {it.title}
                     </p>
-                    <p className="truncate text-[11px] text-muted">
+                    <p className="truncate text-2xs text-muted">
                       {prettyType(it.type)}
                     </p>
                   </div>

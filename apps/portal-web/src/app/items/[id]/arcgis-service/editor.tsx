@@ -396,14 +396,14 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
                   <button
                     type="button"
                     onClick={selectAll}
-                    className="h-7 rounded border border-border bg-surface-1 px-2 text-[11px] text-muted hover:bg-surface-2 hover:text-ink-1"
+                    className="h-7 rounded border border-border bg-surface-1 px-2 text-2xs text-muted hover:bg-surface-2 hover:text-ink-1"
                   >
                     All
                   </button>
                   <button
                     type="button"
                     onClick={selectNone}
-                    className="h-7 rounded border border-border bg-surface-1 px-2 text-[11px] text-muted hover:bg-surface-2 hover:text-ink-1"
+                    className="h-7 rounded border border-border bg-surface-1 px-2 text-2xs text-muted hover:bg-surface-2 hover:text-ink-1"
                   >
                     None
                   </button>
@@ -411,7 +411,7 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
                     type="button"
                     onClick={selectSpatial}
                     title="Only layers with geometry"
-                    className="h-7 rounded border border-border bg-surface-1 px-2 text-[11px] text-muted hover:bg-surface-2 hover:text-ink-1"
+                    className="h-7 rounded border border-border bg-surface-1 px-2 text-2xs text-muted hover:bg-surface-2 hover:text-ink-1"
                   >
                     Spatial only
                   </button>
@@ -421,7 +421,7 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
                 <button
                   type="button"
                   onClick={() => setProbeResult(null)}
-                  className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-[11px] text-muted hover:bg-surface-2"
+                  className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-2xs text-muted hover:bg-surface-2"
                   title="Discard probe result"
                 >
                   <RefreshCw className="h-3 w-3" />
@@ -463,16 +463,16 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
                         onChange={(e) => setLayerLabel(l.id, e.target.value)}
                         placeholder="Override display label (optional)"
                         disabled={!included}
-                        className="mt-0.5 h-6 w-full rounded border border-border bg-surface-0 px-1.5 text-[11px] focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30 disabled:opacity-50"
+                        className="mt-0.5 h-6 w-full rounded border border-border bg-surface-0 px-1.5 text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30 disabled:opacity-50"
                       />
                     ) : override?.label ? (
-                      <p className="mt-0.5 text-[11px] text-muted">
+                      <p className="mt-0.5 text-2xs text-muted">
                         label override:{' '}
                         <span className="text-ink-1">{override.label}</span>
                       </p>
                     ) : null}
                   </div>
-                  <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted">
+                  <span className="shrink-0 text-2xs uppercase tracking-wide text-muted">
                     {geometryShort(l.geometryType)}
                   </span>
                   <button
@@ -493,7 +493,7 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
                         ? 'Default layer for maps consuming this item'
                         : 'Make this the default layer'
                     }
-                    className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                    className={`shrink-0 rounded px-1.5 py-0.5 text-2xs font-semibold ${
                       isDefault
                         ? 'bg-accent/15 text-accent'
                         : 'text-muted hover:bg-surface-2 hover:text-ink-1'
@@ -718,7 +718,7 @@ function CredentialsCard({
                       setKindDraft(meta.kind);
                       setEditorOpen(true);
                     }}
-                    className="h-7 rounded border border-border bg-surface-1 px-2 text-[11px] text-ink-1 hover:bg-surface-2"
+                    className="h-7 rounded border border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2"
                   >
                     Replace
                   </button>
@@ -726,7 +726,7 @@ function CredentialsCard({
                     type="button"
                     onClick={() => void clearCredential()}
                     disabled={busy}
-                    className="h-7 rounded border border-danger/40 bg-surface-1 px-2 text-[11px] text-danger hover:bg-danger/5 disabled:opacity-50"
+                    className="h-7 rounded border border-danger/40 bg-surface-1 px-2 text-2xs text-danger hover:bg-danger/5 disabled:opacity-50"
                   >
                     Clear
                   </button>
@@ -740,7 +740,7 @@ function CredentialsCard({
                 <button
                   type="button"
                   onClick={() => setEditorOpen(true)}
-                  className="ml-auto h-7 rounded border border-accent bg-accent px-2 text-[11px] font-medium text-white hover:bg-accent/90"
+                  className="ml-auto h-7 rounded border border-accent bg-accent px-2 text-2xs font-medium text-white hover:bg-accent/90"
                 >
                   Add credential
                 </button>
@@ -750,7 +750,7 @@ function CredentialsCard({
           {editorOpen && canEdit ? (
             <div className="space-y-2 rounded border border-border bg-surface-1 p-3">
               <label className="flex flex-col gap-1">
-                <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
+                <span className="text-2xs font-medium uppercase tracking-wide text-muted">
                   Kind
                 </span>
                 <select
@@ -772,7 +772,7 @@ function CredentialsCard({
               {kindDraft === 'basic' ? (
                 <>
                   <label className="flex flex-col gap-1">
-                    <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
+                    <span className="text-2xs font-medium uppercase tracking-wide text-muted">
                       Username
                     </span>
                     <input
@@ -784,7 +784,7 @@ function CredentialsCard({
                     />
                   </label>
                   <label className="flex flex-col gap-1">
-                    <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
+                    <span className="text-2xs font-medium uppercase tracking-wide text-muted">
                       Password
                     </span>
                     <input
@@ -798,7 +798,7 @@ function CredentialsCard({
                 </>
               ) : (
                 <label className="flex flex-col gap-1">
-                  <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
+                  <span className="text-2xs font-medium uppercase tracking-wide text-muted">
                     Token
                   </span>
                   <input
@@ -819,7 +819,7 @@ function CredentialsCard({
                     setUsernameDraft('');
                     setPasswordDraft('');
                   }}
-                  className="h-7 rounded border border-border bg-surface-1 px-2 text-[11px] text-ink-1 hover:bg-surface-2"
+                  className="h-7 rounded border border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2"
                 >
                   Cancel
                 </button>
@@ -827,7 +827,7 @@ function CredentialsCard({
                   type="button"
                   onClick={() => void saveCredential()}
                   disabled={busy}
-                  className="h-7 rounded border border-accent bg-accent px-2 text-[11px] font-medium text-white hover:bg-accent/90 disabled:opacity-50"
+                  className="h-7 rounded border border-accent bg-accent px-2 text-2xs font-medium text-white hover:bg-accent/90 disabled:opacity-50"
                 >
                   {busy ? 'Saving...' : 'Save credential'}
                 </button>

@@ -1169,7 +1169,7 @@ function BulkActionBar({
     <div className="sticky top-0 z-10 mb-3 flex items-center justify-between gap-3 rounded-md border border-accent/30 bg-accent/5 px-3 py-2 shadow-sm">
       <div className="flex items-center gap-3 text-sm">
         <span className="inline-flex items-center gap-1.5 font-medium text-accent">
-          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent text-[11px] font-semibold text-white">
+          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent text-2xs font-semibold text-white">
             {count}
           </span>
           {t('items.selected')}
@@ -1417,7 +1417,7 @@ function BulkShareDialog({
             <div className="rounded-md border border-border bg-surface-2 px-3 py-2">
               <label
                 htmlFor={`bulk-boundary-${mode}`}
-                className="block text-[10px] font-medium uppercase tracking-wide text-muted"
+                className="block text-2xs font-medium uppercase tracking-wide text-muted"
               >
                 {t('items.geographicScope')}
               </label>
@@ -1447,7 +1447,7 @@ function BulkShareDialog({
                   </option>
                 ))}
               </select>
-              <p className="mt-1.5 text-[11px] text-muted">
+              <p className="mt-1.5 text-2xs text-muted">
                 {t('items.geoScopeHint', {
                   via:
                     mode === 'public'
@@ -1460,7 +1460,7 @@ function BulkShareDialog({
 
           {mode !== 'principal' ? null : (
           <div>
-            <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted">
+            <span className="mb-1 block text-2xs font-medium uppercase tracking-wide text-muted">
               {t('items.recipient')}
             </span>
             {picked ? (
@@ -1468,7 +1468,7 @@ function BulkShareDialog({
                 <span className="flex-1 truncate text-ink-0">
                   {picked.title}
                   {picked.id.startsWith('group:') ? (
-                    <span className="ml-1 text-[10px] uppercase tracking-wide text-muted">
+                    <span className="ml-1 text-2xs uppercase tracking-wide text-muted">
                       {t('items.groupTag')}
                     </span>
                   ) : null}
@@ -1476,7 +1476,7 @@ function BulkShareDialog({
                 <button
                   type="button"
                   onClick={() => setPicked(null)}
-                  className="h-6 rounded border border-border bg-surface-1 px-2 text-[11px] text-muted hover:bg-surface-2 hover:text-ink-1"
+                  className="h-6 rounded border border-border bg-surface-1 px-2 text-2xs text-muted hover:bg-surface-2 hover:text-ink-1"
                 >
                   {t('items.clear')}
                 </button>
@@ -1495,7 +1495,7 @@ function BulkShareDialog({
 
           {mode !== 'principal' ? null : (
           <div>
-            <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted">
+            <span className="mb-1 block text-2xs font-medium uppercase tracking-wide text-muted">
               {t('items.permission')}
             </span>
             <div className="grid grid-cols-2 gap-1">
@@ -1513,7 +1513,7 @@ function BulkShareDialog({
                   <div className="font-medium capitalize">
                     {t(`sharing.permission.${p}`)}
                   </div>
-                  <div className="text-[10px] text-muted">
+                  <div className="text-2xs text-muted">
                     {t(`items.permissionDesc.${p}`)}
                   </div>
                 </button>
@@ -1527,7 +1527,7 @@ function BulkShareDialog({
               against expires_at on each share row. */}
           {mode !== 'principal' ? null : (
           <div>
-            <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted">
+            <span className="mb-1 block text-2xs font-medium uppercase tracking-wide text-muted">
               {t('sharing.expires')}
             </span>
             <ShareExpiryPicker
@@ -1939,7 +1939,7 @@ function Toolbar({
           {summaryParts.map((part) => (
             <span
               key={part.key}
-              className="inline-flex h-7 items-center gap-1.5 rounded-full border border-accent/30 bg-accent/5 px-2 text-[11px] text-ink-1"
+              className="inline-flex h-7 items-center gap-1.5 rounded-full border border-accent/30 bg-accent/5 px-2 text-2xs text-ink-1"
             >
               {part.key === 'area' ? (
                 <Crosshair className="h-3 w-3 text-accent" />
@@ -2262,7 +2262,7 @@ function ItemGrid({
           for the checkbox. The "select all visible" checkbox only
           appears when the current user can manage at least one row
           in this group: otherwise it'd be a no-op. */}
-      <li className="hidden grid-cols-[1.5rem_1rem_minmax(0,1fr)_8rem_8rem_7rem_9rem_1.75rem] items-center gap-3 border-b border-border bg-surface-2 px-4 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted sm:grid">
+      <li className="hidden grid-cols-[1.5rem_1rem_minmax(0,1fr)_8rem_8rem_7rem_9rem_1.75rem] items-center gap-3 border-b border-border bg-surface-2 px-4 py-1.5 text-2xs font-medium uppercase tracking-wide text-muted sm:grid">
         {manageableIds.size > 0 ? (
           <input
             type="checkbox"
@@ -2356,16 +2356,16 @@ function ItemGrid({
                     </p>
                   ) : null}
                 </div>
-                <p className="hidden truncate text-[11px] text-muted sm:block">
+                <p className="hidden truncate text-2xs text-muted sm:block">
                   {getItemDisplayLabel(item)}
                 </p>
                 <p
-                  className="hidden truncate text-[11px] text-muted sm:block"
+                  className="hidden truncate text-2xs text-muted sm:block"
                   title={item.owner?.username ?? item.ownerId}
                 >
                   {ownerLabel}
                 </p>
-                <p className="hidden text-[11px] text-muted sm:block">
+                <p className="hidden text-2xs text-muted sm:block">
                   {new Date(item.updatedAt).toLocaleDateString()}
                 </p>
               </Link>

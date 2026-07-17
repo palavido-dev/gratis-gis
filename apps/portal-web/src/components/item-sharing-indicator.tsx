@@ -396,13 +396,13 @@ export function ItemSharingIndicator({
             <p className="truncate text-xs font-semibold text-ink-0" title={itemTitle}>
               {itemTitle}
             </p>
-            <p className="text-[10px] uppercase tracking-wide text-muted">
+            <p className="text-2xs uppercase tracking-wide text-muted">
               {t('sharing.sharing')}
             </p>
           </div>
 
           <div className="space-y-1 px-3 py-2">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted">
+            <p className="text-2xs font-medium uppercase tracking-wide text-muted">
               {t('sharing.whoCanSee')}
             </p>
             <div className="grid grid-cols-3 gap-1" role="radiogroup">
@@ -418,7 +418,7 @@ export function ItemSharingIndicator({
                     aria-checked={selected}
                     disabled={!canManage || saving === 'access'}
                     onClick={() => void setAccess(lvl)}
-                    className={`inline-flex flex-col items-center gap-0.5 rounded-md border px-1.5 py-1 text-[10px] ${
+                    className={`inline-flex flex-col items-center gap-0.5 rounded-md border px-1.5 py-1 text-2xs ${
                       selected
                         ? 'border-accent bg-accent/10 text-accent'
                         : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
@@ -432,19 +432,19 @@ export function ItemSharingIndicator({
               })}
             </div>
             {saving === 'access' ? (
-              <p className="flex items-center gap-1 text-[10px] text-muted">
+              <p className="flex items-center gap-1 text-2xs text-muted">
                 <Loader2 className="h-3 w-3 animate-spin" /> {t('sharing.saving')}
               </p>
             ) : null}
           </div>
 
           <div className="border-t border-border px-3 py-2">
-            <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">
+            <p className="mb-1 text-2xs font-medium uppercase tracking-wide text-muted">
               {t('sharing.explicitShares')}{' '}
               <span className="text-muted">({shareCount})</span>
             </p>
             {visibleShares.length === 0 ? (
-              <p className="text-[11px] text-muted">
+              <p className="text-2xs text-muted">
                 {t('sharing.noExplicitShares')}
               </p>
             ) : (
@@ -472,7 +472,7 @@ export function ItemSharingIndicator({
           </div>
 
           {error ? (
-            <p className="border-t border-border px-3 py-1.5 text-[11px] text-danger" role="alert">
+            <p className="border-t border-border px-3 py-1.5 text-2xs text-danger" role="alert">
               {error}
             </p>
           ) : null}
@@ -483,7 +483,7 @@ export function ItemSharingIndicator({
               onClick={(e) => {
                 if (stopParentLink) e.stopPropagation();
               }}
-              className="inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline"
+              className="inline-flex items-center gap-1 text-2xs font-medium text-accent hover:underline"
             >
               {t('sharing.manageSharing')} <ExternalLink className="h-3 w-3" />
             </a>
@@ -505,7 +505,7 @@ export function ItemSharingIndicator({
         }}
         aria-haspopup="dialog"
         aria-expanded={open}
-        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${meta.chipBg} ${meta.chipText} ring-1 ring-inset ring-transparent hover:ring-current/20`}
+        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-medium ${meta.chipBg} ${meta.chipText} ring-1 ring-inset ring-transparent hover:ring-current/20`}
         title={
           shareCount > 0
             ? t('sharing.chipTitleShared', {
@@ -518,7 +518,7 @@ export function ItemSharingIndicator({
         <meta.Icon className="h-3 w-3" />
         <span>{accessLabel(t, currentAccess)}</span>
         {shareCount > 0 ? (
-          <span className="ml-0.5 rounded-full bg-white/50 px-1 text-[10px] leading-4 text-current">
+          <span className="ml-0.5 rounded-full bg-white/50 px-1 text-2xs leading-4 text-current">
             +{shareCount}
           </span>
         ) : null}
@@ -593,17 +593,17 @@ function SharingRow({
   const perm: SharePermission = share.permission;
 
   return (
-    <li className="flex items-center gap-2 rounded px-1.5 py-1 text-[11px] hover:bg-surface-2">
+    <li className="flex items-center gap-2 rounded px-1.5 py-1 text-2xs hover:bg-surface-2">
       <Icon className="h-3.5 w-3.5 shrink-0 text-muted" />
       <div className="min-w-0 flex-1">
         <p className="truncate text-ink-1" title={label}>
           {label}
         </p>
         {sublabel ? (
-          <p className="truncate text-[10px] text-muted">{sublabel}</p>
+          <p className="truncate text-2xs text-muted">{sublabel}</p>
         ) : null}
       </div>
-      <span className="shrink-0 rounded bg-surface-2 px-1 py-0.5 text-[9px] uppercase tracking-wide text-muted">
+      <span className="shrink-0 rounded bg-surface-2 px-1 py-0.5 text-2xs uppercase tracking-wide text-muted">
         {t(`sharing.permission.${perm}`)}
       </span>
       {canManage && !isSelf ? (

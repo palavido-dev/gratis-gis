@@ -114,12 +114,12 @@ function MigrationCard(props: {
           >
             {props.icon}
           </span>
-          <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
+          <span className="text-2xs font-medium uppercase tracking-wide text-muted">
             {props.direction}
           </span>
         </div>
         {isReady ? null : (
-          <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+          <span className="rounded bg-surface-2 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-muted">
             Planned
           </span>
         )}

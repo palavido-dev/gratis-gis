@@ -72,7 +72,7 @@ export function LocaleSwitcher() {
           href="https://github.com/palavido-dev/gratis-gis/blob/main/CONTRIBUTING-TRANSLATIONS.md"
           target="_blank"
           rel="noopener noreferrer"
-          className="text-[10px] text-muted underline hover:text-ink-1"
+          className="text-2xs text-muted underline hover:text-ink-1"
         >
           Machine-translated. Help us improve it.
         </a>

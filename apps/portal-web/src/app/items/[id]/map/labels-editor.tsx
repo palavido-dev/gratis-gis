@@ -77,7 +77,7 @@ export function LabelsEditor({ value, metadata, onChange }: Props) {
         <div className="space-y-3 rounded-md border border-border bg-surface-1 p-3">
           <div>
             <div className="mb-1 flex items-center justify-between">
-              <label className="block text-[10px] uppercase tracking-wide text-muted">
+              <label className="block text-2xs uppercase tracking-wide text-muted">
                 Label text
               </label>
               <div className="flex gap-1">
@@ -88,7 +88,7 @@ export function LabelsEditor({ value, metadata, onChange }: Props) {
                       if (e.target.value) insert(`{{${e.target.value}}}`);
                       e.target.value = '';
                     }}
-                    className="h-6 rounded border border-border bg-surface-1 px-1 text-[11px] focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                    className="h-6 rounded border border-border bg-surface-1 px-1 text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
                   >
                     <option value="">+ field...</option>
                     {metadata.fields.map((f) => (
@@ -104,7 +104,7 @@ export function LabelsEditor({ value, metadata, onChange }: Props) {
                     if (e.target.value) insert(e.target.value);
                     e.target.value = '';
                   }}
-                  className="h-6 rounded border border-border bg-surface-1 px-1 text-[11px] focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                  className="h-6 rounded border border-border bg-surface-1 px-1 text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
                 >
                   <option value="">+ format...</option>
                   <option value="| upper">| upper</option>
@@ -121,7 +121,7 @@ export function LabelsEditor({ value, metadata, onChange }: Props) {
               rows={2}
               className="w-full rounded border border-border bg-surface-1 px-2 py-1 font-mono text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
             />
-            <p className="mt-1 text-[11px] text-muted">
+            <p className="mt-1 text-2xs text-muted">
               Static text renders as-is; wrap fields in{' '}
               <code className="rounded bg-surface-2 px-1">{`{{ }}`}</code>.
               Formatters: upper, lower, number.
@@ -161,7 +161,7 @@ export function LabelsEditor({ value, metadata, onChange }: Props) {
 
           {hasLine ? (
             <div>
-              <label className="mb-1 block text-[10px] uppercase tracking-wide text-muted">
+              <label className="mb-1 block text-2xs uppercase tracking-wide text-muted">
                 Placement
               </label>
               <div className="grid grid-cols-2 gap-2">
@@ -182,7 +182,7 @@ export function LabelsEditor({ value, metadata, onChange }: Props) {
           ) : null}
 
           <div>
-            <label className="mb-1 block text-[10px] uppercase tracking-wide text-muted">
+            <label className="mb-1 block text-2xs uppercase tracking-wide text-muted">
               Anchor
             </label>
             <select
@@ -198,7 +198,7 @@ export function LabelsEditor({ value, metadata, onChange }: Props) {
               <option value="left">left</option>
               <option value="right">right</option>
             </select>
-            <p className="mt-1 text-[11px] text-muted">
+            <p className="mt-1 text-2xs text-muted">
               Anchor picks which part of the label sits on the feature
               point; offsets below nudge it from there.
             </p>
@@ -206,10 +206,10 @@ export function LabelsEditor({ value, metadata, onChange }: Props) {
 
           <div>
             <div className="mb-1 flex items-center justify-between">
-              <label className="text-[10px] uppercase tracking-wide text-muted">
+              <label className="text-2xs uppercase tracking-wide text-muted">
                 Offset from anchor
               </label>
-              <span className="text-[10px] text-muted">em (multiples of size)</span>
+              <span className="text-2xs text-muted">em (multiples of size)</span>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <Slider
@@ -255,7 +255,7 @@ function Slider({
 }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="flex items-center justify-between text-[10px] text-muted">
+      <span className="flex items-center justify-between text-2xs text-muted">
         <span>{label}</span>
         <span className="tabular-nums">
           {value}
@@ -286,7 +286,7 @@ function Color({
 }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-[10px] text-muted">{label}</span>
+      <span className="text-2xs text-muted">{label}</span>
       <div className="flex items-center gap-2">
         <input
           type="color"
@@ -327,7 +327,7 @@ function ModeBtn({
       }`}
     >
       <div>{label}</div>
-      <div className="mt-0.5 text-[10px] font-normal text-muted">{hint}</div>
+      <div className="mt-0.5 text-2xs font-normal text-muted">{hint}</div>
     </button>
   );
 }

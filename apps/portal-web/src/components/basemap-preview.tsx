@@ -127,7 +127,7 @@ export function BasemapPreview({
       }
     >
       {!ready ? (
-        <div className="flex h-full w-full items-center justify-center text-[11px] text-muted">
+        <div className="flex h-full w-full items-center justify-center text-2xs text-muted">
           Configure a source to see the preview.
         </div>
       ) : null}

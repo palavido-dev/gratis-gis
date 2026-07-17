@@ -442,11 +442,11 @@ export default async function ItemDetailPage(props: Props) {
               {item.title}
             </h1>
             <span
-              className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium tracking-wide ${badgeClass}`}
+              className={`shrink-0 rounded px-1.5 py-0.5 text-2xs font-medium tracking-wide ${badgeClass}`}
             >
               {getItemTypeLabel(item.type)}
             </span>
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted">
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border bg-surface-2 px-1.5 py-0.5 text-2xs text-muted">
               {accessIcon[item.access]}
               {item.access}
             </span>
@@ -573,7 +573,7 @@ export default async function ItemDetailPage(props: Props) {
                 {item.tags.map((tag) => (
                   <span
                     key={tag}
-                    className="rounded-full border border-border bg-surface-2 px-2 py-0.5 text-[11px] text-muted"
+                    className="rounded-full border border-border bg-surface-2 px-2 py-0.5 text-2xs text-muted"
                   >
                     {tag}
                   </span>

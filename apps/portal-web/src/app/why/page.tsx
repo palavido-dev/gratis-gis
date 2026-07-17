@@ -77,7 +77,7 @@ export default async function WhyPage() {
           </p>
         </header>
 
-        <section className="prose prose-invert mt-10 max-w-none space-y-6 text-[15px] leading-relaxed text-ink-1">
+        <section className="prose prose-invert mt-10 max-w-none space-y-6 text-base leading-relaxed text-ink-1">
           <h2 className="text-xl font-semibold tracking-tight text-ink-0">
             Three decades in
           </h2>
@@ -130,7 +130,7 @@ export default async function WhyPage() {
             act on. If you want to actually write code with me, let&rsquo;s
             talk.
           </p>
-          <aside className="rounded-md border border-border bg-surface-1 p-4 text-[14px] text-ink-1">
+          <aside className="rounded-md border border-border bg-surface-1 p-4 text-sm text-ink-1">
             <p className="flex items-start gap-2">
               <Coffee className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
               <span>

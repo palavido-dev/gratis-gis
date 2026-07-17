@@ -148,7 +148,7 @@ export function PwaInstallButton({
         <button
           type="button"
           onClick={handleClick}
-          className="inline-flex h-7 items-center gap-1 rounded-full border border-accent/40 bg-accent/10 px-2 text-[11px] font-medium text-accent hover:bg-accent/20"
+          className="inline-flex h-7 items-center gap-1 rounded-full border border-accent/40 bg-accent/10 px-2 text-2xs font-medium text-accent hover:bg-accent/20"
           title={
             isIOS
               ? 'Install GratisGIS on this device (Tap Share, then Add to Home Screen)'
@@ -165,7 +165,7 @@ export function PwaInstallButton({
             <p className="text-ink-1">
               Install GratisGIS for better offline support
             </p>
-            <p className="text-[11px] text-muted">
+            <p className="text-2xs text-muted">
               {isIOS
                 ? 'iOS lifts its 1 GB storage cap once installed.'
                 : "Adds an icon to your home screen and protects cached data from cleanup."}

@@ -121,7 +121,7 @@ export function RendererEditor({ value, metadata, onChange }: Props) {
       {isUnique ? (
         <div className="space-y-3 rounded-md border border-border bg-surface-1 p-3">
           <div>
-            <label className="mb-1 block text-[10px] uppercase tracking-wide text-muted">
+            <label className="mb-1 block text-2xs uppercase tracking-wide text-muted">
               Attribute
             </label>
             {metadata.fields.length > 0 ? (
@@ -142,7 +142,7 @@ export function RendererEditor({ value, metadata, onChange }: Props) {
                   type="button"
                   onClick={() => value.field && autoPopulate(value.field)}
                   disabled={!value.field}
-                  className="h-8 rounded border border-border bg-surface-1 px-2 text-[11px] font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+                  className="h-8 rounded border border-border bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
                 >
                   Auto fill
                 </button>
@@ -157,29 +157,29 @@ export function RendererEditor({ value, metadata, onChange }: Props) {
               />
             )}
             {metadata.loading ? (
-              <p className="mt-1 text-[11px] text-muted">
+              <p className="mt-1 text-2xs text-muted">
                 Loading field options...
               </p>
             ) : metadata.error ? (
-              <p className="mt-1 text-[11px] text-warn">{metadata.error}</p>
+              <p className="mt-1 text-2xs text-warn">{metadata.error}</p>
             ) : null}
           </div>
 
           {value.field ? (
             <div>
               <div className="mb-1 flex items-center justify-between">
-                <span className="text-[10px] uppercase tracking-wide text-muted">
+                <span className="text-2xs uppercase tracking-wide text-muted">
                   Categories
                 </span>
                 {value.field &&
                 (metadata.valuesByField[value.field]?.length ?? 0) >= 64 ? (
-                  <span className="text-[10px] text-warn">
+                  <span className="text-2xs text-warn">
                     &gt; 64 unique values; showing first 64
                   </span>
                 ) : null}
               </div>
               {value.categories.length === 0 ? (
-                <div className="rounded border border-dashed border-border px-2 py-3 text-center text-[11px] text-muted">
+                <div className="rounded border border-dashed border-border px-2 py-3 text-center text-2xs text-muted">
                   No categories yet. Click <strong>Auto fill</strong> above or
                   add rows manually.
                 </div>
@@ -241,7 +241,7 @@ export function RendererEditor({ value, metadata, onChange }: Props) {
                         }}
                         placeholder="icon (optional)"
                         title="Icon name to render features in this category. Leave empty to inherit the layer's icon."
-                        className="h-7 w-28 shrink-0 rounded border border-border bg-surface-1 px-2 text-[11px] text-ink-1 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                        className="h-7 w-28 shrink-0 rounded border border-border bg-surface-1 px-2 text-2xs text-ink-1 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
                       />
                       <button
                         type="button"
@@ -258,12 +258,12 @@ export function RendererEditor({ value, metadata, onChange }: Props) {
               <button
                 type="button"
                 onClick={addCategory}
-                className="mt-2 inline-flex h-7 items-center gap-1 rounded text-[11px] text-accent hover:underline"
+                className="mt-2 inline-flex h-7 items-center gap-1 rounded text-2xs text-accent hover:underline"
               >
                 <Plus className="h-3 w-3" />
                 Add category
               </button>
-              <p className="mt-1 text-[11px] text-muted">
+              <p className="mt-1 text-2xs text-muted">
                 Features whose value isn&apos;t listed fall back to the single
                 color from the style editor below.
               </p>
@@ -336,7 +336,7 @@ function ClassBreaksEditor({
   return (
     <div className="space-y-3 rounded-md border border-border bg-surface-1 p-3">
       <div>
-        <label className="mb-1 block text-[10px] uppercase tracking-wide text-muted">
+        <label className="mb-1 block text-2xs uppercase tracking-wide text-muted">
           Numeric field
         </label>
         {numericFields.length > 0 ? (
@@ -365,7 +365,7 @@ function ClassBreaksEditor({
 
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="mb-1 block text-[10px] uppercase tracking-wide text-muted">
+          <label className="mb-1 block text-2xs uppercase tracking-wide text-muted">
             Classes
           </label>
           <select
@@ -381,7 +381,7 @@ function ClassBreaksEditor({
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-[10px] uppercase tracking-wide text-muted">
+          <label className="mb-1 block text-2xs uppercase tracking-wide text-muted">
             Color ramp
           </label>
           <select
@@ -403,10 +403,10 @@ function ClassBreaksEditor({
 
       <div>
         <div className="mb-1 flex items-center justify-between">
-          <span className="text-[10px] uppercase tracking-wide text-muted">
+          <span className="text-2xs uppercase tracking-wide text-muted">
             Breaks
           </span>
-          <span className="text-[10px] text-muted">
+          <span className="text-2xs text-muted">
             {value.colors.length} colors
           </span>
         </div>
@@ -433,7 +433,7 @@ function ClassBreaksEditor({
             />
           ))}
         </ul>
-        <p className="mt-2 text-[11px] text-muted">
+        <p className="mt-2 text-2xs text-muted">
           Features whose value isn&apos;t numeric fall back to the single
           color below.
         </p>
@@ -463,7 +463,7 @@ function ClassRow({
         onChange={(e) => onColor(e.target.value)}
         className="h-7 w-8 shrink-0 cursor-pointer rounded border border-border bg-surface-1 p-0.5"
       />
-      <span className="flex-1 truncate text-[11px] text-muted">{label}</span>
+      <span className="flex-1 truncate text-2xs text-muted">{label}</span>
       {stop !== null ? (
         <input
           type="number"

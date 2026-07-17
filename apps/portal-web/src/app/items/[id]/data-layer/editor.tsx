@@ -265,13 +265,13 @@ export function DataLayerEditor({ itemId, initial, canEdit }: Props) {
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {v2 && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-info/15 px-2 py-0.5 text-[10px] font-medium text-info">
+              <span className="inline-flex items-center gap-1 rounded-full bg-info/15 px-2 py-0.5 text-2xs font-medium text-info">
                 <MapPin className="h-3 w-3" />
                 PostGIS, versioned
               </span>
             )}
             {v2 && currentBbox ? (
-              <span className="text-[11px] text-muted">
+              <span className="text-2xs text-muted">
                 Extent: {currentBbox.map((n) => n.toFixed(4)).join(', ')}
               </span>
             ) : null}
@@ -313,7 +313,7 @@ export function DataLayerEditor({ itemId, initial, canEdit }: Props) {
                 {isEmpty ? 'Add data' : 'Replace data'}
               </span>
             </span>
-            <span className="text-[11px] text-muted">
+            <span className="text-2xs text-muted">
               {isEmpty
                 ? 'Upload a file or paste GeoJSON to populate this layer.'
                 : 'Replace the whole dataset. Individual feature edits use the API.'}
@@ -339,7 +339,7 @@ export function DataLayerEditor({ itemId, initial, canEdit }: Props) {
             {tab === 'upload' ? (
               <>
                 <FileDropZone busy={pending && !staged} onFile={importFile} />
-                <div className="flex flex-wrap gap-1 text-[11px] text-muted">
+                <div className="flex flex-wrap gap-1 text-2xs text-muted">
                   <strong className="font-medium text-ink-1">Accepted:</strong>
                   <span>GeoJSON (.geojson/.json)</span>
                   <span>·</span>
@@ -433,7 +433,7 @@ function StagedReview({
             <FieldChips fields={fields} />
           </div>
           {staged.warnings.length > 0 ? (
-            <ul className="mt-2 space-y-0.5 text-[11px] text-warn">
+            <ul className="mt-2 space-y-0.5 text-2xs text-warn">
               {staged.warnings.map((w, i) => (
                 <li key={i}>{w}</li>
               ))}
@@ -547,7 +547,7 @@ function FieldChips({ fields }: { fields: FeatureField[] }) {
           className="inline-flex items-baseline gap-1 rounded-full border border-border bg-surface-2 px-2 py-0.5 text-xs"
         >
           <span className="font-medium">{f.name}</span>
-          <span className="text-[10px] text-muted">{f.type}</span>
+          <span className="text-2xs text-muted">{f.type}</span>
         </li>
       ))}
     </ul>

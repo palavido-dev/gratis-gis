@@ -144,7 +144,7 @@ export function DataPreviewDrawer({ item, onClose }: Props) {
       >
         <header className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
           <div className="min-w-0">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted">
+            <p className="text-2xs font-medium uppercase tracking-wide text-muted">
               {t('dataPreview.eyebrow')}
             </p>
             <h2 className="mt-0.5 truncate text-base font-semibold text-ink-0">
@@ -152,7 +152,7 @@ export function DataPreviewDrawer({ item, onClose }: Props) {
             </h2>
             <Link
               href={`/items/${item.id}`}
-              className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted hover:text-accent hover:underline"
+              className="mt-1 inline-flex items-center gap-1 text-2xs text-muted hover:text-accent hover:underline"
             >
               {t('dataPreview.openItem')}
               <ExternalLink className="h-3 w-3" />
@@ -216,7 +216,7 @@ export function DataPreviewDrawer({ item, onClose }: Props) {
             </div>
           ) : (
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              <div className="border-b border-border bg-surface-2 px-4 py-1.5 text-[11px] text-muted">
+              <div className="border-b border-border bg-surface-2 px-4 py-1.5 text-2xs text-muted">
                 {overflow
                   ? t('dataPreview.featureCountOverflow', {
                       count: features.length,
@@ -235,7 +235,7 @@ export function DataPreviewDrawer({ item, onClose }: Props) {
                   via the title attribute. Zebra rows for
                   readability. (#83) */}
               <div className="min-h-0 flex-1 overflow-auto">
-                <table className="min-w-full table-fixed text-[11px]">
+                <table className="min-w-full table-fixed text-2xs">
                   <thead className="sticky top-0 z-10 bg-surface-2 text-left">
                     <tr>
                       {fields.map((f) => (
@@ -277,7 +277,7 @@ export function DataPreviewDrawer({ item, onClose }: Props) {
                 </table>
               </div>
               {overflow ? (
-                <div className="border-t border-border bg-warn/5 px-4 py-2 text-[11px] text-warn">
+                <div className="border-t border-border bg-warn/5 px-4 py-2 text-2xs text-warn">
                   {t('dataPreview.overflowNotice', { limit: PREVIEW_LIMIT })}
                 </div>
               ) : null}
@@ -286,7 +286,7 @@ export function DataPreviewDrawer({ item, onClose }: Props) {
         </div>
 
         {activeSublayer ? (
-          <footer className="border-t border-border bg-surface-2 px-4 py-2 text-[11px] text-muted">
+          <footer className="border-t border-border bg-surface-2 px-4 py-2 text-2xs text-muted">
             {t('dataPreview.layerLabel')}{' '}
             <span className="text-ink-1">{activeSublayer.label}</span>
             {activeSublayer.isTable ? (

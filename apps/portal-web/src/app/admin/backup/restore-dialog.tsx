@@ -194,7 +194,7 @@ export function RestoreDialog({ runId, filename, orgName, onClose }: Props) {
         <div className="space-y-1">
           <p className="text-xs text-ink-0">
             To continue, type this portal's name{' '}
-            <strong className="rounded bg-surface-2 px-1 py-0.5 text-[11px]">
+            <strong className="rounded bg-surface-2 px-1 py-0.5 text-2xs">
               {orgName}
             </strong>{' '}
             below. We ask for this so you can't accidentally restore
@@ -216,7 +216,7 @@ export function RestoreDialog({ runId, filename, orgName, onClose }: Props) {
           />
         </div>
 
-        <p className="rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-[11px] text-warn">
+        <p className="rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-2xs text-warn">
           <AlertTriangle className="mr-1 inline h-3 w-3" />
           While the restore is running, the portal will be temporarily
           unavailable to everyone: other people will see a

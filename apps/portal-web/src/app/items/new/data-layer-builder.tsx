@@ -226,7 +226,7 @@ export function DataLayerBuilder({
                 type="button"
                 onClick={() => setCollapseAllSignal((v) => v + 1)}
                 title="Collapse all layers"
-                className="inline-flex h-8 items-center gap-1 bg-surface-1 px-2 text-[11px] font-medium text-ink-1 hover:bg-surface-2"
+                className="inline-flex h-8 items-center gap-1 bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2"
               >
                 <ChevronUp className="h-3 w-3" />
                 Collapse all
@@ -235,7 +235,7 @@ export function DataLayerBuilder({
                 type="button"
                 onClick={() => setExpandAllSignal((v) => v + 1)}
                 title="Expand all layers"
-                className="inline-flex h-8 items-center gap-1 border-l border-border bg-surface-1 px-2 text-[11px] font-medium text-ink-1 hover:bg-surface-2"
+                className="inline-flex h-8 items-center gap-1 border-l border-border bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2"
               >
                 <ChevronsUpDown className="h-3 w-3" />
                 Expand all
@@ -438,7 +438,7 @@ function LayerCard({
           placeholder={geom?.label ?? 'Layer'}
           className="h-8 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
         />
-        <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+        <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-muted">
           {geom?.short ?? 'Layer'}
         </span>
         <button
@@ -481,7 +481,7 @@ function LayerCard({
               value={layer.name}
               onChange={(e) => onPatch({ name: slugify(e.target.value) })}
               placeholder="snake_case"
-              className="h-7 w-full rounded border border-border bg-surface-1 px-2 font-mono text-[11px] focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+              className="h-7 w-full rounded border border-border bg-surface-1 px-2 font-mono text-2xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
             />
           </div>
 
@@ -522,7 +522,7 @@ function LayerCard({
               />
               <Paperclip className="h-3.5 w-3.5 text-muted" />
               Allow attachments
-              <span className="text-[10px] text-muted">(storage soon)</span>
+              <span className="text-2xs text-muted">(storage soon)</span>
             </label>
             {/* Layer-level row policy (#41). 'all-rows' (default)
                 lets every editor see / edit every row. 'own-rows-only'
@@ -544,7 +544,7 @@ function LayerCard({
                       | 'own-rows-only',
                   })
                 }
-                className="h-7 rounded-md border border-border bg-surface-1 px-2 text-[11px] focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                className="h-7 rounded-md border border-border bg-surface-1 px-2 text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
               >
                 <option value="all-rows">All features</option>
                 <option value="own-rows-only">Only their own</option>
@@ -594,7 +594,7 @@ function FieldsTable({
   return (
     <div>
       <div className="mb-1 flex items-baseline justify-between gap-2">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-muted">
+        <p className="text-2xs font-medium uppercase tracking-wide text-muted">
           Fields {fields.length > 0 ? <span className="text-muted">({fields.length})</span> : null}
         </p>
         <div className="flex items-center gap-1">
@@ -602,7 +602,7 @@ function FieldsTable({
             <button
               type="button"
               onClick={onCollapseAll}
-              className="inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-1.5 text-[11px] text-muted hover:bg-surface-2 hover:text-ink-1"
+              className="inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-1.5 text-2xs text-muted hover:bg-surface-2 hover:text-ink-1"
               title="Collapse every field's settings panel"
             >
               <ChevronUp className="h-3 w-3" />
@@ -612,7 +612,7 @@ function FieldsTable({
           <button
             type="button"
             onClick={onFieldAdd}
-            className="inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-1.5 text-[11px] text-ink-1 hover:bg-surface-2"
+            className="inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-1.5 text-2xs text-ink-1 hover:bg-surface-2"
           >
             <Plus className="h-3 w-3" />
             Add field
@@ -620,7 +620,7 @@ function FieldsTable({
         </div>
       </div>
       {fields.length === 0 ? (
-        <p className="rounded border border-dashed border-border bg-surface-1 px-2 py-3 text-center text-[11px] text-muted">
+        <p className="rounded border border-dashed border-border bg-surface-1 px-2 py-3 text-center text-2xs text-muted">
           No fields yet. Every feature will have a stable id; add fields
           above to store additional attributes.
         </p>
@@ -666,7 +666,7 @@ function FieldsTable({
         <button
           type="button"
           onClick={onFieldAdd}
-          className="mt-2 inline-flex h-7 w-full items-center justify-center gap-1 rounded border border-dashed border-border bg-surface-1 px-2 text-[11px] font-medium text-muted hover:border-accent/40 hover:bg-accent/5 hover:text-ink-1"
+          className="mt-2 inline-flex h-7 w-full items-center justify-center gap-1 rounded border border-dashed border-border bg-surface-1 px-2 text-2xs font-medium text-muted hover:border-accent/40 hover:bg-accent/5 hover:text-ink-1"
         >
           <Plus className="h-3 w-3" />
           Add another field
@@ -785,7 +785,7 @@ function FieldRow({
             value={field.name}
             onChange={(e) => onChange({ name: slugify(e.target.value) })}
             placeholder="field_name"
-            className="h-7 w-full rounded border border-border bg-surface-1 px-1.5 font-mono text-[11px] focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+            className="h-7 w-full rounded border border-border bg-surface-1 px-1.5 font-mono text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
           />
         </td>
         <td className="px-1 py-1">
@@ -858,7 +858,7 @@ function FieldRow({
             <button
               type="button"
               onClick={() => setExpanded((v) => !v)}
-              className={`inline-flex h-6 items-center gap-1 rounded border px-1.5 text-[10px] font-medium ${
+              className={`inline-flex h-6 items-center gap-1 rounded border px-1.5 text-2xs font-medium ${
                 hasDomain || hasConstraints
                   ? 'border-accent/40 bg-accent/10 text-accent hover:bg-accent/15'
                   : 'border-border bg-surface-1 text-muted hover:bg-surface-2 hover:text-ink-1'
@@ -891,7 +891,7 @@ function FieldRow({
             </button>
           ) : (
             <span
-              className="text-[10px] text-muted"
+              className="text-2xs text-muted"
               title="Settings apply to text or number fields"
             >
              
@@ -922,10 +922,10 @@ function FieldRow({
               ) : (
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-dashed border-border bg-surface-0 px-3 py-2">
                   <div>
-                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted">
+                    <p className="text-2xs font-medium uppercase tracking-wide text-muted">
                       Pick list
                     </p>
-                    <p className="text-[11px] text-muted">
+                    <p className="text-2xs text-muted">
                       Restrict this field to a short, authoritative list
                       of allowed values. Type them inline or point at a
                       shared pick-list item.
@@ -935,7 +935,7 @@ function FieldRow({
                     <button
                       type="button"
                       onClick={enableDomain}
-                      className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-[11px] font-medium text-ink-1 hover:bg-surface-2"
+                      className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2"
                     >
                       <Plus className="h-3 w-3" />
                       Add inline
@@ -947,7 +947,7 @@ function FieldRow({
                           domain: { type: 'coded-value-ref', pickListItemId: '' },
                         })
                       }
-                      className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-[11px] font-medium text-ink-1 hover:bg-surface-2"
+                      className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2"
                     >
                       <List className="h-3 w-3" />
                       Use shared list
@@ -1018,7 +1018,7 @@ function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
 
   return (
     <div className="rounded border border-border bg-surface-0 p-3">
-      <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted">
+      <p className="mb-2 text-2xs font-medium uppercase tracking-wide text-muted">
         Constraints
       </p>
 
@@ -1029,7 +1029,7 @@ function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
             className="text-ink-1"
           >
             Max length
-            <span className="ml-1 text-[10px] text-muted">
+            <span className="ml-1 text-2xs text-muted">
               characters: leave blank for unlimited
             </span>
           </label>
@@ -1045,7 +1045,7 @@ function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
               patchStorage({ maxLength: n });
             }}
             placeholder="none"
-            className="h-7 w-24 rounded border border-border bg-surface-1 px-1.5 text-right font-mono text-[11px] focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+            className="h-7 w-24 rounded border border-border bg-surface-1 px-1.5 text-right font-mono text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
           />
         </div>
       ) : null}
@@ -1055,7 +1055,7 @@ function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
           <div className="grid grid-cols-[1fr_auto] items-center gap-3">
             <label className="text-ink-1">
               Number kind
-              <span className="ml-1 text-[10px] text-muted">
+              <span className="ml-1 text-2xs text-muted">
                 integer = whole numbers only; decimal keeps fractional precision
               </span>
             </label>
@@ -1080,7 +1080,7 @@ function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
                   className="text-ink-1"
                 >
                   Total digits (precision)
-                  <span className="ml-1 text-[10px] text-muted">
+                  <span className="ml-1 text-2xs text-muted">
                     e.g. 10 for 12345.6789
                   </span>
                 </label>
@@ -1097,7 +1097,7 @@ function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
                     });
                   }}
                   placeholder="auto"
-                  className="h-7 w-24 rounded border border-border bg-surface-1 px-1.5 text-right font-mono text-[11px] focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                  className="h-7 w-24 rounded border border-border bg-surface-1 px-1.5 text-right font-mono text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
                 />
               </div>
               <div className="grid grid-cols-[1fr_auto] items-center gap-3">
@@ -1106,7 +1106,7 @@ function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
                   className="text-ink-1"
                 >
                   Digits after decimal (scale)
-                  <span className="ml-1 text-[10px] text-muted">
+                  <span className="ml-1 text-2xs text-muted">
                     e.g. 4 for …6789
                   </span>
                 </label>
@@ -1123,7 +1123,7 @@ function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
                     });
                   }}
                   placeholder="auto"
-                  className="h-7 w-24 rounded border border-border bg-surface-1 px-1.5 text-right font-mono text-[11px] focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                  className="h-7 w-24 rounded border border-border bg-surface-1 px-1.5 text-right font-mono text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
                 />
               </div>
             </>
@@ -1131,7 +1131,7 @@ function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
         </div>
       ) : null}
 
-      <p className="mt-2 text-[10px] text-muted">
+      <p className="mt-2 text-2xs text-muted">
         These are optional. PostgreSQL stores text as unlimited TEXT and
         numbers as arbitrary-precision NUMERIC by default: set these only
         when you need Esri/shapefile export compatibility or strict input
@@ -1188,10 +1188,10 @@ function DomainEditor({ field, onChange, onDisable }: DomainEditorProps) {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-muted">
+        <p className="text-2xs font-medium uppercase tracking-wide text-muted">
           Pick list source
         </p>
-        <div className="inline-flex rounded border border-border bg-surface-1 p-0.5 text-[11px]">
+        <div className="inline-flex rounded border border-border bg-surface-1 p-0.5 text-2xs">
           <button
             type="button"
             onClick={switchToInline}
@@ -1327,13 +1327,13 @@ function SharedPickListRefEditor({
   return (
     <div className="rounded border border-border bg-surface-0 p-3">
       <div className="mb-2 flex items-center justify-between">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-muted">
+        <p className="text-2xs font-medium uppercase tracking-wide text-muted">
           Shared pick list
         </p>
         <button
           type="button"
           onClick={onDisable}
-          className="inline-flex h-6 items-center gap-1 rounded px-1.5 text-[11px] text-muted hover:bg-surface-2 hover:text-ink-1"
+          className="inline-flex h-6 items-center gap-1 rounded px-1.5 text-2xs text-muted hover:bg-surface-2 hover:text-ink-1"
           title="Remove the pick list: any value becomes allowed again"
         >
           <X className="h-3 w-3" />
@@ -1368,7 +1368,7 @@ function SharedPickListRefEditor({
           <button
             type="button"
             onClick={() => setCreateOpen(true)}
-            className="inline-flex h-8 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-[11px] font-medium text-ink-1 hover:bg-surface-2"
+            className="inline-flex h-8 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2"
             title="Create a new shared pick list without leaving the builder"
           >
             <Plus className="h-3 w-3" />
@@ -1392,7 +1392,7 @@ function SharedPickListRefEditor({
       ) : null}
 
       {pickListItemId ? (
-        <div className="mt-2 rounded border border-border bg-surface-1 p-2 text-[11px]">
+        <div className="mt-2 rounded border border-border bg-surface-1 p-2 text-2xs">
           <p className="mb-1 uppercase tracking-wide text-muted">Preview</p>
           {previewLoading ? (
             <p className="text-muted">Loading entries…</p>
@@ -1483,7 +1483,7 @@ function CodedValueEditor({
   return (
     <div>
       <div className="mb-1 flex items-center justify-between gap-2">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-muted">
+        <p className="text-2xs font-medium uppercase tracking-wide text-muted">
           Allowed values
         </p>
         <div className="flex items-center gap-1">
@@ -1491,7 +1491,7 @@ function CodedValueEditor({
             type="button"
             onClick={() => setPromoteOpen(true)}
             disabled={promotable.length === 0}
-            className="inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-1.5 text-[11px] font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+            className="inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-1.5 text-2xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
             title={
               promotable.length === 0
                 ? 'Add at least one complete code + label row first'
@@ -1504,7 +1504,7 @@ function CodedValueEditor({
           <button
             type="button"
             onClick={onDisable}
-            className="inline-flex h-6 items-center gap-1 rounded px-1.5 text-[11px] text-muted hover:bg-surface-2 hover:text-ink-1"
+            className="inline-flex h-6 items-center gap-1 rounded px-1.5 text-2xs text-muted hover:bg-surface-2 hover:text-ink-1"
             title="Remove the pick list: any value becomes allowed again"
           >
             <X className="h-3 w-3" />
@@ -1534,7 +1534,7 @@ function CodedValueEditor({
               <th className="w-[40%] px-2 py-1 text-left font-medium">
                 Code
                 <span
-                  className="ml-1 text-[9px] uppercase text-muted"
+                  className="ml-1 text-2xs uppercase text-muted"
                   title="The stored value"
                 >
                   stored
@@ -1543,7 +1543,7 @@ function CodedValueEditor({
               <th className="w-[55%] px-2 py-1 text-left font-medium">
                 Label
                 <span
-                  className="ml-1 text-[9px] uppercase text-muted"
+                  className="ml-1 text-2xs uppercase text-muted"
                   title="What the user sees"
                 >
                   shown
@@ -1570,7 +1570,7 @@ function CodedValueEditor({
                       patch(i, { code });
                     }}
                     placeholder={fieldType === 'number' ? '0' : 'code'}
-                    className="h-7 w-full rounded border border-border bg-surface-1 px-1.5 font-mono text-[11px] focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                    className="h-7 w-full rounded border border-border bg-surface-1 px-1.5 font-mono text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
                   />
                 </td>
                 <td className="px-1 py-1">
@@ -1600,12 +1600,12 @@ function CodedValueEditor({
       <button
         type="button"
         onClick={add}
-        className="mt-2 inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-1.5 text-[11px] text-ink-1 hover:bg-surface-2"
+        className="mt-2 inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-1.5 text-2xs text-ink-1 hover:bg-surface-2"
       >
         <Plus className="h-3 w-3" />
         Add value
       </button>
-      <p className="mt-1 text-[10px] text-muted">
+      <p className="mt-1 text-2xs text-muted">
         The code is what&apos;s stored in the database; the label is what
         editors see in the picker.
       </p>
@@ -1641,7 +1641,7 @@ function ParentLinkRow({
 
   return (
     <div className="rounded border border-border bg-surface-1 p-2">
-      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">
+      <p className="mb-1 text-2xs font-medium uppercase tracking-wide text-muted">
         Related to
       </p>
       <div className="grid grid-cols-[auto_1fr] items-center gap-2 text-xs">
@@ -1700,13 +1700,13 @@ function ParentLinkRow({
                 onPatch({ parentFkColumn: slugify(e.target.value) })
               }
               placeholder="parent_global_id"
-              className="h-7 w-full rounded border border-border bg-surface-1 px-1.5 font-mono text-[11px] focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+              className="h-7 w-full rounded border border-border bg-surface-1 px-1.5 font-mono text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
             />
           </>
         ) : null}
       </div>
       {parentOptions.length === 0 ? (
-        <p className="mt-1 text-[11px] text-muted">
+        <p className="mt-1 text-2xs text-muted">
           Add a spatial layer above first to link this table to.
         </p>
       ) : null}
@@ -1930,7 +1930,7 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
         <button
           type="button"
           onClick={onClose}
-          className="text-[11px] text-muted hover:text-ink-1"
+          className="text-2xs text-muted hover:text-ink-1"
         >
           Close
         </button>
@@ -1946,7 +1946,7 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
           >
             <Upload className="h-4 w-4" />
             <span>Drop a spatial file or click to pick one.</span>
-            <span className="text-[10px]">
+            <span className="text-2xs">
               GeoJSON · KML / KMZ · GeoPackage (.gpkg, vector tables only) ·
               Shapefile (.zip) · File Geodatabase (.gdb.zip)
             </span>
@@ -1971,7 +1971,7 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
             for the actual feature load. A future change will fold
             that into Create item itself (#98).
           */}
-          <p className="mt-2 text-[10px] text-muted">
+          <p className="mt-2 text-2xs text-muted">
             All layers in the file will attach automatically. Schema lands
             on Create item; load feature rows per layer afterwards from
             the detail page.
@@ -1980,7 +1980,7 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
       )}
 
       {error ? (
-        <p className="mt-2 text-[11px] text-danger" role="alert">
+        <p className="mt-2 text-2xs text-danger" role="alert">
           {error}
         </p>
       ) : null}

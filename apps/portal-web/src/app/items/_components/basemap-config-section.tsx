@@ -308,7 +308,7 @@ export function BasemapConfigSection({ value, onChange }: Props) {
                 {probing ? 'Probing...' : 'Probe'}
               </button>
             </div>
-            <span className="mt-1 block text-[11px] text-muted">
+            <span className="mt-1 block text-2xs text-muted">
               Recognized: XYZ tile templates (with{' '}
               <span className="font-mono">{'{z}/{x}/{y}'}</span>),
               ArcGIS MapServer, WMTS GetCapabilities, WMS
@@ -361,7 +361,7 @@ export function BasemapConfigSection({ value, onChange }: Props) {
                       onClick={() => pickServiceItem(it.id)}
                       className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left hover:bg-surface-1"
                     >
-                      <span className="rounded border border-accent/40 bg-accent/10 px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-accent">
+                      <span className="rounded border border-accent/40 bg-accent/10 px-1 py-0.5 text-2xs font-medium uppercase tracking-wide text-accent">
                         {protocolLabel}
                       </span>
                       <span className="min-w-0 flex-1 truncate font-medium text-ink-0">
@@ -410,7 +410,7 @@ export function BasemapConfigSection({ value, onChange }: Props) {
             placeholder="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
             className="mt-0.5 h-9 w-full rounded-md border border-border bg-surface-1 px-2 font-mono text-sm"
           />
-          <span className="mt-1 block text-[11px] text-muted">
+          <span className="mt-1 block text-2xs text-muted">
             Use <span className="font-mono">{'{z}/{x}/{y}'}</span>{' '}
             placeholders. Works with any standard XYZ raster tile server
             (OpenStreetMap, ArcGIS cached MapServer&rsquo;s{' '}
@@ -430,7 +430,7 @@ export function BasemapConfigSection({ value, onChange }: Props) {
             placeholder="https://demotiles.maplibre.org/style.json"
             className="mt-0.5 h-9 w-full rounded-md border border-border bg-surface-1 px-2 font-mono text-sm"
           />
-          <span className="mt-1 block text-[11px] text-muted">
+          <span className="mt-1 block text-2xs text-muted">
             A hosted MapLibre style.json. Works with MapTiler, Stadia,
             self-hosted tilesets, etc.
           </span>
@@ -466,7 +466,7 @@ export function BasemapConfigSection({ value, onChange }: Props) {
               placeholder="topp:states"
               className="mt-0.5 h-9 w-full rounded-md border border-border bg-surface-1 px-2 font-mono text-sm"
             />
-            <span className="mt-1 block text-[11px] text-muted">
+            <span className="mt-1 block text-2xs text-muted">
               Comma-separated WMS layer names. Match what the server
               advertises in GetCapabilities.
             </span>

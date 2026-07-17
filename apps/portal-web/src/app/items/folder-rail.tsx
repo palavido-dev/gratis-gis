@@ -326,7 +326,7 @@ export function FolderRail({ folders, activeFolderId }: Props) {
         <button
           type="button"
           onClick={() => startCreate('root')}
-          className="text-[11px] normal-case tracking-normal text-accent hover:underline"
+          className="text-2xs normal-case tracking-normal text-accent hover:underline"
         >
           {t('folderRail.newButton')}
         </button>

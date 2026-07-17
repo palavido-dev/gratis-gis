@@ -384,7 +384,7 @@ export function AccessMatrix({
             <table className="w-full border-collapse text-sm">
               <thead className="sticky top-0 bg-surface-1">
                 <tr>
-                  <th className="sticky left-0 z-10 border-b border-r border-border bg-surface-1 px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-muted">
+                  <th className="sticky left-0 z-10 border-b border-r border-border bg-surface-1 px-3 py-2 text-left text-2xs font-medium uppercase tracking-wide text-muted">
                     Layer
                   </th>
                   {principals.map((p) => (
@@ -394,7 +394,7 @@ export function AccessMatrix({
                     >
                       <div className="flex flex-col items-center gap-0.5">
                         <span className="text-xs text-ink-0">{p.name}</span>
-                        <span className="text-[10px] text-muted">
+                        <span className="text-2xs text-muted">
                           {p.type}
                         </span>
                       </div>
@@ -416,7 +416,7 @@ export function AccessMatrix({
                             <Link2 className="h-3 w-3 shrink-0 text-muted" />
                           ) : null}
                         </div>
-                        <div className="text-[11px] text-muted">
+                        <div className="text-2xs text-muted">
                           {layer.access?.policy ?? 'inherit'}
                           {itemId ? null : ' · no backing item'}
                         </div>
@@ -461,7 +461,7 @@ export function AccessMatrix({
           )}
         </div>
 
-        <div className="flex items-center justify-between border-t border-border bg-surface-1 px-4 py-3 text-[11px] text-muted">
+        <div className="flex items-center justify-between border-t border-border bg-surface-1 px-4 py-3 text-2xs text-muted">
           <span>
             Access changes flow into the map&apos;s layers immediately.
             They persist with the next Save map.
@@ -579,13 +579,13 @@ function AccessBadge({
     <button
       type="button"
       onClick={onClick}
-      className={`relative inline-flex h-7 min-w-[3.25rem] items-center justify-center gap-1 rounded-md border px-2 text-[11px] font-medium tabular-nums transition-colors hover:brightness-95 ${tone}`}
+      className={`relative inline-flex h-7 min-w-[3.25rem] items-center justify-center gap-1 rounded-md border px-2 text-2xs font-medium tabular-nums transition-colors hover:brightness-95 ${tone}`}
     >
       <Eye className="h-3 w-3 opacity-70" />
       {label}
       {!hasItemAccess ? (
         <span
-          className="absolute -right-1 -top-1 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-warn text-[8px] font-bold text-white"
+          className="absolute -right-1 -top-1 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-warn text-2xs font-bold text-white"
           title="No access to the backing item: grant from the popover"
         >
           !
@@ -690,7 +690,7 @@ function AccessDetailDialog({
                     <AlertTriangle className="h-3.5 w-3.5" />
                     No item-level access
                   </div>
-                  <div className="mt-0.5 text-[11px] opacity-80">
+                  <div className="mt-0.5 text-2xs opacity-80">
                     The matrix flags below won&apos;t take effect until
                     this principal is shared on the backing item.
                   </div>
@@ -700,7 +700,7 @@ function AccessDetailDialog({
                     type="button"
                     onClick={onGrant}
                     disabled={granting}
-                    className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-warn bg-warn/10 px-2 text-[11px] font-medium text-warn hover:bg-warn/20 disabled:opacity-50"
+                    className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-warn bg-warn/10 px-2 text-2xs font-medium text-warn hover:bg-warn/20 disabled:opacity-50"
                   >
                     {granting ? (
                       <Loader2 className="h-3 w-3 animate-spin" />
@@ -744,7 +744,7 @@ function AccessDetailDialog({
             onChange={(v) => onChange({ edit: v })}
           />
           {!editable ? (
-            <p className="px-1.5 text-[10px] text-muted">
+            <p className="px-1.5 text-2xs text-muted">
               Edit is only available for feature-service layers. Remote
               sources (ArcGIS REST, URL, inline) stay read-only in the
               matrix to avoid offering permissions that can&apos;t
@@ -785,7 +785,7 @@ function PopoverRow({
       />
       <div className="flex-1">
         <div className="text-xs font-medium text-ink-0">{label}</div>
-        <div className="text-[10px] text-muted">{desc}</div>
+        <div className="text-2xs text-muted">{desc}</div>
       </div>
     </label>
   );

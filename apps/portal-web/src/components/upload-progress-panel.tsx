@@ -98,13 +98,13 @@ export function UploadProgressPanel({
           <p className="truncate text-sm font-semibold text-ink-0">
             {headline}
           </p>
-          <p className="mt-0.5 truncate text-[11px] text-muted">
+          <p className="mt-0.5 truncate text-2xs text-muted">
             <span className="font-medium text-ink-1">{busy.fileName}</span>
             {busy.fileSize > 0 ? (
               <span> · {formatBytesSimple(busy.fileSize)}</span>
             ) : null}
           </p>
-          <p className="mt-1.5 text-[11px] text-muted">{subhead}</p>
+          <p className="mt-1.5 text-2xs text-muted">{subhead}</p>
           {busy.phase !== 'parsing' ? (
             <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
               <div
@@ -116,7 +116,7 @@ export function UploadProgressPanel({
             </div>
           ) : null}
           {busy.phase === 'uploading' ? (
-            <p className="mt-1 text-[10px] text-muted">
+            <p className="mt-1 text-2xs text-muted">
               {formatBytesSimple(busy.bytesUploaded)} of{' '}
               {formatBytesSimple(busy.fileSize)}
             </p>
@@ -126,7 +126,7 @@ export function UploadProgressPanel({
           <button
             type="button"
             onClick={onCancel}
-            className="inline-flex shrink-0 items-center gap-1 rounded border border-border bg-surface-0 px-2 py-1 text-[11px] text-ink-1 hover:bg-surface-2"
+            className="inline-flex shrink-0 items-center gap-1 rounded border border-border bg-surface-0 px-2 py-1 text-2xs text-ink-1 hover:bg-surface-2"
           >
             <XCircle className="h-3 w-3" />
             Cancel

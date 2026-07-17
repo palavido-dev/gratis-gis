@@ -394,7 +394,7 @@ export function MarkupPanel({
                           {set.title}
                         </button>
                       )}
-                      <p className="truncate text-[11px] text-muted">
+                      <p className="truncate text-2xs text-muted">
                         {set.authorDisplay} — {formatRelative(set.updatedAt)}
                         {' — '}
                         {set.features.length}{' '}

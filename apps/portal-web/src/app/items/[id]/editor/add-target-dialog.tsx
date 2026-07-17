@@ -307,7 +307,7 @@ export function AddTargetDialog({
                             <span className="truncate text-sm font-medium text-ink-0">
                               {layer.label}
                             </span>
-                            <span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+                            <span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-muted">
                               {layer.geometryType ?? 'table'}
                             </span>
                           </div>
@@ -324,7 +324,7 @@ export function AddTargetDialog({
                           </div>
                         </div>
                         {already ? (
-                          <span className="text-[11px] uppercase tracking-wide text-muted">
+                          <span className="text-2xs uppercase tracking-wide text-muted">
                             added
                           </span>
                         ) : null}

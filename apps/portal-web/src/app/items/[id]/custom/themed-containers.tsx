@@ -732,7 +732,7 @@ function MenuContainer({ config, renderChild }: ContainerRenderProps) {
         }
       >
         <Icon className="h-5 w-5" strokeWidth={1.75} />
-        <span className="text-[10px] font-medium leading-none">
+        <span className="text-2xs font-medium leading-none">
           {triggerLabel}
         </span>
       </button>
@@ -748,7 +748,7 @@ function MenuContainer({ config, renderChild }: ContainerRenderProps) {
               </div>
             ))}
             {config.widgets.length === 0 ? (
-              <div className="px-2 py-1 text-[11px] italic text-[hsl(var(--app-muted))]">
+              <div className="px-2 py-1 text-2xs italic text-[hsl(var(--app-muted))]">
                 Empty menu -- drop tools into this stack in the
                 designer.
               </div>

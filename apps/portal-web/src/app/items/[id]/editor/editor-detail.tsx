@@ -397,11 +397,11 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
   const toolbarRight = (
     <div className="flex items-center gap-2">
       {canEdit && dirty ? (
-        <span className="rounded-full bg-warn/15 px-2 py-0.5 text-[11px] font-medium text-warn">
+        <span className="rounded-full bg-warn/15 px-2 py-0.5 text-2xs font-medium text-warn">
           Unsaved changes
         </span>
       ) : canEdit && saved ? (
-        <span className="text-[11px] text-success">Saved</span>
+        <span className="text-2xs text-success">Saved</span>
       ) : null}
       <a
         href={`/items/${itemId}/editor/run`}
@@ -469,7 +469,7 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
           </button>
         </div>
       ) : null}
-      <p className="text-[11px] text-muted">
+      <p className="text-2xs text-muted">
         Layers exposed for editing. Each target narrows from what
         the underlying data layer allows; the runtime re-checks
         permissions per request.
@@ -508,7 +508,7 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
           <MapIcon className="h-3.5 w-3.5" />
           Reference map
         </h3>
-        <p className="text-[11px] text-muted">
+        <p className="text-2xs text-muted">
           The editor opens against this map's basemap + viewport.
           Layers in the map that aren't editor targets render as
           read-only reference context (snap targets, tracing aids).
@@ -521,7 +521,7 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
                 {mapTitle ?? <span className="text-muted">Loading...</span>}
               </span>
               {mapMissing ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-warn/40 bg-warn/10 px-1.5 py-0.5 text-[10px] font-medium text-warn">
+                <span className="inline-flex items-center gap-1 rounded-full border border-warn/40 bg-warn/10 px-1.5 py-0.5 text-2xs font-medium text-warn">
                   <AlertTriangle className="h-3 w-3" />
                   Missing
                 </span>
@@ -529,7 +529,7 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
               {!mapMissing && mapTitle ? (
                 <Link
                   href={`/items/${editor.mapId}`}
-                  className="inline-flex shrink-0 items-center gap-1 text-[11px] text-muted hover:text-accent"
+                  className="inline-flex shrink-0 items-center gap-1 text-2xs text-muted hover:text-accent"
                 >
                   <ExternalLink className="h-3 w-3" />
                 </Link>
@@ -547,7 +547,7 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
             ) : null}
           </div>
         ) : (
-          <p className="mt-2 rounded-md border border-dashed border-border px-2 py-2 text-[11px] text-muted">
+          <p className="mt-2 rounded-md border border-dashed border-border px-2 py-2 text-2xs text-muted">
             No reference map.
             {canEdit
               ? ' Without one, the editor opens on a default basemap.'
@@ -569,7 +569,7 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
           <Wrench className="h-3.5 w-3.5" />
           Tool palette
         </h3>
-        <p className="text-[11px] text-muted">
+        <p className="text-2xs text-muted">
           Which editing tools the runtime exposes. Trim for narrower
           workflows.
         </p>
@@ -591,7 +591,7 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
                 />
                 <span>
                   <span className="font-medium text-ink-1">{label}</span>
-                  <span className="block text-[10px] text-muted">{hint}</span>
+                  <span className="block text-2xs text-muted">{hint}</span>
                 </span>
               </label>
             );
@@ -602,7 +602,7 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
         <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">
           Snapping
         </h3>
-        <p className="text-[11px] text-muted">
+        <p className="text-2xs text-muted">
           Snap-to-vertex behavior shared across drawing tools.
           Tolerance is screen-pixel based so behavior is consistent
           across zooms.
@@ -630,7 +630,7 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
             />
             <span className="text-ink-1">
               Self-snap only
-              <span className="block text-[10px] text-muted">
+              <span className="block text-2xs text-muted">
                 Snap only to vertices in the same layer.
               </span>
             </span>
@@ -652,7 +652,7 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
               }
               className="flex-1 cursor-pointer disabled:opacity-50"
             />
-            <span className="font-mono text-[10px] text-muted">
+            <span className="font-mono text-2xs text-muted">
               {editor.snapping.tolerancePx}px
             </span>
           </div>
@@ -801,7 +801,7 @@ function TargetRow({
               {layer?.label ?? target.layerKey}
             </span>
             {layer?.geometryType ? (
-              <span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+              <span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-muted">
                 {layer.geometryType}
               </span>
             ) : null}
@@ -891,7 +891,7 @@ function TargetRow({
             <span className="text-xs font-medium text-ink-1">
               Editable fields
             </span>
-            <div className="flex gap-2 text-[11px]">
+            <div className="flex gap-2 text-2xs">
               <button
                 type="button"
                 disabled={!canEdit || fields.length === 0}
@@ -962,11 +962,11 @@ function TargetRow({
             </div>
           )}
           {target.editableFields === null ? (
-            <p className="mt-2 text-[11px] text-muted">
+            <p className="mt-2 text-2xs text-muted">
               All current and future fields editable.
             </p>
           ) : (
-            <p className="mt-2 text-[11px] text-muted">
+            <p className="mt-2 text-2xs text-muted">
               {target.editableFields.length} of {fields.length} fields editable.
               Future fields default to NOT editable.
             </p>
@@ -1110,7 +1110,7 @@ function TemplatesSection({
           type="button"
           disabled={!canEdit}
           onClick={addTemplate}
-          className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-2 py-0.5 text-[11px] text-ink-1 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-2 py-0.5 text-2xs text-ink-1 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Plus className="h-3 w-3" />
           Add template
@@ -1118,7 +1118,7 @@ function TemplatesSection({
       </div>
 
       {templates.length === 0 ? (
-        <p className="mt-2 text-[11px] text-muted">
+        <p className="mt-2 text-2xs text-muted">
           Templates pre-fill the attribute form when an author hits
           Add at runtime. Useful for repeated workflows like "all
           new observations default to species = BHCO."
@@ -1154,10 +1154,10 @@ function TemplatesSection({
                     <span className="truncate text-xs font-medium text-ink-1">
                       {tpl.label || '(unnamed template)'}
                     </span>
-                    <span className="text-[10px] uppercase tracking-wide text-muted">
+                    <span className="text-2xs uppercase tracking-wide text-muted">
                       {tpl.geometryTool}
                     </span>
-                    <span className="text-[10px] text-muted">
+                    <span className="text-2xs text-muted">
                       {presetCount} preset
                       {presetCount === 1 ? '' : 's'}
                     </span>
@@ -1263,7 +1263,7 @@ function TemplateEditor({
             <option value="polygon">polygon</option>
           </select>
           {layerGeometry && template.geometryTool !== layerGeometry ? (
-            <span className="text-[10px] text-warn">
+            <span className="text-2xs text-warn">
               Layer is {layerGeometry}; runtime today uses the layer's
               type. Mismatch is allowed for forward compatibility.
             </span>
@@ -1292,7 +1292,7 @@ function TemplateEditor({
                     return rest as EditorFeatureTemplate;
                   });
                 }}
-                className="text-[11px] text-muted hover:text-ink-1 disabled:opacity-50"
+                className="text-2xs text-muted hover:text-ink-1 disabled:opacity-50"
                 title="Clear preview color"
               >
                 Clear
@@ -1307,7 +1307,7 @@ function TemplateEditor({
           Preset attributes
         </span>
         {fields.length === 0 ? (
-          <p className="text-[11px] text-muted">
+          <p className="text-2xs text-muted">
             No layer fields available yet. Add fields to the data
             layer first.
           </p>
@@ -1357,7 +1357,7 @@ function TemplateEditor({
             })}
           </div>
         )}
-        <p className="mt-1 text-[10px] text-muted">
+        <p className="mt-1 text-2xs text-muted">
           Values are stored as text and coerced at runtime against
           the field's type. The author can always edit the preset
           when filling out the form.

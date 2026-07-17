@@ -59,7 +59,7 @@ export default async function FeedbackPage() {
 
         <FeedbackForm />
 
-        <section className="mt-12 rounded-md border border-border bg-surface-1 p-4 text-[13px] leading-relaxed text-muted">
+        <section className="mt-12 rounded-md border border-border bg-surface-1 p-4 text-sm leading-relaxed text-muted">
           <p className="font-medium text-ink-1">
             Prefer GitHub?
           </p>

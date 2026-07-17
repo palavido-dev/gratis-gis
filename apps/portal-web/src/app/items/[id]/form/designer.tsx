@@ -614,7 +614,7 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
         placeholder="Untitled form"
         className="rounded-md border border-border bg-surface-1 px-2 py-1 text-sm font-medium text-ink-0 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
       />
-      <span className="text-[10px] uppercase tracking-wide text-muted">
+      <span className="text-2xs uppercase tracking-wide text-muted">
         v{CURRENT_FORM_SCHEMA_VERSION}
       </span>
       <div className="inline-flex rounded-md border border-border bg-surface-2 p-0.5 text-xs">
@@ -799,7 +799,7 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
             </p>
           ) : null}
           {savedAt && !error ? (
-            <p className="shrink-0 border-b border-success/40 bg-success/10 px-4 py-1 text-[11px] text-success">
+            <p className="shrink-0 border-b border-success/40 bg-success/10 px-4 py-1 text-2xs text-success">
               Saved {savedAt.toLocaleTimeString()}.
             </p>
           ) : null}
@@ -908,7 +908,7 @@ function ResponsesIntro({
           ) : null}
         </div>
         {!linkedLayerId ? (
-          <p className="mx-auto mt-4 max-w-md rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-[11px] text-warn">
+          <p className="mx-auto mt-4 max-w-md rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-2xs text-warn">
             This form has no paired data layer yet. Save the form
             once with at least one question to materialize the
             layer; the Responses viewer will then have somewhere to
@@ -1053,7 +1053,7 @@ function ResponseViewSettings({
           <MapIcon className="h-3.5 w-3.5" />
           Reference map
         </h3>
-        <p className="text-[11px] text-muted">
+        <p className="text-2xs text-muted">
           Optional. The viewer inherits this map&apos;s basemap and
           viewport. Leave blank to frame on the submission extent.
         </p>
@@ -1074,7 +1074,7 @@ function ResponseViewSettings({
             ) : null}
           </div>
         ) : (
-          <p className="mt-2 rounded-md border border-dashed border-border px-2 py-2 text-[11px] text-muted">
+          <p className="mt-2 rounded-md border border-dashed border-border px-2 py-2 text-2xs text-muted">
             No reference map.
           </p>
         )}
@@ -1094,7 +1094,7 @@ function ResponseViewSettings({
           <Wrench className="h-3.5 w-3.5" />
           Toolbar
         </h3>
-        <p className="text-[11px] text-muted">
+        <p className="text-2xs text-muted">
           Read-side tools to expose in the responses viewer.
         </p>
         <div className="mt-2 grid grid-cols-1 gap-2">
@@ -1115,7 +1115,7 @@ function ResponseViewSettings({
                 />
                 <span>
                   <span className="font-medium text-ink-1">{label}</span>
-                  <span className="block text-[10px] text-muted">{hint}</span>
+                  <span className="block text-2xs text-muted">{hint}</span>
                 </span>
               </label>
             );
@@ -1134,7 +1134,7 @@ function ResponseViewSettings({
               <span className="block font-medium text-ink-1">
                 Default look-back
               </span>
-              <span className="block text-[10px] text-muted">
+              <span className="block text-2xs text-muted">
                 Pre-filter to N days back from now. Blank = show all.
               </span>
             </span>
@@ -1167,7 +1167,7 @@ function ResponseViewSettings({
                 <span className="block font-medium text-ink-1">
                   Hide submitter
                 </span>
-                <span className="block text-[10px] text-muted">
+                <span className="block text-2xs text-muted">
                   For anonymous-feedback workflows.
                 </span>
               </span>
@@ -1185,7 +1185,7 @@ function ResponseViewSettings({
             />
           </label>
         </div>
-        <p className="mt-2 rounded-md border border-border bg-surface-1 px-2 py-1.5 text-[10px] text-muted">
+        <p className="mt-2 rounded-md border border-border bg-surface-1 px-2 py-1.5 text-2xs text-muted">
           Look-back and Hide submitter persist on the form schema; the
           runtime hooks land in a follow-up.
         </p>
@@ -1524,7 +1524,7 @@ function Palette({
 
   return (
     <aside className="border-b border-border bg-surface-2/40 p-3 lg:sticky lg:top-0 lg:max-h-screen lg:overflow-y-auto lg:border-b-0 lg:border-r">
-      <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted">
+      <p className="mb-2 text-2xs font-medium uppercase tracking-wide text-muted">
         Add a question
       </p>
       <div className="relative mb-3">
@@ -1562,7 +1562,7 @@ function Palette({
                 type="button"
                 onClick={() => toggleGroup(g.id)}
                 disabled={isSearching}
-                className="flex w-full items-center gap-1 px-0.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted/80 hover:text-ink-1 disabled:cursor-default disabled:opacity-90"
+                className="flex w-full items-center gap-1 px-0.5 py-0.5 text-2xs font-medium uppercase tracking-wide text-muted/80 hover:text-ink-1 disabled:cursor-default disabled:opacity-90"
               >
                 {isOpen ? (
                   <ChevronDown className="h-3 w-3" />
@@ -1570,7 +1570,7 @@ function Palette({
                   <ChevronRight className="h-3 w-3" />
                 )}
                 <span>{g.label}</span>
-                <span className="ml-auto text-[10px] tabular-nums text-muted/60">
+                <span className="ml-auto text-2xs tabular-nums text-muted/60">
                   {isSearching ? `${visible.length}` : entries.length}
                 </span>
               </button>
@@ -1603,7 +1603,7 @@ function Palette({
         })}
         {isSearching &&
         Array.from(buckets.values()).flat().filter(matches).length === 0 ? (
-          <p className="px-1 py-2 text-[11px] text-muted">
+          <p className="px-1 py-2 text-2xs text-muted">
             No question types match &quot;{query}&quot;.
           </p>
         ) : null}
@@ -1945,14 +1945,14 @@ function QuestionRow({
             <p className="text-xs uppercase tracking-wide text-muted">
               {q.type} · <span className="font-mono">{q.id}</span>
               {q.type === 'group' && q.repeat ? (
-                <span className="ml-1.5 inline-flex rounded-full bg-accent/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-accent">
+                <span className="ml-1.5 inline-flex rounded-full bg-accent/10 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-accent">
                   repeat
                 </span>
               ) : null}
               {q.type === 'group' && isAttachmentGroup(q, layerSchema) ? (
                 <span
                   title="This group binds to the layer's attachments. Each instance is one attached file. To capture per-photo metadata (caption, photographer, GPS, etc.) wrap your attachment in a related event layer instead."
-                  className="ml-1.5 inline-flex rounded-full bg-success/15 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-success"
+                  className="ml-1.5 inline-flex rounded-full bg-success/15 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-success"
                 >
                   attachment
                 </span>
@@ -2021,7 +2021,7 @@ function QuestionRow({
                 with photos attached to each event row). For now we
                 warn authors instead of silently storing nothing. */}
             {isAttachmentGroup(q, layerSchema) ? (
-              <p className="mb-2 rounded border border-success/30 bg-success/10 px-2 py-1 text-[11px] text-success">
+              <p className="mb-2 rounded border border-success/30 bg-success/10 px-2 py-1 text-2xs text-success">
                 <span className="font-semibold">One attached file per
                 instance.</span> This group binds to the layer's
                 attachments and stores files only. Per-photo metadata
@@ -2033,7 +2033,7 @@ function QuestionRow({
               </p>
             ) : null}
             {q.children.length === 0 ? (
-              <p className="px-2 py-3 text-center text-[11px] text-muted">
+              <p className="px-2 py-3 text-center text-2xs text-muted">
                 Drop questions here.
               </p>
             ) : (
@@ -2146,7 +2146,7 @@ function Properties({
   if (!question) {
     return (
       <aside className="border-l border-border bg-surface-2/40 p-3 lg:sticky lg:top-0 lg:max-h-screen lg:overflow-y-auto">
-        <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted">
+        <p className="mb-2 text-2xs font-medium uppercase tracking-wide text-muted">
           Form
         </p>
         <Field label="Description">
@@ -2180,7 +2180,7 @@ function Properties({
           canEdit={canEdit}
           onUpdateForm={onUpdateForm}
         />
-        <p className="mt-1 text-[11px] text-muted">
+        <p className="mt-1 text-2xs text-muted">
           Select a question on the left to edit it.
         </p>
       </aside>
@@ -2188,7 +2188,7 @@ function Properties({
   }
   return (
     <aside className="border-l border-border bg-surface-2/40 p-3 lg:sticky lg:top-0 lg:max-h-screen lg:overflow-y-auto">
-      <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted">
+      <p className="mb-2 text-2xs font-medium uppercase tracking-wide text-muted">
         {question.type} properties
       </p>
 
@@ -3089,14 +3089,14 @@ function ReverseDependentsPanel({
   const dependents = collectDependents(form, questionId);
   if (dependents.length === 0) return null;
   return (
-    <div className="rounded border border-border bg-surface-2/30 p-2 text-[11px]">
+    <div className="rounded border border-border bg-surface-2/30 p-2 text-2xs">
       <p className="mb-1 font-medium uppercase tracking-wide text-muted">
         Referenced by ({dependents.length})
       </p>
       <ul className="space-y-0.5">
         {dependents.map((d) => (
           <li key={`${d.id}:${d.usage}`} className="flex items-center gap-1.5">
-            <span className="rounded bg-surface-1 px-1 py-px font-mono text-[10px] text-muted">
+            <span className="rounded bg-surface-1 px-1 py-px font-mono text-2xs text-muted">
               {d.usage}
             </span>
             <span className="truncate text-ink-1">
@@ -3304,7 +3304,7 @@ function GroupRepeatEditor({
         <span>Repeat (capture multiple instances)</span>
       </label>
       {locked ? (
-        <p className="mt-1 rounded border border-warn/30 bg-warn/10 px-2 py-1 text-[11px] text-warn">
+        <p className="mt-1 rounded border border-warn/30 bg-warn/10 px-2 py-1 text-2xs text-warn">
           {lockedReason}
         </p>
       ) : null}
@@ -3359,7 +3359,7 @@ function GroupRepeatEditor({
           </div>
         </div>
       ) : (
-        <p className="mt-1 text-[11px] text-muted">
+        <p className="mt-1 text-2xs text-muted">
           Off: questions inside the group capture once. On: respondents can add
           multiple instances (a "child rows" pattern).
         </p>
@@ -3386,7 +3386,7 @@ function Field({
         {label}
       </span>
       {children}
-      {hint ? <p className="mt-0.5 text-[11px] text-muted">{hint}</p> : null}
+      {hint ? <p className="mt-0.5 text-2xs text-muted">{hint}</p> : null}
     </label>
   );
 }
@@ -3402,7 +3402,7 @@ function ChoicesEditor({
 }) {
   return (
     <div className="mb-2">
-      <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">Choices</p>
+      <p className="mb-1 text-2xs uppercase tracking-wide text-muted">Choices</p>
       <div className="space-y-1">
         {choices.map((c, i) => (
           <div key={i} className="flex items-center gap-1">
@@ -3455,7 +3455,7 @@ function ChoicesEditor({
                 { value: `option_${choices.length + 1}`, label: `Option ${choices.length + 1}` },
               ])
             }
-            className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-border bg-surface-1 px-2 text-[11px] text-ink-1 hover:bg-surface-2"
+            className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2"
           >
             <Plus className="h-3 w-3" />
             Add choice
@@ -3482,7 +3482,7 @@ function MatrixEditor({
   return (
     <div className="mb-3 space-y-3">
       <div>
-        <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">
+        <p className="mb-1 text-2xs uppercase tracking-wide text-muted">
           Rows
         </p>
         <div className="space-y-1">
@@ -3544,7 +3544,7 @@ function MatrixEditor({
                   ],
                 })
               }
-              className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-border bg-surface-1 px-2 text-[11px] text-ink-1 hover:bg-surface-2"
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2"
             >
               <Plus className="h-3 w-3" />
               Add row
@@ -3554,7 +3554,7 @@ function MatrixEditor({
       </div>
 
       <div>
-        <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">
+        <p className="mb-1 text-2xs uppercase tracking-wide text-muted">
           Columns
         </p>
         <div className="space-y-1">
@@ -3618,7 +3618,7 @@ function MatrixEditor({
                   ],
                 })
               }
-              className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-border bg-surface-1 px-2 text-[11px] text-ink-1 hover:bg-surface-2"
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2"
             >
               <Plus className="h-3 w-3" />
               Add column
@@ -3641,7 +3641,7 @@ function MatrixRowsEditor({
 }) {
   return (
     <div className="mb-3">
-      <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">
+      <p className="mb-1 text-2xs uppercase tracking-wide text-muted">
         Rows
       </p>
       <div className="space-y-1">
@@ -3699,7 +3699,7 @@ function MatrixRowsEditor({
                 },
               ])
             }
-            className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-border bg-surface-1 px-2 text-[11px] text-ink-1 hover:bg-surface-2"
+            className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2"
           >
             <Plus className="h-3 w-3" />
             Add row
@@ -3736,7 +3736,7 @@ function MatrixDropdownEditor({
         onChange={(next) => onChange({ rows: next })}
       />
       <div>
-        <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">
+        <p className="mb-1 text-2xs uppercase tracking-wide text-muted">
           Columns (each with its own choices)
         </p>
         <div className="space-y-2">
@@ -3815,7 +3815,7 @@ function MatrixDropdownEditor({
                   ],
                 })
               }
-              className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-border bg-surface-1 px-2 text-[11px] text-ink-1 hover:bg-surface-2"
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2"
             >
               <Plus className="h-3 w-3" />
               Add column
@@ -3848,7 +3848,7 @@ function ImageChoicesEditor({
 }) {
   return (
     <div className="mb-2">
-      <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">
+      <p className="mb-1 text-2xs uppercase tracking-wide text-muted">
         Image choices
       </p>
       <div className="space-y-2">
@@ -3923,7 +3923,7 @@ function ImageChoicesEditor({
                 },
               ])
             }
-            className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-border bg-surface-1 px-2 text-[11px] text-ink-1 hover:bg-surface-2"
+            className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2"
           >
             <Plus className="h-3 w-3" />
             Add choice
@@ -3955,14 +3955,14 @@ function ComponentToggleEditor<T extends string>({
   const required = new Set(requiredComponents ?? []);
   return (
     <div className="mb-3">
-      <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">
+      <p className="mb-1 text-2xs uppercase tracking-wide text-muted">
         {label}
       </p>
       <div className="space-y-1">
         {allComponents.map((c) => (
           <div key={c.value} className="flex items-center justify-between gap-2 text-xs">
             <span className="flex-1 truncate">{c.label}</span>
-            <label className="inline-flex items-center gap-1 text-[11px]">
+            <label className="inline-flex items-center gap-1 text-2xs">
               <input
                 type="checkbox"
                 checked={shown.has(c.value)}
@@ -3986,7 +3986,7 @@ function ComponentToggleEditor<T extends string>({
               />
               <span>Show</span>
             </label>
-            <label className="inline-flex items-center gap-1 text-[11px]">
+            <label className="inline-flex items-center gap-1 text-2xs">
               <input
                 type="checkbox"
                 checked={required.has(c.value)}
@@ -4297,19 +4297,19 @@ function ExpressionEditor({
     return (
       <div>
         <div className="mb-0.5 flex items-center justify-between">
-          <p className="text-[10px] uppercase tracking-wide text-muted">
+          <p className="text-2xs uppercase tracking-wide text-muted">
             {label}
           </p>
           <button
             type="button"
             disabled={disabled}
             onClick={() => setBuilderOpen(true)}
-            className="text-[10px] text-accent hover:underline disabled:opacity-50"
+            className="text-2xs text-accent hover:underline disabled:opacity-50"
           >
             Builder
           </button>
         </div>
-        <div className="rounded border border-warn/30 bg-warn/10 p-2 text-[11px] text-warn">
+        <div className="rounded border border-warn/30 bg-warn/10 p-2 text-2xs text-warn">
           <p className="mb-1">
             This expression uses features the inline editor can&apos;t
             visualize yet (nested groups, functions). Open the Builder
@@ -4324,7 +4324,7 @@ function ExpressionEditor({
               setShowComplexFallback(false);
               onChange(undefined);
             }}
-            className="inline-flex items-center gap-1 rounded border border-warn/40 bg-white px-1.5 py-0.5 text-[11px] hover:bg-warn/20 disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded border border-warn/40 bg-white px-1.5 py-0.5 text-2xs hover:bg-warn/20 disabled:opacity-50"
           >
             Clear and start over
           </button>
@@ -4345,7 +4345,7 @@ function ExpressionEditor({
   return (
     <div>
       <div className="mb-0.5 flex items-center justify-between gap-2">
-        <p className="text-[10px] uppercase tracking-wide text-muted">{label}</p>
+        <p className="text-2xs uppercase tracking-wide text-muted">{label}</p>
         <div className="flex items-center gap-2">
           {rows.length >= 2 ? (
             <select
@@ -4354,7 +4354,7 @@ function ExpressionEditor({
               onChange={(e) =>
                 update(rows, e.target.value as 'and' | 'or')
               }
-              className="rounded border border-border bg-surface-1 px-1 py-0.5 text-[10px]"
+              className="rounded border border-border bg-surface-1 px-1 py-0.5 text-2xs"
             >
               <option value="and">all match</option>
               <option value="or">any match</option>
@@ -4364,7 +4364,7 @@ function ExpressionEditor({
             type="button"
             disabled={disabled}
             onClick={() => setBuilderOpen(true)}
-            className="text-[10px] text-accent hover:underline disabled:opacity-50"
+            className="text-2xs text-accent hover:underline disabled:opacity-50"
           >
             Builder
           </button>
@@ -4372,7 +4372,7 @@ function ExpressionEditor({
       </div>
       <ul className="space-y-1">
         {rows.length === 0 ? (
-          <li className="rounded border border-dashed border-border bg-surface-2/40 px-2 py-1.5 text-[11px] text-muted">
+          <li className="rounded border border-dashed border-border bg-surface-2/40 px-2 py-1.5 text-2xs text-muted">
             No conditions. Always shown.
           </li>
         ) : (
@@ -4401,7 +4401,7 @@ function ExpressionEditor({
         type="button"
         disabled={disabled}
         onClick={() => update([...rows, DEFAULT_ROW()])}
-        className="mt-1 inline-flex items-center gap-1 text-[11px] text-accent hover:underline disabled:opacity-50"
+        className="mt-1 inline-flex items-center gap-1 text-2xs text-accent hover:underline disabled:opacity-50"
       >
         <Plus className="h-3 w-3" />
         Add condition
@@ -4553,7 +4553,7 @@ function ConditionRowEditor({
             onChange={(e) =>
               onChange({ ...row, op: e.target.value as ComparisonOp })
             }
-            className="rounded border border-border bg-surface-1 px-1 py-0.5 text-[11px]"
+            className="rounded border border-border bg-surface-1 px-1 py-0.5 text-2xs"
           >
             {COMPARISON_OPERATORS.map((o) => (
               <option key={o.op} value={o.op}>
@@ -4818,7 +4818,7 @@ function ExpressionBuilderModal({
       >
         <header className="flex items-center justify-between border-b border-border bg-surface-1 px-4 py-2">
           <div>
-            <p className="text-[10px] uppercase tracking-wide text-muted">
+            <p className="text-2xs uppercase tracking-wide text-muted">
               Expression builder
             </p>
             <h2 className="text-sm font-medium text-ink-0">{label}</h2>
@@ -4845,7 +4845,7 @@ function ExpressionBuilderModal({
                 etc.) is a follow-up -- those need a richer row that
                 can take an Operand on the left, which lands when the
                 modal grows a value-mode editor for calculate. */}
-            <div className="flex flex-wrap gap-1.5 border-b border-border bg-surface-1/40 px-4 py-2 text-[11px]">
+            <div className="flex flex-wrap gap-1.5 border-b border-border bg-surface-1/40 px-4 py-2 text-2xs">
               <span className="self-center text-muted">Quick start:</span>
               <button
                 type="button"
@@ -5003,7 +5003,7 @@ function RuleTreeEditor({
           : 'rounded-md border border-dashed border-border bg-surface-1/40 p-2'
       }
     >
-      <div className="mb-2 flex items-center gap-2 text-[11px] text-muted">
+      <div className="mb-2 flex items-center gap-2 text-2xs text-muted">
         <span className="uppercase tracking-wide">When</span>
         <select
           value={tree.combinator}
@@ -5019,7 +5019,7 @@ function RuleTreeEditor({
       </div>
       <ul className="space-y-2">
         {tree.rules.length === 0 ? (
-          <li className="rounded border border-dashed border-border bg-surface-2/40 px-2 py-2 text-[11px] text-muted">
+          <li className="rounded border border-dashed border-border bg-surface-2/40 px-2 py-2 text-2xs text-muted">
             No conditions in this group.
           </li>
         ) : (
@@ -5085,7 +5085,7 @@ function RuleTreeEditor({
           onClick={() =>
             update([...tree.rules, { kind: 'row', row: DEFAULT_ROW() }])
           }
-          className="inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
+          className="inline-flex items-center gap-1 text-2xs text-accent hover:underline"
         >
           <Plus className="h-3 w-3" />
           Condition
@@ -5102,7 +5102,7 @@ function RuleTreeEditor({
               },
             ])
           }
-          className="inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
+          className="inline-flex items-center gap-1 text-2xs text-accent hover:underline"
         >
           <Plus className="h-3 w-3" />
           Group
@@ -5144,12 +5144,12 @@ function FieldsReferencePanel({
         placeholder="Search fields..."
         className={inputCls}
       />
-      <p className="mt-1 text-[10px] text-muted">
+      <p className="mt-1 text-2xs text-muted">
         Click a field to insert a new condition referencing it.
       </p>
       <ul className="mt-2 space-y-1">
         {filtered.length === 0 ? (
-          <li className="px-2 py-1 text-[11px] text-muted">No fields match.</li>
+          <li className="px-2 py-1 text-2xs text-muted">No fields match.</li>
         ) : (
           filtered.map((f) => (
             <li key={f.id}>
@@ -5159,14 +5159,14 @@ function FieldsReferencePanel({
                 className="w-full rounded border border-border bg-surface-0 px-2 py-1 text-left hover:border-accent hover:bg-accent/5 focus:border-accent focus:bg-accent/5 focus:outline-none"
               >
                 <div className="flex items-center gap-1.5">
-                  <span className="rounded bg-surface-2 px-1 py-px font-mono text-[9px] uppercase text-muted">
+                  <span className="rounded bg-surface-2 px-1 py-px font-mono text-2xs uppercase text-muted">
                     {f.type}
                   </span>
-                  <span className="truncate text-[12px] text-ink-0">
+                  <span className="truncate text-xs text-ink-0">
                     {f.label || '(unlabeled)'}
                   </span>
                 </div>
-                <p className="mt-0.5 truncate font-mono text-[10px] text-muted">
+                <p className="mt-0.5 truncate font-mono text-2xs text-muted">
                   {f.id}
                   {f.parentPath ? ` - ${f.parentPath}` : ''}
                 </p>
@@ -5208,10 +5208,10 @@ function OperatorsReferencePanel({
   return (
     <div className="space-y-3">
       <div>
-        <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">
+        <p className="mb-1 text-2xs font-medium uppercase tracking-wide text-muted">
           Comparison
         </p>
-        <p className="mb-1 text-[10px] text-muted">
+        <p className="mb-1 text-2xs text-muted">
           Click to insert a new condition using this operator.
         </p>
         <ul className="space-y-1">
@@ -5222,18 +5222,18 @@ function OperatorsReferencePanel({
                 onClick={() => onPick(o.op)}
                 className="w-full rounded border border-border bg-surface-0 px-2 py-1 text-left hover:border-accent hover:bg-accent/5 focus:border-accent focus:bg-accent/5 focus:outline-none"
               >
-                <p className="text-[12px] text-ink-0">{o.label}</p>
-                <p className="text-[10px] text-muted">{o.hint}</p>
+                <p className="text-xs text-ink-0">{o.label}</p>
+                <p className="text-2xs text-muted">{o.hint}</p>
               </button>
             </li>
           ))}
         </ul>
       </div>
       <div>
-        <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">
+        <p className="mb-1 text-2xs font-medium uppercase tracking-wide text-muted">
           Logical
         </p>
-        <p className="mb-1 text-[10px] text-muted">
+        <p className="mb-1 text-2xs text-muted">
           Reference only. Set the combinator on the rule list above.
         </p>
         <ul className="space-y-1">
@@ -5242,8 +5242,8 @@ function OperatorsReferencePanel({
               key={name}
               className="rounded border border-border bg-surface-0 px-2 py-1"
             >
-              <p className="text-[12px] text-ink-0">{name}</p>
-              <p className="text-[10px] text-muted">{hint}</p>
+              <p className="text-xs text-ink-0">{name}</p>
+              <p className="text-2xs text-muted">{hint}</p>
             </li>
           ))}
         </ul>
@@ -5315,7 +5315,7 @@ function FunctionsReferencePanel() {
   ];
   return (
     <div className="space-y-3">
-      <p className="text-[10px] text-muted">
+      <p className="text-2xs text-muted">
         Reference for the calculate / default editor. Click a signature
         to copy it to the clipboard. The row-based editor on the left
         works in field-op-value form, so functions can't be inserted
@@ -5323,7 +5323,7 @@ function FunctionsReferencePanel() {
       </p>
       {groups.map((g) => (
         <div key={g.heading}>
-          <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">
+          <p className="mb-1 text-2xs font-medium uppercase tracking-wide text-muted">
             {g.heading}
           </p>
           <ul className="space-y-1">
@@ -5338,8 +5338,8 @@ function FunctionsReferencePanel() {
                   }}
                   className="w-full rounded border border-border bg-surface-0 px-2 py-1 text-left hover:border-accent hover:bg-accent/5 focus:border-accent focus:bg-accent/5 focus:outline-none"
                 >
-                  <p className="font-mono text-[11px] text-ink-0">{f.sig}</p>
-                  <p className="text-[10px] text-muted">{f.hint}</p>
+                  <p className="font-mono text-2xs text-ink-0">{f.sig}</p>
+                  <p className="text-2xs text-muted">{f.hint}</p>
                 </button>
               </li>
             ))}
@@ -5471,7 +5471,7 @@ function LayerImportDialog({
                         className="flex w-full items-center justify-between rounded-md border border-border bg-surface-1 px-3 py-2 text-left hover:bg-surface-2 disabled:opacity-50"
                       >
                         <span className="truncate">{l.title}</span>
-                        <span className="text-[10px] uppercase tracking-wide text-muted">
+                        <span className="text-2xs uppercase tracking-wide text-muted">
                           data layer
                         </span>
                       </button>
@@ -5539,7 +5539,7 @@ function ImportPreview({ schema }: { schema: LayerSchema | null }) {
         {total === 1 ? 'question' : 'questions'}.
       </p>
       <div className="rounded border border-border bg-surface-2/40 p-2 text-xs">
-        <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">
+        <p className="mb-1 text-2xs uppercase tracking-wide text-muted">
           This layer
         </p>
         <ul className="space-y-0.5">
@@ -5555,7 +5555,7 @@ function ImportPreview({ schema }: { schema: LayerSchema | null }) {
           {schema.attachmentsEnabled ? (
             <li className="mt-1 flex items-center justify-between border-t border-border/50 pt-1">
               <span className="text-ink-1">+ Photos</span>
-              <span className="text-[10px] uppercase tracking-wide text-accent">
+              <span className="text-2xs uppercase tracking-wide text-accent">
                 repeat
               </span>
             </li>
@@ -5564,7 +5564,7 @@ function ImportPreview({ schema }: { schema: LayerSchema | null }) {
       </div>
       {schema.related.length > 0 ? (
         <div className="space-y-2">
-          <p className="text-[10px] uppercase tracking-wide text-muted">
+          <p className="text-2xs uppercase tracking-wide text-muted">
             Related tables (each becomes a repeat group)
           </p>
           {schema.related.map((rel, i) => {
@@ -5580,7 +5580,7 @@ function ImportPreview({ schema }: { schema: LayerSchema | null }) {
               >
                 <p className="mb-1 flex items-center justify-between">
                   <span className="font-medium text-ink-0">{rel.label}</span>
-                  <span className="inline-flex rounded-full bg-accent/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-accent">
+                  <span className="inline-flex rounded-full bg-accent/10 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-accent">
                     repeat
                   </span>
                 </p>
@@ -5594,7 +5594,7 @@ function ImportPreview({ schema }: { schema: LayerSchema | null }) {
                   {rel.attachmentsEnabled ? (
                     <li className="mt-1 flex items-center justify-between border-t border-border/50 pt-1">
                       <span className="text-ink-1">+ Photos</span>
-                      <span className="text-[10px] uppercase tracking-wide text-accent">
+                      <span className="text-2xs uppercase tracking-wide text-accent">
                         repeat
                       </span>
                     </li>
@@ -5951,7 +5951,7 @@ function LinkStatusBadge({ status }: { status: LinkStatus }) {
     return (
       <span
         title={tip}
-        className="ml-1.5 inline-flex rounded-full bg-success/15 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-success"
+        className="ml-1.5 inline-flex rounded-full bg-success/15 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-success"
       >
         bound
       </span>
@@ -5961,7 +5961,7 @@ function LinkStatusBadge({ status }: { status: LinkStatus }) {
     return (
       <span
         title="No matching column on the layer yet. Will be added on save."
-        className="ml-1.5 inline-flex rounded-full bg-warn/15 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-warn"
+        className="ml-1.5 inline-flex rounded-full bg-warn/15 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-warn"
       >
         new column
       </span>
@@ -5970,7 +5970,7 @@ function LinkStatusBadge({ status }: { status: LinkStatus }) {
   return (
     <span
       title={`The layer no longer has column "${status.column}". Submissions for this question won't reach the layer.`}
-      className="ml-1.5 inline-flex rounded-full bg-danger/15 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-danger"
+      className="ml-1.5 inline-flex rounded-full bg-danger/15 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-danger"
     >
       orphaned
     </span>
@@ -6025,12 +6025,12 @@ function LinkedLayerSummary({
         <span className="font-medium text-ink-0">Linked to:</span>
         <span className="truncate text-ink-1">{linkedTitle}</span>
       </div>
-      <p className="text-[11px] text-muted">
+      <p className="text-2xs text-muted">
         {layerSchema === null
           ? 'Loading layer schema...'
           : `${matched} matched · ${willAdd} new column${willAdd === 1 ? '' : 's'} on save`}
       </p>
-      <p className="mt-1 text-[11px] text-muted">
+      <p className="mt-1 text-2xs text-muted">
         Submissions go to this layer. New questions land as additive columns
         the next time someone submits.
       </p>
@@ -6042,7 +6042,7 @@ function LinkedLayerSummary({
           bypass row scoping by design. The form designer can't read
           the paired layer's access tier from here, so we phrase this
           as guidance + caveat. */}
-      <p className="mt-1 text-[11px] text-success">
+      <p className="mt-1 text-2xs text-success">
         Privacy: respondents see only their own submissions in the
         layer&apos;s map and attribute table. Owners and admins still
         see everything. (Setting the linked layer to public access
@@ -6050,7 +6050,7 @@ function LinkedLayerSummary({
         matters.)
       </p>
       {geoCount > 1 ? (
-        <p className="mt-1 text-[11px] text-warn">
+        <p className="mt-1 text-2xs text-warn">
           Multiple map questions on this form. Only the first one drives
           the layer&apos;s geometry; the rest are stored as data on each
           submission but won&apos;t plot on the map.
@@ -6060,7 +6060,7 @@ function LinkedLayerSummary({
         <button
           type="button"
           onClick={onUnlinkLayer}
-          className="mt-2 inline-flex h-7 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-[11px] font-medium text-ink-1 hover:bg-surface-2"
+          className="mt-2 inline-flex h-7 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2"
         >
           Unlink
         </button>
@@ -6117,10 +6117,10 @@ function NotifySettings({
 
   return (
     <div className="mb-3 rounded-md border border-border bg-surface-1 p-2 text-xs">
-      <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted">
+      <p className="mb-1.5 text-2xs font-medium uppercase tracking-wide text-muted">
         Submission emails
       </p>
-      <label className="mb-2 flex items-start gap-2 text-[12px] text-ink-1">
+      <label className="mb-2 flex items-start gap-2 text-xs text-ink-1">
         <input
           type="checkbox"
           checked={notifyOwner}

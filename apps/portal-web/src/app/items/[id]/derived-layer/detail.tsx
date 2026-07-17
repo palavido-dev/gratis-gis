@@ -114,7 +114,7 @@ export function DerivedLayerDetail({
                 key={idx}
                 className="flex items-start gap-2 rounded-md border border-border bg-surface-0 px-3 py-2 text-sm"
               >
-                <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-700/90 text-[11px] font-semibold text-white">
+                <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-700/90 text-2xs font-semibold text-white">
                   {idx + 1}
                 </span>
                 <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
@@ -158,7 +158,7 @@ export function DerivedLayerDetail({
         )}
       </div>
 
-      <div className="text-[11px] text-muted">
+      <div className="text-2xs text-muted">
         Feature limit: {data.featureLimit.toLocaleString()} features per
         read.
       </div>

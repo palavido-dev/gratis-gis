@@ -84,14 +84,14 @@ export function ThumbnailDesigner({ type, title, value, onChange }: Props) {
           dangerouslySetInnerHTML={{ __html: svg }}
         />
         <div className="flex items-center justify-between">
-          <p className="text-[11px] text-muted">
+          <p className="text-2xs text-muted">
             Title and type label follow the item name and type. A
             rename refreshes the thumbnail with no re-bake.
           </p>
           <button
             type="button"
             onClick={reset}
-            className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-[11px] text-ink-1 hover:bg-surface-2"
+            className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2"
             title="Reset every layer to the type default palette"
           >
             <RotateCcw className="h-3 w-3" />
@@ -197,7 +197,7 @@ function LayerSection({
           <p className="text-xs font-semibold uppercase tracking-wide text-ink-0">
             {title}
           </p>
-          <p className="text-[11px] text-muted">{hint}</p>
+          <p className="text-2xs text-muted">{hint}</p>
         </div>
         <ChevronDown
           className={`h-4 w-4 shrink-0 text-muted transition-transform ${
@@ -243,7 +243,7 @@ function ColorRow({
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-7 w-24 rounded border border-border bg-surface-1 px-2 font-mono text-[11px] focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+        className="h-7 w-24 rounded border border-border bg-surface-1 px-2 font-mono text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
       />
     </label>
   );
@@ -273,7 +273,7 @@ function OpacityRow({
         onChange={(e) => onChange(Number(e.target.value) / 100)}
         className="h-2 w-40 cursor-pointer accent-accent"
       />
-      <span className="w-10 shrink-0 text-right font-mono text-[11px] text-muted">
+      <span className="w-10 shrink-0 text-right font-mono text-2xs text-muted">
         {pct}%
       </span>
     </label>

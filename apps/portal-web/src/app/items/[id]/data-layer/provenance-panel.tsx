@@ -46,7 +46,7 @@ export function DataLayerProvenance({ data, userNames }: Props) {
     <section className="mb-6 rounded-md border border-border bg-surface-1 p-3">
       <header className="mb-2 flex items-center gap-2">
         <FileInput className="h-3.5 w-3.5 text-muted" />
-        <h2 className="text-[11px] font-medium uppercase tracking-wide text-muted">
+        <h2 className="text-2xs font-medium uppercase tracking-wide text-muted">
           Source
         </h2>
       </header>
@@ -70,10 +70,10 @@ function V3Provenance({
     <section className="mb-6 rounded-md border border-border bg-surface-1 p-3">
       <header className="mb-2 flex items-center gap-2">
         <FileInput className="h-3.5 w-3.5 text-muted" />
-        <h2 className="text-[11px] font-medium uppercase tracking-wide text-muted">
+        <h2 className="text-2xs font-medium uppercase tracking-wide text-muted">
           Data sources
         </h2>
-        <span className="text-[11px] text-muted">
+        <span className="text-2xs text-muted">
           · {stamped.length} of {data.layers.length}{' '}
           {data.layers.length === 1 ? 'layer' : 'layers'} imported
         </span>
@@ -87,7 +87,7 @@ function V3Provenance({
             >
               <p className="mb-1 text-xs font-medium text-ink-0">
                 {layer.label}
-                <span className="ml-2 text-[10px] uppercase tracking-wide text-muted">
+                <span className="ml-2 text-2xs uppercase tracking-wide text-muted">
                   {layer.geometryType ?? 'table'}
                 </span>
               </p>
@@ -119,7 +119,7 @@ function ProvenanceRow({
           {source.fileName ?? '(inline)'}
         </span>
       </span>
-      <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+      <span className="rounded bg-surface-2 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-muted">
         {source.format}
       </span>
       {typeof source.sizeBytes === 'number' ? (
@@ -130,7 +130,7 @@ function ProvenanceRow({
         {imported.toLocaleDateString()} by {importedBy}
       </span>
       {source.note ? (
-        <span className="text-[11px] text-muted italic">{source.note}</span>
+        <span className="text-2xs text-muted italic">{source.note}</span>
       ) : null}
     </p>
   );
@@ -146,7 +146,7 @@ function SpatialRefRow({ source }: { source: DataLayerSource }) {
   const srs = source.sourceSrs;
   const wasReprojected = srs && srs !== 'EPSG:4326' && srs !== 'CRS:unknown';
   return (
-    <p className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted">
+    <p className="mt-1 inline-flex items-center gap-1 text-2xs text-muted">
       <Globe className="h-3 w-3" />
       Storage: EPSG:4326 (WGS 84)
       {wasReprojected ? (

@@ -326,7 +326,7 @@ function AttachmentsSection({
         <Paperclip className="h-3.5 w-3.5" />
         Attachments
         {attachments && attachments.length > 0 ? (
-          <span className="rounded-full bg-violet-100 dark:bg-violet-950 px-1.5 py-0.5 text-[9px] font-normal normal-case tracking-normal text-violet-800 dark:text-violet-300">
+          <span className="rounded-full bg-violet-100 dark:bg-violet-950 px-1.5 py-0.5 text-2xs font-normal normal-case tracking-normal text-violet-800 dark:text-violet-300">
             {attachments.length}
           </span>
         ) : null}
@@ -366,7 +366,7 @@ function AttachmentTile({ attachment }: { attachment: AttachmentRow }) {
           className="h-28 w-full object-cover"
           loading="lazy"
         />
-        <div className="truncate px-1.5 py-1 text-[10px] text-muted group-hover:text-ink-1">
+        <div className="truncate px-1.5 py-1 text-2xs text-muted group-hover:text-ink-1">
           {attachment.fileName}
         </div>
       </a>
@@ -387,10 +387,10 @@ function AttachmentTile({ attachment }: { attachment: AttachmentRow }) {
           <FileIcon className="h-6 w-6 text-muted" />
         )}
       </div>
-      <div className="truncate text-[10px] text-ink-1" title={attachment.fileName}>
+      <div className="truncate text-2xs text-ink-1" title={attachment.fileName}>
         {attachment.fileName}
       </div>
-      <div className="text-[9px] text-muted">
+      <div className="text-2xs text-muted">
         {Math.max(1, Math.round(attachment.sizeBytes / 1024))} KB ·{' '}
         {attachment.mime}
       </div>
@@ -437,7 +437,7 @@ function QuestionAnswer({
           {question.label && (
             <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
               {question.label}{' '}
-              <span className="ml-1 rounded-full bg-violet-100 dark:bg-violet-950 px-1.5 py-0.5 text-[9px] font-normal normal-case tracking-normal text-violet-800 dark:text-violet-300">
+              <span className="ml-1 rounded-full bg-violet-100 dark:bg-violet-950 px-1.5 py-0.5 text-2xs font-normal normal-case tracking-normal text-violet-800 dark:text-violet-300">
                 {instances.length}{' '}
                 {instances.length === 1 ? 'entry' : 'entries'}
               </span>
@@ -452,7 +452,7 @@ function QuestionAnswer({
                   key={idx}
                   className="rounded-md border border-border bg-surface-2/50 p-2"
                 >
-                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">
+                  <div className="mb-1 text-2xs font-semibold uppercase tracking-wide text-muted">
                     Entry {idx + 1}
                   </div>
                   <div className="space-y-2">
@@ -667,7 +667,7 @@ function InlineAttachmentList({
                 className="h-24 w-full object-cover"
                 loading="lazy"
               />
-              <div className="truncate px-1.5 py-1 text-[10px] text-muted group-hover:text-ink-1">
+              <div className="truncate px-1.5 py-1 text-2xs text-muted group-hover:text-ink-1">
                 {name}
               </div>
             </a>
@@ -682,8 +682,8 @@ function InlineAttachmentList({
             title={name}
             className="flex flex-col gap-0.5 rounded-md border border-border bg-surface-2 p-1.5 hover:border-accent/40"
           >
-            <div className="truncate text-[11px] text-ink-1">{name}</div>
-            <div className="text-[10px] text-muted">
+            <div className="truncate text-2xs text-ink-1">{name}</div>
+            <div className="text-2xs text-muted">
               {sizeBytes !== null
                 ? `${Math.max(1, Math.round(sizeBytes / 1024))} KB . `
                 : ''}

@@ -216,7 +216,7 @@ export function DerivedLayerBuilder({
           }
           onSelect={setSourceItem}
         />
-        <p className="text-[11px] text-muted">
+        <p className="text-2xs text-muted">
           Lists data layers and derived layers you own or have been
           shared with (#78). v3 multi-layer items expand to one row
           per spatial sublayer; v1 inline-GeoJSON layers are hidden
@@ -657,7 +657,7 @@ function SourceLayerPicker({
                     : 'No compatible data layers visible to you yet. Create one under Data > Data layer first.'}
                 </p>
                 {hiddenIncompatibleCount > 0 ? (
-                  <p className="mt-1 text-[11px]">
+                  <p className="mt-1 text-2xs">
                     {hiddenIncompatibleCount} layer
                     {hiddenIncompatibleCount === 1 ? ' is' : 's are'}{' '}
                     hidden because the buffer tool needs a PostGIS-backed
@@ -709,11 +709,11 @@ function SourceLayerPicker({
                           // user knows they're picking a recipe, not a
                           // raw layer.  Violet matches the FlaskConical
                           // recipe accent in the wizard header.
-                          <span className="ml-2 mt-0.5 shrink-0 rounded bg-violet-100 dark:bg-violet-950 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-violet-800 dark:text-violet-300">
+                          <span className="ml-2 mt-0.5 shrink-0 rounded bg-violet-100 dark:bg-violet-950 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-violet-800 dark:text-violet-300">
                             Derived
                           </span>
                         ) : row.geometryType ? (
-                          <span className="ml-2 mt-0.5 shrink-0 rounded bg-info/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-info">
+                          <span className="ml-2 mt-0.5 shrink-0 rounded bg-info/15 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-info">
                             {row.geometryType}
                           </span>
                         ) : null}
@@ -815,7 +815,7 @@ function FieldModeControls({
       <label className="flex flex-col gap-1 text-sm">
         <span className="text-ink-1">Unit</span>
         <UnitSelect value={unit} onChange={onUnitChange} />
-        <span className="text-[11px] text-muted">
+        <span className="text-2xs text-muted">
           The field's stored value is interpreted in this unit. The
           server figures out the upper bound by reading the largest
           value when the recipe saves.
@@ -823,7 +823,7 @@ function FieldModeControls({
       </label>
 
       {sourcePicked && numericFields.length === 0 ? (
-        <p className="text-[11px] text-warn">
+        <p className="text-2xs text-warn">
           The selected source has no numeric fields. Add a numeric
           column to the source layer or switch to fixed mode.
         </p>
@@ -1082,7 +1082,7 @@ function PipelineSection({
         ))}
 
         {pipeline.length === 0 ? (
-          <p className="text-[11px] text-muted">
+          <p className="text-2xs text-muted">
             The pipeline is empty. Add at least one step before saving.
           </p>
         ) : null}
@@ -1131,14 +1131,14 @@ function StepCard({
     <div className="rounded-md border border-border bg-surface-0 p-3">
       <header className="mb-2 flex items-start justify-between gap-2">
         <div className="flex items-start gap-2">
-          <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-700/90 text-[11px] font-semibold text-white">
+          <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-700/90 text-2xs font-semibold text-white">
             {index + 1}
           </span>
           <div>
             <p className="text-sm font-medium text-ink-0">
               {TOOL_LABELS[step.tool] ?? step.tool}
             </p>
-            <p className="text-[11px] text-muted">
+            <p className="text-2xs text-muted">
               {TOOL_DESCRIPTIONS[step.tool] ?? ''}
             </p>
           </div>
@@ -1382,7 +1382,7 @@ function StepPreviewPanel({
             }
           }}
           disabled={disabled}
-          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted hover:bg-surface-1 hover:text-ink-1 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-2xs font-medium text-muted hover:bg-surface-1 hover:text-ink-1 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <ChevronDown
             className={`h-3 w-3 transition-transform ${open ? '' : '-rotate-90'}`}
@@ -1394,7 +1394,7 @@ function StepPreviewPanel({
             type="button"
             onClick={() => void runPreview()}
             disabled={disabled || loading}
-            className="text-[11px] text-accent hover:underline disabled:opacity-50"
+            className="text-2xs text-accent hover:underline disabled:opacity-50"
           >
             {loading ? 'Loading…' : 'Refresh'}
           </button>
@@ -1403,7 +1403,7 @@ function StepPreviewPanel({
       {open ? (
         <div className="mt-2 space-y-2">
           {disabled ? (
-            <p className="text-[11px] text-muted">
+            <p className="text-2xs text-muted">
               Pick a source layer above to preview this step.
             </p>
           ) : null}
@@ -1413,13 +1413,13 @@ function StepPreviewPanel({
             // against the source's bitemporal projection at the end
             // of the picked day.  Useful for "what did this look
             // like a month ago?" diff-against-now workflows.
-            <label className="flex items-center gap-2 text-[11px] text-muted">
+            <label className="flex items-center gap-2 text-2xs text-muted">
               <span>As of</span>
               <input
                 type="date"
                 value={asOfDate}
                 onChange={(e) => setAsOfDate(e.target.value)}
-                className="h-7 rounded-md border border-border bg-surface-0 px-2 text-[11px] text-ink-0 focus:border-accent focus:outline-none"
+                className="h-7 rounded-md border border-border bg-surface-0 px-2 text-2xs text-ink-0 focus:border-accent focus:outline-none"
               />
               {asOfDate ? (
                 <button
@@ -1437,23 +1437,23 @@ function StepPreviewPanel({
             </label>
           ) : null}
           {err ? (
-            <p className="rounded-md bg-danger/10 px-2 py-1 text-[11px] text-danger">
+            <p className="rounded-md bg-danger/10 px-2 py-1 text-2xs text-danger">
               {err}
             </p>
           ) : null}
           {loading && !result ? (
-            <p className="text-[11px] text-muted">Running preview…</p>
+            <p className="text-2xs text-muted">Running preview…</p>
           ) : null}
           {result ? (
             <div className="space-y-1">
-              <p className="text-[11px] text-muted">
+              <p className="text-2xs text-muted">
                 {result.truncated
                   ? `Showing first ${result.sample.length} of many rows (preview is capped)`
                   : `${result.rowCount} ${result.rowCount === 1 ? 'row' : 'rows'} in this step's output`}
               </p>
               {result.sample.length > 0 ? (
                 <div className="overflow-x-auto rounded-md border border-border bg-surface-1">
-                  <table className="min-w-full text-[11px]">
+                  <table className="min-w-full text-2xs">
                     <thead className="bg-surface-2 text-ink-1">
                       <tr>
                         {columns.map((c) => (
@@ -1486,7 +1486,7 @@ function StepPreviewPanel({
                   </table>
                 </div>
               ) : (
-                <p className="text-[11px] text-muted">
+                <p className="text-2xs text-muted">
                   No rows match this step.
                 </p>
               )}
@@ -1532,7 +1532,7 @@ function AddStepRow({
   const triggerClasses =
     variant === 'primary'
       ? 'inline-flex h-9 items-center gap-1 rounded-md border border-accent/40 bg-accent/5 px-3 text-xs font-medium text-accent hover:bg-accent/10'
-      : 'inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-border bg-transparent px-2 text-[11px] text-muted hover:border-accent/50 hover:text-ink-1';
+      : 'inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-border bg-transparent px-2 text-2xs text-muted hover:border-accent/50 hover:text-ink-1';
 
   return (
     <div className="flex justify-center">
@@ -1685,7 +1685,7 @@ function ToolToolbox({
                   <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
                     {g.label}
                   </h3>
-                  <p className="mt-0.5 text-[11px] text-muted">
+                  <p className="mt-0.5 text-2xs text-muted">
                     {g.description}
                   </p>
                   <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -1699,7 +1699,7 @@ function ToolToolbox({
                         <span className="text-sm font-medium text-ink-0">
                           {TOOL_LABELS[kind]}
                         </span>
-                        <span className="text-[11px] text-muted">
+                        <span className="text-2xs text-muted">
                           {TOOL_DESCRIPTIONS[kind]}
                         </span>
                       </button>
@@ -1782,7 +1782,7 @@ function DataLayerPicker({
   return (
     <div className="space-y-2">
       <label className="flex flex-col gap-1">
-        <span className="text-[11px] uppercase tracking-wide text-muted">
+        <span className="text-2xs uppercase tracking-wide text-muted">
           {label}
         </span>
         <select
@@ -1815,11 +1815,11 @@ function DataLayerPicker({
           )}
         </select>
         {hint ? (
-          <span className="text-[11px] text-muted">{hint}</span>
+          <span className="text-2xs text-muted">{hint}</span>
         ) : null}
       </label>
       <label className="flex flex-col gap-1">
-        <span className="text-[11px] uppercase tracking-wide text-muted">
+        <span className="text-2xs uppercase tracking-wide text-muted">
           Sublayer key (optional)
         </span>
         <input
@@ -1832,7 +1832,7 @@ function DataLayerPicker({
           placeholder="leave blank for the default sublayer"
           className="h-9 rounded-md border border-border bg-surface-1 px-3 font-mono text-xs focus:border-accent focus:outline-none"
         />
-        <span className="text-[11px] text-muted">
+        <span className="text-2xs text-muted">
           Only needed when the layer has multiple sublayers; visible
           on the data layer&apos;s detail page.
         </span>
@@ -1937,7 +1937,7 @@ function BufferStepEditor({
           }`}
         >
           <span className="text-sm font-medium text-ink-1">Fixed</span>
-          <span className="text-[11px] text-muted">
+          <span className="text-2xs text-muted">
             The same distance for every feature.
           </span>
         </button>
@@ -1959,7 +1959,7 @@ function BufferStepEditor({
           }`}
         >
           <span className="text-sm font-medium text-ink-1">From a field</span>
-          <span className="text-[11px] text-muted">
+          <span className="text-2xs text-muted">
             Read the distance from a numeric column on each row.
           </span>
         </button>
@@ -1979,7 +1979,7 @@ function BufferStepEditor({
             />
             <UnitSelect value={params.unit} onChange={setUnit} />
           </span>
-          <span className="text-[11px] text-muted">
+          <span className="text-2xs text-muted">
             Up to {MAX_BUFFER_DISTANCE_METERS.toLocaleString()} m. Try
             kilometers, feet, yards, or miles.
           </span>
@@ -2006,7 +2006,7 @@ function BufferStepEditor({
  * tool-specific copy in.
  */
 function NoParamInfo({ body }: { body: string }) {
-  return <p className="text-[11px] text-muted">{body}</p>;
+  return <p className="text-2xs text-muted">{body}</p>;
 }
 
 /**
@@ -2043,7 +2043,7 @@ function ToleranceEditor({
         />
         <UnitSelect value={unit} onChange={onUnitChange} />
       </span>
-      {hint ? <span className="text-[11px] text-muted">{hint}</span> : null}
+      {hint ? <span className="text-2xs text-muted">{hint}</span> : null}
     </label>
   );
 }
@@ -2160,7 +2160,7 @@ function TopNStepEditor({
             <option value="asc">lowest</option>
           </select>
         </span>
-        <span className="text-[11px] text-muted">
+        <span className="text-2xs text-muted">
           The N rows with the {params.direction === 'asc' ? 'lowest' : 'highest'}{' '}
           values of the chosen field. NULLs are dropped.
         </span>
@@ -2200,7 +2200,7 @@ function RandomSampleStepEditor({
           }`}
         >
           <span className="text-sm font-medium text-ink-1">Percentage</span>
-          <span className="text-[11px] text-muted">Approximately N percent of rows.</span>
+          <span className="text-2xs text-muted">Approximately N percent of rows.</span>
         </button>
         <button
           type="button"
@@ -2214,7 +2214,7 @@ function RandomSampleStepEditor({
           }`}
         >
           <span className="text-sm font-medium text-ink-1">Exact count</span>
-          <span className="text-[11px] text-muted">Exactly N rows.</span>
+          <span className="text-2xs text-muted">Exactly N rows.</span>
         </button>
       </div>
 
@@ -2233,7 +2233,7 @@ function RandomSampleStepEditor({
           }
           className="h-10 w-32 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-0 focus:border-accent focus:outline-none"
         />
-        <span className="text-[11px] text-muted">
+        <span className="text-2xs text-muted">
           Sample is deterministic given the seed below; same recipe = same
           rows on every read.
         </span>
@@ -2302,7 +2302,7 @@ function FishnetStepEditor({
           }`}
         >
           <span className="text-sm font-medium text-ink-1">Polygons</span>
-          <span className="text-[11px] text-muted">Filled grid cells.</span>
+          <span className="text-2xs text-muted">Filled grid cells.</span>
         </button>
         <button
           type="button"
@@ -2316,10 +2316,10 @@ function FishnetStepEditor({
           }`}
         >
           <span className="text-sm font-medium text-ink-1">Lines</span>
-          <span className="text-[11px] text-muted">Grid lines / transects only.</span>
+          <span className="text-2xs text-muted">Grid lines / transects only.</span>
         </button>
       </div>
-      <p className="text-[11px] text-muted">
+      <p className="text-2xs text-muted">
         Restricted to polygon input. Output drops source attributes; each
         cell carries cell_row and cell_col.
       </p>
@@ -2422,7 +2422,7 @@ function CalculateGeometryStepEditor({
           placeholder="e.g. area_ha, length_km"
           className="h-10 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-0 focus:border-accent focus:outline-none"
         />
-        <span className="text-[11px] text-muted">
+        <span className="text-2xs text-muted">
           Letters, numbers, and underscores. Cannot match an existing field
           on the source.
         </span>
@@ -2482,7 +2482,7 @@ function CalculateFieldStepEditor({
     <div className="space-y-3">
       <div className="grid gap-2 sm:grid-cols-[1fr_140px]">
         <label className="flex flex-col gap-1">
-          <span className="text-[11px] uppercase tracking-wide text-muted">
+          <span className="text-2xs uppercase tracking-wide text-muted">
             New column name
           </span>
           <input
@@ -2494,7 +2494,7 @@ function CalculateFieldStepEditor({
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-[11px] uppercase tracking-wide text-muted">
+          <span className="text-2xs uppercase tracking-wide text-muted">
             Output type
           </span>
           <select
@@ -2594,11 +2594,11 @@ function ExpressionEditor({
 
   return (
     <div className="space-y-2">
-      <p className="text-[11px] uppercase tracking-wide text-muted">{label}</p>
-      <p className="text-[11px] text-muted">{hint}</p>
+      <p className="text-2xs uppercase tracking-wide text-muted">{label}</p>
+      <p className="text-2xs text-muted">{hint}</p>
       {sourceFields.length > 0 ? (
         <div className="flex flex-wrap items-center gap-1">
-          <span className="text-[10px] uppercase tracking-wide text-muted">
+          <span className="text-2xs uppercase tracking-wide text-muted">
             Insert:
           </span>
           {sourceFields.map((f) => (
@@ -2606,7 +2606,7 @@ function ExpressionEditor({
               key={f.name}
               type="button"
               onClick={() => insert(`{{${f.name}}}`)}
-              className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-2 py-0.5 font-mono text-[11px] text-ink-1 hover:bg-surface-2"
+              className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-2 py-0.5 font-mono text-2xs text-ink-1 hover:bg-surface-2"
               title={`Insert {{${f.name}}}`}
             >
               <span className="text-muted">{'{{'}</span>
@@ -2617,7 +2617,7 @@ function ExpressionEditor({
         </div>
       ) : null}
       <div className="flex flex-wrap items-center gap-1">
-        <span className="text-[10px] uppercase tracking-wide text-muted">
+        <span className="text-2xs uppercase tracking-wide text-muted">
           Operators:
         </span>
         {['==', '!=', '<', '<=', '>', '>=', 'AND', 'OR', 'NOT', '+', '-', '*', '/', '(', ')'].map((op) => (
@@ -2625,7 +2625,7 @@ function ExpressionEditor({
             key={op}
             type="button"
             onClick={() => insert(op === 'AND' || op === 'OR' || op === 'NOT' ? ` ${op} ` : op)}
-            className="inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-2 font-mono text-[11px] text-ink-1 hover:bg-surface-2"
+            className="inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-2 font-mono text-2xs text-ink-1 hover:bg-surface-2"
           >
             {op}
           </button>
@@ -2635,7 +2635,7 @@ function ExpressionEditor({
             key={fn}
             type="button"
             onClick={() => insert(`${fn}()`)}
-            className="inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-2 font-mono text-[11px] text-ink-1 hover:bg-surface-2"
+            className="inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-2 font-mono text-2xs text-ink-1 hover:bg-surface-2"
           >
             {fn}()
           </button>
@@ -2656,13 +2656,13 @@ function ExpressionEditor({
         className="w-full rounded-md border border-border bg-surface-0 px-3 py-2 font-mono text-xs text-ink-0 focus:border-accent focus:outline-none"
       />
       {validation.errors.length > 0 ? (
-        <ul className="space-y-0.5 text-[11px] text-danger">
+        <ul className="space-y-0.5 text-2xs text-danger">
           {validation.errors.map((e, i) => (
             <li key={i}>{e}</li>
           ))}
         </ul>
       ) : value.trim().length > 0 ? (
-        <p className="text-[11px] text-success">
+        <p className="text-2xs text-success">
           Expression parses cleanly.
         </p>
       ) : null}
@@ -2705,7 +2705,7 @@ function ContourStepEditor({
   return (
     <div className="space-y-3">
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-[11px] uppercase tracking-wide text-muted">
+        <span className="text-2xs uppercase tracking-wide text-muted">
           Source numeric field
         </span>
         <select
@@ -2721,14 +2721,14 @@ function ContourStepEditor({
           ))}
         </select>
         {numericFields.length === 0 ? (
-          <span className="text-[11px] text-warn">
+          <span className="text-2xs text-warn">
             The source layer has no numeric fields. Add one (e.g. via
             Calculate field) earlier in the pipeline.
           </span>
         ) : null}
       </label>
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-[11px] uppercase tracking-wide text-muted">
+        <span className="text-2xs uppercase tracking-wide text-muted">
           Levels
         </span>
         <select
@@ -2750,7 +2750,7 @@ function ContourStepEditor({
       {params.mode === 'auto' ? (
         <div className="grid gap-2 sm:grid-cols-3">
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[11px] uppercase tracking-wide text-muted">
+            <span className="text-2xs uppercase tracking-wide text-muted">
               Interval
             </span>
             <input
@@ -2768,7 +2768,7 @@ function ContourStepEditor({
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[11px] uppercase tracking-wide text-muted">
+            <span className="text-2xs uppercase tracking-wide text-muted">
               Min level (optional)
             </span>
             <input
@@ -2793,7 +2793,7 @@ function ContourStepEditor({
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[11px] uppercase tracking-wide text-muted">
+            <span className="text-2xs uppercase tracking-wide text-muted">
               Max level (optional)
             </span>
             <input
@@ -2815,7 +2815,7 @@ function ContourStepEditor({
         </div>
       ) : (
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-[11px] uppercase tracking-wide text-muted">
+          <span className="text-2xs uppercase tracking-wide text-muted">
             Levels (comma-separated, ascending)
           </span>
           <input
@@ -2846,7 +2846,7 @@ function ContourStepEditor({
           />
         </label>
       )}
-      <p className="text-[11px] text-muted">
+      <p className="text-2xs text-muted">
         Output is one line feature per (triangle, level) crossing,
         tagged with a <code>level</code> attribute. Source attributes
         are dropped because each output line is interpolated across
@@ -2912,10 +2912,10 @@ function AggregateStepEditor({
   return (
     <div className="space-y-3">
       <div>
-        <p className="mb-1 text-[11px] uppercase tracking-wide text-muted">
+        <p className="mb-1 text-2xs uppercase tracking-wide text-muted">
           Group by
         </p>
-        <p className="text-[11px] text-muted">
+        <p className="text-2xs text-muted">
           One output row per distinct combination.  Empty = collapse
           to a single output row (legacy dissolve behavior).
         </p>
@@ -2924,7 +2924,7 @@ function AggregateStepEditor({
             {params.groupBy.map((g) => (
               <span
                 key={g}
-                className="inline-flex items-center gap-1 rounded-md border border-accent/40 bg-accent/10 px-2 py-0.5 text-[11px] font-mono text-accent"
+                className="inline-flex items-center gap-1 rounded-md border border-accent/40 bg-accent/10 px-2 py-0.5 text-2xs font-mono text-accent"
               >
                 {g}
                 <button
@@ -2941,7 +2941,7 @@ function AggregateStepEditor({
         ) : null}
         {groupCandidates.length > 0 ? (
           <div className="mt-2 flex flex-wrap items-center gap-1">
-            <span className="text-[10px] uppercase tracking-wide text-muted">
+            <span className="text-2xs uppercase tracking-wide text-muted">
               Add:
             </span>
             {groupCandidates.map((f) => (
@@ -2949,7 +2949,7 @@ function AggregateStepEditor({
                 key={f.name}
                 type="button"
                 onClick={() => toggleGroup(f.name, true)}
-                className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-2 py-0.5 font-mono text-[11px] text-ink-1 hover:bg-surface-2"
+                className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-2 py-0.5 font-mono text-2xs text-ink-1 hover:bg-surface-2"
               >
                 + {f.name}
               </button>
@@ -2959,13 +2959,13 @@ function AggregateStepEditor({
       </div>
       <div>
         <div className="mb-1 flex items-center justify-between">
-          <p className="text-[11px] uppercase tracking-wide text-muted">
+          <p className="text-2xs uppercase tracking-wide text-muted">
             Aggregations
           </p>
           <button
             type="button"
             onClick={addAgg}
-            className="inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-[11px] text-ink-1 hover:bg-surface-2"
+            className="inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2"
           >
             <Plus className="h-3 w-3" />
             Add
@@ -2997,7 +2997,7 @@ function AggregateStepEditor({
                 <option value="first">first</option>
               </select>
               {a.op === 'count' ? (
-                <span className="rounded border border-border bg-surface-1 px-2 py-1 text-[11px] text-muted">
+                <span className="rounded border border-border bg-surface-1 px-2 py-1 text-2xs text-muted">
                   (no field needed)
                 </span>
               ) : (
@@ -3034,7 +3034,7 @@ function AggregateStepEditor({
             </div>
           ))}
           {params.aggs.length === 0 ? (
-            <p className="text-[11px] text-muted">
+            <p className="text-2xs text-muted">
               No aggregations yet.  Add at least one with the + button.
             </p>
           ) : null}
@@ -3092,7 +3092,7 @@ function SpatialJoinStepEditor({
       />
 
       <div>
-        <p className="mb-1 text-[11px] uppercase tracking-wide text-muted">
+        <p className="mb-1 text-2xs uppercase tracking-wide text-muted">
           Predicate
         </p>
         <div className="grid grid-cols-3 gap-2" role="radiogroup">
@@ -3113,7 +3113,7 @@ function SpatialJoinStepEditor({
             </button>
           ))}
         </div>
-        <p className="mt-1 text-[11px] text-muted">
+        <p className="mt-1 text-2xs text-muted">
           {params.predicate === 'within'
             ? 'Match when the upstream geometry is fully inside a feature in the other layer.'
             : params.predicate === 'intersects'
@@ -3124,7 +3124,7 @@ function SpatialJoinStepEditor({
 
       {params.predicate === 'nearest' ? (
         <label className="flex flex-col gap-1">
-          <span className="text-[11px] uppercase tracking-wide text-muted">
+          <span className="text-2xs uppercase tracking-wide text-muted">
             Max distance (meters)
           </span>
           <input
@@ -3144,7 +3144,7 @@ function SpatialJoinStepEditor({
       ) : null}
 
       <div>
-        <p className="mb-1 text-[11px] uppercase tracking-wide text-muted">
+        <p className="mb-1 text-2xs uppercase tracking-wide text-muted">
           Bring over
         </p>
         <div className="grid grid-cols-2 gap-2" role="radiogroup">
@@ -3169,7 +3169,7 @@ function SpatialJoinStepEditor({
 
       {params.attributeStrategy === 'first' ? (
         <label className="flex flex-col gap-1">
-          <span className="text-[11px] uppercase tracking-wide text-muted">
+          <span className="text-2xs uppercase tracking-wide text-muted">
             Attributes to keep
           </span>
           <input
@@ -3187,7 +3187,7 @@ function SpatialJoinStepEditor({
             placeholder="county_name, fips, population"
             className="h-9 rounded-md border border-border bg-surface-1 px-3 font-mono text-xs focus:border-accent focus:outline-none"
           />
-          <span className="text-[11px] text-muted">
+          <span className="text-2xs text-muted">
             Comma-separated field names on the other layer.  Each
             lands on every upstream row as
             <code className="ml-1 rounded bg-surface-2 px-1 font-mono">
@@ -3199,7 +3199,7 @@ function SpatialJoinStepEditor({
       ) : null}
 
       <label className="flex flex-col gap-1">
-        <span className="text-[11px] uppercase tracking-wide text-muted">
+        <span className="text-2xs uppercase tracking-wide text-muted">
           Output prefix
         </span>
         <input
@@ -3213,7 +3213,7 @@ function SpatialJoinStepEditor({
           }
           className="h-9 w-40 rounded-md border border-border bg-surface-1 px-3 font-mono text-xs focus:border-accent focus:outline-none"
         />
-        <span className="text-[11px] text-muted">
+        <span className="text-2xs text-muted">
           Prepended to every joined attribute name.  Defaults to{' '}
           <code className="rounded bg-surface-2 px-1 font-mono">joined_</code>
           .
@@ -3342,7 +3342,7 @@ function SpatialFilterStepEditor({
       />
 
       <div>
-        <p className="mb-1 text-[11px] uppercase tracking-wide text-muted">
+        <p className="mb-1 text-2xs uppercase tracking-wide text-muted">
           Predicate
         </p>
         <div className="grid grid-cols-5 gap-2" role="radiogroup">
@@ -3363,7 +3363,7 @@ function SpatialFilterStepEditor({
             </button>
           ))}
         </div>
-        <p className="mt-1 text-[11px] text-muted">
+        <p className="mt-1 text-2xs text-muted">
           {fixedPredicate === 'intersects'
             ? 'Keep upstream rows whose geometry shares any space with a feature in the other layer.'
             : fixedPredicate === 'within'
@@ -3378,7 +3378,7 @@ function SpatialFilterStepEditor({
 
       {fixedPredicate === 'near' ? (
         <label className="flex flex-col gap-1">
-          <span className="text-[11px] uppercase tracking-wide text-muted">
+          <span className="text-2xs uppercase tracking-wide text-muted">
             Distance (meters)
           </span>
           <input

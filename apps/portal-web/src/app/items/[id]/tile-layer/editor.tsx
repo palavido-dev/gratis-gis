@@ -471,7 +471,7 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
                   </span>
                 </div>
                 {data.tilingError ? (
-                  <pre className="overflow-x-auto rounded border border-border bg-surface-2 p-2 text-[11px] text-muted">
+                  <pre className="overflow-x-auto rounded border border-border bg-surface-2 p-2 text-2xs text-muted">
                     {data.tilingError}
                   </pre>
                 ) : null}
@@ -603,7 +603,7 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border border-border bg-surface-2 p-3">
-      <p className="text-[10px] uppercase tracking-wide text-muted">{label}</p>
+      <p className="text-2xs uppercase tracking-wide text-muted">{label}</p>
       <p className="mt-1 font-mono text-ink-0">{value}</p>
     </div>
   );

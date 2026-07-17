@@ -197,7 +197,7 @@ export function ToolDetail({ itemId, initial, canEdit }: Props) {
               placeholder="https://example.org/page"
               className={inputCls}
             />
-            <p className="mt-1 text-[11px] text-muted">
+            <p className="mt-1 text-2xs text-muted">
               Absolute URL.  App-relative paths like
               <code className="mx-1 rounded bg-surface-2 px-1 font-mono">/items/&lt;id&gt;</code>
               also work for jumping to portal pages.
@@ -235,7 +235,7 @@ export function ToolDetail({ itemId, initial, canEdit }: Props) {
               placeholder="00000000-0000-0000-0000-000000000000"
               className={`${inputCls} font-mono`}
             />
-            <p className="mt-1 text-[11px] text-muted">
+            <p className="mt-1 text-2xs text-muted">
               The item id to navigate to.  Resolves to
               <code className="mx-1 rounded bg-surface-2 px-1 font-mono">/items/&lt;targetItemId&gt;</code>.
               A future iteration will replace this with an item picker.
@@ -263,7 +263,7 @@ export function ToolDetail({ itemId, initial, canEdit }: Props) {
               placeholder="configure, run, …"
               className={inputCls}
             />
-            <p className="mt-1 text-[11px] text-muted">
+            <p className="mt-1 text-2xs text-muted">
               Appends <code className="mx-1 rounded bg-surface-2 px-1 font-mono">?view=&lt;value&gt;</code>
               to the URL.  Useful for jumping straight into a builder
               or a runtime view of a multi-mode item.
@@ -298,7 +298,7 @@ export function ToolDetail({ itemId, initial, canEdit }: Props) {
               placeholder="00000000-0000-0000-0000-000000000000"
               className={`${inputCls} font-mono`}
             />
-            <p className="mt-1 text-[11px] text-muted">
+            <p className="mt-1 text-2xs text-muted">
               The data_layer item id whose features to export.
             </p>
           </div>
@@ -314,7 +314,7 @@ export function ToolDetail({ itemId, initial, canEdit }: Props) {
               placeholder="lyr_xxxxxxxx"
               className={`${inputCls} font-mono`}
             />
-            <p className="mt-1 text-[11px] text-muted">
+            <p className="mt-1 text-2xs text-muted">
               The sublayer id inside the data layer (visible on the
               data layer&apos;s detail page).  v3 layers are multi-
               layer so you pick a specific sublayer here.

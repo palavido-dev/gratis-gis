@@ -510,11 +510,11 @@ export function FolderDetail({
                     </span>
                   </Link>
                   <span
-                    className={`hidden shrink-0 text-[10px] uppercase tracking-wide sm:inline ${accent}`}
+                    className={`hidden shrink-0 text-2xs uppercase tracking-wide sm:inline ${accent}`}
                   >
                     {getItemTypeLabel(child.type)}
                   </span>
-                  <span className="hidden shrink-0 text-[11px] text-muted lg:inline">
+                  <span className="hidden shrink-0 text-2xs text-muted lg:inline">
                     {new Date(child.updatedAt).toLocaleDateString()}
                   </span>
                   {canEdit && !isSmart ? (
@@ -531,7 +531,7 @@ export function FolderDetail({
                       className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted opacity-0 transition-opacity hover:bg-surface-1 hover:text-ink-1 group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {busy ? (
-                        <span className="text-[9px]">...</span>
+                        <span className="text-2xs">...</span>
                       ) : (
                         <X className="h-3.5 w-3.5" />
                       )}
@@ -746,7 +746,7 @@ function ShareAllItemsDialog({
 
         <div className="space-y-3 px-4 py-4 text-sm">
           <div>
-            <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted">
+            <span className="mb-1 block text-2xs font-medium uppercase tracking-wide text-muted">
               Will share with ({shareCount})
             </span>
             <ul className="divide-y divide-border rounded border border-border bg-surface-1 text-xs">
@@ -758,12 +758,12 @@ function ShareAllItemsDialog({
                   <span className="flex-1 truncate text-ink-0">
                     {labelFor(s)}
                     {s.principalType === 'group' ? (
-                      <span className="ml-1 text-[10px] uppercase tracking-wide text-muted">
+                      <span className="ml-1 text-2xs uppercase tracking-wide text-muted">
                         group
                       </span>
                     ) : null}
                   </span>
-                  <span className="rounded border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+                  <span className="rounded border border-border bg-surface-2 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-muted">
                     can {s.permission}
                   </span>
                 </li>
@@ -771,7 +771,7 @@ function ShareAllItemsDialog({
             </ul>
           </div>
 
-          <p className="text-[11px] text-muted">
+          <p className="text-2xs text-muted">
             This will update <strong>up to {eligibleCount}</strong>{' '}
             item{eligibleCount === 1 ? '' : 's'}. Items where you are
             not the owner or an admin are skipped. Re-running this is
@@ -1039,7 +1039,7 @@ function SmartFolderPanel({
           contents come from a saved query, not a hand-curated list.
         </span>
         {saving ? (
-          <span className="text-[10px] uppercase text-muted">
+          <span className="text-2xs uppercase text-muted">
             Saving...
           </span>
         ) : null}
@@ -1047,7 +1047,7 @@ function SmartFolderPanel({
           <button
             type="button"
             onClick={() => setExpanded((v) => !v)}
-            className="ml-auto inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-2 py-0.5 text-[11px] text-ink-1 hover:bg-surface-2"
+            className="ml-auto inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-2 py-0.5 text-2xs text-ink-1 hover:bg-surface-2"
             aria-expanded={expanded}
             aria-controls="smart-folder-form"
           >
@@ -1080,7 +1080,7 @@ function SmartFolderPanel({
               need to know that "feature service" became
               "data_layer". Empty selection = "any type". */}
           <fieldset>
-            <legend className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">
+            <legend className="mb-1 text-2xs font-medium uppercase tracking-wide text-muted">
               Item type
               {selectedTypes.size > 0 ? (
                 <span className="ml-1 normal-case text-muted">
@@ -1127,7 +1127,7 @@ function SmartFolderPanel({
               page's plain-text search. */}
           <div className="space-y-1">
             <label className="flex flex-col gap-1">
-              <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
+              <span className="text-2xs font-medium uppercase tracking-wide text-muted">
                 Search text
               </span>
               <input
@@ -1138,7 +1138,7 @@ function SmartFolderPanel({
                 className="h-7 rounded border border-border bg-surface-1 px-2 text-xs"
               />
             </label>
-            <div className="flex flex-wrap items-center gap-2 pt-0.5 text-[11px]">
+            <div className="flex flex-wrap items-center gap-2 pt-0.5 text-2xs">
               <span className="text-muted">Search in:</span>
               {SEARCH_FIELD_OPTIONS.map(({ key, label }) => {
                 const checked = searchFields.has(key);
@@ -1164,7 +1164,7 @@ function SmartFolderPanel({
               internally; the user only ever sees the chosen
               name + a Clear button. */}
           <div>
-            <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted">
+            <span className="mb-1 block text-2xs font-medium uppercase tracking-wide text-muted">
               Owner
             </span>
             {ownerId ? (
@@ -1178,7 +1178,7 @@ function SmartFolderPanel({
                     setOwnerId('');
                     setOwnerLabel('');
                   }}
-                  className="h-6 rounded border border-border bg-surface-1 px-2 text-[11px] text-muted hover:bg-surface-2 hover:text-ink-1"
+                  className="h-6 rounded border border-border bg-surface-1 px-2 text-2xs text-muted hover:bg-surface-2 hover:text-ink-1"
                 >
                   Clear
                 </button>
@@ -1198,7 +1198,7 @@ function SmartFolderPanel({
           </div>
 
           <label className="flex max-w-[12rem] flex-col gap-1">
-            <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
+            <span className="text-2xs font-medium uppercase tracking-wide text-muted">
               Limit
             </span>
             <input

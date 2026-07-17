@@ -40,9 +40,9 @@ const sectionCls =
 const sectionHeaderCls =
   'flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-muted';
 const sectionAddBtnCls =
-  'inline-flex items-center gap-1 rounded-md border border-dashed border-border bg-surface-2 px-2 py-1 text-[11px] text-ink-1 hover:bg-surface-1 disabled:opacity-50';
+  'inline-flex items-center gap-1 rounded-md border border-dashed border-border bg-surface-2 px-2 py-1 text-2xs text-ink-1 hover:bg-surface-1 disabled:opacity-50';
 const rowRemoveBtnCls =
-  'self-start rounded-md border border-border bg-surface-0 px-2 py-1 text-[11px] text-danger hover:bg-danger/10';
+  'self-start rounded-md border border-border bg-surface-0 px-2 py-1 text-2xs text-danger hover:bg-danger/10';
 
 type Catalog = Array<{ id: string; label: string; category: string }>;
 
@@ -215,7 +215,7 @@ export function OsmRelationalEditor({ action, canEdit, onChange }: Props) {
         <div className={sectionHeaderCls}>
           <span>What to find</span>
         </div>
-        <p className="text-[11px] text-muted">
+        <p className="text-2xs text-muted">
           Pick the kind of feature you want as a result. Every match
           will be one of these. Example: schools, gas stations,
           breweries.
@@ -241,13 +241,13 @@ export function OsmRelationalEditor({ action, canEdit, onChange }: Props) {
             <Plus className="h-3 w-3" /> Add &quot;must be near&quot;
           </button>
         </div>
-        <p className="text-[11px] text-muted">
+        <p className="text-2xs text-muted">
           A result only counts if it has at least one of each of these
           nearby. Example: keep only schools that have BOTH a park
           within 0.5 mi AND a library within 1 mi.
         </p>
         {action.conditions.length === 0 ? (
-          <p className="text-[11px] italic text-muted">
+          <p className="text-2xs italic text-muted">
             None yet. Add one to require the result to be near
             something else.
           </p>
@@ -315,12 +315,12 @@ export function OsmRelationalEditor({ action, canEdit, onChange }: Props) {
             <Plus className="h-3 w-3" /> Add &quot;must not be near&quot;
           </button>
         </div>
-        <p className="text-[11px] text-muted">
+        <p className="text-2xs text-muted">
           Optional. Drop any result that has one of these nearby.
           Example: schools near a park but NOT near a highway.
         </p>
         {(action.negations?.length ?? 0) === 0 ? (
-          <p className="text-[11px] italic text-muted">
+          <p className="text-2xs italic text-muted">
             None. Optional.
           </p>
         ) : (
@@ -377,7 +377,7 @@ export function OsmRelationalEditor({ action, canEdit, onChange }: Props) {
             <Plus className="h-3 w-3" /> Add direction rule
           </button>
         </div>
-        <p className="text-[11px] text-muted">
+        <p className="text-2xs text-muted">
           Optional. Require the result to lie in a specific compass
           direction from one of the &quot;Must be near&quot; features.
           0 = North, 90 = East, 180 = South, 270 = West. Tolerance
@@ -385,7 +385,7 @@ export function OsmRelationalEditor({ action, canEdit, onChange }: Props) {
           &quot;within 45° of the target bearing in either direction.&quot;
         </p>
         {(action.bearings?.length ?? 0) === 0 ? (
-          <p className="text-[11px] italic text-muted">
+          <p className="text-2xs italic text-muted">
             None. Optional.
           </p>
         ) : (
@@ -397,7 +397,7 @@ export function OsmRelationalEditor({ action, canEdit, onChange }: Props) {
               >
                 <div className="flex-1 grid grid-cols-3 gap-2">
                   <div>
-                    <label className="block text-[10px] uppercase tracking-wide text-muted">
+                    <label className="block text-2xs uppercase tracking-wide text-muted">
                       Relative to
                     </label>
                     <select
@@ -418,7 +418,7 @@ export function OsmRelationalEditor({ action, canEdit, onChange }: Props) {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[10px] uppercase tracking-wide text-muted">
+                    <label className="block text-2xs uppercase tracking-wide text-muted">
                       Bearing (deg)
                     </label>
                     <input
@@ -436,7 +436,7 @@ export function OsmRelationalEditor({ action, canEdit, onChange }: Props) {
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] uppercase tracking-wide text-muted">
+                    <label className="block text-2xs uppercase tracking-wide text-muted">
                       Tolerance (deg)
                     </label>
                     <input
@@ -474,13 +474,13 @@ export function OsmRelationalEditor({ action, canEdit, onChange }: Props) {
         <div className={sectionHeaderCls}>
           <span>Area of interest</span>
         </div>
-        <p className="text-[11px] text-muted">
+        <p className="text-2xs text-muted">
           Defaulted to a drawn polygon: the runtime user draws the
           search area when they run the tool. Advanced authors who
           need a different AOI parameter shape (e.g. bound to a
           host-app layer) can edit the action JSON directly.
         </p>
-        <p className="text-[11px] font-mono text-muted">
+        <p className="text-2xs font-mono text-muted">
           parameter: <code>{action.aoiParameterRef || '(unset)'}</code>
         </p>
       </div>
@@ -489,7 +489,7 @@ export function OsmRelationalEditor({ action, canEdit, onChange }: Props) {
         <div className={sectionHeaderCls}>
           <span>Advanced</span>
         </div>
-        <p className="text-[11px] text-muted">
+        <p className="text-2xs text-muted">
           Cache + result-cap knobs. Defaults are fine for most
           tools; touch these when you&apos;re working with a busy
           AOI or a long-lived configuration.
@@ -527,7 +527,7 @@ export function OsmRelationalEditor({ action, canEdit, onChange }: Props) {
               }}
               className={inputCls}
             />
-            <p className="mt-1 text-[10px] text-muted">
+            <p className="mt-1 text-2xs text-muted">
               Cap on how many candidate anchors Overpass returns
               before the AND / negation / bearing checks narrow
               them.  Leave blank to use the engine default
@@ -565,7 +565,7 @@ export function OsmRelationalEditor({ action, canEdit, onChange }: Props) {
               }}
               className={inputCls}
             />
-            <p className="mt-1 text-[10px] text-muted">
+            <p className="mt-1 text-2xs text-muted">
               How long Overpass results stay cached before a
               fresh call.  0 = always refetch; blank = engine
               default (60 min).  Server clamps to a max of
@@ -605,11 +605,11 @@ function TagFilterRows({
   }
   return (
     <div className="space-y-1.5 border-l-2 border-border pl-2">
-      <div className="text-[10px] font-medium uppercase tracking-wide text-muted">
+      <div className="text-2xs font-medium uppercase tracking-wide text-muted">
         Tag filters (optional)
       </div>
       {filters.length === 0 ? (
-        <p className="text-[10px] italic text-muted">
+        <p className="text-2xs italic text-muted">
           No tag filters. Add one to require e.g. <code>name~&quot;Lincoln&quot;</code>.
         </p>
       ) : (
@@ -656,7 +656,7 @@ function TagFilterRows({
                 type="button"
                 onClick={() => remove(i)}
                 aria-label="Remove tag filter"
-                className="rounded-md border border-border bg-surface-0 px-2 text-[11px] text-danger hover:bg-danger/10"
+                className="rounded-md border border-border bg-surface-0 px-2 text-2xs text-danger hover:bg-danger/10"
               >
                 ×
               </button>
@@ -668,7 +668,7 @@ function TagFilterRows({
         <button
           type="button"
           onClick={add}
-          className="inline-flex items-center gap-1 rounded-md border border-dashed border-border bg-surface-2 px-2 py-0.5 text-[10px] text-ink-1 hover:bg-surface-1"
+          className="inline-flex items-center gap-1 rounded-md border border-dashed border-border bg-surface-2 px-2 py-0.5 text-2xs text-ink-1 hover:bg-surface-1"
         >
           <Plus className="h-2.5 w-2.5" /> Add tag filter
         </button>
@@ -693,7 +693,7 @@ function DistanceRow({
 }) {
   return (
     <div className="flex items-center gap-1.5">
-      <span className="shrink-0 text-[11px] font-medium text-ink-1">
+      <span className="shrink-0 text-2xs font-medium text-ink-1">
         Within
       </span>
       <input
@@ -726,7 +726,7 @@ function DistanceRow({
         <option value="km">kilometers</option>
         <option value="m">meters</option>
       </select>
-      <span className="text-[11px] text-muted">
+      <span className="text-2xs text-muted">
         of the result
       </span>
     </div>
@@ -778,7 +778,7 @@ function PresetPickerSingle({
     <div className="space-y-1">
       {value ? (
         <div className="flex items-center gap-1">
-          <span className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-0 px-2 py-0.5 text-[11px]">
+          <span className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-0 px-2 py-0.5 text-2xs">
             {currentLabel}
             {canEdit ? (
               <button
@@ -815,7 +815,7 @@ function PresetPickerSingle({
                   className="block w-full px-2 py-1 text-left text-xs hover:bg-surface-1"
                 >
                   <span className="text-ink-0">{p.label}</span>
-                  <span className="ml-1 text-[10px] text-muted">{p.id}</span>
+                  <span className="ml-1 text-2xs text-muted">{p.id}</span>
                 </button>
               ))}
             </div>

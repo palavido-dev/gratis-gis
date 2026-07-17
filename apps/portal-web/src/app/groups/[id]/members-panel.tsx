@@ -229,7 +229,7 @@ export function MembersPanel({
               <option value="admin">admin</option>
             </select>
           </div>
-          <p className="text-[11px] text-muted">
+          <p className="text-2xs text-muted">
             Pick a user from the directory to add them as a{' '}
             <span className="font-medium">{addingRole}</span>. Existing
             members are greyed out.

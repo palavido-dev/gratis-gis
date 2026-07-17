@@ -127,7 +127,7 @@ export function ShareExpiryPicker({
           className="absolute right-0 top-9 z-30 w-64 rounded-md border border-border bg-surface-1 p-2 shadow-overlay"
           onMouseDown={(e) => e.stopPropagation()}
         >
-          <div className="mb-2 flex items-center justify-between text-[11px] uppercase tracking-wide text-muted">
+          <div className="mb-2 flex items-center justify-between text-2xs uppercase tracking-wide text-muted">
             <span>{t('sharing.expires')}</span>
             <button
               type="button"
@@ -149,7 +149,7 @@ export function ShareExpiryPicker({
                 key={d}
                 type="button"
                 onClick={() => pickPreset(d)}
-                className="h-7 rounded border border-border bg-surface-1 px-1 text-[11px] text-ink-1 hover:bg-surface-2"
+                className="h-7 rounded border border-border bg-surface-1 px-1 text-2xs text-ink-1 hover:bg-surface-2"
               >
                 {label}
               </button>
@@ -161,13 +161,13 @@ export function ShareExpiryPicker({
               value={draft}
               min={new Date().toISOString().slice(0, 10)}
               onChange={(e) => setDraft(e.target.value)}
-              className="h-7 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-[11px]"
+              className="h-7 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-2xs"
             />
             <button
               type="button"
               onClick={commitCustom}
               disabled={!draft}
-              className="h-7 rounded border border-accent bg-accent px-2 text-[11px] font-medium text-white disabled:opacity-50"
+              className="h-7 rounded border border-accent bg-accent px-2 text-2xs font-medium text-white disabled:opacity-50"
             >
               {t('sharing.set')}
             </button>
@@ -176,7 +176,7 @@ export function ShareExpiryPicker({
             type="button"
             onClick={clear}
             disabled={!value}
-            className="w-full rounded border border-border px-2 py-1 text-[11px] text-muted hover:bg-surface-2 hover:text-ink-1 disabled:opacity-50"
+            className="w-full rounded border border-border px-2 py-1 text-2xs text-muted hover:bg-surface-2 hover:text-ink-1 disabled:opacity-50"
           >
             {t('sharing.neverExpires')}
           </button>

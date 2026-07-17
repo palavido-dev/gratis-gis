@@ -189,7 +189,7 @@ export function BackupView({ initialConfig, initialRuns, orgName }: Props) {
           </p>
         ) : (
           <table className="w-full text-sm">
-            <thead className="bg-surface-2 text-left text-[11px] uppercase tracking-wide text-muted">
+            <thead className="bg-surface-2 text-left text-2xs uppercase tracking-wide text-muted">
               <tr>
                 <th className="px-4 py-2">When</th>
                 <th className="px-4 py-2">Took</th>
@@ -319,7 +319,7 @@ function SettingsCard({
           <legend className="mb-1 text-xs font-medium text-ink-0">
             Backup schedule
           </legend>
-          <p className="mb-2 text-[11px] text-muted">
+          <p className="mb-2 text-2xs text-muted">
             How often the portal automatically takes a backup. You can
             also use "Run now" below any time to take one on demand.
           </p>
@@ -387,7 +387,7 @@ function SettingsCard({
                   }
                   className="w-20 rounded border border-border bg-surface-0 px-2 py-1 text-sm"
                 />
-                <span className="text-[11px] text-muted">
+                <span className="text-2xs text-muted">
                   (1-28 so it works in every month)
                 </span>
               </>
@@ -429,7 +429,7 @@ function SettingsCard({
             ) : null}
           </div>
           {draft.scheduleMode === 'custom' ? (
-            <p className="mt-1 text-[11px] text-muted">
+            <p className="mt-1 text-2xs text-muted">
               5-field cron expression (minute hour day-of-month month
               day-of-week).
             </p>
@@ -455,7 +455,7 @@ function SettingsCard({
               }
               className="w-24 rounded border border-border bg-surface-0 px-2 py-1 text-sm"
             />
-            <p className="text-[11px] text-muted">
+            <p className="text-2xs text-muted">
               Older successful backups are removed once this many newer
               ones exist. Failed runs are kept so you can diagnose them
               and aren't counted against this number.
@@ -484,7 +484,7 @@ function SettingsCard({
                 <label className="block text-xs font-medium text-ink-0">
                   Where backups are saved
                 </label>
-                <p className="mb-1 text-[11px] text-muted">
+                <p className="mb-1 text-2xs text-muted">
                   Absolute path on the portal server. Leave blank to
                   use the deployment's default location.
                 </p>
@@ -497,7 +497,7 @@ function SettingsCard({
                   className="w-full rounded border border-border bg-surface-0 px-2 py-1 font-mono text-xs"
                   placeholder="e.g. D:\\gratis-gis-backups"
                 />
-                <p className="mt-1 text-[10px] text-muted">
+                <p className="mt-1 text-2xs text-muted">
                   Moving this doesn't move existing backup files: any
                   backups in the old folder stay there (but won't show
                   in the list).
@@ -595,7 +595,7 @@ function RunRow({
               type="button"
               onClick={onCancelDelete}
               disabled={deleting}
-              className="rounded border border-border bg-surface-1 px-2 py-0.5 text-[11px] text-ink-1 hover:bg-surface-2"
+              className="rounded border border-border bg-surface-1 px-2 py-0.5 text-2xs text-ink-1 hover:bg-surface-2"
             >
               Cancel
             </button>
@@ -603,7 +603,7 @@ function RunRow({
               type="button"
               onClick={onDelete}
               disabled={deleting}
-              className="inline-flex items-center gap-1 rounded border border-danger bg-danger/10 px-2 py-0.5 text-[11px] font-medium text-danger hover:bg-danger/20 disabled:opacity-60"
+              className="inline-flex items-center gap-1 rounded border border-danger bg-danger/10 px-2 py-0.5 text-2xs font-medium text-danger hover:bg-danger/20 disabled:opacity-60"
             >
               {deleting ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -619,7 +619,7 @@ function RunRow({
               <>
                 <a
                   href={`/api/portal/admin/backup/runs/${run.id}/download`}
-                  className="inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-2 py-0.5 text-[11px] text-ink-1 hover:bg-surface-2"
+                  className="inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-2 py-0.5 text-2xs text-ink-1 hover:bg-surface-2"
                 >
                   <Download className="h-3 w-3" />
                   Download
@@ -627,7 +627,7 @@ function RunRow({
                 <button
                   type="button"
                   onClick={onRestore}
-                  className="inline-flex items-center gap-1 rounded border border-danger/40 bg-danger/5 px-2 py-0.5 text-[11px] font-medium text-danger hover:bg-danger/10"
+                  className="inline-flex items-center gap-1 rounded border border-danger/40 bg-danger/5 px-2 py-0.5 text-2xs font-medium text-danger hover:bg-danger/10"
                   title="Roll the whole portal back to this backup. Anything changed since then will be lost."
                 >
                   <ShieldAlert className="h-3 w-3" />
@@ -638,7 +638,7 @@ function RunRow({
             <button
               type="button"
               onClick={onConfirmDelete}
-              className="inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-2 py-0.5 text-[11px] text-muted hover:bg-surface-2 hover:text-ink-1"
+              className="inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-2 py-0.5 text-2xs text-muted hover:bg-surface-2 hover:text-ink-1"
             >
               <Trash2 className="h-3 w-3" />
               Delete
@@ -660,14 +660,14 @@ function StatusBadge({
   switch (status) {
     case 'running':
       return (
-        <span className="inline-flex items-center gap-1 rounded bg-warn/10 px-1.5 py-0.5 text-[11px] font-medium text-warn">
+        <span className="inline-flex items-center gap-1 rounded bg-warn/10 px-1.5 py-0.5 text-2xs font-medium text-warn">
           <Loader2 className="h-3 w-3 animate-spin" />
           In progress
         </span>
       );
     case 'succeeded':
       return (
-        <span className="inline-flex items-center gap-1 rounded bg-success/10 px-1.5 py-0.5 text-[11px] font-medium text-success">
+        <span className="inline-flex items-center gap-1 rounded bg-success/10 px-1.5 py-0.5 text-2xs font-medium text-success">
           <CheckCircle2 className="h-3 w-3" />
           Success
         </span>
@@ -675,7 +675,7 @@ function StatusBadge({
     case 'failed':
       return (
         <span
-          className="inline-flex items-center gap-1 rounded bg-danger/10 px-1.5 py-0.5 text-[11px] font-medium text-danger"
+          className="inline-flex items-center gap-1 rounded bg-danger/10 px-1.5 py-0.5 text-2xs font-medium text-danger"
           title={error ?? undefined}
         >
           <XCircle className="h-3 w-3" />
@@ -718,7 +718,7 @@ function WhatsIncluded() {
           in your deployment repo or secret store.
         </li>
       </ul>
-      <p className="mt-3 text-[11px] text-muted">
+      <p className="mt-3 text-2xs text-muted">
         Each backup is a single <code className="font-mono">.tar.gz</code>{' '}
         file in the folder shown under Advanced settings. You can copy
         them to external storage, object storage, or a backup service

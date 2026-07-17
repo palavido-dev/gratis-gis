@@ -71,7 +71,7 @@ export function DataLayerSchema({ data }: Props) {
       >
         <span className="inline-flex items-center gap-2">
           <Table2 className="h-3.5 w-3.5 text-muted" />
-          <span className="text-[11px] font-medium uppercase tracking-wide text-muted">
+          <span className="text-2xs font-medium uppercase tracking-wide text-muted">
             Schema
           </span>
           <span className="text-xs text-muted">
@@ -101,14 +101,14 @@ export function DataLayerSchema({ data }: Props) {
             open={rawOpen}
             onToggle={(e) => setRawOpen((e.target as HTMLDetailsElement).open)}
           >
-            <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2.5 py-1.5 text-[11px] text-muted hover:text-ink-1">
+            <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2.5 py-1.5 text-2xs text-muted hover:text-ink-1">
               <Braces className="h-3 w-3" />
               Raw JSON
               <span className="text-muted">
                 (developer debug; the full item.data payload)
               </span>
             </summary>
-            <pre className="max-h-96 overflow-auto border-t border-border bg-surface-1 p-2 font-mono text-[10.5px] leading-tight text-ink-1">
+            <pre className="max-h-96 overflow-auto border-t border-border bg-surface-1 p-2 font-mono text-2xs leading-tight text-ink-1">
               {JSON.stringify(data, null, 2)}
             </pre>
           </details>
@@ -133,11 +133,11 @@ function SchemaTable({
         <h3 className="text-sm font-semibold text-ink-0">{heading}</h3>
         {layer ? (
           <>
-            <span className="text-[10px] uppercase tracking-wide text-muted">
+            <span className="text-2xs uppercase tracking-wide text-muted">
               {layer.geometryType ?? 'table'}
             </span>
             {typeof layer.featureCount === 'number' ? (
-              <span className="text-[11px] text-muted">
+              <span className="text-2xs text-muted">
                 · {layer.featureCount.toLocaleString()} feature
                 {layer.featureCount === 1 ? '' : 's'}
               </span>
@@ -146,12 +146,12 @@ function SchemaTable({
         ) : null}
       </div>
       {fields.length === 0 ? (
-        <p className="rounded border border-dashed border-border bg-surface-0 px-3 py-4 text-center text-[11px] text-muted">
+        <p className="rounded border border-dashed border-border bg-surface-0 px-3 py-4 text-center text-2xs text-muted">
           No fields defined for this layer yet.
         </p>
       ) : (
         <div className="overflow-hidden rounded border border-border">
-          <table className="w-full text-[11px]">
+          <table className="w-full text-2xs">
             <thead className="bg-surface-2 text-muted">
               <tr>
                 <th className="px-2 py-1 text-left font-medium">Name</th>

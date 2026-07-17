@@ -480,7 +480,7 @@ export function PrintTemplateDetail({
             type="button"
             disabled={!canEdit}
             onClick={() => addElement(kind)}
-            className="flex flex-col items-center gap-1 rounded-md border border-border bg-surface-0 px-2 py-2 text-[10px] font-medium text-ink-1 transition-colors hover:bg-surface-2 disabled:opacity-50"
+            className="flex flex-col items-center gap-1 rounded-md border border-border bg-surface-0 px-2 py-2 text-2xs font-medium text-ink-1 transition-colors hover:bg-surface-2 disabled:opacity-50"
             title={`Add ${label}`}
           >
             <Icon className="h-4 w-4" strokeWidth={1.75} />
@@ -489,7 +489,7 @@ export function PrintTemplateDetail({
         ))}
       </div>
       {seedKind ? (
-        <div className="mt-3 rounded bg-warn/15 px-2 py-1 text-[10px] font-medium text-warn">
+        <div className="mt-3 rounded bg-warn/15 px-2 py-1 text-2xs font-medium text-warn">
           Built-in starter
         </div>
       ) : null}
@@ -752,7 +752,7 @@ function SegmentToken({
 function ImageElementBody({ element }: { element: PrintImageElement }) {
   if (!element.url) {
     return (
-      <div className="flex h-full w-full items-center justify-center bg-surface-2 text-[10px] text-muted">
+      <div className="flex h-full w-full items-center justify-center bg-surface-2 text-2xs text-muted">
         Image: set URL in properties
       </div>
     );
@@ -778,7 +778,7 @@ function MapElementPreview({ element }: { element: PrintMapElement }) {
     : {};
   return (
     <div
-      className="flex h-full w-full items-center justify-center bg-success/10 text-[10px] text-success"
+      className="flex h-full w-full items-center justify-center bg-success/10 text-2xs text-success"
       style={borderStyle}
     >
       <MapIcon className="mr-1 h-4 w-4" /> Map
@@ -795,10 +795,10 @@ function LegendElementPreview({ element }: { element: PrintLegendElement }) {
     : {};
   return (
     <div
-      className="flex h-full w-full flex-col p-1 text-[9px] text-ink-1"
+      className="flex h-full w-full flex-col p-1 text-2xs text-ink-1"
       style={{ ...borderStyle, background: element.backgroundColor ?? '#fff' }}
     >
-      <strong className="mb-0.5 text-[10px]">{element.title ?? 'Legend'}</strong>
+      <strong className="mb-0.5 text-2xs">{element.title ?? 'Legend'}</strong>
       <span>Layer 1</span>
       <span>Layer 2</span>
       <span>…</span>
@@ -808,7 +808,7 @@ function LegendElementPreview({ element }: { element: PrintLegendElement }) {
 
 function ScalebarElementPreview({ element }: { element: PrintScalebarElement }) {
   return (
-    <div className="flex h-full w-full flex-col justify-center text-[9px] text-ink-1">
+    <div className="flex h-full w-full flex-col justify-center text-2xs text-ink-1">
       <div className="flex h-2 w-full">
         <div className="flex-1 bg-slate-900" />
         <div className="flex-1 bg-white" />
@@ -1019,7 +1019,7 @@ function BoxControls({
 }) {
   function field(key: keyof PrintElementBox, label: string) {
     return (
-      <label className="block text-[11px] text-ink-1">
+      <label className="block text-2xs text-ink-1">
         {label}
         <input
           type="number"
@@ -1027,7 +1027,7 @@ function BoxControls({
           value={box[key]}
           disabled={!canEdit}
           onChange={(e) => onChange({ ...box, [key]: Number(e.target.value) || 0 })}
-          className="mt-0.5 h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-[11px]"
+          className="mt-0.5 h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-2xs"
         />
       </label>
     );
@@ -1101,8 +1101,8 @@ function TextProps({
   return (
     <div className="space-y-2">
       <div>
-        <div className="text-[11px] font-medium text-muted">Content</div>
-        <div className="mt-1 flex flex-wrap items-center gap-1 rounded border border-border bg-surface-0 p-1.5 text-[11px]">
+        <div className="text-2xs font-medium text-muted">Content</div>
+        <div className="mt-1 flex flex-wrap items-center gap-1 rounded border border-border bg-surface-0 p-1.5 text-2xs">
           {element.segments.map((seg, i) =>
             seg.kind === 'literal' ? (
               <span key={i} className="px-0.5 text-ink-0">
@@ -1150,16 +1150,16 @@ function TextProps({
               }
             }}
             placeholder="Type text…"
-            className="min-w-[60px] flex-1 bg-transparent text-[11px] outline-none"
+            className="min-w-[60px] flex-1 bg-transparent text-2xs outline-none"
           />
         </div>
       </div>
-      <details className="rounded border border-border bg-surface-0 p-1.5 text-[11px]">
+      <details className="rounded border border-border bg-surface-0 p-1.5 text-2xs">
         <summary className="cursor-pointer text-muted">Insert chip…</summary>
         <div className="mt-1.5 space-y-1.5">
           {parameters.length > 0 ? (
             <div>
-              <div className="text-[10px] uppercase tracking-wide text-muted">Parameters</div>
+              <div className="text-2xs uppercase tracking-wide text-muted">Parameters</div>
               <div className="mt-0.5 flex flex-wrap gap-1">
                 {parameters.map((p) => (
                   <button
@@ -1167,7 +1167,7 @@ function TextProps({
                     type="button"
                     disabled={!canEdit}
                     onClick={() => insertBinding('parameter', p.id)}
-                    className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent hover:bg-accent/20"
+                    className="rounded bg-accent/10 px-1.5 py-0.5 text-2xs text-accent hover:bg-accent/20"
                   >
                     {p.label}
                   </button>
@@ -1176,7 +1176,7 @@ function TextProps({
             </div>
           ) : null}
           <div>
-            <div className="text-[10px] uppercase tracking-wide text-muted">Dynamic</div>
+            <div className="text-2xs uppercase tracking-wide text-muted">Dynamic</div>
             <div className="mt-0.5 flex flex-wrap gap-1">
               {DYNAMIC_TOKEN_IDS.map((id) => (
                 <button
@@ -1184,7 +1184,7 @@ function TextProps({
                   type="button"
                   disabled={!canEdit}
                   onClick={() => insertBinding('dynamic', id)}
-                  className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-1 hover:bg-surface-2"
+                  className="rounded bg-surface-2 px-1.5 py-0.5 text-2xs text-ink-1 hover:bg-surface-2"
                 >
                   {DYNAMIC_TOKEN_LABELS[id]}
                 </button>
@@ -1194,7 +1194,7 @@ function TextProps({
         </div>
       </details>
       <div className="grid grid-cols-2 gap-1.5">
-        <label className="block text-[11px] text-ink-1">
+        <label className="block text-2xs text-ink-1">
           Font size (pt)
           <input
             type="number"
@@ -1203,10 +1203,10 @@ function TextProps({
             value={element.fontSizePt}
             disabled={!canEdit}
             onChange={(e) => onChange({ fontSizePt: Number(e.target.value) || 12 })}
-            className="mt-0.5 h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-[11px]"
+            className="mt-0.5 h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-2xs"
           />
         </label>
-        <label className="block text-[11px] text-ink-1">
+        <label className="block text-2xs text-ink-1">
           Color
           <input
             type="color"
@@ -1243,7 +1243,7 @@ function TextProps({
           type="button"
           disabled={!canEdit}
           onClick={() => onChange({ fontWeight: element.fontWeight === 'bold' ? 'normal' : 'bold' })}
-          className={`flex-1 rounded border px-2 py-1 text-[11px] font-bold ${
+          className={`flex-1 rounded border px-2 py-1 text-2xs font-bold ${
             element.fontWeight === 'bold'
               ? 'border-accent bg-accent/10 text-accent'
               : 'border-border bg-surface-0 text-ink-1'
@@ -1255,7 +1255,7 @@ function TextProps({
           type="button"
           disabled={!canEdit}
           onClick={() => onChange({ fontStyle: element.fontStyle === 'italic' ? 'normal' : 'italic' })}
-          className={`flex-1 rounded border px-2 py-1 text-[11px] italic ${
+          className={`flex-1 rounded border px-2 py-1 text-2xs italic ${
             element.fontStyle === 'italic'
               ? 'border-accent bg-accent/10 text-accent'
               : 'border-border bg-surface-0 text-ink-1'
@@ -1279,17 +1279,17 @@ function ImageProps({
 }) {
   return (
     <div className="space-y-2">
-      <label className="block text-[11px] text-ink-1">
+      <label className="block text-2xs text-ink-1">
         Image URL (https:// or data:)
         <input
           type="text"
           value={element.url}
           disabled={!canEdit}
           onChange={(e) => onChange({ url: e.target.value })}
-          className="mt-0.5 h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-[11px]"
+          className="mt-0.5 h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-2xs"
         />
       </label>
-      <label className="block text-[11px] text-ink-1">
+      <label className="block text-2xs text-ink-1">
         Object fit
         <select
           value={element.objectFit ?? 'contain'}
@@ -1299,7 +1299,7 @@ function ImageProps({
               objectFit: e.target.value as NonNullable<PrintImageElement['objectFit']>,
             })
           }
-          className="mt-0.5 h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-[11px]"
+          className="mt-0.5 h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-2xs"
         >
           <option value="contain">Contain</option>
           <option value="cover">Cover</option>
@@ -1321,7 +1321,7 @@ function MapProps({
 }) {
   return (
     <div className="space-y-2">
-      <label className="block text-[11px] text-ink-1">
+      <label className="block text-2xs text-ink-1">
         Scale override (denominator, blank to use form value)
         <input
           type="number"
@@ -1337,10 +1337,10 @@ function MapProps({
               : ({ scaleOverride: undefined } as unknown as Partial<PrintMapElement>);
             onChange(patch);
           }}
-          className="mt-0.5 h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-[11px]"
+          className="mt-0.5 h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-2xs"
         />
       </label>
-      <label className="block text-[11px] text-ink-1">
+      <label className="block text-2xs text-ink-1">
         Grid
         <select
           value={element.grid ?? 'none'}
@@ -1348,7 +1348,7 @@ function MapProps({
           onChange={(e) =>
             onChange({ grid: e.target.value as NonNullable<PrintMapElement['grid']> })
           }
-          className="mt-0.5 h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-[11px]"
+          className="mt-0.5 h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-2xs"
         >
           <option value="none">None</option>
           <option value="decimal">Decimal degrees</option>
@@ -1371,17 +1371,17 @@ function LegendProps({
 }) {
   return (
     <div className="space-y-2">
-      <label className="block text-[11px] text-ink-1">
+      <label className="block text-2xs text-ink-1">
         Title
         <input
           type="text"
           value={element.title ?? ''}
           disabled={!canEdit}
           onChange={(e) => onChange({ title: e.target.value })}
-          className="mt-0.5 h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-[11px]"
+          className="mt-0.5 h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-2xs"
         />
       </label>
-      <label className="block text-[11px] text-ink-1">
+      <label className="block text-2xs text-ink-1">
         Font size (pt)
         <input
           type="number"
@@ -1390,7 +1390,7 @@ function LegendProps({
           value={element.fontSizePt ?? 9}
           disabled={!canEdit}
           onChange={(e) => onChange({ fontSizePt: Number(e.target.value) || 9 })}
-          className="mt-0.5 h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-[11px]"
+          className="mt-0.5 h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-2xs"
         />
       </label>
     </div>
@@ -1408,7 +1408,7 @@ function ScalebarProps({
 }) {
   return (
     <div className="space-y-2">
-      <label className="block text-[11px] text-ink-1">
+      <label className="block text-2xs text-ink-1">
         Units
         <select
           value={element.units ?? 'imperial'}
@@ -1418,7 +1418,7 @@ function ScalebarProps({
               units: e.target.value as NonNullable<PrintScalebarElement['units']>,
             })
           }
-          className="mt-0.5 h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-[11px]"
+          className="mt-0.5 h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-2xs"
         >
           <option value="imperial">Imperial (miles)</option>
           <option value="metric">Metric (km)</option>
@@ -1458,7 +1458,7 @@ function ParameterPanel({
         </button>
       </div>
       {parameters.length === 0 ? (
-        <p className="text-[11px] text-muted">
+        <p className="text-2xs text-muted">
           Parameters become form fields the user fills before printing.
         </p>
       ) : (
@@ -1471,7 +1471,7 @@ function ParameterPanel({
                   value={p.label}
                   disabled={!canEdit}
                   onChange={(e) => onUpdate(p.id, { label: e.target.value })}
-                  className="h-7 flex-1 rounded border border-border bg-surface-0 px-1.5 text-[11px]"
+                  className="h-7 flex-1 rounded border border-border bg-surface-0 px-1.5 text-2xs"
                   placeholder="Label"
                 />
                 <button
@@ -1493,7 +1493,7 @@ function ParameterPanel({
                       type: e.target.value as PrintTemplateParameter['type'],
                     })
                   }
-                  className="h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-[11px]"
+                  className="h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-2xs"
                 >
                   <option value="text">Text</option>
                   <option value="longtext">Long text</option>
@@ -1506,11 +1506,11 @@ function ParameterPanel({
                   value={p.defaultValue ?? ''}
                   disabled={!canEdit}
                   onChange={(e) => onUpdate(p.id, { defaultValue: e.target.value })}
-                  className="h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-[11px]"
+                  className="h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-2xs"
                   placeholder="Default value"
                 />
               </div>
-              <div className="mt-1 text-[10px] text-muted">
+              <div className="mt-1 text-2xs text-muted">
                 ID: <code>{p.id}</code>
               </div>
             </div>

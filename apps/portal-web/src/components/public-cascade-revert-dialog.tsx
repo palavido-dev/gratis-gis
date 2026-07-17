@@ -205,10 +205,10 @@ export function PublicCascadeRevertDialog({
                   <span className="min-w-0 flex-1 truncate text-sm text-ink-1">
                     {d.title}
                   </span>
-                  <span className="text-[10px] uppercase tracking-wide text-muted">
+                  <span className="text-2xs uppercase tracking-wide text-muted">
                     {getItemTypeLabel(d.type)}
                   </span>
-                  <span className="text-[10px] uppercase tracking-wide text-success">
+                  <span className="text-2xs uppercase tracking-wide text-success">
                     {t('sharing.access.public')}
                   </span>
                 </label>

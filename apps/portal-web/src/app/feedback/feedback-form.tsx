@@ -125,7 +125,7 @@ export function FeedbackForm() {
     <form onSubmit={onSubmit} className="mt-8 space-y-4" noValidate>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <label className="block">
-          <span className="block text-[12px] font-medium text-ink-1">
+          <span className="block text-xs font-medium text-ink-1">
             Name <span className="font-normal text-muted">(optional)</span>
           </span>
           <input
@@ -139,7 +139,7 @@ export function FeedbackForm() {
           />
         </label>
         <label className="block">
-          <span className="block text-[12px] font-medium text-ink-1">
+          <span className="block text-xs font-medium text-ink-1">
             Email <span className="font-normal text-muted">(optional)</span>
           </span>
           <input
@@ -155,7 +155,7 @@ export function FeedbackForm() {
       </div>
 
       <label className="block">
-        <span className="block text-[12px] font-medium text-ink-1">
+        <span className="block text-xs font-medium text-ink-1">
           Message <span className="text-danger">*</span>
         </span>
         <textarea
@@ -168,7 +168,7 @@ export function FeedbackForm() {
           className="mt-1 w-full rounded border border-border bg-surface-1 px-2.5 py-2 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
           placeholder="What worked, what didn't, what surprised you. Specific repros land better than general impressions."
         />
-        <span className="mt-1 block text-[11px] text-muted">
+        <span className="mt-1 block text-2xs text-muted">
           {message.length.toLocaleString()} / 10,000 characters
         </span>
       </label>
@@ -224,7 +224,7 @@ export function FeedbackForm() {
           )}
           {submitting ? 'Sending...' : 'Send feedback'}
         </button>
-        <span className="text-[11px] text-muted">
+        <span className="text-2xs text-muted">
           Goes straight to the maintainer&rsquo;s inbox.
         </span>
       </div>

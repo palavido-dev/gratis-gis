@@ -174,7 +174,7 @@ export function NotificationPreferencesForm({ initial }: Props) {
                             {channel}
                           </span>
                           {pref.isDefault ? (
-                            <span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+                            <span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-muted">
                               default
                             </span>
                           ) : null}
@@ -210,7 +210,7 @@ export function NotificationPreferencesForm({ initial }: Props) {
                       k.startsWith(`${t.type}|`),
                     ) ? (
                       <p
-                        className="text-[11px] text-danger"
+                        className="text-2xs text-danger"
                         role="alert"
                       >
                         {Object.entries(errorByKey).find(([k]) =>

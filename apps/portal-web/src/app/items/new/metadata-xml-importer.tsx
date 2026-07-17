@@ -100,7 +100,7 @@ export function MetadataXmlImporter({ onApply }: Props) {
       <div className="flex flex-wrap items-center gap-2">
         <FileCode className="h-4 w-4 shrink-0 text-muted" />
         <div className="min-w-0 flex-1 text-xs text-ink-1">
-          <span className="mr-1 rounded border border-border bg-surface-1 px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
+          <span className="mr-1 rounded border border-border bg-surface-1 px-1 py-0.5 text-2xs font-medium uppercase tracking-wide text-muted">
             Optional
           </span>
           Pre-fill title, description, and tags from a{' '}
@@ -123,7 +123,7 @@ export function MetadataXmlImporter({ onApply }: Props) {
         </button>
       </div>
       {status.kind === 'parsed' ? (
-        <p className="mt-2 inline-flex items-center gap-1 text-[11px] text-success">
+        <p className="mt-2 inline-flex items-center gap-1 text-2xs text-success">
           <Check className="h-3 w-3" />
           Parsed as {labelFor(status.meta.source)}. Filled what we
           could; the rest is yours.
@@ -132,13 +132,13 @@ export function MetadataXmlImporter({ onApply }: Props) {
       {status.kind === 'error' ? (
         <p
           role="alert"
-          className="mt-2 inline-flex items-center gap-1 text-[11px] text-danger"
+          className="mt-2 inline-flex items-center gap-1 text-2xs text-danger"
         >
           <AlertTriangle className="h-3 w-3" />
           {status.message}
         </p>
       ) : null}
-      <p className="mt-1 text-[11px] text-muted">
+      <p className="mt-1 text-2xs text-muted">
         Metadata only -- this does not upload the item&rsquo;s content. Your
         file stays in the browser.
       </p>

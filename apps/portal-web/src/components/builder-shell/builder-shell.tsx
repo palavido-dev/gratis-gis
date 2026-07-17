@@ -429,7 +429,7 @@ function PanelHeader({ title, pinned, onTogglePin, side, onClose }: PanelHeaderP
   return (
     <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border bg-surface-2 px-2">
       {title ? (
-        <span className="min-w-0 truncate text-[11px] font-semibold uppercase tracking-wide text-muted">
+        <span className="min-w-0 truncate text-2xs font-semibold uppercase tracking-wide text-muted">
           {title}
         </span>
       ) : null}

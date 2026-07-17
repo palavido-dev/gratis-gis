@@ -380,7 +380,7 @@ export function AddFromMapDialog({
                           <span className="truncate text-sm text-ink-1">
                             {c.layer.label}
                           </span>
-                          <span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+                          <span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-muted">
                             {c.layer.geometryType ?? 'table'}
                           </span>
                         </div>

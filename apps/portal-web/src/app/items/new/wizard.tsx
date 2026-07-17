@@ -1690,7 +1690,7 @@ export function NewItemWizard({
             <TypeIcon className="h-5 w-5" />
           </span>
           <div>
-            <p className="text-[11px] font-medium uppercase tracking-wide text-muted">
+            <p className="text-2xs font-medium uppercase tracking-wide text-muted">
               New {typeOption?.label ?? 'item'}
             </p>
             <p className="text-sm text-ink-0">{typeOption?.desc}</p>
@@ -1764,7 +1764,7 @@ export function NewItemWizard({
                         {tpl.tags.map((tag) => (
                           <span
                             key={tag}
-                            className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] ${
+                            className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-2xs ${
                               tag === 'built-in'
                                 ? 'border-accent/30 bg-accent/10 text-accent'
                                 : 'border-border bg-surface-2 text-muted'
@@ -1780,7 +1780,7 @@ export function NewItemWizard({
               })}
             </div>
           )}
-          <p className="mt-2 text-[11px] text-muted">
+          <p className="mt-2 text-2xs text-muted">
             Every template is a saved Custom Web App. After create,
             open the app and edit anything: widgets, layout, theme.
             You can also save your finished app as a template later
@@ -2323,7 +2323,7 @@ function ServiceConfigSection({
         <div className="mt-4 rounded-md border border-border bg-surface-2 p-3">
           <div className="mb-2 flex items-center justify-between gap-2 text-xs">
             <div className="text-muted">
-              <span className="mr-1 rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-accent">
+              <span className="mr-1 rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wide text-accent">
                 {serviceProtocolLabel(data.protocol)}
               </span>
               {data.serviceTitle ? (
@@ -2342,14 +2342,14 @@ function ServiceConfigSection({
                     new Set(data.layers.map((l) => l.name)),
                   )
                 }
-                className="h-6 rounded border border-border bg-surface-1 px-2 text-[11px] text-ink-1 hover:bg-surface-2"
+                className="h-6 rounded border border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2"
               >
                 Select all
               </button>
               <button
                 type="button"
                 onClick={() => onSelectedLayerNamesChange(new Set())}
-                className="h-6 rounded border border-border bg-surface-1 px-2 text-[11px] text-ink-1 hover:bg-surface-2"
+                className="h-6 rounded border border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2"
               >
                 Clear
               </button>
@@ -2503,14 +2503,14 @@ function OgcConfigSection({
                     new Set(probeResult.layers.map((l) => l.name)),
                   )
                 }
-                className="h-6 rounded border border-border bg-surface-1 px-2 text-[11px] text-ink-1 hover:bg-surface-2"
+                className="h-6 rounded border border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2"
               >
                 Select all
               </button>
               <button
                 type="button"
                 onClick={() => onSelectedLayerNamesChange(new Set())}
-                className="h-6 rounded border border-border bg-surface-1 px-2 text-[11px] text-ink-1 hover:bg-surface-2"
+                className="h-6 rounded border border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2"
               >
                 Clear
               </button>
@@ -2710,12 +2710,12 @@ function ArcgisConfigSection({
             <Lock className="h-3.5 w-3.5" />
             Authentication required
             {credentialUsed ? (
-              <span className="ml-1 rounded-full border border-success/40 bg-success/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-success">
+              <span className="ml-1 rounded-full border border-success/40 bg-success/10 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-success">
                 staged
               </span>
             ) : null}
           </div>
-          <p className="mb-2 text-[11px] text-warn/90">
+          <p className="mb-2 text-2xs text-warn/90">
             The credential is stored encrypted on this item once it&apos;s
             created. Calls from the map go through a server-side proxy
             so the secret never reaches the browser.
@@ -2742,7 +2742,7 @@ function ArcgisConfigSection({
                       ? 'Bearer'
                       : 'Basic'}
                 </div>
-                <div className="text-[10px] text-muted">
+                <div className="text-2xs text-muted">
                   {k === 'arcgis_token'
                     ? '?token=... query param'
                     : k === 'bearer'
@@ -2814,7 +2814,7 @@ function ArcgisConfigSection({
               <p className="mt-1 truncate text-sm font-medium text-ink-0">
                 {probeResult.name || '(unnamed service)'}
               </p>
-              <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted">
+              <p className="mt-0.5 flex items-center gap-1 text-2xs text-muted">
                 <span>{probeResult.serviceType}</span>
                 <span aria-hidden="true">Â·</span>
                 <span>
@@ -2835,7 +2835,7 @@ function ArcgisConfigSection({
             <button
               type="button"
               onClick={onDiscardProbe}
-              className="shrink-0 rounded border border-border bg-surface-1 px-2 py-1 text-[11px] text-muted hover:bg-surface-2"
+              className="shrink-0 rounded border border-border bg-surface-1 px-2 py-1 text-2xs text-muted hover:bg-surface-2"
             >
               Clear
             </button>
@@ -2844,14 +2844,14 @@ function ArcgisConfigSection({
           {probeResult.layers.length > 0 ? (
             <div className="mt-3">
               <div className="mb-1 flex items-center justify-between gap-2">
-                <p className="text-[11px] font-medium uppercase tracking-wide text-muted">
+                <p className="text-2xs font-medium uppercase tracking-wide text-muted">
                   Layers to include
                   <span className="ml-1.5 text-muted normal-case tracking-normal">
                     ({selectedLayerIds.size} of{' '}
                     {probeResult.layers.length} selected)
                   </span>
                 </p>
-                <div className="flex items-center gap-1 text-[11px]">
+                <div className="flex items-center gap-1 text-2xs">
                   <button
                     type="button"
                     onClick={selectAll}
@@ -2902,7 +2902,7 @@ function ArcgisConfigSection({
                         </span>{' '}
                         {l.name}
                       </span>
-                      <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted">
+                      <span className="shrink-0 text-2xs uppercase tracking-wide text-muted">
                         {geometryShort(l.geometryType)}
                       </span>
                       {/* Default-layer star: radio-like, lit only for
@@ -2925,7 +2925,7 @@ function ArcgisConfigSection({
                             : 'Make this the default layer'
                         }
                         aria-pressed={isDefault}
-                        className={`shrink-0 rounded px-1 text-[10px] font-semibold ${
+                        className={`shrink-0 rounded px-1 text-2xs font-semibold ${
                           isDefault
                             ? 'bg-accent/15 text-accent'
                             : 'text-muted hover:bg-surface-2 hover:text-ink-1'
@@ -2937,7 +2937,7 @@ function ArcgisConfigSection({
                   );
                 })}
               </ul>
-              <p className="mt-1 text-[11px] text-muted">
+              <p className="mt-1 text-2xs text-muted">
                 Unchecked layers stay in the upstream service but this
                 item will not expose them. The default layer is loaded
                 when a map picks this item without a specific layer
@@ -2947,7 +2947,7 @@ function ArcgisConfigSection({
           ) : null}
         </div>
       ) : (
-        <p className="text-[11px] text-muted">
+        <p className="text-2xs text-muted">
           Probe first - the Create button stays disabled-looking until the
           service is read.
         </p>

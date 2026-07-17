@@ -428,7 +428,7 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
                         {u.isProtected ? (
                           <span
                             title="Protected master account: mutations are blocked at the API."
-                            className="inline-flex items-center gap-0.5 rounded bg-warn/15 px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-warn"
+                            className="inline-flex items-center gap-0.5 rounded bg-warn/15 px-1 py-0.5 text-2xs font-medium uppercase tracking-wide text-warn"
                           >
                             <Lock className="h-2.5 w-2.5" />
                             Protected
@@ -437,7 +437,7 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
                         {u.id === currentUserId ? (
                           <span
                             title="This is you."
-                            className="inline-flex items-center gap-0.5 rounded bg-accent/10 px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-accent"
+                            className="inline-flex items-center gap-0.5 rounded bg-accent/10 px-1 py-0.5 text-2xs font-medium uppercase tracking-wide text-accent"
                           >
                             You
                           </span>
@@ -452,7 +452,7 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
                         <span className="text-muted italic">-</span>
                       )}
                       {u.emailVerified ? (
-                        <span className="ml-1 inline-flex items-center gap-0.5 text-[10px] text-success">
+                        <span className="ml-1 inline-flex items-center gap-0.5 text-2xs text-success">
                           <ShieldCheck className="h-3 w-3" />
                           verified
                         </span>
@@ -484,11 +484,11 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
                     </td>
                     <td className="px-3 py-2">
                       {u.enabled ? (
-                        <span className="inline-flex items-center gap-1 rounded bg-success/10 px-1.5 py-0.5 text-[11px] text-success">
+                        <span className="inline-flex items-center gap-1 rounded bg-success/10 px-1.5 py-0.5 text-2xs text-success">
                           Active
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 rounded bg-muted/20 px-1.5 py-0.5 text-[11px] text-muted">
+                        <span className="inline-flex items-center gap-1 rounded bg-muted/20 px-1.5 py-0.5 text-2xs text-muted">
                           Disabled
                         </span>
                       )}
@@ -500,7 +500,7 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
                           onClick={() => setViewingAccess(u)}
                           disabled={busy}
                           title="See everything this user has access to"
-                          className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-[11px] text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+                          className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
                         >
                           <Eye className="h-3 w-3" />
                           Access
@@ -510,7 +510,7 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
                           onClick={() => setEditing(u)}
                           disabled={busy || editReason !== null}
                           title={editReason ?? 'Edit name / email'}
-                          className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-[11px] text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+                          className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
                         >
                           <Pencil className="h-3 w-3" />
                           Edit
@@ -520,7 +520,7 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
                           onClick={() => void sendReset(u)}
                           disabled={busy || resetReason !== null}
                           title={resetReason ?? 'Send password-reset email'}
-                          className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-[11px] text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+                          className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
                         >
                           {busy ? (
                             <Loader2 className="h-3 w-3 animate-spin" />
@@ -929,7 +929,7 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
             className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
           />
           {user.emailVerified && email.trim() !== (user.email ?? '') ? (
-            <span className="mt-1 block text-[11px] text-warning">
+            <span className="mt-1 block text-2xs text-warning">
               Changing the email will reset the verified flag: the user will
               need to re-verify.
             </span>
@@ -982,7 +982,7 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
               onChange={(next) => setAutoDisableAt(next)}
               variant="full"
             />
-            <p className="mt-1 text-[11px] text-muted">
+            <p className="mt-1 text-2xs text-muted">
               Useful for contractors, interns, and audit access. The
               account is disabled automatically when the date passes.
             </p>
@@ -1188,21 +1188,21 @@ function CapabilitiesSection({
                   className="h-3.5 w-3.5 rounded border-border text-accent focus:ring-accent/30"
                   aria-label={row.capability}
                 />
-                <span className="flex-1 font-mono text-[11px] text-ink-1">
+                <span className="flex-1 font-mono text-2xs text-ink-1">
                   {row.capability}
                 </span>
                 {overridden ? (
                   <span
                     className={
                       row.effective
-                        ? 'rounded bg-success/15 px-1.5 py-0.5 text-[10px] font-medium text-success'
-                        : 'rounded bg-danger/15 px-1.5 py-0.5 text-[10px] font-medium text-danger'
+                        ? 'rounded bg-success/15 px-1.5 py-0.5 text-2xs font-medium text-success'
+                        : 'rounded bg-danger/15 px-1.5 py-0.5 text-2xs font-medium text-danger'
                     }
                   >
                     {row.effective ? 'override granted' : 'override revoked'}
                   </span>
                 ) : (
-                  <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-muted">
+                  <span className="rounded bg-surface-2 px-1.5 py-0.5 text-2xs font-medium text-muted">
                     {baseline ? 'baseline' : 'not granted'}
                   </span>
                 )}
@@ -1225,11 +1225,11 @@ function CapabilitiesSection({
         </ul>
       )}
       {error ? (
-        <p className="text-[11px] text-danger" role="alert">
+        <p className="text-2xs text-danger" role="alert">
           {error}
         </p>
       ) : null}
-      <p className="text-[11px] text-muted">
+      <p className="text-2xs text-muted">
         Overrides take effect immediately and are independent of the Save
         button above.
       </p>

@@ -128,7 +128,7 @@ export function VersionHistoryPanel({ itemId, canEdit, userNames }: Props) {
       >
         <span className="inline-flex items-center gap-2">
           <History className="h-3.5 w-3.5 text-muted" />
-          <span className="text-[11px] font-medium uppercase tracking-wide text-muted">
+          <span className="text-2xs font-medium uppercase tracking-wide text-muted">
             Version history
           </span>
           {headerCount ? (
@@ -160,7 +160,7 @@ export function VersionHistoryPanel({ itemId, canEdit, userNames }: Props) {
             </p>
           ) : (
             <>
-              <p className="mb-2 text-[11px] text-muted">
+              <p className="mb-2 text-2xs text-muted">
                 Each row is a point-in-time copy of this item's data.
                 Reverting restores that copy: and snapshots the
                 current data first, so you can un-revert if needed.
@@ -188,7 +188,7 @@ export function VersionHistoryPanel({ itemId, canEdit, userNames }: Props) {
                             <span className="ml-2 text-muted">by {by}</span>
                           </p>
                           {s.note ? (
-                            <p className="mt-0.5 truncate text-[11px] italic text-muted">
+                            <p className="mt-0.5 truncate text-2xs italic text-muted">
                               {s.note}
                             </p>
                           ) : null}
@@ -198,7 +198,7 @@ export function VersionHistoryPanel({ itemId, canEdit, userNames }: Props) {
                             <button
                               type="button"
                               onClick={() => setConfirming(null)}
-                              className="rounded border border-border bg-surface-1 px-2 py-0.5 text-[11px] text-ink-1 hover:bg-surface-2"
+                              className="rounded border border-border bg-surface-1 px-2 py-0.5 text-2xs text-ink-1 hover:bg-surface-2"
                               disabled={isReverting}
                             >
                               Cancel
@@ -207,7 +207,7 @@ export function VersionHistoryPanel({ itemId, canEdit, userNames }: Props) {
                               type="button"
                               onClick={() => handleRevert(s.id)}
                               disabled={isReverting}
-                              className="inline-flex items-center gap-1 rounded border border-warn/50 bg-warn/10 px-2 py-0.5 text-[11px] font-medium text-warn hover:bg-warn/20 disabled:opacity-60"
+                              className="inline-flex items-center gap-1 rounded border border-warn/50 bg-warn/10 px-2 py-0.5 text-2xs font-medium text-warn hover:bg-warn/20 disabled:opacity-60"
                             >
                               {isReverting ? (
                                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -221,7 +221,7 @@ export function VersionHistoryPanel({ itemId, canEdit, userNames }: Props) {
                           <button
                             type="button"
                             onClick={() => setConfirming(s.id)}
-                            className="inline-flex shrink-0 items-center gap-1 rounded border border-border bg-surface-1 px-2 py-0.5 text-[11px] text-ink-1 hover:bg-surface-2"
+                            className="inline-flex shrink-0 items-center gap-1 rounded border border-border bg-surface-1 px-2 py-0.5 text-2xs text-ink-1 hover:bg-surface-2"
                           >
                             <RotateCcw className="h-3 w-3" />
                             Revert
@@ -229,7 +229,7 @@ export function VersionHistoryPanel({ itemId, canEdit, userNames }: Props) {
                         )}
                       </div>
                       {isConfirming && !isReverting ? (
-                        <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">
+                        <p className="rounded bg-warn/10 px-2 py-1 text-2xs text-warn">
                           This replaces the current data with the
                           version from {createdAt.toLocaleString()}. A
                           fresh snapshot of right-now is saved first,

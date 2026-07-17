@@ -888,7 +888,7 @@ export function MapEditor({
               role="menu"
               className="absolute right-0 top-11 z-30 w-56 overflow-hidden rounded-md border border-border bg-surface-1 text-xs shadow-overlay"
             >
-              <div className="border-b border-border bg-surface-2 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
+              <div className="border-b border-border bg-surface-2 px-3 py-1.5 text-2xs font-semibold uppercase tracking-wide text-muted">
                 Basemap
               </div>
               {basemaps.length === 0 ? (
@@ -916,7 +916,7 @@ export function MapEditor({
                         >
                           <span className="truncate">{b.label}</span>
                           {active ? (
-                            <span className="ml-auto text-[10px] uppercase tracking-wide">
+                            <span className="ml-auto text-2xs uppercase tracking-wide">
                               active
                             </span>
                           ) : null}

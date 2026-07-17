@@ -105,7 +105,7 @@ export function RecipeEditor({ recipe, canEdit, onChange }: Props) {
             <Sparkles className="h-4 w-4 text-accent" />
             <span className="font-medium">Start from a template</span>
           </div>
-          <p className="text-[11px] text-muted">
+          <p className="text-2xs text-muted">
             Stamp out a working recipe in one click.  You can edit
             anything afterward.
           </p>
@@ -128,7 +128,7 @@ export function RecipeEditor({ recipe, canEdit, onChange }: Props) {
                   className="rounded-md border border-border bg-surface-0 px-3 py-2 text-left text-xs hover:border-accent hover:bg-surface-1"
                 >
                   <div className="font-medium text-ink-0">{tpl.label}</div>
-                  <div className="text-[10px] text-muted">{tpl.description}</div>
+                  <div className="text-2xs text-muted">{tpl.description}</div>
                 </button>,
               ];
             })}
@@ -176,7 +176,7 @@ export function RecipeEditor({ recipe, canEdit, onChange }: Props) {
           }}
           className={inputCls}
         />
-        <p className="mt-1 text-[11px] text-muted">
+        <p className="mt-1 text-2xs text-muted">
           Maximum feature ids returned per run.  The runtime banner
           warns the user when the limit is reached so they know the
           selection is incomplete.
@@ -222,7 +222,7 @@ function ParametersSection({
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-sm font-medium text-ink-0">Parameters</h3>
-          <p className="text-[11px] text-muted">
+          <p className="text-2xs text-muted">
             Slots the recipe exposes.  A parameter can be hardcoded
             into the tool or filled at run time by the host app /
             end-user.
@@ -253,7 +253,7 @@ function ParametersSection({
       </div>
 
       {parameters.length === 0 ? (
-        <div className="rounded-md border border-dashed border-border bg-surface-2 px-3 py-4 text-center text-[11px] text-muted">
+        <div className="rounded-md border border-dashed border-border bg-surface-2 px-3 py-4 text-center text-2xs text-muted">
           No parameters yet.  Add at least one so the runtime knows
           which layer to operate on.
         </div>
@@ -308,7 +308,7 @@ function ParameterCard({
                 placeholder="aoi"
                 className={`${inputCls} font-mono`}
               />
-              <p className="mt-0.5 text-[10px] text-muted">
+              <p className="mt-0.5 text-2xs text-muted">
                 Internal name.  Auto-filled when you add the
                 parameter; change it only if another part of the
                 recipe (like the pipeline step&apos;s pickers) needs
@@ -360,7 +360,7 @@ function ParameterCard({
           />
         </div>
         <div className="flex flex-col items-end gap-2">
-          <span className="rounded-full bg-surface-1 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide text-muted">
+          <span className="rounded-full bg-surface-1 px-2 py-0.5 font-mono text-2xs uppercase tracking-wide text-muted">
             {parameter.kind}
           </span>
           {canEdit ? (
@@ -548,7 +548,7 @@ function FeatureSourceBindingEditor({
           </div>
         </div>
       ) : null}
-      <p className="text-[11px] text-muted">
+      <p className="text-2xs text-muted">
         Geometry type:&nbsp;
         <select
           disabled={!canEdit}
@@ -648,7 +648,7 @@ function PredicateBindingEditor({
                 (parameter.binding as Extract<PredicateParameter['binding'], { mode: 'runtime-pick' }>).allowed ?? PREDICATES;
               const on = allowed.includes(p);
               return (
-                <label key={p} className="flex items-center gap-1 rounded-md border border-border bg-surface-0 px-2 py-0.5 text-[11px]">
+                <label key={p} className="flex items-center gap-1 rounded-md border border-border bg-surface-0 px-2 py-0.5 text-2xs">
                   <input
                     type="checkbox"
                     disabled={!canEdit}
@@ -772,7 +772,7 @@ function DistanceBindingEditor({
             ))}
           </select>
         </div>
-        <p className="mt-1 text-[10px] text-muted">
+        <p className="mt-1 text-2xs text-muted">
           Stored internally in meters so the recipe runner doesn&apos;t
           have to convert; you only see + edit in the unit picked
           here.  The end-user can still flip to a different unit at
@@ -1064,7 +1064,7 @@ function RuntimePickOsmBindingFields({
             })
           }
         />
-        <p className="mt-1 text-[10px] text-muted">
+        <p className="mt-1 text-2xs text-muted">
           Seeded into the runtime picker.  The user can still change
           their picks unless you restrict via the allowlist below.
         </p>
@@ -1083,7 +1083,7 @@ function RuntimePickOsmBindingFields({
             })
           }
         />
-        <p className="mt-1 text-[10px] text-muted">
+        <p className="mt-1 text-2xs text-muted">
           Leave empty to allow any preset.  Add entries to narrow
           the runtime picker (e.g. only food + drink).
         </p>
@@ -1198,7 +1198,7 @@ function OsmPresetMultiSelect({
             return (
               <span
                 key={id}
-                className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-0 px-2 py-0.5 text-[11px]"
+                className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-0 px-2 py-0.5 text-2xs"
               >
                 {p?.label ?? id}
                 {canEdit ? (
@@ -1241,7 +1241,7 @@ function OsmPresetMultiSelect({
               className="block w-full px-2 py-1 text-left text-xs hover:bg-surface-2"
             >
               <span className="font-medium text-ink-0">{p.label}</span>
-              <span className="ml-2 text-[10px] text-muted">{p.category}</span>
+              <span className="ml-2 text-2xs text-muted">{p.category}</span>
             </button>
           ))}
         </div>
@@ -1303,7 +1303,7 @@ function OsmTagFilterRows({
             <button
               type="button"
               onClick={() => remove(i)}
-              className="rounded-md border border-border bg-surface-1 px-2 text-[11px] text-danger hover:bg-danger/10"
+              className="rounded-md border border-border bg-surface-1 px-2 text-2xs text-danger hover:bg-danger/10"
             >
               <Trash2 className="h-3 w-3" />
             </button>
@@ -1314,7 +1314,7 @@ function OsmTagFilterRows({
         <button
           type="button"
           onClick={add}
-          className="inline-flex items-center gap-1 rounded-md border border-dashed border-border bg-surface-2 px-2 py-1 text-[11px] text-ink-1 hover:bg-surface-1"
+          className="inline-flex items-center gap-1 rounded-md border border-dashed border-border bg-surface-2 px-2 py-1 text-2xs text-ink-1 hover:bg-surface-1"
         >
           <Plus className="h-3 w-3" />
           Add filter
@@ -1367,7 +1367,7 @@ function PipelineSection({
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-sm font-medium text-ink-0">Pipeline</h3>
-          <p className="text-[11px] text-muted">
+          <p className="text-2xs text-muted">
             Ordered steps that run when the recipe executes.  Each
             step&apos;s output feeds the next.
           </p>
@@ -1389,7 +1389,7 @@ function PipelineSection({
         ) : null}
       </div>
       {pipeline.length === 0 ? (
-        <div className="rounded-md border border-dashed border-border bg-surface-2 px-3 py-4 text-center text-[11px] text-muted">
+        <div className="rounded-md border border-dashed border-border bg-surface-2 px-3 py-4 text-center text-2xs text-muted">
           No steps yet.  Add a Spatial filter to build a
           Select-By-Location-style recipe.
         </div>
@@ -1433,7 +1433,7 @@ function StepCard({
   return (
     <div className="rounded-md border border-border bg-surface-2 p-3">
       <div className="mb-2 flex items-center justify-between">
-        <span className="font-mono text-[11px] uppercase tracking-wide text-muted">
+        <span className="font-mono text-2xs uppercase tracking-wide text-muted">
           {step.tool}
         </span>
         {canEdit ? (
@@ -1457,7 +1457,7 @@ function StepCard({
           inputCls={inputCls}
         />
       ) : (
-        <p className="text-[11px] text-muted">
+        <p className="text-2xs text-muted">
           {step.tool} editing is not yet wired into the recipe
           designer.  Edit the JSON via the API if you need it
           before the editor lands.
@@ -1742,7 +1742,7 @@ function OutputSection({
   return (
     <section className="space-y-3">
       <h3 className="text-sm font-medium text-ink-0">Output</h3>
-      <p className="text-[11px] text-muted">
+      <p className="text-2xs text-muted">
         What happens when the recipe finishes.  Selection updates the
         host map&apos;s selection state on the chosen target layer.
         OSM overlay renders OSM features the user picked on top of
@@ -1806,7 +1806,7 @@ function OutputSection({
               </option>
             ))}
           </select>
-          <p className="mt-1 text-[11px] text-muted">
+          <p className="mt-1 text-2xs text-muted">
             Selection is applied on this parameter&apos;s layer.  Only
             feature-source parameters appear in the list because
             other kinds don&apos;t identify a layer.
@@ -1829,7 +1829,7 @@ function OutputSection({
                 </option>
               ))}
             </select>
-            <p className="mt-1 text-[11px] text-muted">
+            <p className="mt-1 text-2xs text-muted">
               The OSM-feature parameter whose preset / tag-filter
               picks drive the Overpass query.  Required.
             </p>
@@ -1849,7 +1849,7 @@ function OutputSection({
                 </option>
               ))}
             </select>
-            <p className="mt-1 text-[11px] text-muted">
+            <p className="mt-1 text-2xs text-muted">
               The Overpass call is bounded by this parameter&apos;s
               bbox (padded by any distance parameter).  v1 supports
               drawn AOIs; layer / selection AOIs land in wave 2.

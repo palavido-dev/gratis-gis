@@ -764,7 +764,7 @@ function BulkBar({
   return (
     <div className="flex items-center justify-between gap-3 border-b border-accent/20 bg-accent/5 px-4 py-2">
       <div className="flex items-center gap-2 text-xs">
-        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent text-[11px] font-semibold text-white">
+        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent text-2xs font-semibold text-white">
           {count}
         </span>
         <span className="font-medium text-accent">
@@ -866,7 +866,7 @@ function StatCard({
           : 'border-border bg-surface-1'
       }`}
     >
-      <p className="mb-0.5 flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-muted">
+      <p className="mb-0.5 flex items-center gap-1.5 text-2xs uppercase tracking-wide text-muted">
         {icon}
         {label}
       </p>
@@ -936,7 +936,7 @@ function Section({
             {title}
             {typeof count === 'number' ? (
               <span
-                className={`inline-flex h-5 min-w-[1.5rem] items-center justify-center rounded-full px-1.5 text-[11px] font-medium ${
+                className={`inline-flex h-5 min-w-[1.5rem] items-center justify-center rounded-full px-1.5 text-2xs font-medium ${
                   count > 0
                     ? 'bg-accent/10 text-accent'
                     : 'bg-surface-2 text-muted'
@@ -983,7 +983,7 @@ function StaleItemsTable({
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
   return (
     <table className="w-full text-sm">
-      <thead className="bg-surface-2 text-left text-[11px] uppercase tracking-wide text-muted">
+      <thead className="bg-surface-2 text-left text-2xs uppercase tracking-wide text-muted">
         <tr>
           <th className="w-8 px-4 py-2">
             <input
@@ -1054,7 +1054,7 @@ function StaleItemsTable({
               >
                 {new Date(r.lastActivityAt).toLocaleDateString()}
                 {dataNewer && r.lastActivitySource !== 'item' ? (
-                  <span className="ml-1 text-[10px] uppercase text-muted/70">
+                  <span className="ml-1 text-2xs uppercase text-muted/70">
                     ({r.lastActivitySource})
                   </span>
                 ) : null}
@@ -1090,7 +1090,7 @@ function StaleUsersTable({
   const allSelected = rows.length > 0 && rows.every((u) => selected.has(u.id));
   return (
     <table className="w-full text-sm">
-      <thead className="bg-surface-2 text-left text-[11px] uppercase tracking-wide text-muted">
+      <thead className="bg-surface-2 text-left text-2xs uppercase tracking-wide text-muted">
         <tr>
           <th className="w-8 px-4 py-2">
             <input
@@ -1128,7 +1128,7 @@ function StaleUsersTable({
                   <span className="text-ink-0">
                     {r.fullName?.trim() || r.username}
                   </span>
-                  <span className="text-[11px] text-muted">{r.email}</span>
+                  <span className="text-2xs text-muted">{r.email}</span>
                 </div>
               </td>
               <td className="px-4 py-2 text-muted">{r.orgRole}</td>
@@ -1142,7 +1142,7 @@ function StaleUsersTable({
               </td>
               <td className="px-4 py-2 text-muted">
                 {r.ownedItemCount > 0 ? (
-                  <span className="inline-flex items-center gap-1 rounded bg-warn/15 px-1.5 py-0.5 text-[11px] font-medium text-warn">
+                  <span className="inline-flex items-center gap-1 rounded bg-warn/15 px-1.5 py-0.5 text-2xs font-medium text-warn">
                     {r.ownedItemCount} to reassign
                   </span>
                 ) : (
@@ -1205,7 +1205,7 @@ function StorageCard({
             <div className="mb-1 flex items-baseline justify-between text-xs">
               <span className="text-muted">
                 Host disk{' '}
-                <span className="font-mono text-[11px]">
+                <span className="font-mono text-2xs">
                   {host.mountPoint}
                 </span>
               </span>
@@ -1226,7 +1226,7 @@ function StorageCard({
               />
             </div>
             {usedPct >= 75 ? (
-              <p className="mt-1 text-[11px] text-warn">
+              <p className="mt-1 text-2xs text-warn">
                 Free space is running low. Backups, MinIO uploads, and
                 Postgres autovacuum all need headroom on this volume.
               </p>
@@ -1240,21 +1240,21 @@ function StorageCard({
 
         <dl className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
           <div className="rounded-md border border-border bg-surface-0 p-3">
-            <dt className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted">
+            <dt className="flex items-center gap-1.5 text-2xs font-medium uppercase tracking-wide text-muted">
               <Database className="h-3.5 w-3.5" />
               Postgres
             </dt>
             <dd className="mt-1 font-mono text-base text-ink-0">
               {formatBytes(storage.postgres.totalBytes)}
             </dd>
-            <dd className="mt-0.5 text-[11px] text-muted">
+            <dd className="mt-0.5 text-2xs text-muted">
               database{' '}
               <span className="font-mono">{storage.postgres.databaseName}</span>{' '}
               (heap + indexes + TOAST)
             </dd>
           </div>
           <div className="rounded-md border border-border bg-surface-0 p-3">
-            <dt className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted">
+            <dt className="flex items-center gap-1.5 text-2xs font-medium uppercase tracking-wide text-muted">
               <Archive className="h-3.5 w-3.5" />
               MinIO
             </dt>
@@ -1263,7 +1263,7 @@ function StorageCard({
                 ? 'unavailable'
                 : formatBytes(storage.minio.totalBytes)}
             </dd>
-            <dd className="mt-0.5 text-[11px] text-muted">
+            <dd className="mt-0.5 text-2xs text-muted">
               {storage.minio.unavailable ? (
                 <>bucket couldn't be enumerated; check MinIO connectivity</>
               ) : (
@@ -1290,7 +1290,7 @@ function LargestDataLayersTable({
 }) {
   return (
     <table className="w-full text-sm">
-      <thead className="bg-surface-2 text-left text-[11px] uppercase tracking-wide text-muted">
+      <thead className="bg-surface-2 text-left text-2xs uppercase tracking-wide text-muted">
         <tr>
           <th className="px-4 py-2">Item</th>
           <th className="px-4 py-2">Layer</th>
@@ -1303,7 +1303,7 @@ function LargestDataLayersTable({
           const titleNode = r.orphan ? (
             <span className="inline-flex items-center gap-2">
               <span className="italic text-muted">{r.itemTitle}</span>
-              <span className="rounded border border-warn/30 bg-warn/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-warn">
+              <span className="rounded border border-warn/30 bg-warn/10 px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wide text-warn">
                 orphan
               </span>
             </span>
@@ -1323,7 +1323,7 @@ function LargestDataLayersTable({
                   <span className="inline-flex flex-col">
                     <span className="text-ink-0">{r.layerTitle}</span>
                     <span
-                      className="font-mono text-[10px] text-muted/70"
+                      className="font-mono text-2xs text-muted/70"
                       title="Internal storage key"
                     >
                       {r.layerId}
@@ -1331,7 +1331,7 @@ function LargestDataLayersTable({
                   </span>
                 ) : (
                   <span
-                    className="font-mono text-[11px] text-muted"
+                    className="font-mono text-2xs text-muted"
                     title="No human-readable title on this layer (legacy item shape or deleted layer entry)"
                   >
                     {r.layerId}
@@ -1340,7 +1340,7 @@ function LargestDataLayersTable({
               </td>
               <td className="px-4 py-2 font-mono text-ink-0">
                 {formatBytes(r.approxBytes)}
-                <span className="ml-1 text-[10px] text-muted">approx</span>
+                <span className="ml-1 text-2xs text-muted">approx</span>
               </td>
               <td className="px-4 py-2 font-mono text-muted">
                 {r.rows.toLocaleString()}
@@ -1371,7 +1371,7 @@ function ExpiringSharesTable({
 }) {
   return (
     <table className="w-full text-sm">
-      <thead className="bg-surface-2 text-left text-[11px] uppercase tracking-wide text-muted">
+      <thead className="bg-surface-2 text-left text-2xs uppercase tracking-wide text-muted">
         <tr>
           <th className="px-4 py-2">Item</th>
           <th className="px-4 py-2">Recipient</th>
@@ -1390,10 +1390,10 @@ function ExpiringSharesTable({
               >
                 {r.itemTitle}
               </Link>
-              <span className="ml-1 text-[11px] text-muted">({r.itemType})</span>
+              <span className="ml-1 text-2xs text-muted">({r.itemType})</span>
             </td>
             <td className="px-4 py-2 text-muted">
-              <span className="mr-1 inline-block rounded bg-surface-2 px-1 text-[10px] font-medium uppercase">
+              <span className="mr-1 inline-block rounded bg-surface-2 px-1 text-2xs font-medium uppercase">
                 {r.principalType}
               </span>
               {r.principalLabel}
@@ -1403,8 +1403,8 @@ function ExpiringSharesTable({
               <span
                 className={
                   r.isExpired
-                    ? 'inline-flex items-center gap-1 rounded bg-danger/10 px-1.5 py-0.5 text-[11px] font-medium text-danger'
-                    : 'inline-flex items-center gap-1 rounded bg-warn/15 px-1.5 py-0.5 text-[11px] font-medium text-warn'
+                    ? 'inline-flex items-center gap-1 rounded bg-danger/10 px-1.5 py-0.5 text-2xs font-medium text-danger'
+                    : 'inline-flex items-center gap-1 rounded bg-warn/15 px-1.5 py-0.5 text-2xs font-medium text-warn'
                 }
                 title={new Date(r.expiresAt).toLocaleString()}
               >
@@ -1416,7 +1416,7 @@ function ExpiringSharesTable({
                 <button
                   type="button"
                   onClick={() => onExtend(r, 30)}
-                  className="rounded border border-border bg-surface-1 px-2 py-0.5 text-[11px] hover:bg-surface-2"
+                  className="rounded border border-border bg-surface-1 px-2 py-0.5 text-2xs hover:bg-surface-2"
                   title="Extend by 30 days"
                 >
                   +30d
@@ -1424,13 +1424,13 @@ function ExpiringSharesTable({
                 <button
                   type="button"
                   onClick={() => onCancel(r)}
-                  className="rounded border border-danger/40 bg-danger/5 px-2 py-0.5 text-[11px] text-danger hover:bg-danger/10"
+                  className="rounded border border-danger/40 bg-danger/5 px-2 py-0.5 text-2xs text-danger hover:bg-danger/10"
                 >
                   Cancel
                 </button>
                 <Link
                   href={`/items/${r.itemId}`}
-                  className="ml-1 inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
+                  className="ml-1 inline-flex items-center gap-1 text-2xs text-accent hover:underline"
                 >
                   Open
                   <ChevronRight className="h-3 w-3" />
@@ -1460,7 +1460,7 @@ function ExpiringUsersTable({
 }) {
   return (
     <table className="w-full text-sm">
-      <thead className="bg-surface-2 text-left text-[11px] uppercase tracking-wide text-muted">
+      <thead className="bg-surface-2 text-left text-2xs uppercase tracking-wide text-muted">
         <tr>
           <th className="px-4 py-2">User</th>
           <th className="px-4 py-2">Role</th>
@@ -1477,7 +1477,7 @@ function ExpiringUsersTable({
                 <span className="text-ink-0">
                   {r.fullName?.trim() || r.username}
                 </span>
-                <span className="text-[11px] text-muted">{r.email}</span>
+                <span className="text-2xs text-muted">{r.email}</span>
               </div>
             </td>
             <td className="px-4 py-2 text-muted">{r.orgRole}</td>
@@ -1485,8 +1485,8 @@ function ExpiringUsersTable({
               <span
                 className={
                   r.isExpired
-                    ? 'inline-flex items-center gap-1 rounded bg-danger/10 px-1.5 py-0.5 text-[11px] font-medium text-danger'
-                    : 'inline-flex items-center gap-1 rounded bg-warn/15 px-1.5 py-0.5 text-[11px] font-medium text-warn'
+                    ? 'inline-flex items-center gap-1 rounded bg-danger/10 px-1.5 py-0.5 text-2xs font-medium text-danger'
+                    : 'inline-flex items-center gap-1 rounded bg-warn/15 px-1.5 py-0.5 text-2xs font-medium text-warn'
                 }
                 title={new Date(r.autoDisableAt).toLocaleString()}
               >
@@ -1496,7 +1496,7 @@ function ExpiringUsersTable({
             </td>
             <td className="px-4 py-2 text-muted">
               {r.ownedItemCount > 0 ? (
-                <span className="inline-flex items-center gap-1 rounded bg-warn/15 px-1.5 py-0.5 text-[11px] font-medium text-warn">
+                <span className="inline-flex items-center gap-1 rounded bg-warn/15 px-1.5 py-0.5 text-2xs font-medium text-warn">
                   {r.ownedItemCount}
                 </span>
               ) : (
@@ -1508,7 +1508,7 @@ function ExpiringUsersTable({
                 <button
                   type="button"
                   onClick={() => onExtend(r, 30)}
-                  className="rounded border border-border bg-surface-1 px-2 py-0.5 text-[11px] hover:bg-surface-2"
+                  className="rounded border border-border bg-surface-1 px-2 py-0.5 text-2xs hover:bg-surface-2"
                   title="Push the auto-disable date out by 30 days"
                 >
                   +30d
@@ -1516,7 +1516,7 @@ function ExpiringUsersTable({
                 <button
                   type="button"
                   onClick={() => onClear(r)}
-                  className="rounded border border-border bg-surface-1 px-2 py-0.5 text-[11px] hover:bg-surface-2"
+                  className="rounded border border-border bg-surface-1 px-2 py-0.5 text-2xs hover:bg-surface-2"
                   title="Remove the auto-disable date entirely"
                 >
                   Cancel timer
@@ -1524,7 +1524,7 @@ function ExpiringUsersTable({
                 <button
                   type="button"
                   onClick={() => onDisableNow(r)}
-                  className="rounded border border-danger/40 bg-danger/5 px-2 py-0.5 text-[11px] text-danger hover:bg-danger/10"
+                  className="rounded border border-danger/40 bg-danger/5 px-2 py-0.5 text-2xs text-danger hover:bg-danger/10"
                   title="Disable sign-in immediately"
                 >
                   Disable now

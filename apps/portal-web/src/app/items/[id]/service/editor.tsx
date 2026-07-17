@@ -182,7 +182,7 @@ export function ServiceEditor({ itemId, initial, canEdit }: Props) {
       <section className="rounded-lg border border-border bg-surface-1 p-4 shadow-card">
         <div className="mb-1 flex flex-wrap items-center gap-2">
           <h2 className="text-sm font-medium text-ink-0">Connection</h2>
-          <span className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-accent">
+          <span className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wide text-accent">
             {protocolPrettyLabel}
           </span>
         </div>
@@ -333,13 +333,13 @@ export function ServiceEditor({ itemId, initial, canEdit }: Props) {
                         </span>
                       ) : null}
                       {l.geometryType ? (
-                        <span className="ml-2 rounded border border-border bg-surface-1 px-1 py-0.5 text-[10px] text-muted">
+                        <span className="ml-2 rounded border border-border bg-surface-1 px-1 py-0.5 text-2xs text-muted">
                           {l.geometryType}
                         </span>
                       ) : null}
                     </div>
                     {bboxLabel ? (
-                      <div className="mt-0.5 truncate font-mono text-[11px] text-muted">
+                      <div className="mt-0.5 truncate font-mono text-2xs text-muted">
                         {bboxLabel}
                       </div>
                     ) : null}
@@ -584,7 +584,7 @@ function GeocoderDetails({ data }: { data: import('@gratis-gis/shared-types').Ar
                   <span className="text-muted">({f.alias})</span>
                 ) : null}
                 {f.required ? (
-                  <span className="rounded bg-accent/10 px-1 text-[10px] uppercase tracking-wide text-accent">
+                  <span className="rounded bg-accent/10 px-1 text-2xs uppercase tracking-wide text-accent">
                     required
                   </span>
                 ) : null}
@@ -601,7 +601,7 @@ function GeocoderDetails({ data }: { data: import('@gratis-gis/shared-types').Ar
           </p>
         </div>
       ) : null}
-      <p className="mt-3 text-[11px] text-muted">
+      <p className="mt-3 text-2xs text-muted">
         Re-probe the source URL to refresh these fields after the
         server&rsquo;s configuration changes.
       </p>

@@ -1033,7 +1033,7 @@ function LayerRow({
                             <Folder className="h-3.5 w-3.5 text-warn" />
                             <span className="truncate">{g.title}</span>
                             {g.id === layer.groupId ? (
-                              <span className="ml-auto text-[10px] uppercase tracking-wide text-muted">
+                              <span className="ml-auto text-2xs uppercase tracking-wide text-muted">
                                 current
                               </span>
                             ) : null}
@@ -1073,7 +1073,7 @@ function LayerRow({
             </div>
           ) : (
             <div className="px-3 py-3">
-              <label className="flex items-center justify-between text-[10px] uppercase tracking-wide text-muted">
+              <label className="flex items-center justify-between text-2xs uppercase tracking-wide text-muted">
                 <span>Opacity</span>
                 <span className="tabular-nums">
                   {Math.round(layer.opacity * 100)}%
@@ -1252,7 +1252,7 @@ function LayerRow({
                   metadata={metadata}
                   onChange={(search) => onPatch({ search })}
                 />
-                <p className="mt-2 text-[11px] text-muted">
+                <p className="mt-2 text-2xs text-muted">
                   Feature editing unlocks when the layer&apos;s source
                   supports writes.
                 </p>
@@ -1337,7 +1337,7 @@ function ScaledSymbologyEditor({
   return (
     <div className="space-y-2 text-xs">
       <div className="flex items-center justify-between">
-        <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted">
+        <h3 className="text-2xs font-medium uppercase tracking-wide text-muted">
           Scale classes
           {classes.length > 0 ? (
             <span className="ml-1 normal-case text-muted">
@@ -1349,13 +1349,13 @@ function ScaledSymbologyEditor({
           type="button"
           onClick={addClass}
           data-help="scaled-symbology-add-button"
-          className="inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-[11px] font-medium text-ink-1 hover:bg-surface-2"
+          className="inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2"
         >
           + Add class
         </button>
       </div>
       {classes.length === 0 ? (
-        <p className="text-[11px] text-muted">
+        <p className="text-2xs text-muted">
           Optional.  Add classes when you want this layer to look
           different at different zoom levels (e.g. semi-transparent
           fill at country scale, outline-only at parcel scale)
@@ -1375,7 +1375,7 @@ function ScaledSymbologyEditor({
                     type="text"
                     value={label}
                     onChange={(e) => patchClass(i, { label: e.target.value })}
-                    className="flex-1 rounded border border-border bg-surface-0 px-1.5 py-0.5 text-[11px] focus:border-accent focus:outline-none"
+                    className="flex-1 rounded border border-border bg-surface-0 px-1.5 py-0.5 text-2xs focus:border-accent focus:outline-none"
                   />
                   <button
                     type="button"
@@ -1698,11 +1698,11 @@ function SearchConfig({
       {value.enabled ? (
         <div className="space-y-2 rounded-md border border-border bg-surface-1 p-2">
           <div>
-            <div className="mb-1 text-[10px] uppercase tracking-wide text-muted">
+            <div className="mb-1 text-2xs uppercase tracking-wide text-muted">
               Fields to search
             </div>
             {value.fields.length === 0 ? (
-              <p className="text-[11px] text-muted">
+              <p className="text-2xs text-muted">
                 Pick at least one field so the search bar knows what to
                 match.
               </p>
@@ -1711,7 +1711,7 @@ function SearchConfig({
                 {value.fields.map((f) => (
                   <li
                     key={f}
-                    className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2 py-0.5 text-[11px]"
+                    className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2 py-0.5 text-2xs"
                   >
                     <span className="font-medium">{f}</span>
                     <button
@@ -1734,7 +1734,7 @@ function SearchConfig({
                   e.target.value = '';
                 }}
                 disabled={unpicked.length === 0}
-                className="mt-2 h-7 w-full rounded border border-border bg-surface-1 px-2 text-[11px] focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30 disabled:opacity-50"
+                className="mt-2 h-7 w-full rounded border border-border bg-surface-1 px-2 text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30 disabled:opacity-50"
               >
                 <option value="">
                   {unpicked.length === 0 ? 'All fields added' : 'Add a field...'}
@@ -1755,12 +1755,12 @@ function SearchConfig({
                     (e.target as HTMLInputElement).value = '';
                   }
                 }}
-                className="mt-2 h-7 w-full rounded border border-border bg-surface-1 px-2 text-[11px] focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                className="mt-2 h-7 w-full rounded border border-border bg-surface-1 px-2 text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
               />
             )}
           </div>
           <div>
-            <div className="mb-1 text-[10px] uppercase tracking-wide text-muted">
+            <div className="mb-1 text-2xs uppercase tracking-wide text-muted">
               Result label (optional)
             </div>
             <TemplateInput
@@ -1770,7 +1770,7 @@ function SearchConfig({
               sampleProperties={sample}
               placeholder={`{{apn}}: {{situs}}`}
             />
-            <p className="mt-1 text-[11px] text-muted">
+            <p className="mt-1 text-2xs text-muted">
               Same{' '}
               <code className="rounded bg-surface-2 px-1">{`{{field}}`}</code>{' '}
               grammar as popups. Empty falls back to the first matching
@@ -1858,7 +1858,7 @@ function ScaleEditor({
         />
         <span className="text-ink-1">Scale icons &amp; points with zoom</span>
       </label>
-      <p className="text-[11px] text-muted">
+      <p className="text-2xs text-muted">
         Off keeps the exact size you set; on shrinks markers at low zooms
         so the map isn&apos;t overwhelmed and nudges them up at close
         range.
@@ -1905,7 +1905,7 @@ function ZoomRange({
 
   return (
     <div className="rounded-md border border-border bg-surface-1 p-2">
-      <div className="mb-2 flex items-center justify-between text-[10px] uppercase tracking-wide text-muted">
+      <div className="mb-2 flex items-center justify-between text-2xs uppercase tracking-wide text-muted">
         <span>{label}</span>
         <span className="tabular-nums normal-case tracking-normal text-muted">
           {maxZoom == null ? 'any' : `z${maxZoom}`}
@@ -1973,7 +1973,7 @@ function ZoomRange({
           className="gg-dual-range__input"
         />
       </div>
-      <div className="mt-1 flex items-center justify-between text-[11px] text-muted">
+      <div className="mt-1 flex items-center justify-between text-2xs text-muted">
         {/* Left label describes the zoomed-in end: large scale.
             Right label the zoomed-out end: small scale. */}
         <span className="tabular-nums">
@@ -2166,7 +2166,7 @@ function GroupHeaderRow({
           >
             <Folder className="h-3.5 w-3.5 shrink-0 text-warn" />
             <span className="truncate">{layer.title}</span>
-            <span className="ml-1 shrink-0 rounded-full bg-warn/20 px-1.5 text-[10px] font-medium text-warn">
+            <span className="ml-1 shrink-0 rounded-full bg-warn/20 px-1.5 text-2xs font-medium text-warn">
               {childCount}
             </span>
           </button>
@@ -2196,7 +2196,7 @@ function GroupHeaderRow({
       </div>
       {canEdit ? (
         <div className="mt-1 flex items-center gap-2 px-1">
-          <span className="text-[10px] uppercase tracking-wide text-muted">
+          <span className="text-2xs uppercase tracking-wide text-muted">
             Opacity
           </span>
           <input
@@ -2208,7 +2208,7 @@ function GroupHeaderRow({
             onChange={(e) => onOpacity(Number(e.target.value))}
             className="h-1 flex-1"
           />
-          <span className="text-[10px] tabular-nums text-muted">
+          <span className="text-2xs tabular-nums text-muted">
             {Math.round(layer.opacity * 100)}%
           </span>
         </div>
@@ -2224,7 +2224,7 @@ function GroupHeaderRow({
             type="button"
             onClick={() => setScaleOpen((v) => !v)}
             aria-expanded={scaleOpen}
-            className="flex w-full items-center gap-1.5 rounded px-1 py-1 text-[10px] font-medium uppercase tracking-wide text-muted hover:bg-warn/15 hover:text-warn"
+            className="flex w-full items-center gap-1.5 rounded px-1 py-1 text-2xs font-medium uppercase tracking-wide text-muted hover:bg-warn/15 hover:text-warn"
           >
             {scaleOpen ? (
               <ChevronDown className="h-3 w-3" />
@@ -2241,7 +2241,7 @@ function GroupHeaderRow({
                 currentZoom={currentZoom}
                 onChange={(scale) => onPatch({ scale })}
               />
-              <p className="mt-2 text-[10px] text-muted">
+              <p className="mt-2 text-2xs text-muted">
                 Applies to every layer in this group. A child layer
                 with a tighter range stays tighter; a wider one is
                 clipped to this group&apos;s range.

@@ -126,7 +126,7 @@ export function ItemDependencies({ itemId }: Props) {
             type="button"
             onClick={() => void load()}
             disabled={loading}
-            className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-surface-1 px-1.5 text-[11px] text-muted hover:bg-surface-2 hover:text-ink-1 disabled:opacity-50"
+            className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-surface-1 px-1.5 text-2xs text-muted hover:bg-surface-2 hover:text-ink-1 disabled:opacity-50"
             title="Refresh"
           >
             {loading ? (
@@ -200,12 +200,12 @@ function DependencyList({
         </span>
         <div>
           <p className="text-xs font-semibold text-ink-0">{title}</p>
-          <p className="text-[11px] text-muted">{help}</p>
+          <p className="text-2xs text-muted">{help}</p>
         </div>
       </div>
 
       {rows === null && loading ? (
-        <p className="px-2 py-3 text-[11px] text-muted">Loading…</p>
+        <p className="px-2 py-3 text-2xs text-muted">Loading…</p>
       ) : rows && rows.length > 0 ? (
         <ul className="space-y-0.5">
           {rows.map((r) => (
@@ -224,7 +224,7 @@ function DependencyList({
                   <p className="truncate text-xs font-medium text-ink-0">
                     {r.title}
                   </p>
-                  <p className="truncate text-[10px] uppercase tracking-wide text-muted">
+                  <p className="truncate text-2xs uppercase tracking-wide text-muted">
                     {r.type.replace(/_/g, ' ')}
                   </p>
                 </span>
@@ -234,7 +234,7 @@ function DependencyList({
           ))}
         </ul>
       ) : (
-        <p className="px-2 py-3 text-[11px] text-muted">{emptyMessage}</p>
+        <p className="px-2 py-3 text-2xs text-muted">{emptyMessage}</p>
       )}
     </div>
   );

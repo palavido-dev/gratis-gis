@@ -133,7 +133,7 @@ export function BasemapEditor({ itemId, initial, canEdit }: Props) {
             <div className="aspect-[3/2] w-full overflow-hidden rounded-md border border-border bg-surface-2">
               <BasemapPreview data={draft} interactive />
             </div>
-            <p className="text-[11px] text-muted">
+            <p className="text-2xs text-muted">
               Live render against the fields on the left. Pan and zoom
               to confirm tiles serve at the levels you need.
             </p>

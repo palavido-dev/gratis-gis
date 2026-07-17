@@ -1035,7 +1035,7 @@ function ToolWidgetSlot({ widget }: { widget: CustomWidget }) {
             icon; the title attribute above keeps discoverability via
             hover tooltip + screen-reader aria-label. */}
         {iconOnly ? null : (
-          <span className="text-[10px] font-medium leading-none">{label}</span>
+          <span className="text-2xs font-medium leading-none">{label}</span>
         )}
       </button>
       {open && ctx && (
@@ -2408,7 +2408,7 @@ function SessionSymbologyDialog({
             <h3 className="truncate text-sm font-semibold text-ink-0">
               Symbology
             </h3>
-            <p className="truncate text-[11px] text-muted">{layer.title}</p>
+            <p className="truncate text-2xs text-muted">{layer.title}</p>
           </div>
           <button
             type="button"
@@ -2419,7 +2419,7 @@ function SessionSymbologyDialog({
             <XIcon className="h-4 w-4" />
           </button>
         </div>
-        <p className="border-b border-border bg-warn/10 px-4 py-2 text-[11px] text-warn">
+        <p className="border-b border-border bg-warn/10 px-4 py-2 text-2xs text-warn">
           Changes apply to this session only. Refresh the page to
           reset to the saved style.
         </p>
@@ -2517,7 +2517,7 @@ function LayerPropertiesDialog({
             {Math.round(((layer.opacity ?? 1) as number) * 100)}%
           </dd>
         </dl>
-        <p className="border-t border-border bg-surface-0 px-4 py-2 text-[11px] italic text-muted">
+        <p className="border-t border-border bg-surface-0 px-4 py-2 text-2xs italic text-muted">
           Properties shown here are session-only. Refreshing the
           page resets them.
         </p>
@@ -2615,7 +2615,7 @@ function BasemapGalleryWidgetRender({ widget }: { widget: CustomWidget }) {
                     mapData: { ...cur.mapData, basemap: b.id },
                   }))
                 }
-                className={`flex w-full flex-col items-stretch gap-1 rounded-md border-2 p-1 text-left text-[10px] transition ${
+                className={`flex w-full flex-col items-stretch gap-1 rounded-md border-2 p-1 text-left text-2xs transition ${
                   activeId === b.id
                     ? 'border-accent bg-accent/5'
                     : 'border-border bg-surface-1 hover:border-accent/40'
@@ -3069,7 +3069,7 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
                 >
                   <div className="font-medium text-ink-0">{t.title}</div>
                   {t.description ? (
-                    <div className="mt-0.5 text-[10px] text-muted">
+                    <div className="mt-0.5 text-2xs text-muted">
                       {t.description}
                     </div>
                   ) : null}
@@ -3083,7 +3083,7 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
               <button
                 type="button"
                 onClick={() => setSelected(null)}
-                className="text-[11px] text-muted hover:underline"
+                className="text-2xs text-muted hover:underline"
               >
                 ← Templates
               </button>
@@ -3093,7 +3093,7 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
             </div>
             <div className="space-y-1.5">
               {selected.data.parameters.map((p) => (
-                <label key={p.id} className="block text-[11px] text-ink-1">
+                <label key={p.id} className="block text-2xs text-ink-1">
                   {p.label}
                   {p.type === 'longtext' ? (
                     <textarea
@@ -3102,7 +3102,7 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
                         setValues((cur) => ({ ...cur, [p.id]: e.target.value }))
                       }
                       rows={3}
-                      className="mt-0.5 w-full rounded border border-border bg-surface-0 px-1.5 py-1 text-[11px]"
+                      className="mt-0.5 w-full rounded border border-border bg-surface-0 px-1.5 py-1 text-2xs"
                     />
                   ) : p.type === 'dropdown' ? (
                     <select
@@ -3110,7 +3110,7 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
                       onChange={(e) =>
                         setValues((cur) => ({ ...cur, [p.id]: e.target.value }))
                       }
-                      className="mt-0.5 h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-[11px]"
+                      className="mt-0.5 h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-2xs"
                     >
                       {(p.options ?? []).map((o) => (
                         <option key={o.value} value={o.value}>
@@ -3131,11 +3131,11 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
                       onChange={(e) =>
                         setValues((cur) => ({ ...cur, [p.id]: e.target.value }))
                       }
-                      className="mt-0.5 h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-[11px]"
+                      className="mt-0.5 h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-2xs"
                     />
                   )}
                   {p.description ? (
-                    <span className="text-[10px] text-muted">{p.description}</span>
+                    <span className="text-2xs text-muted">{p.description}</span>
                   ) : null}
                 </label>
               ))}
@@ -3150,7 +3150,7 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
               {rendering ? 'Generating PDF…' : 'Print'}
             </button>
             {renderError ? (
-              <div className="rounded border border-danger/40 bg-danger/10 px-2 py-1 text-[11px] text-danger">
+              <div className="rounded border border-danger/40 bg-danger/10 px-2 py-1 text-2xs text-danger">
                 {renderError}
               </div>
             ) : null}
@@ -3158,7 +3158,7 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
         )}
         {results.length > 0 ? (
           <div className="mt-2 border-t border-border pt-2">
-            <div className="text-[11px] font-medium text-muted">Recent prints</div>
+            <div className="text-2xs font-medium text-muted">Recent prints</div>
             <div className="mt-1 space-y-0.5">
               {results.slice(0, 5).map((r, i) => (
                 <a
@@ -3166,7 +3166,7 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
                   href={r.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="block truncate rounded px-1 py-0.5 text-[11px] text-accent hover:underline"
+                  className="block truncate rounded px-1 py-0.5 text-2xs text-accent hover:underline"
                 >
                   {r.templateTitle} · {new Date(r.createdAt).toLocaleTimeString()}
                 </a>
@@ -3217,7 +3217,7 @@ function SelectWidgetRender({ widget }: { widget: CustomWidget }) {
                 selectTool: cur.selectTool === mode ? 'off' : mode,
               }))
             }
-            className={`inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[11px] font-medium ${
+            className={`inline-flex h-7 items-center gap-1 rounded-md border px-2 text-2xs font-medium ${
               active === mode
                 ? 'border-accent bg-accent/10 text-accent'
                 : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
@@ -3349,7 +3349,7 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
     <WidgetFrame icon={Download} title="Export">
       <div className="flex flex-col gap-3 p-3 text-xs">
         <label className="block">
-          <span className="block text-[10px] font-medium uppercase tracking-wide text-muted">
+          <span className="block text-2xs font-medium uppercase tracking-wide text-muted">
             Layer
           </span>
           <select
@@ -3369,14 +3369,14 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
           </select>
         </label>
         <label className="block">
-          <span className="block text-[10px] font-medium uppercase tracking-wide text-muted">
+          <span className="block text-2xs font-medium uppercase tracking-wide text-muted">
             Format
           </span>
           <div className="mt-1 inline-flex rounded-md border border-border bg-surface-2 p-0.5">
             <button
               type="button"
               onClick={() => setFormat('xlsx')}
-              className={`px-2 py-1 text-[11px] ${
+              className={`px-2 py-1 text-2xs ${
                 format === 'xlsx'
                   ? 'rounded bg-surface-1 text-ink-0 shadow-sm'
                   : 'text-muted'
@@ -3387,7 +3387,7 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
             <button
               type="button"
               onClick={() => setFormat('csv')}
-              className={`px-2 py-1 text-[11px] ${
+              className={`px-2 py-1 text-2xs ${
                 format === 'csv'
                   ? 'rounded bg-surface-1 text-ink-0 shadow-sm'
                   : 'text-muted'
@@ -3398,7 +3398,7 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
           </div>
         </label>
         {error ? (
-          <p className="rounded-md border border-danger/40 bg-danger/10 px-2 py-1 text-[11px] text-danger">
+          <p className="rounded-md border border-danger/40 bg-danger/10 px-2 py-1 text-2xs text-danger">
             {error}
           </p>
         ) : null}
@@ -3407,7 +3407,7 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
             type="button"
             disabled={busy || noTargets}
             onClick={() => runExport('all')}
-            className="inline-flex h-7 items-center gap-1 rounded-md bg-accent px-3 text-[11px] font-medium text-white hover:opacity-90 disabled:opacity-50"
+            className="inline-flex h-7 items-center gap-1 rounded-md bg-accent px-3 text-2xs font-medium text-white hover:opacity-90 disabled:opacity-50"
           >
             <Download className="h-3 w-3" />
             Export visible
@@ -3416,12 +3416,12 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
             type="button"
             disabled={busy || noTargets}
             onClick={() => runExport('selection')}
-            className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-surface-1 px-3 text-[11px] font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+            className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-surface-1 px-3 text-2xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
           >
             Export selection
           </button>
         </div>
-        <p className="text-[10px] text-muted">
+        <p className="text-2xs text-muted">
           Exports the features currently loaded for this layer (the
           map viewport plus its surrounding tile cache).  For a
           full-layer dump including related tables + attachments,
@@ -4658,7 +4658,7 @@ function ToolButtonRender({
   // className already supplies flex-col vs row, so the text node
   // just needs the right typography for each mode.
   const labelClass = inAppBar
-    ? 'text-[10px] font-medium leading-none'
+    ? 'text-2xs font-medium leading-none'
     : '';
   return (
     <div className={wrapperClass}>
@@ -4906,7 +4906,7 @@ function OsmAttributionChip({
       // (top-center) so users notice the result state. Originally
       // bottom-right; testers reported almost missing it.
       <div className="pointer-events-none fixed left-0 right-0 top-20 z-[900] flex justify-center">
-        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-warn/40 bg-warn/10 px-3 py-1.5 text-[11px] shadow-raised">
+        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-warn/40 bg-warn/10 px-3 py-1.5 text-2xs shadow-raised">
           <span className="font-medium text-warn">
             No matches in this area
           </span>
@@ -4922,7 +4922,7 @@ function OsmAttributionChip({
           <button
             type="button"
             onClick={onDismiss}
-            className="rounded-md border border-warn/40 bg-warn/15 px-1.5 text-[10px] text-warn hover:bg-warn/25"
+            className="rounded-md border border-warn/40 bg-warn/15 px-1.5 text-2xs text-warn hover:bg-warn/25"
             aria-label="Dismiss"
           >
             ×
@@ -4937,7 +4937,7 @@ function OsmAttributionChip({
     // #141 follow-up: top-center placement so the result chip is
     // immediately visible. Bottom-right was easy to miss.
     <div className="pointer-events-none fixed left-0 right-0 top-20 z-[900] flex justify-center">
-      <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border bg-surface-0/95 px-3 py-1.5 text-[11px] shadow-raised backdrop-blur">
+      <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border bg-surface-0/95 px-3 py-1.5 text-2xs shadow-raised backdrop-blur">
         <span className="text-ink-0">
           Found {featureCount} OSM feature{featureCount === 1 ? '' : 's'}
           {truncated ? ' (truncated)' : ''}
@@ -4957,7 +4957,7 @@ function OsmAttributionChip({
           <button
             type="button"
             onClick={onSaveClick}
-            className="rounded-md border border-border bg-surface-1 px-2 text-[10px] font-medium text-ink-1 hover:bg-surface-2"
+            className="rounded-md border border-border bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2"
             aria-label="Save these features as a data layer"
             title="Save these features as a data layer"
           >
@@ -4972,7 +4972,7 @@ function OsmAttributionChip({
             href={`/items/${saveState.itemId}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="rounded-md border border-accent/40 bg-accent/10 px-2 text-[10px] font-medium text-accent hover:bg-accent/20"
+            className="rounded-md border border-accent/40 bg-accent/10 px-2 text-2xs font-medium text-accent hover:bg-accent/20"
           >
             Saved — open layer
           </a>
@@ -4985,7 +4985,7 @@ function OsmAttributionChip({
             <button
               type="button"
               onClick={() => setSaveState({ kind: 'idle' })}
-              className="rounded-md border border-border bg-surface-1 px-1.5 text-[10px] text-muted hover:text-ink-1"
+              className="rounded-md border border-border bg-surface-1 px-1.5 text-2xs text-muted hover:text-ink-1"
               aria-label="Retry save"
             >
               Retry
@@ -4995,7 +4995,7 @@ function OsmAttributionChip({
         <button
           type="button"
           onClick={onDismiss}
-          className="rounded-md border border-border bg-surface-1 px-1.5 text-[10px] text-muted hover:text-ink-1"
+          className="rounded-md border border-border bg-surface-1 px-1.5 text-2xs text-muted hover:text-ink-1"
           aria-label="Dismiss OSM overlay"
         >
           ×
@@ -5876,7 +5876,7 @@ function BookmarkWidgetRender({ widget }: { widget: CustomWidget }) {
                     strokeWidth={1.75}
                   />
                   <span className="truncate">{b.name}</span>
-                  <span className="ml-auto font-mono text-[10px] text-muted">
+                  <span className="ml-auto font-mono text-2xs text-muted">
                     z{b.zoom.toFixed(1)}
                   </span>
                 </button>
@@ -5957,7 +5957,7 @@ function CoordinatesWidgetRender({ widget }: { widget: CustomWidget }) {
       <div className="flex flex-1 items-center gap-2 px-3 py-2 font-mono text-xs">
         <span className="flex-1 truncate text-ink-1">{display}</span>
         {showZoom && zoom !== null && (
-          <span className="rounded-md border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted">
+          <span className="rounded-md border border-border bg-surface-2 px-1.5 py-0.5 text-2xs text-muted">
             z {zoom.toFixed(2)}
           </span>
         )}
@@ -6608,7 +6608,7 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
       </button>
       {phase.kind === 'picking' ? (
         <div className="flex-1 overflow-auto rounded-md border border-border bg-surface-0">
-          <p className="border-b border-border bg-surface-1 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">
+          <p className="border-b border-border bg-surface-1 px-3 py-1.5 text-2xs font-semibold uppercase tracking-wide text-muted">
             Pick a layer to add to
           </p>
           <ul>
@@ -6637,7 +6637,7 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
             <button
               type="button"
               onClick={() => setPhase({ kind: 'closed' })}
-              className="text-[11px] text-muted hover:text-ink-0"
+              className="text-2xs text-muted hover:text-ink-0"
             >
               Cancel
             </button>
@@ -6869,10 +6869,10 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
       >
         <Pencil className="h-3.5 w-3.5" />
         {cfg.label || 'Edit feature'}
-        {active ? <span className="text-[10px]">(active)</span> : null}
+        {active ? <span className="text-2xs">(active)</span> : null}
       </button>
       {active && !editing ? (
-        <p className="rounded-md border border-accent/50 bg-accent/10 p-2 text-[11px] text-ink-1">
+        <p className="rounded-md border border-accent/50 bg-accent/10 p-2 text-2xs text-ink-1">
           Click any editable feature on the map.
         </p>
       ) : null}
@@ -7019,14 +7019,14 @@ function DeleteFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
             Delete <strong>{totalSelected}</strong> feature
             {totalSelected === 1 ? '' : 's'}?
           </p>
-          <ul className="space-y-0.5 pl-3 text-[11px]">
+          <ul className="space-y-0.5 pl-3 text-2xs">
             {perTarget.map(({ target, ids }) => (
               <li key={target.mapLayer.id}>
                 <strong>{target.title}</strong>: {ids.length}
               </li>
             ))}
           </ul>
-          <p className="text-[11px] text-danger">
+          <p className="text-2xs text-danger">
             This is recorded as a delete observation; read the layer
             "as of" a moment before this action to recover.
           </p>

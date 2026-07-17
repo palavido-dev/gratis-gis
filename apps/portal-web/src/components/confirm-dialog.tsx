@@ -108,7 +108,7 @@ export function ConfirmDialog({
           <div className="px-5 pt-4">
             <label className="mb-1 block text-xs text-muted">
               {t('dialogs.typeToConfirmPrefix')}{' '}
-              <code className="rounded bg-surface-2 px-1 py-0.5 font-mono text-[11px] text-ink-0">
+              <code className="rounded bg-surface-2 px-1 py-0.5 font-mono text-2xs text-ink-0">
                 {requireTypedConfirmation}
               </code>{' '}
               {t('dialogs.typeToConfirmSuffix')}

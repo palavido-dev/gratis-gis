@@ -193,7 +193,7 @@ export function ItemCard({
           {item.tags.map((t) => {
             const active = activeTags?.has(t) ?? false;
             const chipClass = cn(
-              'inline-flex h-5 items-center rounded-full border px-2 text-[10px] font-medium transition-colors',
+              'inline-flex h-5 items-center rounded-full border px-2 text-2xs font-medium transition-colors',
               active
                 ? 'border-accent bg-accent/10 text-accent'
                 : 'border-border bg-surface-2 text-muted',

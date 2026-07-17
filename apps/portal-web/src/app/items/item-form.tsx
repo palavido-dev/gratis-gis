@@ -522,7 +522,7 @@ export function ItemForm({ mode, initialValues, initialData, itemId }: Props) {
           ) : null}
         </div>
         {licensePreset && licensePreset !== 'custom' ? (
-          <p className="mt-1 text-[11px] text-muted">
+          <p className="mt-1 text-2xs text-muted">
             {t(`itemForm.licenseOption.${LICENSE_KEY[licensePreset]}.hint`)}
           </p>
         ) : null}

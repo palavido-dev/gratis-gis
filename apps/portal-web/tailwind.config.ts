@@ -12,6 +12,14 @@ const config: Config = {
   theme: {
     container: { center: true, padding: '1rem' },
     extend: {
+      fontSize: {
+        // The one sanctioned micro size (#173). Everything that used
+        // to be an ad hoc text-[8px]..text-[11px] resolves here, so
+        // raising the floor later (e.g. to 0.75rem) is a one-line
+        // experiment instead of a 1,100-site sweep. Do not reintroduce
+        // arbitrary bracket sizes below text-xs.
+        '2xs': ['0.6875rem', { lineHeight: '1rem' }],
+      },
       colors: {
         surface: {
           0: 'hsl(var(--surface-0))',

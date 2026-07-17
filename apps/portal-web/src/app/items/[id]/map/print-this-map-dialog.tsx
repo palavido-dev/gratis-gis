@@ -170,7 +170,7 @@ export function PrintThisMapDialog({ open, onClose, mapId }: Props) {
               <Plus className="h-4 w-4 text-muted" />
               {t('print.startAction')}
             </Link>
-            <p className="mt-1 text-[11px] text-muted">
+            <p className="mt-1 text-2xs text-muted">
               {t('print.startHint')}
             </p>
           </section>
@@ -202,13 +202,13 @@ export function PrintThisMapDialog({ open, onClose, mapId }: Props) {
                       <p className="flex items-center gap-2 text-sm font-medium text-ink-1">
                         {tmpl.title}
                         {renderingId === tmpl.id ? (
-                          <span className="text-[11px] font-normal text-muted">
+                          <span className="text-2xs font-normal text-muted">
                             {t('common.loading')}
                           </span>
                         ) : null}
                       </p>
                       {tmpl.description ? (
-                        <p className="mt-0.5 line-clamp-2 text-[11px] text-muted">
+                        <p className="mt-0.5 line-clamp-2 text-2xs text-muted">
                           {tmpl.description}
                         </p>
                       ) : null}

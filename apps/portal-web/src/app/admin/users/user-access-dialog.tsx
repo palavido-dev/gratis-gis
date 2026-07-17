@@ -321,13 +321,13 @@ export function UserAccessDialog({ userId, username, onClose }: Props) {
         ) : null}
 
         {flash ? (
-          <div className="mx-3 mt-2 inline-flex items-center gap-1 rounded-md border border-success/40 bg-success/10 px-2 py-1 text-[11px] text-success">
+          <div className="mx-3 mt-2 inline-flex items-center gap-1 rounded-md border border-success/40 bg-success/10 px-2 py-1 text-2xs text-success">
             <CheckCircle2 className="h-3.5 w-3.5" />
             {flash}
           </div>
         ) : null}
         {error ? (
-          <div className="mx-3 mt-2 inline-flex items-start gap-1 rounded-md border border-danger/30 bg-danger/5 px-2 py-1 text-[11px] text-danger">
+          <div className="mx-3 mt-2 inline-flex items-start gap-1 rounded-md border border-danger/30 bg-danger/5 px-2 py-1 text-2xs text-danger">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>{error}</span>
           </div>
@@ -447,7 +447,7 @@ function ItemsTab({
           ownership from this dialog (use the reassign flow). The
           count next to the checkbox tells the admin how many extra
           rows would appear when toggled on. */}
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-surface-2 px-3 py-2 text-[11px] text-muted">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-surface-2 px-3 py-2 text-2xs text-muted">
         <label className="inline-flex cursor-pointer items-center gap-1.5">
           <input
             type="checkbox"
@@ -486,7 +486,7 @@ function ItemsTab({
               key={type}
               className="overflow-hidden rounded-md border border-border"
             >
-              <header className="flex items-center gap-2 border-b border-border bg-surface-2 px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted">
+              <header className="flex items-center gap-2 border-b border-border bg-surface-2 px-3 py-1.5 text-2xs font-medium uppercase tracking-wide text-muted">
                 <Icon className="h-3.5 w-3.5" />
                 {label}
                 <span className="ml-1 text-muted/60">({list.length})</span>
@@ -535,7 +535,7 @@ function ItemsTab({
                       <button
                         type="button"
                         onClick={() => onJumpToGroup(row.viaGroups[0]!.id)}
-                        className="rounded border border-border bg-surface-1 px-2 py-0.5 text-[11px] hover:bg-surface-2"
+                        className="rounded border border-border bg-surface-1 px-2 py-0.5 text-2xs hover:bg-surface-2"
                         title={`Manage in group "${row.viaGroups[0]!.name}"`}
                       >
                         Manage in group
@@ -543,7 +543,7 @@ function ItemsTab({
                     ) : null}
                     <Link
                       href={`/items/${row.id}`}
-                      className="inline-flex items-center text-[11px] text-accent hover:underline"
+                      className="inline-flex items-center text-2xs text-accent hover:underline"
                       title="Open item"
                     >
                       <ChevronRight className="h-3.5 w-3.5" />
@@ -561,7 +561,7 @@ function ItemsTab({
       {bundle.truncated.owned ||
       bundle.truncated.directShared ||
       bundle.truncated.groupShared ? (
-        <p className="text-[11px] text-muted">
+        <p className="text-2xs text-muted">
           Showing the most recent {bundle.maxRows} items per category. If you
           need a complete dump, narrow the search by item type on the items
           list.
@@ -614,23 +614,23 @@ function GroupsTab({
             <div className="flex flex-1 flex-col truncate">
               <span className="truncate text-ink-0">{g.name}</span>
               {g.description ? (
-                <span className="truncate text-[11px] text-muted">
+                <span className="truncate text-2xs text-muted">
                   {g.description}
                 </span>
               ) : null}
             </div>
-            <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium text-muted">
+            <span className="rounded bg-surface-2 px-1.5 py-0.5 text-2xs font-medium text-muted">
               {g.memberRole === 'owner' ? (
                 <Shield className="mr-1 inline h-3 w-3" />
               ) : null}
               {g.memberRole}
             </span>
-            <span className="text-[11px] text-muted">
+            <span className="text-2xs text-muted">
               {g.memberCount} member{g.memberCount === 1 ? '' : 's'}
             </span>
             <Link
               href={`/groups/${g.id}`}
-              className="inline-flex items-center text-[11px] text-accent hover:underline"
+              className="inline-flex items-center text-2xs text-accent hover:underline"
               title="Open group"
             >
               <ChevronRight className="h-3.5 w-3.5" />
@@ -659,7 +659,7 @@ type ViaBadgeProps =
 function ViaBadge(props: ViaBadgeProps) {
   if (props.via === 'owns') {
     return (
-      <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium text-muted">
+      <span className="rounded bg-surface-2 px-1.5 py-0.5 text-2xs font-medium text-muted">
         owner
       </span>
     );
@@ -675,8 +675,8 @@ function ViaBadge(props: ViaBadgeProps) {
       <span
         className={
           expired
-            ? 'rounded bg-danger/10 px-1.5 py-0.5 text-[11px] font-medium text-danger'
-            : 'rounded bg-success/10 px-1.5 py-0.5 text-[11px] font-medium text-success'
+            ? 'rounded bg-danger/10 px-1.5 py-0.5 text-2xs font-medium text-danger'
+            : 'rounded bg-success/10 px-1.5 py-0.5 text-2xs font-medium text-success'
         }
         {...(expiresAt
           ? {
@@ -692,7 +692,7 @@ function ViaBadge(props: ViaBadgeProps) {
   const groupNames = props.viaGroups.map((g) => g.name).join(', ');
   return (
     <span
-      className="rounded bg-warn/15 px-1.5 py-0.5 text-[11px] font-medium text-warn"
+      className="rounded bg-warn/15 px-1.5 py-0.5 text-2xs font-medium text-warn"
       title={`Via group: ${groupNames}`}
     >
       via {props.viaGroups.length > 1 ? `${props.viaGroups.length} groups` : `group "${groupNames}"`}

@@ -270,7 +270,7 @@ export function CommentsPanel({
                 }`}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-[11px] text-muted">
+                  <p className="text-2xs text-muted">
                     Thread opened {formatRelative(t.createdAt)}
                     {t.resolved ? ' • Resolved' : null}
                   </p>
@@ -279,7 +279,7 @@ export function CommentsPanel({
                       type="button"
                       onClick={() => resolve(t.id, !t.resolved)}
                       disabled={busy}
-                      className="flex items-center gap-1 rounded border border-border bg-surface-1 px-1.5 py-0.5 text-[11px] text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+                      className="flex items-center gap-1 rounded border border-border bg-surface-1 px-1.5 py-0.5 text-2xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
                     >
                       {t.resolved ? (
                         <>
@@ -299,7 +299,7 @@ export function CommentsPanel({
                   {t.comments.map((c) => (
                     <li key={c.id} className="rounded bg-surface-2 px-2 py-1.5">
                       <div className="flex items-center justify-between gap-2">
-                        <p className="text-[11px] font-medium text-ink-1">
+                        <p className="text-2xs font-medium text-ink-1">
                           {c.authorDisplay}
                           <span className="ml-1 font-normal text-muted">
                             {formatRelative(c.createdAt)}

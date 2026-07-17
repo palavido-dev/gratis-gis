@@ -278,11 +278,11 @@ function DeviceRow({
             </h2>
             <span className="text-xs text-muted">{row.email}</span>
           </div>
-          <p className="mt-0.5 truncate text-[11px] text-muted">
+          <p className="mt-0.5 truncate text-2xs text-muted">
             {describeUserAgent(row.userAgent)} · device{' '}
             {row.deviceFingerprint.slice(0, 8)}
           </p>
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-2xs">
             {stuck > 0 ? (
               <span className="inline-flex items-center gap-1 rounded-full border border-warn/30 bg-warn/10 px-2 py-0.5 font-medium text-warn">
                 <AlertTriangle className="h-3 w-3" />
@@ -404,7 +404,7 @@ function DeploymentEntry({ entry }: { entry: FieldQueueManifestEntry }) {
             >
               {title}
               {deleted ? (
-                <span className="ml-2 text-[10px] font-normal text-muted">
+                <span className="ml-2 text-2xs font-normal text-muted">
                   (deleted)
                 </span>
               ) : null}
@@ -418,22 +418,22 @@ function DeploymentEntry({ entry }: { entry: FieldQueueManifestEntry }) {
             </p>
           )}
           <p
-            className="mt-0.5 truncate font-mono text-[10px] text-muted"
+            className="mt-0.5 truncate font-mono text-2xs text-muted"
             title={entry.dataCollectionId}
           >
             {entry.dataCollectionId}
           </p>
         </div>
-        <p className="shrink-0 text-[10px] text-muted">
+        <p className="shrink-0 text-2xs text-muted">
           {entry.cachedAt
             ? `cached ${formatRelative(entry.cachedAt)}`
             : 'no cache'}
         </p>
       </div>
       {queued === 0 ? (
-        <p className="mt-1 text-[11px] text-muted">No queued records.</p>
+        <p className="mt-1 text-2xs text-muted">No queued records.</p>
       ) : (
-        <p className="mt-1 text-[11px] text-ink-1">
+        <p className="mt-1 text-2xs text-ink-1">
           {queued} queued ({failed.length} failed)
         </p>
       )}
@@ -442,7 +442,7 @@ function DeploymentEntry({ entry }: { entry: FieldQueueManifestEntry }) {
           {failed.slice(0, 5).map((r) => (
             <div
               key={r.id}
-              className="rounded border border-danger/20 bg-danger/5 px-2 py-1 text-[10px] text-danger"
+              className="rounded border border-danger/20 bg-danger/5 px-2 py-1 text-2xs text-danger"
             >
               <span className="font-mono">{r.op}</span> · attempts{' '}
               {r.attempts ?? 0}
@@ -450,7 +450,7 @@ function DeploymentEntry({ entry }: { entry: FieldQueueManifestEntry }) {
             </div>
           ))}
           {failed.length > 5 ? (
-            <p className="text-[10px] text-muted">
+            <p className="text-2xs text-muted">
               + {failed.length - 5} more failed records.
             </p>
           ) : null}

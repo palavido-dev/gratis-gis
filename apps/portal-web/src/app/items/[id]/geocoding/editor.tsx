@@ -604,7 +604,7 @@ export function GeocodingServiceEditor({ itemId, initial, canEdit }: Props) {
               <p className="text-sm font-medium text-ink-0">
                 Use your own data
               </p>
-              <p className="mt-0.5 text-[11px] text-muted">
+              <p className="mt-0.5 text-2xs text-muted">
                 Search a PostGIS data layer with per-field weights.
                 Indexes build automatically on save.
               </p>
@@ -625,7 +625,7 @@ export function GeocodingServiceEditor({ itemId, initial, canEdit }: Props) {
               <p className="text-sm font-medium text-ink-0">
                 Use an existing ArcGIS GeocodeServer
               </p>
-              <p className="mt-0.5 text-[11px] text-muted">
+              <p className="mt-0.5 text-2xs text-muted">
                 Paste a GeocodeServer URL (e.g. a statewide composite
                 locator). We proxy queries to it.
               </p>
@@ -837,12 +837,12 @@ export function GeocodingServiceEditor({ itemId, initial, canEdit }: Props) {
                       <p className="font-medium text-ink-0">
                         {f.label || f.name}
                       </p>
-                      <p className="font-mono text-[11px] text-muted">
+                      <p className="font-mono text-2xs text-muted">
                         {f.name} <span className="opacity-60">({f.type})</span>
                       </p>
                     </div>
                     {picked ? (
-                      <label className="flex items-center gap-1 text-[11px] text-muted">
+                      <label className="flex items-center gap-1 text-2xs text-muted">
                         Weight
                         <input
                           type="number"
@@ -960,13 +960,13 @@ export function GeocodingServiceEditor({ itemId, initial, canEdit }: Props) {
                   }}
                   className="mt-0.5 h-8 w-full rounded-md border border-border bg-surface-1 px-2 font-mono"
                 />
-                <span className="mt-1 block text-[11px] text-muted">
+                <span className="mt-1 block text-2xs text-muted">
                   Leave blank to join the search-field values with commas.
                 </span>
               </label>
             </>
           ) : (
-            <p className="text-[11px] text-muted sm:col-span-2">
+            <p className="text-2xs text-muted sm:col-span-2">
               Spatial extent and result labels are controlled by the
               upstream GeocodeServer when using an external source.
               The map picker can still pass a per-query bbox to clip
@@ -1115,7 +1115,7 @@ export function GeocodingServiceEditor({ itemId, initial, canEdit }: Props) {
                     <span className="min-w-0 flex-1 truncate text-ink-0">
                       {c.label}
                     </span>
-                    <span className="font-mono text-[11px] text-muted">
+                    <span className="font-mono text-2xs text-muted">
                       score {c.score.toFixed(3)}
                     </span>
                   </li>

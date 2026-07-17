@@ -208,7 +208,7 @@ function SettingRow({
       </div>
       {children}
       {footerHint ? (
-        <p className="text-[11px] text-muted">{footerHint}</p>
+        <p className="text-2xs text-muted">{footerHint}</p>
       ) : null}
     </div>
   );

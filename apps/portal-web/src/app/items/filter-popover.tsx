@@ -147,7 +147,7 @@ export function FilterPopover({
         {t('filter.filter')}
         {activeCount > 0 ? (
           <span
-            className="ml-0.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-none text-accent-foreground"
+            className="ml-0.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-accent px-1 text-2xs font-semibold leading-none text-accent-foreground"
             aria-label={t('filter.activeCount', { count: activeCount })}
           >
             {activeCount}
@@ -169,14 +169,14 @@ export function FilterPopover({
           className="absolute right-0 top-full z-30 mt-1 w-[min(28rem,calc(100vw-2rem))] rounded-md border border-border bg-surface-1 p-3 shadow-lg sm:left-0 sm:right-auto"
         >
           <div className="mb-2 flex items-center justify-between">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-muted">
+            <span className="text-2xs font-medium uppercase tracking-wide text-muted">
               {t('filter.type')}
             </span>
             {typeFilter.size > 0 ? (
               <button
                 type="button"
                 onClick={onClearTypes}
-                className="text-[11px] text-muted hover:text-ink-1 hover:underline"
+                className="text-2xs text-muted hover:text-ink-1 hover:underline"
               >
                 {t('filter.clearTypes')}
               </button>
@@ -199,7 +199,7 @@ export function FilterPopover({
                     type="button"
                     onClick={() => onToggleType(t)}
                     aria-pressed={active}
-                    className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[11px] transition-colors ${
+                    className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-2xs transition-colors ${
                       active
                         ? 'border-accent bg-accent/10 text-accent'
                         : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
@@ -226,7 +226,7 @@ export function FilterPopover({
           {templateCounts.length > 1 ? (
             <>
               <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
-                <span className="text-[11px] font-medium uppercase tracking-wide text-muted">
+                <span className="text-2xs font-medium uppercase tracking-wide text-muted">
                   {t('filter.template')}
                 </span>
               </div>
@@ -241,7 +241,7 @@ export function FilterPopover({
                       type="button"
                       onClick={() => onToggleTemplate(tpl)}
                       aria-pressed={active}
-                      className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[11px] transition-colors ${
+                      className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-2xs transition-colors ${
                         active
                           ? 'border-accent bg-accent/10 text-accent'
                           : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
@@ -266,7 +266,7 @@ export function FilterPopover({
           {ownerCounts && ownerCounts.length > 1 && onToggleOwner ? (
             <>
               <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
-                <span className="text-[11px] font-medium uppercase tracking-wide text-muted">
+                <span className="text-2xs font-medium uppercase tracking-wide text-muted">
                   {t('filter.owner')}
                 </span>
               </div>
@@ -281,7 +281,7 @@ export function FilterPopover({
                       type="button"
                       onClick={() => onToggleOwner(userId)}
                       aria-pressed={active}
-                      className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[11px] transition-colors ${
+                      className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-2xs transition-colors ${
                         active
                           ? 'border-accent bg-accent/10 text-accent'
                           : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
@@ -297,14 +297,14 @@ export function FilterPopover({
           ) : null}
 
           <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-muted">
+            <span className="text-2xs font-medium uppercase tracking-wide text-muted">
               {t('filter.area')}
             </span>
             {areaActive ? (
               <button
                 type="button"
                 onClick={onClearAreaSearch}
-                className="text-[11px] text-muted hover:text-ink-1 hover:underline"
+                className="text-2xs text-muted hover:text-ink-1 hover:underline"
               >
                 {t('filter.clearArea')}
               </button>
@@ -314,7 +314,7 @@ export function FilterPopover({
             type="button"
             onClick={onToggleAreaPanel}
             aria-pressed={areaPanelOpen || areaActive}
-            className={`mt-2 inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[11px] transition-colors ${
+            className={`mt-2 inline-flex h-7 items-center gap-1 rounded-full border px-2 text-2xs transition-colors ${
               areaPanelOpen || areaActive
                 ? 'border-accent bg-accent/10 text-accent'
                 : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
@@ -331,7 +331,7 @@ export function FilterPopover({
                 if (typeFilter.size > 0) onClearTypes();
                 if (areaActive) onClearAreaSearch();
               }}
-              className="mt-3 inline-flex h-7 w-full items-center justify-center gap-1 rounded-md border border-border bg-surface-1 text-[11px] text-ink-1 hover:bg-surface-2"
+              className="mt-3 inline-flex h-7 w-full items-center justify-center gap-1 rounded-md border border-border bg-surface-1 text-2xs text-ink-1 hover:bg-surface-2"
             >
               <X className="h-3 w-3" />
               {t('filter.clearAll')}
