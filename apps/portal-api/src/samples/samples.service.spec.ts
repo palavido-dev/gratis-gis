@@ -17,7 +17,7 @@ import { deterministicSampleUuid } from './sample-uuid.js';
  *       single create, and partially seeded orgs create only the
  *       missing entries while REUSING existing item ids in every
  *       cross-reference (the folder's childItemIds is the strongest
- *       such reference: it names all fourteen manifest items).
+ *       such reference: it names all sixteen manifest items).
  *   (b) the real bundled assets on disk parse with the counts the
  *       manifest promises, so a packaging regression fails here
  *       rather than at first click in a fresh org.
@@ -102,8 +102,15 @@ function allExistingRows(): FakeRow[] {
       { version: 3, storageType: 'postgis', layers: [] },
       'org',
     ],
+    [
+      SAMPLE_KINDS.layerParcels,
+      'data_layer',
+      { version: 3, storageType: 'postgis', layers: [] },
+      'org',
+    ],
     [SAMPLE_KINDS.boundary, 'geo_boundary', { version: 1, geometry: null }, 'private'],
     [SAMPLE_KINDS.mapExplorer, 'map', { version: 1, layers: [] }, 'public'],
+    [SAMPLE_KINDS.mapParcels, 'map', { version: 1, layers: [] }, 'org'],
     [SAMPLE_KINDS.derivedEmergency, 'derived_layer', { version: 1 }, 'private'],
     [
       SAMPLE_KINDS.form,
@@ -250,7 +257,7 @@ describe('SamplesService.seedSampleData', () => {
     const result = await svc.seedSampleData(makeUser());
 
     expect(result.created).toEqual([SAMPLE_KINDS.folder]);
-    expect(result.skipped).toHaveLength(14);
+    expect(result.skipped).toHaveLength(16);
     expect(deps.items.create).toHaveBeenCalledTimes(1);
 
     const [, createInput] = deps.items.create.mock.calls[0] as [
@@ -267,8 +274,10 @@ describe('SamplesService.seedSampleData', () => {
       `id:${SAMPLE_KINDS.layerFacilities}`,
       `id:${SAMPLE_KINDS.layerTrails}`,
       `id:${SAMPLE_KINDS.layerParks}`,
+      `id:${SAMPLE_KINDS.layerParcels}`,
       `id:${SAMPLE_KINDS.boundary}`,
       `id:${SAMPLE_KINDS.mapExplorer}`,
+      `id:${SAMPLE_KINDS.mapParcels}`,
       `id:${SAMPLE_KINDS.derivedEmergency}`,
       `id:${SAMPLE_KINDS.form}`,
       `id:${SAMPLE_KINDS.mapField}`,
@@ -303,7 +312,7 @@ describe('SamplesService.seedSampleData', () => {
     ];
     expect(itemId).toBe(`id:${SAMPLE_KINDS.layerFacilities}`);
     expect(layerId).toBe('facilities');
-    expect(inputs).toHaveLength(12);
+    expect(inputs).toHaveLength(50);
     const uuidRe =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
     for (const input of inputs) {
@@ -326,9 +335,10 @@ describe('bundled sample assets', () => {
 
   it('parses the real files with the manifest counts', async () => {
     const assets = await loadSampleAssets();
-    expect(assets.facilities).toHaveLength(12);
-    expect(assets.trails).toHaveLength(5);
-    expect(assets.parks).toHaveLength(5);
+    expect(assets.facilities).toHaveLength(50);
+    expect(assets.trails).toHaveLength(43);
+    expect(assets.parks).toHaveLength(17);
+    expect(assets.parcels).toHaveLength(23915);
     expect(assets.boundary).toHaveLength(1);
     expect(assets.submissions).toHaveLength(4);
 

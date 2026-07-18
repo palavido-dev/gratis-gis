@@ -68,12 +68,14 @@ import { deterministicSampleUuid } from './sample-uuid.js';
  *  file item nor lists it in the folder. */
 export const SAMPLE_KINDS = {
   pickFacility: 'sample:pick-facility-type',
-  pickTrail: 'sample:pick-trail-difficulty',
+  pickTrail: 'sample:pick-trail-class',
   layerFacilities: 'sample:layer-facilities',
   layerTrails: 'sample:layer-trails',
   layerParks: 'sample:layer-parks',
+  layerParcels: 'sample:layer-parcels',
   boundary: 'sample:boundary-county',
   mapExplorer: 'sample:map-explorer',
+  mapParcels: 'sample:map-parcels',
   derivedEmergency: 'sample:derived-emergency',
   form: 'sample:form-issue-report',
   mapField: 'sample:map-field',
@@ -94,37 +96,45 @@ export interface SeedSampleDataResult {
 const FACILITIES_SUBLAYER = 'facilities';
 const TRAILS_SUBLAYER = 'trails';
 const PARKS_SUBLAYER = 'parks';
+const PARCELS_SUBLAYER = 'parcels';
 
 /** Brand-adjacent palette from the manifest: sage trails, clay
  *  facilities, muted green parks, muted mauve for field reports. */
 const TRAILS_COLOR = '#59695a';
 const FACILITIES_COLOR = '#b08e62';
 const PARKS_COLOR = '#7c8a6e';
+const PARCELS_COLOR = '#a99a86';
 const REPORTS_COLOR = '#8d6a75';
 
 const SAMPLE_TAGS = ['sample', 'randolph'];
 
-/** Shared disclaimer so every dataset says out loud that the
- *  coordinates are illustrative, per the manifest. */
-const APPROX_NOTE =
-  'Coordinates are representative approximations for demonstration, not survey data.';
+/** Provenance / attribution lines. The mapWV Terms of Use place WV GIS
+ *  Technical Center content in the public domain for redistribution
+ *  (with per-dataset caveats, checked for the layers used here); the
+ *  USFS trail data is a federal public-domain work. Kept in each
+ *  layer's description so the source travels with the data. */
+const SRC_WVGISTC = 'Source: WV GIS Technical Center (wvgis.wvu.edu).';
+const SRC_USFS =
+  'Source: USDA Forest Service, National Forest System Trails.';
+const SRC_WVDNR_USFS =
+  'Source: WV GIS Technical Center, WV DNR, and USDA Forest Service.';
 
 const FACILITY_TYPE_ENTRIES: PickListEntry[] = [
-  { code: 'courthouse', label: 'Courthouse' },
   { code: 'school', label: 'School' },
+  { code: 'college', label: 'College' },
   { code: 'library', label: 'Library' },
   { code: 'fire', label: 'Fire station' },
   { code: 'ems', label: 'EMS' },
   { code: 'hospital', label: 'Hospital' },
-  { code: 'park', label: 'Park' },
-  { code: 'community-center', label: 'Community center' },
-  { code: 'museum', label: 'Museum' },
+  { code: 'law-enforcement', label: 'Law enforcement' },
 ];
 
-const TRAIL_DIFFICULTY_ENTRIES: PickListEntry[] = [
-  { code: 'easy', label: 'Easy' },
-  { code: 'moderate', label: 'Moderate' },
-  { code: 'strenuous', label: 'Strenuous' },
+const TRAIL_CLASS_ENTRIES: PickListEntry[] = [
+  { code: '1', label: 'Class 1: Minimally developed' },
+  { code: '2', label: 'Class 2: Moderately developed' },
+  { code: '3', label: 'Class 3: Developed' },
+  { code: '4', label: 'Class 4: Highly developed' },
+  { code: '5', label: 'Class 5: Fully developed' },
 ];
 
 /** Choice codes must match the bundled submissions.json responses. */
@@ -257,17 +267,17 @@ export class SamplesService {
     }));
     const pickTrail = await ensure(SAMPLE_KINDS.pickTrail, () => ({
       type: 'pick_list',
-      title: 'Trail difficulty',
+      title: 'Trail class',
       description:
-        'Reusable difficulty ratings backing the Trails sample layer. Sample content.',
-      data: this.pickListData(TRAIL_DIFFICULTY_ENTRIES),
+        'Reusable USFS trail-class ratings backing the Trails sample layer. Sample content.',
+      data: this.pickListData(TRAIL_CLASS_ENTRIES),
     }));
 
     // 3 - 5: data layers, each followed by its bundled features.
     const facilities = await ensure(SAMPLE_KINDS.layerFacilities, () => ({
       type: 'data_layer',
       title: 'County facilities',
-      description: `Public facilities around Randolph County, WV: courthouse, schools, libraries, fire and EMS, hospital. ${APPROX_NOTE}`,
+      description: `Public facilities across Randolph County, WV: schools, college, libraries, fire and EMS, hospital, and law enforcement. ${SRC_WVGISTC}`,
       data: this.facilitiesLayerData(pickFacility.id),
     }));
     await this.ensureLayerFeatures(
@@ -280,7 +290,7 @@ export class SamplesService {
     const trails = await ensure(SAMPLE_KINDS.layerTrails, () => ({
       type: 'data_layer',
       title: 'Trails',
-      description: `Trail segments in and around the Tygart Valley and the Monongahela National Forest. ${APPROX_NOTE}`,
+      description: `Monongahela National Forest trails within Randolph County, with USFS trail class and mileage. ${SRC_USFS}`,
       data: this.trailsLayerData(pickTrail.id),
     }));
     await this.ensureLayerFeatures(
@@ -293,7 +303,7 @@ export class SamplesService {
     const parks = await ensure(SAMPLE_KINDS.layerParks, () => ({
       type: 'data_layer',
       title: 'Parks and public lands',
-      description: `Parks and public lands in Randolph County, WV. ${APPROX_NOTE}`,
+      description: `Parks and public lands in Randolph County, WV: national forest, state forest, wildlife management areas, nature preserves, and city parks. ${SRC_WVDNR_USFS}`,
       data: this.parksLayerData(),
     }));
     await this.ensureLayerFeatures(
@@ -301,6 +311,23 @@ export class SamplesService {
       parks.id,
       PARKS_SUBLAYER,
       assets.parks,
+    );
+
+    // 5b: the full Randolph County parcel fabric. This is the
+    // real-world-scale layer: every tax parcel in the county, not a
+    // curated handful, so the demo shows how the portal handles a
+    // county cadastre instead of a toy dataset.
+    const parcels = await ensure(SAMPLE_KINDS.layerParcels, () => ({
+      type: 'data_layer',
+      title: 'Randolph County parcels',
+      description: `All ${assets.parcels.length.toLocaleString()} tax parcels in Randolph County, WV, with owner, physical address, and acreage. ${SRC_WVGISTC}`,
+      data: this.parcelsLayerData(),
+    }));
+    await this.ensureLayerFeatures(
+      user,
+      parcels.id,
+      PARCELS_SUBLAYER,
+      assets.parcels,
     );
 
     // 6: shared county boundary.
@@ -312,21 +339,34 @@ export class SamplesService {
       type: 'geo_boundary',
       title: 'Randolph County boundary',
       description:
-        'Heavily simplified outline of Randolph County, WV (about 20 vertices). Not authoritative; for demonstration only.',
+        'Authoritative Randolph County boundary from the WV 24K county boundary layer (USGS / WVDEP via the WV GIS Technical Center), lightly generalized for size.',
       data: {
         version: 1,
         geometry: boundaryGeometry,
-        note: 'Simplified sample boundary. Replace with an authoritative polygon for real work.',
+        note: 'Randolph County boundary, generalized slightly from the authoritative WV 24K boundary. Source: WV GIS Technical Center.',
       } satisfies GeoBoundaryData,
     }));
 
-    // 7: explorer map over the three layers.
+    // 7: explorer map over the three curated layers.
     const explorer = await ensure(SAMPLE_KINDS.mapExplorer, () => ({
       type: 'map',
       title: 'Randolph County explorer',
       description:
         'Facilities, trails, and parks over the default basemap, centered on Elkins. Sample content.',
       data: this.explorerMapData(facilities.id, trails.id, parks.id),
+    }));
+
+    // 7b: a dedicated parcels map, centered tight on Elkins so the
+    // individual parcels are legible. Kept separate from the public
+    // explorer map because the parcel layer is org-tier (see access
+    // tiers below), and mixing an org-tier layer into a public map is
+    // the documented anonymous-viewer footgun.
+    const parcelsMap = await ensure(SAMPLE_KINDS.mapParcels, () => ({
+      type: 'map',
+      title: 'Randolph County parcels',
+      description:
+        'The full county parcel fabric over the default basemap, centered on Elkins. Search parcels by owner. Sample content.',
+      data: this.parcelsMapData(parcels.id),
     }));
 
     // 8: derived layer filtered to emergency facilities. Created via
@@ -466,8 +506,10 @@ export class SamplesService {
       facilities.id,
       trails.id,
       parks.id,
+      parcels.id,
       boundary.id,
       explorer.id,
+      parcelsMap.id,
       derived.id,
       form.id,
       fieldMap.id,
@@ -494,6 +536,8 @@ export class SamplesService {
     await this.applyAccessTier(user, viewerApp, 'public');
     await this.applyAccessTier(user, parks, 'org');
     await this.applyAccessTier(user, trails, 'org');
+    await this.applyAccessTier(user, parcels, 'org');
+    await this.applyAccessTier(user, parcelsMap, 'org');
 
     this.log.log(
       `Sample data seed for org=${user.orgId}: created ${created.length}, skipped ${skipped.length}`,
@@ -532,16 +576,22 @@ export class SamplesService {
       limit: 1,
     });
     if (current.features.length > 0) return;
-    await this.features.insertFeatures(
-      itemId,
-      layerId,
-      features.map((f) => ({
-        globalId: deterministicSampleUuid(`${itemId}:${f.id}`),
-        geometry: f.geometry,
-        properties: f.properties,
-      })),
-      user,
-    );
+    // Chunk the insert: the parcels layer alone is ~24k features, well
+    // past what a single multi-row insert can bind in one statement.
+    // Small layers fall through in a single batch.
+    const BATCH = 1000;
+    for (let i = 0; i < features.length; i += BATCH) {
+      await this.features.insertFeatures(
+        itemId,
+        layerId,
+        features.slice(i, i + BATCH).map((f) => ({
+          globalId: deterministicSampleUuid(`${itemId}:${f.id}`),
+          geometry: f.geometry,
+          properties: f.properties,
+        })),
+        user,
+      );
+    }
   }
 
   /**
@@ -659,7 +709,7 @@ export class SamplesService {
     };
   }
 
-  private trailsLayerData(difficultyPickListId: string): DataLayerDataV3 {
+  private trailsLayerData(trailClassPickListId: string): DataLayerDataV3 {
     const fields: FeatureField[] = [
       {
         name: 'name',
@@ -669,13 +719,13 @@ export class SamplesService {
         searchable: true,
       },
       {
-        name: 'difficulty',
+        name: 'trail_class',
         type: 'string',
-        label: 'Difficulty',
+        label: 'Trail class',
         nullable: true,
         domain: {
           type: 'coded-value-ref',
-          pickListItemId: difficultyPickListId,
+          pickListItemId: trailClassPickListId,
         },
       },
       {
@@ -736,6 +786,56 @@ export class SamplesService {
     };
   }
 
+  private parcelsLayerData(): DataLayerDataV3 {
+    const fields: FeatureField[] = [
+      {
+        name: 'label',
+        type: 'string',
+        label: 'Parcel',
+        nullable: true,
+        searchable: true,
+      },
+      {
+        name: 'owner',
+        type: 'string',
+        label: 'Owner',
+        nullable: true,
+        searchable: true,
+      },
+      {
+        name: 'address',
+        type: 'string',
+        label: 'Physical address',
+        nullable: true,
+        searchable: true,
+      },
+      { name: 'acres', type: 'number', label: 'Acres', nullable: true },
+      {
+        name: 'district',
+        type: 'string',
+        label: 'Tax district',
+        nullable: true,
+      },
+    ];
+    return {
+      version: 3,
+      storageType: 'postgis',
+      layers: [
+        {
+          id: PARCELS_SUBLAYER,
+          label: 'Parcels',
+          name: PARCELS_SUBLAYER,
+          geometryType: 'polygon',
+          fields,
+          // Reference cadastre: read-only in the sample so the demo
+          // does not invite edits to 24k authoritative parcels.
+          editingEnabled: false,
+          attachmentsEnabled: false,
+        },
+      ],
+    };
+  }
+
   /**
    * One fully-populated MapLayer. Everything not explicitly styled
    * rides the shared defaults; the defaults are spread into fresh
@@ -751,11 +851,12 @@ export class SamplesService {
     lineColor?: string;
     polygonColor?: string;
     searchFields?: string[];
+    visible?: boolean;
   }): MapLayer {
     return {
       id: args.id,
       title: args.title,
-      visible: true,
+      visible: args.visible ?? true,
       opacity: 1,
       source: { kind: 'data-layer', itemId: args.itemId, layerKey: args.layerKey },
       style: {
@@ -826,6 +927,30 @@ export class SamplesService {
           layerKey: PARKS_SUBLAYER,
           polygonColor: PARKS_COLOR,
           searchFields: ['name'],
+        }),
+      ],
+      search: { enabled: true, geocoding: true },
+    };
+  }
+
+  private parcelsMapData(parcelsId: string): MapData {
+    return {
+      version: 1,
+      basemap: '',
+      // Tight on Elkins so individual parcels are legible on open;
+      // the whole county at low zoom is an undifferentiated mass.
+      center: [-79.847, 38.925],
+      zoom: 13,
+      bearing: 0,
+      pitch: 0,
+      layers: [
+        this.mapLayer({
+          id: 'parcels',
+          title: 'Parcels',
+          itemId: parcelsId,
+          layerKey: PARCELS_SUBLAYER,
+          polygonColor: PARCELS_COLOR,
+          searchFields: ['owner'],
         }),
       ],
       search: { enabled: true, geocoding: true },

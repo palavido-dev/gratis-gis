@@ -2,6 +2,7 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { gunzipSync } from 'node:zlib';
 
 /**
  * Loader for the bundled Randolph County sample datasets (#147).
@@ -37,6 +38,7 @@ export interface SampleAssets {
   facilities: SampleFeature[];
   trails: SampleFeature[];
   parks: SampleFeature[];
+  parcels: SampleFeature[];
   boundary: SampleFeature[];
   submissions: SampleSubmission[];
 }
@@ -172,19 +174,31 @@ export async function loadSampleAssets(): Promise<SampleAssets> {
     const file = path.join(dir, name);
     return { raw: await readFile(file, 'utf8'), file };
   };
-  const [facilities, trails, parks, boundary, submissions] = await Promise.all(
-    [
+  // Parcels ship gzipped: the full-resolution county cadastre is ~38 MB
+  // of GeoJSON, which compresses to ~12 MB for the repo and image. The
+  // geometry is never simplified (parcel edges must stay crisp), so we
+  // trade a one-time gunzip at seed time for a much smaller committed
+  // asset.
+  const readGz = async (
+    name: string,
+  ): Promise<{ raw: string; file: string }> => {
+    const file = path.join(dir, name);
+    return { raw: gunzipSync(await readFile(file)).toString('utf8'), file };
+  };
+  const [facilities, trails, parks, parcels, boundary, submissions] =
+    await Promise.all([
       read('facilities.geojson'),
       read('trails.geojson'),
       read('parks.geojson'),
+      readGz('parcels.geojson.gz'),
       read('county-boundary.geojson'),
       read('submissions.json'),
-    ],
-  );
+    ]);
   cached = {
     facilities: parseFeatureCollection(facilities.raw, facilities.file),
     trails: parseFeatureCollection(trails.raw, trails.file),
     parks: parseFeatureCollection(parks.raw, parks.file),
+    parcels: parseFeatureCollection(parcels.raw, parcels.file),
     boundary: parseFeatureCollection(boundary.raw, boundary.file),
     submissions: parseSubmissions(submissions.raw, submissions.file),
   };
