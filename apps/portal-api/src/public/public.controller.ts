@@ -557,19 +557,26 @@ export class PublicController {
     const all = rows.map((r) => synthesizeThumbnailUrl(r));
     if (featuredIds.length === 0) return all;
 
-    // Featured = strict filter (matches AGOL's "featured group" UX):
-    // when the admin curates a list, the landing shows ONLY those
-    // items, in the admin's chosen order. Items no longer public
-    // (or moved to trash) drop out silently. If the admin wants the
-    // full public catalog they leave the featured list empty, which
-    // falls through to the "all public items, newest first" branch
-    // above. Previously this method appended the non-featured public
-    // items after the featured set, which made the curated list
-    // feel like a sort instead of a filter.
+    // Featured = strict filter when it resolves to anything: when the
+    // admin curates a list, the landing shows ONLY those items, in
+    // the admin's chosen order. Items no longer public (or moved to
+    // trash) drop out silently. If the admin wants the full public
+    // catalog they leave the featured list empty, which falls through
+    // to the "all public items, newest first" branch above.
     const byId = new Map(all.map((i) => [i.id, i]));
-    return featuredIds
+    const featured = featuredIds
       .map((id) => byId.get(id))
       .filter((i): i is NonNullable<typeof i> => !!i);
+    // Safety net: if EVERY featured id is stale (none resolve to a
+    // live public item) but public items DO exist, fall back to the
+    // full catalog rather than rendering a blank "nothing shared
+    // publicly" page. A curated list pinned to ids that later get
+    // re-created with fresh ids (every demo re-seed does this) would
+    // otherwise silently hide real public content. Featuring is a
+    // presentation preference; it must never suppress the catalog
+    // entirely when the underlying items are gone.
+    if (featured.length === 0) return all;
+    return featured;
   }
 }
 
