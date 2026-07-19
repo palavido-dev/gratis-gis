@@ -165,6 +165,7 @@ export const es: Partial<CatalogShape> = {
     noItemsToFilter: 'No hay elementos que filtrar en la vista actual.',
     template: 'Plantilla',
     owner: 'Propietario',
+    access: 'Acceso',
     area: 'Área',
     clearArea: 'Borrar área',
     filterByArea: 'Filtrar por área...',

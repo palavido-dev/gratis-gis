@@ -161,6 +161,7 @@ export const ptBR: Partial<CatalogShape> = {
     noItemsToFilter: 'Nenhum item para filtrar na visualização atual.',
     template: 'Modelo',
     owner: 'Proprietário',
+    access: 'Acesso',
     area: 'Área',
     clearArea: 'Limpar área',
     filterByArea: 'Filtrar por área...',

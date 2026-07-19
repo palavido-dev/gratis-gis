@@ -2,8 +2,12 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Crosshair, SlidersHorizontal, X } from 'lucide-react';
-import type { ItemType, WebAppTemplate } from '@gratis-gis/shared-types';
+import { Crosshair, Globe, Lock, SlidersHorizontal, Users, X } from 'lucide-react';
+import type {
+  ItemAccess,
+  ItemType,
+  WebAppTemplate,
+} from '@gratis-gis/shared-types';
 import {
   getItemTypeAccent,
   getItemTypeIcon,
@@ -70,7 +74,24 @@ interface Props {
   ownerCounts?: Array<[string, number]>;
   ownerLabels?: Record<string, string>;
   onToggleOwner?: (userId: string) => void;
+  /** Access facet. Empty Set means "all access levels". Multi-select
+   *  unions (public OR org). Only rendered when more than one access
+   *  level is present in the visible items -- a list that is all one
+   *  level has nothing to narrow. Counts come from the visible set so
+   *  a chip's number always matches rows in the grid. */
+  accessFilter?: Set<ItemAccess>;
+  accessCounts?: Array<[ItemAccess, number]>;
+  onToggleAccess?: (a: ItemAccess) => void;
 }
+
+/** Per-access-level chip icon so the levels are scannable at a
+ *  glance. Mirrors the visibility vocabulary used in the sharing
+ *  panel: globe = anyone, people = the org, lock = just you. */
+const ACCESS_ICON: Record<ItemAccess, typeof Globe> = {
+  public: Globe,
+  org: Users,
+  private: Lock,
+};
 
 export function FilterPopover({
   typeFilter,
@@ -88,6 +109,9 @@ export function FilterPopover({
   ownerCounts,
   ownerLabels,
   onToggleOwner,
+  accessFilter,
+  accessCounts,
+  onToggleAccess,
 }: Props) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -97,7 +121,8 @@ export function FilterPopover({
     typeFilter.size +
     templateFilter.size +
     (areaActive ? 1 : 0) +
-    (ownerFilter?.size ?? 0);
+    (ownerFilter?.size ?? 0) +
+    (accessFilter?.size ?? 0);
 
   // Close on outside click + Escape. Same pattern as folder-row-menu.
   useEffect(() => {
@@ -296,6 +321,43 @@ export function FilterPopover({
             </>
           ) : null}
 
+          {/* Access facet. Renders only when more than one access
+              level appears in the visible items -- a single-level
+              list has nothing to narrow. Public first so the level
+              users most often hunt for sits at the front. */}
+          {accessCounts && accessCounts.length > 1 && onToggleAccess ? (
+            <>
+              <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
+                <span className="text-2xs font-medium uppercase tracking-wide text-muted">
+                  {t('filter.access')}
+                </span>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {accessCounts.map(([level, count]) => {
+                  const active = accessFilter?.has(level) ?? false;
+                  const Icon = ACCESS_ICON[level];
+                  return (
+                    <button
+                      key={level}
+                      type="button"
+                      onClick={() => onToggleAccess(level)}
+                      aria-pressed={active}
+                      className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-2xs transition-colors ${
+                        active
+                          ? 'border-accent bg-accent/10 text-accent'
+                          : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
+                      }`}
+                    >
+                      <Icon className="h-3 w-3" />
+                      {t(`sharing.access.${level}`)}
+                      <span className="text-muted">({count})</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          ) : null}
+
           <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
             <span className="text-2xs font-medium uppercase tracking-wide text-muted">
               {t('filter.area')}
@@ -324,11 +386,23 @@ export function FilterPopover({
             {areaActive ? t('filter.filteringByArea') : t('filter.filterByArea')}
           </button>
 
-          {(typeFilter.size > 0 || areaActive) ? (
+          {(typeFilter.size > 0 ||
+            templateFilter.size > 0 ||
+            (accessFilter?.size ?? 0) > 0 ||
+            areaActive) ? (
             <button
               type="button"
               onClick={() => {
-                if (typeFilter.size > 0) onClearTypes();
+                // onClearTypes clears type, template, and access
+                // together (the shared clearFilters in ItemsView), so
+                // one call covers all three facets.
+                if (
+                  typeFilter.size > 0 ||
+                  templateFilter.size > 0 ||
+                  (accessFilter?.size ?? 0) > 0
+                ) {
+                  onClearTypes();
+                }
                 if (areaActive) onClearAreaSearch();
               }}
               className="mt-3 inline-flex h-7 w-full items-center justify-center gap-1 rounded-md border border-border bg-surface-1 text-2xs text-ink-1 hover:bg-surface-2"

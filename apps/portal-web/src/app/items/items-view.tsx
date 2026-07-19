@@ -26,6 +26,7 @@ import { DependentsWarning } from '@/components/dependents-warning';
 import { ItemCard } from '@gratis-gis/ui';
 import type {
   FolderData,
+  ItemAccess,
   ItemType,
   ItemWithShares,
   WebAppData,
@@ -167,6 +168,12 @@ export function ItemsView({
   // the current user); the popover hides the section when scope is
   // mine to keep the panel quiet.
   const [ownerFilter, setOwnerFilter] = useState<Set<string>>(new Set());
+  // Access facet: narrow to Public / Org / Private. The group-by
+  // control could already group by access, but there was no way to
+  // filter to a single access level, so finding "my one public item"
+  // in a long list meant scrolling. Empty Set means "all"; multi-
+  // select unions (public OR org), same OR semantics as type / owner.
+  const [accessFilter, setAccessFilter] = useState<Set<ItemAccess>>(new Set());
   // #91: tag filter. Click a tag chip on a card to add it; click
   // again to remove. AND semantics within tagFilter (item must
   // carry every selected tag) -- different from owner / type
@@ -421,6 +428,20 @@ export function ItemsView({
     }
     return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
   }, [sourceItems]);
+
+  // Access-level counts for the facet, in a fixed visibility order
+  // (public first: it's the level users most often hunt for in a
+  // long list). Only levels actually present get a chip.
+  const accessCounts = useMemo(() => {
+    const counts = new Map<ItemAccess, number>();
+    for (const it of sourceItems) {
+      counts.set(it.access, (counts.get(it.access) ?? 0) + 1);
+    }
+    const order: ItemAccess[] = ['public', 'org', 'private'];
+    return order
+      .filter((a) => counts.has(a))
+      .map((a) => [a, counts.get(a) ?? 0] as [ItemAccess, number]);
+  }, [sourceItems]);
   // #87: build owner labels from whatever the parent payload happens
   // to embed (item.owner is included on the items-list response when
   // available; falls back to a short uuid prefix). Avoids a separate
@@ -450,6 +471,14 @@ export function ItemsView({
       return next;
     });
   }
+  function onToggleAccess(a: ItemAccess) {
+    setAccessFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(a)) next.delete(a);
+      else next.add(a);
+      return next;
+    });
+  }
 
   const filteredItems = useMemo(() => {
     let pool =
@@ -471,6 +500,10 @@ export function ItemsView({
     if (ownerFilter.size > 0) {
       pool = pool.filter((it) => ownerFilter.has(it.ownerId));
     }
+    // Access facet. Multi-select unions (public OR org).
+    if (accessFilter.size > 0) {
+      pool = pool.filter((it) => accessFilter.has(it.access));
+    }
     // #91: tag facet. AND semantics: items must carry every active
     // tag. (Owner/type/template were OR; tags are AND because
     // "narrow by tag combination" is the natural read.)
@@ -486,7 +519,15 @@ export function ItemsView({
     const sorted = [...pool];
     sorted.sort((a, b) => compareItems(a, b, sortBy));
     return sorted;
-  }, [sourceItems, typeFilter, templateFilter, ownerFilter, tagFilter, sortBy]);
+  }, [
+    sourceItems,
+    typeFilter,
+    templateFilter,
+    ownerFilter,
+    accessFilter,
+    tagFilter,
+    sortBy,
+  ]);
 
   function toggleType(t: ItemType) {
     setTypeFilter((prev) => {
@@ -509,6 +550,7 @@ export function ItemsView({
   function clearFilters() {
     setTypeFilter(new Set());
     setTemplateFilter(new Set());
+    setAccessFilter(new Set());
   }
 
   async function applyAreaSearch(
@@ -980,6 +1022,9 @@ export function ItemsView({
         ownerCounts={ownerCounts}
         ownerLabels={ownerLabels}
         onToggleOwner={onToggleOwner}
+        accessFilter={accessFilter}
+        accessCounts={accessCounts}
+        onToggleAccess={onToggleAccess}
       />
       {areaPanelOpen ? (
         <AreaSearchPanel
@@ -1750,6 +1795,10 @@ interface ToolbarProps {
   ownerCounts: Array<[string, number]>;
   ownerLabels: Record<string, string>;
   onToggleOwner: (userId: string) => void;
+  /** Access facet props plumbed through from ItemsView. */
+  accessFilter: Set<ItemAccess>;
+  accessCounts: Array<[ItemAccess, number]>;
+  onToggleAccess: (a: ItemAccess) => void;
 }
 
 function Toolbar({
@@ -1777,6 +1826,9 @@ function Toolbar({
   ownerCounts,
   ownerLabels,
   onToggleOwner,
+  accessFilter,
+  accessCounts,
+  onToggleAccess,
 }: ToolbarProps) {
   const t = useT();
   // Active-filter labels for the inline summary chip below the
@@ -1873,6 +1925,9 @@ function Toolbar({
           ownerCounts={ownerCounts}
           ownerLabels={ownerLabels}
           onToggleOwner={onToggleOwner}
+          accessFilter={accessFilter}
+          accessCounts={accessCounts}
+          onToggleAccess={onToggleAccess}
         />
 
         <label className="inline-flex items-center gap-1.5 text-xs text-muted">

@@ -158,6 +158,49 @@
   line-height: 1.35;
 }
 
+/* MapLibre owns the popup's outer chrome and hardcodes it to a white
+   card with a white tip. That white never followed the theme, so in
+   dark mode the popup body (themed .gg-popup text, near-white
+   --surface-1-ink) rendered white-on-white and vanished. Bind the
+   chrome to the same surface tokens the injected content uses so the
+   popup keeps real contrast in both light and dark. */
+.maplibregl-popup-content {
+  background: hsl(var(--surface-1));
+  color: hsl(var(--surface-1-ink));
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.18);
+  padding: 10px 12px;
+}
+/* The tip is a CSS triangle drawn with a single colored border edge;
+   which edge depends on the popup anchor, so every anchor variant has
+   to be pointed at the surface color or it reverts to white. */
+.maplibregl-popup-anchor-top .maplibregl-popup-tip,
+.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+.maplibregl-popup-anchor-top-right .maplibregl-popup-tip {
+  border-bottom-color: hsl(var(--surface-1));
+}
+.maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip {
+  border-top-color: hsl(var(--surface-1));
+}
+.maplibregl-popup-anchor-left .maplibregl-popup-tip {
+  border-right-color: hsl(var(--surface-1));
+}
+.maplibregl-popup-anchor-right .maplibregl-popup-tip {
+  border-left-color: hsl(var(--surface-1));
+}
+.maplibregl-popup-close-button {
+  color: hsl(var(--muted));
+  font-size: 16px;
+  padding: 0 6px;
+}
+.maplibregl-popup-close-button:hover {
+  background: transparent;
+  color: hsl(var(--surface-1-ink));
+}
+
 /* Dual-thumb range slider used for layer scale/visibility ranges.
    Two stacked <input type="range"> elements share a track; only the
    thumbs receive pointer events so each can be dragged independently.

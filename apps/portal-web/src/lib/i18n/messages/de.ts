@@ -164,6 +164,7 @@ export const de: Partial<CatalogShape> = {
     noItemsToFilter: 'Keine Elemente in der aktuellen Ansicht zu filtern.',
     template: 'Vorlage',
     owner: 'Besitzer',
+    access: 'Zugriff',
     area: 'Gebiet',
     clearArea: 'Gebiet zurücksetzen',
     filterByArea: 'Nach Gebiet filtern...',

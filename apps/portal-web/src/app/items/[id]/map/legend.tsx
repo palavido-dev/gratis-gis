@@ -112,6 +112,14 @@ function LayerSwatch({
 }) {
   const r = layer.renderer;
 
+  // Categorical + graduated swatches shape to the layer's geometry
+  // (circle for points, stripe for lines, square for polygons) so a
+  // point layer symbolized by category reads as points, not squares.
+  // The simple-renderer path below was already geometry-aware; these
+  // two branches were not, which made every categorized point / line
+  // layer render as a grid of squares (#175 follow-up).
+  const family = dominantFamily(geometryTypes);
+
   if (r.kind === 'unique-values' && r.categories.length > 0 && r.field) {
     return (
       <div>
@@ -121,15 +129,11 @@ function LayerSwatch({
         <ul className="space-y-1">
           {r.categories.map((c) => (
             <li key={c.value} className="flex items-center gap-2 text-xs">
-              <span
-                aria-hidden="true"
-                className="inline-block h-3.5 w-3.5 shrink-0 rounded-sm border border-border"
-                style={{ backgroundColor: c.color }}
-              />
+              <CategoryMark color={c.color} family={family} />
               <span className="truncate">{c.value || '(empty)'}</span>
             </li>
           ))}
-          <FallbackRow layer={layer} />
+          <FallbackRow layer={layer} family={family} />
         </ul>
       </div>
     );
@@ -164,11 +168,7 @@ function LayerSwatch({
                   : `${r.stops[i - 1]} to < ${r.stops[i]}`;
             return (
               <li key={i} className="flex items-center gap-2">
-                <span
-                  aria-hidden="true"
-                  className="inline-block h-3 w-3 shrink-0 rounded-sm border border-border"
-                  style={{ backgroundColor: color }}
-                />
+                <CategoryMark color={color} family={family} />
                 <span className="truncate text-muted">{label}</span>
               </li>
             );
@@ -242,16 +242,106 @@ function SimpleSwatches({
   );
 }
 
-function FallbackRow({ layer }: { layer: MapLayer }) {
+function FallbackRow({
+  layer,
+  family,
+}: {
+  layer: MapLayer;
+  family: GeometryFamily;
+}) {
+  // The "other" catch-all mirrors the categories' shape so the row
+  // doesn't reintroduce a square under a list of circles / stripes.
+  // Dashed to read as "everything not listed above."
+  const color = layer.style.polygon.fillColor;
+  if (family === 'point') {
+    return (
+      <li className="flex items-center gap-2 text-xs">
+        <span
+          aria-hidden="true"
+          className="inline-block h-3 w-3 shrink-0 rounded-full border border-dashed border-border"
+          style={{ backgroundColor: color }}
+        />
+        <span className="truncate text-muted">other</span>
+      </li>
+    );
+  }
+  if (family === 'line') {
+    return (
+      <li className="flex items-center gap-2 text-xs">
+        <span
+          aria-hidden="true"
+          className="inline-block h-0.5 w-4 shrink-0 rounded"
+          style={{ backgroundColor: color }}
+        />
+        <span className="truncate text-muted">other</span>
+      </li>
+    );
+  }
   return (
     <li className="flex items-center gap-2 text-xs">
       <span
         aria-hidden="true"
         className="inline-block h-3.5 w-3.5 shrink-0 rounded-sm border border-dashed border-border"
-        style={{ backgroundColor: layer.style.polygon.fillColor }}
+        style={{ backgroundColor: color }}
       />
       <span className="truncate text-muted">other</span>
     </li>
+  );
+}
+
+/**
+ * The layer's dominant geometry family for categorical / graduated
+ * legend swatches. A layer is effectively single-geometry; when the
+ * metadata reports several (or none yet) we prefer the most
+ * point-like so a mixed layer still reads as marks rather than
+ * blocks. Defaults to polygon when metadata has not resolved, which
+ * keeps the pre-metadata render identical to the old behavior.
+ */
+function dominantFamily(geometryTypes?: Set<GeometryFamily>): GeometryFamily {
+  if (!geometryTypes || geometryTypes.size === 0) return 'polygon';
+  if (geometryTypes.has('point')) return 'point';
+  if (geometryTypes.has('line')) return 'line';
+  return 'polygon';
+}
+
+/**
+ * A single categorical / graduated swatch shaped to the layer
+ * geometry: a filled dot for points, a stripe for lines, a rounded
+ * square for polygons. The color is the category / class color, so
+ * the shape communicates geometry while the fill communicates the
+ * class, matching what the canvas paints.
+ */
+function CategoryMark({
+  color,
+  family,
+}: {
+  color: string;
+  family: GeometryFamily;
+}) {
+  if (family === 'point') {
+    return (
+      <span
+        aria-hidden="true"
+        className="inline-block h-3 w-3 shrink-0 rounded-full border border-black/20"
+        style={{ backgroundColor: color }}
+      />
+    );
+  }
+  if (family === 'line') {
+    return (
+      <span
+        aria-hidden="true"
+        className="inline-block h-0.5 w-4 shrink-0 rounded"
+        style={{ backgroundColor: color }}
+      />
+    );
+  }
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-block h-3.5 w-3.5 shrink-0 rounded-sm border border-border"
+      style={{ backgroundColor: color }}
+    />
   );
 }
 

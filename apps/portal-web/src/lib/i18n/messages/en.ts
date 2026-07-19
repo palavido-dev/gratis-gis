@@ -167,6 +167,7 @@ export const en = {
     noItemsToFilter: 'No items in the current view to filter.',
     template: 'Template',
     owner: 'Owner',
+    access: 'Access',
     area: 'Area',
     clearArea: 'Clear area',
     filterByArea: 'Filter by area...',
