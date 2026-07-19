@@ -351,7 +351,7 @@ function ProjectAboutSection() {
         <ul className="mb-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           <FeatureTile
             icon={Database}
-            title="Your data, your hardware"
+            title="Runs on your own hardware"
             body="PostGIS-backed datasets, web maps, and forms. Bring data in from shapefiles, GeoJSON, GDB, or any OGR-supported format."
           />
           <FeatureTile
@@ -361,7 +361,7 @@ function ProjectAboutSection() {
           />
           <FeatureTile
             icon={Globe}
-            title="Standards-friendly + ArcGIS-friendly"
+            title="Works with the tools you already use"
             body="OGC API Features, Tiles, Styles, and Records; CSW 2.0.2 catalog; Schema.org JSON-LD; WMS / WFS service references; plus Esri WebMap JSON export so portal maps open in ArcGIS Pro, ArcGIS Online, QGIS, and kepler.gl."
           />
           <FeatureTile
@@ -379,10 +379,7 @@ function ProjectAboutSection() {
             counter-positioning so the section now reads as "this is
             what GratisGIS gives you out of the box." */}
         <div className="mb-10 max-w-3xl">
-          <p className="text-xs font-semibold uppercase tracking-wide text-accent">
-            Built in, not bolted on
-          </p>
-          <h3 className="mt-1 text-xl font-semibold tracking-tight text-ink-0 sm:text-2xl">
+          <h3 className="text-xl font-semibold tracking-tight text-ink-0 sm:text-2xl">
             Operational features the portal ships with
           </h3>
         </div>

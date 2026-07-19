@@ -28,7 +28,7 @@ import { authOptions } from '@/lib/auth';
 export const metadata: Metadata = {
   title: 'Why GratisGIS',
   description:
-    'Why GratisGIS exists. A passion project from someone who has been doing GIS full time since the mid 1990s.',
+    'Why GratisGIS exists, in the words of the person who built it. I have been doing GIS full time since the mid 1990s.',
 };
 
 export default async function WhyPage() {
@@ -68,83 +68,49 @@ export default async function WhyPage() {
             Why <span className="normal-case">GratisGIS</span>
           </p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight text-ink-0 sm:text-4xl">
-            A passion project, not a startup.
+            Why I built this
           </h1>
-          <p className="mt-3 text-base text-muted">
-            The shorter version: I built GratisGIS to give back some of
-            what three decades of working in GIS has given me. It is free
-            because that is the point.
-          </p>
         </header>
 
-        <section className="prose prose-invert mt-10 max-w-none space-y-6 text-base leading-relaxed text-ink-1">
-          <h2 className="text-xl font-semibold tracking-tight text-ink-0">
-            Three decades in
-          </h2>
+        <section className="mt-8 max-w-none space-y-5 text-base leading-relaxed text-ink-1">
           <p>
-            I have been doing GIS full time since the mid 1990s. Over
-            those three decades I have been fortunate to work alongside
-            people who share ideas freely, who are not driven by the sole
-            goal of keeping knowledge to themselves so they stay
-            &ldquo;valuable.&rdquo; That instinct, that a rising tide
-            raises all ships, is the foundation of this project.
-          </p>
-
-          <h2 className="text-xl font-semibold tracking-tight text-ink-0">
-            A culmination, not a product launch
-          </h2>
-          <p>
-            GratisGIS is a culmination of all of that. The ideas, the
-            challenges, the interactions with people, the things I have
-            learned the hard way and the things I have watched commercial
-            portals get wrong. This is my way to give some of that back
-            so other people can use it, learn from it, or build on it.
+            I have been doing GIS full time since the mid 1990s. For most
+            of that time I have worked around people who share what they
+            know instead of hoarding it to stay useful, and that rubbed
+            off on me. It is most of the reason this exists.
           </p>
           <p>
-            I understand the need to make a living. I have to swim in
-            that pond too, and I am not hating on that. But money has
-            never been my sole driver. Curiosity is. I want to keep
-            learning, keep coming up with new ideas, keep sharing them.
+            GratisGIS is where a lot of that experience ended up. The
+            ideas I picked up, the problems I kept running into, the
+            things commercial portals never quite got right. I wanted to
+            put it somewhere other people could use it, learn from it, or
+            build on it.
           </p>
-
-          <h2 className="text-xl font-semibold tracking-tight text-ink-0">
-            Built on the side
-          </h2>
           <p>
-            This was built on weekends, nights, and lunch breaks. I am
-            one person with kids, a full time job, and a life. So
-            GratisGIS gets the time I can give it, on my own resources,
-            and what you see here is the product of that time. If it
-            works for you and you like the idea, great. If it does not,
-            but you are still interested in where it is heading, I love
-            constructive feedback.
+            I know everyone has to make a living, myself included, and I
+            am not knocking that. Money just is not what drives me here. I
+            am curious, I like building things, and I like sharing them.
           </p>
-
-          <h2 className="text-xl font-semibold tracking-tight text-ink-0">
-            How to participate
-          </h2>
           <p>
-            If you want to contribute financially, I appreciate that, but
-            it is not necessary. If you want to share feedback or ideas,
-            awesome, that is the kind of contribution I am most likely to
-            act on. If you want to actually write code with me, let&rsquo;s
-            talk.
+            This gets built on nights, weekends, and lunch breaks. I have
+            kids, a full time job, and a life, so it gets the time I can
+            give it. If it is useful to you, good. If you have feedback or
+            ideas, that is the kind of thing I will actually act on. If
+            you want to write some code with me, get in touch.
           </p>
           <aside className="rounded-md border border-border bg-surface-1 p-4 text-sm text-ink-1">
             <p className="flex items-start gap-2">
               <Coffee className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
               <span>
-                Half joking, half not: if GratisGIS just saved your
-                organization thousands of dollars you would have
-                otherwise spent on a commercial GIS system, well, find
-                it in your heart to show a little love. PayPal and
-                GitHub Sponsors links are below. I am not above buying
-                myself a coffee with it.
+                If GratisGIS saved your organization the cost of a
+                commercial system and you feel like putting a few dollars
+                toward a coffee, the PayPal and GitHub Sponsors links are
+                below. Completely optional.
               </span>
             </p>
           </aside>
           <p className="text-ink-0">
-            In the meantime, it is what the name implies: gratis. Free.
+            Either way, it is what the name says. Gratis. Free.
           </p>
         </section>
 
