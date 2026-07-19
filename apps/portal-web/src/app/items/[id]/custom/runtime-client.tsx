@@ -692,21 +692,23 @@ export function CustomRuntimeClient({
           className="relative flex flex-1 flex-col overflow-hidden bg-[hsl(var(--app-surface-0))]"
         >
           {totalWidgets === 0 ? (
-            <div className="flex h-full items-center justify-center p-3">
-              <div className="max-w-md rounded-lg border border-dashed border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] p-8 text-center shadow-[var(--app-shadow-card)]">
-                <SquareIcon className="mx-auto h-8 w-8 text-[hsl(var(--app-muted))]" />
-                <h2 className="mt-3 text-base font-semibold text-[hsl(var(--app-ink-0))]">
-                  Empty app
+            <div className="flex h-full items-center justify-center p-6">
+              <div className="max-w-sm rounded-[var(--app-radius)] border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] p-8 text-center shadow-[var(--app-shadow-card)]">
+                <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[hsl(var(--app-accent)/0.1)] text-[hsl(var(--app-accent))]">
+                  <SquareIcon className="h-6 w-6" />
+                </span>
+                <h2 className="mt-4 text-base font-semibold text-[hsl(var(--app-ink-0))]">
+                  Start building
                 </h2>
-                <p className="mt-2 text-sm text-[hsl(var(--app-muted))]">
-                  Head back to{' '}
+                <p className="mt-1.5 text-sm text-[hsl(var(--app-muted))]">
+                  Add a map, a layer list, and other widgets from the{' '}
                   <Link
                     href={`/items/${itemId}`}
-                    className="text-[hsl(var(--app-accent))] hover:underline"
+                    className="font-medium text-[hsl(var(--app-accent))] hover:underline"
                   >
-                    the configuration page
+                    configuration page
                   </Link>{' '}
-                  to drag a widget onto the canvas.
+                  to build this app.
                 </p>
               </div>
             </div>
