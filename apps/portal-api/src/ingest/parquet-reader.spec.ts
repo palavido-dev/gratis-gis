@@ -52,7 +52,12 @@ describe('isParquetPath', () => {
 describe('parquetLayerName', () => {
   it('uses the file stem, stripping either extension spelling', () => {
     expect(parquetLayerName('/tmp/abc/sample.parquet')).toBe('sample');
-    expect(parquetLayerName('C:\\tmp\\Parcels.GeoParquet')).toBe('Parcels');
+    // Case-insensitive extension stripping. Uses a POSIX path on
+    // purpose: parquetLayerName runs on node's path.basename, which is
+    // POSIX on the Linux server + CI, so a Windows-style backslash
+    // path here would only strip on a Windows host and fail CI (it
+    // did: the ingest temp paths this parses are always POSIX).
+    expect(parquetLayerName('/tmp/abc/Parcels.GeoParquet')).toBe('Parcels');
   });
 });
 
