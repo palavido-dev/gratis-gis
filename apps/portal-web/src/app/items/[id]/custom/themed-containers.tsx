@@ -65,6 +65,19 @@ export type RenderChild = (child: CustomWidget) => React.ReactNode;
  */
 export const AppBarContext = createContext<boolean>(false);
 
+/**
+ * Runtime-info context. Carries app-shell metadata that container
+ * widgets want as fallbacks when their own config leaves a slot
+ * blank: a branded header with no text/title widget of its own falls
+ * back to the item's title rather than rendering an empty bar. Lives
+ * here (not in runtime-client) so the header renderer can read it
+ * without a circular import back into the runtime.
+ */
+export interface RuntimeInfoCtx {
+  itemTitle: string;
+}
+export const RuntimeInfoContext = createContext<RuntimeInfoCtx | null>(null);
+
 interface ContainerRenderProps {
   config: ContainerWidgetConfig;
   renderChild: RenderChild;
@@ -389,6 +402,19 @@ function FlowContainer({
         };
   }
 
+  // A branded header (elevated sticky bar) with no text/title widget
+  // of its own falls back to the item title so the app is never
+  // nameless. This is the fallback the runtime-info context was
+  // always meant to power. It renders behind the tool widgets
+  // (pointer-events-none, earlier in the DOM) so on the common
+  // tools-on-the-right layout it fills the empty left side without
+  // ever blocking a tool.
+  const runtimeInfo = useContext(RuntimeInfoContext);
+  const showDefaultTitle =
+    inBrandedHeader &&
+    !!runtimeInfo?.itemTitle &&
+    !children.some((w) => w.kind === 'text');
+
   // Collapsed inline / sticky containers fold their children behind
   // a chevron handle; the chrome region stays visible so the handle
   // is reachable.  For row-layout containers (toolbars), collapse
@@ -436,6 +462,13 @@ function FlowContainer({
           }}
           aria-hidden={collapsed}
         >
+          {showDefaultTitle ? (
+            <div className="pointer-events-none absolute inset-y-0 left-0 z-0 flex max-w-[55%] items-center pl-1 pr-2">
+              <span className="truncate text-sm font-semibold text-[hsl(var(--app-header-ink))]">
+                {runtimeInfo?.itemTitle}
+              </span>
+            </div>
+          ) : null}
           {children.map((child) => (
             <div
               key={child.id}

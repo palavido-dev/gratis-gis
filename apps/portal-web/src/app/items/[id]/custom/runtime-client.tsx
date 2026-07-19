@@ -107,7 +107,11 @@ import {
 import { StyleEditor } from '../map/style-editor';
 import { renderIconSvg } from '../map/map-icons';
 import { SearchBar } from '../map/search-bar';
-import { AppBarContext, Container } from './themed-containers';
+import {
+  AppBarContext,
+  Container,
+  RuntimeInfoContext,
+} from './themed-containers';
 import {
   applyAppTheme,
   applyAppThemeTokens,
@@ -248,19 +252,6 @@ interface CustomMapsCtx {
 }
 
 const CustomMapsContext = createContext<CustomMapsCtx | null>(null);
-
-/**
- * Runtime-info context. Carries app-shell metadata that container
- * widgets (app-bar, etc.) want as fallbacks when their own config
- * leaves a slot blank (e.g. an app-bar with no `title` set should
- * fall back to the item's own title rather than render an empty
- * header. Keeping this separate from CustomMapsContext so a render
- * test that needs only the item title can mount one provider.
- */
-interface RuntimeInfoCtx {
-  itemTitle: string;
-}
-const RuntimeInfoContext = createContext<RuntimeInfoCtx | null>(null);
 
 /**
  * #87 -- runtime time-travel context.  When `at` is set, every
