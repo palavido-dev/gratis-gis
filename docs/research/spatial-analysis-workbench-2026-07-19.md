@@ -5,6 +5,65 @@ should be for GratisGIS, and how to build it on what we already have.
 Research-backed; sources inline. This is a discussion doc for future
 dev, not a committed plan.
 
+## Direction revision, from discussion: primitives, not preset tools
+
+The first draft of this doc read as a menu of finished tools (a
+Watershed tool, a Contour tool, a Building Footprint downloader). The
+agreed direction is different and better:
+
+Build a small vocabulary of ATOMIC ANALYSIS PRIMITIVES, each doing one
+thing with a typed input and output (raster to raster, raster to
+vector, vector to vector): fill depressions, flow direction, flow
+accumulation, snap point to stream, isolines from any raster, hillshade
+or slope from any raster, vectorize a raster mask, zonal statistics,
+sample raster at points, buffer, clip, dissolve, spatial join, segment
+a raster with a model, filter or simplify results. The named
+capabilities people recognize (watershed, contours, viewshed, feature
+extraction) are then SAVED COMPOSITIONS of those primitives, shipped as
+seeded starter recipes, exactly the pattern the app-template and
+print-template starters already use. A user can open a preset, see its
+steps, tweak a parameter, and fork it, so the presets teach the
+primitives instead of hiding them.
+
+Consequences of this framing:
+
+- The composition layer already exists. The recipe / tool-builder and
+  derived-layer pipeline system is the chaining substrate; the work is
+  growing its step vocabulary with analysis primitives, not building a
+  new subsystem.
+- Isolines-from-a-raster is not a terrain tool. Point it at rainfall,
+  noise, or an interpolated surface and it is an isoline tool. Every
+  primitive stays domain-agnostic; the domain lives in the preset.
+- Feature extraction runs on the USER'S imagery. The segment-raster
+  primitive takes any raster layer as input, including a custom drone
+  ortho the user uploaded. Prebuilt open datasets (Overture buildings,
+  WorldCover, NLCD) demote to optional SOURCE primitives, one more way
+  to start a composition, not the strategy.
+- GDAL, WhiteboxTools, GRASS, and DuckDB become interchangeable
+  ENGINES behind primitives. The portal's vocabulary is stable and
+  ours; the research below maps each finding to "which engine
+  implements which primitive."
+
+## Deployment tiers and capability gating, from discussion
+
+Some primitives are cheap everywhere; some want real CPU; some
+genuinely want a GPU. That is acceptable, with one rule: the heavy
+tiers must be OPTIONAL AND ADMIN-CONFIGURABLE. A portal stood up on a
+cheap VPS (our own current deployment) toggles the heavy tiers off and
+exposes only what the box can honestly run; an org with real hardware
+flips them on. Concretely:
+
+- Primitives declare a capability tier: browser, server-light,
+  server-heavy, gpu. Admin settings control which tiers the instance
+  exposes; disabled primitives are hidden from designers or shown as
+  "requires the X tier," and a preset recipe that uses one degrades to
+  the same message rather than failing at run time.
+- Minimum specs per tier get established by testing and from engine
+  documentation, and documented in the deployment guide.
+- The planned install doctor (#147) can detect cores, RAM, and GPU at
+  install time and recommend a tier configuration, so the toggles
+  start at an honest default instead of a guess.
+
 ## The thesis, sharpened
 
 Esri's constraint is its revenue model. It meters analysis two ways:
@@ -220,8 +279,11 @@ From Felt, QGIS Processing, and AGO:
 
 ## Recommended build sequence
 
-Cheapest and highest-value first, each phase building on the last and
-on existing architecture.
+Read through the primitives lens: each phase is a set of PRIMITIVES
+landing in the recipe vocabulary plus the starter recipes (presets)
+they enable, gated by the deployment-tier config above. Cheapest and
+highest-value first, each phase building on the last and on existing
+architecture.
 
 Phase 1 — In-browser vector workbench. Extend the DuckDB-WASM Analyze
 panel from raw SQL into a small set of one-click tools (buffer, spatial
