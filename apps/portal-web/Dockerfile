@@ -23,7 +23,7 @@ RUN npm install -g pnpm@9.12.0 \
 FROM base AS build
 WORKDIR /repo
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      python3 build-essential ca-certificates \
+      python3 build-essential ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json turbo.json tsconfig.base.json ./
@@ -62,6 +62,27 @@ ENV NEXT_PUBLIC_GITHUB_REPO=$NEXT_PUBLIC_GITHUB_REPO
 # per-tenant forks don't accidentally advertise tester accounts.
 ARG NEXT_PUBLIC_PUBLIC_TESTING=
 ENV NEXT_PUBLIC_PUBLIC_TESTING=$NEXT_PUBLIC_PUBLIC_TESTING
+
+# Self-host the DuckDB-WASM spatial extension (#175 unit 2). The
+# browser Analyze panel loads spatial via
+# `SET custom_extension_repository = '<origin>/duckdb-ext'`, and
+# DuckDB resolves <repo>/<core-version>/<platform>/spatial... itself,
+# so the directory layout here must mirror the official repository
+# exactly. Downloading at image build time (network available) keeps
+# the air-gap rule: prod visitors never hit extensions.duckdb.org.
+# The version/platform pair MUST match the @duckdb/duckdb-wasm
+# package's compiled-in core: verified v1.4.3 / wasm_eh for 1.32.0 by
+# running the engine under Node and asking `SELECT version()` +
+# `PRAGMA platform`. Bump these args when bumping the npm package.
+# The file is a byte-identical mirror, so DuckDB's extension
+# signature check still passes. curl -f fails the build on a bad
+# download rather than baking a broken file.
+ARG DUCKDB_WASM_CORE_VERSION=v1.4.3
+ARG DUCKDB_WASM_PLATFORM=wasm_eh
+RUN mkdir -p "apps/portal-web/public/duckdb-ext/${DUCKDB_WASM_CORE_VERSION}/${DUCKDB_WASM_PLATFORM}" \
+    && curl -fsSL --retry 3 \
+      -o "apps/portal-web/public/duckdb-ext/${DUCKDB_WASM_CORE_VERSION}/${DUCKDB_WASM_PLATFORM}/spatial.duckdb_extension.wasm" \
+      "https://extensions.duckdb.org/${DUCKDB_WASM_CORE_VERSION}/${DUCKDB_WASM_PLATFORM}/spatial.duckdb_extension.wasm"
 
 RUN pnpm -C apps/portal-web build
 

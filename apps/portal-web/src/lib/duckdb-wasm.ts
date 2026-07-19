@@ -23,6 +23,57 @@ import type { AsyncDuckDB, AsyncDuckDBConnection } from '@duckdb/duckdb-wasm';
 
 let dbPromise: Promise<AsyncDuckDB> | null = null;
 
+/**
+ * Whether the spatial extension loaded for this session. Spatial SQL
+ * (ST_Buffer, ST_Area, spatial joins...) and GEOMETRY-typed reads of
+ * GeoParquet depend on it; attribute SQL works either way, so a
+ * failed load degrades the workbench instead of breaking it. Mirrors
+ * the deployment-tier philosophy: expose what the environment can
+ * actually do.
+ */
+let spatialAvailable = false;
+export function isSpatialAvailable(): boolean {
+  return spatialAvailable;
+}
+
+/**
+ * Load the spatial extension, preferring the portal's own mirror.
+ *
+ * Air gap: the Dockerfile bakes the extension into
+ * public/duckdb-ext/<core-version>/<platform>/, a byte-identical
+ * mirror of the official repository layout, so production visitors
+ * fetch it from OUR origin, never extensions.duckdb.org. Pointing
+ * custom_extension_repository at the origin path is enough; the
+ * engine appends its own version/platform segments. On dev hosts the
+ * baked file does not exist, so the second attempt falls back to the
+ * official repository (dev machines have internet). If both fail
+ * (offline dev), the panel runs attribute-only.
+ *
+ * LOAD is engine-wide in DuckDB-WASM: once loaded here, spatial
+ * functions are available to every later connection on the shared
+ * instance.
+ */
+async function loadSpatial(db: AsyncDuckDB): Promise<void> {
+  const conn = await db.connect();
+  try {
+    try {
+      await conn.query(
+        `SET custom_extension_repository = '${window.location.origin}/duckdb-ext'`,
+      );
+      await conn.query('INSTALL spatial');
+    } catch {
+      await conn.query('RESET custom_extension_repository');
+      await conn.query('INSTALL spatial');
+    }
+    await conn.query('LOAD spatial');
+    spatialAvailable = true;
+  } catch {
+    spatialAvailable = false;
+  } finally {
+    await conn.close();
+  }
+}
+
 async function createDb(): Promise<AsyncDuckDB> {
   const duckdb = await import('@duckdb/duckdb-wasm');
   const worker = new Worker(
@@ -36,6 +87,7 @@ async function createDb(): Promise<AsyncDuckDB> {
   await db.instantiate(
     new URL('@duckdb/duckdb-wasm/dist/duckdb-eh.wasm', import.meta.url).toString(),
   );
+  await loadSpatial(db);
   return db;
 }
 

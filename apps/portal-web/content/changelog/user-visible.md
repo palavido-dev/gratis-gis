@@ -12,6 +12,14 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-07-19 - Spatial SQL in the browser
+The Analyze workbench now loads the DuckDB spatial extension, served
+from your own portal. Buffers, intersections, areas, distances, and
+spatial joins all run as SQL right in your browser, and saved
+results keep real geometry. A new Geometry summary starter shows
+each layer's geometry types and extent in one click. Nothing is
+sent to the server and nothing is fetched from third-party services.
+
 ## 2026-07-17 - Analyze layers with SQL, right in your browser
 Every data layer now has an Analyze button that opens a SQL
 workbench powered by an in-browser database engine. Preview rows,

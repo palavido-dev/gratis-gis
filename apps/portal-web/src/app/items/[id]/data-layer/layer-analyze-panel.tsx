@@ -30,6 +30,7 @@ import type { AsyncDuckDBConnection } from '@duckdb/duckdb-wasm';
 import { toast } from '@/lib/toast';
 import {
   getDuckDb,
+  isSpatialAvailable,
   registerParquetView,
   runQuery,
   RESULT_ROW_CAP,
@@ -100,7 +101,7 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
       for (const row of described.rows) {
         const colName = String(row[0] ?? '');
         const colType = String(row[1] ?? '');
-        if (isWkbGeometryColumn(colName, colType)) {
+        if (isGeometryColumn(colName, colType)) {
           hasGeometry = true;
           continue;
         }
@@ -244,6 +245,7 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
   }, [itemId, layer.id, viewName, execute]);
 
   const countField = firstTextField(layer);
+  const spatial = isSpatialAvailable();
   const starters: Array<{ label: string; sql: string }> = [
     { label: 'Preview', sql: `SELECT * FROM "${viewName}" LIMIT 100` },
     // SUMMARIZE is DuckDB's built-in per-column profile: min / max /
@@ -255,6 +257,20 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
           {
             label: `Count by ${countField}`,
             sql: `SELECT "${countField}", count(*) AS features\nFROM "${viewName}"\nGROUP BY 1\nORDER BY features DESC`,
+          },
+        ]
+      : []),
+    // Spatial starter (needs the spatial extension). Geometry type +
+    // extent per family is safe on any layer regardless of CRS and
+    // shows off that ST_* now works; the column is named "geometry"
+    // on every portal-exported GeoParquet. The ::VARCHAR cast on
+    // ST_GeometryType matters: it returns a custom enum that errors
+    // when materialized raw (same cast the server reader uses).
+    ...(spatial
+      ? [
+          {
+            label: 'Geometry summary',
+            sql: `SELECT ST_GeometryType(geometry)::VARCHAR AS geometry_type,\n       count(*) AS features,\n       round(ST_XMin(ST_Extent_Agg(geometry)), 5) AS min_x,\n       round(ST_YMin(ST_Extent_Agg(geometry)), 5) AS min_y,\n       round(ST_XMax(ST_Extent_Agg(geometry)), 5) AS max_x,\n       round(ST_YMax(ST_Extent_Agg(geometry)), 5) AS max_y\nFROM "${viewName}"\nGROUP BY 1`,
           },
         ]
       : []),
@@ -434,9 +450,20 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
         ) : null}
         <p className="text-2xs text-muted">
           The layer is available as{' '}
-          <span className="font-mono">&quot;{viewName}&quot;</span>. The
-          geometry column is WKB binary for now; spatial functions arrive
-          with the next update.
+          <span className="font-mono">&quot;{viewName}&quot;</span>.{' '}
+          {spatial ? (
+            <>
+              Spatial SQL works on the{' '}
+              <span className="font-mono">geometry</span> column:
+              ST_Area, ST_Buffer, ST_Intersects, spatial joins, and the
+              rest run right here in your browser.
+            </>
+          ) : (
+            <>
+              The spatial extension could not be loaded, so the geometry
+              column is raw WKB and attribute SQL only for this session.
+            </>
+          )}
         </p>
       </div>
     </div>
@@ -450,13 +477,17 @@ function firstTextField(layer: DataLayerSublayer): string | null {
 }
 
 /**
- * Mirror of the server importer's geometry-column fallback: a BLOB
- * column with a conventional geometry name is WKB. Results that keep
- * the source's geometry column match this exactly, so the saved
- * parquet round-trips through the same server path a hand-uploaded
- * file would.
+ * Geometry-column detection for the save flow, covering both worlds:
+ * with the spatial extension loaded, GeoParquet reads (and spatial
+ * SQL results) type the column GEOMETRY, any name; without it, the
+ * column is a WKB BLOB under a conventional name, mirroring the
+ * server importer's fallback. Either way the COPY that follows
+ * round-trips through the same server import path a hand-uploaded
+ * file would (a GEOMETRY column even gains real geo metadata on
+ * write, since spatial is loaded when it is present).
  */
-function isWkbGeometryColumn(name: string, type: string): boolean {
+function isGeometryColumn(name: string, type: string): boolean {
+  if (baseType(type) === 'GEOMETRY') return true;
   return (
     baseType(type) === 'BLOB' &&
     ['geometry', 'geom', 'wkb_geometry'].includes(name.toLowerCase())
