@@ -12,6 +12,14 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-07-19 - Build analysis queries without writing SQL
+The Analyze workbench now opens with a guided builder: pick fields,
+add filters with plain-language operators, group and aggregate,
+sort, and apply spatial options like centroids, convex hulls, and
+real-meter area or length columns. The SQL it generates stays
+visible below and one click away from editing, so you can learn the
+language as you go or drop into raw SQL whenever you want.
+
 ## 2026-07-19 - Spatial SQL in the browser
 The Analyze workbench now loads the DuckDB spatial extension, served
 from your own portal. Buffers, intersections, areas, distances, and

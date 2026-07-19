@@ -15,13 +15,16 @@
  * functions yet; the spatial extension (self-hosted, air-gap rules)
  * is the remaining unit.
  *
- * Deliberately a workbench, not a wizard: a query box, a result
- * grid, and a few one-click starters. The audience for this panel
- * reads SQL; the guided experience belongs to the tool builder.
+ * Two modes since #176: a guided Builder (field picker, typed
+ * filters, grouping, verified-safe spatial options) that generates
+ * readable SQL live, and the raw SQL editor. The generated SQL is
+ * always visible and one click from editable, so the builder
+ * teaches the language instead of hiding it.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertTriangle, Loader2, Play, Save, Sparkles } from 'lucide-react';
+import { AnalyzeQueryBuilder } from './analyze-query-builder';
 import type {
   DataLayerSublayer,
   FeatureField,
@@ -57,6 +60,11 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
     step: 'Starting the in-browser engine',
   });
   const [sql, setSql] = useState(`SELECT * FROM "${viewName}" LIMIT 100`);
+  // Builder is the front door (casual users first); SQL mode is one
+  // click away and is where the starters land. Switching back to the
+  // builder regenerates the SQL from the builder's state, discarding
+  // hand edits, which the toggle's title spells out.
+  const [mode, setMode] = useState<'builder' | 'sql'>('builder');
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<
     (QueryResultTable & { truncated: boolean }) | null
@@ -298,12 +306,48 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
     <div className="border-t border-border">
       <div className="space-y-2 p-3">
         <div className="flex flex-wrap items-center gap-1.5">
+          {/* Mode toggle: Builder generates the SQL; SQL edits it
+              raw. Going back to Builder regenerates from the
+              builder's state, so hand edits are overwritten (the
+              title says so up front). */}
+          <div className="flex items-center rounded-md border border-border bg-surface-1 p-0.5">
+            <button
+              type="button"
+              onClick={() => setMode('builder')}
+              aria-pressed={mode === 'builder'}
+              title="Guided builder (regenerates the SQL below)"
+              className={`rounded px-2 py-0.5 text-2xs font-medium transition-colors ${
+                mode === 'builder'
+                  ? 'bg-accent text-accent-foreground'
+                  : 'text-ink-1 hover:bg-surface-2'
+              }`}
+            >
+              Builder
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('sql')}
+              aria-pressed={mode === 'sql'}
+              title="Edit the SQL directly"
+              className={`rounded px-2 py-0.5 text-2xs font-medium transition-colors ${
+                mode === 'sql'
+                  ? 'bg-accent text-accent-foreground'
+                  : 'text-ink-1 hover:bg-surface-2'
+              }`}
+            >
+              SQL
+            </button>
+          </div>
           <Sparkles className="h-3.5 w-3.5 text-muted" aria-hidden />
           {starters.map((s) => (
             <button
               key={s.label}
               type="button"
               onClick={() => {
+                // Starters are raw SQL, so they land in SQL mode;
+                // otherwise the builder would instantly regenerate
+                // over them.
+                setMode('sql');
                 setSql(s.sql);
                 void execute(s.sql);
               }}
@@ -316,6 +360,15 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
             Runs in your browser. The server never sees a query.
           </span>
         </div>
+        {mode === 'builder' ? (
+          <AnalyzeQueryBuilder
+            viewName={viewName}
+            fields={layer.fields ?? []}
+            geometryType={layer.geometryType}
+            spatialAvailable={spatial}
+            onSql={setSql}
+          />
+        ) : null}
         <textarea
           value={sql}
           onChange={(e) => setSql(e.target.value)}
@@ -325,9 +378,18 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
               void execute(sql);
             }
           }}
-          rows={4}
+          rows={mode === 'builder' ? 3 : 4}
           spellCheck={false}
-          className="w-full resize-y rounded-md border border-border bg-surface-1 p-2 font-mono text-xs text-ink-0 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+          readOnly={mode === 'builder'}
+          onFocus={() => {
+            // Clicking into the preview while building is the natural
+            // "let me tweak this" gesture; flip to SQL mode so the
+            // builder stops regenerating underneath the caret.
+            if (mode === 'builder') setMode('sql');
+          }}
+          className={`w-full resize-y rounded-md border border-border p-2 font-mono text-xs text-ink-0 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30 ${
+            mode === 'builder' ? 'bg-surface-2/60' : 'bg-surface-1'
+          }`}
           aria-label="SQL query"
         />
         <div className="flex items-center gap-2">
