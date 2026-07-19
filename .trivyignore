@@ -38,6 +38,29 @@ CVE-2026-39820
 CVE-2026-39836
 CVE-2026-42499
 
+# 2026-07-19: a further batch of Go x/crypto and x/net HIGH CVEs
+# against the same statically linked pmtiles binary. go-pmtiles
+# 1.30.3 (the newest release) still pins golang.org/x/crypto v0.49.0
+# and golang.org/x/net v0.52.0, and no upstream release has bumped
+# them, so a version bump cannot clear these. The real fix is a
+# forced dependency-override rebuild of pmtiles, tracked in #178;
+# accepted here temporarily so the Security workflow stays actionable
+# instead of permanently red on an issue we have already triaged. The
+# exposure analysis above (offline tile conversion, not on the request
+# path) applies unchanged. Remove this block when #178 lands.
+CVE-2026-25681
+CVE-2026-27136
+CVE-2026-39821
+CVE-2026-39828
+CVE-2026-39829
+CVE-2026-39830
+CVE-2026-39831
+CVE-2026-39832
+CVE-2026-39835
+CVE-2026-42508
+CVE-2026-46595
+CVE-2026-46597
+
 # ------------------------------------------------------------------
 # gdal-async@3.12.3 ships @mapbox/node-pre-gyp as a bundledDependency
 # (see "bundledDependencies" in its package.json). node-pre-gyp pulls
