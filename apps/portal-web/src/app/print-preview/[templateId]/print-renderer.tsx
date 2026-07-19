@@ -51,6 +51,16 @@ import { resolvePaperInches } from '@gratis-gis/shared-types';
 import type { BasemapData } from '@gratis-gis/shared-types';
 
 import { MapSnapshot } from './map-snapshot';
+import {
+  PRINT_FONT,
+  PRINT_INK as INK,
+  PRINT_MUTED as MUTED,
+  PRINT_HAIRLINE as HAIRLINE,
+  PRINT_HAIRLINE_STRONG as HAIRLINE_STRONG,
+  PRINT_SAGE as SAGE,
+  PRINT_SAGE_DEEP as SAGE_DEEP,
+  PRINT_PAPER as PAPER,
+} from '@/lib/print-theme';
 
 const DESIGN_DPI = 96;
 
@@ -185,11 +195,11 @@ function TextBody({
 }) {
   const fontPx = (element.fontSizePt / 72) * DESIGN_DPI;
   const style: React.CSSProperties = {
-    fontFamily: element.fontFamily ?? 'Arial, sans-serif',
+    fontFamily: element.fontFamily ?? PRINT_FONT,
     fontSize: `${fontPx}px`,
     fontWeight: element.fontWeight,
     fontStyle: element.fontStyle,
-    color: element.color ?? '#000',
+    color: element.color ?? INK,
     textAlign: element.align ?? 'left',
     display: 'flex',
     alignItems:
@@ -209,7 +219,7 @@ function TextBody({
     padding: '2px 4px',
     background: element.backgroundColor,
     border: element.border
-      ? `${element.border.widthPt ?? 0.5}px ${element.border.style ?? 'solid'} ${element.border.color ?? '#888'}`
+      ? `${element.border.widthPt ?? 0.5}px ${element.border.style ?? 'solid'} ${element.border.color ?? HAIRLINE_STRONG}`
       : undefined,
     overflow: 'hidden',
     whiteSpace: 'pre-wrap',
@@ -265,7 +275,7 @@ function MapBody({
 }) {
   const border: React.CSSProperties = element.border
     ? {
-        border: `${element.border.widthPt ?? 0.75}px ${element.border.style ?? 'solid'} ${element.border.color ?? '#444'}`,
+        border: `${element.border.widthPt ?? 0.75}px ${element.border.style ?? 'solid'} ${element.border.color ?? HAIRLINE_STRONG}`,
         boxSizing: 'border-box',
       }
     : {};
@@ -275,7 +285,7 @@ function MapBody({
         style={{
           width: '100%',
           height: '100%',
-          background: '#f8fafc',
+          background: PAPER,
           ...border,
         }}
       />
@@ -305,15 +315,18 @@ function LegendBody({
   const style: React.CSSProperties = {
     width: '100%',
     height: '100%',
-    padding: '6px 8px',
-    background: element.backgroundColor ?? '#fff',
+    padding: '7px 9px',
+    background: element.backgroundColor ?? '#fffdf9',
+    // A legend reads as a card even when the author leaves the border
+    // unset, so it never floats untethered over the map.
     border: element.border
-      ? `${element.border.widthPt ?? 0.5}px ${element.border.style ?? 'solid'} ${element.border.color ?? '#888'}`
-      : undefined,
+      ? `${element.border.widthPt ?? 0.5}px ${element.border.style ?? 'solid'} ${element.border.color ?? HAIRLINE}`
+      : `0.5px solid ${HAIRLINE}`,
+    borderRadius: '2px',
     boxSizing: 'border-box',
-    fontFamily: 'Arial, sans-serif',
+    fontFamily: PRINT_FONT,
     fontSize: '10px',
-    color: '#1f2937',
+    color: INK,
     overflow: 'hidden',
   };
   const layers: MapLayer[] = (ctx.mapData?.layers ?? []).filter(
@@ -321,11 +334,22 @@ function LegendBody({
   );
   return (
     <div style={style}>
-      <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '4px' }}>
+      <div
+        style={{
+          fontSize: '10px',
+          fontWeight: 600,
+          textTransform: 'uppercase',
+          letterSpacing: '0.04em',
+          color: SAGE_DEEP,
+          borderBottom: `0.5px solid ${HAIRLINE}`,
+          paddingBottom: '4px',
+          marginBottom: '5px',
+        }}
+      >
         {element.title ?? 'Legend'}
       </div>
       {layers.length === 0 ? (
-        <div style={{ color: '#6b7280' }}>No visible layers</div>
+        <div style={{ color: MUTED }}>No visible layers</div>
       ) : (
         <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
           {layers.map((layer) => (
@@ -365,7 +389,7 @@ function LegendSwatch({ layer }: { layer: MapLayer }) {
           width: '10px',
           height: '10px',
           borderRadius: '50%',
-          background: point.color ?? '#6366f1',
+          background: point.color ?? SAGE,
           border: `${point.strokeWidth ?? 1}px solid ${point.strokeColor ?? '#fff'}`,
           flexShrink: 0,
         }}
@@ -378,7 +402,7 @@ function LegendSwatch({ layer }: { layer: MapLayer }) {
         style={{
           width: '14px',
           height: '3px',
-          background: line.color ?? '#4338ca',
+          background: line.color ?? SAGE_DEEP,
           flexShrink: 0,
         }}
       />
@@ -389,9 +413,9 @@ function LegendSwatch({ layer }: { layer: MapLayer }) {
       style={{
         width: '12px',
         height: '10px',
-        background: polygon?.fillColor ?? point?.color ?? '#6366f1',
+        background: polygon?.fillColor ?? point?.color ?? SAGE,
         opacity: polygon?.fillOpacity ?? 0.75,
-        border: `${polygon?.strokeWidth ?? 1}px solid ${polygon?.strokeColor ?? '#4338ca'}`,
+        border: `${polygon?.strokeWidth ?? 1}px solid ${polygon?.strokeColor ?? SAGE_DEEP}`,
         flexShrink: 0,
       }}
     />
@@ -449,16 +473,16 @@ function ScalebarBody({
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'center',
-        fontFamily: 'Arial, sans-serif',
+        fontFamily: PRINT_FONT,
         fontSize: '9px',
-        color: '#1f2937',
+        color: INK,
       }}
     >
-      <div style={{ display: 'flex', height: '8px', border: '1px solid #111' }}>
-        <div style={{ flex: 1, background: '#111' }} />
-        <div style={{ flex: 1, background: '#fff' }} />
-        <div style={{ flex: 1, background: '#111' }} />
-        <div style={{ flex: 1, background: '#fff' }} />
+      <div style={{ display: 'flex', height: '7px', border: `1px solid ${INK}` }}>
+        <div style={{ flex: 1, background: INK }} />
+        <div style={{ flex: 1, background: '#fffdf9' }} />
+        <div style={{ flex: 1, background: INK }} />
+        <div style={{ flex: 1, background: '#fffdf9' }} />
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}>
         <span>0</span>
@@ -507,19 +531,19 @@ function NorthArrowBody({
         height: '100%',
         transform: `rotate(${-bearing}deg)`,
       }}
-      stroke="#111"
+      stroke={INK}
       strokeWidth={2}
       fill="none"
     >
-      <polygon points="50,10 60,55 50,45 40,55" fill="#111" />
-      <polygon points="50,90 60,55 50,65 40,55" fill="#fff" />
+      <polygon points="50,10 60,55 50,45 40,55" fill={SAGE_DEEP} />
+      <polygon points="50,90 60,55 50,65 40,55" fill="#fffdf9" />
       <text
         x="50"
         y="20"
         textAnchor="middle"
         fontSize="18"
-        fontFamily="Arial, sans-serif"
-        fill="#111"
+        fontFamily={PRINT_FONT}
+        fill={INK}
         stroke="none"
       >
         N
@@ -534,7 +558,7 @@ function LineBody({ element }: { element: PrintLineElement }) {
       style={{
         width: '100%',
         height: '100%',
-        background: element.color ?? '#1f2937',
+        background: element.color ?? INK,
       }}
     />
   );

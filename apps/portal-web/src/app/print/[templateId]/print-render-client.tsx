@@ -37,6 +37,15 @@ import {
   type PrintTextElement,
   type PrintTextSegment,
 } from '@gratis-gis/shared-types';
+import {
+  PRINT_FONT,
+  PRINT_INK,
+  PRINT_MUTED,
+  PRINT_HAIRLINE,
+  PRINT_HAIRLINE_STRONG,
+  PRINT_SAGE_DEEP,
+  PRINT_PAPER,
+} from '@/lib/print-theme';
 
 interface PrintRenderClientProps {
   templateId: string;
@@ -322,14 +331,14 @@ function TextRender({
   const fontPx = (element.fontSizePt / 72) * PRINT_DPI;
   const style: CSSProperties = {
     ...baseStyle,
-    fontFamily: element.fontFamily ?? 'Arial, sans-serif',
+    fontFamily: element.fontFamily ?? PRINT_FONT,
     fontSize: `${fontPx}px`,
     fontWeight: element.fontWeight,
     fontStyle: element.fontStyle,
-    color: element.color ?? '#000',
+    color: element.color ?? PRINT_INK,
     background: element.backgroundColor,
     border: element.border
-      ? `${element.border.widthPt ?? 0.5}px ${element.border.style ?? 'solid'} ${element.border.color ?? '#888'}`
+      ? `${element.border.widthPt ?? 0.5}px ${element.border.style ?? 'solid'} ${element.border.color ?? PRINT_HAIRLINE_STRONG}`
       : undefined,
     display: 'flex',
     alignItems:
@@ -429,7 +438,7 @@ function MapPlaceholderRender({
 }) {
   const borderStyle: CSSProperties = element.border
     ? {
-        border: `${element.border.widthPt ?? 0.75}px ${element.border.style ?? 'solid'} ${element.border.color ?? '#444'}`,
+        border: `${element.border.widthPt ?? 0.75}px ${element.border.style ?? 'solid'} ${element.border.color ?? PRINT_HAIRLINE_STRONG}`,
         boxSizing: 'border-box',
       }
     : {};
@@ -440,7 +449,7 @@ function MapPlaceholderRender({
           ...baseStyle,
           ...borderStyle,
           overflow: 'hidden',
-          background: '#f3f4f6',
+          background: PRINT_PAPER,
         }}
       >
         <img
@@ -491,22 +500,34 @@ function LegendRender({
     <div
       style={{
         ...baseStyle,
-        background: element.backgroundColor ?? '#fff',
+        background: element.backgroundColor ?? '#fffdf9',
         border: element.border
-          ? `${element.border.widthPt ?? 0.5}px ${element.border.style ?? 'solid'} ${element.border.color ?? '#888'}`
-          : '1px solid #888',
-        padding: 4,
-        fontFamily: 'Arial, sans-serif',
+          ? `${element.border.widthPt ?? 0.5}px ${element.border.style ?? 'solid'} ${element.border.color ?? PRINT_HAIRLINE}`
+          : `0.5px solid ${PRINT_HAIRLINE}`,
+        borderRadius: 2,
+        padding: '7px 9px',
+        fontFamily: PRINT_FONT,
         fontSize: `${fontPx}px`,
-        color: '#222',
+        color: PRINT_INK,
         overflow: 'hidden',
         boxSizing: 'border-box',
       }}
     >
-      <strong style={{ display: 'block', marginBottom: 4 }}>
+      <div
+        style={{
+          fontSize: '10px',
+          fontWeight: 600,
+          textTransform: 'uppercase',
+          letterSpacing: '0.04em',
+          color: PRINT_SAGE_DEEP,
+          borderBottom: `0.5px solid ${PRINT_HAIRLINE}`,
+          paddingBottom: 4,
+          marginBottom: 5,
+        }}
+      >
         {element.title ?? 'Legend'}
-      </strong>
-      <div style={{ color: '#888' }}>(layer list — followup)</div>
+      </div>
+      <div style={{ color: PRINT_MUTED }}>(see map for layers)</div>
     </div>
   );
 }
@@ -525,16 +546,16 @@ function ScalebarRender({
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'center',
-        fontFamily: 'Arial, sans-serif',
+        fontFamily: PRINT_FONT,
         fontSize: 9,
-        color: '#222',
+        color: PRINT_INK,
       }}
     >
-      <div style={{ display: 'flex', height: 8 }}>
-        <div style={{ flex: 1, background: '#222' }} />
-        <div style={{ flex: 1, background: '#fff', border: '1px solid #222' }} />
-        <div style={{ flex: 1, background: '#222' }} />
-        <div style={{ flex: 1, background: '#fff', border: '1px solid #222' }} />
+      <div style={{ display: 'flex', height: 7 }}>
+        <div style={{ flex: 1, background: PRINT_INK }} />
+        <div style={{ flex: 1, background: '#fffdf9', border: `1px solid ${PRINT_INK}` }} />
+        <div style={{ flex: 1, background: PRINT_INK }} />
+        <div style={{ flex: 1, background: '#fffdf9', border: `1px solid ${PRINT_INK}` }} />
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
         <span>0</span>
@@ -554,14 +575,14 @@ function NorthArrowRender({
   return (
     <svg
       viewBox="0 0 24 24"
-      style={{ ...baseStyle, color: '#222' }}
+      style={{ ...baseStyle, color: PRINT_INK }}
       fill="none"
       stroke="currentColor"
       strokeWidth={1.25}
     >
       <circle cx={12} cy={12} r={10} />
       <path d="M12 2 L12 22 M2 12 L22 12" />
-      <path d="M12 4 L9 12 L12 10 L15 12 Z" fill="currentColor" />
+      <path d="M12 4 L9 12 L12 10 L15 12 Z" fill={PRINT_SAGE_DEEP} stroke="none" />
       <text
         x={12}
         y={7}
@@ -587,7 +608,7 @@ function LineRender({
     <div
       style={{
         ...baseStyle,
-        background: element.color ?? '#888',
+        background: element.color ?? PRINT_INK,
         borderStyle: element.style ?? 'solid',
       }}
     />
@@ -607,8 +628,8 @@ function RectangleRender({
         ...baseStyle,
         background: element.backgroundColor ?? 'transparent',
         border: element.border
-          ? `${element.border.widthPt ?? 0.5}px ${element.border.style ?? 'solid'} ${element.border.color ?? '#888'}`
-          : '1px solid #888',
+          ? `${element.border.widthPt ?? 0.5}px ${element.border.style ?? 'solid'} ${element.border.color ?? PRINT_HAIRLINE}`
+          : `1px solid ${PRINT_HAIRLINE}`,
         borderRadius: element.cornerRadiusPt
           ? `${element.cornerRadiusPt}px`
           : undefined,
