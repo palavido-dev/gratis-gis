@@ -160,24 +160,34 @@ gratis-gis/
 
 ## Deploy for an Organization
 
-GratisGIS is designed to be dramatically simpler to deploy than typical
-enterprise GIS platforms. Three supported deployment modes:
+GratisGIS runs on a single host with Docker Compose. A small VPS
+(2 cores, 4 GB) comfortably serves a small organization; the public
+demo runs on exactly that.
 
-| Mode | Good for | Time to first sign-in |
-| --- | --- | --- |
-| **Single-host Docker Compose** | 1–500 users, single VM | < 30 min |
-| **Kubernetes via Helm** | 500+ users, HA needs | < 2 hours |
-| **`gratisgis-installer` one-liner** | Fresh Ubuntu/Debian box | < 15 min |
+One command on a server that already has Docker (with the compose
+plugin), git, and curl:
 
 ```bash
-# On a fresh Ubuntu 22.04 / Debian 12 server:
-curl -fsSL https://get.gratisgis.org | sudo bash -s -- --domain portal.acme.org
-# → installs Docker, pulls images, generates secrets, starts everything,
-#   obtains a Let's Encrypt cert, prints the initial admin password.
+curl -fsSL https://raw.githubusercontent.com/palavido-dev/gratis-gis/main/infra/install.sh | bash
 ```
 
-See [docs/deployment.md](./docs/deployment.md) for full options, backup,
-upgrade, and HA.
+It clones the repo to `/opt/gratis-gis`, asks for your domain and
+email, generates every secret, deploys the stack, and prints where to
+sign in. Prefer to see each step? The same flow by hand:
+
+```bash
+git clone https://github.com/palavido-dev/gratis-gis /opt/gratis-gis
+cd /opt/gratis-gis
+./infra/setup.sh    # asks domain + email, generates all secrets
+./infra/deploy.sh   # builds and starts everything
+./infra/doctor.sh   # health + hardware check, any time
+```
+
+You need DNS A records for the portal, auth, and storage hostnames
+pointing at the server (setup tells you which); certificates come
+from Let's Encrypt automatically. See
+[docs/deployment.md](./docs/deployment.md) for backup, upgrade, and
+operational details.
 
 ## Developer Quick Start
 

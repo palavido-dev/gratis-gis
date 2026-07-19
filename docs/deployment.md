@@ -1,132 +1,103 @@
 # Deployment
 
-> **Design goal:** an IT admin with no prior GratisGIS experience should go
-> from a fresh Ubuntu server to a working, HTTPS-enabled portal in under
-> 30 minutes. Traditional self-hosted enterprise GIS stacks can take days or
-> weeks to stand up; we can do better by being honest about the 80% case.
+GratisGIS runs on one Linux host with Docker Compose. The public demo
+runs the exact stack described here on a small VPS, so everything below
+is the tested path, not aspiration.
 
-## The Three Deployment Modes
+## Requirements
 
-### 1. One-liner installer (recommended for small orgs)
+- A Linux server you can SSH into. 2 CPU cores and 4 GB RAM work for a
+  small organization (the demo runs on that); 4 cores and 8 GB give
+  comfortable headroom and unlock the heavier analysis tiers. 20 GB or
+  more of free disk.
+- Docker Engine with the compose v2 plugin, plus git, curl, and
+  openssl. The installer checks and tells you what is missing; it does
+  not install Docker for you.
+- Three DNS A records pointing at the server: the portal hostname, an
+  auth hostname, and a storage hostname (for example `gis.example.org`,
+  `auth.gis.example.org`, `storage.gis.example.org`). Certificates come
+  from Let's Encrypt automatically once the records resolve.
 
-```bash
-curl -fsSL https://get.gratisgis.org | sudo bash -s -- \
-  --domain portal.acme.org \
-  --email admin@acme.org
-```
+## Install
 
-What it does:
-
-1. Verifies the host (Ubuntu 22.04+, Debian 12+, ≥ 4 CPU, ≥ 8 GB RAM, ≥ 40 GB disk).
-2. Installs Docker Engine + Compose if missing.
-3. Creates `/etc/gratisgis/` with a generated env file (strong random
-   secrets for DB, Keycloak, MinIO, NextAuth).
-4. Pulls the pinned release's compose file and images.
-5. Starts the stack with Caddy fronting everything (auto-HTTPS via
-   Let's Encrypt).
-6. Runs DB migrations and seeds the Keycloak realm + first admin user.
-7. Prints the admin URL and initial password to the terminal.
-
-Post-install: a `gratisgis` CLI becomes available for upgrade, backup,
-user management, and log tailing.
-
-### 2. Docker Compose (manual)
-
-For teams who want more control or are behind an internal proxy.
+One command:
 
 ```bash
-git clone https://github.com/<user>/gratis-gis.git
-cd gratis-gis/deploy/docker-compose
-cp .env.example .env   # edit passwords, domain
-docker compose up -d
+curl -fsSL https://raw.githubusercontent.com/palavido-dev/gratis-gis/main/infra/install.sh | bash
 ```
 
-Same components as the one-liner but you own the box and the config.
+It clones the repo to `/opt/gratis-gis` (override with `GRATIS_DIR`),
+runs the guided setup, deploys, and prints where to sign in.
 
-### 3. Kubernetes (Helm chart)
-
-For larger orgs that want HA, autoscaling, and existing cluster ops.
+The same flow by hand:
 
 ```bash
-helm repo add gratisgis https://charts.gratisgis.org
-helm install gratisgis gratisgis/gratis-gis \
-  --namespace gratis-gis --create-namespace \
-  -f my-values.yaml
+git clone https://github.com/palavido-dev/gratis-gis /opt/gratis-gis
+cd /opt/gratis-gis
+./infra/setup.sh
+./infra/deploy.sh
 ```
 
-The chart packages each service as a separate deployment, supports an
-external Postgres (RDS, Cloud SQL, CNPG operator), external Keycloak, and
-external object storage (S3/R2/GCS).
+`setup.sh` asks for your domain, the Let's Encrypt email, and an
+organization name, derives the auth and storage hostnames (overridable),
+generates every secret, and writes `infra/.env.prod` (mode 600). It
+prints the initial credentials once: the portal sign-in
+(`admin` plus a generated password that Keycloak forces you to change
+on first login) and the Keycloak admin console password. Save them.
 
-## What gets installed
+Non-interactive use: `./infra/setup.sh --domain gis.example.org
+--acme-email you@example.org --yes`.
 
-Every mode deploys the same set of services:
+`deploy.sh` builds the images, starts the stack, runs database
+migrations, and reconciles the Keycloak realm. First build takes a
+while; later deploys reuse cache.
 
-- **portal-api**: the NestJS backend
-- **portal-web**: the Next.js portal UI
-- **postgres**: PostgreSQL 16 + PostGIS 3
-- **keycloak**: identity
-- **minio**: object storage (replaceable by S3-compatible external)
-- **pg_tileserv**: tile server
-- **caddy**: reverse proxy with automatic HTTPS
-- **(later phases)** **tool-runner**, **scheduler**
+## Health checks
 
-## Sensible defaults philosophy
+```bash
+./infra/doctor.sh
+```
 
-Every knob has a reasonable default:
+Read-only diagnostics: dependencies, cores, memory, disk, DNS, the env
+file, per-container health, and the public endpoint. It also reports
+which analysis capability tiers the hardware honestly supports
+(browser-tier analysis always works because it runs on the visitor's
+machine; heavier server tiers get a recommendation based on cores,
+memory, and GPU presence). Exit code 0 means no failures.
 
-- Database pool size scales with host CPU count
-- Rate limits are set per-endpoint
-- Backups (pg\_dump + MinIO snapshot) run nightly at 02:00 local time
-- Log retention is 7 days by default; admin can change
-- Email for password reset goes out via a hosted provider (configurable);
-  installer accepts `--smtp-url` or uses a built-in relay for development
+## What runs
 
-Admins can tune anything in `/etc/gratisgis/config.yml`, but they should
-never *have* to.
+Docker Compose starts: the portal API (two replicas) and web UI, a
+background worker, PostgreSQL with PostGIS, Keycloak 26 (identity),
+MinIO (object storage), pg_tileserv (vector tiles straight from
+PostGIS), Caddy (reverse proxy with automatic HTTPS), a one-shot
+migration container, and two Chromium instances used for print
+rendering. Internal services are only reachable on the compose network;
+Caddy is the only thing listening on 80/443.
 
 ## Upgrades
 
 ```bash
-gratisgis upgrade                 # pulls pinned release, runs migrations
-gratisgis upgrade --version 1.4.0 # pin a specific version
-gratisgis rollback                # reverts to previous version
+cd /opt/gratis-gis
+./infra/deploy.sh
 ```
 
-Migrations run inside a transaction; a failed migration auto-rolls-back and
-leaves the previous version running. No "reinstall from scratch" scenarios.
+The deploy script fetches the latest main, rebuilds, applies database
+migrations, and swaps containers. Run one deploy at a time and let it
+finish.
 
-## Backup & restore
+## Backups
 
-```bash
-gratisgis backup --to s3://acme-backups/gratisgis/
-gratisgis restore --from s3://acme-backups/gratisgis/2026-04-17T02:00Z/
-```
+Portal admins can create and download backup archives from the Backup
+page in the portal's admin area (database plus uploaded files). For
+host-level backups, snapshot the Docker volumes for PostgreSQL and
+MinIO while the stack is stopped, plus your `infra/.env.prod`. Keep
+`.env.prod` safe either way: `CREDENTIAL_ENCRYPTION_KEY` cannot be
+regenerated without losing encrypted credentials.
 
-Backs up Postgres (dump), MinIO (snapshot), and Keycloak config. Restore is
-tested in CI against each release.
+## Optional pieces
 
-## Observability out of the box
-
-- `/metrics` endpoint on each service (Prometheus format)
-- `gratisgis logs` tails all services; `gratisgis logs portal-api` filters
-- Optional Grafana + Prometheus stack (`--with-monitoring` flag)
-
-## Hardening checklist (automated)
-
-The installer applies these by default:
-
-- Non-root users inside every container
-- Read-only rootfs where possible
-- Internal services bound to the Docker network (not host ports)
-- Caddy auto-renews certs
-- Strong-random passwords (32 bytes) for every internal credential
-
-## What we intentionally won't do
-
-- Require a per-service license file
-- Require a domain controller / Active Directory integration for core
-  features (SSO is supported, but not required)
-- Ship a 300-page admin guide as the price of admission
-- Expose a hundred config knobs the admin has to fill in before anything
-  works
+- Geocoding: a self-hosted Nominatim can back the portal's geocoder;
+  see `infra/NOMINATIM.md`.
+- The maintenance and golden-snapshot scripts in `infra/` exist for the
+  public demo's nightly reset and are not part of a normal deployment.
