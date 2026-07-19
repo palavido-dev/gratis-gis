@@ -45,6 +45,7 @@ import {
   PRINT_HAIRLINE_STRONG,
   PRINT_SAGE_DEEP,
   PRINT_PAPER,
+  PRINT_CARD,
 } from '@/lib/print-theme';
 
 interface PrintRenderClientProps {
@@ -500,7 +501,7 @@ function LegendRender({
     <div
       style={{
         ...baseStyle,
-        background: element.backgroundColor ?? '#fffdf9',
+        background: element.backgroundColor ?? PRINT_CARD,
         border: element.border
           ? `${element.border.widthPt ?? 0.5}px ${element.border.style ?? 'solid'} ${element.border.color ?? PRINT_HAIRLINE}`
           : `0.5px solid ${PRINT_HAIRLINE}`,
@@ -553,9 +554,9 @@ function ScalebarRender({
     >
       <div style={{ display: 'flex', height: 7 }}>
         <div style={{ flex: 1, background: PRINT_INK }} />
-        <div style={{ flex: 1, background: '#fffdf9', border: `1px solid ${PRINT_INK}` }} />
+        <div style={{ flex: 1, background: PRINT_CARD, border: `1px solid ${PRINT_INK}` }} />
         <div style={{ flex: 1, background: PRINT_INK }} />
-        <div style={{ flex: 1, background: '#fffdf9', border: `1px solid ${PRINT_INK}` }} />
+        <div style={{ flex: 1, background: PRINT_CARD, border: `1px solid ${PRINT_INK}` }} />
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
         <span>0</span>

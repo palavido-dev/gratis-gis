@@ -724,10 +724,10 @@ function MenuContainer({ config, renderChild }: ContainerRenderProps) {
                   ? ''
                   : 'text-[hsl(var(--app-header-ink)/0.85)] hover:bg-[hsl(var(--app-header-ink)/0.12)] hover:text-[hsl(var(--app-header-ink))]'
               }`
-            : `flex h-full w-full flex-col items-center justify-center gap-0.5 rounded-md border bg-surface-1 px-2.5 py-1.5 shadow-sm transition-all ${
+            : `flex h-full w-full flex-col items-center justify-center gap-0.5 rounded-md border bg-[hsl(var(--app-surface-1))] px-2.5 py-1.5 shadow-sm transition-all ${
                 open
-                  ? 'border-ink-0 text-ink-0 ring-2 ring-ink-0/10'
-                  : 'border-border text-ink-1 hover:border-ink-1 hover:shadow-md'
+                  ? 'border-[hsl(var(--app-ink-0))] text-[hsl(var(--app-ink-0))] ring-2 ring-[hsl(var(--app-ink-0)/0.1)]'
+                  : 'border-[hsl(var(--app-border))] text-[hsl(var(--app-ink-1))] hover:border-[hsl(var(--app-ink-1))] hover:shadow-md'
               }`
         }
       >

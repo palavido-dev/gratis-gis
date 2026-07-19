@@ -60,6 +60,7 @@ import {
   PRINT_SAGE as SAGE,
   PRINT_SAGE_DEEP as SAGE_DEEP,
   PRINT_PAPER as PAPER,
+  PRINT_CARD as CARD,
 } from '@/lib/print-theme';
 
 const DESIGN_DPI = 96;
@@ -316,7 +317,7 @@ function LegendBody({
     width: '100%',
     height: '100%',
     padding: '7px 9px',
-    background: element.backgroundColor ?? '#fffdf9',
+    background: element.backgroundColor ?? CARD,
     // A legend reads as a card even when the author leaves the border
     // unset, so it never floats untethered over the map.
     border: element.border
@@ -480,9 +481,9 @@ function ScalebarBody({
     >
       <div style={{ display: 'flex', height: '7px', border: `1px solid ${INK}` }}>
         <div style={{ flex: 1, background: INK }} />
-        <div style={{ flex: 1, background: '#fffdf9' }} />
+        <div style={{ flex: 1, background: CARD }} />
         <div style={{ flex: 1, background: INK }} />
-        <div style={{ flex: 1, background: '#fffdf9' }} />
+        <div style={{ flex: 1, background: CARD }} />
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}>
         <span>0</span>
@@ -536,7 +537,7 @@ function NorthArrowBody({
       fill="none"
     >
       <polygon points="50,10 60,55 50,45 40,55" fill={SAGE_DEEP} />
-      <polygon points="50,90 60,55 50,65 40,55" fill="#fffdf9" />
+      <polygon points="50,90 60,55 50,65 40,55" fill={CARD} />
       <text
         x="50"
         y="20"
