@@ -35,6 +35,17 @@ export interface PrintTemplateStarter {
 
 // ---- Common building blocks --------------------------------------
 
+// Contour print colors (fixed hex; print is always on paper). These
+// mirror the renderer defaults in the portal's print-theme so a
+// freshly seeded starter matches what the renderer draws for elements
+// that leave a color unset. Kept as literals here because
+// shared-types cannot import portal-web's print-theme module.
+const PRINT_INK = '#2b2620';
+const PRINT_MUTED = '#7a7268';
+const PRINT_HAIRLINE = '#d8d0c2';
+const PRINT_HAIRLINE_STRONG = '#b7ae9f';
+const PRINT_CARD = '#fffdf9';
+
 /** Title parameter shared by every starter so the user can override
  *  the map title at print time. */
 const TITLE_PARAM = {
@@ -92,7 +103,7 @@ function letterPortrait(): PrintTemplateData {
           { kind: 'binding', source: 'parameter', tokenId: 'subtitle' },
         ],
         fontSizePt: 12,
-        color: '#555',
+        color: PRINT_MUTED,
         align: 'left',
       },
       // Map fills the body
@@ -100,7 +111,7 @@ function letterPortrait(): PrintTemplateData {
         id: 'map',
         kind: 'map',
         box: { x: 0.5, y: 1.4, w: 7.5, h: 8.2 },
-        border: { widthPt: 0.75, color: '#444' },
+        border: { widthPt: 0.75, color: PRINT_HAIRLINE_STRONG },
         grid: 'none',
       },
       // Scalebar lower-left
@@ -124,7 +135,7 @@ function letterPortrait(): PrintTemplateData {
         kind: 'line',
         box: { x: 0.5, y: 10.3, w: 7.5, h: 0.02 },
         thicknessPt: 0.75,
-        color: '#888',
+        color: PRINT_HAIRLINE,
       },
       // Author + project + date in footer
       {
@@ -136,7 +147,7 @@ function letterPortrait(): PrintTemplateData {
           { kind: 'binding', source: 'parameter', tokenId: 'project' },
         ],
         fontSizePt: 9,
-        color: '#555',
+        color: PRINT_MUTED,
         align: 'left',
       },
       {
@@ -150,7 +161,7 @@ function letterPortrait(): PrintTemplateData {
           { kind: 'binding', source: 'dynamic', tokenId: 'today_date' },
         ],
         fontSizePt: 9,
-        color: '#555',
+        color: PRINT_MUTED,
         align: 'right',
       },
     ],
@@ -182,7 +193,7 @@ function letterLandscape(): PrintTemplateData {
           { kind: 'binding', source: 'parameter', tokenId: 'subtitle' },
         ],
         fontSizePt: 12,
-        color: '#555',
+        color: PRINT_MUTED,
         align: 'left',
       },
       // Map fills the body
@@ -190,7 +201,7 @@ function letterLandscape(): PrintTemplateData {
         id: 'map',
         kind: 'map',
         box: { x: 0.5, y: 1.4, w: 10, h: 5.6 },
-        border: { widthPt: 0.75, color: '#444' },
+        border: { widthPt: 0.75, color: PRINT_HAIRLINE_STRONG },
         grid: 'none',
       },
       {
@@ -211,7 +222,7 @@ function letterLandscape(): PrintTemplateData {
         kind: 'line',
         box: { x: 0.5, y: 7.7, w: 10, h: 0.02 },
         thicknessPt: 0.75,
-        color: '#888',
+        color: PRINT_HAIRLINE,
       },
       {
         id: 'footer-left',
@@ -222,7 +233,7 @@ function letterLandscape(): PrintTemplateData {
           { kind: 'binding', source: 'parameter', tokenId: 'project' },
         ],
         fontSizePt: 9,
-        color: '#555',
+        color: PRINT_MUTED,
         align: 'left',
       },
       {
@@ -236,7 +247,7 @@ function letterLandscape(): PrintTemplateData {
           { kind: 'binding', source: 'dynamic', tokenId: 'today_date' },
         ],
         fontSizePt: 9,
-        color: '#555',
+        color: PRINT_MUTED,
         align: 'right',
       },
     ],
@@ -268,7 +279,7 @@ function letterLandscapeLargeLegend(): PrintTemplateData {
           { kind: 'binding', source: 'parameter', tokenId: 'subtitle' },
         ],
         fontSizePt: 12,
-        color: '#555',
+        color: PRINT_MUTED,
         align: 'left',
       },
       // Map takes left ~70% of the body
@@ -276,7 +287,7 @@ function letterLandscapeLargeLegend(): PrintTemplateData {
         id: 'map',
         kind: 'map',
         box: { x: 0.5, y: 1.4, w: 7.2, h: 5.6 },
-        border: { widthPt: 0.75, color: '#444' },
+        border: { widthPt: 0.75, color: PRINT_HAIRLINE_STRONG },
       },
       // Legend column on the right
       {
@@ -285,8 +296,8 @@ function letterLandscapeLargeLegend(): PrintTemplateData {
         box: { x: 7.9, y: 1.4, w: 2.6, h: 5.6 },
         title: 'Legend',
         fontSizePt: 9,
-        border: { widthPt: 0.5, color: '#888' },
-        backgroundColor: '#ffffff',
+        border: { widthPt: 0.5, color: PRINT_HAIRLINE },
+        backgroundColor: PRINT_CARD,
       },
       {
         id: 'scalebar',
@@ -306,7 +317,7 @@ function letterLandscapeLargeLegend(): PrintTemplateData {
         kind: 'line',
         box: { x: 0.5, y: 7.7, w: 10, h: 0.02 },
         thicknessPt: 0.75,
-        color: '#888',
+        color: PRINT_HAIRLINE,
       },
       {
         id: 'footer-left',
@@ -317,7 +328,7 @@ function letterLandscapeLargeLegend(): PrintTemplateData {
           { kind: 'binding', source: 'parameter', tokenId: 'project' },
         ],
         fontSizePt: 9,
-        color: '#555',
+        color: PRINT_MUTED,
         align: 'left',
       },
       {
@@ -331,7 +342,7 @@ function letterLandscapeLargeLegend(): PrintTemplateData {
           { kind: 'binding', source: 'dynamic', tokenId: 'today_date' },
         ],
         fontSizePt: 9,
-        color: '#555',
+        color: PRINT_MUTED,
         align: 'right',
       },
     ],
@@ -363,14 +374,14 @@ function tabloidLandscape(): PrintTemplateData {
           { kind: 'binding', source: 'parameter', tokenId: 'subtitle' },
         ],
         fontSizePt: 16,
-        color: '#555',
+        color: PRINT_MUTED,
         align: 'left',
       },
       {
         id: 'map',
         kind: 'map',
         box: { x: 0.5, y: 1.7, w: 12.5, h: 9 },
-        border: { widthPt: 0.75, color: '#444' },
+        border: { widthPt: 0.75, color: PRINT_HAIRLINE_STRONG },
       },
       {
         id: 'legend',
@@ -378,7 +389,7 @@ function tabloidLandscape(): PrintTemplateData {
         box: { x: 13.3, y: 1.7, w: 2.7, h: 6 },
         title: 'Legend',
         fontSizePt: 10,
-        border: { widthPt: 0.5, color: '#888' },
+        border: { widthPt: 0.5, color: PRINT_HAIRLINE },
       },
       {
         id: 'scalebar',
@@ -398,7 +409,7 @@ function tabloidLandscape(): PrintTemplateData {
         kind: 'line',
         box: { x: 0.5, y: 11.4, w: 16, h: 0.02 },
         thicknessPt: 0.75,
-        color: '#888',
+        color: PRINT_HAIRLINE,
       },
       {
         id: 'footer-left',
@@ -409,7 +420,7 @@ function tabloidLandscape(): PrintTemplateData {
           { kind: 'binding', source: 'parameter', tokenId: 'project' },
         ],
         fontSizePt: 10,
-        color: '#555',
+        color: PRINT_MUTED,
         align: 'left',
       },
       {
@@ -423,7 +434,7 @@ function tabloidLandscape(): PrintTemplateData {
           { kind: 'binding', source: 'dynamic', tokenId: 'today_date' },
         ],
         fontSizePt: 10,
-        color: '#555',
+        color: PRINT_MUTED,
         align: 'right',
       },
     ],
@@ -461,7 +472,7 @@ function fieldSummary(): PrintTemplateData {
           { kind: 'binding', source: 'parameter', tokenId: 'site' },
         ],
         fontSizePt: 11,
-        color: '#444',
+        color: PRINT_MUTED,
         align: 'left',
       },
       // Map at top half
@@ -469,7 +480,7 @@ function fieldSummary(): PrintTemplateData {
         id: 'map',
         kind: 'map',
         box: { x: 0.5, y: 1.4, w: 7.5, h: 5 },
-        border: { widthPt: 0.75, color: '#444' },
+        border: { widthPt: 0.75, color: PRINT_HAIRLINE_STRONG },
       },
       // Scalebar + north
       {
@@ -492,14 +503,14 @@ function fieldSummary(): PrintTemplateData {
         box: { x: 0.5, y: 7.2, w: 3.5, h: 2 },
         title: 'Legend',
         fontSizePt: 9,
-        border: { widthPt: 0.5, color: '#888' },
+        border: { widthPt: 0.5, color: PRINT_HAIRLINE },
       },
       // Notes box on the right
       {
         id: 'notes-frame',
         kind: 'rectangle',
         box: { x: 4.2, y: 7.2, w: 3.8, h: 2 },
-        border: { widthPt: 0.5, color: '#888' },
+        border: { widthPt: 0.5, color: PRINT_HAIRLINE },
       },
       {
         id: 'notes-label',
@@ -508,7 +519,7 @@ function fieldSummary(): PrintTemplateData {
         segments: [{ kind: 'literal', text: 'Notes' }],
         fontSizePt: 9,
         fontWeight: 'bold',
-        color: '#555',
+        color: PRINT_MUTED,
         align: 'left',
       },
       {
@@ -519,7 +530,7 @@ function fieldSummary(): PrintTemplateData {
           { kind: 'binding', source: 'parameter', tokenId: 'notes' },
         ],
         fontSizePt: 9,
-        color: '#222',
+        color: PRINT_INK,
         align: 'left',
         vAlign: 'top',
       },
@@ -529,7 +540,7 @@ function fieldSummary(): PrintTemplateData {
         kind: 'line',
         box: { x: 0.5, y: 10.3, w: 7.5, h: 0.02 },
         thicknessPt: 0.75,
-        color: '#888',
+        color: PRINT_HAIRLINE,
       },
       {
         id: 'footer-right',
@@ -542,7 +553,7 @@ function fieldSummary(): PrintTemplateData {
           { kind: 'binding', source: 'dynamic', tokenId: 'today_date' },
         ],
         fontSizePt: 9,
-        color: '#555',
+        color: PRINT_MUTED,
         align: 'right',
       },
     ],

@@ -257,9 +257,21 @@ function ElementRender({
     case 'legend':
       return <LegendRender element={element} baseStyle={baseStyle} />;
     case 'scalebar':
-      return <ScalebarRender element={element} baseStyle={baseStyle} />;
+      return (
+        <ScalebarRender
+          element={element}
+          baseStyle={baseStyle}
+          mapSnapshot={mapSnapshot}
+        />
+      );
     case 'north-arrow':
-      return <NorthArrowRender element={element} baseStyle={baseStyle} />;
+      return (
+        <NorthArrowRender
+          element={element}
+          baseStyle={baseStyle}
+          mapSnapshot={mapSnapshot}
+        />
+      );
     case 'line':
       return <LineRender element={element} baseStyle={baseStyle} />;
     case 'rectangle':
@@ -536,10 +548,43 @@ function LegendRender({
 function ScalebarRender({
   element,
   baseStyle,
+  mapSnapshot,
 }: {
   element: PrintScalebarElement;
   baseStyle: CSSProperties;
+  mapSnapshot: MapSnapshot | null;
 }) {
+  // Compute the bar's ground length from the snapshot's center
+  // latitude + zoom, the same web-mercator math the server / preview
+  // renderer uses, so the client print shows a real distance instead
+  // of a bare unit label.
+  const lat = mapSnapshot?.center?.[1] ?? 0;
+  const zoom = mapSnapshot?.zoom ?? 0;
+  const segPx = 80;
+  const mpp =
+    (156543.03392 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, zoom);
+  const segMeters = mpp * segPx;
+  const metric = element.units === 'metric';
+  let displayValue: number;
+  let unitLabel: string;
+  if (metric) {
+    if (segMeters >= 1000) {
+      displayValue = roundNice(segMeters / 1000);
+      unitLabel = 'km';
+    } else {
+      displayValue = roundNice(segMeters);
+      unitLabel = 'm';
+    }
+  } else {
+    const feet = segMeters * 3.28084;
+    if (feet >= 1000) {
+      displayValue = roundNice(feet / 5280);
+      unitLabel = 'mi';
+    } else {
+      displayValue = roundNice(feet);
+      unitLabel = 'ft';
+    }
+  }
   return (
     <div
       style={{
@@ -552,31 +597,51 @@ function ScalebarRender({
         color: PRINT_INK,
       }}
     >
-      <div style={{ display: 'flex', height: 7 }}>
+      <div style={{ display: 'flex', height: 7, border: `1px solid ${PRINT_INK}` }}>
         <div style={{ flex: 1, background: PRINT_INK }} />
-        <div style={{ flex: 1, background: PRINT_CARD, border: `1px solid ${PRINT_INK}` }} />
+        <div style={{ flex: 1, background: PRINT_CARD }} />
         <div style={{ flex: 1, background: PRINT_INK }} />
-        <div style={{ flex: 1, background: PRINT_CARD, border: `1px solid ${PRINT_INK}` }} />
+        <div style={{ flex: 1, background: PRINT_CARD }} />
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
         <span>0</span>
-        <span>{element.units === 'metric' ? 'km' : 'mi'}</span>
+        <span>
+          {displayValue.toLocaleString()} {unitLabel}
+        </span>
       </div>
     </div>
   );
 }
 
+/**
+ * Largest "nice" number (1 / 2 / 5 x 10^n) at or below the value, so
+ * scalebar labels read 250 / 500 / 1000 rather than 487.32. Mirrors
+ * the server renderer's helper.
+ */
+function roundNice(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 1;
+  const pow = Math.pow(10, Math.floor(Math.log10(value)));
+  const mantissa = value / pow;
+  const nice = mantissa >= 5 ? 5 : mantissa >= 2 ? 2 : 1;
+  return nice * pow;
+}
+
 function NorthArrowRender({
   element: _element,
   baseStyle,
+  mapSnapshot,
 }: {
   element: PrintNorthArrowElement;
   baseStyle: CSSProperties;
+  mapSnapshot: MapSnapshot | null;
 }) {
+  // Rotate opposite the map bearing so the arrow always points to
+  // true north, matching the server / preview renderer.
+  const bearing = mapSnapshot?.bearing ?? 0;
   return (
     <svg
       viewBox="0 0 24 24"
-      style={{ ...baseStyle, color: PRINT_INK }}
+      style={{ ...baseStyle, color: PRINT_INK, transform: `rotate(${-bearing}deg)` }}
       fill="none"
       stroke="currentColor"
       strokeWidth={1.25}
