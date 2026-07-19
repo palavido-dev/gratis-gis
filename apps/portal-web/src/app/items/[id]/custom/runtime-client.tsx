@@ -602,7 +602,7 @@ export function CustomRuntimeClient({
           // widgets gate on this context and disable themselves, and
           // the engine rejects writes that target past observations
           // independently of the UI.
-          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-warn/40 bg-warn/15 px-4 py-1.5 text-xs text-warn">
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[hsl(var(--app-warn)/0.4)] bg-[hsl(var(--app-warn)/0.15)] px-4 py-1.5 text-xs text-[hsl(var(--app-warn))]">
             <span>
               Viewing as of{' '}
               <strong>{new Date(appAt).toLocaleString()}</strong>{' '}
@@ -611,7 +611,7 @@ export function CustomRuntimeClient({
             <button
               type="button"
               onClick={() => setAppAt(null)}
-              className="rounded-md border border-warn/50 bg-white px-2 py-0.5 text-warn hover:bg-warn/10"
+              className="rounded-md border border-[hsl(var(--app-warn)/0.5)] bg-[hsl(var(--app-surface-1))] px-2 py-0.5 text-[hsl(var(--app-warn))] hover:bg-[hsl(var(--app-warn)/0.1)]"
             >
               Return to Now
             </button>
@@ -623,23 +623,23 @@ export function CustomRuntimeClient({
             designed header (top container with logo / title / tools)
             isn't competing with a duplicate runtime title strip. */}
         {canManage ? (
-          <header className="flex shrink-0 items-center justify-between gap-4 border-b border-border bg-surface-1 px-4 py-2">
+          <header className="flex shrink-0 items-center justify-between gap-4 border-b border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-4 py-2">
             <div className="flex min-w-0 items-center gap-3">
               <Link
                 href="/items"
-                className="inline-flex items-center gap-1 text-xs text-muted hover:text-ink-0"
+                className="inline-flex items-center gap-1 text-xs text-[hsl(var(--app-muted))] hover:text-[hsl(var(--app-ink-0))]"
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
                 Back to items
               </Link>
-              <span className="text-muted">/</span>
-              <span className="truncate text-base font-semibold text-ink-0">
+              <span className="text-[hsl(var(--app-muted))]">/</span>
+              <span className="truncate text-base font-semibold text-[hsl(var(--app-ink-0))]">
                 {itemTitle}
               </span>
             </div>
             <Link
               href={`/items/${itemId}?view=configure`}
-              className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-2 py-1 text-xs font-medium text-ink-1 hover:bg-surface-2"
+              className="inline-flex items-center gap-1 rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-2 py-1 text-xs font-medium text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
             >
               Configure
             </Link>
@@ -650,7 +650,7 @@ export function CustomRuntimeClient({
             single-page apps stay chrome-free. */}
         {app.pages.length > 1 && (
           <nav
-            className="flex shrink-0 items-end gap-0 overflow-x-auto border-b border-border bg-surface-1 px-3"
+            className="flex shrink-0 items-end gap-0 overflow-x-auto border-b border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-3"
             aria-label="App pages"
           >
             {app.pages.map((p, i) => {
@@ -663,15 +663,15 @@ export function CustomRuntimeClient({
                   aria-current={active ? 'page' : undefined}
                   className={`relative px-3 py-2 text-sm font-medium transition-colors ${
                     active
-                      ? 'text-ink-0'
-                      : 'text-muted hover:text-ink-1'
+                      ? 'text-[hsl(var(--app-ink-0))]'
+                      : 'text-[hsl(var(--app-muted))] hover:text-[hsl(var(--app-ink-1))]'
                   }`}
                 >
                   {p.title}
                   {active && (
                     <span
                       aria-hidden
-                      className="pointer-events-none absolute -bottom-px left-2 right-2 h-0.5 rounded-full bg-ink-0"
+                      className="pointer-events-none absolute -bottom-px left-2 right-2 h-0.5 rounded-full bg-[hsl(var(--app-ink-0))]"
                     />
                   )}
                 </button>
@@ -693,16 +693,16 @@ export function CustomRuntimeClient({
         >
           {totalWidgets === 0 ? (
             <div className="flex h-full items-center justify-center p-3">
-              <div className="max-w-md rounded-lg border border-dashed border-border bg-surface-1 p-8 text-center shadow-card">
-                <SquareIcon className="mx-auto h-8 w-8 text-muted" />
-                <h2 className="mt-3 text-base font-semibold text-ink-0">
+              <div className="max-w-md rounded-lg border border-dashed border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] p-8 text-center shadow-[var(--app-shadow-card)]">
+                <SquareIcon className="mx-auto h-8 w-8 text-[hsl(var(--app-muted))]" />
+                <h2 className="mt-3 text-base font-semibold text-[hsl(var(--app-ink-0))]">
                   Empty app
                 </h2>
-                <p className="mt-2 text-sm text-muted">
+                <p className="mt-2 text-sm text-[hsl(var(--app-muted))]">
                   Head back to{' '}
                   <Link
                     href={`/items/${itemId}`}
-                    className="text-accent hover:underline"
+                    className="text-[hsl(var(--app-accent))] hover:underline"
                   >
                     the configuration page
                   </Link>{' '}
@@ -882,7 +882,7 @@ function WidgetSlot({ widget }: { widget: CustomWidget }) {
       className={
         isToolMode
           ? 'flex h-full w-full items-stretch'
-          : 'flex h-full w-full flex-col overflow-hidden rounded-md border border-border bg-surface-1'
+          : 'flex h-full w-full flex-col overflow-hidden rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))]'
       }
     >
       {isToolMode ? (
@@ -1025,10 +1025,10 @@ function ToolWidgetSlot({ widget }: { widget: CustomWidget }) {
             : // Canvas treatment: raised white pill with shadow.
               // This is the right read when the trigger sits on the
               // page grid (surface-0) without surrounding chrome.
-              `group/tool flex h-full w-full flex-col items-center justify-center gap-0.5 rounded-md border bg-surface-1 shadow-sm transition-all ${
+              `group/tool flex h-full w-full flex-col items-center justify-center gap-0.5 rounded-md border bg-[hsl(var(--app-surface-1))] shadow-sm transition-all ${
                 open
-                  ? 'border-ink-0 text-ink-0 ring-2 ring-ink-0/10'
-                  : 'border-border text-ink-1 hover:-translate-y-0.5 hover:border-ink-1 hover:shadow-md'
+                  ? 'border-[hsl(var(--app-ink-0))] text-[hsl(var(--app-ink-0))] ring-2 ring-[hsl(var(--app-ink-0)/0.1)]'
+                  : 'border-[hsl(var(--app-border))] text-[hsl(var(--app-ink-1))] hover:-translate-y-0.5 hover:border-[hsl(var(--app-ink-1))] hover:shadow-md'
               }`
         }
       >
@@ -1224,7 +1224,7 @@ function ToolPopover({
           role="dialog"
           aria-label={title}
           style={{ ...positionStyle, position: 'fixed', width, height }}
-          className={`z-50 flex flex-col overflow-hidden rounded-lg border border-border bg-surface-1 shadow-[0_10px_40px_-10px_rgba(15,15,16,0.25),_0_2px_8px_-2px_rgba(15,15,16,0.08)] ${animationClass}`}
+          className={`z-50 flex flex-col overflow-hidden rounded-lg border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] shadow-[0_10px_40px_-10px_rgba(15,15,16,0.25),_0_2px_8px_-2px_rgba(15,15,16,0.08)] ${animationClass}`}
         >
           <ToolPopoverHeader title={title} icon={Icon} onClose={handleClose} />
           <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
@@ -1261,7 +1261,7 @@ function ToolPopover({
           width,
           height,
         }}
-        className={`z-50 flex flex-col overflow-hidden rounded-lg border border-border bg-surface-1 shadow-overlay ${animationClass}`}
+        className={`z-50 flex flex-col overflow-hidden rounded-lg border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] shadow-[var(--app-shadow-overlay)] ${animationClass}`}
       >
         <ToolPopoverHeader title={title} icon={Icon} onClose={handleClose} />
         <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
@@ -1288,9 +1288,9 @@ function ToolPopoverHeader({
   onToggleCollapsed?: () => void;
 }) {
   return (
-    <header className="flex shrink-0 items-center gap-2 border-b border-border bg-surface-1 px-3 py-2">
-      <Icon className="h-4 w-4 text-muted" strokeWidth={1.75} />
-      <span className="flex-1 truncate text-sm font-semibold text-ink-0">
+    <header className="flex shrink-0 items-center gap-2 border-b border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-3 py-2">
+      <Icon className="h-4 w-4 text-[hsl(var(--app-muted))]" strokeWidth={1.75} />
+      <span className="flex-1 truncate text-sm font-semibold text-[hsl(var(--app-ink-0))]">
         {title}
       </span>
       {onToggleCollapsed ? (
@@ -1299,7 +1299,7 @@ function ToolPopoverHeader({
           onClick={onToggleCollapsed}
           aria-label={collapsed ? 'Expand panel' : 'Collapse panel'}
           aria-expanded={!collapsed}
-          className="rounded p-1 text-muted transition-colors hover:bg-surface-2 hover:text-ink-1"
+          className="rounded p-1 text-[hsl(var(--app-muted))] transition-colors hover:bg-[hsl(var(--app-surface-2))] hover:text-[hsl(var(--app-ink-1))]"
         >
           {collapsed ? (
             <ChevronUp className="h-3.5 w-3.5" strokeWidth={2} />
@@ -1312,7 +1312,7 @@ function ToolPopoverHeader({
         type="button"
         onClick={onClose}
         aria-label="Close panel"
-        className="-mr-1 rounded p-1 text-muted transition-colors hover:bg-surface-2 hover:text-ink-1"
+        className="-mr-1 rounded p-1 text-[hsl(var(--app-muted))] transition-colors hover:bg-[hsl(var(--app-surface-2))] hover:text-[hsl(var(--app-ink-1))]"
       >
         <XIcon className="h-3.5 w-3.5" strokeWidth={2} />
       </button>
@@ -1363,7 +1363,7 @@ function DockedBottomPopover({
         bottom: 0,
         height: effectiveHeight,
       }}
-      className={`z-50 flex flex-col overflow-hidden border-t border-border bg-surface-1 shadow-overlay ${animationClass}`}
+      className={`z-50 flex flex-col overflow-hidden border-t border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] shadow-[var(--app-shadow-overlay)] ${animationClass}`}
     >
       <ToolPopoverHeader
         title={title}
@@ -1818,9 +1818,9 @@ function LayerListWidgetRender({ widget }: { widget: CustomWidget }) {
   return (
     <WidgetFrame icon={LayersIcon} title="Layers">
       {!state ? (
-        <p className="p-2 text-xs italic text-muted">No bound map.</p>
+        <p className="p-2 text-xs italic text-[hsl(var(--app-muted))]">No bound map.</p>
       ) : layers.length === 0 ? (
-        <p className="p-2 text-xs italic text-muted">No layers.</p>
+        <p className="p-2 text-xs italic text-[hsl(var(--app-muted))]">No layers.</p>
       ) : (
         <ul className="space-y-0.5 p-1.5">
           {rootLayers.map((l) => (
@@ -1878,7 +1878,7 @@ function LegendSwatch({ layer }: { layer: MapLayer }) {
     return (
       <span
         aria-hidden
-        className="inline-flex h-3 w-3 shrink-0 overflow-hidden rounded-sm border border-border"
+        className="inline-flex h-3 w-3 shrink-0 overflow-hidden rounded-sm border border-[hsl(var(--app-border))]"
       >
         {cats.map((c, i) => (
           <span
@@ -1895,7 +1895,7 @@ function LegendSwatch({ layer }: { layer: MapLayer }) {
     return (
       <span
         aria-hidden
-        className="inline-flex h-3 w-3 shrink-0 overflow-hidden rounded-sm border border-border"
+        className="inline-flex h-3 w-3 shrink-0 overflow-hidden rounded-sm border border-[hsl(var(--app-border))]"
       >
         {stops.map((c, i) => (
           <span
@@ -1964,7 +1964,7 @@ function LegendSwatch({ layer }: { layer: MapLayer }) {
   return (
     <span
       aria-hidden
-      className="inline-block h-3 w-3 shrink-0 rounded-sm border border-border bg-surface-2"
+      className="inline-block h-3 w-3 shrink-0 rounded-sm border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-2))]"
     />
   );
 }
@@ -2034,7 +2034,7 @@ function LayerListRow({
   return (
     <li>
       <div
-        className="group flex items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-surface-2"
+        className="group flex items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-[hsl(var(--app-surface-2))]"
         style={{ paddingLeft: `${6 + indent}px` }}
       >
         {isGroup ? (
@@ -2042,7 +2042,7 @@ function LayerListRow({
             type="button"
             aria-label={open ? 'Collapse group' : 'Expand group'}
             onClick={() => setOpen((v) => !v)}
-            className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted hover:bg-surface-2"
+            className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-[hsl(var(--app-muted))] hover:bg-[hsl(var(--app-surface-2))]"
           >
             {open ? (
               <ChevronDown className="h-3 w-3" />
@@ -2070,7 +2070,7 @@ function LayerListRow({
           <LegendSwatch layer={layer} />
         )}
         <span
-          className={`flex-1 truncate ${isGroup ? 'font-medium text-ink-0' : 'text-ink-1'}`}
+          className={`flex-1 truncate ${isGroup ? 'font-medium text-[hsl(var(--app-ink-0))]' : 'text-[hsl(var(--app-ink-1))]'}`}
           title={layer.title}
         >
           {layer.title}
@@ -2209,7 +2209,7 @@ function LayerRowKebabMenu({
         onClick={openMenu}
         aria-label={`Actions for ${layer.title}`}
         title="More actions"
-        className="inline-flex h-5 w-5 items-center justify-center rounded text-muted opacity-0 transition-opacity group-hover:opacity-100 hover:bg-surface-1 hover:text-ink-1"
+        className="inline-flex h-5 w-5 items-center justify-center rounded text-[hsl(var(--app-muted))] opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[hsl(var(--app-surface-1))] hover:text-[hsl(var(--app-ink-1))]"
       >
         <MoreVertical className="h-3.5 w-3.5" />
       </button>
@@ -2228,7 +2228,7 @@ function LayerRowKebabMenu({
             // doesn't overflow the viewport.
             transform: 'translateX(-100%)',
           }}
-          className="min-w-[180px] overflow-hidden rounded-md border border-border bg-surface-1 py-1 text-xs shadow-raised"
+          className="min-w-[180px] overflow-hidden rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] py-1 text-xs shadow-raised"
         >
           {canZoom ? (
             <button
@@ -2238,9 +2238,9 @@ function LayerRowKebabMenu({
                 closeMenu();
                 onZoomToLayer(layer);
               }}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-ink-1 hover:bg-surface-2"
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
             >
-              <ZoomInIcon className="h-3.5 w-3.5 text-muted" />
+              <ZoomInIcon className="h-3.5 w-3.5 text-[hsl(var(--app-muted))]" />
               Zoom to layer
             </button>
           ) : null}
@@ -2262,9 +2262,9 @@ function LayerRowKebabMenu({
                   closeMenu();
                   onExportLayer(layer, 'geojson');
                 }}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-ink-1 hover:bg-surface-2"
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
               >
-                <Download className="h-3.5 w-3.5 text-muted" />
+                <Download className="h-3.5 w-3.5 text-[hsl(var(--app-muted))]" />
                 Export as GeoJSON
               </button>
               <button
@@ -2274,9 +2274,9 @@ function LayerRowKebabMenu({
                   closeMenu();
                   onExportLayer(layer, 'csv');
                 }}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-ink-1 hover:bg-surface-2"
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
               >
-                <Download className="h-3.5 w-3.5 text-muted" />
+                <Download className="h-3.5 w-3.5 text-[hsl(var(--app-muted))]" />
                 Export as CSV
               </button>
               <button
@@ -2286,9 +2286,9 @@ function LayerRowKebabMenu({
                   closeMenu();
                   onExportLayer(layer, 'xlsx');
                 }}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-ink-1 hover:bg-surface-2"
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
               >
-                <Download className="h-3.5 w-3.5 text-muted" />
+                <Download className="h-3.5 w-3.5 text-[hsl(var(--app-muted))]" />
                 Export as Excel (.xlsx)
               </button>
             </>
@@ -2301,9 +2301,9 @@ function LayerRowKebabMenu({
                 closeMenu();
                 setSymbologyOpen(true);
               }}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-ink-1 hover:bg-surface-2"
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
             >
-              <Palette className="h-3.5 w-3.5 text-muted" />
+              <Palette className="h-3.5 w-3.5 text-[hsl(var(--app-muted))]" />
               Symbology...
             </button>
           ) : null}
@@ -2314,14 +2314,14 @@ function LayerRowKebabMenu({
               closeMenu();
               setPropsOpen(true);
             }}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-ink-1 hover:bg-surface-2"
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
           >
-            <InfoIcon className="h-3.5 w-3.5 text-muted" />
+            <InfoIcon className="h-3.5 w-3.5 text-[hsl(var(--app-muted))]" />
             Properties
           </button>
           {canRemove ? (
             <>
-              <div className="my-1 border-t border-border" />
+              <div className="my-1 border-t border-[hsl(var(--app-border))]" />
               <button
                 type="button"
                 role="menuitem"
@@ -2329,7 +2329,7 @@ function LayerRowKebabMenu({
                   closeMenu();
                   onRemoveLayer(layer.id);
                 }}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-danger hover:bg-danger/5"
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[hsl(var(--app-danger))] hover:bg-[hsl(var(--app-danger)/0.05)]"
               >
                 <Trash2 className="h-3.5 w-3.5" />
                 Remove from map
@@ -2408,25 +2408,25 @@ function SessionSymbologyDialog({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-lg border border-border bg-surface-1 shadow-overlay"
+        className="flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-lg border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] shadow-[var(--app-shadow-overlay)]"
       >
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+        <div className="flex items-center justify-between border-b border-[hsl(var(--app-border))] px-4 py-3">
           <div className="min-w-0">
-            <h3 className="truncate text-sm font-semibold text-ink-0">
+            <h3 className="truncate text-sm font-semibold text-[hsl(var(--app-ink-0))]">
               Symbology
             </h3>
-            <p className="truncate text-2xs text-muted">{layer.title}</p>
+            <p className="truncate text-2xs text-[hsl(var(--app-muted))]">{layer.title}</p>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="inline-flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-surface-2"
+            className="inline-flex h-7 w-7 items-center justify-center rounded text-[hsl(var(--app-muted))] hover:bg-[hsl(var(--app-surface-2))]"
           >
             <XIcon className="h-4 w-4" />
           </button>
         </div>
-        <p className="border-b border-border bg-warn/10 px-4 py-2 text-2xs text-warn">
+        <p className="border-b border-[hsl(var(--app-border))] bg-[hsl(var(--app-warn)/0.1)] px-4 py-2 text-2xs text-[hsl(var(--app-warn))]">
           Changes apply to this session only. Refresh the page to
           reset to the saved style.
         </p>
@@ -2437,18 +2437,18 @@ function SessionSymbologyDialog({
             {...(geometryTypes ? { geometryTypes } : {})}
           />
         </div>
-        <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
+        <div className="flex items-center justify-end gap-2 border-t border-[hsl(var(--app-border))] px-4 py-3">
           <button
             type="button"
             onClick={() => onPatchStyle(structuredClone(originalRef.current))}
-            className="rounded-md border border-border bg-surface-0 px-3 py-1.5 text-xs font-medium text-ink-1 hover:bg-surface-2"
+            className="rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0))] px-3 py-1.5 text-xs font-medium text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
           >
             Reset
           </button>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground shadow-card hover:opacity-90"
+            className="rounded-md bg-[hsl(var(--app-accent))] px-3 py-1.5 text-xs font-medium text-[hsl(var(--app-accent-ink))] shadow-[var(--app-shadow-card)] hover:opacity-90"
           >
             Done
           </button>
@@ -2489,42 +2489,42 @@ function LayerPropertiesDialog({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm overflow-hidden rounded-lg border border-border bg-surface-1 shadow-overlay"
+        className="w-full max-w-sm overflow-hidden rounded-lg border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] shadow-[var(--app-shadow-overlay)]"
       >
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h3 className="text-sm font-semibold text-ink-0">
+        <div className="flex items-center justify-between border-b border-[hsl(var(--app-border))] px-4 py-3">
+          <h3 className="text-sm font-semibold text-[hsl(var(--app-ink-0))]">
             {layer.title}
           </h3>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="inline-flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-surface-2"
+            className="inline-flex h-7 w-7 items-center justify-center rounded text-[hsl(var(--app-muted))] hover:bg-[hsl(var(--app-surface-2))]"
           >
             <XIcon className="h-4 w-4" />
           </button>
         </div>
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 px-4 py-3 text-xs">
-          <dt className="text-muted">Source</dt>
-          <dd className="text-ink-1">{sourceLabel}</dd>
+          <dt className="text-[hsl(var(--app-muted))]">Source</dt>
+          <dd className="text-[hsl(var(--app-ink-1))]">{sourceLabel}</dd>
           {featureCount !== null ? (
             <>
-              <dt className="text-muted">Features</dt>
-              <dd className="text-ink-1">
+              <dt className="text-[hsl(var(--app-muted))]">Features</dt>
+              <dd className="text-[hsl(var(--app-ink-1))]">
                 {featureCount.toLocaleString()}
               </dd>
             </>
           ) : null}
-          <dt className="text-muted">Visible</dt>
-          <dd className="text-ink-1">
+          <dt className="text-[hsl(var(--app-muted))]">Visible</dt>
+          <dd className="text-[hsl(var(--app-ink-1))]">
             {layer.visible === false ? 'No' : 'Yes'}
           </dd>
-          <dt className="text-muted">Opacity</dt>
-          <dd className="text-ink-1">
+          <dt className="text-[hsl(var(--app-muted))]">Opacity</dt>
+          <dd className="text-[hsl(var(--app-ink-1))]">
             {Math.round(((layer.opacity ?? 1) as number) * 100)}%
           </dd>
         </dl>
-        <p className="border-t border-border bg-surface-0 px-4 py-2 text-2xs italic text-muted">
+        <p className="border-t border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0))] px-4 py-2 text-2xs italic text-[hsl(var(--app-muted))]">
           Properties shown here are session-only. Refreshing the
           page resets them.
         </p>
@@ -2563,7 +2563,7 @@ function LegendWidgetRender({ widget }: { widget: CustomWidget }) {
   return (
     <WidgetFrame icon={ListTree} title="Legend">
       {!state ? (
-        <p className="p-2 text-xs italic text-muted">No bound map.</p>
+        <p className="p-2 text-xs italic text-[hsl(var(--app-muted))]">No bound map.</p>
       ) : (
         <ul className="space-y-1 p-2">
           {(state.mapData.layers ?? [])
@@ -2571,10 +2571,10 @@ function LegendWidgetRender({ widget }: { widget: CustomWidget }) {
             .map((l) => (
               <li
                 key={l.id}
-                className="flex items-center gap-2 text-xs text-ink-1"
+                className="flex items-center gap-2 text-xs text-[hsl(var(--app-ink-1))]"
               >
                 <span
-                  className="inline-block h-3 w-3 shrink-0 rounded-full border border-border"
+                  className="inline-block h-3 w-3 shrink-0 rounded-full border border-[hsl(var(--app-border))]"
                   style={{
                     backgroundColor:
                       l.style?.point?.color ??
@@ -2609,7 +2609,7 @@ function BasemapGalleryWidgetRender({ widget }: { widget: CustomWidget }) {
   return (
     <WidgetFrame icon={ImageIcon} title="Basemaps">
       {visibleBasemaps.length === 0 ? (
-        <p className="p-2 text-xs italic text-muted">No basemaps available.</p>
+        <p className="p-2 text-xs italic text-[hsl(var(--app-muted))]">No basemaps available.</p>
       ) : (
         <ul className="grid grid-cols-2 gap-1.5 p-2">
           {visibleBasemaps.map((b) => (
@@ -2624,8 +2624,8 @@ function BasemapGalleryWidgetRender({ widget }: { widget: CustomWidget }) {
                 }
                 className={`flex w-full flex-col items-stretch gap-1 rounded-md border-2 p-1 text-left text-2xs transition ${
                   activeId === b.id
-                    ? 'border-accent bg-accent/5'
-                    : 'border-border bg-surface-1 hover:border-accent/40'
+                    ? 'border-[hsl(var(--app-accent))] bg-[hsl(var(--app-accent)/0.05)]'
+                    : 'border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] hover:border-[hsl(var(--app-accent)/0.4)]'
                 }`}
                 title={b.label}
               >
@@ -2646,7 +2646,7 @@ function BasemapGalleryWidgetRender({ widget }: { widget: CustomWidget }) {
                     className="h-full w-full"
                   />
                 </div>
-                <span className="truncate text-ink-1">{b.label}</span>
+                <span className="truncate text-[hsl(var(--app-ink-1))]">{b.label}</span>
               </button>
             </li>
           ))}
@@ -2746,7 +2746,7 @@ function SearchWidgetRender({ widget }: { widget: CustomWidget }) {
   if (!boundMapState || !mapWidgetId) {
     return (
       <WidgetFrame icon={SearchIcon} title="Search">
-        <p className="p-3 text-xs italic text-muted">
+        <p className="p-3 text-xs italic text-[hsl(var(--app-muted))]">
           Bind to a Map widget to enable.
         </p>
       </WidgetFrame>
@@ -3038,20 +3038,20 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
   if (templates === null) {
     return (
       <WidgetFrame icon={Printer} title="Print">
-        <div className="p-3 text-xs text-muted">Loading templates…</div>
+        <div className="p-3 text-xs text-[hsl(var(--app-muted))]">Loading templates…</div>
       </WidgetFrame>
     );
   }
   if (templates.length === 0) {
     return (
       <WidgetFrame icon={Printer} title="Print">
-        <div className="flex flex-col items-center gap-2 p-3 text-xs text-muted">
+        <div className="flex flex-col items-center gap-2 p-3 text-xs text-[hsl(var(--app-muted))]">
           <p>No print templates available.</p>
           <button
             type="button"
             disabled={!state}
             onClick={() => window.print()}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-3 py-1.5 text-xs font-medium text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))] disabled:opacity-50"
           >
             <Printer className="h-3.5 w-3.5" />
             Browser print
@@ -3065,18 +3065,18 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
       <div className="flex h-full flex-col gap-2 p-2 text-xs">
         {!selected ? (
           <>
-            <div className="font-medium text-ink-0">Templates</div>
+            <div className="font-medium text-[hsl(var(--app-ink-0))]">Templates</div>
             <div className="space-y-1">
               {templates.map((t) => (
                 <button
                   key={t.id}
                   type="button"
                   onClick={() => setSelected(t)}
-                  className="block w-full rounded-md border border-border bg-surface-1 px-2 py-1.5 text-left text-xs hover:bg-surface-2"
+                  className="block w-full rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-2 py-1.5 text-left text-xs hover:bg-[hsl(var(--app-surface-2))]"
                 >
-                  <div className="font-medium text-ink-0">{t.title}</div>
+                  <div className="font-medium text-[hsl(var(--app-ink-0))]">{t.title}</div>
                   {t.description ? (
-                    <div className="mt-0.5 text-2xs text-muted">
+                    <div className="mt-0.5 text-2xs text-[hsl(var(--app-muted))]">
                       {t.description}
                     </div>
                   ) : null}
@@ -3090,17 +3090,17 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
               <button
                 type="button"
                 onClick={() => setSelected(null)}
-                className="text-2xs text-muted hover:underline"
+                className="text-2xs text-[hsl(var(--app-muted))] hover:underline"
               >
                 ← Templates
               </button>
-              <div className="ml-1 truncate font-medium text-ink-0">
+              <div className="ml-1 truncate font-medium text-[hsl(var(--app-ink-0))]">
                 {selected.title}
               </div>
             </div>
             <div className="space-y-1.5">
               {selected.data.parameters.map((p) => (
-                <label key={p.id} className="block text-2xs text-ink-1">
+                <label key={p.id} className="block text-2xs text-[hsl(var(--app-ink-1))]">
                   {p.label}
                   {p.type === 'longtext' ? (
                     <textarea
@@ -3109,7 +3109,7 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
                         setValues((cur) => ({ ...cur, [p.id]: e.target.value }))
                       }
                       rows={3}
-                      className="mt-0.5 w-full rounded border border-border bg-surface-0 px-1.5 py-1 text-2xs"
+                      className="mt-0.5 w-full rounded border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0))] px-1.5 py-1 text-2xs"
                     />
                   ) : p.type === 'dropdown' ? (
                     <select
@@ -3117,7 +3117,7 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
                       onChange={(e) =>
                         setValues((cur) => ({ ...cur, [p.id]: e.target.value }))
                       }
-                      className="mt-0.5 h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-2xs"
+                      className="mt-0.5 h-7 w-full rounded border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0))] px-1.5 text-2xs"
                     >
                       {(p.options ?? []).map((o) => (
                         <option key={o.value} value={o.value}>
@@ -3138,11 +3138,11 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
                       onChange={(e) =>
                         setValues((cur) => ({ ...cur, [p.id]: e.target.value }))
                       }
-                      className="mt-0.5 h-7 w-full rounded border border-border bg-surface-0 px-1.5 text-2xs"
+                      className="mt-0.5 h-7 w-full rounded border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0))] px-1.5 text-2xs"
                     />
                   )}
                   {p.description ? (
-                    <span className="text-2xs text-muted">{p.description}</span>
+                    <span className="text-2xs text-[hsl(var(--app-muted))]">{p.description}</span>
                   ) : null}
                 </label>
               ))}
@@ -3151,21 +3151,21 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
               type="button"
               disabled={rendering}
               onClick={onRender}
-              className="mt-1 inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-50"
+              className="mt-1 inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-[hsl(var(--app-accent))] px-3 py-1.5 text-xs font-medium text-white hover:bg-[hsl(var(--app-accent)/0.9)] disabled:opacity-50"
             >
               <Printer className="h-3.5 w-3.5" />
               {rendering ? 'Generating PDF…' : 'Print'}
             </button>
             {renderError ? (
-              <div className="rounded border border-danger/40 bg-danger/10 px-2 py-1 text-2xs text-danger">
+              <div className="rounded border border-[hsl(var(--app-danger)/0.4)] bg-[hsl(var(--app-danger)/0.1)] px-2 py-1 text-2xs text-[hsl(var(--app-danger))]">
                 {renderError}
               </div>
             ) : null}
           </>
         )}
         {results.length > 0 ? (
-          <div className="mt-2 border-t border-border pt-2">
-            <div className="text-2xs font-medium text-muted">Recent prints</div>
+          <div className="mt-2 border-t border-[hsl(var(--app-border))] pt-2">
+            <div className="text-2xs font-medium text-[hsl(var(--app-muted))]">Recent prints</div>
             <div className="mt-1 space-y-0.5">
               {results.slice(0, 5).map((r, i) => (
                 <a
@@ -3173,7 +3173,7 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
                   href={r.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="block truncate rounded px-1 py-0.5 text-2xs text-accent hover:underline"
+                  className="block truncate rounded px-1 py-0.5 text-2xs text-[hsl(var(--app-accent))] hover:underline"
                 >
                   {r.templateTitle} · {new Date(r.createdAt).toLocaleTimeString()}
                 </a>
@@ -3226,8 +3226,8 @@ function SelectWidgetRender({ widget }: { widget: CustomWidget }) {
             }
             className={`inline-flex h-7 items-center gap-1 rounded-md border px-2 text-2xs font-medium ${
               active === mode
-                ? 'border-accent bg-accent/10 text-accent'
-                : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
+                ? 'border-[hsl(var(--app-accent))] bg-[hsl(var(--app-accent)/0.1)] text-[hsl(var(--app-accent))]'
+                : 'border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]'
             } disabled:opacity-50`}
             title={label}
           >
@@ -3356,14 +3356,14 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
     <WidgetFrame icon={Download} title="Export">
       <div className="flex flex-col gap-3 p-3 text-xs">
         <label className="block">
-          <span className="block text-2xs font-medium uppercase tracking-wide text-muted">
+          <span className="block text-2xs font-medium uppercase tracking-wide text-[hsl(var(--app-muted))]">
             Layer
           </span>
           <select
             value={targetIndex}
             disabled={noTargets}
             onChange={(e) => setTargetIndex(Number(e.target.value))}
-            className="mt-1 w-full rounded-md border border-border bg-surface-0 px-2 py-1 text-sm"
+            className="mt-1 w-full rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0))] px-2 py-1 text-sm"
           >
             {resolved.map((t, i) => (
               <option key={`${t.dataLayerId}:${t.layerKey}:${i}`} value={i}>
@@ -3376,17 +3376,17 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
           </select>
         </label>
         <label className="block">
-          <span className="block text-2xs font-medium uppercase tracking-wide text-muted">
+          <span className="block text-2xs font-medium uppercase tracking-wide text-[hsl(var(--app-muted))]">
             Format
           </span>
-          <div className="mt-1 inline-flex rounded-md border border-border bg-surface-2 p-0.5">
+          <div className="mt-1 inline-flex rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-2))] p-0.5">
             <button
               type="button"
               onClick={() => setFormat('xlsx')}
               className={`px-2 py-1 text-2xs ${
                 format === 'xlsx'
-                  ? 'rounded bg-surface-1 text-ink-0 shadow-sm'
-                  : 'text-muted'
+                  ? 'rounded bg-[hsl(var(--app-surface-1))] text-[hsl(var(--app-ink-0))] shadow-sm'
+                  : 'text-[hsl(var(--app-muted))]'
               }`}
             >
               Excel
@@ -3396,8 +3396,8 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
               onClick={() => setFormat('csv')}
               className={`px-2 py-1 text-2xs ${
                 format === 'csv'
-                  ? 'rounded bg-surface-1 text-ink-0 shadow-sm'
-                  : 'text-muted'
+                  ? 'rounded bg-[hsl(var(--app-surface-1))] text-[hsl(var(--app-ink-0))] shadow-sm'
+                  : 'text-[hsl(var(--app-muted))]'
               }`}
             >
               CSV
@@ -3405,7 +3405,7 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
           </div>
         </label>
         {error ? (
-          <p className="rounded-md border border-danger/40 bg-danger/10 px-2 py-1 text-2xs text-danger">
+          <p className="rounded-md border border-[hsl(var(--app-danger)/0.4)] bg-[hsl(var(--app-danger)/0.1)] px-2 py-1 text-2xs text-[hsl(var(--app-danger))]">
             {error}
           </p>
         ) : null}
@@ -3414,7 +3414,7 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
             type="button"
             disabled={busy || noTargets}
             onClick={() => runExport('all')}
-            className="inline-flex h-7 items-center gap-1 rounded-md bg-accent px-3 text-2xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+            className="inline-flex h-7 items-center gap-1 rounded-md bg-[hsl(var(--app-accent))] px-3 text-2xs font-medium text-white hover:opacity-90 disabled:opacity-50"
           >
             <Download className="h-3 w-3" />
             Export visible
@@ -3423,12 +3423,12 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
             type="button"
             disabled={busy || noTargets}
             onClick={() => runExport('selection')}
-            className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-surface-1 px-3 text-2xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+            className="inline-flex h-7 items-center gap-1 rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-3 text-2xs font-medium text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))] disabled:opacity-50"
           >
             Export selection
           </button>
         </div>
-        <p className="text-2xs text-muted">
+        <p className="text-2xs text-[hsl(var(--app-muted))]">
           Exports the features currently loaded for this layer (the
           map viewport plus its surrounding tile cache).  For a
           full-layer dump including related tables + attachments,
@@ -3567,16 +3567,16 @@ function SplashWidgetRender({ widget }: { widget: CustomWidget }) {
       onClick={onBackdropClick}
     >
       <div
-        className="relative flex max-h-full flex-col overflow-hidden rounded-lg bg-surface-0 shadow-2xl"
+        className="relative flex max-h-full flex-col overflow-hidden rounded-lg bg-[hsl(var(--app-surface-0))] shadow-2xl"
         style={{ width: `${width}px`, maxWidth: '100%' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header with title.  Close-X only when requireConfirm is
             off; otherwise the user must use the confirm button. */}
-        <header className="flex shrink-0 items-start justify-between gap-3 border-b border-border bg-surface-1 px-4 py-3">
+        <header className="flex shrink-0 items-start justify-between gap-3 border-b border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-4 py-3">
           <h2
             id="splash-title"
-            className="text-sm font-semibold text-ink-0"
+            className="text-sm font-semibold text-[hsl(var(--app-ink-0))]"
           >
             {cfg.title || 'Welcome'}
           </h2>
@@ -3585,20 +3585,20 @@ function SplashWidgetRender({ widget }: { widget: CustomWidget }) {
               type="button"
               onClick={() => setOpen(false)}
               aria-label="Close"
-              className="-mr-1 -mt-1 inline-flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-surface-2"
+              className="-mr-1 -mt-1 inline-flex h-6 w-6 items-center justify-center rounded text-[hsl(var(--app-muted))] hover:bg-[hsl(var(--app-surface-2))]"
             >
               <XIcon className="h-4 w-4" />
             </button>
           )}
         </header>
 
-        <div className="prose-sm flex-1 overflow-auto px-4 py-4 text-sm text-ink-1 [&_a]:text-accent [&_a]:underline [&_code]:rounded [&_code]:bg-surface-2 [&_code]:px-1 [&_code]:py-0.5 [&_h1]:mb-2 [&_h1]:text-xl [&_h1]:font-bold [&_h2]:mb-2 [&_h2]:text-lg [&_h2]:font-bold [&_h3]:mb-2 [&_h3]:text-base [&_h3]:font-semibold [&_p]:mb-2 [&_ul]:mb-2 [&_ul]:ml-5 [&_ul]:list-disc">
+        <div className="prose-sm flex-1 overflow-auto px-4 py-4 text-sm text-[hsl(var(--app-ink-1))] [&_a]:text-[hsl(var(--app-accent))] [&_a]:underline [&_code]:rounded [&_code]:bg-[hsl(var(--app-surface-2))] [&_code]:px-1 [&_code]:py-0.5 [&_h1]:mb-2 [&_h1]:text-xl [&_h1]:font-bold [&_h2]:mb-2 [&_h2]:text-lg [&_h2]:font-bold [&_h3]:mb-2 [&_h3]:text-base [&_h3]:font-semibold [&_p]:mb-2 [&_ul]:mb-2 [&_ul]:ml-5 [&_ul]:list-disc">
           <MarkdownLite text={cfg.markdown ?? ''} />
         </div>
 
-        <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-border bg-surface-1 px-4 py-3">
+        <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-4 py-3">
           {cfg.allowDismiss ? (
-            <label className="flex items-center gap-2 text-xs text-ink-1">
+            <label className="flex items-center gap-2 text-xs text-[hsl(var(--app-ink-1))]">
               <input
                 type="checkbox"
                 checked={dontShow}
@@ -3614,7 +3614,7 @@ function SplashWidgetRender({ widget }: { widget: CustomWidget }) {
           <button
             type="button"
             onClick={confirm}
-            className="inline-flex h-8 items-center rounded-md bg-accent px-4 text-sm font-medium text-white hover:opacity-90"
+            className="inline-flex h-8 items-center rounded-md bg-[hsl(var(--app-accent))] px-4 text-sm font-medium text-white hover:opacity-90"
           >
             {cfg.confirmLabel || 'OK'}
           </button>
@@ -3844,7 +3844,7 @@ function AttributeTableWidgetRender({ widget }: { widget: CustomWidget }) {
   // author knows what to wire up.
   if (layers.length === 0) {
     return (
-      <p className="p-3 text-xs italic text-muted">
+      <p className="p-3 text-xs italic text-[hsl(var(--app-muted))]">
         Configure the widget&rsquo;s target layer (or bind to a Map
         widget that has layers) to populate the attribute table.
       </p>
@@ -3878,10 +3878,10 @@ function AttributeTableWidgetRender({ widget }: { widget: CustomWidget }) {
 // ---- Text widget -----------------------------------------------------------
 
 const TEXT_PRESET_CLS: Record<string, string> = {
-  header: 'text-2xl font-bold text-ink-0',
-  subheader: 'text-lg font-semibold text-ink-0',
-  body: 'text-sm text-ink-1',
-  callout: 'rounded-md bg-warn/10 px-3 py-2 text-sm text-warn',
+  header: 'text-2xl font-bold text-[hsl(var(--app-ink-0))]',
+  subheader: 'text-lg font-semibold text-[hsl(var(--app-ink-0))]',
+  body: 'text-sm text-[hsl(var(--app-ink-1))]',
+  callout: 'rounded-md bg-[hsl(var(--app-warn)/0.1)] px-3 py-2 text-sm text-[hsl(var(--app-warn))]',
 };
 
 function TextWidgetRender({ widget }: { widget: CustomWidget }) {
@@ -3923,21 +3923,21 @@ function MarkdownLite({ text }: { text: string }) {
         if (!t) return null;
         if (t.startsWith('### ')) {
           return (
-            <h3 key={i} className="mb-2 text-base font-semibold text-ink-0">
+            <h3 key={i} className="mb-2 text-base font-semibold text-[hsl(var(--app-ink-0))]">
               {renderInline(t.slice(4))}
             </h3>
           );
         }
         if (t.startsWith('## ')) {
           return (
-            <h2 key={i} className="mb-2 text-lg font-bold text-ink-0">
+            <h2 key={i} className="mb-2 text-lg font-bold text-[hsl(var(--app-ink-0))]">
               {renderInline(t.slice(3))}
             </h2>
           );
         }
         if (t.startsWith('# ')) {
           return (
-            <h1 key={i} className="mb-2 text-xl font-bold text-ink-0">
+            <h1 key={i} className="mb-2 text-xl font-bold text-[hsl(var(--app-ink-0))]">
               {renderInline(t.slice(2))}
             </h1>
           );
@@ -3993,7 +3993,7 @@ function renderInline(s: string): React.ReactNode {
           href={m[6]}
           target="_blank"
           rel="noreferrer"
-          className="text-accent hover:underline"
+          className="text-[hsl(var(--app-accent))] hover:underline"
         >
           {m[5]}
         </a>,
@@ -4014,7 +4014,7 @@ function renderInline(s: string): React.ReactNode {
       tokens.push(
         <code
           key={key++}
-          className="rounded bg-surface-2 px-1 py-0.5 font-mono text-[0.95em]"
+          className="rounded bg-[hsl(var(--app-surface-2))] px-1 py-0.5 font-mono text-[0.95em]"
         >
           {m[12]}
         </code>,
@@ -4108,9 +4108,9 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
   return (
     <WidgetFrame icon={ChevronRight} title="Chart">
       {data.loading ? (
-        <p className="p-2 text-xs italic text-muted">Loading…</p>
+        <p className="p-2 text-xs italic text-[hsl(var(--app-muted))]">Loading…</p>
       ) : data.error ? (
-        <p className="p-2 text-xs text-danger">{data.error}</p>
+        <p className="p-2 text-xs text-[hsl(var(--app-danger))]">{data.error}</p>
       ) : (
         <ChartCanvas rows={data.rows} cfg={cfg} />
       )}
@@ -4190,7 +4190,7 @@ function ChartCanvas({
 
   if (aggregated.length === 0) {
     return (
-      <p className="p-2 text-xs italic text-muted">
+      <p className="p-2 text-xs italic text-[hsl(var(--app-muted))]">
         No data to chart. Bind a target with at least one feature
         and pick a group-by field.
       </p>
@@ -4300,7 +4300,7 @@ function ImageWidgetRender({ widget }: { widget: CustomWidget }) {
   const resolvedUrl = resolveAssetRefSync(asset ?? null) ?? url ?? null;
   if (!resolvedUrl) {
     return (
-      <div className="flex h-full w-full items-center justify-center bg-surface-2/40 text-xs text-muted">
+      <div className="flex h-full w-full items-center justify-center bg-[hsl(var(--app-surface-2)/0.4)] text-xs text-[hsl(var(--app-muted))]">
         No image set
       </div>
     );
@@ -4340,8 +4340,8 @@ function ButtonWidgetRender({ widget }: { widget: CustomWidget }) {
   const v = variant ?? 'primary';
   const className = `inline-flex h-9 items-center justify-center gap-1.5 rounded-md px-4 text-sm font-medium transition-colors ${
     v === 'primary'
-      ? 'bg-accent text-white hover:opacity-90'
-      : 'border border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
+      ? 'bg-[hsl(var(--app-accent))] text-white hover:opacity-90'
+      : 'border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]'
   }`;
   const text = label || 'Button';
   if ((linkKind ?? 'url') === 'tool') {
@@ -4434,7 +4434,7 @@ function ToolWidgetRender({ widget }: { widget: CustomWidget }) {
     className = `inline-flex h-9 items-center justify-center gap-1.5 rounded-md px-4 text-sm font-medium transition-colors ${
       v === 'primary'
         ? 'bg-teal-500/90 text-white hover:bg-teal-500'
-        : 'border border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
+        : 'border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]'
     }`;
   }
   const iconHtml = iconName ? renderIconSvg(iconName) : null;
@@ -4913,23 +4913,23 @@ function OsmAttributionChip({
       // (top-center) so users notice the result state. Originally
       // bottom-right; testers reported almost missing it.
       <div className="pointer-events-none fixed left-0 right-0 top-20 z-[900] flex justify-center">
-        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-warn/40 bg-warn/10 px-3 py-1.5 text-2xs shadow-raised">
-          <span className="font-medium text-warn">
+        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-[hsl(var(--app-warn)/0.4)] bg-[hsl(var(--app-warn)/0.1)] px-3 py-1.5 text-2xs shadow-raised">
+          <span className="font-medium text-[hsl(var(--app-warn))]">
             No matches in this area
           </span>
-          <span className="text-warn">·</span>
+          <span className="text-[hsl(var(--app-warn))]">·</span>
           <a
             href="https://www.openstreetmap.org/copyright"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-warn underline hover:text-warn"
+            className="text-[hsl(var(--app-warn))] underline hover:text-[hsl(var(--app-warn))]"
           >
             {attribution}
           </a>
           <button
             type="button"
             onClick={onDismiss}
-            className="rounded-md border border-warn/40 bg-warn/15 px-1.5 text-2xs text-warn hover:bg-warn/25"
+            className="rounded-md border border-[hsl(var(--app-warn)/0.4)] bg-[hsl(var(--app-warn)/0.15)] px-1.5 text-2xs text-[hsl(var(--app-warn))] hover:bg-[hsl(var(--app-warn)/0.25)]"
             aria-label="Dismiss"
           >
             ×
@@ -4944,17 +4944,17 @@ function OsmAttributionChip({
     // #141 follow-up: top-center placement so the result chip is
     // immediately visible. Bottom-right was easy to miss.
     <div className="pointer-events-none fixed left-0 right-0 top-20 z-[900] flex justify-center">
-      <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border bg-surface-0/95 px-3 py-1.5 text-2xs shadow-raised backdrop-blur">
-        <span className="text-ink-0">
+      <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0)/0.95)] px-3 py-1.5 text-2xs shadow-raised backdrop-blur">
+        <span className="text-[hsl(var(--app-ink-0))]">
           Found {featureCount} OSM feature{featureCount === 1 ? '' : 's'}
           {truncated ? ' (truncated)' : ''}
         </span>
-        <span className="text-muted">·</span>
+        <span className="text-[hsl(var(--app-muted))]">·</span>
         <a
           href="https://www.openstreetmap.org/copyright"
           target="_blank"
           rel="noopener noreferrer"
-          className="text-muted underline hover:text-ink-1"
+          className="text-[hsl(var(--app-muted))] underline hover:text-[hsl(var(--app-ink-1))]"
         >
           {attribution}
         </a>
@@ -4964,7 +4964,7 @@ function OsmAttributionChip({
           <button
             type="button"
             onClick={onSaveClick}
-            className="rounded-md border border-border bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2"
+            className="rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-2 text-2xs font-medium text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
             aria-label="Save these features as a data layer"
             title="Save these features as a data layer"
           >
@@ -4972,27 +4972,27 @@ function OsmAttributionChip({
           </button>
         ) : null}
         {saveState.kind === 'saving' ? (
-          <span className="text-muted">Saving…</span>
+          <span className="text-[hsl(var(--app-muted))]">Saving…</span>
         ) : null}
         {saveState.kind === 'saved' ? (
           <a
             href={`/items/${saveState.itemId}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="rounded-md border border-accent/40 bg-accent/10 px-2 text-2xs font-medium text-accent hover:bg-accent/20"
+            className="rounded-md border border-[hsl(var(--app-accent)/0.4)] bg-[hsl(var(--app-accent)/0.1)] px-2 text-2xs font-medium text-[hsl(var(--app-accent))] hover:bg-[hsl(var(--app-accent)/0.2)]"
           >
             Saved. Open layer
           </a>
         ) : null}
         {saveState.kind === 'error' ? (
           <>
-            <span className="text-danger" title={saveState.message}>
+            <span className="text-[hsl(var(--app-danger))]" title={saveState.message}>
               Save failed
             </span>
             <button
               type="button"
               onClick={() => setSaveState({ kind: 'idle' })}
-              className="rounded-md border border-border bg-surface-1 px-1.5 text-2xs text-muted hover:text-ink-1"
+              className="rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-1.5 text-2xs text-[hsl(var(--app-muted))] hover:text-[hsl(var(--app-ink-1))]"
               aria-label="Retry save"
             >
               Retry
@@ -5002,7 +5002,7 @@ function OsmAttributionChip({
         <button
           type="button"
           onClick={onDismiss}
-          className="rounded-md border border-border bg-surface-1 px-1.5 text-2xs text-muted hover:text-ink-1"
+          className="rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-1.5 text-2xs text-[hsl(var(--app-muted))] hover:text-[hsl(var(--app-ink-1))]"
           aria-label="Dismiss OSM overlay"
         >
           ×
@@ -5792,7 +5792,7 @@ function EmbedWidgetRender({ widget }: { widget: CustomWidget }) {
   const { url, title, strict } = widget.config;
   if (!url) {
     return (
-      <div className="flex h-full w-full items-center justify-center bg-surface-2/40 text-xs text-muted">
+      <div className="flex h-full w-full items-center justify-center bg-[hsl(var(--app-surface-2)/0.4)] text-xs text-[hsl(var(--app-muted))]">
         No URL set
       </div>
     );
@@ -5861,13 +5861,13 @@ function BookmarkWidgetRender({ widget }: { widget: CustomWidget }) {
   return (
     <WidgetFrame icon={BookmarkIcon} title="Bookmarks">
       {!mapWidgetId ? (
-        <p className="p-3 text-xs text-muted">Bind a map widget.</p>
+        <p className="p-3 text-xs text-[hsl(var(--app-muted))]">Bind a map widget.</p>
       ) : all.length === 0 && !ctx?.maps[mapWidgetId] ? (
-        <p className="p-3 text-xs text-muted">No bookmarks. Map not ready.</p>
+        <p className="p-3 text-xs text-[hsl(var(--app-muted))]">No bookmarks. Map not ready.</p>
       ) : (
         <ul className="flex-1 space-y-1 overflow-auto p-2">
           {all.length === 0 ? (
-            <li className="px-2 py-1 text-xs text-muted">
+            <li className="px-2 py-1 text-xs text-[hsl(var(--app-muted))]">
               No bookmarks yet. Capture the current view with the + button.
             </li>
           ) : (
@@ -5876,14 +5876,14 @@ function BookmarkWidgetRender({ widget }: { widget: CustomWidget }) {
                 <button
                   type="button"
                   onClick={() => flyToBookmark(b)}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-ink-1 transition-colors hover:bg-surface-2"
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[hsl(var(--app-ink-1))] transition-colors hover:bg-[hsl(var(--app-surface-2))]"
                 >
                   <BookmarkIcon
-                    className="h-3.5 w-3.5 text-muted"
+                    className="h-3.5 w-3.5 text-[hsl(var(--app-muted))]"
                     strokeWidth={1.75}
                   />
                   <span className="truncate">{b.name}</span>
-                  <span className="ml-auto font-mono text-2xs text-muted">
+                  <span className="ml-auto font-mono text-2xs text-[hsl(var(--app-muted))]">
                     z{b.zoom.toFixed(1)}
                   </span>
                 </button>
@@ -5893,11 +5893,11 @@ function BookmarkWidgetRender({ widget }: { widget: CustomWidget }) {
         </ul>
       )}
       {ctx?.maps[mapWidgetId] && (
-        <div className="border-t border-border px-2 py-1.5">
+        <div className="border-t border-[hsl(var(--app-border))] px-2 py-1.5">
           <button
             type="button"
             onClick={captureCurrent}
-            className="inline-flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-border px-2 py-1 text-xs text-muted hover:border-accent/40 hover:text-ink-1"
+            className="inline-flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-[hsl(var(--app-border))] px-2 py-1 text-xs text-[hsl(var(--app-muted))] hover:border-[hsl(var(--app-accent)/0.4)] hover:text-[hsl(var(--app-ink-1))]"
             title="Capture the bound map's current viewport"
           >
             + Add current view
@@ -5962,9 +5962,9 @@ function CoordinatesWidgetRender({ widget }: { widget: CustomWidget }) {
   return (
     <WidgetFrame icon={CrosshairIcon} title="Coordinates">
       <div className="flex flex-1 items-center gap-2 px-3 py-2 font-mono text-xs">
-        <span className="flex-1 truncate text-ink-1">{display}</span>
+        <span className="flex-1 truncate text-[hsl(var(--app-ink-1))]">{display}</span>
         {showZoom && zoom !== null && (
-          <span className="rounded-md border border-border bg-surface-2 px-1.5 py-0.5 text-2xs text-muted">
+          <span className="rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-2))] px-1.5 py-0.5 text-2xs text-[hsl(var(--app-muted))]">
             z {zoom.toFixed(2)}
           </span>
         )}
@@ -6098,7 +6098,7 @@ function MyLocationWidgetRender({ widget }: { widget: CustomWidget }) {
           type="button"
           onClick={locate}
           disabled={busy || !map}
-          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-[hsl(var(--app-accent))] px-3 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {busy ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -6108,9 +6108,9 @@ function MyLocationWidgetRender({ widget }: { widget: CustomWidget }) {
           {busy ? 'Locating...' : 'Show my location'}
         </button>
         {error ? (
-          <p className="text-xs text-danger">{error}</p>
+          <p className="text-xs text-[hsl(var(--app-danger))]">{error}</p>
         ) : !map ? (
-          <p className="text-xs text-muted">Bind a map widget to enable.</p>
+          <p className="text-xs text-[hsl(var(--app-muted))]">Bind a map widget to enable.</p>
         ) : null}
       </div>
     </WidgetFrame>
@@ -6129,7 +6129,7 @@ function TabsWidgetRender({ widget }: { widget: CustomWidget }) {
     <div className="flex h-full w-full flex-col overflow-hidden">
       {tabs.length > 0 && (
         <nav
-          className="flex shrink-0 items-end gap-0 overflow-x-auto border-b border-border bg-surface-1 px-2"
+          className="flex shrink-0 items-end gap-0 overflow-x-auto border-b border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-2"
           aria-label="Tabs"
         >
           {tabs.map((t, i) => {
@@ -6142,15 +6142,15 @@ function TabsWidgetRender({ widget }: { widget: CustomWidget }) {
                 aria-current={isActive ? 'true' : undefined}
                 className={`relative px-3 py-2 text-sm font-medium transition-colors ${
                   isActive
-                    ? 'text-ink-0'
-                    : 'text-muted hover:text-ink-1'
+                    ? 'text-[hsl(var(--app-ink-0))]'
+                    : 'text-[hsl(var(--app-muted))] hover:text-[hsl(var(--app-ink-1))]'
                 }`}
               >
                 {t.title}
                 {isActive && (
                   <span
                     aria-hidden
-                    className="pointer-events-none absolute -bottom-px left-2 right-2 h-0.5 rounded-full bg-ink-0"
+                    className="pointer-events-none absolute -bottom-px left-2 right-2 h-0.5 rounded-full bg-[hsl(var(--app-ink-0))]"
                   />
                 )}
               </button>
@@ -6160,7 +6160,7 @@ function TabsWidgetRender({ widget }: { widget: CustomWidget }) {
       )}
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-2">
         {active && active.widgets.length === 0 ? (
-          <div className="flex flex-1 items-center justify-center text-xs text-muted">
+          <div className="flex flex-1 items-center justify-center text-xs text-[hsl(var(--app-muted))]">
             (Empty tab)
           </div>
         ) : (
@@ -6168,7 +6168,7 @@ function TabsWidgetRender({ widget }: { widget: CustomWidget }) {
           active.widgets.map((c) => (
             <div
               key={c.id}
-              className="overflow-hidden rounded-md border border-border bg-surface-1"
+              className="overflow-hidden rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))]"
               style={{
                 // Min-height proportional to the widget's intended
                 // row span so a Map keeps real estate while a
@@ -6577,7 +6577,7 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
 
   if (!mut || targets.length === 0) {
     return (
-      <p className="p-3 text-xs italic text-muted">
+      <p className="p-3 text-xs italic text-[hsl(var(--app-muted))]">
         {cfg.mapWidgetId
           ? 'No editable target layers in the bound map.'
           : 'Bind this widget to a Map widget.'}
@@ -6603,7 +6603,7 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
           }
           setBusy({ state: 'idle' });
         }}
-        className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-2 py-1 text-xs font-medium text-ink-0 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
+        className="inline-flex items-center gap-1 rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-2 py-1 text-xs font-medium text-[hsl(var(--app-ink-0))] hover:bg-[hsl(var(--app-surface-2))] disabled:cursor-not-allowed disabled:opacity-50"
         title={
           inTimeTravel
             ? 'Editing is disabled while viewing a past snapshot. Reset the time slider to enable.'
@@ -6614,8 +6614,8 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
         {cfg.label || 'Add feature'}
       </button>
       {phase.kind === 'picking' ? (
-        <div className="flex-1 overflow-auto rounded-md border border-border bg-surface-0">
-          <p className="border-b border-border bg-surface-1 px-3 py-1.5 text-2xs font-semibold uppercase tracking-wide text-muted">
+        <div className="flex-1 overflow-auto rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0))]">
+          <p className="border-b border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-3 py-1.5 text-2xs font-semibold uppercase tracking-wide text-[hsl(var(--app-muted))]">
             Pick a layer to add to
           </p>
           <ul>
@@ -6626,38 +6626,38 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
                   onClick={() =>
                     setPhase({ kind: 'placing', target: t, point: null })
                   }
-                  className="flex w-full items-center gap-3 px-3 py-2 text-left text-xs hover:bg-surface-1"
+                  className="flex w-full items-center gap-3 px-3 py-2 text-left text-xs hover:bg-[hsl(var(--app-surface-1))]"
                 >
                   <span
                     aria-hidden="true"
-                    className="h-4 w-4 shrink-0 rounded-sm border border-border"
+                    className="h-4 w-4 shrink-0 rounded-sm border border-[hsl(var(--app-border))]"
                     style={{ backgroundColor: colorFromRenderer(t.mapLayer) }}
                   />
-                  <span className="min-w-0 flex-1 truncate text-ink-0">
+                  <span className="min-w-0 flex-1 truncate text-[hsl(var(--app-ink-0))]">
                     {t.title}
                   </span>
                 </button>
               </li>
             ))}
           </ul>
-          <div className="border-t border-border bg-surface-1 px-3 py-1.5">
+          <div className="border-t border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-3 py-1.5">
             <button
               type="button"
               onClick={() => setPhase({ kind: 'closed' })}
-              className="text-2xs text-muted hover:text-ink-0"
+              className="text-2xs text-[hsl(var(--app-muted))] hover:text-[hsl(var(--app-ink-0))]"
             >
               Cancel
             </button>
           </div>
         </div>
       ) : phase.kind === 'placing' ? (
-        <div className="flex-1 overflow-auto rounded-md border border-border bg-surface-0">
+        <div className="flex-1 overflow-auto rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0))]">
           {schema.loading ? (
-            <p className="p-3 text-xs italic text-muted">Loading schema…</p>
+            <p className="p-3 text-xs italic text-[hsl(var(--app-muted))]">Loading schema…</p>
           ) : schema.error ? (
-            <p className="p-3 text-xs text-danger">{schema.error}</p>
+            <p className="p-3 text-xs text-[hsl(var(--app-danger))]">{schema.error}</p>
           ) : needsGeometry && !phase.point ? (
-            <div className="space-y-2 p-3 text-xs text-ink-1">
+            <div className="space-y-2 p-3 text-xs text-[hsl(var(--app-ink-1))]">
               <p>
                 Adding to <strong>{phase.target.title}</strong>.
               </p>
@@ -6666,7 +6666,7 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
                 new {schema.geometryType?.toLowerCase()}.
               </p>
               {!isPointLayer ? (
-                <p className="text-muted">
+                <p className="text-[hsl(var(--app-muted))]">
                   (Note: only single-point placement is supported in
                   this first cut; multi-vertex sketching for lines /
                   polygons is queued as a follow-up.)
@@ -6682,7 +6682,7 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
                         : { kind: 'picking' },
                     )
                   }
-                  className="rounded-md border border-border bg-surface-1 px-2 py-1 text-xs hover:bg-surface-2"
+                  className="rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-2 py-1 text-xs hover:bg-[hsl(var(--app-surface-2))]"
                 >
                   Cancel
                 </button>
@@ -6847,7 +6847,7 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
 
   if (!mut || mut.targets.length === 0) {
     return (
-      <p className="p-3 text-xs italic text-muted">
+      <p className="p-3 text-xs italic text-[hsl(var(--app-muted))]">
         {cfg.mapWidgetId
           ? 'No editable target layers in the bound map.'
           : 'Bind this widget to a Map widget.'}
@@ -6863,8 +6863,8 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
         onClick={() => setActive((a) => !a)}
         className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50 ${
           active
-            ? 'border-accent bg-accent text-white hover:bg-accent/90'
-            : 'border-border bg-surface-1 text-ink-0 hover:bg-surface-2'
+            ? 'border-[hsl(var(--app-accent))] bg-[hsl(var(--app-accent))] text-white hover:bg-[hsl(var(--app-accent)/0.9)]'
+            : 'border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] text-[hsl(var(--app-ink-0))] hover:bg-[hsl(var(--app-surface-2))]'
         }`}
         title={
           inTimeTravel
@@ -6879,16 +6879,16 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
         {active ? <span className="text-2xs">(active)</span> : null}
       </button>
       {active && !editing ? (
-        <p className="rounded-md border border-accent/50 bg-accent/10 p-2 text-2xs text-ink-1">
+        <p className="rounded-md border border-[hsl(var(--app-accent)/0.5)] bg-[hsl(var(--app-accent)/0.1)] p-2 text-2xs text-[hsl(var(--app-ink-1))]">
           Click any editable feature on the map.
         </p>
       ) : null}
       {editing ? (
-        <div className="flex-1 overflow-auto rounded-md border border-border bg-surface-0">
+        <div className="flex-1 overflow-auto rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0))]">
           {schema.loading ? (
-            <p className="p-3 text-xs italic text-muted">Loading schema…</p>
+            <p className="p-3 text-xs italic text-[hsl(var(--app-muted))]">Loading schema…</p>
           ) : schema.error ? (
-            <p className="p-3 text-xs text-danger">{schema.error}</p>
+            <p className="p-3 text-xs text-[hsl(var(--app-danger))]">{schema.error}</p>
           ) : (
             <AttributeForm
               fields={schema.fields}
@@ -6991,7 +6991,7 @@ function DeleteFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
 
   if (!mut || mut.targets.length === 0) {
     return (
-      <p className="p-3 text-xs italic text-muted">
+      <p className="p-3 text-xs italic text-[hsl(var(--app-muted))]">
         {cfg.mapWidgetId
           ? 'No editable target layers in the bound map.'
           : 'Bind this widget to a Map widget.'}
@@ -7005,7 +7005,7 @@ function DeleteFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
         type="button"
         disabled={inTimeTravel || totalSelected === 0}
         onClick={() => setConfirming(true)}
-        className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-2 py-1 text-xs font-medium text-ink-0 hover:bg-danger/10 hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
+        className="inline-flex items-center gap-1 rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-2 py-1 text-xs font-medium text-[hsl(var(--app-ink-0))] hover:bg-[hsl(var(--app-danger)/0.1)] hover:text-[hsl(var(--app-danger))] disabled:cursor-not-allowed disabled:opacity-50"
         title={
           inTimeTravel
             ? 'Editing is disabled while viewing a past snapshot.'
@@ -7017,11 +7017,11 @@ function DeleteFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
         <Trash2 className="h-3.5 w-3.5" />
         {cfg.label || 'Delete feature'}
         {totalSelected > 0 ? (
-          <span className="text-muted">({totalSelected})</span>
+          <span className="text-[hsl(var(--app-muted))]">({totalSelected})</span>
         ) : null}
       </button>
       {confirming ? (
-        <div className="space-y-2 rounded-md border border-danger/40 bg-danger/10 p-3 text-xs text-danger">
+        <div className="space-y-2 rounded-md border border-[hsl(var(--app-danger)/0.4)] bg-[hsl(var(--app-danger)/0.1)] p-3 text-xs text-[hsl(var(--app-danger))]">
           <p>
             Delete <strong>{totalSelected}</strong> feature
             {totalSelected === 1 ? '' : 's'}?
@@ -7033,19 +7033,19 @@ function DeleteFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
               </li>
             ))}
           </ul>
-          <p className="text-2xs text-danger">
+          <p className="text-2xs text-[hsl(var(--app-danger))]">
             This is recorded as a delete observation; read the layer
             "as of" a moment before this action to recover.
           </p>
           {busy.state === 'error' ? (
-            <p className="text-danger">{busy.message}</p>
+            <p className="text-[hsl(var(--app-danger))]">{busy.message}</p>
           ) : null}
           <div className="flex gap-2">
             <button
               type="button"
               disabled={busy.state === 'submitting'}
               onClick={doDelete}
-              className="rounded-md bg-danger px-3 py-1 text-xs font-medium text-white hover:bg-danger/80 disabled:opacity-50"
+              className="rounded-md bg-[hsl(var(--app-danger))] px-3 py-1 text-xs font-medium text-white hover:bg-[hsl(var(--app-danger)/0.8)] disabled:opacity-50"
             >
               {busy.state === 'submitting' ? 'Deleting…' : 'Delete'}
             </button>
@@ -7056,7 +7056,7 @@ function DeleteFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
                 setConfirming(false);
                 setBusy({ state: 'idle' });
               }}
-              className="rounded-md border border-danger/40 bg-white px-3 py-1 text-xs text-danger hover:bg-danger/15 disabled:opacity-50"
+              className="rounded-md border border-[hsl(var(--app-danger)/0.4)] bg-[hsl(var(--app-surface-1))] px-3 py-1 text-xs text-[hsl(var(--app-danger))] hover:bg-[hsl(var(--app-danger)/0.15)] disabled:opacity-50"
             >
               Cancel
             </button>
@@ -7237,9 +7237,9 @@ function TimeSliderWidgetRender({ widget }: { widget: CustomWidget }) {
   }, [playing, speed, sliderMax, mode, endBehavior, sliderValue]);
 
   return (
-    <div className="flex h-full w-full items-center gap-3 rounded-md border border-border bg-surface-1 px-3 py-2 text-xs">
-      <Clock className="h-4 w-4 shrink-0 text-muted" />
-      <span className="shrink-0 font-medium text-ink-1">{label}:</span>
+    <div className="flex h-full w-full items-center gap-3 rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-3 py-2 text-xs">
+      <Clock className="h-4 w-4 shrink-0 text-[hsl(var(--app-muted))]" />
+      <span className="shrink-0 font-medium text-[hsl(var(--app-ink-1))]">{label}:</span>
       {mode === 'calendar' ? (
         <>
           <input
@@ -7248,18 +7248,18 @@ function TimeSliderWidgetRender({ widget }: { widget: CustomWidget }) {
             min={minDate}
             max={maxDate}
             onChange={(e) => publish(e.target.value)}
-            className="h-7 rounded-md border border-border bg-surface-0 px-2 text-xs text-ink-0 focus:border-accent focus:outline-none"
+            className="h-7 rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0))] px-2 text-xs text-[hsl(var(--app-ink-0))] focus:border-[hsl(var(--app-accent))] focus:outline-none"
           />
           {at ? (
             <button
               type="button"
               onClick={() => setAt(null)}
-              className="text-accent hover:underline"
+              className="text-[hsl(var(--app-accent))] hover:underline"
             >
               Now
             </button>
           ) : (
-            <span className="text-muted">(showing current)</span>
+            <span className="text-[hsl(var(--app-muted))]">(showing current)</span>
           )}
         </>
       ) : (
@@ -7268,7 +7268,7 @@ function TimeSliderWidgetRender({ widget }: { widget: CustomWidget }) {
             <button
               type="button"
               onClick={() => setPlaying((p) => !p)}
-              className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-surface-0 text-ink-1 hover:bg-surface-2"
+              className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0))] text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
               aria-label={playing ? 'Pause' : 'Play'}
               title={playing ? 'Pause' : 'Play'}
             >
@@ -7289,7 +7289,7 @@ function TimeSliderWidgetRender({ widget }: { widget: CustomWidget }) {
               )}
             </button>
           ) : null}
-          <span className="shrink-0 tabular-nums text-muted">{minDate}</span>
+          <span className="shrink-0 tabular-nums text-[hsl(var(--app-muted))]">{minDate}</span>
           <input
             type="range"
             value={sliderValue}
@@ -7300,15 +7300,15 @@ function TimeSliderWidgetRender({ widget }: { widget: CustomWidget }) {
             className="flex-1 accent-accent"
             aria-label={label}
           />
-          <span className="shrink-0 tabular-nums text-muted">{maxDate}</span>
-          <span className="shrink-0 min-w-[5.5rem] text-right font-medium tabular-nums text-ink-0">
+          <span className="shrink-0 tabular-nums text-[hsl(var(--app-muted))]">{maxDate}</span>
+          <span className="shrink-0 min-w-[5.5rem] text-right font-medium tabular-nums text-[hsl(var(--app-ink-0))]">
             {at ? currentDateStr : 'Now'}
           </span>
           {playableCfg && speedOptions.length > 1 ? (
             <select
               value={speed}
               onChange={(e) => setSpeed(Number(e.target.value))}
-              className="shrink-0 h-6 rounded-md border border-border bg-surface-0 px-1 text-xs text-ink-1 focus:border-accent focus:outline-none"
+              className="shrink-0 h-6 rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0))] px-1 text-xs text-[hsl(var(--app-ink-1))] focus:border-[hsl(var(--app-accent))] focus:outline-none"
               aria-label="Playback speed"
               title="Playback speed"
             >
@@ -7323,7 +7323,7 @@ function TimeSliderWidgetRender({ widget }: { widget: CustomWidget }) {
             <button
               type="button"
               onClick={() => setAt(null)}
-              className="shrink-0 text-accent hover:underline"
+              className="shrink-0 text-[hsl(var(--app-accent))] hover:underline"
             >
               Reset
             </button>
@@ -7374,9 +7374,9 @@ function WidgetFrame({
   return (
     <>
       {!suppressHeader && (
-        <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2 text-xs">
-          <Icon className="h-3.5 w-3.5 text-muted" strokeWidth={1.75} />
-          <span className="font-medium text-ink-0">{title}</span>
+        <header className="flex shrink-0 items-center gap-2 border-b border-[hsl(var(--app-border))] px-3 py-2 text-xs">
+          <Icon className="h-3.5 w-3.5 text-[hsl(var(--app-muted))]" strokeWidth={1.75} />
+          <span className="font-medium text-[hsl(var(--app-ink-0))]">{title}</span>
         </header>
       )}
       <div className="flex min-h-0 flex-1 flex-col overflow-auto">
