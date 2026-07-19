@@ -385,7 +385,19 @@ export function AnalyzeQueryBuilder({
           <span className={sectionLabel}>Group by</span>
           <select
             value={groupByField}
-            onChange={(e) => setGroupByField(e.target.value)}
+            onChange={(e) => {
+              const next = e.target.value;
+              setGroupByField(next);
+              // Sorting by count only exists for grouped queries;
+              // clearing the grouping while it is selected would
+              // otherwise generate ORDER BY a column that no longer
+              // exists (found live: Binder Error on "features").
+              if (!next && orderField === '__count__') setOrderField('');
+              if (!next) {
+                setAggFn('none');
+                setAggField('');
+              }
+            }}
             className={selectClass}
           >
             <option value="">(no grouping)</option>
@@ -605,11 +617,16 @@ function buildSql(args: {
     lines.push('GROUP BY 1');
   }
 
-  if (args.orderField) {
+  // Belt to the state reset above: a count sort is only valid on a
+  // grouped query, so an inconsistent state can never emit ORDER BY
+  // over a column that does not exist.
+  const orderField =
+    args.orderField === '__count__' && !args.groupByField
+      ? ''
+      : args.orderField;
+  if (orderField) {
     const col =
-      args.orderField === '__count__'
-        ? 'features'
-        : quoteIdent(args.orderField);
+      orderField === '__count__' ? 'features' : quoteIdent(orderField);
     lines.push(`ORDER BY ${col} ${args.orderDir.toUpperCase()}`);
   }
 
