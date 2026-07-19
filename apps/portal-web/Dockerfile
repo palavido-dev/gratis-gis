@@ -79,10 +79,19 @@ ENV NEXT_PUBLIC_PUBLIC_TESTING=$NEXT_PUBLIC_PUBLIC_TESTING
 # download rather than baking a broken file.
 ARG DUCKDB_WASM_CORE_VERSION=v1.4.3
 ARG DUCKDB_WASM_PLATFORM=wasm_eh
+# spatial is what the Analyze panel asks for explicitly; parquet /
+# json / icu are extensions the WASM build ships DYNAMICALLY (they
+# are statically linked in native DuckDB but autoloaded on demand in
+# wasm; read_parquet proved it live by 404ing against a spatial-only
+# mirror). With the repository pointed at our origin, every autoload
+# resolves here, so the mirror must carry the full plausible set.
 RUN mkdir -p "apps/portal-web/public/duckdb-ext/${DUCKDB_WASM_CORE_VERSION}/${DUCKDB_WASM_PLATFORM}" \
-    && curl -fsSL --retry 3 \
-      -o "apps/portal-web/public/duckdb-ext/${DUCKDB_WASM_CORE_VERSION}/${DUCKDB_WASM_PLATFORM}/spatial.duckdb_extension.wasm" \
-      "https://extensions.duckdb.org/${DUCKDB_WASM_CORE_VERSION}/${DUCKDB_WASM_PLATFORM}/spatial.duckdb_extension.wasm"
+    && for ext in spatial parquet json icu; do \
+      curl -fsSL --retry 3 \
+        -o "apps/portal-web/public/duckdb-ext/${DUCKDB_WASM_CORE_VERSION}/${DUCKDB_WASM_PLATFORM}/${ext}.duckdb_extension.wasm" \
+        "https://extensions.duckdb.org/${DUCKDB_WASM_CORE_VERSION}/${DUCKDB_WASM_PLATFORM}/${ext}.duckdb_extension.wasm" \
+      || exit 1; \
+    done
 
 RUN pnpm -C apps/portal-web build
 

@@ -39,15 +39,20 @@ export function isSpatialAvailable(): boolean {
 /**
  * Load the spatial extension, preferring the portal's own mirror.
  *
- * Air gap: the Dockerfile bakes the extension into
+ * Air gap: the Dockerfile bakes the extensions into
  * public/duckdb-ext/<core-version>/<platform>/, a byte-identical
  * mirror of the official repository layout, so production visitors
- * fetch it from OUR origin, never extensions.duckdb.org. Pointing
+ * fetch them from OUR origin, never extensions.duckdb.org. Pointing
  * custom_extension_repository at the origin path is enough; the
- * engine appends its own version/platform segments. On dev hosts the
- * baked file does not exist, so the second attempt falls back to the
- * official repository (dev machines have internet). If both fail
- * (offline dev), the panel runs attribute-only.
+ * engine appends its own version/platform segments. Note the mirror
+ * carries MORE than spatial: the wasm build ships parquet/json/icu
+ * as dynamically autoloaded extensions (they are static in native
+ * DuckDB), and once the repository points at us, every autoload
+ * resolves here, so a spatial-only mirror breaks read_parquet. On
+ * dev hosts the baked files do not exist, so the second attempt
+ * falls back to the official repository (dev machines have
+ * internet). If both fail (offline dev), the panel runs
+ * attribute-only.
  *
  * LOAD is engine-wide in DuckDB-WASM: once loaded here, spatial
  * functions are available to every later connection on the shared
