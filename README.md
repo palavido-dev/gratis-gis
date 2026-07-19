@@ -161,7 +161,7 @@ gratis-gis/
 ## Deploy for an Organization
 
 GratisGIS runs on a single host with Docker Compose. A small VPS
-(2 cores, 4 GB) comfortably serves a small organization; the public
+(4 cores, 8 GB) comfortably serves a small organization; the public
 demo runs on exactly that.
 
 One command on a server that already has Docker (with the compose

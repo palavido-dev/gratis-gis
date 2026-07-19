@@ -6,10 +6,11 @@ is the tested path, not aspiration.
 
 ## Requirements
 
-- A Linux server you can SSH into. 2 CPU cores and 4 GB RAM work for a
-  small organization (the demo runs on that); 4 cores and 8 GB give
-  comfortable headroom and unlock the heavier analysis tiers. 20 GB or
-  more of free disk.
+- A Linux server you can SSH into. The public demo runs on 4 CPU cores
+  and 8 GB RAM, which is a comfortable baseline for a small
+  organization and enough for the heavier analysis tiers; 2 cores and
+  4 GB can boot the stack for evaluation but leave little headroom.
+  20 GB or more of free disk.
 - Docker Engine with the compose v2 plugin, plus git, curl, and
   openssl. The installer checks and tells you what is missing; it does
   not install Docker for you.
