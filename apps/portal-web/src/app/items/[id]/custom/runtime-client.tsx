@@ -589,6 +589,10 @@ export function CustomRuntimeClient({
           list) handle their own internal scrolling. */}
       <div
         ref={themeRootRef}
+        // font-family from the theme's --app-font token (falls back to
+        // the portal sans for theme items saved before the token
+        // existed) so each app carries its theme's typographic voice.
+        style={{ fontFamily: 'var(--app-font, var(--font-sans))' }}
         className="flex h-screen flex-col overflow-hidden bg-[hsl(var(--app-surface-0))] text-[hsl(var(--app-ink-0))]"
       >
         {appAt ? (

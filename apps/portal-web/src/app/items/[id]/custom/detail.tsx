@@ -2499,6 +2499,8 @@ function Canvas({
       // past the BuilderShell main slot and breaking the inner
       // overflow-auto scroll. User-reported: "can't get to the bottom
       // of the canvas, no way to scroll if it goes off screen."
+      // Theme font applied so the designer preview matches the runtime.
+      style={{ fontFamily: 'var(--app-font, var(--font-sans))' }}
       className="relative flex h-full w-full overflow-hidden rounded-lg border border-border bg-[hsl(var(--app-surface-0))]"
     >
       <div

@@ -103,8 +103,37 @@ export interface AppThemeTokens {
     '--app-shadow-overlay': string;
     /** Spacing density. Multiplier on Tailwind spacing units. */
     '--app-density': string;
+    /**
+     * App font stack. Lets a theme carry a typographic voice instead
+     * of every app inheriting one face. Applied at the app root as
+     * `font-family: var(--app-font)`. Values may reference the
+     * portal's own font var (e.g. `var(--font-sans)`) so an app on
+     * the default theme matches the portal exactly.
+     */
+    '--app-font': string;
   };
 }
+
+/**
+ * Portal-matching sans stack. Resolves to Inter (loaded by the root
+ * layout as --font-sans) with system fallbacks, so an app on the
+ * default theme uses the same face as the portal chrome around it.
+ */
+const PORTAL_SANS =
+  "var(--font-sans), 'Inter', ui-sans-serif, system-ui, sans-serif";
+
+/**
+ * Contour-tuned status colors, shared across the light themes so an
+ * app's success/warn/danger/info never drifts into the saturated
+ * framework-default look. Mirrors globals.css. The dark Slate theme
+ * uses lifted variants (see its entry).
+ */
+const CONTOUR_STATUS_LIGHT = {
+  '--app-success': '142 60% 30%',
+  '--app-warn': '33 85% 47%',
+  '--app-danger': '0 68% 49%',
+  '--app-info': '205 75% 42%',
+} as const;
 
 /**
  * Registry of built-in theme presets. Add a new preset by adding
@@ -117,33 +146,37 @@ export interface AppThemeTokens {
 export const APP_THEMES: Record<AppThemePresetId, AppThemeTokens> = {
   default: {
     label: 'Default',
-    description: 'Portal-matching neutral palette with the system accent.',
-    swatch: 'hsl(210 40% 96%)',
+    description: 'Warm paper and deep sage. Matches the portal.',
+    swatch: 'hsl(124 12% 24%)',
     tokens: {
-      '--app-surface-0': '210 25% 96%',
-      '--app-surface-1': '0 0% 100%',
-      '--app-surface-2': '210 25% 92%',
-      '--app-ink-0': '222 47% 11%',
-      '--app-ink-1': '222 47% 11%',
-      '--app-muted': '215 20% 45%',
-      '--app-border': '214 25% 86%',
-      '--app-accent': '221 83% 53%',
+      // Contour: warm-paper surface ladder, deep-sage accent, and a
+      // dark forest-sage header band that reads as branded chrome.
+      // Mirrors globals.css so an app looks like it belongs to the
+      // portal shell around it.
+      '--app-surface-0': '45 30% 96%',
+      '--app-surface-1': '45 34% 99%',
+      '--app-surface-2': '45 22% 93%',
+      '--app-ink-0': '40 12% 13%',
+      '--app-ink-1': '40 12% 22%',
+      '--app-muted': '40 7% 44%',
+      '--app-border': '43 18% 87%',
+      '--app-accent': '124 8% 38%',
       '--app-accent-ink': '0 0% 100%',
-      '--app-accent-hover': '221 83% 47%',
-      '--app-header-bg': '221 83% 53%',
-      '--app-header-ink': '0 0% 100%',
-      '--app-header-muted': '210 50% 88%',
-      '--app-header-border': '221 83% 40%',
-      '--app-success': '142 72% 29%',
-      '--app-warn': '35 92% 50%',
-      '--app-danger': '0 72% 51%',
-      '--app-info': '199 89% 48%',
+      '--app-accent-hover': '124 8% 31%',
+      '--app-header-bg': '124 13% 19%',
+      '--app-header-ink': '45 42% 96%',
+      '--app-header-muted': '115 12% 74%',
+      '--app-header-border': '124 12% 14%',
+      ...CONTOUR_STATUS_LIGHT,
       '--app-radius': '0.5rem',
+      // Warm-tinted shadow (brown, not neutral gray) so elevation
+      // reads on the paper surfaces without a cold cast.
       '--app-shadow-card':
-        '0 1px 2px rgba(15, 15, 16, 0.06), 0 1px 1px rgba(15, 15, 16, 0.04)',
+        '0 1px 2px rgba(60, 48, 28, 0.06), 0 1px 1px rgba(60, 48, 28, 0.04)',
       '--app-shadow-overlay':
-        '0 10px 40px -10px rgba(15, 15, 16, 0.25), 0 2px 8px -2px rgba(15, 15, 16, 0.08)',
+        '0 10px 40px -10px rgba(55, 44, 26, 0.22), 0 2px 8px -2px rgba(55, 44, 26, 0.10)',
       '--app-density': '1',
+      '--app-font': PORTAL_SANS,
     },
   },
   slate: {
@@ -165,16 +198,17 @@ export const APP_THEMES: Record<AppThemePresetId, AppThemeTokens> = {
       '--app-header-ink': '213 31% 95%',
       '--app-header-muted': '215 20% 65%',
       '--app-header-border': '239 84% 50%',
-      '--app-success': '142 64% 52%',
-      '--app-warn': '35 92% 58%',
-      '--app-danger': '0 74% 62%',
-      '--app-info': '199 89% 58%',
+      '--app-success': '142 45% 55%',
+      '--app-warn': '35 80% 58%',
+      '--app-danger': '0 65% 62%',
+      '--app-info': '205 70% 60%',
       '--app-radius': '0.5rem',
       '--app-shadow-card':
         '0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 1px rgba(0, 0, 0, 0.3)',
       '--app-shadow-overlay':
         '0 10px 40px -10px rgba(0, 0, 0, 0.55), 0 2px 8px -2px rgba(0, 0, 0, 0.35)',
       '--app-density': '1',
+      '--app-font': PORTAL_SANS,
     },
   },
   aurora: {
@@ -196,16 +230,14 @@ export const APP_THEMES: Record<AppThemePresetId, AppThemeTokens> = {
       '--app-header-ink': '180 30% 97%',
       '--app-header-muted': '180 25% 80%',
       '--app-header-border': '173 80% 20%',
-      '--app-success': '151 65% 32%',
-      '--app-warn': '35 92% 50%',
-      '--app-danger': '0 72% 51%',
-      '--app-info': '199 89% 48%',
+      ...CONTOUR_STATUS_LIGHT,
       '--app-radius': '0.75rem',
       '--app-shadow-card':
         '0 2px 4px rgba(15, 60, 60, 0.08), 0 1px 2px rgba(15, 60, 60, 0.06)',
       '--app-shadow-overlay':
         '0 16px 48px -12px rgba(15, 60, 60, 0.28), 0 4px 12px -4px rgba(15, 60, 60, 0.12)',
       '--app-density': '1.1',
+      '--app-font': PORTAL_SANS,
     },
   },
   forest: {
@@ -227,16 +259,14 @@ export const APP_THEMES: Record<AppThemePresetId, AppThemeTokens> = {
       '--app-header-ink': '45 55% 96%',
       '--app-header-muted': '100 14% 80%',
       '--app-header-border': '155 22% 26%',
-      '--app-success': '142 72% 29%',
-      '--app-warn': '35 92% 50%',
-      '--app-danger': '0 72% 51%',
-      '--app-info': '199 89% 48%',
+      ...CONTOUR_STATUS_LIGHT,
       '--app-radius': '0.375rem',
       '--app-shadow-card':
         '0 1px 2px rgba(60, 30, 0, 0.08), 0 1px 1px rgba(60, 30, 0, 0.05)',
       '--app-shadow-overlay':
         '0 10px 40px -10px rgba(60, 30, 0, 0.25), 0 2px 8px -2px rgba(60, 30, 0, 0.12)',
       '--app-density': '1',
+      '--app-font': PORTAL_SANS,
     },
   },
   paper: {
@@ -258,15 +288,13 @@ export const APP_THEMES: Record<AppThemePresetId, AppThemeTokens> = {
       '--app-header-ink': '0 0% 98%',
       '--app-header-muted': '0 0% 65%',
       '--app-header-border': '0 0% 0%',
-      '--app-success': '142 72% 29%',
-      '--app-warn': '35 92% 50%',
-      '--app-danger': '0 72% 51%',
-      '--app-info': '199 89% 48%',
+      ...CONTOUR_STATUS_LIGHT,
       '--app-radius': '0.25rem',
       '--app-shadow-card': 'none',
       '--app-shadow-overlay':
         '0 4px 16px -4px rgba(0, 0, 0, 0.18), 0 1px 4px -1px rgba(0, 0, 0, 0.1)',
       '--app-density': '0.95',
+      '--app-font': PORTAL_SANS,
     },
   },
 };
