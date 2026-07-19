@@ -49,6 +49,7 @@ export const en = {
     notifications: 'Notifications',
     fieldQueues: 'Field queues',
     migrations: 'Migrations',
+    gettingStarted: 'Getting started',
   },
   shell: {
     notificationsLabel: 'Notifications',

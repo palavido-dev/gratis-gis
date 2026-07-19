@@ -15,6 +15,7 @@ import {
   Map as MapIcon,
   Menu as MenuIcon,
   Paintbrush,
+  Rocket,
   Shield,
   Sparkles,
   Trash2,
@@ -249,6 +250,7 @@ function NavList({
           <p className="mt-4 px-2 text-2xs font-medium uppercase tracking-wide text-muted">
             {t('nav.admin')}
           </p>
+          <GettingStartedNavLink onNavigate={cb} />
           <NavLink
             href="/admin/users"
             icon={<Shield className="h-4 w-4" />}
@@ -306,6 +308,65 @@ function NavList({
         </>
       ) : null}
     </nav>
+  );
+}
+
+/**
+ * "Getting started" admin nav entry (#147 Phase 3). Only renders
+ * while the org still has open checklist items, with a count pill;
+ * once everything is done or dismissed the entry disappears (the
+ * page itself stays reachable by URL). Fetches its own status
+ * client-side after mount rather than widening the /users/me
+ * payload: the count costs a few queries that only admins should
+ * ever pay, and only once per full page load since the chrome
+ * survives client-side navigation. The getting-started page
+ * broadcasts `gg:onboarding-changed` after each mutation so the
+ * pill updates without a reload.
+ */
+function GettingStartedNavLink({
+  onNavigate,
+}: {
+  onNavigate: (() => void) | undefined;
+}) {
+  const t = useT();
+  const [openCount, setOpenCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const res = await fetch('/api/portal/admin/onboarding');
+        if (!res.ok) return;
+        const body = (await res.json()) as { openCount: number };
+        if (!cancelled) setOpenCount(body.openCount);
+      } catch {
+        /* leave hidden; the nav must never break on a fetch error */
+      }
+    }
+    void load();
+    window.addEventListener('gg:onboarding-changed', load);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('gg:onboarding-changed', load);
+    };
+  }, []);
+
+  if (openCount === null || openCount === 0) return null;
+
+  return (
+    <Link
+      href="/admin/getting-started"
+      {...(onNavigate ? { onClick: onNavigate } : {})}
+      className="flex items-center gap-2 rounded-md px-2 py-2 text-ink-1 transition-colors hover:bg-surface-2"
+    >
+      <span className="text-muted">
+        <Rocket className="h-4 w-4" />
+      </span>
+      {t('nav.gettingStarted')}
+      <span className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-accent/15 px-1.5 text-2xs font-medium text-accent">
+        {openCount}
+      </span>
+    </Link>
   );
 }
 

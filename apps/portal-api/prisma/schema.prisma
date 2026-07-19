@@ -219,6 +219,14 @@ model Organization {
   /// Overpass without rebuilding the image.
   osmOverpassEndpoint String? @map("osm_overpass_endpoint")
 
+  /// #147 Phase 3: admin getting-started checklist state. Most
+  /// checklist items derive done-ness from live system state (SMTP
+  /// configured, member count, seeded items), so this stores only
+  /// what cannot be derived: manual completions and per-item
+  /// "dismiss forever" choices. Shape:
+  /// { "completed": string[], "dismissed": string[] }.
+  onboarding Json @default("{}")
+
   users                 User[]
   groups                Group[]
   items                 Item[]

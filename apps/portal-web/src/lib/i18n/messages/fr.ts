@@ -44,6 +44,7 @@ export const fr: Partial<CatalogShape> = {
     notifications: 'Notifications',
     fieldQueues: 'Files de terrain',
     migrations: 'Migrations',
+    gettingStarted: 'Premiers pas',
   },
   shell: {
     notificationsLabel: 'Notifications',

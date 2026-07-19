@@ -46,6 +46,7 @@ export const es: Partial<CatalogShape> = {
     notifications: 'Notificaciones',
     fieldQueues: 'Colas de campo',
     migrations: 'Migraciones',
+    gettingStarted: 'Primeros pasos',
   },
   shell: {
     notificationsLabel: 'Notificaciones',

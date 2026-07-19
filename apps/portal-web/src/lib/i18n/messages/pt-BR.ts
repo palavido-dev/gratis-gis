@@ -42,6 +42,7 @@ export const ptBR: Partial<CatalogShape> = {
     notifications: 'Notificações',
     fieldQueues: 'Filas de campo',
     migrations: 'Migrações',
+    gettingStarted: 'Primeiros passos',
   },
   shell: {
     notificationsLabel: 'Notificações',
