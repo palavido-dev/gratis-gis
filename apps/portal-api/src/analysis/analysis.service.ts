@@ -134,6 +134,82 @@ export class AnalysisService {
     return { job, targetItemId: target.id };
   }
 
+  /**
+   * Bare-earth elevation layer for 3D terrain (#186). Same rails
+   * as hillshade; the worker outputs a web-tiled elevation COG and
+   * stamps the item 'ready' (no pyramid bake; PNG re-encoding
+   * would destroy the float elevation values).
+   */
+  async createElevationJob(
+    user: AuthUser,
+    sourceItemId: string,
+    params: { resolution: number },
+  ) {
+    this.assertServerTier();
+    if (!hasCapability(user, 'can_publish_items')) {
+      throw new ForbiddenException(
+        'Deriving layers requires the contributor or admin role.',
+      );
+    }
+    const source = await this.items.get(user, sourceItemId);
+    if (source.type !== 'point_cloud') {
+      throw new BadRequestException(
+        'Elevation layers run on point cloud items.',
+      );
+    }
+    const data: unknown = source.data;
+    if (!isPointCloudData(data) || !data.storageKey) {
+      throw new BadRequestException(
+        'This point cloud has no uploaded file yet.',
+      );
+    }
+    const resolution = Number(params.resolution);
+    if (!Number.isFinite(resolution) || resolution < 0.25 || resolution > 50) {
+      throw new BadRequestException(
+        'resolution must be between 0.25 and 50 meters',
+      );
+    }
+    if (data.bounds) {
+      const cellsX = (data.bounds[3] - data.bounds[0]) / resolution;
+      const cellsY = (data.bounds[4] - data.bounds[1]) / resolution;
+      if (cellsX * cellsY > MAX_RASTER_CELLS) {
+        throw new BadRequestException(
+          'That resolution would produce a raster larger than this server allows. Pick a coarser resolution.',
+        );
+      }
+    }
+
+    const target = await this.items.create(user, {
+      type: 'tile_layer',
+      title: `${source.title} elevation (${resolution}m)`,
+      description: `Ground elevation surface derived from "${source.title}" at ${resolution}m. Powers 3D terrain in maps.`,
+      tags: ['elevation', 'terrain', 'derived', 'analysis'],
+      data: {
+        version: 1,
+        format: 'cog',
+        kind: 'raster',
+        dem: true,
+        storageKey: '',
+        storageUrl: '',
+        fileName: '',
+        sizeBytes: 0,
+        uploadedAt: new Date(0).toISOString(),
+      } as Prisma.InputJsonValue,
+    });
+
+    const job = await this.prisma.analysisJob.create({
+      data: {
+        orgId: user.orgId,
+        userId: user.id,
+        kind: 'elevation',
+        params: { resolution },
+        sourceItemId,
+        targetItemId: target.id,
+      },
+    });
+    return { job, targetItemId: target.id };
+  }
+
   /** Jobs for one source item, newest first; drives the panel. */
   async listJobsForItem(user: AuthUser, sourceItemId: string) {
     // Read ACL on the source item gates the listing.

@@ -383,18 +383,15 @@ function HillshadeSection({ itemId }: { itemId: string }) {
     };
   }, [itemId, active]);
 
-  async function submit() {
+  async function submitTo(path: string, payload: Record<string, unknown>) {
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch(
-        `/api/portal/items/${itemId}/analysis/hillshade`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ mode, resolution: Number(resolution) }),
-        },
-      );
+      const res = await fetch(`/api/portal/items/${itemId}/analysis/${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
       const body = (await res.json()) as {
         message?: string;
         job?: AnalysisJobRow;
@@ -409,6 +406,10 @@ function HillshadeSection({ itemId }: { itemId: string }) {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function submit() {
+    return submitTo('hillshade', { mode, resolution: Number(resolution) });
   }
 
   return (
@@ -465,6 +466,29 @@ function HillshadeSection({ itemId }: { itemId: string }) {
             Run
           </button>
         </div>
+        <div className="border-t border-border pt-3">
+          <p className="text-xs leading-relaxed text-muted">
+            You can also save the ground surface itself as an elevation
+            layer. Maps can use it to show everything in 3D: the
+            basemap, imagery, and boundary lines all follow the real
+            hills and valleys.
+          </p>
+          <button
+            type="button"
+            onClick={() =>
+              void submitTo('elevation', { resolution: Number(resolution) })
+            }
+            disabled={submitting || active}
+            className="mt-2 inline-flex items-center gap-2 rounded-md border border-border bg-surface-0 px-3 py-1.5 text-xs font-medium text-ink-0 transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {submitting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Mountain className="h-3.5 w-3.5" />
+            )}
+            Create elevation layer (for 3D)
+          </button>
+        </div>
         {error ? (
           <div className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
             {error}
@@ -485,10 +509,11 @@ function HillshadeSection({ itemId }: { itemId: string }) {
                   <span className="text-danger">!</span>
                 )}
                 <span className="text-ink-1">
+                  {j.kind === 'elevation' ? 'Elevation: ' : 'Hillshade: '}
                   {j.state === 'queued'
-                    ? 'Waiting for the worker...'
+                    ? 'Waiting to start...'
                     : j.state === 'running'
-                      ? `Processing... ${j.progress}%`
+                      ? `Working... ${j.progress}%`
                       : j.state === 'done'
                         ? 'Done'
                         : (j.error ?? 'Failed')}

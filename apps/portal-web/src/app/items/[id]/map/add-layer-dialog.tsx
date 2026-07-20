@@ -666,6 +666,12 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
         );
         return;
       }
+      if ((data as { dem?: boolean }).dem) {
+        setError(
+          `${item.title} is an elevation layer. To use it, open the basemap menu in the toolbar and pick it under "3D terrain".`,
+        );
+        return;
+      }
       // Pin the format with a suffixed URL. The bare /file endpoint
       // flips from the source image to the tile pyramid when the
       // background build finishes, which would change the bytes

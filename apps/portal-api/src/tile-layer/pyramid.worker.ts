@@ -212,6 +212,14 @@ export class TileLayerPyramidWorker implements OnModuleInit {
         await this.downloadTo(data.cogStorageUrl!, cogPath);
       }
 
+      // #186: elevation (DEM) layers never get a PNG pyramid; the
+      // re-encode would destroy the float elevation values. Their
+      // web-tiled COG serves directly through /file.cog. Guard here
+      // so a stray retry-pyramid on a dem item is a no-op instead
+      // of a corruption.
+      if ((data as { dem?: boolean }).dem) {
+        return;
+      }
       // COG -> web-mercator MBTiles -> PMTiles. The previous
       // gdal2tiles + `pmtiles convert <dir>` sequence silently
       // stopped working when the pmtiles binary moved to

@@ -412,6 +412,16 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
             </p>
           </div>
           <div className="space-y-2 p-4 text-sm">
+            {data.processingState === 'ready' ? (
+              <div className="flex items-start gap-2 rounded-md border border-success/30 bg-success/10 px-3 py-2 text-xs text-ink-1">
+                <span className="font-medium text-success">Ready.</span>
+                <span className="text-success/80">
+                  {data.dem
+                    ? 'This elevation layer is ready. Pick it under the basemap button in a map to turn on 3D terrain.'
+                    : 'This layer is ready to use on maps.'}
+                </span>
+              </div>
+            ) : null}
             {data.processingState === 'cog-ready' ? (
               <div className="flex items-start gap-2 rounded-md border border-border bg-surface-2 px-3 py-2 text-xs text-ink-1">
                 <span className="font-medium">Waiting to start.</span>

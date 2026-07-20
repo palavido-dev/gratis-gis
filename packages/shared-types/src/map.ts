@@ -114,6 +114,21 @@ export interface MapData {
    */
   defaultExtentBoundaryId?: string;
   /**
+   * #186: 3D terrain. When set, the canvas registers a raster-dem
+   * source from the referenced elevation layer (a tile_layer with
+   * `dem: true`) and calls setTerrain, so every layer in the map
+   * (basemap, imagery overlays, features) drapes over the real
+   * ground surface. tileUrl is stamped at set time (cog:// URL,
+   * WITHOUT the #dem fragment; consumers append it) so runtimes
+   * never need an item fetch to render, same rule as layers.
+   */
+  terrain?: {
+    itemId: string;
+    tileUrl: string;
+    /** Vertical exaggeration, 1 = true scale. Default 1. */
+    exaggeration?: number;
+  };
+  /**
    * #79: optional reference to a geo_boundary item that scopes the
    * VIEW of every layer in this map to features intersecting the
    * polygon. Distinct from `defaultExtentBoundaryId` (which only

@@ -325,7 +325,154 @@ def do_hillshade(conn, s3, job) -> None:
         shutil.rmtree(work, ignore_errors=True)
 
 
-HANDLERS = {"hillshade": do_hillshade}
+def do_elevation(conn, s3, job) -> None:
+    """Bare-earth elevation surface for 3D terrain (#186).
+
+    COPC -> ground-only IDW grid (same streamable chain as the
+    hillshade DTM step) -> single-band COG on the GoogleMaps tiling
+    scheme in EPSG:3857, which is exactly what the browser's COG
+    protocol needs to drive MapLibre's raster-dem terrain directly.
+    No tile pyramid bake: the COG's internal overviews ARE the
+    pyramid, and PNG re-encoding would destroy the float elevation
+    values, so the item is stamped 'ready' and the pyramid worker
+    never claims it.
+    """
+    params = job["params"] or {}
+    resolution = float(params.get("resolution", 1.0))
+    if not (0.25 <= resolution <= 50):
+        raise RuntimeError("Resolution must be between 0.25 and 50 meters.")
+
+    source = item_data(conn, job["source_item_id"])
+    storage_key = source.get("storageKey")
+    if not storage_key:
+        raise RuntimeError("Source point cloud has no uploaded file.")
+    bounds = source.get("bounds")
+    if bounds:
+        cells_x = (float(bounds[3]) - float(bounds[0])) / resolution
+        cells_y = (float(bounds[4]) - float(bounds[1])) / resolution
+        if cells_x * cells_y > MAX_RASTER_CELLS:
+            raise RuntimeError(
+                "That resolution would produce a raster larger than this "
+                "server allows. Pick a coarser resolution."
+            )
+
+    work = SCRATCH / f"job-{job['id']}"
+    work.mkdir(parents=True, exist_ok=True)
+    try:
+        src = work / "source.copc.laz"
+        log(f"  downloading {storage_key}")
+        s3.download_file(BUCKET, storage_key, str(src))
+        set_progress(conn, job["id"], 15)
+
+        dem = work / "dem.tif"
+        stages: list[dict] = [
+            {"type": "readers.copc", "filename": str(src)},
+            {"type": "filters.range", "limits": "Classification[2:2]"},
+            {
+                "type": "writers.gdal",
+                "filename": str(dem),
+                "resolution": resolution,
+                "output_type": "idw",
+                "window_size": 3,
+                "gdaldriver": "GTiff",
+                "gdalopts": "COMPRESS=DEFLATE,TILED=YES,BIGTIFF=IF_SAFER",
+            },
+        ]
+        pipeline = work / "pipeline.json"
+        pipeline.write_text(json.dumps({"pipeline": stages}))
+        run(["pdal", "pipeline", str(pipeline)], work)
+        set_progress(conn, job["id"], 60)
+
+        # DEM COG recipe from the browser COG protocol's docs: the
+        # GoogleMapsCompatible tiling scheme forces EPSG:3857 output
+        # aligned to the web tile grid with 256px blocks, bilinear
+        # for the base resample, NEAREST for overviews (interpolating
+        # across the nodata edge would invent phantom elevations).
+        cog = work / "elevation.cog.tif"
+        run(
+            [
+                "gdalwarp",
+                str(dem),
+                str(cog),
+                "-of",
+                "COG",
+                "-co",
+                "BLOCKSIZE=256",
+                "-co",
+                "TILING_SCHEME=GoogleMapsCompatible",
+                "-co",
+                "COMPRESS=DEFLATE",
+                "-co",
+                "RESAMPLING=BILINEAR",
+                "-co",
+                "OVERVIEW_RESAMPLING=NEAREST",
+                "-co",
+                "ADD_ALPHA=NO",
+                "-dstnodata",
+                "NaN",
+            ],
+            work,
+        )
+        set_progress(conn, job["id"], 85)
+
+        key = f"item-tile-layer/{uuid.uuid4()}"
+        size = cog.stat().st_size
+        log(f"  uploading {size} bytes to {key}")
+        s3.upload_file(
+            str(cog),
+            BUCKET,
+            key,
+            ExtraArgs={"ContentType": "image/tiff"},
+        )
+        set_progress(conn, job["id"], 95)
+
+        bbox = wgs84_bbox(cog)
+        max_zoom = max(
+            0, min(19, math.ceil(math.log2(156543.03 / resolution)))
+        )
+        data = {
+            "version": 1,
+            "format": "cog",
+            "kind": "raster",
+            # Marks this layer as a ground-elevation surface usable
+            # as 3D terrain. Consumers append #dem to the tile URL.
+            "dem": True,
+            "storageKey": key,
+            "storageUrl": f"/api/portal/storage/private/{key}",
+            "fileName": f"elevation-{resolution:g}m.tif",
+            "sizeBytes": size,
+            "uploadedAt": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
+            "originalFormat": "cog",
+            "cogStorageKey": key,
+            "cogStorageUrl": f"/api/portal/storage/private/{key}",
+            "cogSizeBytes": size,
+            # 'ready' (not 'cog-ready') so the pyramid worker never
+            # claims it; the COG serves as-is through /file.cog.
+            "processingState": "ready",
+            "maxZoom": max_zoom,
+            "minZoom": 0,
+            "tileUrl": f"cog:///api/portal/tile-layer/{job['target_item_id']}/file.cog",
+        }
+        if bbox:
+            data["bbox"] = bbox
+            data["centerLng"] = (bbox[0] + bbox[2]) / 2
+            data["centerLat"] = (bbox[1] + bbox[3]) / 2
+            data["centerZoom"] = max(0, max_zoom - 3)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE item
+                SET data_json = %s, updated_at = now()
+                WHERE id = %s
+                """,
+                (json.dumps(data), job["target_item_id"]),
+            )
+        conn.commit()
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+HANDLERS = {"hillshade": do_hillshade, "elevation": do_elevation}
 
 
 def main() -> None:

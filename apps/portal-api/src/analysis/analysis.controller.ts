@@ -31,6 +31,15 @@ export class AnalysisController {
     return this.analysis.createHillshadeJob(user, itemId, body);
   }
 
+  @Post('items/:itemId/analysis/elevation')
+  createElevation(
+    @CurrentUser() user: AuthUser,
+    @Param('itemId') itemId: string,
+    @Body() body: { resolution: number },
+  ) {
+    return this.analysis.createElevationJob(user, itemId, body);
+  }
+
   @Get('items/:itemId/analysis/jobs')
   listJobs(@CurrentUser() user: AuthUser, @Param('itemId') itemId: string) {
     return this.analysis.listJobsForItem(user, itemId);

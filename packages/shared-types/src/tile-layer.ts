@@ -94,7 +94,10 @@ export type TileLayerProcessingState =
   | 'cog-ready'
   | 'tiling'
   | 'pmtiles-ready'
-  | 'tiling-failed';
+  | 'tiling-failed'
+  /** #186: terminal state for layers that serve their COG as-is
+   *  with no pyramid step (elevation/DEM layers). */
+  | 'ready';
 
 /** Raster vs vector tile content. Lifted from the PMTiles header
  *  at upload time; consumers read this to decide whether to
@@ -129,6 +132,14 @@ export interface TileLayerData {
   conversionMs?: number;
   /** Raster vs vector content. Lifted from the PMTiles header. */
   kind: TileLayerKind;
+  /**
+   * #186: this layer is a ground-elevation surface (single-band
+   * DEM COG on the web tile grid) usable as 3D terrain in maps.
+   * Set by the analysis worker's elevation job. DEM layers never
+   * get a tile pyramid (PNG re-encoding would destroy the float
+   * elevation values); the COG serves directly via /file.cog.
+   */
+  dem?: boolean;
   /** MinIO object key of the CURRENTLY-served file (matches
    *  `format`).  For COG-state items this points at the COG; once
    *  the pyramid job lands, storageKey is updated to point at the

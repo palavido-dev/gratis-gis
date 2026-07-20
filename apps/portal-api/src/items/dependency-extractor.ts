@@ -93,6 +93,15 @@ export function extractDependencies(
     if (typeof clipRef === 'string' && clipRef.length > 0) {
       itemIds.add(clipRef);
     }
+    // #186: 3D terrain references an elevation tile_layer.
+    const terrainRef = (data as { terrain?: { itemId?: unknown } }).terrain;
+    if (
+      terrainRef &&
+      typeof terrainRef.itemId === 'string' &&
+      terrainRef.itemId.length > 0
+    ) {
+      itemIds.add(terrainRef.itemId);
+    }
 
     const layers = Array.isArray((data as { layers?: unknown }).layers)
       ? ((data as { layers: unknown[] }).layers as Array<Record<string, unknown>>)

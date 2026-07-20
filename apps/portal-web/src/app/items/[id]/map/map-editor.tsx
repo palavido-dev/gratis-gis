@@ -714,6 +714,66 @@ export function MapEditor({
   }
 
   /**
+   * #186: 3D terrain. `null` turns terrain off (key dropped from
+   * MapData so the payload stays clean). The tileUrl is stamped at
+   * set time, same no-runtime-item-fetch rule as layers.
+   */
+  function setTerrainLayer(
+    choice: { itemId: string; tileUrl: string } | null,
+  ) {
+    setMap((m) => {
+      if (!choice) {
+        const next = { ...m };
+        delete next.terrain;
+        return next;
+      }
+      return {
+        ...m,
+        terrain: { itemId: choice.itemId, tileUrl: choice.tileUrl },
+      };
+    });
+    markDirty();
+  }
+
+  // Elevation layers available for 3D terrain (#186): tile_layer
+  // items flagged dem. Fetched lazily the first time the basemap
+  // menu opens; the list is tiny (analysis outputs), so the non-lite
+  // payload is fine and we need `data` for the dem flag + tileUrl.
+  const [demLayers, setDemLayers] = useState<
+    Array<{ id: string; title: string; tileUrl: string }> | null
+  >(null);
+  useEffect(() => {
+    if (!basemapMenuOpen || demLayers !== null) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/portal/items?type=tile_layer');
+        if (!res.ok || cancelled) return;
+        const items = (await res.json()) as Array<{
+          id: string;
+          title: string;
+          data?: { dem?: boolean; tileUrl?: string } | null;
+        }>;
+        if (cancelled) return;
+        setDemLayers(
+          items
+            .filter((i) => i.data?.dem && i.data?.tileUrl)
+            .map((i) => ({
+              id: i.id,
+              title: i.title,
+              tileUrl: i.data!.tileUrl!,
+            })),
+        );
+      } catch {
+        if (!cancelled) setDemLayers([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [basemapMenuOpen, demLayers]);
+
+  /**
    * #74: set the map's geocoding source. Pass `null` (or empty
    * string) to fall back to Nominatim. Stored on
    * `map.search.geocoderId` so the search bar can route queries to
@@ -935,6 +995,74 @@ export function MapEditor({
                   })}
                 </ul>
               )}
+              {/* #186: 3D terrain lives with the basemap choice --
+                  both are map-wide ground settings. Only shown when
+                  the org has at least one elevation layer. */}
+              {demLayers && demLayers.length > 0 ? (
+                <>
+                  <div className="border-t border-border bg-surface-2 px-3 py-1.5 text-2xs font-semibold uppercase tracking-wide text-muted">
+                    3D terrain
+                  </div>
+                  <ul className="py-1">
+                    <li>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setTerrainLayer(null);
+                          setBasemapMenuOpen(false);
+                        }}
+                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-2 ${
+                          !map.terrain
+                            ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300'
+                            : 'text-ink-1'
+                        }`}
+                      >
+                        <span>Flat (off)</span>
+                        {!map.terrain ? (
+                          <span className="ml-auto text-2xs uppercase tracking-wide">
+                            active
+                          </span>
+                        ) : null}
+                      </button>
+                    </li>
+                    {demLayers.map((d) => {
+                      const active = map.terrain?.itemId === d.id;
+                      return (
+                        <li key={d.id}>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setTerrainLayer({
+                                itemId: d.id,
+                                tileUrl: d.tileUrl,
+                              });
+                              setBasemapMenuOpen(false);
+                            }}
+                            className={`flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-2 ${
+                              active
+                                ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300'
+                                : 'text-ink-1'
+                            }`}
+                          >
+                            <span className="truncate">{d.title}</span>
+                            {active ? (
+                              <span className="ml-auto text-2xs uppercase tracking-wide">
+                                active
+                              </span>
+                            ) : null}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <p className="border-t border-border px-3 py-2 text-2xs leading-relaxed text-muted">
+                    With terrain on, tilt the map (right-drag) to see
+                    hills and valleys in 3D.
+                  </p>
+                </>
+              ) : null}
             </div>
           ) : null}
         </div>

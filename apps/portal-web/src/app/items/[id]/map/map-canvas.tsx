@@ -314,6 +314,11 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
   // below.
   const asOfTimeRef = useRef<string | null | undefined>(asOfTime);
   asOfTimeRef.current = asOfTime;
+  // #186: ref-shadow of the terrain setting so the basemap-swap
+  // path (setStyle wipes sources AND terrain) can re-apply the
+  // current value without re-running its effect on terrain change.
+  const terrainRef = useRef<MapData['terrain'] | undefined>(map.terrain);
+  terrainRef.current = map.terrain;
   // #89: ref-shadow the edit-claimed set + click callback so the
   // long-lived click handler (mounted once per map instance) reads
   // the current values without forcing a remount when the parent
@@ -799,6 +804,9 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
         clipBoundaryRef.current,
         asOfTimeRef.current,
       );
+      // #186: setStyle wiped the raster-dem source and the terrain
+      // setting along with everything else; restore them.
+      applyTerrain(m, terrainRef.current);
       setIconsTick((t) => t + 1);
     };
 
@@ -868,6 +876,34 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     // the runtime scrubs back in time so MapLibre re-fetches tiles
     // tagged with the new `at` value.
   }, [map.layers, map.clipBoundaryId, iconsTick, asOfTime]);
+
+  // #186: 3D terrain. Registers a raster-dem source from the map's
+  // elevation layer (a dem tile_layer COG served through the cog
+  // protocol's #dem mode) and hands it to MapLibre's setTerrain,
+  // which drapes EVERY layer (basemap, imagery overlays, features)
+  // over the ground surface. The source id deliberately does NOT
+  // start with `gg:` so syncOverlays' teardown never removes it out
+  // from under the active terrain; this effect owns it exclusively.
+  useEffect(() => {
+    const m = mapRef.current;
+    if (!m) return;
+    const apply = () => {
+      if (!styleSheetReady(m)) return;
+      applyTerrain(m, map.terrain);
+    };
+    if (!styleSheetReady(m)) {
+      const once = () => {
+        if (!styleSheetReady(m)) return;
+        m.off('styledata', once);
+        apply();
+      };
+      m.on('styledata', once);
+      return () => {
+        m.off('styledata', once);
+      };
+    }
+    apply();
+  }, [map.terrain]);
 
   // #179 unit 3: 3D point-cloud layers. Separate manager from
   // syncOverlays on purpose -- these are deck.gl-backed streaming
@@ -2448,6 +2484,45 @@ function syncDrawings(
       ['==', ['geometry-type'], 'Point'],
       visibilityFilter as never,
     ]);
+  }
+}
+
+/** Owned exclusively by the terrain effect; see #186 note there. */
+const TERRAIN_SOURCE_ID = 'gg-terrain-dem';
+
+/**
+ * Apply or clear 3D terrain (#186). Idempotent; also called from
+ * the basemap-swap path because setStyle wipes sources and terrain.
+ */
+function applyTerrain(
+  m: maplibregl.Map,
+  terrain: MapData['terrain'] | undefined,
+): void {
+  try {
+    if (terrain?.tileUrl) {
+      if (!m.getSource(TERRAIN_SOURCE_ID)) {
+        m.addSource(TERRAIN_SOURCE_ID, {
+          type: 'raster-dem',
+          // The cog protocol's #dem mode turns the single-band
+          // elevation COG into terrain tiles on the fly.
+          url: `${terrain.tileUrl}#dem`,
+          tileSize: 256,
+        });
+      }
+      m.setTerrain({
+        source: TERRAIN_SOURCE_ID,
+        exaggeration: terrain.exaggeration ?? 1,
+      });
+    } else {
+      if (m.getTerrain()) m.setTerrain(null);
+      if (m.getSource(TERRAIN_SOURCE_ID)) {
+        m.removeSource(TERRAIN_SOURCE_ID);
+      }
+    }
+  } catch (err) {
+    // Terrain is an enhancement; a failure must never take down the
+    // 2D map.
+    console.warn('terrain apply failed', err);
   }
 }
 
