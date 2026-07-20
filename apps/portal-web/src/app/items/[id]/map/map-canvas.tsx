@@ -682,7 +682,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     // stale React state function.
     let cancelled = false;
     const kickLoadIfReady = () => {
-      if (!m.isStyleLoaded()) return;
+      if (!styleSheetReady(m)) return;
       void loadAllIcons(m).then(() => {
         if (!cancelled) setIconsTick((t) => t + 1);
       });
@@ -810,7 +810,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
         window.clearInterval(pollHandle);
         return;
       }
-      if (m.isStyleLoaded()) {
+      if (styleSheetReady(m)) {
         window.clearInterval(pollHandle);
         m.off('idle', onIdle);
         void applyOverlays();
@@ -839,9 +839,9 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
   useEffect(() => {
     const m = mapRef.current;
     if (!m) return;
-    if (!m.isStyleLoaded()) {
+    if (!styleSheetReady(m)) {
       const once = () => {
-        if (!m.isStyleLoaded()) return;
+        if (!styleSheetReady(m)) return;
         m.off('styledata', once);
         syncOverlays(m, map.layers, hoveredRef, map.clipBoundaryId, asOfTime);
       };
@@ -881,12 +881,12 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     const m = mapRef.current;
     if (!m) return;
     const apply = () => {
-      if (!m.isStyleLoaded()) return;
+      if (!styleSheetReady(m)) return;
       syncDrawings(m, drawings ?? []);
     };
-    if (!m.isStyleLoaded()) {
+    if (!styleSheetReady(m)) {
       const once = () => {
-        if (!m.isStyleLoaded()) return;
+        if (!styleSheetReady(m)) return;
         m.off('styledata', once);
         apply();
       };
@@ -2432,6 +2432,24 @@ function syncDrawings(
       visibilityFilter as never,
     ]);
   }
+}
+
+/**
+ * Whether the map's STYLESHEET is parsed and safe to mutate with
+ * addSource / addLayer / removeLayer. Deliberately NOT
+ * m.isStyleLoaded(): that also waits for every source's TILES, and a
+ * hung or rate-limited tile (e.g. the public OSM basemap returning
+ * 504s under load) keeps it false indefinitely -- which froze every
+ * layer add / remove / visibility toggle until a page reload (user
+ * report: "additional layers do not draw"). Style mutations only
+ * need the style object ready; tiles can keep streaming. The field
+ * is private but has been stable across MapLibre majors, hence the
+ * narrow cast.
+ */
+function styleSheetReady(m: maplibregl.Map): boolean {
+  return Boolean(
+    (m as unknown as { style?: { _loaded?: boolean } }).style?._loaded,
+  );
 }
 
 /**
