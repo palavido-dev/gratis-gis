@@ -1038,6 +1038,11 @@ export function MapEditor({
         setTableOpen(true);
       }}
       onZoomToLayer={(layerId) => {
+        // Zoom-to-extent is a deliberate authoring action, so it
+        // marks the map dirty: Save's camera capture only helps if
+        // Save is enabled, and the camera fold skips programmatic
+        // moves (fitBounds carries no originalEvent) by design.
+        if (canEdit) markDirty();
         // #179 unit 3: point-cloud layers carry their WGS84 bbox on
         // the source (stamped at add time), so no feature walk.
         const pcLayer = map.layers.find((l) => l.id === layerId);
