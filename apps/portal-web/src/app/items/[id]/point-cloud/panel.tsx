@@ -2,6 +2,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import {
   Check,
   Copy,
@@ -11,6 +12,19 @@ import {
 } from 'lucide-react';
 import type { PointCloudData } from '@gratis-gis/shared-types';
 import { isPointCloudData } from '@gratis-gis/shared-types';
+
+// The 3D viewer carries the deck.gl + copc.js + laz-perf + proj4
+// tree (via maplibre-gl-lidar), so it loads as its own chunk only
+// when a point-cloud detail page actually renders a file, and
+// never server-side (WebGL + wasm need a browser).
+const PointCloudViewer = dynamic(() => import('./viewer'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-[480px] w-full items-center justify-center rounded-md border border-border bg-surface-0">
+      <Loader2 className="h-5 w-5 animate-spin text-muted" />
+    </div>
+  ),
+});
 
 /**
  * Detail-page panel for point_cloud items (#179, unit 1). Mirrors
@@ -217,6 +231,7 @@ export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
 
           {ready ? (
             <>
+              {data.dataUrl ? <PointCloudViewer data={data} /> : null}
               <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
                 <MetaItem label="File" value={data.fileName} mono />
                 <MetaItem label="Size" value={formatBytes(data.sizeBytes)} />
