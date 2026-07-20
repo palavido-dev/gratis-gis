@@ -38,6 +38,11 @@ interface OverlayState {
   prevMaxPitch: number;
   /** serialization chain for sync calls */
   op: Promise<void>;
+  /** "Loading point cloud..." chip shown during initial loads. A
+   *  200M-point cloud takes ~10s of header + hierarchy fetches
+   *  before the first point draws; without messaging that reads
+   *  as "the layer is broken" (user feedback). */
+  indicator: HTMLDivElement;
 }
 
 const states = new WeakMap<maplibregl.Map, OverlayState>();
@@ -71,6 +76,7 @@ export function teardownPointCloudOverlay(map: maplibregl.Map): void {
   const state = states.get(map);
   if (!state) return;
   states.delete(map);
+  state.indicator.remove();
   try {
     state.control.stopStreaming();
   } catch {
@@ -81,6 +87,28 @@ export function teardownPointCloudOverlay(map: maplibregl.Map): void {
   } catch {
     /* map may already be tearing down */
   }
+}
+
+/** Bottom-left chip matching the portal's surface tokens. Plain
+ *  DOM because this module manages the map imperatively; a React
+ *  portal here would invert the ownership for one div. */
+function makeIndicator(map: maplibregl.Map): HTMLDivElement {
+  const el = document.createElement('div');
+  el.className =
+    'pointer-events-none absolute bottom-8 left-1/2 z-10 -translate-x-1/2 rounded-full border border-border bg-surface-1/95 px-3 py-1.5 text-xs text-ink-1 shadow-raised backdrop-blur';
+  el.style.display = 'none';
+  el.setAttribute('role', 'status');
+  map.getContainer().appendChild(el);
+  return el;
+}
+
+function showIndicator(state: OverlayState, text: string): void {
+  state.indicator.textContent = text;
+  state.indicator.style.display = 'block';
+}
+
+function hideIndicator(state: OverlayState): void {
+  state.indicator.style.display = 'none';
 }
 
 async function reconcile(
@@ -144,6 +172,7 @@ async function reconcile(
         styleSig: '',
         prevMaxPitch: map.getMaxPitch(),
         op: Promise.resolve(),
+        indicator: makeIndicator(map),
       };
       states.set(map, state);
       // 3D needs headroom to look under the horizon; MapLibre's
@@ -164,16 +193,26 @@ async function reconcile(
     }
   }
 
-  for (const layer of desired) {
-    if (state.loaded.has(layer.id)) continue;
+  const toLoad = desired.filter((l) => !state.loaded.has(l.id));
+  for (const [i, layer] of toLoad.entries()) {
     const url = `${window.location.origin}${layer.source.dataUrl}`;
+    showIndicator(
+      state,
+      toLoad.length > 1
+        ? `Loading point clouds (${i + 1} of ${toLoad.length})...`
+        : `Loading ${layer.title}...`,
+    );
     try {
       const info = await state.control.loadPointCloud(url);
       state.loaded.set(layer.id, info.id);
     } catch (err) {
       console.warn(`point cloud layer "${layer.title}" failed to load`, err);
+      showIndicator(state, `${layer.title} failed to load.`);
+      // Leave the failure visible briefly instead of vanishing.
+      await new Promise((r) => setTimeout(r, 2500));
     }
   }
+  if (toLoad.length > 0) hideIndicator(state);
 
   // Control-global styling: topmost visible point-cloud layer wins.
   const top = desired[0]!;
