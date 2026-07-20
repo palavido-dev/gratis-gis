@@ -3,13 +3,20 @@
 #   - build: pnpm install + next build (output: standalone) at the
 #     repo root so workspace deps (shared-types, ui, form-schema)
 #     resolve. Next's tracer collects the runtime subset.
-#   - runtime: node:25-slim with the standalone server, public
+#   - runtime: node slim with the standalone server, public
 #     assets, and prebuilt static chunks. Tiny image, no pnpm or
 #     build chain.
 #
 # Built from the repo root:  docker build -f apps/portal-web/Dockerfile .
+#
+# Base is PINNED to an exact LTS version on purpose. The floating
+# node:25 tag silently moved to 25.9.0 mid-day and its fetch broke
+# ReadableStream request bodies ("expected non-null body source"),
+# which took down every POST through the BFF proxy. Non-LTS current
+# lines do not belong under prod, and floating tags turn upstream
+# releases into unreviewed deploys. Bump this deliberately.
 
-FROM node:25-bookworm-slim AS base
+FROM node:24.18.0-bookworm-slim AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 # See apps/portal-api/Dockerfile for the rationale on this block:

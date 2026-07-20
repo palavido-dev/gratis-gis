@@ -5,13 +5,18 @@
 #     form-schema) resolve cleanly. We deploy the api workspace to a
 #     self-contained /out directory via `pnpm deploy --prod` so the
 #     runtime image only carries what's needed.
-#   - runtime: node:25 + GDAL + OpenSSL only. Drops the build chain
-#     and dev deps. Runs as a non-root `app` user.
+#   - runtime: node slim + GDAL + OpenSSL only. Drops the build
+#     chain and dev deps. Runs as a non-root `app` user.
 #
 # Built from the repo root so the build context can see the whole
 # monorepo:  docker build -f apps/portal-api/Dockerfile .
+#
+# Base is PINNED to an exact LTS version on purpose; see the note
+# in apps/portal-web/Dockerfile (the floating node:25 tag moved to
+# a release with a fetch regression and broke prod writes). Bump
+# deliberately, both Dockerfiles together.
 
-FROM node:25-bookworm-slim AS base
+FROM node:24.18.0-bookworm-slim AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 # Three things in one RUN to keep the layer count tight:
