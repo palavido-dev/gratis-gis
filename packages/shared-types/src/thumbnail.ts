@@ -113,6 +113,7 @@ const TYPE_PALETTE: Record<string, { sidebar: string; background: string }> = {
   app_template: { sidebar: '#8f6c42', background: '#f5f0e8' },
   theme: { sidebar: '#94606b', background: '#f5eef0' },
   print_template: { sidebar: '#565049', background: '#f1f0ee' },
+  point_cloud: { sidebar: '#5b6472', background: '#eef0f3' },
 };
 
 /**
@@ -169,109 +170,436 @@ export function defaultThumbnailDesign(type: ItemType): ThumbnailDesign {
  *   7. rotated type label (on sidebar)
  */
 /**
- * Type-keyed background motifs (#173). When a thumbnail has no
- * background image, the bare fill used to read as unfinished next to
- * basemap items (which derive a real map tile). Each type family gets
- * a subtle deterministic vector motif drawn in the sidebar hue at low
- * opacity: contours for map-shaped things, a dot grid for data,
- * document rules for forms and files, panel blocks for apps, a node
- * graph for tools and services, and a folder silhouette for folders.
- * Deterministic on purpose: no randomness, so renders are stable and
+ * Type-keyed background motifs. Bold cartographic set: one unique,
+ * deterministic motif per item type, drawn in the type's sidebar hue
+ * over the TYPE_PALETTE background tint, fitted (translate + scale)
+ * into the open area beside the sidebar strip and above the title bar
+ * with ~26px padding. No randomness, so renders are stable and
  * cacheable.
  */
-type MotifKind = 'contour' | 'dots' | 'rules' | 'panels' | 'nodes' | 'folder';
+// ---- per-type motifs -------------------------------------------------
+// Each returns SVG markup (no outer <svg>). `c` = escaped sidebar hue.
 
-const MOTIF_BY_TYPE: Record<string, MotifKind> = {
-  map: 'contour',
-  basemap: 'contour',
-  geo_boundary: 'contour',
-  derived_layer: 'contour',
-  tile_layer: 'contour',
-  layer_package: 'contour',
-  data_layer: 'dots',
-  pick_list: 'dots',
-  form: 'rules',
-  form_submission_collection: 'rules',
-  report_template: 'rules',
-  file: 'rules',
-  print_template: 'rules',
-  web_app: 'panels',
-  app_template: 'panels',
-  dashboard: 'panels',
-  widget_package: 'panels',
-  editor: 'panels',
-  data_collection: 'panels',
-  theme: 'panels',
-  tool: 'nodes',
-  service: 'nodes',
-  arcgis_service: 'nodes',
-  wms_service: 'nodes',
-  wfs_service: 'nodes',
-  geocoding_service: 'nodes',
-  folder: 'folder',
-};
-
-function renderMotif(kind: MotifKind, hue: string): string {
-  const c = escapeXml(hue);
-  switch (kind) {
-    case 'contour':
-      return `<g fill="none" stroke="${c}" stroke-width="3" stroke-linecap="round" opacity="0.14">
-    <path d="M-20 250 C 90 200 150 260 260 215 C 370 175 420 235 550 190"/>
-    <path d="M-20 200 C 90 150 160 205 265 165 C 375 128 430 185 550 140"/>
-    <path d="M-20 150 C 95 105 165 155 270 118 C 380 82 435 135 550 92"/>
-    <path d="M-20 100 C 100 60 170 105 275 72 C 385 40 440 88 550 48"/>
-  </g>`;
-    case 'dots': {
-      const dots: string[] = [];
-      for (let row = 0; row < 5; row += 1) {
-        const y = 45 + row * 58;
-        const offset = row % 2 === 0 ? 0 : 30;
-        for (let col = 0; col < 9; col += 1) {
-          const x = 40 + offset + col * 58;
-          if (x > 505) continue;
-          dots.push(`<circle cx="${x}" cy="${y}" r="5" fill="${c}"/>`);
-        }
-      }
-      return `<g opacity="0.14">
-    ${dots.join('\n    ')}
-  </g>`;
-    }
-    case 'rules':
-      return `<g stroke="${c}" stroke-linecap="round" opacity="0.14">
-    <line x1="40" y1="58" x2="240" y2="58" stroke-width="12"/>
-    <line x1="40" y1="112" x2="500" y2="112" stroke-width="6"/>
-    <line x1="40" y1="152" x2="500" y2="152" stroke-width="6"/>
-    <line x1="40" y1="192" x2="500" y2="192" stroke-width="6"/>
-    <line x1="40" y1="232" x2="380" y2="232" stroke-width="6"/>
-  </g>`;
-    case 'panels':
-      return `<g fill="${c}" opacity="0.12">
-    <rect x="40" y="40" width="212" height="118" rx="14"/>
-    <rect x="278" y="40" width="212" height="118" rx="14"/>
-    <rect x="40" y="184" width="212" height="118" rx="14"/>
-    <rect x="278" y="184" width="212" height="118" rx="14"/>
-  </g>`;
-    case 'nodes':
-      return `<g opacity="0.14">
-    <g stroke="${c}" stroke-width="5">
-      <line x1="112" y1="92" x2="300" y2="198" />
-      <line x1="300" y1="198" x2="152" y2="268" />
-      <line x1="300" y1="198" x2="428" y2="92" />
-    </g>
-    <g fill="${c}">
-      <circle cx="112" cy="92" r="26"/>
-      <circle cx="300" cy="198" r="26"/>
-      <circle cx="152" cy="268" r="20"/>
-      <circle cx="428" cy="92" r="20"/>
-    </g>
-  </g>`;
-    case 'folder':
-      return `<g fill="${c}" opacity="0.12">
-    <path d="M84 118 h118 l30 30 h204 a16 16 0 0 1 16 16 v122 a16 16 0 0 1 -16 16 H100 a16 16 0 0 1 -16 -16 z"/>
-  </g>`;
-  }
+function mMap(c: string): string {
+  // Contour hill: nested index contours around a summit, spot elevation.
+  const ring = 'M -190 25 C -160 -70 -55 -125 45 -105 C 145 -85 205 -10 175 60 C 145 130 -5 150 -100 120 C -175 96 -215 80 -190 25 Z';
+  const rings = (
+    [
+      [1, 0.35, 3], [0.78, 0.5, 2.5], [0.56, 0.65, 4.5], [0.36, 0.5, 2.5],
+    ] as Array<[number, number, number]>
+  ).map(([s, o, w]) =>
+    `<g transform="translate(250 168) scale(${s})"><path d="${ring}" fill="none" stroke="${c}" stroke-width="${w / s}" opacity="${o}"/></g>`
+  ).join('');
+  return `${rings}
+  <g transform="translate(250 168) scale(0.18)"><path d="${ring}" fill="${c}" opacity="0.3"/></g>
+  <circle cx="252" cy="168" r="6" fill="${c}" opacity="0.9"/>
+  <path d="M 252 132 l 9 16 h -18 Z" fill="${c}" opacity="0.75"/>`;
 }
 
+function mBasemap(c: string): string {
+  // Globe with graticule and a coast landmass.
+  const cx = 250, cy = 168, r = 132;
+  const chord = (dy: number) => Math.round(Math.sqrt(r * r - dy * dy));
+  const par = [-88, -44, 44, 88].map((dy) =>
+    `<line x1="${cx - chord(dy)}" y1="${cy + dy}" x2="${cx + chord(dy)}" y2="${cy + dy}" stroke="${c}" stroke-width="2.5" opacity="0.4"/>`
+  ).join('');
+  return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${c}" opacity="0.07"/>
+  <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${c}" stroke-width="4" opacity="0.7"/>
+  <ellipse cx="${cx}" cy="${cy}" rx="44" ry="${r}" fill="none" stroke="${c}" stroke-width="2.5" opacity="0.4"/>
+  <ellipse cx="${cx}" cy="${cy}" rx="88" ry="${r}" fill="none" stroke="${c}" stroke-width="2.5" opacity="0.4"/>
+  <line x1="${cx}" y1="${cy - r}" x2="${cx}" y2="${cy + r}" stroke="${c}" stroke-width="2.5" opacity="0.4"/>
+  ${par}
+  <path d="M 190 100 C 225 80 268 92 280 120 C 292 148 260 162 230 158 C 196 154 168 150 168 132 C 168 116 172 110 190 100 Z" fill="${c}" opacity="0.45"/>`;
+}
+
+function mGeoBoundary(c: string): string {
+  const pts = [[110, 70], [300, 50], [455, 120], [430, 250], [260, 300], [95, 240]];
+  const d = 'M ' + pts.map((p) => p.join(' ')).join(' L ') + ' Z';
+  const verts = pts.map(([x, y]) =>
+    `<circle cx="${x}" cy="${y}" r="9" fill="#ffffff" stroke="${c}" stroke-width="4" opacity="0.95"/>`
+  ).join('');
+  return `<path d="${d}" fill="${c}" opacity="0.1"/>
+  <path d="${d}" fill="none" stroke="${c}" stroke-width="5" stroke-dasharray="20 12" stroke-linejoin="round" opacity="0.8"/>
+  ${verts}`;
+}
+
+function mDerivedLayer(c: string): string {
+  const para = (cx: number, cy: number, w: number, h: number) =>
+    `M ${cx - w} ${cy} L ${cx} ${cy - h} L ${cx + w} ${cy} L ${cx} ${cy + h} Z`;
+  return `<path d="${para(165, 95, 140, 55)}" fill="${c}" opacity="0.1"/>
+  <path d="${para(165, 95, 140, 55)}" fill="none" stroke="${c}" stroke-width="3" opacity="0.55"/>
+  <path d="${para(350, 95, 140, 55)}" fill="${c}" opacity="0.1"/>
+  <path d="${para(350, 95, 140, 55)}" fill="none" stroke="${c}" stroke-width="3" opacity="0.55"/>
+  <line x1="256" y1="158" x2="256" y2="200" stroke="${c}" stroke-width="6" opacity="0.75"/>
+  <path d="M 256 216 l -13 -18 h 26 Z" fill="${c}" opacity="0.75"/>
+  <path d="${para(256, 268, 165, 58)}" fill="${c}" opacity="0.3"/>
+  <path d="${para(256, 268, 165, 58)}" fill="none" stroke="${c}" stroke-width="4.5" opacity="0.85"/>`;
+}
+
+function mTileLayer(c: string): string {
+  const ops = [0.1, 0.24, 0.1, 0.16, 0.1, 0.24];
+  let tiles = '';
+  for (let j = 0; j < 2; j += 1) {
+    for (let i = 0; i < 3; i += 1) {
+      tiles += `<rect x="${58 + i * 148}" y="${62 + j * 122}" width="128" height="102" rx="10" fill="${c}" opacity="${ops[j * 3 + i]}"/>`;
+    }
+  }
+  return `${tiles}
+  <rect x="346" y="168" width="128" height="102" rx="10" fill="none" stroke="${c}" stroke-width="4" opacity="0.8" transform="translate(10 -10)"/>
+  <path d="M 60 130 C 140 100 220 150 320 118 C 400 92 450 130 500 110" fill="none" stroke="${c}" stroke-width="3.5" opacity="0.45"/>`;
+}
+
+function mLayerPackage(c: string): string {
+  const dia = (cy: number) =>
+    `M 66 ${cy} L 256 ${cy - 62} L 446 ${cy} L 256 ${cy + 62} Z`;
+  return `<path d="${dia(258)}" fill="${c}" opacity="0.08"/>
+  <path d="${dia(258)}" fill="none" stroke="${c}" stroke-width="3" opacity="0.45"/>
+  <path d="${dia(188)}" fill="${c}" opacity="0.14"/>
+  <path d="${dia(188)}" fill="none" stroke="${c}" stroke-width="3" opacity="0.55"/>
+  <path d="${dia(118)}" fill="${c}" opacity="0.3"/>
+  <path d="${dia(118)}" fill="none" stroke="${c}" stroke-width="4.5" opacity="0.85"/>
+  <path d="M 170 112 C 210 96 300 96 342 112" fill="none" stroke="#ffffff" stroke-width="3" opacity="0.5"/>`;
+}
+
+function mDataLayer(c: string): string {
+  const grid = [130, 260, 390].map((x) => `<line x1="${x}" y1="20" x2="${x}" y2="320" stroke="${c}" stroke-width="2" opacity="0.1"/>`).join('') +
+    [110, 200, 290].map((y) => `<line x1="20" y1="${y}" x2="510" y2="${y}" stroke="${c}" stroke-width="2" opacity="0.1"/>`).join('');
+  const pts = [[140, 110, 34], [320, 90, 20], [432, 152, 26], [212, 228, 44], [392, 258, 30], [108, 268, 16]];
+  const dots = pts.map(([x, y, r]) =>
+    `<circle cx="${x}" cy="${y}" r="${r}" fill="${c}" opacity="0.16"/>
+  <circle cx="${x}" cy="${y}" r="${r}" fill="none" stroke="${c}" stroke-width="3.5" opacity="0.7"/>
+  <circle cx="${x}" cy="${y}" r="4.5" fill="${c}" opacity="0.85"/>`
+  ).join('');
+  return grid + dots;
+}
+
+function mPickList(c: string): string {
+  const rows: Array<[number, number]> = [
+    [0.8, 300], [0.5, 240], [0.32, 270], [0.18, 200],
+  ];
+  return `<rect x="52" y="52" width="430" height="52" rx="12" fill="${c}" opacity="0.1"/>` +
+    rows.map(([op, w], i) => {
+      const y = 66 + i * 66;
+      return `<rect x="72" y="${y}" width="26" height="26" rx="6" fill="${c}" opacity="${op}"/>
+  <rect x="122" y="${y + 8}" width="${w}" height="11" rx="5.5" fill="${c}" opacity="${i === 0 ? 0.5 : 0.25}"/>`;
+    }).join('');
+}
+
+function mForm(c: string): string {
+  const field = (y: number) => `<rect x="72" y="${y}" width="360" height="48" rx="10" fill="#ffffff" opacity="0.5"/>
+  <rect x="72" y="${y}" width="360" height="48" rx="10" fill="none" stroke="${c}" stroke-width="3" opacity="0.5"/>`;
+  return `${field(52)}${field(124)}${field(196)}
+  <rect x="90" y="68" width="150" height="14" rx="7" fill="${c}" opacity="0.35"/>
+  <rect x="90" y="140" width="200" height="14" rx="7" fill="${c}" opacity="0.25"/>
+  <circle cx="96" cy="220" r="9" fill="none" stroke="${c}" stroke-width="3.5" opacity="0.6"/>
+  <circle cx="96" cy="220" r="4" fill="${c}" opacity="0.75"/>
+  <rect x="118" y="212" width="140" height="14" rx="7" fill="${c}" opacity="0.25"/>
+  <rect x="72" y="268" width="176" height="46" rx="23" fill="${c}" opacity="0.8"/>`;
+}
+
+function mFormSubmissions(c: string): string {
+  const card = 'x="-150" y="-100" width="300" height="200" rx="14"';
+  return `<g transform="translate(238 172) rotate(-9)"><rect ${card} fill="${c}" opacity="0.12"/><rect ${card} fill="none" stroke="${c}" stroke-width="3" opacity="0.4"/></g>
+  <g transform="translate(252 176) rotate(-3)"><rect ${card} fill="${c}" opacity="0.16"/></g>
+  <g transform="translate(268 180) rotate(3)">
+    <rect ${card} fill="#ffffff" opacity="0.6"/>
+    <rect ${card} fill="none" stroke="${c}" stroke-width="3.5" opacity="0.7"/>
+    <rect x="-120" y="-64" width="180" height="13" rx="6.5" fill="${c}" opacity="0.45"/>
+    <rect x="-120" y="-30" width="230" height="11" rx="5.5" fill="${c}" opacity="0.25"/>
+    <rect x="-120" y="-2" width="230" height="11" rx="5.5" fill="${c}" opacity="0.25"/>
+    <circle cx="96" cy="58" r="20" fill="${c}" opacity="0.8"/>
+    <path d="M 87 58 l 7 8 l 14 -16" fill="none" stroke="#ffffff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>`;
+}
+
+function mReportTemplate(c: string): string {
+  const bars = (
+    [[0, 46], [1, 78], [2, 60], [3, 100]] as Array<[number, number]>
+  ).map(([i, h]) =>
+    `<rect x="${182 + i * 42}" y="${232 - h}" width="30" height="${h}" fill="${c}" opacity="${0.3 + i * 0.15}"/>`
+  ).join('');
+  return `<rect x="150" y="30" width="220" height="292" rx="10" fill="#ffffff" opacity="0.55"/>
+  <rect x="150" y="30" width="220" height="292" rx="10" fill="none" stroke="${c}" stroke-width="3.5" opacity="0.6"/>
+  <rect x="176" y="56" width="120" height="15" rx="7.5" fill="${c}" opacity="0.55"/>
+  <rect x="176" y="88" width="168" height="10" rx="5" fill="${c}" opacity="0.25"/>
+  <rect x="176" y="110" width="168" height="10" rx="5" fill="${c}" opacity="0.25"/>
+  ${bars}
+  <line x1="176" y1="232" x2="344" y2="232" stroke="${c}" stroke-width="3" opacity="0.55"/>
+  <rect x="176" y="258" width="168" height="10" rx="5" fill="${c}" opacity="0.25"/>
+  <rect x="176" y="280" width="120" height="10" rx="5" fill="${c}" opacity="0.25"/>`;
+}
+
+function mFile(c: string): string {
+  return `<path d="M 192 42 h 138 l 52 52 v 200 a 10 10 0 0 1 -10 10 H 202 a 10 10 0 0 1 -10 -10 V 52 a 10 10 0 0 1 10 -10 Z" fill="${c}" opacity="0.14"/>
+  <path d="M 192 42 h 138 l 52 52 v 200 a 10 10 0 0 1 -10 10 H 202 a 10 10 0 0 1 -10 -10 V 52 a 10 10 0 0 1 10 -10 Z" fill="none" stroke="${c}" stroke-width="3.5" opacity="0.65"/>
+  <path d="M 330 42 l 52 52 h -52 Z" fill="${c}" opacity="0.5"/>
+  <rect x="218" y="140" width="146" height="11" rx="5.5" fill="${c}" opacity="0.3"/>
+  <rect x="218" y="168" width="146" height="11" rx="5.5" fill="${c}" opacity="0.3"/>
+  <rect x="218" y="196" width="104" height="11" rx="5.5" fill="${c}" opacity="0.3"/>`;
+}
+
+function mPrintTemplate(c: string): string {
+  const mark = (x: number, y: number, dx: number, dy: number) =>
+    `<line x1="${x + dx * 12}" y1="${y}" x2="${x + dx * 40}" y2="${y}" stroke="${c}" stroke-width="3" opacity="0.7"/>
+  <line x1="${x}" y1="${y + dy * 12}" x2="${x}" y2="${y + dy * 40}" stroke="${c}" stroke-width="3" opacity="0.7"/>`;
+  return `${mark(92, 52, 1, 1)}${mark(440, 52, -1, 1)}${mark(92, 300, 1, -1)}${mark(440, 300, -1, -1)}
+  <rect x="92" y="52" width="348" height="248" fill="none" stroke="${c}" stroke-width="2" stroke-dasharray="10 8" opacity="0.35"/>
+  <rect x="122" y="82" width="288" height="150" fill="${c}" opacity="0.08"/>
+  <rect x="122" y="82" width="288" height="150" fill="none" stroke="${c}" stroke-width="2.5" opacity="0.5"/>
+  <path d="M 138 200 C 200 160 260 210 320 172 C 360 148 380 170 396 158" fill="none" stroke="${c}" stroke-width="3" opacity="0.45"/>
+  <rect x="122" y="252" width="150" height="11" rx="5.5" fill="${c}" opacity="0.35"/>
+  <rect x="122" y="274" width="100" height="9" rx="4.5" fill="${c}" opacity="0.22"/>`;
+}
+
+function mWebApp(c: string): string {
+  return `<rect x="62" y="46" width="408" height="266" rx="14" fill="#ffffff" opacity="0.4"/>
+  <rect x="62" y="46" width="408" height="266" rx="14" fill="none" stroke="${c}" stroke-width="3.5" opacity="0.65"/>
+  <line x1="62" y1="94" x2="470" y2="94" stroke="${c}" stroke-width="2.5" opacity="0.4"/>
+  <circle cx="88" cy="70" r="5.5" fill="${c}" opacity="0.55"/>
+  <circle cx="108" cy="70" r="5.5" fill="${c}" opacity="0.4"/>
+  <circle cx="128" cy="70" r="5.5" fill="${c}" opacity="0.25"/>
+  <rect x="80" y="112" width="112" height="182" rx="8" fill="${c}" opacity="0.14"/>
+  <rect x="94" y="128" width="84" height="10" rx="5" fill="${c}" opacity="0.35"/>
+  <rect x="94" y="152" width="66" height="10" rx="5" fill="${c}" opacity="0.35"/>
+  <rect x="94" y="176" width="76" height="10" rx="5" fill="${c}" opacity="0.35"/>
+  <path d="M 210 240 C 260 200 310 250 360 210 C 400 180 430 205 452 190" fill="none" stroke="${c}" stroke-width="3" opacity="0.4"/>
+  <path d="M 210 190 C 262 152 312 198 364 162 C 402 136 432 158 452 145" fill="none" stroke="${c}" stroke-width="3" opacity="0.4"/>
+  <circle cx="340" cy="180" r="20" fill="${c}" opacity="0.85"/>
+  <path d="M 326 194 L 340 226 L 354 194 Z" fill="${c}" opacity="0.85"/>
+  <circle cx="340" cy="180" r="8" fill="#ffffff" opacity="0.95"/>`;
+}
+
+function mAppTemplate(c: string): string {
+  const spark = (x: number, y: number, s: number) => `<path transform="translate(${x} ${y}) scale(${s})" d="M 0 -22 C 3 -8 8 -3 22 0 C 8 3 3 8 0 22 C -3 8 -8 3 -22 0 C -8 -3 -3 -8 0 -22 Z" fill="${c}" opacity="0.85"/>`;
+  return `<rect x="62" y="46" width="408" height="266" rx="14" fill="none" stroke="${c}" stroke-width="3.5" stroke-dasharray="14 10" opacity="0.6"/>
+  <line x1="62" y1="94" x2="470" y2="94" stroke="${c}" stroke-width="2.5" stroke-dasharray="10 8" opacity="0.4"/>
+  <rect x="80" y="112" width="112" height="182" rx="8" fill="none" stroke="${c}" stroke-width="2.5" stroke-dasharray="10 8" opacity="0.4"/>
+  <rect x="210" y="112" width="242" height="182" rx="8" fill="none" stroke="${c}" stroke-width="2.5" stroke-dasharray="10 8" opacity="0.3"/>
+  ${spark(400, 90, 1)}${spark(438, 130, 0.55)}`;
+}
+
+function mDashboard(c: string): string {
+  const arc = 2 * Math.PI * 46 * 0.42;
+  const gap = 2 * Math.PI * 46 - arc;
+  return `<rect x="56" y="50" width="280" height="158" rx="12" fill="${c}" opacity="0.08"/>
+  <polyline points="80,180 140,120 200,150 260,92 312,118" fill="none" stroke="${c}" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"/>
+  <circle cx="140" cy="120" r="6" fill="${c}" opacity="0.9"/>
+  <circle cx="260" cy="92" r="6" fill="${c}" opacity="0.9"/>
+  <circle cx="428" cy="128" r="46" fill="none" stroke="${c}" stroke-width="18" opacity="0.2"/>
+  <circle cx="428" cy="128" r="46" fill="none" stroke="${c}" stroke-width="18" stroke-dasharray="${arc.toFixed(1)} ${gap.toFixed(1)}" transform="rotate(-90 428 128)" opacity="0.75"/>
+  <rect x="56" y="232" width="280" height="82" rx="12" fill="${c}" opacity="0.08"/>
+  <rect x="80" y="256" width="150" height="14" rx="7" fill="${c}" opacity="0.5"/>
+  <rect x="80" y="284" width="220" height="10" rx="5" fill="${c}" opacity="0.25"/>
+  <rect x="360" y="232" width="136" height="82" rx="12" fill="${c}" opacity="0.22"/>`;
+}
+
+function mWidgetPackage(c: string): string {
+  return `<path d="M 256 78 L 368 134 L 256 190 L 144 134 Z" fill="${c}" opacity="0.35"/>
+  <path d="M 144 134 L 256 190 L 256 302 L 144 246 Z" fill="${c}" opacity="0.18"/>
+  <path d="M 256 190 L 368 134 L 368 246 L 256 302 Z" fill="${c}" opacity="0.55"/>
+  <path d="M 256 78 L 368 134 L 368 246 L 256 302 L 144 246 L 144 134 Z" fill="none" stroke="${c}" stroke-width="3.5" stroke-linejoin="round" opacity="0.7"/>
+  <line x1="256" y1="190" x2="256" y2="302" stroke="${c}" stroke-width="3" opacity="0.6"/>
+  <line x1="256" y1="190" x2="144" y2="134" stroke="${c}" stroke-width="3" opacity="0.6"/>
+  <line x1="256" y1="190" x2="368" y2="134" stroke="${c}" stroke-width="3" opacity="0.6"/>
+  <circle cx="88" cy="80" r="5" fill="${c}" opacity="0.3"/>
+  <circle cx="430" cy="72" r="5" fill="${c}" opacity="0.3"/>
+  <circle cx="452" cy="286" r="5" fill="${c}" opacity="0.3"/>`;
+}
+
+function mEditor(c: string): string {
+  const pts: Array<[number, number]> = [
+    [130, 220], [200, 90], [330, 70], [410, 150], [390, 270], [210, 290],
+  ];
+  const d = 'M ' + pts.map((p) => p.join(' ')).join(' L ') + ' Z';
+  const verts = pts.map(([x, y]) =>
+    `<rect x="${x - 8}" y="${y - 8}" width="16" height="16" fill="#ffffff" stroke="${c}" stroke-width="3.5" opacity="0.95"/>`
+  ).join('');
+  return `<path d="${d}" fill="${c}" opacity="0.1"/>
+  <path d="${d}" fill="none" stroke="${c}" stroke-width="4" stroke-linejoin="round" opacity="0.7"/>
+  <line x1="330" y1="70" x2="462" y2="108" stroke="${c}" stroke-width="3" stroke-dasharray="10 8" opacity="0.5"/>
+  <line x1="410" y1="150" x2="462" y2="108" stroke="${c}" stroke-width="3" stroke-dasharray="10 8" opacity="0.5"/>
+  ${verts}
+  <rect x="454" y="100" width="16" height="16" fill="${c}" opacity="0.85"/>
+  <circle cx="462" cy="108" r="26" fill="none" stroke="${c}" stroke-width="2.5" stroke-dasharray="6 6" opacity="0.5"/>`;
+}
+
+function mDataCollection(c: string): string {
+  return `<rect x="190" y="30" width="150" height="290" rx="24" fill="#ffffff" opacity="0.45"/>
+  <rect x="190" y="30" width="150" height="290" rx="24" fill="none" stroke="${c}" stroke-width="4" opacity="0.7"/>
+  <line x1="240" y1="54" x2="290" y2="54" stroke="${c}" stroke-width="4" stroke-linecap="round" opacity="0.5"/>
+  <circle cx="265" cy="140" r="30" fill="${c}" opacity="0.85"/>
+  <path d="M 244 160 L 265 208 L 286 160 Z" fill="${c}" opacity="0.85"/>
+  <circle cx="265" cy="140" r="11" fill="#ffffff" opacity="0.95"/>
+  <rect x="216" y="238" width="98" height="10" rx="5" fill="${c}" opacity="0.35"/>
+  <rect x="216" y="262" width="72" height="10" rx="5" fill="${c}" opacity="0.25"/>
+  <path d="M 372 90 a 40 40 0 0 1 40 40" fill="none" stroke="${c}" stroke-width="4.5" stroke-linecap="round" opacity="0.5"/>
+  <path d="M 372 116 a 16 16 0 0 1 16 16" fill="none" stroke="${c}" stroke-width="4.5" stroke-linecap="round" opacity="0.65"/>
+  <circle cx="372" cy="138" r="6" fill="${c}" opacity="0.75"/>`;
+}
+
+function mTheme(c: string): string {
+  const card = 'x="-58" y="-80" width="116" height="160" rx="14"';
+  return `<g transform="translate(186 176) rotate(-14)"><rect ${card} fill="${c}" opacity="0.18"/><rect ${card} fill="none" stroke="${c}" stroke-width="3" opacity="0.45"/></g>
+  <g transform="translate(262 164) rotate(0)"><rect ${card} fill="${c}" opacity="0.4"/><rect ${card} fill="none" stroke="${c}" stroke-width="3" opacity="0.55"/></g>
+  <g transform="translate(338 176) rotate(14)">
+    <rect ${card} fill="${c}" opacity="0.75"/>
+    <circle cx="0" cy="-30" r="20" fill="#ffffff" opacity="0.65"/>
+    <rect x="-34" y="16" width="68" height="10" rx="5" fill="#ffffff" opacity="0.55"/>
+    <rect x="-34" y="40" width="46" height="10" rx="5" fill="#ffffff" opacity="0.4"/>
+  </g>`;
+}
+
+function mTool(c: string): string {
+  return `<circle cx="256" cy="176" r="145" fill="none" stroke="${c}" stroke-width="3" opacity="0.25"/>
+  <circle cx="256" cy="176" r="100" fill="none" stroke="${c}" stroke-width="3" stroke-dasharray="14 10" opacity="0.45"/>
+  <circle cx="256" cy="176" r="55" fill="${c}" opacity="0.12"/>
+  <circle cx="256" cy="176" r="55" fill="none" stroke="${c}" stroke-width="4" opacity="0.65"/>
+  <circle cx="256" cy="176" r="10" fill="${c}" opacity="0.9"/>
+  <line x1="256" y1="176" x2="374" y2="94" stroke="${c}" stroke-width="3.5" opacity="0.6"/>
+  <path d="M 388 84 l -20 2 l 8 18 Z" fill="${c}" opacity="0.7"/>`;
+}
+
+function mService(c: string): string {
+  const nodes = [[112, 92, 20], [420, 96, 20], [142, 274, 17], [400, 266, 17]];
+  const spokes = nodes.map(([x, y]) =>
+    `<line x1="256" y1="176" x2="${x}" y2="${y}" stroke="${c}" stroke-width="4" opacity="0.45"/>`
+  ).join('');
+  const dots = nodes.map(([x, y, r]) =>
+    `<circle cx="${x}" cy="${y}" r="${r}" fill="${c}" opacity="0.22"/><circle cx="${x}" cy="${y}" r="${r}" fill="none" stroke="${c}" stroke-width="3.5" opacity="0.65"/>`
+  ).join('');
+  return `${spokes}${dots}
+  <circle cx="256" cy="176" r="36" fill="${c}" opacity="0.85"/>
+  <circle cx="256" cy="176" r="12" fill="#ffffff" opacity="0.9"/>`;
+}
+
+function mArcgisService(c: string): string {
+  const shelf = (y: number) => `<rect x="120" y="${y}" width="250" height="54" rx="10" fill="${c}" opacity="0.15"/>
+  <rect x="120" y="${y}" width="250" height="54" rx="10" fill="none" stroke="${c}" stroke-width="3" opacity="0.6"/>
+  <circle cx="148" cy="${y + 27}" r="6.5" fill="${c}" opacity="0.8"/>
+  <rect x="172" y="${y + 21}" width="120" height="12" rx="6" fill="${c}" opacity="0.3"/>`;
+  return `${shelf(88)}${shelf(156)}${shelf(224)}
+  <path d="M 408 168 a 52 52 0 0 1 52 52" fill="none" stroke="${c}" stroke-width="5" stroke-linecap="round" opacity="0.45"/>
+  <path d="M 408 196 a 26 26 0 0 1 26 26" fill="none" stroke="${c}" stroke-width="5" stroke-linecap="round" opacity="0.6"/>
+  <circle cx="410" cy="228" r="8" fill="${c}" opacity="0.8"/>`;
+}
+
+function mWmsService(c: string): string {
+  return `<rect x="96" y="64" width="300" height="192" rx="10" fill="${c}" opacity="0.06"/>
+  <rect x="96" y="64" width="300" height="192" rx="10" fill="none" stroke="${c}" stroke-width="2.5" opacity="0.35"/>
+  <rect x="124" y="88" width="300" height="192" rx="10" fill="${c}" opacity="0.06"/>
+  <rect x="124" y="88" width="300" height="192" rx="10" fill="none" stroke="${c}" stroke-width="2.5" opacity="0.35"/>
+  <rect x="152" y="112" width="300" height="192" rx="10" fill="#ffffff" opacity="0.4"/>
+  <rect x="152" y="112" width="300" height="192" rx="10" fill="none" stroke="${c}" stroke-width="3.5" opacity="0.7"/>
+  <circle cx="404" cy="156" r="18" fill="${c}" opacity="0.5"/>
+  <path d="M 168 250 C 210 216 250 252 296 222 C 340 194 380 224 436 198" fill="none" stroke="${c}" stroke-width="4.5" stroke-linecap="round" opacity="0.55"/>
+  <path d="M 168 282 C 214 254 258 284 306 258 C 348 236 388 260 436 240" fill="none" stroke="${c}" stroke-width="4" stroke-linecap="round" opacity="0.35"/>`;
+}
+
+function mWfsService(c: string): string {
+  return `<path d="M 152 62 L 206 101 L 185 165 L 119 165 L 98 101 Z" fill="${c}" opacity="0.2"/>
+  <path d="M 152 62 L 206 101 L 185 165 L 119 165 L 98 101 Z" fill="none" stroke="${c}" stroke-width="3.5" stroke-linejoin="round" opacity="0.7"/>
+  <polyline points="150,232 220,268 290,236 372,290" fill="none" stroke="${c}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity="0.7"/>
+  <circle cx="150" cy="232" r="7" fill="#ffffff" stroke="${c}" stroke-width="3.5"/>
+  <circle cx="290" cy="236" r="7" fill="#ffffff" stroke="${c}" stroke-width="3.5"/>
+  <circle cx="372" cy="112" r="11" fill="${c}" opacity="0.85"/>
+  <circle cx="422" cy="164" r="8" fill="${c}" opacity="0.6"/>
+  <circle cx="330" cy="150" r="6" fill="${c}" opacity="0.45"/>`;
+}
+
+function mGeocodingService(c: string): string {
+  return `<circle cx="230" cy="168" r="88" fill="none" stroke="${c}" stroke-width="3" opacity="0.35"/>
+  <line x1="230" y1="52" x2="230" y2="96" stroke="${c}" stroke-width="3" opacity="0.35"/>
+  <line x1="230" y1="240" x2="230" y2="284" stroke="${c}" stroke-width="3" opacity="0.35"/>
+  <line x1="114" y1="168" x2="158" y2="168" stroke="${c}" stroke-width="3" opacity="0.35"/>
+  <line x1="302" y1="168" x2="346" y2="168" stroke="${c}" stroke-width="3" opacity="0.35"/>
+  <circle cx="230" cy="152" r="36" fill="${c}" opacity="0.85"/>
+  <path d="M 205 178 L 230 232 L 255 178 Z" fill="${c}" opacity="0.85"/>
+  <circle cx="230" cy="152" r="13" fill="#ffffff" opacity="0.95"/>
+  <rect x="366" y="140" width="128" height="12" rx="6" fill="${c}" opacity="0.45"/>
+  <rect x="366" y="168" width="96" height="10" rx="5" fill="${c}" opacity="0.28"/>
+  <rect x="366" y="194" width="110" height="10" rx="5" fill="${c}" opacity="0.28"/>`;
+}
+
+function mFolder(c: string): string {
+  return `<path d="M 76 96 h 128 l 32 32 h 232 a 14 14 0 0 1 14 14 v 20 H 76 Z" fill="${c}" opacity="0.22"/>
+  <path d="M 94 152 h 396 l -34 156 H 60 Z" fill="${c}" opacity="0.5"/>
+  <path d="M 130 218 C 190 192 260 226 330 200 C 386 180 420 202 452 188" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity="0.45"/>
+  <circle cx="272" cy="248" r="16" fill="#ffffff" opacity="0.75"/>
+  <path d="M 261 259 L 272 284 L 283 259 Z" fill="#ffffff" opacity="0.75"/>`;
+}
+
+function mPointCloud(c: string): string {
+  let dots = '';
+  for (let row = 0; row < 7; row += 1) {
+    for (let col = 0; col < 14; col += 1) {
+      const x = 46 + col * 34 + (row % 2) * 17;
+      if (x > 500) continue;
+      const wave = Math.sin(col * 0.55 + row * 0.9);
+      const y = 64 + row * 38 + wave * 10;
+      const r = (2.4 + 2.6 * Math.abs(Math.sin(col * 1.3 + row * 0.7))).toFixed(1);
+      const o = (0.2 + 0.5 * Math.abs(Math.sin(col * 0.8 + row * 1.4))).toFixed(2);
+      dots += `<circle cx="${x}" cy="${y.toFixed(0)}" r="${r}" fill="${c}" opacity="${o}"/>`;
+    }
+  }
+  return dots;
+}
+
+const MOTIFS: Record<string, (c: string) => string> = {
+  map: mMap,
+  basemap: mBasemap,
+  geo_boundary: mGeoBoundary,
+  derived_layer: mDerivedLayer,
+  tile_layer: mTileLayer,
+  layer_package: mLayerPackage,
+  data_layer: mDataLayer,
+  pick_list: mPickList,
+  form: mForm,
+  form_submission_collection: mFormSubmissions,
+  report_template: mReportTemplate,
+  file: mFile,
+  print_template: mPrintTemplate,
+  web_app: mWebApp,
+  app_template: mAppTemplate,
+  dashboard: mDashboard,
+  widget_package: mWidgetPackage,
+  editor: mEditor,
+  data_collection: mDataCollection,
+  theme: mTheme,
+  tool: mTool,
+  service: mService,
+  arcgis_service: mArcgisService,
+  wms_service: mWmsService,
+  wfs_service: mWfsService,
+  geocoding_service: mGeocodingService,
+  folder: mFolder,
+  point_cloud: mPointCloud,
+};
+
+// Per-type [tx, ty, scale] that fits each motif inside the open area left
+// by the chrome (sidebar x>=530, title bar y>=310) with ~26px padding,
+// centered at (265, 155). Applied as translate(tx ty) scale(s).
+const FIT: Record<string, [number, number, number]> = {
+  map: [35.2, -14.3, 0.938], basemap: [25.2, -6.1, 0.959], geo_boundary: [0.2, -13.5, 0.963],
+  derived_layer: [32.7, -10.1, 0.902], tile_layer: [-15, -19, 1], layer_package: [16.7, -27.4, 0.97],
+  data_layer: [37.1, 8.8, 0.86], pick_list: [-2, -20, 1], form: [16.8, -25.2, 0.985],
+  form_submission_collection: [12, -21, 1], report_template: [35.2, -0.6, 0.884], file: [-13.4, -12.8, 0.97],
+  print_template: [-1, -21, 1], web_app: [10.7, -16.1, 0.956], app_template: [10.7, -16.1, 0.956],
+  dashboard: [-4.7, -22.8, 0.977], widget_package: [-5, -29.5, 1], editor: [-40, -25, 1],
+  data_collection: [-0.2, 1.3, 0.878], theme: [3, -21, 1], tool: [40.2, 0.5, 0.878],
+  service: [-1, -26.5, 1], arcgis_service: [-25, -28, 1], wms_service: [-9, -29, 1],
+  wfs_service: [2.5, -23.5, 1], geocoding_service: [-37.5, -13, 1], folder: [-17, -47, 1],
+  point_cloud: [-8, -23, 1],
+};
+
+/** Render the background motif markup for an item type, centered with
+ *  padding in the open area beside the sidebar strip and above the title
+ *  bar. `hue` must be XML-escaped by the caller. */
+function renderMotif(type: string, hue: string): string {
+  const fn = MOTIFS[type];
+  if (!fn) return '';
+  const [tx, ty, s] = FIT[type] ?? [0, 0, 1];
+  return `<g transform="translate(${tx} ${ty}) scale(${s})">${fn(hue)}</g>`;
+}
 export function renderThumbnailSvg(args: {
   title: string;
   /** Resolved type label (e.g. via getItemTypeLabel(type)). */
@@ -336,11 +664,10 @@ export function renderThumbnailSvg(args: {
   // Motif renders only on bare backgrounds: an image already fills
   // the space, and layering a pattern under a translucent image
   // muddies both.
-  const motifKind = !bgImageHref && type ? MOTIF_BY_TYPE[type] : undefined;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice" role="img" aria-label="${escapeXml(label)}: ${escapeXml(title)}">
   <rect width="${W}" height="${H}" fill="${escapeXml(design.background)}"/>
-  ${motifKind ? renderMotif(motifKind, design.sidebar) : ''}
+  ${!bgImageHref && type ? renderMotif(type, escapeXml(design.sidebar)) : ''}
   ${
     bgImageHref
       ? `<image href="${escapeXml(bgImageHref)}" x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="xMidYMid slice" opacity="${bgImageOpacity}"/>`
