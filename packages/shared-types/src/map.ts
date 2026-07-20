@@ -596,11 +596,45 @@ export type MapLayerSource =
       pointCount?: number;
       /** Whether the cloud carries RGB (drives default coloring). */
       hasRgb?: boolean;
-      /** Persisted display choices for this layer. The overlay
-       *  control is shared per map, so the topmost visible
-       *  point-cloud layer's choices win when several disagree. */
+      /** Persisted display choices for this layer. Each point-cloud
+       *  layer gets its own overlay control instance, so these are
+       *  honestly per-layer (user feedback: "settings should be
+       *  tied to each individual layer"). */
       colorScheme?: 'elevation' | 'intensity' | 'classification' | 'rgb';
       pointSize?: number;
+      /** Colormap for elevation/intensity coloring. Names mirror
+       *  the matplotlib-style set the 3D overlay library ships. */
+      colormap?:
+        | 'viridis'
+        | 'plasma'
+        | 'inferno'
+        | 'magma'
+        | 'cividis'
+        | 'turbo'
+        | 'jet'
+        | 'rainbow'
+        | 'terrain'
+        | 'coolwarm'
+        | 'gray';
+    }
+  /**
+   * #185: raster tile layer backed by a tile_layer item (uploaded
+   * imagery, hillshade outputs from the analysis worker, and so
+   * on) as an OVERLAY layer with opacity, not just a basemap
+   * source. The canvas renders it as a MapLibre raster source
+   * through the pmtiles/cog protocols. Vector tile caches are out
+   * of scope here (they need authored styling; the basemap path
+   * covers them). Metadata stamped at add time, same reasoning as
+   * point-cloud.
+   */
+  | {
+      kind: 'tile';
+      itemId: string;
+      /** pmtiles:// or cog:// URL from TileLayerData.tileUrl. */
+      tileUrl: string;
+      /** WGS84 [w, s, e, n] from the item, for zoom-to-layer. */
+      bboxWgs84?: [number, number, number, number];
+      attribution?: string;
     }
   | { kind: 'group' };
 

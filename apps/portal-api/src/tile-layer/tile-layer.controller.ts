@@ -15,6 +15,7 @@ import type { Request, Response } from 'express';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
+import { Public } from '../auth/public.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { TileLayerService } from './tile-layer.service.js';
@@ -114,9 +115,10 @@ export class TileLayerController {
    * us apply per-request ACL checks (cheap; just an items.get
    * read inside the service).
    */
+  @Public()
   @Get('tile-layer/:itemId/file')
   async serveFile(
-    @CurrentUser() user: AuthUser,
+    @CurrentUser() user: AuthUser | null,
     @Param('itemId') itemId: string,
     @Headers('range') rangeHeader: string | undefined,
     @Req() req: Request,

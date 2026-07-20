@@ -2495,6 +2495,29 @@ function syncOverlays(
     const layer = layers[i]!;
     if (!layer.visible) continue;
     const sourceId = `gg:${layer.id}`;
+    // #185: tile layers (uploaded imagery, hillshade results) render
+    // as raster overlays via the pmtiles/cog protocols registered in
+    // @/lib/custom-basemap (imported by this module's basemap path).
+    // The protocol returns a tile-JSON document for the source `url`,
+    // so no {z}/{x}/{y} template is involved.
+    if (layer.source.kind === 'tile') {
+      const src = layer.source;
+      m.addSource(sourceId, {
+        type: 'raster',
+        url: src.tileUrl,
+        tileSize: 256,
+        ...(src.attribution ? { attribution: src.attribution } : {}),
+      });
+      m.addLayer({
+        id: `gg:${layer.id}:raster`,
+        type: 'raster',
+        source: sourceId,
+        paint: {
+          'raster-opacity': layer.opacity ?? 1,
+        },
+      });
+      continue;
+    }
     const data = sourceData(layer, mapClipBoundaryId);
     if (!data) continue;
     // #318: v3 data-layer sources use `promoteId: '_global_id'` so

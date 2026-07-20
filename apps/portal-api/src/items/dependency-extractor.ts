@@ -104,9 +104,10 @@ export function extractDependencies(
       if (kind === 'data-layer') {
         const id = source.itemId;
         if (typeof id === 'string' && id.length > 0) itemIds.add(id);
-      } else if (kind === 'point-cloud') {
+      } else if (kind === 'point-cloud' || kind === 'tile') {
         // #179 unit 3: 3D layers reference a point_cloud item.
-        // Tracking it wires up Related items and the trash-time
+        // #185: tile overlay layers reference a tile_layer item.
+        // Tracking them wires up Related items and the trash-time
         // dependents warning, same as data-layer.
         const id = source.itemId;
         if (typeof id === 'string' && id.length > 0) itemIds.add(id);

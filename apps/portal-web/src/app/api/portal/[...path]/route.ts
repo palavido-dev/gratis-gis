@@ -196,6 +196,13 @@ function publicRewriteForAnonymousGet(suffix: string): string | null {
   if (/^point-cloud\/[^/]+\/file(\.copc\.laz)?$/.test(suffix)) {
     return suffix;
   }
+  // #185 tile-layer range proxy. A public map with an imagery
+  // overlay layer range-reads /tile-layer/:itemId/file the same
+  // way; portal-api's route is @Public() with the same dual ACL
+  // path, so passthrough again.
+  if (/^tile-layer\/[^/]+\/file$/.test(suffix)) {
+    return suffix;
+  }
   return null;
 }
 

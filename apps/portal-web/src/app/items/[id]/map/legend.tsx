@@ -148,6 +148,11 @@ function LayerSwatch({
       </div>
     );
   }
+  // #185: tile layers are prerendered imagery; there is no renderer
+  // to legend, so a plain label keeps the entry honest.
+  if (layer.source.kind === 'tile') {
+    return <div className="text-xs text-muted">Imagery</div>;
+  }
   const r = layer.renderer;
 
   // Categorical + graduated swatches shape to the layer's geometry

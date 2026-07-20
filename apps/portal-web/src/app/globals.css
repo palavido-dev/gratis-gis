@@ -164,6 +164,23 @@
    --surface-1-ink) rendered white-on-white and vanished. Bind the
    chrome to the same surface tokens the injected content uses so the
    popup keeps real contrast in both light and dark. */
+/* Popups must always win the stack inside the map container. The
+   3D point-cloud overlay mounts a deck.gl canvas over the map, and
+   without an explicit z-index the popup (z auto) loses to it and
+   renders BEHIND the points (user feedback). 30 clears the deck
+   canvas and our own map chips (z-10) while staying below page
+   chrome. */
+.maplibregl-popup {
+  z-index: 30;
+}
+/* The 3D overlay library's gear-button + panel UI is standalone-
+   viewer chrome (drop-file, load-URL, global styling). In maps the
+   layer panel owns styling per layer, so the control mounts with
+   this class and stays hidden; its deck canvas mounts on the map
+   itself and keeps rendering. */
+.gg-lidar-hidden {
+  display: none !important;
+}
 .maplibregl-popup-content {
   background: hsl(var(--surface-1));
   color: hsl(var(--surface-1-ink));

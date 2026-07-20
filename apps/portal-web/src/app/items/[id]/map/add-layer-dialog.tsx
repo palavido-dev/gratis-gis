@@ -196,8 +196,10 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
           // "rendering coming up" indicator until the canvas
           // renderer for those source kinds lands (#305).
           // #179 unit 3: point_cloud items are addable as 3D layers.
+          // #185: tile_layer items (uploaded imagery, analysis
+          // results like hillshades) are addable as image overlays.
           type:
-            'data_layer,derived_layer,arcgis_service,service,wms_service,wfs_service,point_cloud',
+            'data_layer,derived_layer,arcgis_service,service,wms_service,wfs_service,point_cloud,tile_layer',
           lite: '1',
         });
         if (q) qs.set('q', q);
@@ -632,6 +634,45 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
             : {}),
           colorScheme: data.hasRgb ? 'rgb' : 'elevation',
           pointSize: 2,
+        }),
+      );
+      reset();
+      onClose();
+      return;
+    }
+    // #185: tile_layer items become image overlay layers. Hydrate to
+    // read tileUrl + coverage off item.data and stamp them on the
+    // source (same no-runtime-item-fetch rule as point clouds).
+    // Vector tile caches need authored styling we don't have here;
+    // those stay basemap-only for now, with a plain message.
+    if (item.type === 'tile_layer') {
+      const hydrated = await hydratePortalItem(item);
+      if (hydrated === null) return;
+      const data = hydrated.data as {
+        tileUrl?: string;
+        kind?: string;
+        bbox?: [number, number, number, number];
+        attribution?: string;
+      } | null;
+      if (!data?.tileUrl) {
+        setError(
+          `${item.title} has no uploaded file yet. Upload an image or tile file on the item page first.`,
+        );
+        return;
+      }
+      if (data.kind === 'vector') {
+        setError(
+          `${item.title} is a street-map style tile package. It can be used as a basemap (see the item page) but can't be added as a layer yet.`,
+        );
+        return;
+      }
+      onAdd(
+        makeLayer(item.title, {
+          kind: 'tile',
+          itemId: item.id,
+          tileUrl: data.tileUrl,
+          ...(data.bbox ? { bboxWgs84: data.bbox } : {}),
+          ...(data.attribution ? { attribution: data.attribution } : {}),
         }),
       );
       reset();
@@ -2222,6 +2263,14 @@ function PortalItemRow({
     typeLabel = 'WMS';
   } else if (item.type === 'wfs_service') {
     typeLabel = 'WFS';
+  } else if (item.type === 'point_cloud') {
+    // #179 / #185: honest badges for the non-feature portal types
+    // (these were mislabelled "Feature" before).
+    typeLabel = '3D';
+    typeClasses = 'bg-accent/15 text-accent';
+  } else if (item.type === 'tile_layer') {
+    typeLabel = 'Imagery';
+    typeClasses = 'bg-warn/15 text-warn';
   } else {
     typeLabel = 'Feature';
     typeClasses = 'bg-info/15 text-info';

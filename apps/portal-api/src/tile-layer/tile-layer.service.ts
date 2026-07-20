@@ -13,6 +13,7 @@ import { Prisma } from '@prisma/client';
 import type { TileLayerData, ISODateString } from '@gratis-gis/shared-types';
 import { isTileLayerData } from '@gratis-gis/shared-types';
 
+import { PrismaService } from '../prisma/prisma.service.js';
 import { ItemsService } from '../items/items.service.js';
 import { SharingService } from '../items/sharing.service.js';
 import { StorageService } from '../storage/storage.service.js';
@@ -80,6 +81,7 @@ export class TileLayerService {
     private readonly items: ItemsService,
     private readonly sharing: SharingService,
     private readonly storage: StorageService,
+    private readonly prisma: PrismaService,
   ) {}
 
   /**
@@ -388,12 +390,37 @@ export class TileLayerService {
    * credentials instead of hitting the public URL.  Performs the
    * same ACL check as resolveStorageUrl.
    */
-  async resolveStorageKey(user: AuthUser, itemId: string): Promise<string> {
-    const item = await this.items.get(user, itemId);
-    if (item.type !== 'tile_layer') {
-      throw new BadRequestException(`Item ${itemId} is not a tile_layer.`);
+  async resolveStorageKey(
+    user: AuthUser | null,
+    itemId: string,
+  ): Promise<string> {
+    // #185: `user` is null for anonymous requests, which resolve
+    // only when the item is shared publicly (the public-mirror
+    // rule). This is what lets a public map with a tile overlay
+    // layer render for signed-out visitors, same dual path as the
+    // point-cloud serve endpoint.
+    let data: unknown;
+    if (user) {
+      const item = await this.items.get(user, itemId);
+      if (item.type !== 'tile_layer') {
+        throw new BadRequestException(`Item ${itemId} is not a tile_layer.`);
+      }
+      data = item.data;
+    } else {
+      const item = await this.prisma.item.findFirst({
+        where: {
+          id: itemId,
+          type: 'tile_layer',
+          access: 'public',
+          deletedAt: null,
+        },
+        select: { data: true },
+      });
+      if (!item) {
+        throw new NotFoundException('Tile layer not found.');
+      }
+      data = item.data;
     }
-    const data: unknown = item.data;
     if (!isTileLayerData(data)) {
       throw new NotFoundException(
         'Tile layer has not been uploaded yet (or the upload finalize step did not run).',

@@ -1046,7 +1046,11 @@ export function MapEditor({
         // #179 unit 3: point-cloud layers carry their WGS84 bbox on
         // the source (stamped at add time), so no feature walk.
         const pcLayer = map.layers.find((l) => l.id === layerId);
-        if (pcLayer?.source.kind === 'point-cloud') {
+        if (
+          pcLayer?.source.kind === 'point-cloud' ||
+          pcLayer?.source.kind === 'tile'
+        ) {
+          // #185: tile layers likewise stamp coverage at add time.
           if (pcLayer.source.bboxWgs84) {
             canvasRef.current?.zoomTo(pcLayer.source.bboxWgs84);
           }

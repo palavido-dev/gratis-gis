@@ -86,6 +86,10 @@ export async function discoverLayerMetadata(
       // download binary. Everything the UI needs is stamped on the
       // source.
       return EMPTY;
+    } else if (layer.source.kind === 'tile') {
+      // #185: prerendered imagery; no attributes, and the range
+      // proxy serves binary tiles.
+      return EMPTY;
     } else if (layer.source.kind === 'geojson-inline') {
       raw = layer.source.geojson;
     } else if (layer.source.kind === 'arcgis-rest') {

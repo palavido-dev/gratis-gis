@@ -11,12 +11,17 @@
  * the first time a map actually shows a point-cloud layer;
  * 2D-only maps never pay for it.
  *
- * One LidarControl instance per MapLibre map handles every
- * point-cloud layer on that map (the control natively manages
- * multiple clouds). Layer visibility maps to load/unload of the
- * corresponding cloud. Styling (color scheme, point size) is
- * control-global, so the topmost visible point-cloud layer's
- * persisted choices win -- documented on the source type.
+ * ONE LidarControl instance PER point-cloud LAYER (user feedback:
+ * styling must be tied to each individual layer, and the library's
+ * styling API is control-global). Each layer's persisted style
+ * (color scheme, colormap, point size) plus the layer's opacity
+ * apply to its own control, so two clouds on one map can disagree
+ * freely. The library's own gear-button panel is hidden in maps
+ * via the `className` option + CSS: its load-file / load-URL
+ * inputs belong to the standalone item viewer, and styling lives
+ * in OUR layer panel. The deck.gl canvas the control drives is
+ * mounted on the map itself, so hiding the button container does
+ * not affect rendering.
  *
  * Calls are serialized per map: the sync runs on every layer-list
  * change and loads are slow (network + wasm decode), so without a
@@ -27,13 +32,17 @@ import type { MapLayer } from '@gratis-gis/shared-types';
 import type { LidarControl } from 'maplibre-gl-lidar';
 
 type PointCloudSource = Extract<MapLayer['source'], { kind: 'point-cloud' }>;
+type PcLayer = MapLayer & { source: PointCloudSource };
 
-interface OverlayState {
+interface CloudEntry {
   control: LidarControl;
-  /** layer id -> point cloud id inside the control */
-  loaded: Map<string, string>;
   /** last applied style signature, to avoid re-style churn */
   styleSig: string;
+}
+
+interface OverlayState {
+  /** layer id -> its dedicated control */
+  clouds: Map<string, CloudEntry>;
   /** maxPitch to restore when the last 3D layer leaves */
   prevMaxPitch: number;
   /** serialization chain for sync calls */
@@ -43,15 +52,17 @@ interface OverlayState {
    *  before the first point draws; without messaging that reads
    *  as "the layer is broken" (user feedback). */
   indicator: HTMLDivElement;
+  /** cached module so later layer adds skip the dynamic import */
+  mod: typeof import('maplibre-gl-lidar') | null;
 }
 
 const states = new WeakMap<maplibregl.Map, OverlayState>();
 
 /**
- * Reconcile the control's loaded clouds with the map's visible
- * point-cloud layers. Fire-and-forget from the canvas layer
- * effect; errors degrade to a console warning + missing layer
- * rather than breaking the 2D map.
+ * Reconcile the loaded controls with the map's visible point-cloud
+ * layers. Fire-and-forget from the canvas layer effect; errors
+ * degrade to a console warning + missing layer rather than
+ * breaking the 2D map.
  */
 export function syncPointCloudOverlay(
   map: maplibregl.Map,
@@ -59,8 +70,7 @@ export function syncPointCloudOverlay(
 ): void {
   const state = states.get(map);
   const desired = layers.filter(
-    (l): l is MapLayer & { source: PointCloudSource } =>
-      l.source.kind === 'point-cloud' && l.visible,
+    (l): l is PcLayer => l.source.kind === 'point-cloud' && l.visible,
   );
   if (desired.length === 0 && !state) return; // common case: 2D map
   const chain = (state?.op ?? Promise.resolve()).then(() =>
@@ -77,13 +87,20 @@ export function teardownPointCloudOverlay(map: maplibregl.Map): void {
   if (!state) return;
   states.delete(map);
   state.indicator.remove();
+  for (const [, entry] of state.clouds) {
+    removeControl(map, entry);
+  }
+  state.clouds.clear();
+}
+
+function removeControl(map: maplibregl.Map, entry: CloudEntry): void {
   try {
-    state.control.stopStreaming();
+    entry.control.stopStreaming();
   } catch {
     /* not streaming */
   }
   try {
-    map.removeControl(state.control);
+    map.removeControl(entry.control);
   } catch {
     /* map may already be tearing down */
   }
@@ -111,22 +128,39 @@ function hideIndicator(state: OverlayState): void {
   state.indicator.style.display = 'none';
 }
 
+function styleSigFor(layer: PcLayer): string {
+  const scheme =
+    layer.source.colorScheme ?? (layer.source.hasRgb ? 'rgb' : 'elevation');
+  const colormap = layer.source.colormap ?? 'viridis';
+  const size = layer.source.pointSize ?? 2;
+  return `${scheme}:${colormap}:${size}:${layer.opacity ?? 1}`;
+}
+
+function applyStyle(entry: CloudEntry, layer: PcLayer): void {
+  const sig = styleSigFor(layer);
+  if (sig === entry.styleSig) return;
+  entry.styleSig = sig;
+  try {
+    entry.control.setColorScheme(
+      layer.source.colorScheme ??
+        (layer.source.hasRgb ? 'rgb' : 'elevation'),
+    );
+    entry.control.setColormap(layer.source.colormap ?? 'viridis');
+    entry.control.setPointSize(layer.source.pointSize ?? 2);
+    entry.control.setOpacity(layer.opacity ?? 1);
+  } catch {
+    /* control mid-teardown */
+  }
+}
+
 async function reconcile(
   map: maplibregl.Map,
-  desired: Array<MapLayer & { source: PointCloudSource }>,
+  desired: PcLayer[],
 ): Promise<void> {
   let state = states.get(map);
 
   if (desired.length === 0) {
     if (state) {
-      for (const [, pcId] of state.loaded) {
-        try {
-          state.control.unloadPointCloud(pcId);
-        } catch {
-          /* already gone */
-        }
-      }
-      state.loaded.clear();
       map.setMaxPitch(state.prevMaxPitch);
       teardownPointCloudOverlay(map);
     }
@@ -142,59 +176,61 @@ async function reconcile(
     // awaited the import.
     state = states.get(map);
     if (!state) {
-      const totalPoints = desired.reduce(
-        (sum, l) => sum + (l.source.pointCount ?? 0),
-        0,
-      );
-      const isHuge = totalPoints > 20_000_000;
-      const theme = document.documentElement.classList.contains('dark')
-        ? ('dark' as const)
-        : ('light' as const);
-      const control = new mod.LidarControl({
-        title: 'Point clouds',
-        collapsed: true,
-        theme,
-        // The map's saved viewport is authoritative; never yank the
-        // camera when a map with a 3D layer opens.
-        autoZoom: false,
-        // 2D feature popups own the click surface in maps; deck
-        // picking on top of them reads as double tooltips.
-        pickable: false,
-        shareUrl: false,
-        restoreFromUrl: false,
-        streamingPointBudget: isHuge ? 1_500_000 : 4_000_000,
-        streamingViewportDebounceMs: isHuge ? 400 : 150,
-      });
-      map.addControl(control, 'top-right');
       state = {
-        control,
-        loaded: new Map(),
-        styleSig: '',
+        clouds: new Map(),
         prevMaxPitch: map.getMaxPitch(),
         op: Promise.resolve(),
         indicator: makeIndicator(map),
+        mod,
       };
       states.set(map, state);
       // 3D needs headroom to look under the horizon; MapLibre's
       // default 60 reads flat for terrain.
       map.setMaxPitch(85);
     }
+    state.mod = mod;
   }
 
+  // Drop controls for layers that were removed or hidden.
   const wantIds = new Set(desired.map((l) => l.id));
-  for (const [layerId, pcId] of Array.from(state.loaded)) {
+  for (const [layerId, entry] of Array.from(state.clouds)) {
     if (!wantIds.has(layerId)) {
-      try {
-        state.control.unloadPointCloud(pcId);
-      } catch {
-        /* already gone */
-      }
-      state.loaded.delete(layerId);
+      removeControl(map, entry);
+      state.clouds.delete(layerId);
     }
   }
 
-  const toLoad = desired.filter((l) => !state.loaded.has(l.id));
+  // Create + load a control for each new layer.
+  const toLoad = desired.filter((l) => !state.clouds.has(l.id));
   for (const [i, layer] of toLoad.entries()) {
+    const mod = state.mod;
+    if (!mod) return; // teardown raced the import
+    const isHuge = (layer.source.pointCount ?? 0) > 20_000_000;
+    const theme = document.documentElement.classList.contains('dark')
+      ? ('dark' as const)
+      : ('light' as const);
+    const control = new mod.LidarControl({
+      title: layer.title,
+      collapsed: true,
+      theme,
+      // Hidden in maps (see module doc). The class carries a
+      // display:none rule in globals.css.
+      className: 'gg-lidar-hidden',
+      // The map's saved viewport is authoritative; never yank the
+      // camera when a map with a 3D layer opens.
+      autoZoom: false,
+      // 2D feature popups own the click surface in maps; deck
+      // picking on top of them reads as double tooltips.
+      pickable: false,
+      shareUrl: false,
+      restoreFromUrl: false,
+      streamingPointBudget: isHuge ? 1_500_000 : 4_000_000,
+      streamingViewportDebounceMs: isHuge ? 400 : 150,
+    });
+    map.addControl(control, 'top-right');
+    const entry: CloudEntry = { control, styleSig: '' };
+    state.clouds.set(layer.id, entry);
+
     const url = `${window.location.origin}${layer.source.dataUrl}`;
     showIndicator(
       state,
@@ -203,30 +239,22 @@ async function reconcile(
         : `Loading ${layer.title}...`,
     );
     try {
-      const info = await state.control.loadPointCloud(url);
-      state.loaded.set(layer.id, info.id);
+      await control.loadPointCloud(url);
     } catch (err) {
       console.warn(`point cloud layer "${layer.title}" failed to load`, err);
       showIndicator(state, `${layer.title} failed to load.`);
       // Leave the failure visible briefly instead of vanishing.
       await new Promise((r) => setTimeout(r, 2500));
+      removeControl(map, entry);
+      state.clouds.delete(layer.id);
     }
   }
   if (toLoad.length > 0) hideIndicator(state);
 
-  // Control-global styling: topmost visible point-cloud layer wins.
-  const top = desired[0]!;
-  const scheme =
-    top.source.colorScheme ?? (top.source.hasRgb ? 'rgb' : 'elevation');
-  const size = top.source.pointSize ?? 2;
-  const sig = `${scheme}:${size}`;
-  if (sig !== state.styleSig) {
-    state.styleSig = sig;
-    try {
-      state.control.setColorScheme(scheme);
-      state.control.setPointSize(size);
-    } catch {
-      /* control mid-teardown */
-    }
+  // Per-layer styling: each control gets its own layer's persisted
+  // choices. No topmost-wins compromise anymore.
+  for (const layer of desired) {
+    const entry = state.clouds.get(layer.id);
+    if (entry) applyStyle(entry, layer);
   }
 }

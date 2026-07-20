@@ -13,6 +13,7 @@ import {
   FolderMinus,
   FolderPlus,
   GripVertical,
+  Image as ImageIcon,
   MoreVertical,
   Mountain,
   MousePointerClick,
@@ -679,6 +680,10 @@ function LayerRow({
   // labels, popups, filters, attribute table) don't apply. They
   // get their own compact style options instead.
   const isPointCloud = layer.source.kind === 'point-cloud';
+  // #185: tile layers are prerendered imagery; no attributes, no
+  // geometry-bound editors. Opacity + zoom-to-coverage is the whole
+  // control surface.
+  const isTileOverlay = layer.source.kind === 'tile';
   // Narrowed alias: the JSX guard's narrowing doesn't survive into
   // onChange closures, so spreads there see the wide union without
   // this.
@@ -843,6 +848,13 @@ function LayerRow({
               className={`h-3.5 w-3.5 ${layer.visible ? 'text-accent' : 'text-muted'}`}
             />
           </span>
+        ) : isTileOverlay ? (
+          /* #185: imagery glyph for tile layers. */
+          <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center">
+            <ImageIcon
+              className={`h-3.5 w-3.5 ${layer.visible ? 'text-accent' : 'text-muted'}`}
+            />
+          </span>
         ) : !isTable ? (
           <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center">
             <LayerSwatch
@@ -920,7 +932,7 @@ function LayerRow({
             >
               {/* Read-side actions: available to viewers AND
                   authors. (#311) */}
-              {!isPointCloud ? (
+              {!isPointCloud && !isTileOverlay ? (
                 <MenuItem
                   Icon={TableIcon}
                   label="Open attribute table"
@@ -934,7 +946,7 @@ function LayerRow({
                   suppress them on table layers since they would
                   have no effect. (#73) Point clouds zoom via their
                   stamped WGS84 bbox instead of walking features. */}
-              {!isTable && !isPointCloud ? (
+              {!isTable && !isPointCloud && !isTileOverlay ? (
                 <>
                   <MenuItem
                     Icon={Tag}
@@ -965,7 +977,10 @@ function LayerRow({
                   />
                 </>
               ) : null}
-              {isPointCloud ? (
+              {isPointCloud || isTileOverlay ? (
+                /* Point clouds and tile layers zoom via their
+                   stamped WGS84 coverage box instead of walking
+                   features. */
                 <MenuItem
                   Icon={Focus}
                   label="Zoom to layer extent"
@@ -975,7 +990,8 @@ function LayerRow({
                   }}
                   disabled={
                     !(
-                      layer.source.kind === 'point-cloud' &&
+                      (layer.source.kind === 'point-cloud' ||
+                        layer.source.kind === 'tile') &&
                       layer.source.bboxWgs84
                     )
                   }
@@ -1106,9 +1122,9 @@ function LayerRow({
               instead so the user knows where to look. (#73) */}
           {pcSource ? (
             /* #179 unit 3: compact 3D style options. Persisted on
-               the layer source; the overlay control is shared per
-               map, so when several point-cloud layers disagree the
-               topmost visible one wins (documented on the type). */
+               the layer source. Each point-cloud layer drives its
+               own overlay control, so these are honestly per-layer
+               (user feedback). */
             <div className="space-y-2 px-3 py-3">
               <label className="flex items-center justify-between gap-2 text-2xs uppercase tracking-wide text-muted">
                 <span>Color by</span>
@@ -1140,6 +1156,38 @@ function LayerRow({
                   </option>
                 </select>
               </label>
+              {/* Colormap only shapes elevation / intensity ramps;
+                  classification and RGB bring their own colors. */}
+              {(pcSource.colorScheme ?? 'elevation') === 'elevation' ||
+              pcSource.colorScheme === 'intensity' ? (
+                <label className="flex items-center justify-between gap-2 text-2xs uppercase tracking-wide text-muted">
+                  <span>Color ramp</span>
+                  <select
+                    value={pcSource.colormap ?? 'viridis'}
+                    disabled={!canEdit}
+                    onChange={(e) =>
+                      onPatch({
+                        source: {
+                          ...pcSource,
+                          colormap: e.target
+                            .value as NonNullable<typeof pcSource.colormap>,
+                        },
+                      })
+                    }
+                    className="rounded border border-border bg-surface-0 px-1.5 py-1 text-xs normal-case text-ink-0 disabled:opacity-50"
+                  >
+                    <option value="viridis">Viridis</option>
+                    <option value="plasma">Plasma</option>
+                    <option value="inferno">Inferno</option>
+                    <option value="magma">Magma</option>
+                    <option value="cividis">Cividis</option>
+                    <option value="turbo">Turbo</option>
+                    <option value="terrain">Terrain</option>
+                    <option value="coolwarm">Cool-warm</option>
+                    <option value="gray">Grayscale</option>
+                  </select>
+                </label>
+              ) : null}
               <label className="flex items-center justify-between text-2xs uppercase tracking-wide text-muted">
                 <span>Point size</span>
                 <span className="tabular-nums">
@@ -1161,6 +1209,22 @@ function LayerRow({
                     },
                   })
                 }
+                className="w-full accent-accent disabled:opacity-50"
+              />
+              <label className="flex items-center justify-between text-2xs uppercase tracking-wide text-muted">
+                <span>Opacity</span>
+                <span className="tabular-nums">
+                  {Math.round(layer.opacity * 100)}%
+                </span>
+              </label>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={layer.opacity}
+                disabled={!canEdit}
+                onChange={(e) => onOpacity(Number(e.target.value))}
                 className="w-full accent-accent disabled:opacity-50"
               />
               <p className="text-2xs leading-relaxed text-muted">
@@ -1194,7 +1258,7 @@ function LayerRow({
             </div>
           )}
 
-          {canEdit && !isTable && !isPointCloud ? (
+          {canEdit && !isTable && !isPointCloud && !isTileOverlay ? (
             <>
               <Section
                 Icon={Palette}
