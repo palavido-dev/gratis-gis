@@ -182,8 +182,8 @@ export class TileLayerPyramidWorker implements OnModuleInit {
     data: TileLayerData;
   }): Promise<void> {
     const { itemId, data } = claim;
-    if (!data.cogStorageUrl) {
-      await this.markFailed(itemId, 'COG storage URL is missing on the item.');
+    if (!data.cogStorageKey && !data.cogStorageUrl) {
+      await this.markFailed(itemId, 'COG storage reference is missing on the item.');
       return;
     }
     const maxZoom = data.maxZoom ?? 18;
@@ -199,8 +199,19 @@ export class TileLayerPyramidWorker implements OnModuleInit {
       );
 
       // Download the COG to local scratch.  gdal2tiles needs a
-      // local input path.
-      await this.downloadTo(data.cogStorageUrl, cogPath);
+      // local input path.  Prefer the storage KEY through the S3
+      // SDK: since item-tile-layer became a private kind, the
+      // persisted cogStorageUrl is an API-relative path
+      // (/api/portal/storage/private/...) that a bare fetch()
+      // cannot parse, which silently broke every pyramid build on
+      // private COGs.  The URL fetch stays as a fallback for
+      // legacy rows that predate the key fields and still carry
+      // an absolute MinIO URL.
+      if (data.cogStorageKey) {
+        await this.storage.streamObjectToDisk(data.cogStorageKey, cogPath);
+      } else {
+        await this.downloadTo(data.cogStorageUrl!, cogPath);
+      }
 
       // gdal2tiles.py -z 0-<maxZoom> source.tif tiles/
       //   --processes uses all cores; useful for big rasters.
