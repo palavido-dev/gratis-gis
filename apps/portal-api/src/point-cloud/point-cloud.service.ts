@@ -136,7 +136,9 @@ export class PointCloudService {
       lasVersion: parsed.lasVersion,
       pointFormat: parsed.pointFormat,
       hasRgb: parsed.hasRgb,
-      dataUrl: `/api/portal/point-cloud/${itemId}/file`,
+      // The .copc.laz suffix is load-bearing: COPC readers sniff
+      // the URL for ".copc." to enable viewport streaming.
+      dataUrl: `/api/portal/point-cloud/${itemId}/file.copc.laz`,
     };
     if (parsed.crsWkt) data.crsWkt = parsed.crsWkt;
     const bboxWgs84 = boundsToWgs84(parsed.bounds, parsed.crsWkt);

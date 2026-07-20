@@ -74,8 +74,11 @@ export interface PointCloudData {
 
   /**
    * API path the viewer range-reads:
-   * `/api/portal/point-cloud/<itemId>/file`. Stored so map layer
-   * configs and copy-URL affordances don't have to compose it.
+   * `/api/portal/point-cloud/<itemId>/file.copc.laz`. Stored so
+   * map layer configs and copy-URL affordances don't have to
+   * compose it. The suffix is load-bearing: COPC readers sniff the
+   * URL for ".copc." to enable viewport streaming instead of a
+   * whole-file download.
    */
   dataUrl?: string;
 }

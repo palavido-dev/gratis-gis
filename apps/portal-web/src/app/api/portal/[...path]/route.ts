@@ -193,7 +193,7 @@ function publicRewriteForAnonymousGet(suffix: string): string | null {
   // the optional bearer token (full item ACL when signed in,
   // access='public' resolution when anon), so this is a
   // passthrough, same pattern as the storage entry above.
-  if (/^point-cloud\/[^/]+\/file$/.test(suffix)) {
+  if (/^point-cloud\/[^/]+\/file(\.copc\.laz)?$/.test(suffix)) {
     return suffix;
   }
   return null;

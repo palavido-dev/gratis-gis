@@ -73,8 +73,17 @@ export class PointCloudController {
    * upload produces a new storageKey, and the ETag (MinIO's, keyed
    * to the object) invalidates stale node reads after replacement.
    */
+  /**
+   * Both paths serve identical bytes. The `.copc.laz`-suffixed one
+   * is what dataUrl advertises: maplibre-gl-lidar (and other COPC
+   * viewers) decide streaming vs full-download by testing the URL
+   * for ".copc.", so an extension-less URL silently downgrades a
+   * multi-GB cloud to a whole-file download that OOMs the tab. The
+   * bare path stays for anything that persisted it before the
+   * suffix existed.
+   */
   @Public()
-  @Get('point-cloud/:itemId/file')
+  @Get(['point-cloud/:itemId/file', 'point-cloud/:itemId/file.copc.laz'])
   async serveFile(
     @CurrentUser() user: AuthUser | null,
     @Param('itemId') itemId: string,
