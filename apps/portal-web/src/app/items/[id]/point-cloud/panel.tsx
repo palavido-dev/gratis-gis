@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
+import Link from 'next/link';
 import {
   Check,
   Copy,
+  ExternalLink,
   Loader2,
   Mountain,
+  Sun,
   Upload as UploadIcon,
 } from 'lucide-react';
 import type { PointCloudData } from '@gratis-gis/shared-types';
@@ -322,7 +325,189 @@ export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
           />
         </div>
       </section>
+
+      {ready && canEdit ? (
+        <HillshadeSection itemId={itemId} />
+      ) : null}
     </div>
+  );
+}
+
+interface AnalysisJobRow {
+  id: string;
+  kind: string;
+  state: 'queued' | 'running' | 'done' | 'failed';
+  progress: number;
+  error: string | null;
+  targetItemId: string | null;
+  createdAt: string;
+}
+
+/**
+ * First workbench primitive chain (#184): derive a hillshade
+ * raster server-side. The job list polls while anything is queued
+ * or running; a finished job links to the created tile layer,
+ * which the pyramid pipeline is meanwhile baking into PMTiles.
+ * A 503 from the create endpoint means the operator has not
+ * deployed the analysis worker; the message is surfaced verbatim.
+ */
+function HillshadeSection({ itemId }: { itemId: string }) {
+  const [mode, setMode] = useState<'dtm' | 'dsm'>('dtm');
+  const [resolution, setResolution] = useState('1');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [jobs, setJobs] = useState<AnalysisJobRow[]>([]);
+
+  const active = jobs.some(
+    (j) => j.state === 'queued' || j.state === 'running',
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const res = await fetch(`/api/portal/items/${itemId}/analysis/jobs`);
+        if (!res.ok) return;
+        const rows = (await res.json()) as AnalysisJobRow[];
+        if (!cancelled) setJobs(rows);
+      } catch {
+        /* transient; next poll retries */
+      }
+    }
+    void load();
+    // Poll faster while a job is in flight so progress feels live.
+    const id = window.setInterval(() => void load(), active ? 4000 : 15000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [itemId, active]);
+
+  async function submit() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/portal/items/${itemId}/analysis/hillshade`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ mode, resolution: Number(resolution) }),
+        },
+      );
+      const body = (await res.json()) as {
+        message?: string;
+        job?: AnalysisJobRow;
+      };
+      if (!res.ok) {
+        setError(body.message ?? `Failed (HTTP ${res.status}).`);
+        return;
+      }
+      if (body.job) setJobs((prev) => [body.job!, ...prev]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Request failed.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <section className="overflow-hidden rounded-lg border border-border bg-surface-1 shadow-card">
+      <div className="flex items-center gap-2 border-b border-border bg-surface-2 px-4 py-3">
+        <Sun className="h-4 w-4 text-accent" aria-hidden="true" />
+        <h2 className="text-sm font-medium text-ink-0">Derive hillshade</h2>
+      </div>
+      <div className="space-y-3 p-4">
+        <p className="text-xs leading-relaxed text-muted">
+          Builds an elevation model from the points on the server and
+          shades it into a map-ready raster layer. Terrain uses ground
+          returns only; surface includes vegetation and structures.
+        </p>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="block">
+            <span className="mb-1 block text-2xs uppercase tracking-wide text-muted">
+              Elevation model
+            </span>
+            <select
+              value={mode}
+              onChange={(e) => setMode(e.target.value as 'dtm' | 'dsm')}
+              className="rounded border border-border bg-surface-0 px-2 py-1.5 text-xs text-ink-0"
+            >
+              <option value="dtm">Terrain (bare earth)</option>
+              <option value="dsm">Surface (with canopy)</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-2xs uppercase tracking-wide text-muted">
+              Resolution
+            </span>
+            <select
+              value={resolution}
+              onChange={(e) => setResolution(e.target.value)}
+              className="rounded border border-border bg-surface-0 px-2 py-1.5 text-xs text-ink-0"
+            >
+              <option value="1">1 meter</option>
+              <option value="2">2 meters</option>
+              <option value="5">5 meters</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={() => void submit()}
+            disabled={submitting || active}
+            className="inline-flex items-center gap-2 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {submitting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Sun className="h-3.5 w-3.5" />
+            )}
+            Run
+          </button>
+        </div>
+        {error ? (
+          <div className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
+            {error}
+          </div>
+        ) : null}
+        {jobs.length > 0 ? (
+          <ul className="space-y-1.5">
+            {jobs.map((j) => (
+              <li
+                key={j.id}
+                className="flex items-center gap-2 rounded-md border border-border bg-surface-0 px-3 py-2 text-xs"
+              >
+                {j.state === 'running' || j.state === 'queued' ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
+                ) : j.state === 'done' ? (
+                  <Check className="h-3.5 w-3.5 text-success" />
+                ) : (
+                  <span className="text-danger">!</span>
+                )}
+                <span className="text-ink-1">
+                  {j.state === 'queued'
+                    ? 'Waiting for the worker...'
+                    : j.state === 'running'
+                      ? `Processing... ${j.progress}%`
+                      : j.state === 'done'
+                        ? 'Done'
+                        : (j.error ?? 'Failed')}
+                </span>
+                {j.state === 'done' && j.targetItemId ? (
+                  <Link
+                    href={`/items/${j.targetItemId}`}
+                    className="ml-auto inline-flex items-center gap-1 text-accent hover:underline"
+                  >
+                    Open result
+                    <ExternalLink className="h-3 w-3" />
+                  </Link>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </section>
   );
 }
 

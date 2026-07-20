@@ -945,6 +945,37 @@ model SystemSetting {
   @@map("system_setting")
 }
 
+/// #184 / workbench foundation: queue for server-side analysis
+/// jobs (hillshade, point-cloud merges, future primitives). The
+/// pointcloud-worker service polls this table with
+/// FOR UPDATE SKIP LOCKED, so multiple workers are safe if a
+/// deployment ever runs more than one. `kind` + `params` describe
+/// the primitive chain; `sourceItemId` / `targetItemId` wire
+/// provenance (the target item is created up front in `queued`
+/// state so the UI has something to link immediately, and the
+/// dependency extractor sees the edge as soon as the job exists).
+model AnalysisJob {
+  id           String    @id @default(uuid()) @db.Uuid
+  orgId        String    @map("org_id") @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  kind         String
+  params       Json      @default("{}")
+  sourceItemId String    @map("source_item_id") @db.Uuid
+  targetItemId String?   @map("target_item_id") @db.Uuid
+  /// queued -> running -> done | failed
+  state        String    @default("queued")
+  /// 0..100 while running; workers update it best-effort.
+  progress     Int       @default(0)
+  error        String?
+  createdAt    DateTime  @default(now()) @map("created_at")
+  startedAt    DateTime? @map("started_at")
+  finishedAt   DateTime? @map("finished_at")
+
+  @@index([state, createdAt])
+  @@index([sourceItemId])
+  @@map("analysis_job")
+}
+
 /// One captured response against a form item (#131). Idempotent on
 /// (formId, clientId) so a re-drained offline queue is safe. The
 /// captured `schemaVersion` is preserved so downstream consumers can

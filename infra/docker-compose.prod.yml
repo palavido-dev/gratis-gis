@@ -334,6 +334,14 @@ services:
       # within the docker network rather than hairpin through
       # the public domain.
       PRINT_PREVIEW_BASE_URL: http://portal-web:3000
+      # #184 workbench: which analysis capability tiers this
+      # deployment offers. The pointcloud-worker service below
+      # executes the server-heavy tier; operators on small boxes
+      # remove that service AND this value together, and the API
+      # then refuses derive requests with a plain 503 instead of
+      # queueing jobs nothing will run. The install doctor reports
+      # whether the hardware honestly supports each tier.
+      ANALYSIS_TIERS: server-heavy
     volumes:
       - portal-api-backups:/app/backups
       - gg-staging:/var/lib/gg-staging
@@ -410,6 +418,41 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+    networks:
+      - gratis-net
+
+  # #184 workbench: server-heavy analysis tier. PDAL + untwine +
+  # GDAL from conda-forge in a dedicated image so the Node images
+  # stay lean; a Python runner polls the analysis_job table with
+  # FOR UPDATE SKIP LOCKED and executes primitive chains (hillshade
+  # in v1, the #182 merge pipeline next). Operators on small boxes
+  # delete this service together with the ANALYSIS_TIERS value on
+  # portal-api; the API then refuses derive requests with a plain
+  # 503. Uses the INTERNAL MinIO endpoint: the worker never mints
+  # presigned URLs, so there is no reason to hairpin through Caddy.
+  pointcloud-worker:
+    image: gratis-gis/pointcloud-worker:latest
+    container_name: gratis-gis-prod-pointcloud-worker
+    build:
+      context: ..
+      dockerfile: tools/pointcloud-worker/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      portal-migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-gratisgis}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gratisgis}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${S3_BUCKET:-gratisgis}
+      SCRATCH_DIR: /scratch
+    volumes:
+      - pointcloud-scratch:/scratch
     networks:
       - gratis-net
 
@@ -543,6 +586,10 @@ volumes:
   # and portal-worker (reader at runJob). Without this, files staged
   # by the api would not be visible to the worker.
   gg-staging:
+  # #184: scratch space for the pointcloud-worker's downloads and
+  # intermediate rasters. A named volume so a mid-job crash doesn't
+  # bloat the container layer; the runner cleans per-job subdirs.
+  pointcloud-scratch:
 
 networks:
   gratis-net:
