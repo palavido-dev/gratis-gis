@@ -221,6 +221,18 @@ export interface MapCanvasHandle {
     featureProps?: Record<string, unknown>;
   }) => void;
   /**
+   * Read the live camera. The editor's Save merges this into the
+   * persisted MapData so the saved view is whatever is actually on
+   * screen, regardless of whether the camera got there by hand or
+   * programmatically (zoom-to-extent, search fly-to). The
+   * event-driven fold in onCameraChange filters to user-driven
+   * moves on purpose (initial fits must not dirty the map), which
+   * is exactly why save-time capture has to read the map directly.
+   */
+  getCamera: () =>
+    | Pick<MapData, 'center' | 'zoom' | 'bearing' | 'pitch'>
+    | null;
+  /**
    * Force a refetch of one MapLayer's GeoJSON source. Used by
    * editing surfaces (the field-mode runtime, the editor) after a
    * feature is added / updated / deleted so the map shows the
@@ -369,6 +381,17 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
   useImperativeHandle(
     ref,
     () => ({
+      getCamera: () => {
+        const m = mapRef.current;
+        if (!m) return null;
+        const c = m.getCenter();
+        return {
+          center: [c.lng, c.lat] as [number, number],
+          zoom: m.getZoom(),
+          bearing: m.getBearing(),
+          pitch: m.getPitch(),
+        };
+      },
       zoomTo: (bbox) => {
         const m = mapRef.current;
         if (!m) return;
@@ -559,6 +582,12 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
       zoom: map.zoom,
       bearing: map.bearing,
       pitch: map.pitch,
+      // 3D layers (point clouds, attribute-extruded polygons) need
+      // to look across the scene, and MapLibre's default 60 reads
+      // flat for terrain. Raised canvas-wide: 2D users only notice
+      // if they deliberately tilt, and one constant beats managing
+      // per-layer-kind pitch state.
+      maxPitch: 85,
       attributionControl: false,
       // #101 print snapshot: `canvas.toDataURL()` returns a blank
       // PNG when the WebGL context has cleared its drawing buffer
@@ -2755,27 +2784,74 @@ function syncOverlays(
       return expr;
     };
 
-    // Polygon fill. Selection bumps opacity so picked polygons read as
-    // highlighted even against a translucent base style.
-    m.addLayer({
-      id: `gg:${layer.id}-fill`,
-      type: 'fill',
-      source: sourceId,
-      ...sourceLayerProp,
-      minzoom,
-      maxzoom,
-      filter: combineFilter(['==', ['geometry-type'], 'Polygon'], layer.filter),
-      paint: {
-        'fill-color': polyFill,
-        'fill-opacity': scaledStepCase((st) =>
-          stateCase(
-            mul(st.polygon.fillOpacity, op),
-            mul(min1(add(st.polygon.fillOpacity, 0.4)), op),
-            mul(min1(add(st.polygon.fillOpacity, 0.25)), op),
+    // Polygon rendering: flat fill by default, or MapLibre's native
+    // fill-extrusion when the style opts into 3D by attribute
+    // (building footprints with a height field, etc.). Extrusion
+    // replaces the flat fill (both at once z-fight); the outline
+    // layer below stays either way. fill-extrusion-opacity only
+    // accepts a constant, so the extruded branch uses the resolved
+    // base opacity without the hover/selection bumps.
+    const extrusion = s.polygon.extrusion;
+    if (extrusion?.enabled && extrusion.heightField) {
+      m.addLayer({
+        id: `gg:${layer.id}-fill`,
+        type: 'fill-extrusion',
+        source: sourceId,
+        ...sourceLayerProp,
+        minzoom,
+        maxzoom,
+        filter: combineFilter(
+          ['==', ['geometry-type'], 'Polygon'],
+          layer.filter,
+        ),
+        paint: {
+          'fill-extrusion-color': polyFill as unknown as string,
+          'fill-extrusion-opacity': Math.min(
+            1,
+            s.polygon.fillOpacity * op,
           ),
-        ) as unknown as number,
-      },
-    });
+          // to-number with a 0 fallback: features missing the field
+          // or carrying non-numeric values render flat instead of
+          // breaking the layer. Clamped at zero because negative
+          // extrusion heights are a MapLibre error.
+          'fill-extrusion-height': [
+            'max',
+            0,
+            [
+              '*',
+              ['to-number', ['get', extrusion.heightField], 0],
+              extrusion.heightMultiplier ?? 1,
+            ],
+          ] as unknown as number,
+          'fill-extrusion-base': extrusion.base ?? 0,
+        },
+      });
+    } else {
+      // Selection bumps opacity so picked polygons read as
+      // highlighted even against a translucent base style.
+      m.addLayer({
+        id: `gg:${layer.id}-fill`,
+        type: 'fill',
+        source: sourceId,
+        ...sourceLayerProp,
+        minzoom,
+        maxzoom,
+        filter: combineFilter(
+          ['==', ['geometry-type'], 'Polygon'],
+          layer.filter,
+        ),
+        paint: {
+          'fill-color': polyFill,
+          'fill-opacity': scaledStepCase((st) =>
+            stateCase(
+              mul(st.polygon.fillOpacity, op),
+              mul(min1(add(st.polygon.fillOpacity, 0.4)), op),
+              mul(min1(add(st.polygon.fillOpacity, 0.25)), op),
+            ),
+          ) as unknown as number,
+        },
+      });
+    }
 
     // Polygon outline (separate layer so paint rules stay simple).
     // Selected polygons get an accent color and a thicker outline so

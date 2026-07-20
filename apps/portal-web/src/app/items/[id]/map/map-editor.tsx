@@ -830,15 +830,24 @@ export function MapEditor({
     setError(null);
     setSaving(true);
     try {
+      // Capture the live camera at save time. The event-driven fold
+      // (onCameraChange) only sees user-driven moves, so a view
+      // reached via zoom-to-extent or a search fly-to would silently
+      // save the previous camera without this.
+      const cam = canvasRef.current?.getCamera();
+      const payload = cam ? { ...map, ...cam } : map;
       const res = await fetch(`/api/portal/items/${itemId}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ data: map }),
+        body: JSON.stringify({ data: payload }),
       });
       if (!res.ok) {
         setError(`Save failed: ${res.status} ${await res.text()}`);
         return;
       }
+      // Keep client state aligned with what was just persisted so a
+      // follow-up save doesn't diff against a stale camera.
+      if (cam) setMap((m) => ({ ...m, ...cam }));
       setDirty(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);

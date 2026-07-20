@@ -761,6 +761,28 @@ export interface MapLayerStyle {
     strokeDashStyle?: DashStyle;
     strokeCap?: LineCap;
     strokeJoin?: LineJoin;
+    /**
+     * 3D extrusion by attribute (building footprints with a height
+     * field, parcels by value, and so on). Renders through
+     * MapLibre's native fill-extrusion layer, so this costs nothing
+     * beyond the 2D pipeline: no deck.gl, no lazy 3D stack (that
+     * remains point-cloud-only). Height per feature is
+     * `to-number(properties[heightField]) * heightMultiplier` in
+     * meters, clamped at zero; features whose field is missing or
+     * non-numeric render flat. When enabled the extrusion layer
+     * replaces the flat fill (outline stays), and the canvas raises
+     * maxPitch the same way point-cloud layers do.
+     */
+    extrusion?: {
+      enabled: boolean;
+      /** Feature property holding the height value. */
+      heightField: string;
+      /** Multiplier applied to the raw value, default 1. Use for
+       *  unit conversion (feet -> meters: 0.3048) or exaggeration. */
+      heightMultiplier?: number;
+      /** Base elevation offset in meters, default 0. */
+      base?: number;
+    };
   };
 }
 

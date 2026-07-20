@@ -31,6 +31,13 @@ interface Props {
    * Once the layer's data is sampled we narrow to only what's present.
    */
   geometryTypes?: Set<GeometryFamily>;
+  /**
+   * Attribute names sampled from the layer's data, for the 3D
+   * extrusion height-field picker. Empty while metadata loads;
+   * the picker degrades to a free-text input so the control never
+   * dead-ends.
+   */
+  fields?: string[];
 }
 
 /**
@@ -43,7 +50,7 @@ interface Props {
  * Deliberately spartan: color + size are 80% of styling decisions.
  * Unique-value / class-break renderers ship as a separate panel.
  */
-export function StyleEditor({ value, onChange, geometryTypes }: Props) {
+export function StyleEditor({ value, onChange, geometryTypes, fields }: Props) {
   function patch<K extends keyof MapLayerStyle>(
     section: K,
     patch: Partial<MapLayerStyle[K]>,
@@ -113,6 +120,113 @@ export function StyleEditor({ value, onChange, geometryTypes }: Props) {
             value={value.polygon.strokeJoin ?? 'round'}
             onChange={(j) => patch('polygon', { strokeJoin: j as LineJoin })}
           />
+        </div>
+
+        {/* 3D extrusion by attribute. Renders via MapLibre's native
+            fill-extrusion (no heavy 3D stack): building footprints
+            with a height field, parcels by assessed value, etc.
+            Tilt the map to see it. */}
+        <div className="mt-3 border-t border-border pt-3">
+          <label className="flex items-center gap-2 text-xs text-ink-1">
+            <input
+              type="checkbox"
+              checked={value.polygon.extrusion?.enabled ?? false}
+              onChange={(e) =>
+                patch('polygon', {
+                  extrusion: {
+                    enabled: e.target.checked,
+                    heightField:
+                      value.polygon.extrusion?.heightField ??
+                      fields?.[0] ??
+                      '',
+                    heightMultiplier:
+                      value.polygon.extrusion?.heightMultiplier ?? 1,
+                    base: value.polygon.extrusion?.base ?? 0,
+                  },
+                })
+              }
+              className="accent-accent"
+            />
+            Extrude in 3D by attribute
+          </label>
+          {value.polygon.extrusion?.enabled ? (
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <label className="col-span-2 block">
+                <span className="mb-1 block text-2xs uppercase tracking-wide text-muted">
+                  Height field (meters)
+                </span>
+                {fields && fields.length > 0 ? (
+                  <select
+                    value={value.polygon.extrusion.heightField}
+                    onChange={(e) =>
+                      patch('polygon', {
+                        extrusion: {
+                          ...value.polygon.extrusion!,
+                          heightField: e.target.value,
+                        },
+                      })
+                    }
+                    className="w-full rounded border border-border bg-surface-0 px-1.5 py-1 text-xs text-ink-0"
+                  >
+                    {fields.map((f) => (
+                      <option key={f} value={f}>
+                        {f}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={value.polygon.extrusion.heightField}
+                    placeholder="e.g. height"
+                    onChange={(e) =>
+                      patch('polygon', {
+                        extrusion: {
+                          ...value.polygon.extrusion!,
+                          heightField: e.target.value,
+                        },
+                      })
+                    }
+                    className="w-full rounded border border-border bg-surface-0 px-1.5 py-1 text-xs text-ink-0"
+                  />
+                )}
+              </label>
+              <Slider
+                label="Multiplier"
+                min={0.1}
+                max={20}
+                step={0.1}
+                value={value.polygon.extrusion.heightMultiplier ?? 1}
+                onChange={(n) =>
+                  patch('polygon', {
+                    extrusion: {
+                      ...value.polygon.extrusion!,
+                      heightMultiplier: n,
+                    },
+                  })
+                }
+              />
+              <Slider
+                label="Base offset (m)"
+                min={0}
+                max={100}
+                step={1}
+                value={value.polygon.extrusion.base ?? 0}
+                onChange={(n) =>
+                  patch('polygon', {
+                    extrusion: {
+                      ...value.polygon.extrusion!,
+                      base: n,
+                    },
+                  })
+                }
+              />
+              <p className="col-span-2 text-2xs leading-relaxed text-muted">
+                Values in feet? Set the multiplier to 0.3048. Tilt
+                the map (right-click drag) to see the extrusion.
+              </p>
+            </div>
+          ) : null}
         </div>
       </section>
       ) : null}

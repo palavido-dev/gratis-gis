@@ -1214,6 +1214,7 @@ function LayerRow({
                     {...(metadata.geometryTypes
                       ? { geometryTypes: metadata.geometryTypes }
                       : {})}
+                    fields={metadata.fields}
                   />
                 </div>
                 <div className="mt-3 border-t border-border pt-3">
