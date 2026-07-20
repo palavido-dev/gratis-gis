@@ -100,7 +100,16 @@ RUN mkdir -p "apps/portal-web/public/duckdb-ext/${DUCKDB_WASM_CORE_VERSION}/${DU
       || exit 1; \
     done
 
-RUN pnpm -C apps/portal-web build
+# GG_DEPLOYMENT_ID feeds next.config's `deploymentId`, which appends
+# a per-deploy query param to every /_next asset URL. Required
+# because Turbopack (the Next 16 default bundler) reuses chunk
+# FILENAMES across builds while their contents change, and the
+# chunks are served with a one-year immutable Cache-Control:
+# returning browsers kept running the previous deploy's JS
+# indefinitely. The nanosecond timestamp makes each image build a
+# distinct deployment, so caches revalidate exactly once per
+# deploy.
+RUN GG_DEPLOYMENT_ID="$(date +%s%N)" pnpm -C apps/portal-web build
 
 FROM base AS runtime
 WORKDIR /app

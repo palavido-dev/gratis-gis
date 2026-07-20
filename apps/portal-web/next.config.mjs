@@ -2,6 +2,18 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Cache-bust static assets per deploy. Turbopack (the Next 16
+  // default bundler) reuses chunk FILENAMES across builds while
+  // their contents change, and /_next/static ships with a one-year
+  // immutable Cache-Control -- so without this, returning browsers
+  // keep executing the previous deploy's JS forever (bugfixes
+  // "not taking" after deploys). deploymentId appends ?dpl=<id> to
+  // every asset URL; the Docker build stage sets GG_DEPLOYMENT_ID
+  // per image build. Standalone output serializes the resolved
+  // config, so the runtime stage sees the same id without the env.
+  ...(process.env.GG_DEPLOYMENT_ID
+    ? { deploymentId: process.env.GG_DEPLOYMENT_ID }
+    : {}),
   // Don't ship `x-powered-by: Next.js` on every response.  Pure
   // information disclosure, no functional reason to advertise the
   // framework + version to every visitor.
