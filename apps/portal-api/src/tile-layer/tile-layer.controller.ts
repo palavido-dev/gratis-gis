@@ -115,8 +115,21 @@ export class TileLayerController {
    * us apply per-request ACL checks (cheap; just an items.get
    * read inside the service).
    */
+  /**
+   * #185: the suffixed routes pin the served format. The bare
+   * route keeps its historical current-format behavior (prefer
+   * pyramid, fall back to source image) for basemap URLs that
+   * predate the suffixes. Map layers stamp a suffixed URL at add
+   * time so the bytes never change format underneath the client
+   * (the bare endpoint flips from image to tile pyramid a few
+   * minutes after upload when the background build finishes).
+   */
   @Public()
-  @Get('tile-layer/:itemId/file')
+  @Get([
+    'tile-layer/:itemId/file',
+    'tile-layer/:itemId/file.pmtiles',
+    'tile-layer/:itemId/file.cog',
+  ])
   async serveFile(
     @CurrentUser() user: AuthUser | null,
     @Param('itemId') itemId: string,
@@ -128,7 +141,16 @@ export class TileLayerController {
     // on item-tile-layer/*, this proxy fetches via the SDK using
     // portal-api's credentials instead of the public URL.  ACL
     // check happens in `resolveStorageKey` (which calls items.get).
-    const storageKey = await this.tileLayer.resolveStorageKey(user, itemId);
+    const format = req.path.endsWith('.pmtiles')
+      ? ('pmtiles' as const)
+      : req.path.endsWith('.cog')
+        ? ('cog' as const)
+        : undefined;
+    const storageKey = await this.tileLayer.resolveStorageKey(
+      user,
+      itemId,
+      format,
+    );
     const upstream = await this.storage.streamObject(storageKey, rangeHeader);
     res.status(upstream.statusCode);
     if (upstream.contentRange) res.setHeader('Content-Range', upstream.contentRange);
@@ -140,11 +162,14 @@ export class TileLayerController {
     // Range support: advertise so MapLibre + browsers know to
     // request slices.
     res.setHeader('Accept-Ranges', upstream.acceptRanges ?? 'bytes');
-    // PMTiles content is immutable per upload (a new upload
-    // produces a new storageKey + url), so we can let the
-    // browser cache aggressively. ETag handles invalidation when
-    // a tile layer's file is replaced.
-    res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
+    // NOT immutable: the pyramid worker can re-bake the tile file
+    // under the same URL (retry after a failed build, or a pipeline
+    // fix), and `immutable` suppresses revalidation entirely, which
+    // served day-old stale tiles after a re-bake. One hour of
+    // blind caching keeps the range-request storm off the server
+    // while bounding staleness; ETag + If-Range handle clean
+    // revalidation past that.
+    res.setHeader('Cache-Control', 'public, max-age=3600');
 
     try {
       upstream.body.pipe(res);

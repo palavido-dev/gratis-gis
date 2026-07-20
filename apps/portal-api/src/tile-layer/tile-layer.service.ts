@@ -393,6 +393,7 @@ export class TileLayerService {
   async resolveStorageKey(
     user: AuthUser | null,
     itemId: string,
+    format?: 'pmtiles' | 'cog',
   ): Promise<string> {
     // #185: `user` is null for anonymous requests, which resolve
     // only when the item is shared publicly (the public-mirror
@@ -426,11 +427,34 @@ export class TileLayerService {
         'Tile layer has not been uploaded yet (or the upload finalize step did not run).',
       );
     }
-    // Prefer the active PMTiles key (set after the background pyramid
-    // build finishes); fall back to the COG key (used during the
-    // pre-pyramid window), and to the legacy `storageKey` for older
-    // rows that predate the hybrid serving model.
     const d = data as unknown as Record<string, unknown>;
+    // #185: an explicit format pins the bytes a client gets. Map
+    // layers stamp a format-suffixed URL at add time; without the
+    // pin, a layer stamped cog:// during the pre-pyramid window
+    // would silently start receiving PMTiles bytes once the
+    // background build finishes and the bare endpoint switches to
+    // preferring the pyramid.
+    if (format === 'pmtiles') {
+      if (typeof d.pmtilesStorageKey === 'string' && d.pmtilesStorageKey) {
+        return d.pmtilesStorageKey;
+      }
+      throw new NotFoundException(
+        'This layer has no optimized tile file yet.',
+      );
+    }
+    if (format === 'cog') {
+      const cogKey =
+        (typeof d.cogStorageKey === 'string' && d.cogStorageKey) ||
+        (typeof d.storageKey === 'string' && d.storageKey) ||
+        null;
+      if (cogKey) return cogKey;
+      throw new NotFoundException('This layer has no image file.');
+    }
+    // Bare endpoint: prefer the active PMTiles key (set after the
+    // background pyramid build finishes); fall back to the COG key
+    // (used during the pre-pyramid window), and to the legacy
+    // `storageKey` for older rows that predate the hybrid serving
+    // model.
     const key =
       (typeof d.pmtilesStorageKey === 'string' && d.pmtilesStorageKey) ||
       (typeof d.cogStorageKey === 'string' && d.cogStorageKey) ||

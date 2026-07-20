@@ -200,7 +200,7 @@ function publicRewriteForAnonymousGet(suffix: string): string | null {
   // overlay layer range-reads /tile-layer/:itemId/file the same
   // way; portal-api's route is @Public() with the same dual ACL
   // path, so passthrough again.
-  if (/^tile-layer\/[^/]+\/file$/.test(suffix)) {
+  if (/^tile-layer\/[^/]+\/file(\.pmtiles|\.cog)?$/.test(suffix)) {
     return suffix;
   }
   return null;

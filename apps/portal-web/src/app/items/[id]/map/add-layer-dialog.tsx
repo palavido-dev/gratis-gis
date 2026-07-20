@@ -666,11 +666,20 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
         );
         return;
       }
+      // Pin the format with a suffixed URL. The bare /file endpoint
+      // flips from the source image to the tile pyramid when the
+      // background build finishes, which would change the bytes
+      // underneath a stamped URL; the suffixed routes always serve
+      // the same kind of file.
+      const pinnedUrl = data.tileUrl.replace(
+        /\/file$/,
+        data.tileUrl.startsWith('pmtiles://') ? '/file.pmtiles' : '/file.cog',
+      );
       onAdd(
         makeLayer(item.title, {
           kind: 'tile',
           itemId: item.id,
-          tileUrl: data.tileUrl,
+          tileUrl: pinnedUrl,
           ...(data.bbox ? { bboxWgs84: data.bbox } : {}),
           ...(data.attribution ? { attribution: data.attribution } : {}),
         }),
