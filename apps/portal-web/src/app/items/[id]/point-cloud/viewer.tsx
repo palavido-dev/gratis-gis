@@ -89,6 +89,16 @@ export default function PointCloudViewer({
       ? ('dark' as const)
       : ('light' as const);
 
+    // Size-aware tuning. Every stream-update batch rebuilds the
+    // deck.gl layer data on the main thread, and on a ~200M-point
+    // cloud that measured as multi-second stalls (worst observed:
+    // 1.9s) during pan/zoom. Until the renderer appends nodes
+    // incrementally (tracked in the perf issue), the honest levers
+    // are: fewer points per rebuild, fewer rebuilds while the
+    // camera moves, and no picking buffers by default on huge
+    // clouds (the panel still exposes the toggle). Small clouds
+    // keep the snappier settings.
+    const isHuge = (data.pointCount ?? 0) > 20_000_000;
     const control = new LidarControl({
       title: 'Point cloud',
       collapsed: true,
@@ -96,12 +106,10 @@ export default function PointCloudViewer({
       pointSize: 2,
       // RGB when the file carries it; elevation ramp otherwise.
       colorScheme: data.hasRgb ? 'rgb' : 'elevation',
-      pickable: true,
+      pickable: !isHuge,
       autoZoom: true,
-      // Explicit streaming budget. The default is 5M; 4M keeps
-      // headroom on ordinary laptops while still drawing a dense
-      // scene, and the panel exposes the knob for beefier machines.
-      streamingPointBudget: 4_000_000,
+      streamingPointBudget: isHuge ? 1_500_000 : 4_000_000,
+      streamingViewportDebounceMs: isHuge ? 400 : 150,
       // The share-URL affordance encodes the control's own state
       // into the address bar; inside the portal that fights the
       // Next router, so it stays off.
