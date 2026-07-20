@@ -36,6 +36,7 @@ const ASSET_KINDS: AssetKind[] = [
   'feature-attachment',
   'item-file',
   'item-tile-layer',
+  'item-point-cloud',
 ];
 
 const PRIVATE_KINDS_FOR_ROUTE = new Set<AssetKind>([

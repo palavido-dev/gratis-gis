@@ -25,6 +25,7 @@ import {
   Lock,
   Map as MapIcon,
   MapPin,
+  Mountain,
   Palette,
   Plug,
   Printer,
@@ -60,6 +61,7 @@ import {
   DEFAULT_PRINT_TEMPLATE,
   emptyToolData,
   DEFAULT_TILE_LAYER,
+  DEFAULT_POINT_CLOUD,
   DEFAULT_MAP,
   DEFAULT_FOLDER,
   DEFAULT_EDITOR,
@@ -245,6 +247,16 @@ const TYPE_GROUPS: TypeGroup[] = [
         label: 'Tile layer',
         desc: 'Upload a pre-rendered tile cache (PMTiles, MBTiles, or zipped XYZ tile directory). Hosts the file and exposes a tile URL maps can use as a basemap.',
         Icon: Layers,
+      },
+      {
+        // #179 (3D as layers): point_cloud wraps one COPC lidar
+        // file. Sibling to Tile layer: both are "host my
+        // range-readable file" items; this one streams 3D points
+        // instead of tiles.
+        value: 'point_cloud',
+        label: 'Point cloud',
+        desc: 'Upload lidar as COPC (.copc.laz). Hosts the file and streams points by viewport for 3D viewing.',
+        Icon: Mountain,
       },
     ],
   },
@@ -1256,6 +1268,11 @@ export function NewItemWizard({
       // empty URL as a no-op) and lands the author on the detail
       // page to configure the action.
       data = emptyToolData();
+    } else if (type === 'point_cloud') {
+      // #179: empty point_cloud. The COPC upload + header
+      // validation happen on the detail page after create, same
+      // as tile_layer.
+      data = DEFAULT_POINT_CLOUD;
     } else if (type === 'tile_layer') {
       // #179: empty tile_layer. The file upload + metadata
       // extraction happen on the detail page after create,

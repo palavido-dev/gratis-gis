@@ -34,6 +34,11 @@ export type AssetKind =
   // caches legitimately get big; range-request friendly so we serve
   // through MinIO without holding the whole file in memory.
   | 'item-tile-layer'
+  // #179: COPC point cloud upload for the point_cloud item.
+  // Multi-GB uploads are normal for lidar tiles; range-request
+  // friendly like item-tile-layer, served through the API proxy
+  // with the item's read ACL.
+  | 'item-point-cloud'
   // #73: user-uploaded SVG marker glyphs for the map point-symbol
   // picker. Each upload is a sanitized SVG body served from a
   // public bucket key so the renderer can resolve
@@ -67,6 +72,12 @@ const FILE_ITEM_MAX_BYTES = 100 * 1024 * 1024; // 100 MB
  *  headroom; operators can bump this server-side if they ingest
  *  larger sets. */
 const TILE_LAYER_MAX_BYTES = 8 * 1024 * 1024 * 1024; // 8 GB
+
+/** COPC point clouds (#179). A single USGS 3DEP delivery tile runs
+ *  hundreds of MB to a few GB compressed; county-scale merges go
+ *  higher. Same 8 GB ceiling as tile caches: big enough for real
+ *  lidar, still a bound. */
+const POINT_CLOUD_MAX_BYTES = 8 * 1024 * 1024 * 1024; // 8 GB
 
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB; thumbnails should be small.
 
@@ -240,7 +251,8 @@ export class StorageService implements OnModuleInit {
     const isAttachment = kind === 'feature-attachment';
     const isFileItem = kind === 'item-file';
     const isTileLayer = kind === 'item-tile-layer';
-    const anyMime = isAttachment || isFileItem || isTileLayer;
+    const isPointCloud = kind === 'item-point-cloud';
+    const anyMime = isAttachment || isFileItem || isTileLayer || isPointCloud;
     if (!anyMime && !ALLOWED_CONTENT_TYPES.has(contentType)) {
       throw new Error(`Unsupported content type: ${contentType}`);
     }
@@ -269,7 +281,7 @@ export class StorageService implements OnModuleInit {
     // office link still completes; tile-layer caches legitimately
     // run multi-GB on slow uplinks, so they get the longer 600s
     // window.
-    const expiresIn = isTileLayer ? 600 : anyMime ? 180 : 60;
+    const expiresIn = isTileLayer || isPointCloud ? 600 : anyMime ? 180 : 60;
     const uploadUrl = await getSignedUrl(this.client, cmd, { expiresIn });
     // Private-kind objects are served back through the api with a
     // sharing check (the bucket policy no longer permits anonymous
@@ -286,7 +298,9 @@ export class StorageService implements OnModuleInit {
       contentType,
       maxBytes: isTileLayer
         ? TILE_LAYER_MAX_BYTES
-        : isFileItem
+        : isPointCloud
+          ? POINT_CLOUD_MAX_BYTES
+          : isFileItem
           ? FILE_ITEM_MAX_BYTES
           : isAttachment
             ? ATTACHMENT_MAX_BYTES
@@ -412,6 +426,7 @@ export class StorageService implements OnModuleInit {
     'feature-attachment',
     'item-file',
     'item-tile-layer',
+    'item-point-cloud',
   ]);
 
   /**

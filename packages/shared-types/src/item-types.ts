@@ -76,6 +76,11 @@ export const ITEM_TYPES = [
   // renders a form, and posts the resolved values to the server
   // PDF endpoint.
   'print_template',
+  // #179: 3D point cloud served as an ordinary layer, not a separate
+  // "scene" surface. Wraps one uploaded COPC (cloud-optimized LAZ)
+  // file range-served from MinIO; viewers stream octree nodes by
+  // viewport. data_json shape is PointCloudData.
+  'point_cloud',
 ] as const;
 
 export type ItemType = (typeof ITEM_TYPES)[number];
@@ -120,6 +125,7 @@ export const ITEM_TYPE_LABELS: Record<ItemType, string> = {
   app_template: 'Web app template',
   theme: 'Theme',
   print_template: 'Print template',
+  point_cloud: 'Point cloud',
 };
 
 export function getItemTypeLabel(t: ItemType): string {

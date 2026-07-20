@@ -189,6 +189,10 @@ enum ItemType {
   /// (Letter portrait/landscape/large-legend/Tabloid/Field summary)
   /// seed per-org; user-authored templates live here too.
   print_template             @map("print-template")
+  /// #179 (3D as layers, phase A): COPC point cloud wrapper.
+  /// Range-served from MinIO through the API proxy; viewers
+  /// stream octree nodes by viewport. data_json is PointCloudData.
+  point_cloud                @map("point-cloud")
 }
 
 // ---------- Tables ----------

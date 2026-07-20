@@ -181,10 +181,19 @@ function publicRewriteForAnonymousGet(suffix: string): string | null {
   // for anon and authed; no /public/storage/ controller exists
   // because we don't need one.
   if (
-    /^storage\/private\/(item-file|item-tile-layer|feature-attachment)\/[A-Za-z0-9._-]+$/.test(
+    /^storage\/private\/(item-file|item-tile-layer|item-point-cloud|feature-attachment)\/[A-Za-z0-9._-]+$/.test(
       suffix,
     )
   ) {
+    return suffix;
+  }
+  // #179 point-cloud range proxy. A public map with a point cloud
+  // layer streams octree nodes from /point-cloud/:itemId/file with
+  // Range headers. portal-api's route is @Public() and branches on
+  // the optional bearer token (full item ACL when signed in,
+  // access='public' resolution when anon), so this is a
+  // passthrough, same pattern as the storage entry above.
+  if (/^point-cloud\/[^/]+\/file$/.test(suffix)) {
     return suffix;
   }
   return null;

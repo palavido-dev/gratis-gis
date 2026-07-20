@@ -14,6 +14,7 @@ import {
   ListChecks,
   Map as MapIcon,
   MapPin,
+  Mountain,
   Package,
   PencilRuler,
   Plug,
@@ -69,6 +70,7 @@ const ITEM_TYPE_ICONS: Record<ItemType, LucideIcon> = {
   app_template: Wand2,
   theme: Palette,
   print_template: Printer,
+  point_cloud: Mountain,
 };
 
 /**
@@ -119,6 +121,7 @@ const ITEM_TYPE_ACCENT: Record<ItemType, string> = {
   app_template: 'text-[#8f6c42] dark:text-[#c2a37c]',
   theme: 'text-[#94606b] dark:text-[#c7a0aa]',
   print_template: 'text-[#565049] dark:text-[#a9a59d]',
+  point_cloud: 'text-[#5a6a72] dark:text-[#a2b4bd]',
 };
 
 /** Tailwind class combos for the tile background used in compact
@@ -152,6 +155,7 @@ const ITEM_TYPE_TILE: Record<ItemType, string> = {
   app_template: 'bg-[#8f6c42]/95 text-[#f8f6f0]',
   theme: 'bg-[#94606b]/95 text-[#f8f6f0]',
   print_template: 'bg-[#565049]/95 text-[#f8f6f0]',
+  point_cloud: 'bg-[#5a6a72]/95 text-[#f8f6f0]',
 };
 
 export function getItemTypeIcon(type: ItemType): LucideIcon {

@@ -147,6 +147,7 @@ import { ComingSoon } from './coming-soon';
 import { BasemapEditor } from './basemap/editor';
 import { GeocodingServiceEditor } from './geocoding/editor';
 import { TileLayerEditor } from './tile-layer/editor';
+import { PointCloudPanel } from './point-cloud/panel';
 import { AppTemplateDetail } from './app-template/app-template-detail';
 import { AppThemeDetail } from './theme/theme-detail';
 import { PrintTemplateDetail } from './print-template/print-template-detail';
@@ -1022,6 +1023,29 @@ export default async function ItemDetailPage(props: Props) {
                     sizeBytes: 0,
                     uploadedAt: new Date(0).toISOString(),
                   }) as import('@gratis-gis/shared-types').TileLayerData
+            }
+            canEdit={canManage}
+          />
+        </section>
+      ) : item.type === 'point_cloud' ? (
+        <section className="mb-6">
+          {/* #179: point_cloud detail panel. Upload a COPC file,
+              see header metadata, copy the streaming URL. 3D
+              preview arrives with the viewer unit. */}
+          <PointCloudPanel
+            itemId={item.id}
+            initial={
+              (item.data && typeof item.data === 'object'
+                ? item.data
+                : {
+                    version: 1,
+                    format: 'copc',
+                    storageKey: '',
+                    storageUrl: '',
+                    fileName: '',
+                    sizeBytes: 0,
+                    uploadedAt: new Date(0).toISOString(),
+                  }) as import('@gratis-gis/shared-types').PointCloudData
             }
             canEdit={canManage}
           />
