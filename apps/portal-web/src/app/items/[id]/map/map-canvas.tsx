@@ -683,8 +683,18 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     let cancelled = false;
     const kickLoadIfReady = () => {
       if (!styleSheetReady(m)) return;
-      void loadAllIcons(m).then(() => {
-        if (!cancelled) setIconsTick((t) => t + 1);
+      // Bump the tick ONLY when new icons actually registered.
+      // syncOverlays mutations fire 'styledata', which lands back
+      // here; an unconditional bump therefore re-ran the sync
+      // effect in a permanent loop (styledata -> tick -> sync ->
+      // styledata), tearing every feature source down before its
+      // deferred tile/data load completed. Newly added layers
+      // never drew (user report) while the keep-alive raster
+      // survived. The pre-#185 isStyleLoaded gate masked this by
+      // rarely passing; the fix is to make the bump conditional,
+      // not to restore the freeze-prone gate.
+      void loadAllIcons(m).then((added) => {
+        if (!cancelled && added) setIconsTick((t) => t + 1);
       });
     };
     m.on('load', kickLoadIfReady);
@@ -1927,8 +1937,14 @@ const iconsInFlight = new WeakMap<maplibregl.Map, boolean>();
  *      Promise.all. styledata events post-load fall through this
  *      path so they cost only one Object.keys + N hasImage checks.
  */
-async function loadAllIcons(m: maplibregl.Map): Promise<void> {
-  if (iconsInFlight.get(m)) return;
+/**
+ * Returns whether any icon registration WORK happened. Callers use
+ * this to decide whether a re-sync is needed; the fast path (all
+ * registered already) must return false or the caller's tick bump
+ * loops forever through the styledata events the re-sync emits.
+ */
+async function loadAllIcons(m: maplibregl.Map): Promise<boolean> {
+  if (iconsInFlight.get(m)) return false;
   // Fast path: every icon is already registered. Avoids the
   // Promise.all + per-icon try/catch overhead on every styledata
   // tick after the initial load.
@@ -1939,13 +1955,14 @@ async function loadAllIcons(m: maplibregl.Map): Promise<void> {
       break;
     }
   }
-  if (allLoaded) return;
+  if (allLoaded) return false;
   iconsInFlight.set(m, true);
   try {
     await loadAllIconsImpl(m);
   } finally {
     iconsInFlight.delete(m);
   }
+  return true;
 }
 
 async function loadAllIconsImpl(m: maplibregl.Map): Promise<void> {
