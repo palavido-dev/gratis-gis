@@ -71,6 +71,10 @@ import {
   renderIconSvgForSdf,
 } from './map-icons';
 import { svgToSdf } from './sdf';
+import {
+  syncPointCloudOverlay,
+  teardownPointCloudOverlay,
+} from './point-cloud-overlay';
 import { fetchLayerBBox } from '@/lib/arcgis-rest';
 import type { SelectToolMode } from './select-tool';
 
@@ -667,6 +671,10 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     return () => {
       cancelled = true;
       onMapReadyRef.current?.(null);
+      // #179: stop point-cloud streaming + drop the control before
+      // the map dies so in-flight node fetches don't land on a
+      // removed instance.
+      teardownPointCloudOverlay(m);
       m.remove();
       mapRef.current = null;
     };
@@ -821,6 +829,19 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     // the runtime scrubs back in time so MapLibre re-fetches tiles
     // tagged with the new `at` value.
   }, [map.layers, map.clipBoundaryId, iconsTick, asOfTime]);
+
+  // #179 unit 3: 3D point-cloud layers. Separate manager from
+  // syncOverlays on purpose -- these are deck.gl-backed streaming
+  // overlays keyed by layer id, not MapLibre sources, and the 3D
+  // stack lazy-loads inside the manager only when a map actually
+  // has a visible point-cloud layer. Style-loaded gating is not
+  // needed (the control doesn't touch the MapLibre style), so this
+  // effect stays minimal.
+  useEffect(() => {
+    const m = mapRef.current;
+    if (!m) return;
+    syncPointCloudOverlay(m, map.layers);
+  }, [map.layers]);
 
   // #154 Drawings overlay sync. Runs on every change to the
   // `drawings` prop and keeps the canvas's `drawings:overlay`

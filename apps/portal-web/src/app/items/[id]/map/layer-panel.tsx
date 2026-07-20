@@ -14,6 +14,7 @@ import {
   FolderPlus,
   GripVertical,
   MoreVertical,
+  Mountain,
   MousePointerClick,
   Palette,
   Pencil,
@@ -673,6 +674,15 @@ function LayerRow({
   // them once metadata has loaded and suppress the irrelevant UI.
   // (#73)
   const isTable = isTableLayer(layer, metadata);
+  // #179 unit 3: point-cloud layers render through the 3D overlay,
+  // not the 2D pipeline, so the geometry-bound editors (symbology,
+  // labels, popups, filters, attribute table) don't apply. They
+  // get their own compact style options instead.
+  const isPointCloud = layer.source.kind === 'point-cloud';
+  // Narrowed alias: the JSX guard's narrowing doesn't survive into
+  // onChange closures, so spreads there see the wide union without
+  // this.
+  const pcSource = layer.source.kind === 'point-cloud' ? layer.source : null;
   const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>({
     symbology: true,
     labels: false,
@@ -824,7 +834,16 @@ function LayerRow({
             the first geometry the metadata reports; categorical /
             class-break renderers handle their own multi-band visual
             inside LayerSwatch. */}
-        {!isTable ? (
+        {isPointCloud ? (
+          /* Point clouds have no 2D symbology; a terrain glyph
+             tells the user what kind of layer this is at a
+             glance. */
+          <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center">
+            <Mountain
+              className={`h-3.5 w-3.5 ${layer.visible ? 'text-accent' : 'text-muted'}`}
+            />
+          </span>
+        ) : !isTable ? (
           <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center">
             <LayerSwatch
               layer={layer}
@@ -901,18 +920,21 @@ function LayerRow({
             >
               {/* Read-side actions: available to viewers AND
                   authors. (#311) */}
-              <MenuItem
-                Icon={TableIcon}
-                label="Open attribute table"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onOpenAttributeTable();
-                }}
-              />
+              {!isPointCloud ? (
+                <MenuItem
+                  Icon={TableIcon}
+                  label="Open attribute table"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onOpenAttributeTable();
+                  }}
+                />
+              ) : null}
               {/* Labels and zoom-to-extent are geometry-bound:
                   suppress them on table layers since they would
-                  have no effect. (#73) */}
-              {!isTable ? (
+                  have no effect. (#73) Point clouds zoom via their
+                  stamped WGS84 bbox instead of walking features. */}
+              {!isTable && !isPointCloud ? (
                 <>
                   <MenuItem
                     Icon={Tag}
@@ -942,6 +964,22 @@ function LayerRow({
                     }
                   />
                 </>
+              ) : null}
+              {isPointCloud ? (
+                <MenuItem
+                  Icon={Focus}
+                  label="Zoom to layer extent"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onZoomToExtent();
+                  }}
+                  disabled={
+                    !(
+                      layer.source.kind === 'point-cloud' &&
+                      layer.source.bboxWgs84
+                    )
+                  }
+                />
               ) : null}
               {/* Author-only actions: rename, move-to-group, remove.
                   Hidden for viewers since they can't persist
@@ -1066,7 +1104,71 @@ function LayerRow({
               interactions / scale all manipulate something visual,
               and a table never renders. Show an unobtrusive hint
               instead so the user knows where to look. (#73) */}
-          {isTable ? (
+          {pcSource ? (
+            /* #179 unit 3: compact 3D style options. Persisted on
+               the layer source; the overlay control is shared per
+               map, so when several point-cloud layers disagree the
+               topmost visible one wins (documented on the type). */
+            <div className="space-y-2 px-3 py-3">
+              <label className="flex items-center justify-between gap-2 text-2xs uppercase tracking-wide text-muted">
+                <span>Color by</span>
+                <select
+                  value={
+                    pcSource.colorScheme ??
+                    (pcSource.hasRgb ? 'rgb' : 'elevation')
+                  }
+                  disabled={!canEdit}
+                  onChange={(e) =>
+                    onPatch({
+                      source: {
+                        ...pcSource,
+                        colorScheme: e.target.value as
+                          | 'elevation'
+                          | 'intensity'
+                          | 'classification'
+                          | 'rgb',
+                      },
+                    })
+                  }
+                  className="rounded border border-border bg-surface-0 px-1.5 py-1 text-xs normal-case text-ink-0 disabled:opacity-50"
+                >
+                  <option value="elevation">Elevation</option>
+                  <option value="intensity">Intensity</option>
+                  <option value="classification">Classification</option>
+                  <option value="rgb" disabled={!pcSource.hasRgb}>
+                    RGB {pcSource.hasRgb ? '' : '(not in file)'}
+                  </option>
+                </select>
+              </label>
+              <label className="flex items-center justify-between text-2xs uppercase tracking-wide text-muted">
+                <span>Point size</span>
+                <span className="tabular-nums">
+                  {(pcSource.pointSize ?? 2).toFixed(1)}
+                </span>
+              </label>
+              <input
+                type="range"
+                min={0.5}
+                max={6}
+                step={0.5}
+                value={pcSource.pointSize ?? 2}
+                disabled={!canEdit}
+                onChange={(e) =>
+                  onPatch({
+                    source: {
+                      ...pcSource,
+                      pointSize: Number(e.target.value),
+                    },
+                  })
+                }
+                className="w-full accent-accent disabled:opacity-50"
+              />
+              <p className="text-2xs leading-relaxed text-muted">
+                Streams by viewport in 3D. Tilt the map to look
+                across the terrain.
+              </p>
+            </div>
+          ) : isTable ? (
             <div className="px-3 py-3 text-xs text-muted">
               This is a non-spatial table. Open the attribute table
               from the kebab menu to view its records.
@@ -1092,7 +1194,7 @@ function LayerRow({
             </div>
           )}
 
-          {canEdit && !isTable ? (
+          {canEdit && !isTable && !isPointCloud ? (
             <>
               <Section
                 Icon={Palette}

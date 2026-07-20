@@ -195,8 +195,9 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
           // free; WMS / WFS / WMTS surface in the list with a
           // "rendering coming up" indicator until the canvas
           // renderer for those source kinds lands (#305).
+          // #179 unit 3: point_cloud items are addable as 3D layers.
           type:
-            'data_layer,derived_layer,arcgis_service,service,wms_service,wfs_service',
+            'data_layer,derived_layer,arcgis_service,service,wms_service,wfs_service,point_cloud',
           lite: '1',
         });
         if (q) qs.set('q', q);
@@ -595,6 +596,46 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
       item.type === 'wfs_service'
     ) {
       await submitServicePortalItem(item);
+      return;
+    }
+    // #179 unit 3: point_cloud items become 3D layers. Hydrate to
+    // read the streaming URL + metadata off item.data, stamp them
+    // on the source so no runtime ever needs an item fetch to
+    // render, and refuse items whose upload never finished (no
+    // dataUrl yet) with a plain message instead of a dead layer.
+    if (item.type === 'point_cloud') {
+      const hydrated = await hydratePortalItem(item);
+      if (hydrated === null) return;
+      const data = hydrated.data as {
+        dataUrl?: string;
+        bboxWgs84?: [number, number, number, number];
+        pointCount?: number;
+        hasRgb?: boolean;
+      } | null;
+      if (!data?.dataUrl) {
+        setError(
+          `${item.title} has no uploaded point cloud file yet. Upload a COPC file on the item page first.`,
+        );
+        return;
+      }
+      onAdd(
+        makeLayer(item.title, {
+          kind: 'point-cloud',
+          itemId: item.id,
+          dataUrl: data.dataUrl,
+          ...(data.bboxWgs84 ? { bboxWgs84: data.bboxWgs84 } : {}),
+          ...(typeof data.pointCount === 'number'
+            ? { pointCount: data.pointCount }
+            : {}),
+          ...(typeof data.hasRgb === 'boolean'
+            ? { hasRgb: data.hasRgb }
+            : {}),
+          colorScheme: data.hasRgb ? 'rgb' : 'elevation',
+          pointSize: 2,
+        }),
+      );
+      reset();
+      onClose();
       return;
     }
     if (item.type !== 'arcgis_service') {

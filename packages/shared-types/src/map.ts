@@ -574,6 +574,34 @@ export type MapLayerSource =
    * Toggling visibility / opacity on the header cascades to the
    * children. See #46.
    */
+  /**
+   * #179 unit 3: 3D point cloud layer backed by a point_cloud item.
+   * The canvas mounts a lazily-loaded COPC streaming overlay when
+   * any visible layer has this kind; nothing 3D loads otherwise.
+   * Metadata is stamped at add time so rendering needs no item
+   * fetch (it can go stale if the item's file is replaced; re-add
+   * the layer to refresh -- acceptable for v1 and cheaper than a
+   * per-render fetch on every runtime including anonymous ones).
+   */
+  | {
+      kind: 'point-cloud';
+      itemId: string;
+      /** Streaming endpoint, from PointCloudData.dataUrl. The
+       *  .copc.laz suffix is load-bearing (readers sniff it to
+       *  enable viewport streaming). */
+      dataUrl: string;
+      /** WGS84 [w,s,e,n] from the item, for zoom-to-layer. */
+      bboxWgs84?: [number, number, number, number];
+      /** Total points, drives the size-aware streaming budget. */
+      pointCount?: number;
+      /** Whether the cloud carries RGB (drives default coloring). */
+      hasRgb?: boolean;
+      /** Persisted display choices for this layer. The overlay
+       *  control is shared per map, so the topmost visible
+       *  point-cloud layer's choices win when several disagree. */
+      colorScheme?: 'elevation' | 'intensity' | 'classification' | 'rgb';
+      pointSize?: number;
+    }
   | { kind: 'group' };
 
 /**

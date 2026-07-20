@@ -1029,6 +1029,15 @@ export function MapEditor({
         setTableOpen(true);
       }}
       onZoomToLayer={(layerId) => {
+        // #179 unit 3: point-cloud layers carry their WGS84 bbox on
+        // the source (stamped at add time), so no feature walk.
+        const pcLayer = map.layers.find((l) => l.id === layerId);
+        if (pcLayer?.source.kind === 'point-cloud') {
+          if (pcLayer.source.bboxWgs84) {
+            canvasRef.current?.zoomTo(pcLayer.source.bboxWgs84);
+          }
+          return;
+        }
         // Compute the bbox from the layer's cached feature
         // collection. Metadata is populated as the canvas loads
         // each layer; if it isn't ready yet, the action is a no-op

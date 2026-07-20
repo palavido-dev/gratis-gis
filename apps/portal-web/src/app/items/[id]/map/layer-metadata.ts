@@ -80,6 +80,12 @@ export async function discoverLayerMetadata(
     if (layer.source.kind === 'group') {
       // Group layers are pure UI markers; nothing to discover.
       return EMPTY;
+    } else if (layer.source.kind === 'point-cloud') {
+      // #179 unit 3: point clouds have no feature attributes to
+      // discover; probing the streaming endpoint for geojson would
+      // download binary. Everything the UI needs is stamped on the
+      // source.
+      return EMPTY;
     } else if (layer.source.kind === 'geojson-inline') {
       raw = layer.source.geojson;
     } else if (layer.source.kind === 'arcgis-rest') {

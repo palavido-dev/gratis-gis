@@ -110,6 +110,44 @@ function LayerSwatch({
   layer: MapLayer;
   geometryTypes?: Set<GeometryFamily>;
 }) {
+  // #179 unit 3: point clouds color by the 3D overlay's scheme,
+  // not the 2D renderer; show a matching ramp / label instead of
+  // geometry swatches.
+  if (layer.source.kind === 'point-cloud') {
+    const scheme =
+      layer.source.colorScheme ??
+      (layer.source.hasRgb ? 'rgb' : 'elevation');
+    if (scheme === 'rgb') {
+      return (
+        <div className="text-xs text-muted">Point colors from the file (RGB)</div>
+      );
+    }
+    if (scheme === 'classification') {
+      return (
+        <div className="text-xs text-muted">
+          ASPRS classification colors (ground, vegetation, buildings...)
+        </div>
+      );
+    }
+    const ramp =
+      scheme === 'intensity'
+        ? 'linear-gradient(to right, #222, #eee)'
+        : 'linear-gradient(to right, #440154, #3b528b, #21918c, #5ec962, #fde725)';
+    const [lo, hi] =
+      scheme === 'intensity' ? ['low', 'high'] : ['low elevation', 'high'];
+    return (
+      <div>
+        <div
+          className="h-2.5 w-full rounded-sm"
+          style={{ background: ramp }}
+        />
+        <div className="mt-0.5 flex justify-between text-2xs text-muted">
+          <span>{lo}</span>
+          <span>{hi}</span>
+        </div>
+      </div>
+    );
+  }
   const r = layer.renderer;
 
   // Categorical + graduated swatches shape to the layer's geometry
