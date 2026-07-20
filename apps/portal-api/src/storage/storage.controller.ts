@@ -25,6 +25,9 @@ import { SharingService } from '../items/sharing.service.js';
 import type { AssetKind } from './storage.service.js';
 import { StorageService } from './storage.service.js';
 
+// Kinds the browser may request a presigned PUT for. `map-icon` is
+// deliberately absent (its upload path sanitizes server-side and
+// uses uploadBuffer, never a browser presign).
 const ASSET_KINDS: AssetKind[] = [
   'item-thumb',
   'group-thumb',
@@ -32,12 +35,14 @@ const ASSET_KINDS: AssetKind[] = [
   'org-hero',
   'feature-attachment',
   'item-file',
+  'item-tile-layer',
 ];
 
 const PRIVATE_KINDS_FOR_ROUTE = new Set<AssetKind>([
   'feature-attachment',
   'item-file',
   'item-tile-layer',
+  'item-point-cloud',
 ]);
 
 class PresignUploadDto {
@@ -171,7 +176,11 @@ export class StorageController {
           throw new ForbiddenException('Cannot read this attachment');
         }
       }
-    } else if (kind === 'item-file' || kind === 'item-tile-layer') {
+    } else if (
+      kind === 'item-file' ||
+      kind === 'item-tile-layer' ||
+      kind === 'item-point-cloud'
+    ) {
       // Walk the Item table to find the row that points at this key.
       // Both `item.data->>'storageKey'` and `item.storageRef` get
       // checked because different item types persist the key in
