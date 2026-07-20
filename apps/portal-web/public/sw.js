@@ -13,7 +13,12 @@
  * Versioning: bump CACHE_VERSION on every deploy so stale assets are evicted.
  */
 
-const CACHE_VERSION = 'v3';
+// v4: evict every static cache populated before deploymentId-based
+// asset URLs. Turbopack (Next 16) reuses chunk filenames across
+// builds, so the v3 static caches held stale JS that cache-first
+// kept serving after every deploy; the ?dpl= query on asset URLs
+// now makes each deploy's entries distinct.
+const CACHE_VERSION = 'v4';
 const STATIC_CACHE = `gratis-static-${CACHE_VERSION}`;
 const GEOJSON_CACHE = `gratis-geojson-${CACHE_VERSION}`;
 // Slice 10: basemap + reference tiles. Keyed separately from static
@@ -42,8 +47,11 @@ const IS_DEV_HOST =
   self.location.hostname.endsWith('.local') ||
   self.location.hostname.endsWith('.localhost');
 
-// Next.js static assets are served from /_next/static/ — these are
-// content-addressed (hash in filename) so they are safe to cache forever.
+// Next.js static assets are served from /_next/static/. NOTE: with
+// Turbopack the FILENAMES are reused across builds, so these are only
+// safe to cache forever because next.config's deploymentId appends a
+// per-deploy ?dpl= query to every asset URL (cache entries are keyed
+// by full URL including query).
 const STATIC_PATTERNS = [
   /^\/_next\/static\//,
   /^\/fonts\//,
