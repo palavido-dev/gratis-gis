@@ -3,7 +3,7 @@
 
 import 'maplibre-gl/dist/maplibre-gl.css';
 import 'maplibre-gl-lidar/style.css';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import { LidarControl } from 'maplibre-gl-lidar';
 import type { PointCloudData } from '@gratis-gis/shared-types';
@@ -28,9 +28,11 @@ export default function PointCloudViewer({
   data: PointCloudData;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!containerRef.current || !data.dataUrl) return;
+    setLoadError(null);
 
     // OSM raster backdrop, same reasoning as the tile-layer
     // preview: lidar tiles are geographically tiny, and points
@@ -50,11 +52,28 @@ export default function PointCloudViewer({
       ],
     };
 
+    // Start the camera AT the data when finalize derived a WGS84
+    // bbox. Ordering matters, not just polish: the streaming
+    // loader's first LOD pass is viewport-driven, and a world view
+    // intersects every octree node, which allocates proportionally
+    // to the whole cloud and OOMs the tab on hundreds of millions
+    // of points. A bounded start keeps that first pass to the
+    // handful of nodes actually in view.
+    const bbox = data.bboxWgs84;
+    const startView = bbox
+      ? {
+          center: [
+            (bbox[0] + bbox[2]) / 2,
+            (bbox[1] + bbox[3]) / 2,
+          ] as [number, number],
+          zoom: 13,
+        }
+      : { center: [0, 0] as [number, number], zoom: 2 };
     const map = new maplibregl.Map({
       container: containerRef.current,
       style,
-      center: [0, 0],
-      zoom: 2,
+      center: startView.center,
+      zoom: startView.zoom,
       pitch: 60,
       maxPitch: 85,
       attributionControl: { compact: true },
@@ -79,6 +98,10 @@ export default function PointCloudViewer({
       colorScheme: data.hasRgb ? 'rgb' : 'elevation',
       pickable: true,
       autoZoom: true,
+      // Explicit streaming budget. The default is 5M; 4M keeps
+      // headroom on ordinary laptops while still drawing a dense
+      // scene, and the panel exposes the knob for beefier machines.
+      streamingPointBudget: 4_000_000,
       // The share-URL affordance encodes the control's own state
       // into the address bar; inside the portal that fights the
       // Next router, so it stays off.
@@ -87,14 +110,26 @@ export default function PointCloudViewer({
     });
     map.addControl(control, 'top-right');
 
+    // Surface load failures next to the map. The control shows
+    // them in its own panel too, but the panel starts collapsed,
+    // so without this a failed load reads as "map never moved".
+    control.on('loaderror', (event) => {
+      const err = (event as { error?: unknown }).error;
+      setLoadError(
+        err instanceof Error ? err.message : 'Point cloud failed to load.',
+      );
+    });
+
     let cancelled = false;
     map.on('load', () => {
       if (cancelled || !data.dataUrl) return;
       // Absolute URL: the loader fetches from a worker context
       // where a relative path has no document base.
       const url = `${window.location.origin}${data.dataUrl}`;
-      void control.loadPointCloud(url).catch(() => {
-        /* the control surfaces load errors in its own panel */
+      void control.loadPointCloud(url).catch((err: unknown) => {
+        setLoadError(
+          err instanceof Error ? err.message : 'Point cloud failed to load.',
+        );
       });
     });
 
@@ -112,9 +147,16 @@ export default function PointCloudViewer({
   }, [data.storageKey, data.dataUrl, data.hasRgb]);
 
   return (
-    <div
-      ref={containerRef}
-      className="h-[480px] w-full overflow-hidden rounded-md border border-border"
-    />
+    <div>
+      <div
+        ref={containerRef}
+        className="h-[480px] w-full overflow-hidden rounded-md border border-border"
+      />
+      {loadError ? (
+        <p className="mt-2 rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
+          {loadError}
+        </p>
+      ) : null}
+    </div>
   );
 }

@@ -20,6 +20,7 @@ import {
   CopcParseError,
   parseCopcHeader,
 } from './copc-header.js';
+import { boundsToWgs84 } from './bbox-wgs84.js';
 
 /**
  * Service for the point_cloud item type (#179, 3D-as-layers
@@ -138,6 +139,8 @@ export class PointCloudService {
       dataUrl: `/api/portal/point-cloud/${itemId}/file`,
     };
     if (parsed.crsWkt) data.crsWkt = parsed.crsWkt;
+    const bboxWgs84 = boundsToWgs84(parsed.bounds, parsed.crsWkt);
+    if (bboxWgs84) data.bboxWgs84 = bboxWgs84;
 
     // Replacing an existing upload: delete the old object so a
     // re-upload doesn't leak gigabytes in MinIO.

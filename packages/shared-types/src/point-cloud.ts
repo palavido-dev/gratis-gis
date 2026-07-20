@@ -59,6 +59,13 @@ export interface PointCloudData {
   /** Whether the point records carry RGB (derived from
    *  pointFormat 7/8). Drives the color-scheme picker default. */
   hasRgb?: boolean;
+  /** WGS84 [west, south, east, north] derived from bounds + crsWkt
+   *  at finalize. The viewer starts the map here BEFORE loading so
+   *  the streaming loader's first viewport pass is spatially
+   *  bounded; a world-view first pass intersects every octree node
+   *  and OOMs the browser on large clouds. Absent when the file
+   *  has no usable horizontal CRS. */
+  bboxWgs84?: [number, number, number, number];
 
   /** Attribution surfaced wherever the layer renders. */
   attribution?: string;
