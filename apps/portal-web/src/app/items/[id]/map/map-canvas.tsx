@@ -2461,15 +2461,37 @@ function syncOverlays(
 ) {
   // Remove previously-added overlay layers. Everything we own starts
   // with `gg:` so we can distinguish from basemap layers.
+  //
+  // #185 exception: raster tile sources survive the rebuild when the
+  // same layer is still wanted with the same tile URL. Tearing one
+  // down forces an async refetch of every visible tile, so a paint
+  // change like the opacity slider never visibly settled (each tick
+  // rebuilt the source and the tiles were still loading when the
+  // next tick tore it down again). Surviving layers get repositioned
+  // and re-painted in the add loop below.
+  const keepTileUrl = new Map<string, string>();
+  for (const l of layers) {
+    if (l.visible && l.source.kind === 'tile') {
+      keepTileUrl.set(`gg:${l.id}`, l.source.tileUrl);
+    }
+  }
   const style = m.getStyle();
   if (style?.layers) {
     for (const l of style.layers) {
-      if (l.id.startsWith('gg:')) m.removeLayer(l.id);
+      if (!l.id.startsWith('gg:')) continue;
+      if (l.id.endsWith(':raster')) {
+        const srcId = l.id.slice(0, -':raster'.length);
+        const priorUrl = (l.metadata as { ggTileUrl?: string } | undefined)
+          ?.ggTileUrl;
+        if (priorUrl && keepTileUrl.get(srcId) === priorUrl) continue;
+      }
+      m.removeLayer(l.id);
     }
   }
   if (style?.sources) {
     for (const id of Object.keys(style.sources)) {
       if (id.startsWith('gg:')) {
+        if (keepTileUrl.has(id) && m.getLayer(`${id}:raster`)) continue;
         try {
           m.removeSource(id);
         } catch {
@@ -2502,6 +2524,17 @@ function syncOverlays(
     // so no {z}/{x}/{y} template is involved.
     if (layer.source.kind === 'tile') {
       const src = layer.source;
+      const rasterId = `gg:${layer.id}:raster`;
+      if (m.getLayer(rasterId)) {
+        // Survived the teardown (same tile URL): reposition to this
+        // pass's stacking slot (moveLayer with no beforeId appends
+        // to the top, which is exactly where this iteration's layer
+        // belongs) and update paint in place. No source rebuild, so
+        // opacity changes render immediately from loaded tiles.
+        m.moveLayer(rasterId);
+        m.setPaintProperty(rasterId, 'raster-opacity', layer.opacity ?? 1);
+        continue;
+      }
       m.addSource(sourceId, {
         type: 'raster',
         url: src.tileUrl,
@@ -2509,9 +2542,10 @@ function syncOverlays(
         ...(src.attribution ? { attribution: src.attribution } : {}),
       });
       m.addLayer({
-        id: `gg:${layer.id}:raster`,
+        id: rasterId,
         type: 'raster',
         source: sourceId,
+        metadata: { ggTileUrl: src.tileUrl },
         paint: {
           'raster-opacity': layer.opacity ?? 1,
         },
