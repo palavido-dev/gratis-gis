@@ -190,7 +190,6 @@ export class TileLayerPyramidWorker implements OnModuleInit {
 
     const workDir = await mkdtemp(join(tmpdir(), 'tile-pyramid-'));
     const cogPath = join(workDir, 'source.tif');
-    const tileDir = join(workDir, 'tiles');
     const pmtilesPath = join(workDir, 'out.pmtiles');
 
     try {
@@ -213,28 +212,58 @@ export class TileLayerPyramidWorker implements OnModuleInit {
         await this.downloadTo(data.cogStorageUrl!, cogPath);
       }
 
-      // gdal2tiles.py -z 0-<maxZoom> source.tif tiles/
-      //   --processes uses all cores; useful for big rasters.
-      //   --xyz writes the OSM tile naming convention which
-      //   pmtiles convert expects ({z}/{x}/{y}.png with y
-      //   counted from top).
-      //   --resampling=bilinear is the default and works for
-      //   continuous imagery.
-      const procs = Math.max(1, Math.min(4, /* node has no os.cpus shorthand here */ 2));
-      await this.runCommand('gdal2tiles.py', [
-        '-z',
-        `0-${maxZoom}`,
-        '--xyz',
-        '--processes',
-        String(procs),
-        '--resampling',
+      // COG -> web-mercator MBTiles -> PMTiles. The previous
+      // gdal2tiles + `pmtiles convert <dir>` sequence silently
+      // stopped working when the pmtiles binary moved to
+      // go-pmtiles (the Trivy hardening rebuild): go-pmtiles only
+      // converts MBTiles archives, not xyz tile directories. The
+      // MBTiles route is also strictly better: one SQLite file
+      // instead of a million tiny PNGs, and gdaladdo builds the
+      // overview levels in place.
+      //
+      // 1) Warp to EPSG:3857: the MBTiles driver requires
+      //    web-mercator georeferencing.
+      const mercPath = join(workDir, 'merc.tif');
+      await this.runCommand('gdalwarp', [
+        '-t_srs',
+        'EPSG:3857',
+        '-r',
         'bilinear',
+        '-of',
+        'GTiff',
+        '-co',
+        'COMPRESS=DEFLATE',
         cogPath,
-        tileDir,
+        mercPath,
       ]);
-
-      // Pack the tile tree into a PMTiles archive.
-      await this.runCommand('pmtiles', ['convert', tileDir, pmtilesPath]);
+      // 2) Base tiles at the raster's native zoom.
+      const mbtilesPath = join(workDir, 'tiles.mbtiles');
+      await this.runCommand('gdal_translate', [
+        '-of',
+        'MBTILES',
+        '-co',
+        'TILE_FORMAT=PNG',
+        mercPath,
+        mbtilesPath,
+      ]);
+      // 3) Overview levels down to z0: each power-of-two factor
+      //    halves the zoom, so maxZoom factors cover the range.
+      const factors: string[] = [];
+      for (let z = 1; z <= maxZoom; z++) {
+        factors.push(String(2 ** z));
+      }
+      await this.runCommand('gdaladdo', [
+        '-r',
+        'bilinear',
+        mbtilesPath,
+        ...factors,
+      ]);
+      // 4) Pack into PMTiles.
+      await this.runCommand('pmtiles', [
+        'convert',
+        mbtilesPath,
+        pmtilesPath,
+      ]);
 
       const pmtilesStat = await stat(pmtilesPath);
 
