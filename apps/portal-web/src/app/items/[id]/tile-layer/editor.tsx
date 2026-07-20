@@ -9,6 +9,7 @@ import { cogProtocol } from '@geomatico/maplibre-cog-protocol';
 import {
   Check,
   Copy,
+  Download,
   Loader2,
   RefreshCw,
   Upload as UploadIcon,
@@ -358,6 +359,32 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
               No tile file uploaded yet.
             </p>
           )}
+          {ready ? (
+            /* Download for desktop GIS (QGIS, others): the same
+               bytes maps stream, served as a named file. Raster
+               items offer the GeoTIFF (the archival master, ideal
+               for desktop use); pre-tiled uploads offer the tile
+               package itself. */
+            <div className="flex flex-wrap items-center gap-2">
+              {data.cogStorageKey ? (
+                <a
+                  href={`/api/portal/tile-layer/${itemId}/file.cog?download=1`}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 shadow-card hover:bg-surface-2"
+                >
+                  <Download className="h-4 w-4" />
+                  Download image (GeoTIFF)
+                </a>
+              ) : (
+                <a
+                  href={`/api/portal/tile-layer/${itemId}/file?download=1`}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 shadow-card hover:bg-surface-2"
+                >
+                  <Download className="h-4 w-4" />
+                  Download file
+                </a>
+              )}
+            </div>
+          ) : null}
           {canEdit ? (
             <div className="flex flex-wrap items-center gap-2">
               <button

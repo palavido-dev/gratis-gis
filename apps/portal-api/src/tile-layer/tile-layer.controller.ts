@@ -151,6 +151,21 @@ export class TileLayerController {
       itemId,
       format,
     );
+    // ?download=1 turns the response into a named file download for
+    // the detail page's Download buttons (QGIS / desktop GIS use).
+    // The bytes are identical to what map rendering streams; this
+    // only adds the attachment disposition + a friendly filename.
+    if (req.query.download === '1') {
+      const name = await this.tileLayer.downloadFileName(
+        user,
+        itemId,
+        format,
+      );
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${name.replace(/["\\\r\n]/g, '')}"`,
+      );
+    }
     const upstream = await this.storage.streamObject(storageKey, rangeHeader);
     res.status(upstream.statusCode);
     if (upstream.contentRange) res.setHeader('Content-Range', upstream.contentRange);

@@ -467,6 +467,41 @@ export class TileLayerService {
   }
 
   /**
+   * Friendly filename for the ?download=1 disposition. Prefers the
+   * stored upload filename, normalized to an extension matching the
+   * served format so QGIS / desktop GIS recognize the file type.
+   */
+  async downloadFileName(
+    user: AuthUser | null,
+    itemId: string,
+    format?: 'pmtiles' | 'cog',
+  ): Promise<string> {
+    let data: unknown;
+    if (user) {
+      const item = await this.items.get(user, itemId);
+      data = item.data;
+    } else {
+      const item = await this.prisma.item.findFirst({
+        where: { id: itemId, type: 'tile_layer', access: 'public', deletedAt: null },
+        select: { data: true },
+      });
+      data = item?.data ?? null;
+    }
+    const d = (data ?? {}) as Record<string, unknown>;
+    const rawName =
+      (typeof d.fileName === 'string' && d.fileName) ||
+      (typeof d.originalFileName === 'string' && d.originalFileName) ||
+      'tile-layer';
+    const stem = rawName.replace(/\.[A-Za-z0-9]+$/, '') || 'tile-layer';
+    const servedFormat =
+      format ??
+      ((typeof d.pmtilesStorageKey === 'string' && d.pmtilesStorageKey
+        ? 'pmtiles'
+        : 'cog') as 'pmtiles' | 'cog');
+    return servedFormat === 'pmtiles' ? `${stem}.pmtiles` : `${stem}.tif`;
+  }
+
+  /**
    * Pre-upload space check.  The frontend calls this when the
    * user picks a file but before requesting a presigned URL.
    * Returns whether the upload + conversion + serving pipeline
