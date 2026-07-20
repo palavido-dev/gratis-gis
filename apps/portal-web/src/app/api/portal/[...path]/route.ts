@@ -311,6 +311,18 @@ async function forward(req: NextRequest, pathSegments: string[]) {
   // /feedback, #146).
   const xff = req.headers.get('x-forwarded-for');
   if (xff) headers['x-forwarded-for'] = xff;
+  // Forward Range so byte-serving endpoints work through the BFF.
+  // The pmtiles / cog protocol plugins and the COPC reader (#179)
+  // issue many small ranged reads against /tile-layer/:id/file,
+  // /point-cloud/:id/file, and /storage/private/...; without this
+  // header the upstream returns 200 with the ENTIRE multi-GB file
+  // for every nibble the client asked for. If-Range rides along so
+  // a replaced file invalidates cleanly rather than serving mixed
+  // halves.
+  const range = req.headers.get('range');
+  if (range) headers.range = range;
+  const ifRange = req.headers.get('if-range');
+  if (ifRange) headers['if-range'] = ifRange;
 
   // Stream-forward the request body instead of buffering the full
   // payload into a single ArrayBuffer. Buffering blew up on large
@@ -414,6 +426,23 @@ async function forward(req: NextRequest, pathSegments: string[]) {
               'content-disposition',
             )!,
           }
+        : {}),
+      // Byte-serving headers for ranged reads (see the Range
+      // forwarding note on the request side). Status is already
+      // mirrored, so a 206 arrives as a 206; without Content-Range
+      // the client cannot place the slice, and without ETag /
+      // Accept-Ranges the reader disables range mode entirely.
+      ...(upstream.headers.get('content-range')
+        ? { 'content-range': upstream.headers.get('content-range')! }
+        : {}),
+      ...(upstream.headers.get('accept-ranges')
+        ? { 'accept-ranges': upstream.headers.get('accept-ranges')! }
+        : {}),
+      ...(upstream.headers.get('etag')
+        ? { etag: upstream.headers.get('etag')! }
+        : {}),
+      ...(upstream.headers.get('content-length')
+        ? { 'content-length': upstream.headers.get('content-length')! }
         : {}),
     },
   });
