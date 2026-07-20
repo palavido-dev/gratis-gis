@@ -14,11 +14,14 @@
 FROM mambaorg/micromamba:2.3.2
 
 USER root
+# Pins chosen as the newest set that co-solves on conda-forge
+# (untwine 1.5 requires pdal 2.10, which drags gdal 3.13 and
+# python 3.14; older gdal/python pins make the solve impossible).
 RUN micromamba install -y -n base -c conda-forge \
-      python=3.12 \
+      python=3.14 \
       pdal=2.10 \
       untwine=1.5 \
-      gdal=3.11 \
+      gdal=3.13 \
       psycopg2 \
       boto3 \
     && micromamba clean --all --yes
