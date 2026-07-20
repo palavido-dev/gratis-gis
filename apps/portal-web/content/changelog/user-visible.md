@@ -12,6 +12,35 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-07-20 - See your maps in 3D
+Maps can now show real terrain. Create an elevation layer from any
+lidar point cloud with one click, pick it under the map's basemap
+button, and the whole map lifts into 3D: the basemap, imagery,
+boundary lines, and labels all follow the actual hills and valleys.
+Hold right-click and drag to tilt and look across the landscape.
+
+## 2026-07-20 - Turn lidar into hillshade and elevation layers
+Point cloud pages now have an analysis section that runs on your
+server in the background. Build a shaded-relief picture of the bare
+ground (even under tree cover) or save the ground surface itself as
+an elevation layer, watch the progress as it works, and get a
+finished layer you can share and drop into any map. The results
+also download as standard GeoTIFF files for QGIS and other desktop
+GIS software.
+
+## 2026-07-20 - Lidar point clouds inside your maps
+Point clouds are no longer viewer-only. Add one to any map like any
+other layer, style it per layer (color by elevation or intensity,
+pick a color ramp, point size, and see-through level), and combine
+it with parcels, imagery, and everything else. Large clouds stream
+in as you pan, with a status message while they load.
+
+## 2026-07-20 - Imagery layers in maps
+Uploaded imagery and analysis results now go straight into maps as
+layers, not just as basemaps. Pick them from the Add layer list,
+stack them with your other layers, and fade them with the opacity
+slider to compare against what's underneath.
+
 ## 2026-07-19 - Build analysis queries without writing SQL
 The Analyze workbench now opens with a guided builder: pick fields,
 add filters with plain-language operators, group and aggregate,

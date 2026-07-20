@@ -107,6 +107,38 @@ const STACK: StackRow[] = [
     projects: [{ label: 'h3-js', href: 'https://github.com/uber/h3-js' }],
   },
   {
+    layer: 'Analysis engine',
+    projects: [{ label: 'DuckDB', href: 'https://duckdb.org/' }],
+  },
+  {
+    layer: 'Lidar / point clouds',
+    projects: [
+      { label: 'PDAL', href: 'https://pdal.io/' },
+      { label: 'Untwine', href: 'https://github.com/hobuinc/untwine' },
+      {
+        label: 'maplibre-gl-lidar',
+        href: 'https://github.com/opengeos/maplibre-gl-lidar',
+      },
+      { label: 'deck.gl', href: 'https://deck.gl/' },
+    ],
+  },
+  {
+    layer: 'Imagery on maps',
+    projects: [
+      {
+        label: 'maplibre-cog-protocol',
+        href: 'https://github.com/geomatico/maplibre-cog-protocol',
+      },
+    ],
+  },
+  {
+    layer: 'Analysis worker packaging',
+    projects: [
+      { label: 'micromamba', href: 'https://mamba.readthedocs.io/' },
+      { label: 'conda-forge', href: 'https://conda-forge.org/' },
+    ],
+  },
+  {
     layer: 'KML / GPX import',
     projects: [
       { label: '@tmcw/togeojson', href: 'https://github.com/tmcw/togeojson' },
