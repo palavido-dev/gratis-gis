@@ -20,7 +20,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "h3-js": "^4.4.0"
+    "h3-js": "^4.5.0"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
