@@ -1636,6 +1636,14 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                     } else if (item.type === 'wfs_service') {
                       typeLabel = 'WFS';
                       typeClasses = 'bg-cyan-100 dark:bg-cyan-950 text-cyan-800 dark:text-cyan-300';
+                    } else if (item.type === 'point_cloud') {
+                      // #179 / #185: honest badges for the non-feature
+                      // portal types (previously mislabelled Feature).
+                      typeLabel = '3D';
+                      typeClasses = 'bg-accent/15 text-accent';
+                    } else if (item.type === 'tile_layer') {
+                      typeLabel = 'Imagery';
+                      typeClasses = 'bg-warn/15 text-warn';
                     } else {
                       typeLabel = 'Feature';
                       typeClasses = 'bg-info/15 text-info';

@@ -233,6 +233,12 @@ export class TileLayerPyramidWorker implements OnModuleInit {
         'GTiff',
         '-co',
         'COMPRESS=DEFLATE',
+        // Carry nodata through as an alpha band. Without this the
+        // warp's fill area and the source's nodata (e.g. the
+        // rotated footprint of a hillshade) rasterize as opaque
+        // black in the PNG tiles and the layer renders with a
+        // black rectangle around the data.
+        '-dstalpha',
         cogPath,
         mercPath,
       ]);
