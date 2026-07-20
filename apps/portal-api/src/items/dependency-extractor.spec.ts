@@ -46,6 +46,40 @@ describe('extractDependencies for derived_layer', () => {
   });
 });
 
+describe('extractDependencies for map layer sources', () => {
+  it('emits point-cloud and postgis-live item refs (#179 unit 3)', () => {
+    const result = extractDependencies({
+      type: 'map' as const,
+      data: {
+        version: 1,
+        basemap: '',
+        layers: [
+          {
+            id: 'l1',
+            source: {
+              kind: 'point-cloud',
+              itemId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+              dataUrl: '/api/portal/point-cloud/x/file.copc.laz',
+            },
+          },
+          {
+            id: 'l2',
+            source: {
+              kind: 'postgis-live',
+              serviceItemId: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+              tableName: 'public.parcels',
+            },
+          },
+        ],
+      },
+    });
+    expect(result.itemIds.sort()).toEqual([
+      'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+      'cccccccc-cccc-cccc-cccc-cccccccccccc',
+    ]);
+  });
+});
+
 describe('extractDependencies for custom web_app', () => {
   // Custom Web App items live as type='web_app' with
   // data.template='custom'. The dep walk must reach the app-level

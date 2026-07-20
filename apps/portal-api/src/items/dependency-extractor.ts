@@ -104,6 +104,18 @@ export function extractDependencies(
       if (kind === 'data-layer') {
         const id = source.itemId;
         if (typeof id === 'string' && id.length > 0) itemIds.add(id);
+      } else if (kind === 'point-cloud') {
+        // #179 unit 3: 3D layers reference a point_cloud item.
+        // Tracking it wires up Related items and the trash-time
+        // dependents warning, same as data-layer.
+        const id = source.itemId;
+        if (typeof id === 'string' && id.length > 0) itemIds.add(id);
+      } else if (kind === 'postgis-live') {
+        // Live PostGIS layers borrow the service item's stored
+        // credential; the map genuinely depends on that item.
+        // (Pre-existing gap noticed while adding point-cloud.)
+        const id = source.serviceItemId;
+        if (typeof id === 'string' && id.length > 0) itemIds.add(id);
       } else if (kind === 'arcgis-rest') {
         // Prefer the direct back-reference when the layer was added
         // from a portal item; URL matching is brittle (trailing
