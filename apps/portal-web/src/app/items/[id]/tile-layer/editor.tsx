@@ -323,20 +323,17 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
       {/* File / upload card */}
       <section className="overflow-hidden rounded-lg border border-border bg-surface-1 shadow-card">
         <div className="border-b border-border bg-surface-2 px-4 py-3">
-          <h3 className="text-sm font-medium text-ink-0">Tile cache or raster file</h3>
+          <h3 className="text-sm font-medium text-ink-0">Imagery or tile file</h3>
           <p className="mt-0.5 text-xs text-muted">
-            Upload a pre-tiled container or a raw raster.
-            Pre-tiled: <strong>.pmtiles</strong> (served as-is),{' '}
-            <strong>.mbtiles</strong> (converted to PMTiles
-            server-side at upload), <strong>.zip</strong>{' '}
-            containing an XYZ <code>{'{z}/{x}/{y}'}</code> tile
-            directory (also converted). Raw raster:{' '}
-            <strong>.tif</strong> / <strong>.tiff</strong> /{' '}
-            <strong>.geotiff</strong>, <strong>.cog</strong>,{' '}
-            <strong>.jp2</strong> (GDAL normalizes to a Cloud-
-            Optimized GeoTIFF on upload, then a background worker
-            bakes a PMTiles raster pyramid). TPK / TPKX, ECW, and
-            MrSID aren't accepted (proprietary decoders).
+            Upload map imagery or a ready-made tile package.
+            Accepted: <strong>.pmtiles</strong>,{' '}
+            <strong>.mbtiles</strong>, a <strong>.zip</strong> of
+            map tiles, or plain imagery as <strong>.tif</strong> /{' '}
+            <strong>.tiff</strong> / <strong>.geotiff</strong>,{' '}
+            <strong>.cog</strong>, <strong>.jp2</strong>.
+            Everything is prepared automatically so maps can
+            display it quickly. TPK / TPKX, ECW, and MrSID
+            aren&rsquo;t supported.
           </p>
         </div>
         <div className="space-y-3 p-4 text-sm">
@@ -380,7 +377,7 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
                   ? `Uploading ${uploadProgress}%...`
                   : ready
                     ? 'Replace file'
-                    : 'Upload tile cache'}
+                    : 'Upload file'}
               </button>
               <input
                 ref={fileInputRef}
@@ -405,35 +402,34 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
         <section className="overflow-hidden rounded-lg border border-border bg-surface-1 shadow-card">
           <div className="border-b border-border bg-surface-2 px-4 py-3">
             <h3 className="text-sm font-medium text-ink-0">
-              Tile pyramid status
+              Processing status
             </h3>
             <p className="mt-0.5 text-xs text-muted">
-              Raster uploads serve immediately as a Cloud-Optimized
-              GeoTIFF.  A background worker bakes a PMTiles
-              pyramid for faster serving; until that's done the
-              map renders directly from the source COG.
+              Your image works on maps right away. In the
+              background we also prepare a faster version for
+              smooth panning and zooming; maps switch to it
+              automatically when it&rsquo;s ready.
             </p>
           </div>
           <div className="space-y-2 p-4 text-sm">
             {data.processingState === 'cog-ready' ? (
               <div className="flex items-start gap-2 rounded-md border border-border bg-surface-2 px-3 py-2 text-xs text-ink-1">
-                <span className="font-medium">Queued.</span>
+                <span className="font-medium">Waiting to start.</span>
                 <span className="text-muted">
-                  Pyramid build will start within the next minute.
-                  Map is currently served from the source COG.
+                  The speed-up will begin within a minute. Your
+                  layer already works on maps in the meantime.
                 </span>
               </div>
             ) : null}
             {data.processingState === 'tiling' ? (
               <div className="flex items-start gap-2 rounded-md border border-info/30 bg-info/10 px-3 py-2 text-xs text-ink-1">
                 <span className="font-medium text-info">
-                  Building pyramid...
+                  Optimizing...
                 </span>
                 <span className="text-info/80">
-                  This can take several minutes for large rasters.
-                  Map is currently served from the source COG; it
-                  will switch to PMTiles automatically when the
-                  build completes.
+                  This can take several minutes for large images.
+                  Your layer already works on maps and will get
+                  faster automatically when this finishes.
                   {data.tilingStartedAt
                     ? ` Started ${humanDate(data.tilingStartedAt)}.`
                     : ''}
@@ -443,14 +439,14 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
             {data.processingState === 'pmtiles-ready' ? (
               <div className="flex items-start gap-2 rounded-md border border-success/30 bg-success/10 px-3 py-2 text-xs text-ink-1">
                 <span className="font-medium text-success">
-                  Serving as PMTiles.
+                  Ready.
                 </span>
                 <span className="text-success/80">
-                  Pyramid build completed
+                  This layer is optimized for fast map display
                   {data.tilingCompletedAt
-                    ? ` ${humanDate(data.tilingCompletedAt)}`
+                    ? ` (finished ${humanDate(data.tilingCompletedAt)})`
                     : ''}
-                  .  Source COG kept as archival reference (
+                  . The original file is kept too (
                   {data.cogSizeBytes !== undefined
                     ? humanSize(data.cogSizeBytes)
                     : 'size unknown'}
@@ -462,12 +458,12 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
               <div className="space-y-2">
                 <div className="flex items-start gap-2 rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-ink-1">
                   <span className="font-medium text-warn">
-                    Pyramid build failed.
+                    Speed-up failed.
                   </span>
                   <span className="text-warn/80">
-                    Map is still being served from the source COG.
-                    Retry the build, or contact the admin if it
-                    keeps failing.
+                    Your layer still works on maps, just a little
+                    slower. Try again, or contact your
+                    administrator if it keeps failing.
                   </span>
                 </div>
                 {data.tilingError ? (
@@ -482,7 +478,7 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
                     disabled={retrying}
                     className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-40"
                   >
-                    {retrying ? 'Retrying...' : 'Retry pyramid build'}
+                    {retrying ? 'Retrying...' : 'Try again'}
                   </button>
                 ) : null}
               </div>
@@ -495,16 +491,16 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
       {ready ? (
         <section className="overflow-hidden rounded-lg border border-border bg-surface-1 shadow-card">
           <div className="border-b border-border bg-surface-2 px-4 py-3">
-            <h3 className="text-sm font-medium text-ink-0">Cache details</h3>
+            <h3 className="text-sm font-medium text-ink-0">File details</h3>
             <p className="mt-0.5 text-xs text-muted">
-              Lifted from the PMTiles header at upload time. Re-upload
-              to refresh after rebuilding the cache.
+              Read from the file when it was uploaded. Re-upload to
+              refresh.
             </p>
           </div>
           <div className="grid grid-cols-1 gap-4 p-4 text-xs sm:grid-cols-2">
             <Metric
-              label="Format"
-              value={`${data.format.toUpperCase()} (${data.kind})`}
+              label="Type"
+              value={`${data.format === 'pmtiles' ? 'Tile package' : 'Web-ready image'} (${data.kind === 'vector' ? 'vector' : 'imagery'})`}
             />
             <Metric
               label="Tile type"
@@ -515,7 +511,7 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
               value={
                 data.minZoom !== undefined && data.maxZoom !== undefined
                   ? `${data.minZoom} – ${data.maxZoom}`
-                  : '(not advertised)'
+                  : '(not listed in the file)'
               }
             />
             <Metric label="Size on disk" value={humanSize(data.sizeBytes)} />
@@ -532,11 +528,11 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
               />
             ) : null}
             <Metric
-              label="Bbox"
+              label="Coverage (west, south, east, north)"
               value={
                 data.bbox
                   ? `${data.bbox[0].toFixed(3)}, ${data.bbox[1].toFixed(3)}, ${data.bbox[2].toFixed(3)}, ${data.bbox[3].toFixed(3)}`
-                  : '(not advertised)'
+                  : '(not listed in the file)'
               }
             />
             <Metric
@@ -544,7 +540,7 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
               value={
                 data.centerLng !== undefined && data.centerLat !== undefined
                   ? `${data.centerLng.toFixed(3)}, ${data.centerLat.toFixed(3)}${data.centerZoom !== undefined ? ` (z${data.centerZoom})` : ''}`
-                  : '(not advertised)'
+                  : '(not listed in the file)'
               }
             />
             {data.attribution ? (
@@ -564,10 +560,9 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
               Use as basemap
             </h3>
             <p className="mt-0.5 text-xs text-muted">
-              Copy this URL and paste it into a Basemap item&rsquo;s
-              source field (the Basemap editor recognizes{' '}
-              <code>pmtiles://</code> URLs and serves them through
-              the API&rsquo;s range-request proxy).
+              To use this layer as a map background, copy this
+              address and paste it into a Basemap item&rsquo;s
+              source field.
             </p>
           </div>
           <div className="flex gap-2 p-4">
@@ -747,7 +742,7 @@ function originalFormatLabel(fmt: TileLayerOriginalFormat): string {
     case 'geotiff':
       return 'GeoTIFF';
     case 'cog':
-      return 'Cloud-Optimized GeoTIFF';
+      return 'GeoTIFF image';
     case 'jp2':
       return 'JPEG 2000';
   }

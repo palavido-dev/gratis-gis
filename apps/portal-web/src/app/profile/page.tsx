@@ -37,14 +37,14 @@ export default async function ProfilePage() {
         <h1 className="mt-1 text-3xl font-semibold tracking-tight">Profile</h1>
         <p className="mt-2 max-w-2xl text-sm text-muted">
           Your identity in {me.orgName ?? 'this organization'}. Edit your name,
-          email, or avatar here. Your username and role are managed by an
-          admin.
+          email, or profile photo here. Your username and role are managed by
+          an admin.
         </p>
       </header>
 
       <section className="mb-8">
         <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted">
-          Avatar
+          Profile photo
         </label>
         <AvatarEditor
           userId={me.id}
