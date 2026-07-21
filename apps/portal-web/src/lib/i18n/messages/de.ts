@@ -443,6 +443,7 @@ export const de: Partial<CatalogShape> = {
   itemsPage: {
     eyebrow: 'Inhalt',
     newItem: 'Neues Element',
+    openMap: 'Karte öffnen',
     addItems: 'Elemente hinzufügen',
     myItems: 'Meine Elemente',
     allItems: 'Alle Elemente',

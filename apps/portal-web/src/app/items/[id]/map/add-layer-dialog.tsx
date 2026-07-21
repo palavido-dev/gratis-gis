@@ -18,17 +18,17 @@ import {
   X,
 } from 'lucide-react';
 import type { Item, MapLayer, MapLayerSource } from '@gratis-gis/shared-types';
-import {
-  DEFAULT_LAYER_ACCESS,
-  DEFAULT_LAYER_LABELS,
-  DEFAULT_LAYER_SCALE,
-  DEFAULT_LAYER_SEARCH,
-  DEFAULT_LAYER_STYLE,
-  DEFAULT_LAYER_POPUP,
-  DEFAULT_LAYER_INTERACTIONS,
-  DEFAULT_LAYER_RENDERER,
-} from '@gratis-gis/shared-types';
 import { fileToGeoJson } from './kml-convert';
+import {
+  arcgisSublayers,
+  buildArcgisLayers,
+  buildDataLayerLayers,
+  buildPointCloudLayer,
+  buildTileLayer,
+  fetchHydratedItem,
+  makeLayer,
+  type PortalItemWithSublayers,
+} from './portal-item-layers';
 import {
   probeService,
   type ArcgisServiceDescription,
@@ -435,25 +435,6 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
     return groupItems.filter((i) => i.title.toLowerCase().includes(q));
   }, [groupItems, portalQ]);
 
-  function makeLayer(title: string, source: MapLayerSource): MapLayer {
-    return {
-      id: crypto.randomUUID(),
-      title,
-      visible: true,
-      opacity: 1,
-      source,
-      style: structuredClone(DEFAULT_LAYER_STYLE),
-      renderer: structuredClone(DEFAULT_LAYER_RENDERER),
-      popup: structuredClone(DEFAULT_LAYER_POPUP),
-      interactions: structuredClone(DEFAULT_LAYER_INTERACTIONS),
-      labels: structuredClone(DEFAULT_LAYER_LABELS),
-      search: structuredClone(DEFAULT_LAYER_SEARCH),
-      scale: structuredClone(DEFAULT_LAYER_SCALE),
-      access: structuredClone(DEFAULT_LAYER_ACCESS),
-      filter: null,
-    };
-  }
-
   async function runArcgisProbe(raw: string) {
     setError(null);
     if (!raw.trim()) {
@@ -608,34 +589,12 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
     if (item.type === 'point_cloud') {
       const hydrated = await hydratePortalItem(item);
       if (hydrated === null) return;
-      const data = hydrated.data as {
-        dataUrl?: string;
-        bboxWgs84?: [number, number, number, number];
-        pointCount?: number;
-        hasRgb?: boolean;
-      } | null;
-      if (!data?.dataUrl) {
-        setError(
-          `${item.title} has no uploaded point cloud file yet. Upload a COPC file on the item page first.`,
-        );
+      const built = buildPointCloudLayer(hydrated);
+      if (!built.layer) {
+        setError(built.error);
         return;
       }
-      onAdd(
-        makeLayer(item.title, {
-          kind: 'point-cloud',
-          itemId: item.id,
-          dataUrl: data.dataUrl,
-          ...(data.bboxWgs84 ? { bboxWgs84: data.bboxWgs84 } : {}),
-          ...(typeof data.pointCount === 'number'
-            ? { pointCount: data.pointCount }
-            : {}),
-          ...(typeof data.hasRgb === 'boolean'
-            ? { hasRgb: data.hasRgb }
-            : {}),
-          colorScheme: data.hasRgb ? 'rgb' : 'elevation',
-          pointSize: 2,
-        }),
-      );
+      onAdd(built.layer);
       reset();
       onClose();
       return;
@@ -648,48 +607,12 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
     if (item.type === 'tile_layer') {
       const hydrated = await hydratePortalItem(item);
       if (hydrated === null) return;
-      const data = hydrated.data as {
-        tileUrl?: string;
-        kind?: string;
-        bbox?: [number, number, number, number];
-        attribution?: string;
-      } | null;
-      if (!data?.tileUrl) {
-        setError(
-          `${item.title} has no uploaded file yet. Upload an image or tile file on the item page first.`,
-        );
+      const built = buildTileLayer(hydrated);
+      if (!built.layer) {
+        setError(built.error);
         return;
       }
-      if (data.kind === 'vector') {
-        setError(
-          `${item.title} is a street-map style tile package. It can be used as a basemap (see the item page) but can't be added as a layer yet.`,
-        );
-        return;
-      }
-      if ((data as { dem?: boolean }).dem) {
-        setError(
-          `${item.title} is an elevation layer. To use it, open the basemap menu in the toolbar and pick it under "3D terrain".`,
-        );
-        return;
-      }
-      // Pin the format with a suffixed URL. The bare /file endpoint
-      // flips from the source image to the tile pyramid when the
-      // background build finishes, which would change the bytes
-      // underneath a stamped URL; the suffixed routes always serve
-      // the same kind of file.
-      const pinnedUrl = data.tileUrl.replace(
-        /\/file$/,
-        data.tileUrl.startsWith('pmtiles://') ? '/file.pmtiles' : '/file.cog',
-      );
-      onAdd(
-        makeLayer(item.title, {
-          kind: 'tile',
-          itemId: item.id,
-          tileUrl: pinnedUrl,
-          ...(data.bbox ? { bboxWgs84: data.bbox } : {}),
-          ...(data.attribution ? { attribution: data.attribution } : {}),
-        }),
-      );
+      onAdd(built.layer);
       reset();
       onClose();
       return;
@@ -958,62 +881,29 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
    * if the fetch failed (setError populated). Items already
    * carrying `data` (e.g. from a non-lite caller) short-circuit.
    */
+  /** Shared fetch with the dialog's error-state plumbing attached. */
   async function hydratePortalItem(item: Item): Promise<Item | null> {
-    if (item.data && Object.keys(item.data as object).length > 0) {
-      return item;
-    }
-    try {
-      const res = await fetch(`/api/portal/items/${item.id}`);
-      if (!res.ok) {
-        setError(`Could not load ${item.title} (HTTP ${res.status}).`);
-        return null;
-      }
-      return (await res.json()) as Item;
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : `Could not load ${item.title}.`,
-      );
+    const { item: hydrated, error } = await fetchHydratedItem(item);
+    if (!hydrated) {
+      setError(error ?? `Could not load ${item.title}.`);
       return null;
     }
+    return hydrated;
   }
 
   /**
-   * Pull the curated, ordered sublayer list out of an arcgis_service
-   * item's data blob. Returns null if the item is missing a URL or
-   * has no curated layers selected; in those cases setError has
-   * already populated the right message for the dialog footer.
+   * Shared sublayer extraction with the dialog's error-state
+   * plumbing attached; see portal-item-layers.ts for the logic.
    */
   function orderedSublayersForPortalItem(
     item: Item,
   ): Array<{ id: number; name?: string; geometryType?: string }> | null {
-    const d = (item.data ?? {}) as {
-      url?: string;
-      defaultLayerId?: number;
-      selectedLayerIds?: Array<string | number>;
-      layers?: Array<{ id: number; name?: string; geometryType?: string }>;
-    };
-    if (!d.url) {
-      setError(`${item.title} has no service URL yet. Open it and paste one.`);
+    const result = arcgisSublayers(item);
+    if (!result.ordered) {
+      setError(result.error);
       return null;
     }
-    const allLayers = d.layers ?? [];
-    const curated = d.selectedLayerIds
-      ? allLayers.filter((l) =>
-          d.selectedLayerIds!.map(String).includes(String(l.id)),
-        )
-      : allLayers;
-    if (curated.length === 0) {
-      setError(
-        `${item.title} has no layers selected for web-map use. Open the item and pick at least one layer.`,
-      );
-      return null;
-    }
-    return [
-      ...curated.filter((l) => l.id === d.defaultLayerId),
-      ...curated.filter((l) => l.id !== d.defaultLayerId),
-    ];
+    return result.ordered;
   }
 
   /**
@@ -1033,65 +923,12 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
     mode: 'group' | 'flat',
     selectedIds: Set<number>,
   ) {
-    const d = (item.data ?? {}) as {
-      url?: string;
-      serviceType?: 'MapServer' | 'FeatureServer';
-      defaultLayerId?: number;
-      selectedLayerIds?: Array<string | number>;
-      layerConfig?: Record<string, { label?: string; visible?: boolean }>;
-      layers?: Array<{ id: number; name?: string; geometryType?: string }>;
-      requiresAuth?: boolean;
-    };
-    // Every arcgis-rest layer goes through the portal-api proxy,
-    // not just secured ones (#96). Three reasons:
-    //   1. Usage tracking: the proxy stamps item.lastUsageAt on
-    //      each successful fetch. Routing public services direct
-    //      from the browser would leave them invisible to the
-    //      stale-item heuristic.
-    //   2. CORS: many public arcgis services don't set permissive
-    //      CORS headers, so a browser-direct fetch fails on
-    //      cross-origin queries. The proxy sidesteps the issue.
-    //   3. Consistency: one path for previews, bbox queries, and
-    //      attribute fetches whether the service is secured or
-    //      not. The original requiresAuth-only routing came from
-    //      #36 when the proxy's only job was to inject creds.
-    // Bandwidth cost is real -- our server pays the egress for
-    // every tile / query -- but tracking + CORS coverage is worth
-    // it for the typical small-team self-hosted deployment.
-    const proxyUrl = `/api/portal/items/${item.id}/proxy`;
     const ordered = orderedSublayersForPortalItem(item);
     if (ordered === null) return;
-    const picked = ordered.filter((l) => selectedIds.has(l.id));
-    if (picked.length === 0) {
-      // No-op: every sublayer was unchecked. Reset and close so the
-      // user lands back at the dialog instead of staring at a half-
-      // committed group with nothing inside it.
-      reset();
-      onClose();
-      return;
-    }
-    let groupId: string | undefined;
-    if (mode === 'group' && picked.length > 1) {
-      const header = makeLayer(item.title, { kind: 'group' });
-      groupId = header.id;
-      onAdd(header);
-    }
-    for (const l of picked) {
-      const override = d.layerConfig?.[String(l.id)];
-      const subName = l.name ?? `Layer ${l.id}`;
-      const title =
-        override?.label ?? (picked.length === 1 ? item.title : subName);
-      const layer = makeLayer(title, {
-        kind: 'arcgis-rest',
-        url: d.url!,
-        layerId: l.id,
-        serviceType: d.serviceType ?? 'MapServer',
-        sourceItemId: item.id,
-        ...(proxyUrl ? { proxyUrl } : {}),
-      });
-      if (groupId) layer.groupId = groupId;
-      onAdd(layer);
-    }
+    // Empty selection is a no-op (cancel-equivalent): reset and
+    // close so the user doesn't end up with a stray group header.
+    const layers = buildArcgisLayers(item, ordered, mode, selectedIds);
+    for (const layer of layers) onAdd(layer);
     reset();
     onClose();
   }
@@ -1112,37 +949,12 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
     mode: 'group' | 'flat',
     selectedIds: Set<string>,
   ) {
-    const lite = item as Item & {
-      _layers?: Array<{
-        id: string;
-        label: string;
-        geometryType: string | null;
-      }>;
-    };
-    const all = lite._layers ?? [];
-    const picked = all.filter((l) => selectedIds.has(l.id));
-    if (picked.length === 0) {
-      reset();
-      onClose();
-      return;
-    }
-    let groupId: string | undefined;
-    if (mode === 'group' && picked.length > 1) {
-      const header = makeLayer(item.title, { kind: 'group' });
-      groupId = header.id;
-      onAdd(header);
-    }
-    for (const sub of picked) {
-      const title =
-        picked.length === 1 ? item.title : sub.label || sub.id;
-      const layer = makeLayer(title, {
-        kind: 'data-layer',
-        itemId: item.id,
-        layerKey: sub.id,
-      });
-      if (groupId) layer.groupId = groupId;
-      onAdd(layer);
-    }
+    const layers = buildDataLayerLayers(
+      item as PortalItemWithSublayers,
+      mode,
+      selectedIds,
+    );
+    for (const layer of layers) onAdd(layer);
     reset();
     onClose();
   }

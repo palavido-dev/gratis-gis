@@ -12,6 +12,14 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-07-20 - Just open a map
+You no longer need to create a map item before you can look at
+something. "Open a map" on the content page starts a blank working
+map, and every layer, imagery, and lidar item now has an "Add to
+map" button that drops it onto a new working map or any map you
+already have. Like what you see? Save it with a name and it becomes
+a regular map. Close it without saving and nothing is left behind.
+
 ## 2026-07-20 - See your maps in 3D
 Maps can now show real terrain. Create an elevation layer from any
 lidar point cloud with one click, pick it under the map's basemap

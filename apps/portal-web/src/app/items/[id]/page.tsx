@@ -118,6 +118,7 @@ import { SharingPanel } from './sharing-panel';
 import { ItemDependencies } from './item-dependencies';
 import { DeleteItemButton } from './delete-button';
 import { ReassignOwnerButton } from './reassign-owner-button';
+import { AddToMapButton } from './add-to-map-button';
 import { MapEditor } from './map/map-editor';
 import { DataLayerEditor } from './data-layer/editor';
 import { ImportJobsBanner } from './import-jobs-banner';
@@ -154,7 +155,7 @@ import { PrintTemplateDetail } from './print-template/print-template-detail';
 
 interface Props {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ view?: string }>;
+  searchParams?: Promise<{ view?: string; add?: string }>;
 }
 
 type ItemWithShares = Item & { shares: ItemShare[] };
@@ -494,6 +495,23 @@ export default async function ItemDetailPage(props: Props) {
             </a>
           </div>
         ) : null}
+        {/* #185: layer-ish items can jump straight onto a map, new
+            (scratch, #187) or existing. Available to viewers too:
+            making a map from something you can see is a read
+            operation until you save. Elevation layers and vector
+            tile packages are excluded (they're consumed through
+            the terrain picker / basemap flow instead). */}
+        {(item.type === 'data_layer' ||
+          item.type === 'derived_layer' ||
+          item.type === 'point_cloud' ||
+          item.type === 'arcgis_service' ||
+          (item.type === 'tile_layer' &&
+            !(item.data as { dem?: boolean } | null)?.dem &&
+            (item.data as { kind?: string } | null)?.kind !== 'vector')) ? (
+          <div className="flex shrink-0 items-center">
+            <AddToMapButton itemId={item.id} />
+          </div>
+        ) : null}
         {canManage ? (
           <div className="flex shrink-0 items-center gap-2">
             <Link
@@ -618,6 +636,7 @@ export default async function ItemDetailPage(props: Props) {
           itemTitle={item.title}
           initial={{ ...DEFAULT_MAP, ...((item.data ?? {}) as Partial<MapData>) }}
           canEdit={canManage}
+          {...(searchParams?.add ? { addItemId: searchParams.add } : {})}
           basemaps={basemaps}
           defaultExtentBoundary={defaultExtentBoundary}
           geoBoundaries={geoBoundaries.map((g) => ({

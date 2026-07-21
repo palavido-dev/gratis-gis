@@ -421,6 +421,7 @@ export const en = {
   itemsPage: {
     eyebrow: 'Content',
     newItem: 'New item',
+    openMap: 'Open a map',
     addItems: 'Add items',
     myItems: 'My items',
     allItems: 'All items',

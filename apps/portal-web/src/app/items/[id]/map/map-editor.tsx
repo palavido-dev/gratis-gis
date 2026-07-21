@@ -13,12 +13,14 @@ import {
 } from 'lucide-react';
 import type {
   Group,
+  Item,
   ItemShare,
   MapData,
   MapFilterOp,
   MapLayer,
   MapLayerAccess,
 } from '@gratis-gis/shared-types';
+import { layersForPortalItem } from './portal-item-layers';
 import {
   DEFAULT_LAYER_ACCESS,
   DEFAULT_LAYER_INTERACTIONS,
@@ -99,6 +101,21 @@ interface Props {
    * case.
    */
   currentUser?: { id: string; displayName: string } | null;
+  /**
+   * #187 scratch mode: the builder runs without a backing map item.
+   * Save becomes "save as a new map item" (create + redirect), and
+   * the item-bound surfaces (presence, comments, markup persistence,
+   * print binding, layer-access matrix) are hidden because there is
+   * no item id to attach them to. `itemId` is ignored in this mode.
+   */
+  scratch?: boolean;
+  /**
+   * #185: auto-add this portal item's layers on first mount, using
+   * the same construction the Add Layer dialog uses (all sublayers,
+   * grouped). Drives the "Add to map" buttons on item pages and the
+   * scratch route's ?add= parameter.
+   */
+  addItemId?: string;
 }
 
 /**
@@ -159,6 +176,8 @@ export function MapEditor({
   defaultExtentBoundary = null,
   geoBoundaries = [],
   currentUser = null,
+  scratch = false,
+  addItemId,
 }: Props) {
   // Hydrate older persisted maps. Each bump in the schema lands a new
   // migrator here; the goal is that any v2.x map still opens cleanly.
@@ -849,6 +868,62 @@ export function MapEditor({
     markDirty();
   }
 
+  // #185: auto-add a portal item's layers on first mount (the "Add
+  // to map" buttons and the scratch route's ?add=). Uses the same
+  // shared construction as the Add Layer dialog with its default
+  // choices. The ref guards strict-mode double effects; the URL
+  // param is stripped after the add so a reload doesn't duplicate.
+  const autoAddRan = useRef(false);
+  useEffect(() => {
+    if (!addItemId || autoAddRan.current || !canEdit) return;
+    autoAddRan.current = true;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/portal/items/${addItemId}`);
+        if (!res.ok) {
+          setError(`Could not load the layer to add (HTTP ${res.status}).`);
+          return;
+        }
+        const item = (await res.json()) as Item;
+        const { layers, error: addError } = await layersForPortalItem(item);
+        if (addError) {
+          setError(addError);
+          return;
+        }
+        if (layers && layers.length > 0) {
+          setMap((m) => ({ ...m, layers: [...layers, ...m.layers] }));
+          markDirty();
+          // Zoom to the added content when it stamped a coverage box
+          // (imagery, point clouds); feature layers keep the map's
+          // camera and load by viewport.
+          const first = layers.find(
+            (l) =>
+              (l.source.kind === 'tile' || l.source.kind === 'point-cloud') &&
+              l.source.bboxWgs84,
+          );
+          if (
+            first &&
+            (first.source.kind === 'tile' ||
+              first.source.kind === 'point-cloud') &&
+            first.source.bboxWgs84
+          ) {
+            canvasRef.current?.zoomTo(first.source.bboxWgs84);
+          }
+        }
+        const url = new URL(window.location.href);
+        if (url.searchParams.has('add')) {
+          url.searchParams.delete('add');
+          window.history.replaceState(null, '', url.toString());
+        }
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : 'Could not add the layer.',
+        );
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addItemId, canEdit]);
+
   /**
    * Create an empty group at the top of the layer list (#70). The
    * factory and title-uniqueness helper live in group-factory.ts so
@@ -887,6 +962,12 @@ export function MapEditor({
   >(null);
 
   async function save() {
+    if (scratch) {
+      // #187: no backing item; Save opens the name-and-create flow.
+      setSaveAsTitle('');
+      setSaveAsOpen(true);
+      return;
+    }
     setError(null);
     setSaving(true);
     try {
@@ -911,6 +992,38 @@ export function MapEditor({
       setDirty(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // #187 scratch save-as flow: name the map, create the item with
+  // the current state (live camera included), then move to the real
+  // builder for the new item.
+  const [saveAsOpen, setSaveAsOpen] = useState(false);
+  const [saveAsTitle, setSaveAsTitle] = useState('');
+  async function saveScratchAsItem() {
+    const title = saveAsTitle.trim();
+    if (!title) return;
+    setError(null);
+    setSaving(true);
+    try {
+      const cam = canvasRef.current?.getCamera();
+      const payload = cam ? { ...map, ...cam } : map;
+      const res = await fetch('/api/portal/items', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ type: 'map', title, data: payload }),
+      });
+      if (!res.ok) {
+        setError(`Save failed: ${res.status} ${await res.text()}`);
+        return;
+      }
+      const created = (await res.json()) as { id: string };
+      // Clear dirty BEFORE navigating so the beforeunload guard
+      // doesn't challenge the redirect to the saved map.
+      setDirty(false);
+      window.location.assign(`/items/${created.id}?view=configure`);
     } finally {
       setSaving(false);
     }
@@ -1085,31 +1198,38 @@ export function MapEditor({
           setTableOpen((v) => !v);
         }}
       />
-      <ToolbarIconToggle
-        Icon={PencilLine}
-        label="Markup"
-        active={markupOpen}
-        onClick={() => setMarkupOpen((v) => !v)}
-      />
-      <ToolbarIconToggle
-        Icon={MessageSquare}
-        label="Comments"
-        active={commentsOpen}
-        onClick={() => setCommentsOpen((v) => !v)}
-      />
-      <ToolbarIconToggle
-        Icon={Printer}
-        label="Print this map"
-        active={printOpen}
-        onClick={() => setPrintOpen((v) => !v)}
-      />
-      {canEdit ? (
-        <ToolbarIconToggle
-          Icon={ShieldCheck}
-          label="Layer access"
-          active={matrixOpen}
-          onClick={() => setMatrixOpen((v) => !v)}
-        />
+      {/* #187: item-bound surfaces (markup persistence, comments,
+          print binding, layer access) need a saved map to attach
+          to, so scratch mode hides them until the user saves. */}
+      {!scratch ? (
+        <>
+          <ToolbarIconToggle
+            Icon={PencilLine}
+            label="Markup"
+            active={markupOpen}
+            onClick={() => setMarkupOpen((v) => !v)}
+          />
+          <ToolbarIconToggle
+            Icon={MessageSquare}
+            label="Comments"
+            active={commentsOpen}
+            onClick={() => setCommentsOpen((v) => !v)}
+          />
+          <ToolbarIconToggle
+            Icon={Printer}
+            label="Print this map"
+            active={printOpen}
+            onClick={() => setPrintOpen((v) => !v)}
+          />
+          {canEdit ? (
+            <ToolbarIconToggle
+              Icon={ShieldCheck}
+              label="Layer access"
+              active={matrixOpen}
+              onClick={() => setMatrixOpen((v) => !v)}
+            />
+          ) : null}
+        </>
       ) : null}
     </div>
   );
@@ -1249,7 +1369,7 @@ export function MapEditor({
     <>
       <BuilderShell
         storageKey="builder-shell:map"
-        backHref={`/items/${itemId}`}
+        backHref={scratch ? '/items' : `/items/${itemId}`}
         title={itemTitle}
         icon={<MapBaseIcon className="h-4 w-4 text-muted" />}
         toolbarRight={toolbarRight}
@@ -1349,49 +1469,94 @@ export function MapEditor({
               {error}
             </p>
           ) : null}
-          {/* #154 Markup panel. Floating overlay so it's available
-              to viewers (not just editors) without competing for
-              the BuilderShell right-panel slot. */}
-          <MarkupPanel
-            mapId={itemId}
-            open={markupOpen}
-            onClose={() => setMarkupOpen(false)}
-            currentUser={currentUser}
-            canEditMap={canEdit}
-            mapCenter={map.center}
-            onDrawingsChange={setDrawings}
-            initialDrawings={drawings}
-          />
-          {/* #155 Comments panel. Same floating-overlay model as
-              the Markup pane so viewers (not just editors) can
-              comment without the BuilderShell right-rail slot. */}
-          <CommentsPanel
-            itemId={itemId}
-            open={commentsOpen}
-            onClose={() => setCommentsOpen(false)}
-            currentUser={currentUser}
-            canEditItem={canEdit}
-          />
-          {/* #156 Live presence overlay. Renders avatar chips at
-              top-right of the canvas + per-viewer cursor markers
-              that track the map as it pans. Phase 1 uses HTTP
-              polling (2 second heartbeat); transport swaps to
-              WebSockets in Phase 1.5 without changing the UX. */}
-          <PresenceOverlay
-            mapId={itemId}
-            currentUser={currentUser}
-            mapLibre={mapLibre}
-            chipsContainer={presenceChipsSlot}
-          />
-          {/* #159 Print this map chooser. Opens to either
-              "use existing template" or "create new pre-bound
-              to this map". Print runs through the existing
-              print_template designer + Print tool widget. */}
-          <PrintThisMapDialog
-            open={printOpen}
-            onClose={() => setPrintOpen(false)}
-            mapId={itemId}
-          />
+          {/* Item-bound overlays: hidden in scratch mode (#187),
+              which has no item id for them to attach to. */}
+          {!scratch ? (
+            <>
+              {/* #154 Markup panel. Floating overlay so it's
+                  available to viewers (not just editors) without
+                  competing for the BuilderShell right-panel slot. */}
+              <MarkupPanel
+                mapId={itemId}
+                open={markupOpen}
+                onClose={() => setMarkupOpen(false)}
+                currentUser={currentUser}
+                canEditMap={canEdit}
+                mapCenter={map.center}
+                onDrawingsChange={setDrawings}
+                initialDrawings={drawings}
+              />
+              {/* #155 Comments panel. Same floating-overlay model as
+                  the Markup pane so viewers (not just editors) can
+                  comment without the BuilderShell right-rail slot. */}
+              <CommentsPanel
+                itemId={itemId}
+                open={commentsOpen}
+                onClose={() => setCommentsOpen(false)}
+                currentUser={currentUser}
+                canEditItem={canEdit}
+              />
+              {/* #156 Live presence overlay. Renders avatar chips at
+                  top-right of the canvas + per-viewer cursor markers
+                  that track the map as it pans. */}
+              <PresenceOverlay
+                mapId={itemId}
+                currentUser={currentUser}
+                mapLibre={mapLibre}
+                chipsContainer={presenceChipsSlot}
+              />
+              {/* #159 Print this map chooser. */}
+              <PrintThisMapDialog
+                open={printOpen}
+                onClose={() => setPrintOpen(false)}
+                mapId={itemId}
+              />
+            </>
+          ) : null}
+          {/* #187 scratch save-as: name the map, then create the
+              item and continue in the real builder. */}
+          {saveAsOpen ? (
+            <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40">
+              <div className="w-80 rounded-lg border border-border bg-surface-1 p-4 shadow-overlay">
+                <h2 className="text-sm font-medium text-ink-0">
+                  Save this map
+                </h2>
+                <p className="mt-1 text-xs text-muted">
+                  Give it a name and it becomes a map in your portal,
+                  ready to share and open again later.
+                </p>
+                <input
+                  autoFocus
+                  type="text"
+                  value={saveAsTitle}
+                  onChange={(e) => setSaveAsTitle(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void saveScratchAsItem();
+                    if (e.key === 'Escape') setSaveAsOpen(false);
+                  }}
+                  placeholder="Map name"
+                  className="mt-3 w-full rounded border border-border bg-surface-0 px-2 py-1.5 text-sm text-ink-0"
+                />
+                <div className="mt-3 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSaveAsOpen(false)}
+                    className="rounded-md border border-border bg-surface-1 px-3 py-1.5 text-xs font-medium text-ink-1 hover:bg-surface-2"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void saveScratchAsItem()}
+                    disabled={saving || !saveAsTitle.trim()}
+                    className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground hover:opacity-90 disabled:opacity-50"
+                  >
+                    {saving ? 'Saving...' : 'Save map'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       </BuilderShell>
 

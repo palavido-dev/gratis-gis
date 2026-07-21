@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import Link from 'next/link';
-import { Plus, Layers, ChevronRight, Folder as FolderIcon } from 'lucide-react';
+import { Plus, Layers, ChevronRight, Folder as FolderIcon, Map as MapIcon } from 'lucide-react';
 import type { ItemWithShares } from '@gratis-gis/shared-types';
 import { apiFetch } from '@/lib/api';
 import { EmptyState } from '@/components/empty-state';
@@ -154,13 +154,24 @@ export default async function ItemsPage(props: Props) {
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">{t('nav.items', undefined, locale)}</h1>
         </div>
 
-        <Link
-          href="/items/new"
-          className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground shadow-card hover:opacity-90"
-        >
-          <Plus className="h-4 w-4" />
-          {t('itemsPage.newItem', undefined, locale)}
-        </Link>
+        <div className="flex items-center gap-2">
+          {/* #187: jump straight into a map with no item created
+              until you choose to save it. */}
+          <Link
+            href="/maps/new"
+            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 shadow-card hover:bg-surface-2"
+          >
+            <MapIcon className="h-4 w-4" />
+            {t('itemsPage.openMap', undefined, locale)}
+          </Link>
+          <Link
+            href="/items/new"
+            className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground shadow-card hover:opacity-90"
+          >
+            <Plus className="h-4 w-4" />
+            {t('itemsPage.newItem', undefined, locale)}
+          </Link>
+        </div>
       </header>
       {/* Scope toggle disappears when a folder is selected: a folder
           shows its own contents intersected with what the caller can
