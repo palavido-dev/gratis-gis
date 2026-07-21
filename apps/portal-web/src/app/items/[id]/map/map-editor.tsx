@@ -1085,8 +1085,10 @@ export function MapEditor({
         return;
       }
       const created = (await res.json()) as { id: string };
-      // Clear dirty BEFORE navigating so the beforeunload guard
-      // doesn't challenge the redirect to the saved map.
+      // The state update below can't detach the beforeunload guard
+      // before the synchronous navigation; the ref tells the guard
+      // to stand down for this one deliberate redirect.
+      skipUnloadGuardRef.current = true;
       setDirty(false);
       window.location.assign(`/items/${created.id}?view=configure`);
     } finally {
@@ -1096,9 +1098,18 @@ export function MapEditor({
 
   // Warn before navigating away with unsaved changes. Standard beforeunload
   // contract: set returnValue and return a truthy string.
+  //
+  // The ref bypass exists for OUR OWN navigations right after a
+  // successful save: setDirty(false) can't re-render (and detach
+  // this listener) before a synchronous location.assign in the same
+  // handler, so the scratch save-as redirect was tripping the
+  // browser's "Leave site?" prompt over changes that were already
+  // persisted (user report).
+  const skipUnloadGuardRef = useRef(false);
   useEffect(() => {
     if (!dirty) return;
     const handler = (e: BeforeUnloadEvent) => {
+      if (skipUnloadGuardRef.current) return;
       e.preventDefault();
       e.returnValue = '';
       return '';
