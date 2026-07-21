@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
+  Eye,
   List,
   Loader2,
   Map as MapBaseIcon,
@@ -47,6 +48,7 @@ import { BuilderShell } from '@/components/builder-shell/builder-shell';
 import { ChartSpline, Layers as LayersIcon, MessageSquare, PencilLine, Printer, Settings as SettingsIcon } from 'lucide-react';
 import { MarkupPanel } from './markup-panel';
 import { ElevationProfileTool } from './elevation-profile';
+import { VisibilityTool } from './visibility-tool';
 import { resolveDemForBbox } from '@/lib/dem-resolver';
 import { CommentsPanel } from './comments-panel';
 import { PresenceOverlay } from './presence-overlay';
@@ -387,6 +389,11 @@ export function MapEditor({
   // along it from the map's elevation layer. Works in scratch and
   // saved maps alike (nothing item-bound about it).
   const [profileOpen, setProfileOpen] = useState(false);
+  // Visibility tool: pick a spot, queue a viewshed job, drop the
+  // finished layer onto the map. Contributor-gated server-side;
+  // shown to signed-in users and errors in plain language for
+  // everyone else.
+  const [visibilityOpen, setVisibilityOpen] = useState(false);
   // #154: Markup panel + per-map drawing sets. Hydrated from the
   // initial map data so a fresh page-load renders existing
   // drawings on the canvas immediately. The panel manages writes
@@ -1303,6 +1310,14 @@ export function MapEditor({
         active={profileOpen}
         onClick={() => setProfileOpen((v) => !v)}
       />
+      {currentUser ? (
+        <ToolbarIconToggle
+          Icon={Eye}
+          label="Visibility"
+          active={visibilityOpen}
+          onClick={() => setVisibilityOpen((v) => !v)}
+        />
+      ) : null}
       {/* #187: item-bound surfaces (markup persistence, comments,
           print binding, layer access) need a saved map to attach
           to, so scratch mode hides them until the user saves. */}
@@ -1504,13 +1519,23 @@ export function MapEditor({
             onSelectionChange={setSelection}
             drawings={drawings}
             onMapReady={setMapLibre}
-            suppressPopup={profileOpen}
+            suppressPopup={profileOpen || visibilityOpen}
           />
           <ElevationProfileTool
             map={mapLibre}
             open={profileOpen}
             onClose={() => setProfileOpen(false)}
             resolveDemUrl={resolveProfileDem}
+          />
+          <VisibilityTool
+            map={mapLibre}
+            open={visibilityOpen}
+            onClose={() => setVisibilityOpen(false)}
+            resolveDemUrl={resolveProfileDem}
+            onLayerReady={(layer) => {
+              setMap((m) => ({ ...m, layers: [layer, ...m.layers] }));
+              markDirty();
+            }}
           />
           <SelectToolbar
             mode={selectTool}

@@ -472,7 +472,208 @@ def do_elevation(conn, s3, job) -> None:
         shutil.rmtree(work, ignore_errors=True)
 
 
-HANDLERS = {"hillshade": do_hillshade, "elevation": do_elevation}
+def do_viewshed(conn, s3, job) -> None:
+    """Visibility from a spot, on an elevation COG.
+
+    Crop the DEM to the look-distance window (viewshed cost scales
+    with cells, and the answer outside the window is 'not visible'
+    by definition), run gdal_viewshed, then color the binary result
+    into a transparent-or-green RGBA COG and hand it to the proven
+    cog->pmtiles pyramid path, exactly like hillshade.
+    """
+    params = job["params"] or {}
+    lng = float(params["lng"])
+    lat = float(params["lat"])
+    height_m = float(params.get("heightM", 2))
+    max_dist = float(params.get("maxDistanceM", 1600))
+    if not (0.5 <= height_m <= 100):
+        raise RuntimeError("Height must be between 0.5 and 100 meters.")
+    if not (100 <= max_dist <= 20000):
+        raise RuntimeError(
+            "Look distance must be between 100 and 20000 meters."
+        )
+
+    source = item_data(conn, job["source_item_id"])
+    storage_key = source.get("cogStorageKey") or source.get("storageKey")
+    if not storage_key:
+        raise RuntimeError("The elevation layer has no file.")
+
+    # Observer in the DEM's CRS (web mercator; the elevation job
+    # always produces GoogleMapsCompatible EPSG:3857).
+    r_earth = 6378137.0
+    ox = math.radians(lng) * r_earth
+    oy = r_earth * math.log(math.tan(math.pi / 4 + math.radians(lat) / 2))
+
+    work = SCRATCH / f"job-{job['id']}"
+    work.mkdir(parents=True, exist_ok=True)
+    try:
+        src = work / "elevation.tif"
+        log(f"  downloading {storage_key}")
+        s3.download_file(BUCKET, storage_key, str(src))
+        set_progress(conn, job["id"], 15)
+
+        from osgeo import gdal
+
+        gdal.UseExceptions()
+        ds = gdal.Open(str(src))
+        gt = ds.GetGeoTransform()
+        res = abs(gt[1])
+        raster_w, raster_h = ds.RasterXSize, ds.RasterYSize
+        x_min = gt[0]
+        y_max = gt[3]
+        x_max = x_min + gt[1] * raster_w
+        y_min = y_max + gt[5] * raster_h
+        ds = None
+
+        radius_px = max_dist / res
+        if (2 * radius_px) ** 2 > MAX_RASTER_CELLS:
+            raise RuntimeError(
+                "That distance is too far for this server at this "
+                "layer's detail. Try a shorter distance."
+            )
+        if not (x_min <= ox <= x_max and y_min <= oy <= y_max):
+            raise RuntimeError(
+                "Pick a spot inside the elevation layer's area."
+            )
+
+        # Window = observer +- distance, clipped to the raster. The
+        # small margin keeps the observer's own cell interior.
+        margin = max_dist * 0.02 + res * 2
+        w_ulx = max(x_min, ox - max_dist - margin)
+        w_uly = min(y_max, oy + max_dist + margin)
+        w_lrx = min(x_max, ox + max_dist + margin)
+        w_lry = max(y_min, oy - max_dist - margin)
+        crop = work / "crop.tif"
+        run(
+            [
+                "gdal_translate",
+                str(src),
+                str(crop),
+                "-projwin",
+                str(w_ulx),
+                str(w_uly),
+                str(w_lrx),
+                str(w_lry),
+                "-co",
+                "COMPRESS=DEFLATE",
+                "-co",
+                "TILED=YES",
+            ],
+            work,
+        )
+        set_progress(conn, job["id"], 35)
+
+        vis = work / "visibility.tif"
+        run(
+            [
+                "gdal_viewshed",
+                "-b",
+                "1",
+                "-ox",
+                str(ox),
+                "-oy",
+                str(oy),
+                "-oz",
+                str(height_m),
+                "-md",
+                str(max_dist),
+                str(crop),
+                str(vis),
+            ],
+            work,
+        )
+        set_progress(conn, job["id"], 70)
+
+        # Binary 0/255 -> RGBA: hidden ground fully transparent,
+        # visible ground a readable green. The nv line keeps nodata
+        # (outside the DEM's coverage) transparent too.
+        colors = work / "colors.txt"
+        colors.write_text("nv 0 0 0 0\n0 0 0 0 0\n255 46 160 67 200\n")
+        rgba = work / "rgba.tif"
+        run(
+            [
+                "gdaldem",
+                "color-relief",
+                str(vis),
+                str(colors),
+                str(rgba),
+                "-alpha",
+            ],
+            work,
+        )
+        set_progress(conn, job["id"], 80)
+
+        cog = work / "visibility.cog.tif"
+        run(
+            [
+                "gdal_translate",
+                str(rgba),
+                str(cog),
+                "-of",
+                "COG",
+                "-co",
+                "COMPRESS=DEFLATE",
+            ],
+            work,
+        )
+        set_progress(conn, job["id"], 88)
+
+        key = f"item-tile-layer/{uuid.uuid4()}"
+        size = cog.stat().st_size
+        log(f"  uploading {size} bytes to {key}")
+        s3.upload_file(
+            str(cog),
+            BUCKET,
+            key,
+            ExtraArgs={"ContentType": "image/tiff"},
+        )
+        set_progress(conn, job["id"], 95)
+
+        bbox = wgs84_bbox(cog)
+        max_zoom = max(0, min(19, math.ceil(math.log2(156543.03 / res))))
+        data = {
+            "version": 1,
+            "format": "cog",
+            "kind": "raster",
+            "storageKey": key,
+            "storageUrl": f"/api/portal/storage/private/{key}",
+            "fileName": "visibility.tif",
+            "sizeBytes": size,
+            "uploadedAt": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
+            "originalFormat": "cog",
+            "cogStorageKey": key,
+            "cogStorageUrl": f"/api/portal/storage/private/{key}",
+            "cogSizeBytes": size,
+            "processingState": "cog-ready",
+            "tileType": "png",
+            "maxZoom": max_zoom,
+            "minZoom": 0,
+            "tileUrl": f"cog:///api/portal/tile-layer/{job['target_item_id']}/file",
+        }
+        if bbox:
+            data["bbox"] = bbox
+            data["centerLng"] = (bbox[0] + bbox[2]) / 2
+            data["centerLat"] = (bbox[1] + bbox[3]) / 2
+            data["centerZoom"] = max(0, max_zoom - 3)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE item
+                SET data_json = %s, updated_at = now()
+                WHERE id = %s
+                """,
+                (json.dumps(data), job["target_item_id"]),
+            )
+        conn.commit()
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+HANDLERS = {
+    "hillshade": do_hillshade,
+    "elevation": do_elevation,
+    "viewshed": do_viewshed,
+}
 
 
 def main() -> None:

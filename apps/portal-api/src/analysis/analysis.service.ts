@@ -210,6 +210,107 @@ export class AnalysisService {
     return { job, targetItemId: target.id };
   }
 
+  /**
+   * Visibility (viewshed) from a chosen spot, computed on an
+   * elevation layer (the dem-flagged COG the elevation job made).
+   * gdal_viewshed in the worker; output is a normal raster overlay
+   * layer (transparent where hidden, green where visible) that
+   * rides the existing cog-to-pmtiles pyramid rails.
+   */
+  async createViewshedJob(
+    user: AuthUser,
+    sourceItemId: string,
+    params: {
+      lng: number;
+      lat: number;
+      heightM?: number;
+      maxDistanceM?: number;
+    },
+  ) {
+    this.assertServerTier();
+    if (!hasCapability(user, 'can_publish_items')) {
+      throw new ForbiddenException(
+        'Deriving layers requires the contributor or admin role.',
+      );
+    }
+    const source = await this.items.get(user, sourceItemId);
+    if (source.type !== 'tile_layer') {
+      throw new BadRequestException(
+        'Visibility runs on an elevation layer.',
+      );
+    }
+    const data = source.data as {
+      dem?: boolean;
+      cogStorageKey?: string;
+      bbox?: [number, number, number, number];
+      maxZoom?: number;
+    } | null;
+    if (!data?.dem || !data.cogStorageKey) {
+      throw new BadRequestException(
+        'Visibility needs an elevation layer. Create one from a point cloud first (its page has a "Create elevation layer" button).',
+      );
+    }
+    const lng = Number(params.lng);
+    const lat = Number(params.lat);
+    if (
+      !Number.isFinite(lng) ||
+      !Number.isFinite(lat) ||
+      Math.abs(lat) > 85 ||
+      Math.abs(lng) > 180
+    ) {
+      throw new BadRequestException('Pick a spot on the map.');
+    }
+    if (data.bbox) {
+      const [w, s, e, n] = data.bbox;
+      if (lng < w || lng > e || lat < s || lat > n) {
+        throw new BadRequestException(
+          "Pick a spot inside the elevation layer's area.",
+        );
+      }
+    }
+    const heightM = clampNumber(params.heightM, 0.5, 100, 2);
+    const maxDistanceM = clampNumber(params.maxDistanceM, 100, 20000, 1600);
+    // Cell guard: the viewshed window is a square of side
+    // 2 * distance / resolution pixels. The stored maxZoom implies
+    // a floor on the true resolution (worker re-checks exactly).
+    const resFloor = 156543.03 / 2 ** (data.maxZoom ?? 19);
+    const radiusPx = maxDistanceM / resFloor;
+    if ((2 * radiusPx) ** 2 > MAX_RASTER_CELLS) {
+      throw new BadRequestException(
+        "That distance is too far for this server at this layer's detail. Try a shorter distance.",
+      );
+    }
+
+    const target = await this.items.create(user, {
+      type: 'tile_layer',
+      title: `Visible area (${source.title})`,
+      description: `What can be seen from ${lat.toFixed(5)}, ${lng.toFixed(5)} at ${heightM}m above the ground, looking up to ${Math.round(maxDistanceM)}m away. Computed on "${source.title}" by the analysis worker. Green means visible from that spot.`,
+      tags: ['visibility', 'derived', 'analysis'],
+      data: {
+        version: 1,
+        format: 'cog',
+        kind: 'raster',
+        storageKey: '',
+        storageUrl: '',
+        fileName: '',
+        sizeBytes: 0,
+        uploadedAt: new Date(0).toISOString(),
+      } as Prisma.InputJsonValue,
+    });
+
+    const job = await this.prisma.analysisJob.create({
+      data: {
+        orgId: user.orgId,
+        userId: user.id,
+        kind: 'viewshed',
+        params: { lng, lat, heightM, maxDistanceM },
+        sourceItemId,
+        targetItemId: target.id,
+      },
+    });
+    return { job, targetItemId: target.id };
+  }
+
   /** Jobs for one source item, newest first; drives the panel. */
   async listJobsForItem(user: AuthUser, sourceItemId: string) {
     // Read ACL on the source item gates the listing.

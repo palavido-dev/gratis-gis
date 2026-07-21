@@ -40,6 +40,16 @@ export class AnalysisController {
     return this.analysis.createElevationJob(user, itemId, body);
   }
 
+  @Post('items/:itemId/analysis/viewshed')
+  createViewshed(
+    @CurrentUser() user: AuthUser,
+    @Param('itemId') itemId: string,
+    @Body()
+    body: { lng: number; lat: number; heightM?: number; maxDistanceM?: number },
+  ) {
+    return this.analysis.createViewshedJob(user, itemId, body);
+  }
+
   @Get('items/:itemId/analysis/jobs')
   listJobs(@CurrentUser() user: AuthUser, @Param('itemId') itemId: string) {
     return this.analysis.listJobsForItem(user, itemId);

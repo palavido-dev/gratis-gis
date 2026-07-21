@@ -16,6 +16,8 @@
  */
 
 export interface DemRef {
+  /** Portal item id of the elevation layer. */
+  itemId: string;
   url: string;
   title?: string;
 }
@@ -35,6 +37,7 @@ export async function resolveDemForBbox(
       /* title is cosmetic */
     }
     return {
+      itemId: terrain.itemId,
       url: terrain.tileUrl.replace(/^cog:\/\//, ''),
       ...(title ? { title } : {}),
     };
@@ -59,6 +62,7 @@ export async function resolveDemForBbox(
     });
     if (!match) return null;
     return {
+      itemId: match.id,
       url: match.data!.tileUrl!.replace(/^cog:\/\//, ''),
       title: match.title,
     };
