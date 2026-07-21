@@ -229,35 +229,66 @@ export class TileLayerPyramidWorker implements OnModuleInit {
       // instead of a million tiny PNGs, and gdaladdo builds the
       // overview levels in place.
       //
-      // 1) Warp to EPSG:3857: the MBTiles driver requires
-      //    web-mercator georeferencing.
-      const mercPath = join(workDir, 'merc.tif');
-      await this.runCommand('gdalwarp', [
-        '-t_srs',
-        'EPSG:3857',
-        '-r',
-        'bilinear',
-        '-of',
-        'GTiff',
-        '-co',
-        'COMPRESS=DEFLATE',
-        // Carry nodata through as an alpha band. Without this the
-        // warp's fill area and the source's nodata (e.g. the
-        // rotated footprint of a hillshade) rasterize as opaque
-        // black in the PNG tiles and the layer renders with a
-        // black rectangle around the data.
-        '-dstalpha',
-        cogPath,
-        mercPath,
-      ]);
+      // Tile format is chosen from what the source actually is:
+      // photographic imagery (3 opaque bands, no nodata) gets
+      // JPEG tiles at a third of the bytes; anything with alpha
+      // or nodata (hillshade footprints, viewshed overlays) keeps
+      // PNG so transparency survives. A county ortho in PNG tiles
+      // is 3x the storage and bandwidth for zero visible gain.
+      const info = await this.runCommandJson<{
+        bands?: Array<{
+          colorInterpretation?: string;
+          noDataValue?: number | string;
+        }>;
+        coordinateSystem?: { wkt?: string };
+      }>('gdalinfo', ['-json', cogPath]);
+      const bands = info.bands ?? [];
+      const isPhoto =
+        bands.length === 3 &&
+        !bands.some(
+          (b) =>
+            b.colorInterpretation === 'Alpha' ||
+            b.noDataValue !== undefined,
+        );
+      const wkt = info.coordinateSystem?.wkt ?? '';
+      const isWebMercator =
+        wkt.includes('"EPSG","3857"') || wkt.includes('Pseudo-Mercator');
+
+      // 1) Web-mercator GTiff: the MBTiles driver requires 3857.
+      //    Skipped when the source already is (our own analysis
+      //    outputs and imagery extracts), which also avoids a
+      //    multi-GB DEFLATE intermediate on small disks. The
+      //    -dstalpha flag carries nodata through as alpha for the
+      //    PNG path; without it the warp fill rasterizes as
+      //    opaque black around rotated footprints.
+      const mbtilesInput = (() => {
+        if (isWebMercator) return cogPath;
+        return join(workDir, 'merc.tif');
+      })();
+      if (!isWebMercator) {
+        await this.runCommand('gdalwarp', [
+          '-t_srs',
+          'EPSG:3857',
+          '-r',
+          'bilinear',
+          '-of',
+          'GTiff',
+          '-co',
+          'COMPRESS=DEFLATE',
+          ...(isPhoto ? [] : ['-dstalpha']),
+          cogPath,
+          mbtilesInput,
+        ]);
+      }
       // 2) Base tiles at the raster's native zoom.
       const mbtilesPath = join(workDir, 'tiles.mbtiles');
       await this.runCommand('gdal_translate', [
         '-of',
         'MBTILES',
         '-co',
-        'TILE_FORMAT=PNG',
-        mercPath,
+        `TILE_FORMAT=${isPhoto ? 'JPEG' : 'PNG'}`,
+        ...(isPhoto ? ['-co', 'QUALITY=85'] : []),
+        mbtilesInput,
         mbtilesPath,
       ]);
       // 3) Overview levels down to z0: each power-of-two factor
@@ -306,6 +337,7 @@ export class TileLayerPyramidWorker implements OnModuleInit {
         processingState: 'pmtiles-ready',
         tilingCompletedAt: new Date().toISOString() as ISODateString,
         tileUrl: `pmtiles:///api/portal/tile-layer/${itemId}/file`,
+        tileType: isPhoto ? 'jpg' : 'png',
       };
       // jsonb_set only patches one path per call; do them one at
       // a time so a misconfigured key doesn't blow away the
@@ -417,6 +449,41 @@ export class TileLayerPyramidWorker implements OnModuleInit {
               `${cmd} exited with code ${code}${stderr ? `\n${stderr.trim()}` : ''}`,
             ),
           );
+        }
+      });
+    });
+  }
+
+  /** Run a command and JSON-parse its stdout (gdalinfo -json). */
+  private runCommandJson<T>(cmd: string, args: string[]): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const child = spawn(cmd, args, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (chunk: Buffer) => {
+        stdout += chunk.toString();
+      });
+      child.stderr.on('data', (chunk: Buffer) => {
+        stderr += chunk.toString();
+      });
+      child.on('error', (err) => {
+        reject(new Error(`Failed to run ${cmd}: ${err.message}`));
+      });
+      child.on('close', (code) => {
+        if (code !== 0) {
+          reject(
+            new Error(
+              `${cmd} exited with code ${code}${stderr ? `\n${stderr.trim()}` : ''}`,
+            ),
+          );
+          return;
+        }
+        try {
+          resolve(JSON.parse(stdout) as T);
+        } catch {
+          reject(new Error(`${cmd} produced unparseable JSON output`));
         }
       });
     });
