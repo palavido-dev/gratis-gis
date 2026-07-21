@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   BarChart3,
   Bookmark as BookmarkIcon,
+  ChartSpline as ChartSplineIcon,
   Clock,
   ChevronLeft,
   ChevronRight,
@@ -1310,6 +1311,13 @@ const PALETTE_TILES: Array<{
     label: 'My Location',
     Icon: LocateIcon,
     hint: 'Fly to the browser geolocation',
+    category: 'map',
+  },
+  {
+    kind: 'elevation-profile',
+    label: 'Elevation Profile',
+    Icon: ChartSplineIcon,
+    hint: 'Draw a line, chart the ground height along it',
     category: 'map',
   },
   // -- Data widgets ----------------------------------------------
@@ -3034,6 +3042,8 @@ function widgetPlaceholderText(
       return 'Live cursor lat/lon';
     case 'my-location':
       return 'Show my location';
+    case 'elevation-profile':
+      return 'Draw a line, chart the ground height';
     case 'time-slider':
       return 'Scrub the app to a past date';
     case 'create-feature':
@@ -3086,6 +3096,7 @@ function summarizeWidget(w: CustomWidget): string {
     case 'bookmark':
     case 'coordinates':
     case 'my-location':
+    case 'elevation-profile':
       return w.config.mapWidgetId
         ? `→ ${w.config.mapWidgetId.slice(0, 6)}`
         : 'pick a map widget';
@@ -3814,6 +3825,34 @@ function WidgetConfigForm({
             canEdit={canEdit}
             onChangeConfig={onChangeConfig}
           />
+        </>
+      );
+    case 'elevation-profile':
+      return (
+        <>
+          <MapBindingPicker
+            mapWidgetId={widget.config.mapWidgetId}
+            mapWidgets={mapWidgets}
+            canEdit={canEdit}
+            onChange={(next) => onChangeConfig({ mapWidgetId: next })}
+          />
+          <label className="flex items-center gap-2 text-xs text-ink-1">
+            <input
+              type="checkbox"
+              disabled={!canEdit}
+              checked={widget.config.showLabel ?? false}
+              onChange={(e) =>
+                onChangeConfig({ showLabel: e.target.checked })
+              }
+            />
+            Show label next to the icon
+          </label>
+          <p className="text-xs leading-snug text-muted">
+            Viewers draw a line on the bound map and get a chart of
+            the ground height along it, read from the map&apos;s
+            elevation layer (or any elevation layer covering the
+            line).
+          </p>
         </>
       );
     case 'time-slider':
@@ -7069,6 +7108,7 @@ function defaultLayoutForKind(kind: CustomWidgetKind): CustomLayout {
     case 'bookmark':
     case 'coordinates':
     case 'my-location':
+    case 'elevation-profile':
     case 'create-feature':
     case 'edit-feature':
     case 'delete-feature':
@@ -7856,6 +7896,20 @@ function stampWidget(kind: CustomWidgetKind, layout: CustomLayout): CustomWidget
           keepMarker: true,
           displayMode: 'tool',
           panelArrangement: defaultPanelArrangement('my-location'),
+        },
+      };
+    // No displayMode here on purpose: the profile tool's chart
+    // panel overlays the bound map itself, so the widget's layout
+    // footprint is just the toggle button.
+    case 'elevation-profile':
+      return {
+        id,
+        kind,
+        layout,
+        config: {
+          kind: 'elevation-profile',
+          mapWidgetId: '',
+          showLabel: false,
         },
       };
     case 'time-slider':

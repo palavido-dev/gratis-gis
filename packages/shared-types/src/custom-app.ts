@@ -209,6 +209,10 @@ export type CustomWidgetKind =
   | 'bookmark'
   | 'coordinates'
   | 'my-location'
+  // Elevation profile: draw a line on the bound map, chart the
+  // ground height along it from the map's elevation layer. Shares
+  // its whole implementation with the map builder's toolbar tool.
+  | 'elevation-profile'
   // #87: time-slider drives the app-wide bitemporal "as of" state.
   // No map binding -- when present, every map/chart/table widget on
   // the page reads the slider value via AppTimeContext and re-fetches
@@ -381,6 +385,7 @@ export type CustomWidgetConfig =
   | BookmarkWidgetConfig
   | CoordinatesWidgetConfig
   | MyLocationWidgetConfig
+  | ElevationProfileWidgetConfig
   | TimeSliderWidgetConfig
   | CreateFeatureWidgetConfig
   | EditFeatureWidgetConfig
@@ -1019,6 +1024,24 @@ export interface MyLocationWidgetConfig {
   /** When true, the marker stays visible until the user clicks
    *  the button again or the page reloads. Default true. */
   keepMarker?: boolean;
+  /** #364: tool-mode display. */
+  displayMode?: DisplayMode;
+  panelArrangement?: PanelArrangement;
+}
+
+/**
+ * Elevation profile tool. Renders a toolbar toggle; when active,
+ * the user draws a line on the bound Map widget and gets a chart
+ * of the ground elevation along it, read from the map's elevation
+ * (terrain) layer. Same engine as the map builder's profile tool,
+ * so behavior matches everywhere.
+ */
+export interface ElevationProfileWidgetConfig {
+  kind: 'elevation-profile';
+  /** id of the Map widget the user draws the line on. */
+  mapWidgetId: string;
+  /** Optional inline label next to the icon. Default: icon only. */
+  showLabel?: boolean;
   /** #364: tool-mode display. */
   displayMode?: DisplayMode;
   panelArrangement?: PanelArrangement;

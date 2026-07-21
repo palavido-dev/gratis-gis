@@ -16,6 +16,7 @@ import {
 import {
   ArrowLeft,
   Bookmark as BookmarkIcon,
+  ChartSpline,
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -123,6 +124,8 @@ import {
   MapCanvas,
   type MapCanvasHandle,
 } from '../map/map-canvas';
+import { ElevationProfileTool } from '../map/elevation-profile';
+import { resolveDemForBbox } from '@/lib/dem-resolver';
 
 /**
  * Custom Web App runtime client (#341). Renders a designed page's
@@ -249,6 +252,15 @@ interface CustomMapsCtx {
    * the first render lands.
    */
   runtimeContainerRef: RefObject<HTMLDivElement>;
+  /**
+   * Per-map popup suppression. Draw-style widgets (elevation
+   * profile) set this while the user is placing vertices so map
+   * clicks build the line instead of opening feature popups.
+   * Same shared-state shape as editClaims: any widget can claim
+   * its bound map without prop-drilling through the layout.
+   */
+  popupSuppressed: Record<string, boolean>;
+  setPopupSuppressed: (mapWidgetId: string, on: boolean) => void;
 }
 
 const CustomMapsContext = createContext<CustomMapsCtx | null>(null);
@@ -502,6 +514,22 @@ export function CustomRuntimeClient({
     [],
   );
 
+  // Popup suppression claims for draw-style widgets (see the ctx
+  // doc comment). Kept as its own record rather than folding into
+  // editClaims because the two release at different times.
+  const [popupSuppressed, setPopupSuppressedState] = useState<
+    Record<string, boolean>
+  >({});
+  const setPopupSuppressed = useCallback(
+    (mapWidgetId: string, on: boolean) => {
+      setPopupSuppressedState((cur) => {
+        if ((cur[mapWidgetId] ?? false) === on) return cur;
+        return { ...cur, [mapWidgetId]: on };
+      });
+    },
+    [],
+  );
+
   // #361: navigate-by-id for the Button widget's page-link path.
   // Pages are passed as a stripped {id, title} list to avoid leaking
   // widget data into the context.
@@ -532,6 +560,8 @@ export function CustomRuntimeClient({
       editClaims,
       setEditClaim,
       runtimeContainerRef,
+      popupSuppressed,
+      setPopupSuppressed,
     }),
     [
       states,
@@ -546,6 +576,8 @@ export function CustomRuntimeClient({
       registerMap,
       editClaims,
       setEditClaim,
+      popupSuppressed,
+      setPopupSuppressed,
     ],
   );
 
@@ -1541,6 +1573,8 @@ function renderWidget(widget: CustomWidget): React.ReactNode {
       return <CoordinatesWidgetRender widget={widget} />;
     case 'my-location':
       return <MyLocationWidgetRender widget={widget} />;
+    case 'elevation-profile':
+      return <ElevationProfileWidgetRender widget={widget} />;
     case 'time-slider':
       return <TimeSliderWidgetRender widget={widget} />;
     case 'create-feature':
@@ -1617,6 +1651,7 @@ function MapWidgetRender({ widget }: { widget: CustomWidget }) {
         // MyLocation) can subscribe to events / addSource / flyTo
         // imperatively without prop-drilling.
         onMapReady={(map) => ctx.registerMap(widget.id, map)}
+        suppressPopup={ctx.popupSuppressed[widget.id] ?? false}
         hideNavigationControl={
           widget.config.kind === 'map' && widget.config.showNavigation === false
         }
@@ -5901,6 +5936,66 @@ function BookmarkWidgetRender({ widget }: { widget: CustomWidget }) {
   );
 }
 
+/**
+ * Elevation profile widget: a toggle that arms the shared
+ * ElevationProfileTool against the bound Map widget. The tool's
+ * own panel portals into the map container, so this widget's
+ * footprint in the layout is just the button. While active it
+ * claims popup suppression on the bound map so draw clicks don't
+ * open feature popups.
+ */
+function ElevationProfileWidgetRender({ widget }: { widget: CustomWidget }) {
+  if (widget.config.kind !== 'elevation-profile') return null;
+  const ctx = useContext(CustomMapsContext);
+  const { mapWidgetId, showLabel } = widget.config;
+  const map = ctx?.maps[mapWidgetId] ?? null;
+  const terrain = ctx?.states[mapWidgetId]?.mapData.terrain ?? null;
+  const [active, setActive] = useState(false);
+
+  // Ref-shadow so the stable resolver reads the live terrain
+  // setting without re-registering the tool's map handlers.
+  const terrainRef = useRef(terrain);
+  terrainRef.current = terrain;
+  const resolveDem = useCallback(
+    (bbox: [number, number, number, number]) =>
+      resolveDemForBbox(terrainRef.current, bbox),
+    [],
+  );
+
+  const setSuppressed = ctx?.setPopupSuppressed;
+  useEffect(() => {
+    if (!setSuppressed) return;
+    setSuppressed(mapWidgetId, active);
+    return () => setSuppressed(mapWidgetId, false);
+  }, [setSuppressed, mapWidgetId, active]);
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setActive((v) => !v)}
+        disabled={!map}
+        aria-pressed={active}
+        title="Elevation profile"
+        className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-medium transition-opacity disabled:cursor-not-allowed disabled:opacity-50 ${
+          active
+            ? 'bg-[hsl(var(--app-accent))] text-white'
+            : 'border border-[hsl(var(--app-border))] text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]'
+        }`}
+      >
+        <ChartSpline className="h-3.5 w-3.5" strokeWidth={1.75} />
+        {showLabel ? 'Elevation profile' : null}
+      </button>
+      <ElevationProfileTool
+        map={map}
+        open={active}
+        onClose={() => setActive(false)}
+        resolveDemUrl={resolveDem}
+      />
+    </>
+  );
+}
+
 function CoordinatesWidgetRender({ widget }: { widget: CustomWidget }) {
   if (widget.config.kind !== 'coordinates') return null;
   const ctx = useContext(CustomMapsContext);
@@ -7415,6 +7510,7 @@ export const KIND_ICON: Record<CustomWidgetKind, typeof MapIcon> = {
   embed: ChevronRight,
   // #361 part 2 mapcentric kinds.
   bookmark: BookmarkIcon,
+  'elevation-profile': ChartSpline,
   coordinates: CrosshairIcon,
   'my-location': LocateIcon,
   // #87 time-slider.

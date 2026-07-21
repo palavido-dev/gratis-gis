@@ -44,8 +44,10 @@ import { AttributeTable } from './attribute-table';
 import { SearchBar } from './search-bar';
 import { SelectToolbar, type SelectToolMode } from './select-tool';
 import { BuilderShell } from '@/components/builder-shell/builder-shell';
-import { Layers as LayersIcon, MessageSquare, PencilLine, Printer, Settings as SettingsIcon } from 'lucide-react';
+import { ChartSpline, Layers as LayersIcon, MessageSquare, PencilLine, Printer, Settings as SettingsIcon } from 'lucide-react';
 import { MarkupPanel } from './markup-panel';
+import { ElevationProfileTool } from './elevation-profile';
+import { resolveDemForBbox } from '@/lib/dem-resolver';
 import { CommentsPanel } from './comments-panel';
 import { PresenceOverlay } from './presence-overlay';
 import { PrintThisMapDialog } from './print-this-map-dialog';
@@ -381,6 +383,10 @@ export function MapEditor({
 
   const [legendOpen, setLegendOpen] = useState(false);
   const [tableOpen, setTableOpen] = useState(false);
+  // Elevation profile tool: draw a line, chart the ground height
+  // along it from the map's elevation layer. Works in scratch and
+  // saved maps alike (nothing item-bound about it).
+  const [profileOpen, setProfileOpen] = useState(false);
   // #154: Markup panel + per-map drawing sets. Hydrated from the
   // initial map data so a fresh page-load renders existing
   // drawings on the canvas immediately. The panel manages writes
@@ -816,6 +822,23 @@ export function MapEditor({
       /* enhancement only; never block the add */
     }
   }
+
+  // Ref-shadow of the map state so the stable profile resolver
+  // reads the live terrain setting without re-creating itself (and
+  // re-registering the tool's map handlers) on every map edit.
+  const mapRefForProfile = useRef(map);
+  mapRefForProfile.current = map;
+
+  /**
+   * Elevation source for the profile tool: the map's terrain layer
+   * when set, else any org elevation layer covering the drawn line
+   * (shared lookup in lib/dem-resolver).
+   */
+  const resolveProfileDem = useCallback(
+    (bbox: [number, number, number, number]) =>
+      resolveDemForBbox(mapRefForProfile.current.terrain ?? null, bbox),
+    [],
+  );
 
   // Elevation layers available for 3D terrain (#186): tile_layer
   // items flagged dem. Fetched lazily the first time the basemap
@@ -1274,6 +1297,12 @@ export function MapEditor({
           setTableOpen((v) => !v);
         }}
       />
+      <ToolbarIconToggle
+        Icon={ChartSpline}
+        label="Elevation profile"
+        active={profileOpen}
+        onClick={() => setProfileOpen((v) => !v)}
+      />
       {/* #187: item-bound surfaces (markup persistence, comments,
           print binding, layer access) need a saved map to attach
           to, so scratch mode hides them until the user saves. */}
@@ -1475,6 +1504,13 @@ export function MapEditor({
             onSelectionChange={setSelection}
             drawings={drawings}
             onMapReady={setMapLibre}
+            suppressPopup={profileOpen}
+          />
+          <ElevationProfileTool
+            map={mapLibre}
+            open={profileOpen}
+            onClose={() => setProfileOpen(false)}
+            resolveDemUrl={resolveProfileDem}
           />
           <SelectToolbar
             mode={selectTool}
