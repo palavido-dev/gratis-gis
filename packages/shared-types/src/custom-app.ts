@@ -213,6 +213,11 @@ export type CustomWidgetKind =
   // ground height along it from the map's elevation layer. Shares
   // its whole implementation with the map builder's toolbar tool.
   | 'elevation-profile'
+  // Magic outline: click a building / field on an imagery layer in
+  // the bound map and drop its traced polygon into an editable
+  // target layer. Server computes per-view SAM embeddings; the
+  // browser runs the mask decoder. Reuses lib/sam-outline.
+  | 'magic-outline'
   // #87: time-slider drives the app-wide bitemporal "as of" state.
   // No map binding -- when present, every map/chart/table widget on
   // the page reads the slider value via AppTimeContext and re-fetches
@@ -386,6 +391,7 @@ export type CustomWidgetConfig =
   | CoordinatesWidgetConfig
   | MyLocationWidgetConfig
   | ElevationProfileWidgetConfig
+  | MagicOutlineWidgetConfig
   | TimeSliderWidgetConfig
   | CreateFeatureWidgetConfig
   | EditFeatureWidgetConfig
@@ -1040,6 +1046,31 @@ export interface ElevationProfileWidgetConfig {
   kind: 'elevation-profile';
   /** id of the Map widget the user draws the line on. */
   mapWidgetId: string;
+  /** Optional inline label next to the icon. Default: icon only. */
+  showLabel?: boolean;
+  /** #364: tool-mode display. */
+  displayMode?: DisplayMode;
+  panelArrangement?: PanelArrangement;
+}
+
+/**
+ * Magic outline tool. Renders a toolbar toggle; when active, the
+ * user clicks a thing on the bound map's imagery and its traced
+ * polygon lands in an editable target layer via the normal
+ * create-feature path. The target is chosen from the app's
+ * editable layers (polygon geometry only); when more than one
+ * exists the author pins one here, else the single one is used.
+ */
+export interface MagicOutlineWidgetConfig {
+  kind: 'magic-outline';
+  /** id of the Map widget the user clicks on. */
+  mapWidgetId: string;
+  /**
+   * Index into the app's `targets` array for the polygon layer the
+   * outline is written to. Omitted = use the only editable polygon
+   * target in the bound map.
+   */
+  targetIndex?: number;
   /** Optional inline label next to the icon. Default: icon only. */
   showLabel?: boolean;
   /** #364: tool-mode display. */

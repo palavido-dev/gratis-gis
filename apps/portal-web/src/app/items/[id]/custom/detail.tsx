@@ -1320,6 +1320,13 @@ const PALETTE_TILES: Array<{
     hint: 'Draw a line, chart the ground height along it',
     category: 'map',
   },
+  {
+    kind: 'magic-outline',
+    label: 'Magic Outline',
+    Icon: Wand2,
+    hint: 'Click imagery to trace a shape into an editable layer',
+    category: 'map',
+  },
   // -- Data widgets ----------------------------------------------
   {
     kind: 'search',
@@ -3044,6 +3051,8 @@ function widgetPlaceholderText(
       return 'Show my location';
     case 'elevation-profile':
       return 'Draw a line, chart the ground height';
+    case 'magic-outline':
+      return 'Click imagery, trace a shape into a layer';
     case 'time-slider':
       return 'Scrub the app to a past date';
     case 'create-feature':
@@ -3097,6 +3106,7 @@ function summarizeWidget(w: CustomWidget): string {
     case 'coordinates':
     case 'my-location':
     case 'elevation-profile':
+    case 'magic-outline':
       return w.config.mapWidgetId
         ? `→ ${w.config.mapWidgetId.slice(0, 6)}`
         : 'pick a map widget';
@@ -3121,6 +3131,172 @@ function summarizeWidget(w: CustomWidget): string {
     default:
       return '';
   }
+}
+
+// ---- Editable-layer (target) helpers ---------------------------------------
+
+/**
+ * One candidate editable layer discovered inside a map: a v3
+ * data_layer sublayer that a map layer points at.
+ */
+interface TargetCandidate {
+  dataLayerId: string;
+  layerKey: string;
+  title: string;
+  geometryType: string | null;
+}
+
+/**
+ * Read a map item's layers and return the v3 data_layer sublayers
+ * they reference, which are exactly the things an app can make
+ * editable. Non-data layers (imagery, terrain, ArcGIS, OSM) carry
+ * no editable features and are skipped.
+ */
+async function discoverMapTargets(mapId: string): Promise<TargetCandidate[]> {
+  const res = await fetch(`/api/portal/items/${mapId}`);
+  if (!res.ok) return [];
+  const item = (await res.json()) as {
+    data?: { layers?: Array<{ title?: string; source?: unknown }> };
+  };
+  const layers = item.data?.layers ?? [];
+  const out: TargetCandidate[] = [];
+  const seen = new Set<string>();
+  for (const layer of layers) {
+    const src = layer.source as
+      | { kind?: string; itemId?: string; layerKey?: string }
+      | undefined;
+    if (src?.kind !== 'data-layer' || !src.itemId || !src.layerKey) continue;
+    const key = `${src.itemId}:${src.layerKey}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      dataLayerId: src.itemId,
+      layerKey: src.layerKey,
+      title: layer.title || 'Layer',
+      geometryType: null,
+    });
+  }
+  return out;
+}
+
+/**
+ * Friendly name for a target row: the sublayer's label from its
+ * data_layer item, cached across renders. Falls back to the raw
+ * ids while loading or if the item is gone.
+ */
+function TargetLabel({
+  dataLayerId,
+  layerKey,
+}: {
+  dataLayerId: string;
+  layerKey: string;
+}) {
+  const [label, setLabel] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/portal/items/${dataLayerId}`);
+        if (!res.ok || cancelled) return;
+        const item = (await res.json()) as {
+          title?: string;
+          data?: { layers?: Array<{ id?: string; label?: string }> };
+        };
+        const sub = item.data?.layers?.find((l) => l.id === layerKey);
+        if (!cancelled) {
+          setLabel(sub?.label ? `${item.title} · ${sub.label}` : item.title ?? null);
+        }
+      } catch {
+        /* keep the fallback */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [dataLayerId, layerKey]);
+  return <>{label ?? `${dataLayerId.slice(0, 8)} / ${layerKey}`}</>;
+}
+
+/**
+ * "Add editable layer" control: lists the data layers in the app's
+ * map that aren't already editable, one click adds one. This is the
+ * discoverable replacement for the old "add via the Map widget in
+ * Slice 3" note that had no actual button (#191).
+ */
+function AddTargetControl({
+  mapId,
+  existing,
+  onAdd,
+}: {
+  mapId: string | undefined;
+  existing: ViewerTarget[];
+  onAdd: (t: ViewerTarget) => void;
+}) {
+  const [candidates, setCandidates] = useState<TargetCandidate[] | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const refresh = useCallback(() => {
+    if (!mapId) {
+      setCandidates([]);
+      return;
+    }
+    setLoading(true);
+    void discoverMapTargets(mapId)
+      .then((c) => setCandidates(c))
+      .catch(() => setCandidates([]))
+      .finally(() => setLoading(false));
+  }, [mapId]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  if (!mapId) {
+    return (
+      <p className="rounded-md border border-dashed border-border px-2 py-2 text-2xs text-muted">
+        Pick a map above first; its layers become the editable
+        layers you can choose from.
+      </p>
+    );
+  }
+
+  const taken = new Set(existing.map((t) => `${t.dataLayerId}:${t.layerKey}`));
+  const available = (candidates ?? []).filter(
+    (c) => !taken.has(`${c.dataLayerId}:${c.layerKey}`),
+  );
+
+  if (loading && candidates === null) {
+    return (
+      <p className="px-1 py-1 text-2xs text-muted">Reading the map's layers...</p>
+    );
+  }
+
+  if (available.length === 0) {
+    return (
+      <p className="rounded-md border border-dashed border-border px-2 py-2 text-2xs text-muted">
+        {existing.length > 0
+          ? 'Every data layer in the map is already editable here.'
+          : "The map has no editable data layers yet. Add one to the map (the map builder's Add layer > New tab creates an empty one)."}
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-1">
+      {available.map((c) => (
+        <button
+          key={`${c.dataLayerId}:${c.layerKey}`}
+          type="button"
+          onClick={() => onAdd({ dataLayerId: c.dataLayerId, layerKey: c.layerKey })}
+          className="flex w-full items-center gap-1.5 rounded-md border border-dashed border-border px-2 py-1 text-left text-2xs text-ink-1 hover:border-accent/40 hover:bg-surface-2"
+        >
+          <Plus className="h-3 w-3 text-accent" />
+          <span className="flex-1 truncate">{c.title}</span>
+          <span className="text-muted">make editable</span>
+        </button>
+      ))}
+    </div>
+  );
 }
 
 // ---- Properties panel ------------------------------------------------------
@@ -3293,15 +3469,11 @@ function AppProperties({
           )}
         </Field>
         <Field
-          label="Targets"
-          hint="Layers your widgets can bind to. Add via the Map widget's properties (in Slice 3) or the items page for now."
+          label="Editable layers"
+          hint="Which layers this app's tools can add to, edit, and outline into. Pick from the layers in the app's map."
         >
-          {app.targets.length === 0 ? (
-            <div className="rounded-md border border-dashed border-border px-2 py-3 text-center text-xs text-muted">
-              No targets yet.
-            </div>
-          ) : (
-            <ul className="space-y-1">
+          {app.targets.length > 0 ? (
+            <ul className="mb-2 space-y-1">
               {app.targets.map((t, i) => (
                 <li
                   key={`${t.dataLayerId}:${t.layerKey}`}
@@ -3309,7 +3481,7 @@ function AppProperties({
                 >
                   <LayersIcon className="h-3.5 w-3.5 text-info" />
                   <span className="flex-1 truncate">
-                    {t.dataLayerId.slice(0, 8)} / {t.layerKey}
+                    <TargetLabel dataLayerId={t.dataLayerId} layerKey={t.layerKey} />
                   </span>
                   {canEdit && (
                     <button
@@ -3321,7 +3493,7 @@ function AppProperties({
                         onUpdateApp({ targets });
                       }}
                       className="text-muted hover:text-danger"
-                      aria-label="Remove target"
+                      aria-label="Remove editable layer"
                     >
                       <Trash2 className="h-3 w-3" />
                     </button>
@@ -3329,7 +3501,18 @@ function AppProperties({
                 </li>
               ))}
             </ul>
-          )}
+          ) : null}
+          {canEdit ? (
+            <AddTargetControl
+              mapId={app.mapId}
+              existing={app.targets}
+              onAdd={(t) => onUpdateApp({ targets: [...app.targets, t] })}
+            />
+          ) : app.targets.length === 0 ? (
+            <div className="rounded-md border border-dashed border-border px-2 py-3 text-center text-xs text-muted">
+              No editable layers yet.
+            </div>
+          ) : null}
         </Field>
       </div>
     </div>
@@ -3852,6 +4035,35 @@ function WidgetConfigForm({
             the ground height along it, read from the map&apos;s
             elevation layer (or any elevation layer covering the
             line).
+          </p>
+        </>
+      );
+    case 'magic-outline':
+      return (
+        <>
+          <MapBindingPicker
+            mapWidgetId={widget.config.mapWidgetId}
+            mapWidgets={mapWidgets}
+            canEdit={canEdit}
+            onChange={(next) => onChangeConfig({ mapWidgetId: next })}
+          />
+          <label className="flex items-center gap-2 text-xs text-ink-1">
+            <input
+              type="checkbox"
+              disabled={!canEdit}
+              checked={widget.config.showLabel ?? false}
+              onChange={(e) =>
+                onChangeConfig({ showLabel: e.target.checked })
+              }
+            />
+            Show label next to the icon
+          </label>
+          <p className="text-xs leading-snug text-muted">
+            Viewers click a building or field on the map&apos;s
+            imagery layer; its outline is traced and saved into the
+            first editable polygon layer (set under the app&apos;s
+            Editable layers). The map needs an imagery layer and at
+            least one editable polygon layer.
           </p>
         </>
       );
@@ -7109,6 +7321,7 @@ function defaultLayoutForKind(kind: CustomWidgetKind): CustomLayout {
     case 'coordinates':
     case 'my-location':
     case 'elevation-profile':
+    case 'magic-outline':
     case 'create-feature':
     case 'edit-feature':
     case 'delete-feature':
@@ -7908,6 +8121,19 @@ function stampWidget(kind: CustomWidgetKind, layout: CustomLayout): CustomWidget
         layout,
         config: {
           kind: 'elevation-profile',
+          mapWidgetId: '',
+          showLabel: false,
+        },
+      };
+    // Footprint is just the toggle; the outlining happens on the
+    // bound map, and results go to the app's editable polygon layer.
+    case 'magic-outline':
+      return {
+        id,
+        kind,
+        layout,
+        config: {
+          kind: 'magic-outline',
           mapWidgetId: '',
           showLabel: false,
         },

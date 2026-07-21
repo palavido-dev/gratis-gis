@@ -195,6 +195,8 @@ interface CustomMapsCtx {
     mapWidgetId: string,
     bbox: [number, number, number, number],
   ) => void;
+  /** Refetch one map layer's source after an editing write. */
+  refreshMapLayer: (mapWidgetId: string, mapLayerId: string) => void;
   /**
    * #361: jump to one of the app's pages by id. Used by the Button
    * widget's page-link path. Resolves the id to its index and falls
@@ -474,6 +476,16 @@ export function CustomRuntimeClient({
     [],
   );
 
+  // Force one MapLayer's source to refetch after an editing widget
+  // writes a feature, so the change shows without a page reload.
+  const refreshMapLayer = useCallback(
+    (mapWidgetId: string, mapLayerId: string) => {
+      const ref = refRegistry.current[mapWidgetId];
+      ref?.current?.refreshLayerSource(mapLayerId);
+    },
+    [],
+  );
+
   // #361 part 2: live MapLibre Map instances per Map widget id.
   // MapWidgetRender registers via onMapReady so widgets like
   // Coordinates, Bookmark, and MyLocation can read pointer position,
@@ -553,6 +565,7 @@ export function CustomRuntimeClient({
       basemaps,
       resolvedTargets,
       flyTo,
+      refreshMapLayer,
       navigateToPage,
       pages: pagesForCtx,
       maps,
@@ -570,6 +583,7 @@ export function CustomRuntimeClient({
       basemaps,
       resolvedTargets,
       flyTo,
+      refreshMapLayer,
       navigateToPage,
       pagesForCtx,
       maps,
@@ -1575,6 +1589,8 @@ function renderWidget(widget: CustomWidget): React.ReactNode {
       return <MyLocationWidgetRender widget={widget} />;
     case 'elevation-profile':
       return <ElevationProfileWidgetRender widget={widget} />;
+    case 'magic-outline':
+      return <MagicOutlineWidgetRender widget={widget} />;
     case 'time-slider':
       return <TimeSliderWidgetRender widget={widget} />;
     case 'create-feature':
@@ -5996,6 +6012,164 @@ function ElevationProfileWidgetRender({ widget }: { widget: CustomWidget }) {
   );
 }
 
+/**
+ * Magic outline widget: a toolbar toggle that arms the SAM
+ * click-to-outline pipeline against the bound map's imagery. A
+ * click traces the thing under the cursor into a polygon and POSTs
+ * it to the chosen editable polygon layer, then refetches that
+ * layer so the outline appears. Same engine (lib/sam-outline) the
+ * standalone editor uses.
+ */
+function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
+  if (widget.config.kind !== 'magic-outline') return null;
+  const cfg = widget.config;
+  const ctx = useContext(CustomMapsContext);
+  const map = ctx?.maps[cfg.mapWidgetId] ?? null;
+  const mut = useMutationTargets({
+    mapWidgetId: cfg.mapWidgetId,
+    ...(typeof cfg.targetIndex === 'number'
+      ? { targetIndex: cfg.targetIndex }
+      : {}),
+  });
+  const [active, setActive] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+
+  // Live map layers (for finding the imagery to trace from) via a
+  // ref so the stable click handler reads the current list.
+  const layersRef = useRef(
+    ctx?.states[cfg.mapWidgetId]?.mapData.layers ?? [],
+  );
+  layersRef.current = ctx?.states[cfg.mapWidgetId]?.mapData.layers ?? [];
+  const mutRef = useRef(mut);
+  mutRef.current = mut;
+
+  // Suppress feature popups while arming clicks.
+  const setSuppressed = ctx?.setPopupSuppressed;
+  useEffect(() => {
+    if (!setSuppressed) return;
+    setSuppressed(cfg.mapWidgetId, active);
+    return () => setSuppressed(cfg.mapWidgetId, false);
+  }, [setSuppressed, cfg.mapWidgetId, active]);
+
+  useEffect(() => {
+    if (!map || !active) return;
+    const canvas = map.getCanvas();
+    const prev = canvas.style.cursor;
+    canvas.style.cursor = 'crosshair';
+    let busy = false;
+    let cancelled = false;
+    const onClick = (e: maplibregl.MapMouseEvent) => {
+      if (busy) return;
+      const imagery = layersRef.current.find(
+        (l) => l.visible !== false && l.source.kind === 'tile',
+      );
+      if (!imagery || imagery.source.kind !== 'tile') {
+        setStatus('Add an imagery layer to this map to outline from it.');
+        window.setTimeout(() => !cancelled && setStatus(null), 3500);
+        return;
+      }
+      const target = mutRef.current?.targets[0];
+      if (!target) {
+        setStatus('No editable polygon layer set. Add one in the app settings.');
+        window.setTimeout(() => !cancelled && setStatus(null), 3500);
+        return;
+      }
+      busy = true;
+      setStatus('Outlining...');
+      void import('@/lib/sam-outline')
+        .then((mod) =>
+          mod.outlineAt(
+            (imagery.source as { itemId: string }).itemId,
+            e.lngLat.lng,
+            e.lngLat.lat,
+            map.getZoom(),
+            (m) => !cancelled && setStatus(m),
+          ),
+        )
+        .then(async ({ ring }) => {
+          if (cancelled) return;
+          setStatus('Saving...');
+          const res = await fetch(
+            `/api/portal/items/${target.dataLayerId}/layers/${encodeURIComponent(
+              target.layerKey,
+            )}/features`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                features: [
+                  {
+                    geometry: { type: 'Polygon', coordinates: [ring] },
+                    properties: {},
+                  },
+                ],
+              }),
+            },
+          );
+          if (!res.ok) {
+            const text = await res.text().catch(() => '');
+            throw new Error(text || `HTTP ${res.status}`);
+          }
+          if (cancelled) return;
+          setStatus('Outline added.');
+          ctx?.refreshMapLayer(cfg.mapWidgetId, target.mapLayer.id);
+          window.setTimeout(() => !cancelled && setStatus(null), 2000);
+        })
+        .catch((err: unknown) => {
+          if (cancelled) return;
+          setStatus(
+            err instanceof Error
+              ? err.message
+              : 'The outline tool hit a problem.',
+          );
+          window.setTimeout(() => !cancelled && setStatus(null), 4000);
+        })
+        .finally(() => {
+          busy = false;
+        });
+    };
+    map.on('click', onClick);
+    return () => {
+      cancelled = true;
+      map.off('click', onClick);
+      canvas.style.cursor = prev;
+    };
+  }, [map, active, cfg.mapWidgetId, ctx]);
+
+  const container = map?.getContainer() ?? null;
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setActive((v) => !v)}
+        disabled={!map}
+        aria-pressed={active}
+        title="Magic outline"
+        className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-medium transition-opacity disabled:cursor-not-allowed disabled:opacity-50 ${
+          active
+            ? 'bg-[hsl(var(--app-accent))] text-white'
+            : 'border border-[hsl(var(--app-border))] text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]'
+        }`}
+      >
+        <Wand2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+        {cfg.showLabel ? 'Magic outline' : null}
+      </button>
+      {active && container
+        ? createPortal(
+            <div
+              role="status"
+              className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full bg-[hsl(var(--app-surface-0)/0.95)] px-4 py-1.5 text-xs font-medium text-[hsl(var(--app-ink-1))] shadow-lg backdrop-blur"
+            >
+              {status ?? 'Click a building or field to outline it.'}
+            </div>,
+            container,
+          )
+        : null}
+    </>
+  );
+}
+
 function CoordinatesWidgetRender({ widget }: { widget: CustomWidget }) {
   if (widget.config.kind !== 'coordinates') return null;
   const ctx = useContext(CustomMapsContext);
@@ -7511,6 +7685,7 @@ export const KIND_ICON: Record<CustomWidgetKind, typeof MapIcon> = {
   // #361 part 2 mapcentric kinds.
   bookmark: BookmarkIcon,
   'elevation-profile': ChartSpline,
+  'magic-outline': Wand2,
   coordinates: CrosshairIcon,
   'my-location': LocateIcon,
   // #87 time-slider.
