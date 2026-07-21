@@ -241,6 +241,7 @@ export class TileLayerPyramidWorker implements OnModuleInit {
           noDataValue?: number | string;
         }>;
         coordinateSystem?: { wkt?: string };
+        metadata?: { IMAGE_STRUCTURE?: { LAYOUT?: string } };
       }>('gdalinfo', ['-json', cogPath]);
       const bands = info.bands ?? [];
       const isPhoto =
@@ -253,6 +254,32 @@ export class TileLayerPyramidWorker implements OnModuleInit {
       const wkt = info.coordinateSystem?.wkt ?? '';
       const isWebMercator =
         wkt.includes('"EPSG","3857"') || wkt.includes('Pseudo-Mercator');
+
+      // Photographic imagery that is ALREADY a web-tiled COG needs
+      // no pyramid at all: the COG's internal JPEG overviews are
+      // the pyramid, and the browser's COG protocol renders
+      // nothing outside the image footprint. Baking it into
+      // JPEG tiles actively made it worse: JPEG has no alpha, so
+      // every tile that only partially overlaps the image pads the
+      // rest with opaque black, drawing a black apron over the
+      // basemap at every zoom (the county ortho regression). Same
+      // serve-the-COG precedent as dem layers.
+      if (
+        isPhoto &&
+        isWebMercator &&
+        info.metadata?.IMAGE_STRUCTURE?.LAYOUT === 'COG'
+      ) {
+        await this.applyPatch(itemId, {
+          processingState: 'ready',
+          tileType: 'jpg',
+          tileUrl: `cog:///api/portal/tile-layer/${itemId}/file.cog`,
+        } as Partial<TileLayerData>);
+        await this.clearTilingError(itemId);
+        this.log.log(
+          `Item ${itemId} is a web-tiled photo COG; serving it directly (no pyramid).`,
+        );
+        return;
+      }
 
       // 1) Web-mercator GTiff: the MBTiles driver requires 3857.
       //    Skipped when the source already is (our own analysis
