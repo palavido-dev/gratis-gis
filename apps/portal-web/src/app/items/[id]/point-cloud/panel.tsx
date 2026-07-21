@@ -9,6 +9,7 @@ import {
   Copy,
   ExternalLink,
   Loader2,
+  Leaf,
   Mountain,
   Sun,
   Upload as UploadIcon,
@@ -489,6 +490,28 @@ function HillshadeSection({ itemId }: { itemId: string }) {
             Create elevation layer (for 3D)
           </button>
         </div>
+        <div className="border-t border-border pt-3">
+          <p className="text-xs leading-relaxed text-muted">
+            Or measure how tall everything is: the height of trees,
+            buildings, and anything else above the bare ground, as a
+            colored layer for maps.
+          </p>
+          <button
+            type="button"
+            onClick={() =>
+              void submitTo('heightmap', { resolution: Number(resolution) })
+            }
+            disabled={submitting || active}
+            className="mt-2 inline-flex items-center gap-2 rounded-md border border-border bg-surface-0 px-3 py-1.5 text-xs font-medium text-ink-0 transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {submitting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Leaf className="h-3.5 w-3.5" />
+            )}
+            Create height-above-ground map
+          </button>
+        </div>
         {error ? (
           <div className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
             {error}
@@ -509,7 +532,11 @@ function HillshadeSection({ itemId }: { itemId: string }) {
                   <span className="text-danger">!</span>
                 )}
                 <span className="text-ink-1">
-                  {j.kind === 'elevation' ? 'Elevation: ' : 'Hillshade: '}
+                  {j.kind === 'elevation'
+                    ? 'Elevation: '
+                    : j.kind === 'heightmap'
+                      ? 'Height above ground: '
+                      : 'Hillshade: '}
                   {j.state === 'queued'
                     ? 'Waiting to start...'
                     : j.state === 'running'

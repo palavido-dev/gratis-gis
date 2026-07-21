@@ -67,6 +67,15 @@ export class AnalysisController {
     return this.analysis.createSteepnessJob(user, itemId);
   }
 
+  @Post('items/:itemId/analysis/heightmap')
+  createHeightmap(
+    @CurrentUser() user: AuthUser,
+    @Param('itemId') itemId: string,
+    @Body() body: { resolution: number },
+  ) {
+    return this.analysis.createHeightmapJob(user, itemId, body);
+  }
+
   @Get('items/:itemId/analysis/jobs')
   listJobs(@CurrentUser() user: AuthUser, @Param('itemId') itemId: string) {
     return this.analysis.listJobsForItem(user, itemId);

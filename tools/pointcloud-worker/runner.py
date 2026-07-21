@@ -920,12 +920,214 @@ def do_steepness(conn, s3, job) -> None:
         shutil.rmtree(work, ignore_errors=True)
 
 
+def do_heightmap(conn, s3, job) -> None:
+    """Height above ground: surface model minus ground model.
+
+    Two streamed PDAL grids over ONE explicit bounds (the ground
+    subset's extent can differ from the full cloud's, and implicit
+    grids would misalign), differenced with gdal_calc while masking
+    either side's nodata, clamped at zero (grid interpolation can
+    dip the surface under the ground near edges), then colored
+    through a green ramp: nothing standing = transparent, taller =
+    deeper green.
+    """
+    params = job["params"] or {}
+    resolution = float(params.get("resolution", 1.0))
+    if not (0.25 <= resolution <= 50):
+        raise RuntimeError("Resolution must be between 0.25 and 50 meters.")
+
+    source = item_data(conn, job["source_item_id"])
+    storage_key = source.get("storageKey")
+    if not storage_key:
+        raise RuntimeError("Source point cloud has no uploaded file.")
+    bounds = source.get("bounds")
+    if not bounds:
+        raise RuntimeError(
+            "This point cloud is missing its extent information."
+        )
+    cells_x = (float(bounds[3]) - float(bounds[0])) / resolution
+    cells_y = (float(bounds[4]) - float(bounds[1])) / resolution
+    if cells_x * cells_y > MAX_RASTER_CELLS:
+        raise RuntimeError(
+            "That resolution would produce a raster larger than this "
+            "server allows. Pick a coarser resolution."
+        )
+    # PDAL writers.gdal bounds syntax: ([minx, maxx], [miny, maxy]).
+    pdal_bounds = (
+        f"([{float(bounds[0])}, {float(bounds[3])}], "
+        f"[{float(bounds[1])}, {float(bounds[4])}])"
+    )
+
+    work = SCRATCH / f"job-{job['id']}"
+    work.mkdir(parents=True, exist_ok=True)
+    try:
+        src = work / "source.copc.laz"
+        log(f"  downloading {storage_key}")
+        s3.download_file(BUCKET, storage_key, str(src))
+        set_progress(conn, job["id"], 10)
+
+        def grid(out: Path, ground_only: bool, output_type: str) -> None:
+            stages: list[dict] = [
+                {"type": "readers.copc", "filename": str(src)}
+            ]
+            if ground_only:
+                stages.append(
+                    {
+                        "type": "filters.range",
+                        "limits": "Classification[2:2]",
+                    }
+                )
+            stages.append(
+                {
+                    "type": "writers.gdal",
+                    "filename": str(out),
+                    "resolution": resolution,
+                    "output_type": output_type,
+                    "window_size": 3,
+                    "bounds": pdal_bounds,
+                    "nodata": -9999,
+                    "gdaldriver": "GTiff",
+                    "gdalopts": "COMPRESS=DEFLATE,TILED=YES,BIGTIFF=IF_SAFER",
+                }
+            )
+            pipeline = work / f"pipeline-{out.stem}.json"
+            pipeline.write_text(json.dumps({"pipeline": stages}))
+            run(["pdal", "pipeline", str(pipeline)], work)
+
+        dsm = work / "dsm.tif"
+        grid(dsm, ground_only=False, output_type="max")
+        set_progress(conn, job["id"], 40)
+        dtm = work / "dtm.tif"
+        grid(dtm, ground_only=True, output_type="idw")
+        set_progress(conn, job["id"], 65)
+
+        height = work / "height.tif"
+        run(
+            [
+                "gdal_calc.py",
+                "-A",
+                str(dsm),
+                "-B",
+                str(dtm),
+                "--calc",
+                "where((A==-9999)|(B==-9999), -9999, maximum(A-B, 0))",
+                "--NoDataValue=-9999",
+                "--outfile",
+                str(height),
+                "--co",
+                "COMPRESS=DEFLATE",
+                "--co",
+                "TILED=YES",
+                "--quiet",
+            ],
+            work,
+        )
+        set_progress(conn, job["id"], 75)
+
+        # Meters of standing height -> color. Under half a meter is
+        # grass and noise, so it fades to fully transparent and the
+        # basemap shows through where nothing stands.
+        colors = work / "colors.txt"
+        colors.write_text(
+            "nv 0 0 0 0\n"
+            "0 0 0 0 0\n"
+            "0.5 220 235 210 60\n"
+            "2 178 216 160 140\n"
+            "5 140 195 120 200\n"
+            "10 90 165 90 230\n"
+            "20 45 130 60 255\n"
+            "30 20 100 45 255\n"
+            "60 8 60 30 255\n"
+        )
+        rgba = work / "rgba.tif"
+        run(
+            [
+                "gdaldem",
+                "color-relief",
+                str(height),
+                str(colors),
+                str(rgba),
+                "-alpha",
+            ],
+            work,
+        )
+        set_progress(conn, job["id"], 82)
+
+        cog = work / "height.cog.tif"
+        run(
+            [
+                "gdal_translate",
+                str(rgba),
+                str(cog),
+                "-of",
+                "COG",
+                "-co",
+                "COMPRESS=DEFLATE",
+            ],
+            work,
+        )
+        set_progress(conn, job["id"], 88)
+
+        key = f"item-tile-layer/{uuid.uuid4()}"
+        size = cog.stat().st_size
+        log(f"  uploading {size} bytes to {key}")
+        s3.upload_file(
+            str(cog),
+            BUCKET,
+            key,
+            ExtraArgs={"ContentType": "image/tiff"},
+        )
+        set_progress(conn, job["id"], 95)
+
+        bbox = wgs84_bbox(cog)
+        max_zoom = max(
+            0, min(19, math.ceil(math.log2(156543.03 / resolution)))
+        )
+        data = {
+            "version": 1,
+            "format": "cog",
+            "kind": "raster",
+            "storageKey": key,
+            "storageUrl": f"/api/portal/storage/private/{key}",
+            "fileName": f"height-above-ground-{resolution:g}m.tif",
+            "sizeBytes": size,
+            "uploadedAt": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
+            "originalFormat": "cog",
+            "cogStorageKey": key,
+            "cogStorageUrl": f"/api/portal/storage/private/{key}",
+            "cogSizeBytes": size,
+            "processingState": "cog-ready",
+            "tileType": "png",
+            "maxZoom": max_zoom,
+            "minZoom": 0,
+            "tileUrl": f"cog:///api/portal/tile-layer/{job['target_item_id']}/file",
+        }
+        if bbox:
+            data["bbox"] = bbox
+            data["centerLng"] = (bbox[0] + bbox[2]) / 2
+            data["centerLat"] = (bbox[1] + bbox[3]) / 2
+            data["centerZoom"] = max(0, max_zoom - 3)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE item
+                SET data_json = %s, updated_at = now()
+                WHERE id = %s
+                """,
+                (json.dumps(data), job["target_item_id"]),
+            )
+        conn.commit()
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 HANDLERS = {
     "hillshade": do_hillshade,
     "elevation": do_elevation,
     "viewshed": do_viewshed,
     "contours": do_contours,
     "steepness": do_steepness,
+    "heightmap": do_heightmap,
 }
 
 

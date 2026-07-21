@@ -12,6 +12,13 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-07-21 - How tall is everything?
+Point clouds can now produce a height-above-ground map: the height
+of trees, buildings, and anything else standing on the bare earth,
+colored from transparent (open ground) to deep green (tall). One
+click on the point cloud's page, and the result is a normal layer
+for any map.
+
 ## 2026-07-21 - Measure the ground: elevation profiles
 Every map now has an elevation profile tool in the toolbar. Draw a
 line across the landscape and get an instant chart of the ground
