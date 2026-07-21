@@ -315,28 +315,54 @@ async function runCogConversion(
   const inputPath = join(workDir, sanitizeFileName(fileName));
   await download(inputPath);
 
-  const outputPath = join(workDir, 'out.tif');
+  let outputPath = join(workDir, 'out.tif');
 
-  // gdalwarp flags:
-  //   -t_srs EPSG:3857        reproject for web-mercator clients
-  //   -of COG                 emit a Cloud-Optimized GeoTIFF
-  //   -co COMPRESS=DEFLATE    lossless, well-supported
-  //   -co PREDICTOR=2         improves DEFLATE on continuous data
-  //   -co BLOCKSIZE=512       reasonable tile size for HTTP range
-  //   -co BIGTIFF=IF_SAFER    auto-promote to BigTIFF if >4GB
-  //   -co RESAMPLING=BILINEAR pyramid overviews use bilinear
-  await runCommand('gdalwarp', [
-    '-t_srs', 'EPSG:3857',
-    '-of', 'COG',
-    '-co', 'COMPRESS=DEFLATE',
-    '-co', 'PREDICTOR=2',
-    '-co', 'BLOCKSIZE=512',
-    '-co', 'BIGTIFF=IF_SAFER',
-    '-co', 'RESAMPLING=BILINEAR',
-    '-overwrite',
-    inputPath,
-    outputPath,
-  ]);
+  // Already a web-mercator Cloud-Optimized GeoTIFF? Keep the
+  // uploaded bytes exactly as they are. Re-encoding a prepared COG
+  // is worse in every direction: a JPEG-compressed county ortho
+  // balloons several-fold under DEFLATE, the re-encode pegs a core
+  // for tens of minutes, and the output is not one pixel better.
+  // GDAL stamps LAYOUT=COG in IMAGE_STRUCTURE for valid COGs, so
+  // the check cannot false-positive on a plain tiled GTiff.
+  let passthroughCog = false;
+  try {
+    const preInfo = await runCommandCapture('gdalinfo', ['-json', inputPath]);
+    const pre = JSON.parse(preInfo) as GdalInfoJson;
+    const wkt = pre.coordinateSystem?.wkt ?? '';
+    if (
+      pre.metadata?.IMAGE_STRUCTURE?.LAYOUT === 'COG' &&
+      (wkt.includes('"EPSG","3857"') || wkt.includes('Pseudo-Mercator'))
+    ) {
+      passthroughCog = true;
+      outputPath = inputPath;
+    }
+  } catch {
+    // Unreadable header: fall through to the converter, which will
+    // produce its own (better) error if the file is truly broken.
+  }
+
+  if (!passthroughCog) {
+    // gdalwarp flags:
+    //   -t_srs EPSG:3857        reproject for web-mercator clients
+    //   -of COG                 emit a Cloud-Optimized GeoTIFF
+    //   -co COMPRESS=DEFLATE    lossless, well-supported
+    //   -co PREDICTOR=2         improves DEFLATE on continuous data
+    //   -co BLOCKSIZE=512       reasonable tile size for HTTP range
+    //   -co BIGTIFF=IF_SAFER    auto-promote to BigTIFF if >4GB
+    //   -co RESAMPLING=BILINEAR pyramid overviews use bilinear
+    await runCommand('gdalwarp', [
+      '-t_srs', 'EPSG:3857',
+      '-of', 'COG',
+      '-co', 'COMPRESS=DEFLATE',
+      '-co', 'PREDICTOR=2',
+      '-co', 'BLOCKSIZE=512',
+      '-co', 'BIGTIFF=IF_SAFER',
+      '-co', 'RESAMPLING=BILINEAR',
+      '-overwrite',
+      inputPath,
+      outputPath,
+    ]);
+  }
 
   const outputStat = await stat(outputPath);
 
@@ -413,6 +439,14 @@ interface GdalInfoJson {
     coordinates?: number[][][];
   };
   bands?: Array<unknown>;
+  metadata?: {
+    IMAGE_STRUCTURE?: {
+      LAYOUT?: string;
+    };
+  };
+  coordinateSystem?: {
+    wkt?: string;
+  };
 }
 
 /**
