@@ -12,6 +12,36 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-07-21 - Measure the ground: elevation profiles
+Every map now has an elevation profile tool in the toolbar. Draw a
+line across the landscape and get an instant chart of the ground
+height along it, with the distance, the low and high points, and
+the total climb, in feet or meters. Hover the chart and a marker
+follows along the line on the map. It works in web apps too: app
+builders can drop an Elevation Profile button next to any map.
+
+## 2026-07-21 - See what's visible from a spot
+Pick a spot on a map, set a height and how far to look, and
+GratisGIS works out exactly which ground can be seen from there,
+using your lidar-derived terrain. The answer appears right on the
+open map as a green overlay, and it's saved as a normal layer you
+can style, share, and reuse. Handy for siting towers and cameras,
+checking view protection, or planning an event.
+
+## 2026-07-21 - Contour lines and steepness maps
+Elevation layers can now produce two classic map layers on their
+own page: contour lines drawn at whatever spacing you choose (with
+elevations in both feet and meters, ready for labeling and popups)
+and a steepness map that colors the ground from green (flat) to red
+(very steep). Both land as regular items you can add to maps,
+style, and share like anything else.
+
+## 2026-07-21 - Make the hills stand out
+3D maps have a new "height boost" slider under the basemap button.
+True scale is honest but gentle terrain can be hard to read; a
+little boost makes the shape of the land pop for presentations and
+review meetings.
+
 ## 2026-07-20 - Just open a map
 You no longer need to create a map item before you can look at
 something. "Open a map" on the content page starts a blank working

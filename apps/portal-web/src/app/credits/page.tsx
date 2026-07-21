@@ -132,6 +132,12 @@ const STACK: StackRow[] = [
     ],
   },
   {
+    layer: 'Elevation readouts',
+    projects: [
+      { label: 'geotiff.js', href: 'https://geotiffjs.github.io/' },
+    ],
+  },
+  {
     layer: 'Analysis worker packaging',
     projects: [
       { label: 'micromamba', href: 'https://mamba.readthedocs.io/' },

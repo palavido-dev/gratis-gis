@@ -1276,6 +1276,41 @@ export function MapEditor({
                       );
                     })}
                   </ul>
+                  {map.terrain ? (
+                    <div className="border-t border-border px-3 py-2">
+                      <label className="flex items-center justify-between text-2xs text-muted">
+                        <span>Height boost</span>
+                        <span className="font-medium text-ink-1">
+                          {(map.terrain.exaggeration ?? 1).toFixed(2).replace(/\.?0+$/, '')}x
+                        </span>
+                      </label>
+                      <input
+                        type="range"
+                        min={0.5}
+                        max={3}
+                        step={0.25}
+                        value={map.terrain.exaggeration ?? 1}
+                        onChange={(e) => {
+                          const v = Number(e.target.value);
+                          setMap((m) =>
+                            m.terrain
+                              ? {
+                                  ...m,
+                                  terrain: { ...m.terrain, exaggeration: v },
+                                }
+                              : m,
+                          );
+                          markDirty();
+                        }}
+                        className="mt-1 w-full accent-accent"
+                        aria-label="Terrain height boost"
+                      />
+                      <p className="mt-0.5 text-2xs leading-snug text-muted">
+                        1x is true height. Boost it to make gentle
+                        hills easier to read.
+                      </p>
+                    </div>
+                  ) : null}
                   <p className="border-t border-border px-3 py-2 text-2xs leading-relaxed text-muted">
                     With terrain on, tilt the map (right-drag) to see
                     hills and valleys in 3D.
