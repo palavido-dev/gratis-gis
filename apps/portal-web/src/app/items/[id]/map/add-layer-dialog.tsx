@@ -41,7 +41,7 @@ interface Props {
   onAdd: (layer: MapLayer) => void;
 }
 
-type Tab = 'url' | 'paste' | 'file' | 'portal' | 'arcgis';
+type Tab = 'url' | 'paste' | 'file' | 'portal' | 'arcgis' | 'new';
 
 /**
  * Four-tab layer catalog:
@@ -60,6 +60,91 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
   const [paste, setPaste] = useState('');
   const [fileBusy, setFileBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // "New" tab (#brand-new-layer): create an empty, editable data
+  // layer without ever leaving the map. The item is created behind
+  // the scenes and the layer lands on the map immediately; schema
+  // details beyond the geometry type live on the item page for
+  // later. Saves the create-item / find-it / add-it round trip.
+  const [newName, setNewName] = useState('');
+  const [newGeom, setNewGeom] = useState<'point' | 'line' | 'polygon'>(
+    'polygon',
+  );
+  const [newBusy, setNewBusy] = useState(false);
+
+  async function createNewLayer() {
+    const name = newName.trim();
+    if (!name) {
+      setError('Give the new layer a name.');
+      return;
+    }
+    setNewBusy(true);
+    setError(null);
+    try {
+      const layerKey = crypto.randomUUID();
+      const res = await fetch('/api/portal/items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'data_layer',
+          title: name,
+          data: {
+            version: 3,
+            storageType: 'postgis',
+            layers: [
+              {
+                id: layerKey,
+                label: name,
+                name: name
+                  .toLowerCase()
+                  .replace(/[^a-z0-9]+/g, '-')
+                  .replace(/^-+|-+$/g, '')
+                  .slice(0, 60) || 'layer',
+                geometryType: newGeom,
+                // A single Name field so popups, labels, and the
+                // attribute form have something useful from the
+                // first feature. More fields: item page.
+                fields: [
+                  {
+                    name: 'name',
+                    type: 'string',
+                    label: 'Name',
+                    nullable: true,
+                  },
+                ],
+                editingEnabled: true,
+                attachmentsEnabled: false,
+              },
+            ],
+          },
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          message?: string | string[];
+        } | null;
+        const msg = Array.isArray(body?.message)
+          ? body.message.join(' ')
+          : body?.message;
+        setError(msg || 'The layer could not be created.');
+        return;
+      }
+      const created = (await res.json()) as { id: string };
+      onAdd(
+        makeLayer(name, {
+          kind: 'data-layer',
+          itemId: created.id,
+          layerKey,
+        }),
+      );
+      setNewName('');
+      onClose();
+    } catch {
+      setError('The layer could not be created.');
+    } finally {
+      setNewBusy(false);
+    }
+  }
 
   // Portal tab state. The Portal tab has three view modes (#100):
   //
@@ -1076,9 +1161,81 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
             active={tab === 'arcgis'}
             onClick={() => setTab('arcgis')}
           />
+          <TabButton
+            Icon={Sparkles}
+            label="New"
+            active={tab === 'new'}
+            onClick={() => setTab('new')}
+          />
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-4">
+          {tab === 'new' && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted">
+                Start a brand-new, empty layer you can draw features
+                into. It becomes a regular item in your content and
+                lands on this map right away.
+              </p>
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted">
+                  Name
+                </label>
+                <input
+                  type="text"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="e.g. Building outlines"
+                  autoFocus
+                  className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm text-ink-0"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted">
+                  What goes in it
+                </label>
+                <div className="flex gap-2">
+                  {(
+                    [
+                      ['point', 'Points'],
+                      ['line', 'Lines'],
+                      ['polygon', 'Areas'],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setNewGeom(value)}
+                      className={`flex-1 rounded-md border px-3 py-2 text-sm ${
+                        newGeom === value
+                          ? 'border-accent bg-accent/10 font-medium text-ink-0'
+                          : 'border-border text-ink-1 hover:bg-surface-2'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => void createNewLayer()}
+                disabled={newBusy || newName.trim().length === 0}
+                className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground hover:opacity-90 disabled:opacity-50"
+              >
+                {newBusy ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                Create and add to map
+              </button>
+              <p className="text-xs text-muted">
+                It starts with a single Name field; add more fields
+                any time from the layer&apos;s item page.
+              </p>
+            </div>
+          )}
           {(tab === 'url' || tab === 'paste') && (
             <div className="space-y-4">
               <div>
