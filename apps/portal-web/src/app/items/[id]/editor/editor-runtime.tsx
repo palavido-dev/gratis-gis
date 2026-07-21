@@ -882,6 +882,84 @@ export function EditorRuntime({
     };
   }, [mapInstance]);
 
+  // Magic outline (SAM). While active, a map click runs the full
+  // click-to-polygon pipeline against the topmost visible imagery
+  // layer and hands the polygon to the normal create flow (same
+  // attribute form the Add tool uses). Repeat clicks in the same
+  // area are near-instant once the window's embedding is cached.
+  const [magicBusy, setMagicBusy] = useState<string | null>(null);
+  const magicMapDataRef = useRef(mapData);
+  magicMapDataRef.current = mapData;
+  useEffect(() => {
+    if (!mapInstance || activeTool !== 'magic') return;
+    const m = mapInstance;
+    const canvas = m.getCanvas();
+    const prevCursor = canvas.style.cursor;
+    canvas.style.cursor = 'crosshair';
+    let cancelled = false;
+    let busy = false;
+    const onClick = (e: maplibregl.MapMouseEvent) => {
+      if (busy) return;
+      const imagery = magicMapDataRef.current.layers.find(
+        (l) => l.visible !== false && l.source.kind === 'tile',
+      );
+      if (!imagery || imagery.source.kind !== 'tile') {
+        setToast(
+          'Add an imagery layer to this map to outline from it.',
+        );
+        scheduleToastClear();
+        return;
+      }
+      busy = true;
+      setMagicBusy('Outlining...');
+      void import('@/lib/sam-outline')
+        .then((mod) =>
+          mod.outlineAt(
+            (imagery.source as { itemId: string }).itemId,
+            e.lngLat.lng,
+            e.lngLat.lat,
+            m.getZoom(),
+            (msg) => {
+              if (!cancelled) setMagicBusy(msg);
+            },
+          ),
+        )
+        .then(({ ring }) => {
+          if (cancelled) return;
+          setMagicBusy(null);
+          const targetKey = activeTargetKeyRef.current;
+          if (!targetKey) return;
+          setPendingFeature({
+            mode: 'create',
+            geometry: { type: 'Polygon', coordinates: [ring] },
+            targetKey,
+            featureId: null,
+            initialProperties: {},
+          });
+        })
+        .catch((err: unknown) => {
+          if (cancelled) return;
+          setMagicBusy(null);
+          setToast(
+            err instanceof Error
+              ? err.message
+              : 'The outline tool hit a problem. Try again.',
+          );
+          scheduleToastClear();
+        })
+        .finally(() => {
+          busy = false;
+        });
+    };
+    m.on('click', onClick);
+    return () => {
+      cancelled = true;
+      m.off('click', onClick);
+      canvas.style.cursor = prevCursor;
+      setMagicBusy(null);
+    };
+  }, [mapInstance, activeTool]);
+
   // Measure tool change listener (#122). When active, terra-draw
   // emits 'change' on every click while the user is sketching the
   // line / polygon. We read the latest geometry from getSnapshot,
@@ -1461,6 +1539,27 @@ export function EditorRuntime({
     // signals this, so a stray click is harmless.
     const isReadOnlyTool = tool === 'select' || tool === 'measure';
     if (!canEdit && !isReadOnlyTool) return;
+    if (tool === 'magic') {
+      // Magic outline creates polygons; it needs a polygon target
+      // to drop them into.
+      const polygonTargets = eligibleAddTargets.filter(
+        (e) => e.resolved?.layer?.geometryType === 'polygon',
+      );
+      if (polygonTargets.length === 0) {
+        setToast(
+          'The outline tool needs an editable polygon layer as a target. Open the editor config to add one.',
+        );
+        scheduleToastClear();
+        return;
+      }
+      if (activeTool === 'magic') {
+        setActiveTool('off');
+        return;
+      }
+      setActiveTool('magic');
+      setActiveTargetKey(polygonTargets[0]!.key);
+      return;
+    }
     if (tool === 'add') {
       if (eligibleAddTargets.length === 0) {
         setToast(
@@ -3569,11 +3668,24 @@ export function EditorRuntime({
             suppressPopup={
               activeTool === 'measure' ||
               activeTool === 'add' ||
+              activeTool === 'magic' ||
               activeTool === 'edit'
             }
             onSelectionChange={setSelection}
             onMapReady={(m) => setMapInstance(m)}
           />
+
+          {/* Magic outline progress chip. Sits over the canvas so
+              the "first click here takes a moment" state is
+              visible where the user is looking. */}
+          {magicBusy ? (
+            <div
+              role="status"
+              className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full bg-surface-0/95 px-4 py-1.5 text-xs font-medium text-ink-1 shadow-card backdrop-blur"
+            >
+              {magicBusy}
+            </div>
+          ) : null}
 
           {/* SearchBar overlay. Same component the map editor
               renders. Geocoding + per-layer attribute search;
@@ -3762,6 +3874,7 @@ type EditorOp =
 const TOOL_LABELS: Record<EditorTool, string> = {
   select: 'Select',
   add: 'Add',
+  magic: 'Magic outline',
   edit: 'Edit',
   snap: 'Snap toggle',
   measure: 'Measure',

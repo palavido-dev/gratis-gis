@@ -735,6 +735,11 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
 const ALL_TOOLS: Array<{ key: EditorTool; label: string; hint: string }> = [
   { key: 'select', label: 'Select', hint: 'Pick features to inspect or act on.' },
   { key: 'add', label: 'Add', hint: 'Create new features.' },
+  {
+    key: 'magic',
+    label: 'Magic outline',
+    hint: 'Click a building or field on imagery; its outline is drawn for you.',
+  },
   { key: 'edit', label: 'Edit', hint: 'Modify geometry or attributes.' },
   { key: 'snap', label: 'Snap toggle', hint: 'Surface a snap on/off button.' },
   { key: 'measure', label: 'Measure', hint: 'Distance and area readouts.' },

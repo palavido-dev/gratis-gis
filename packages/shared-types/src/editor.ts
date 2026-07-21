@@ -146,6 +146,10 @@ export interface EditorFeatureTemplate {
 export type EditorTool =
   | 'select'
   | 'add'
+  // Magic outline: click a thing on imagery, get its polygon drawn
+  // for you (MobileSAM; the analysis worker computes per-view image
+  // embeddings, the browser runs the mask decoder per click).
+  | 'magic'
   | 'edit'
   | 'snap'
   | 'measure'

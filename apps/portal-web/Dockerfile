@@ -112,6 +112,15 @@ RUN mkdir -p apps/portal-web/public/models \
       "https://github.com/palavido-dev/gratis-gis/releases/download/models-mobilesam-v1/mobilesam-decoder.onnx" \
     && echo "b748cd34954653a52582745e4a853ae1f785a485b24a20a5c58565ab4c5f30a5  apps/portal-web/public/models/mobilesam-decoder.onnx" | sha256sum -c -
 
+# onnxruntime-web executes the decoder; its wasm binaries must be
+# self-hosted (prod never reaches a CDN). ort resolves them from
+# env.wasm.wasmPaths = '/models/ort/' (set in lib/sam-outline.ts).
+RUN mkdir -p apps/portal-web/public/models/ort \
+    && cp node_modules/.pnpm/onnxruntime-web@*/node_modules/onnxruntime-web/dist/*.wasm \
+      apps/portal-web/public/models/ort/ \
+    && cp node_modules/.pnpm/onnxruntime-web@*/node_modules/onnxruntime-web/dist/*.mjs \
+      apps/portal-web/public/models/ort/ 2>/dev/null || true
+
 # GG_DEPLOYMENT_ID feeds next.config's `deploymentId`, which appends
 # a per-deploy query param to every /_next asset URL. Required
 # because Turbopack (the Next 16 default bundler) reuses chunk
