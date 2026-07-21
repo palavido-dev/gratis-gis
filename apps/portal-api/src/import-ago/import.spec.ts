@@ -1,4 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+
+// The importer reaches AGO through safeFetch, whose SSRF guard
+// resolves the hostname via real DNS before the (mocked) fetch
+// ever runs. On shared CI runners that lookup is occasionally
+// slow enough to blow Jest's 5s test timeout, which had the CI
+// red on and off with no code fault. Pin the lookup to a fixed
+// public address: the guard still executes its full logic (so a
+// regression that bypasses it still fails loudly), but the test
+// no longer depends on live DNS.
+jest.mock('node:dns/promises', () => ({
+  lookup: jest.fn(async () => ({ address: '151.101.1.1', family: 4 })),
+}));
+
 import { AgoImportService, normalizeAgoServiceUrl } from './import.js';
 import type { DryRunReport } from './dry-run.js';
 import { classifyAndRow } from './dry-run.js';

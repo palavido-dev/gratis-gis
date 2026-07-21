@@ -1,4 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+
+// Same DNS pin as import.spec.ts: the SSRF guard stays in the
+// test path (see the note below), but its hostname lookup must
+// not touch live DNS or slow CI runners intermittently time the
+// tests out. A fixed public address keeps the guard's logic
+// exercised without the network.
+jest.mock('node:dns/promises', () => ({
+  lookup: jest.fn(async () => ({ address: '151.101.1.1', family: 4 })),
+}));
+
 import { AgoApiError, AgoClient } from './ago-client.js';
 import type {
   AgoItem,

@@ -177,6 +177,19 @@ COPY --from=build --chown=app:app /out /app
 # from this image.
 COPY --from=build --chown=app:app /repo/apps/portal-api/prisma /app/prisma
 
+# Strip gdal-async's BUNDLED tar copy (7.5.9, flagged by Trivy as
+# CVE-2026-59873/-59874 HIGH). It ships inside the package tarball
+# as a bundledDependency, so the workspace-level pnpm override
+# (tar ^7.5.16) cannot reach it. It exists solely for
+# node-pre-gyp's INSTALL path (unpacking the prebuilt .node
+# binary, which pnpm install already did in the build stage); the
+# runtime path is `require('@mapbox/node-pre-gyp').find()`, which
+# never loads the install module. Same delete-the-installer
+# pattern as the pnpm strip above. gdal-async has no newer release
+# to update to (3.12.3 is latest as of 2026-07).
+RUN rm -rf /app/node_modules/.pnpm/gdal-async@*/node_modules/gdal-async/node_modules/tar \
+    /app/node_modules/gdal-async/node_modules/tar
+
 # Vendored OSM preset catalog (#OSM).  Lives under portal-web's
 # content/ tree so the Next.js standalone build traces it for the
 # web tier; the portal-api also needs it (OsmService loads it to
