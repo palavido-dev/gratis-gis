@@ -19,6 +19,7 @@ import type {
   TileLayerOriginalFormat,
 } from '@gratis-gis/shared-types';
 import { isTileLayerData } from '@gratis-gis/shared-types';
+import { DemAnalysisSection } from './dem-analysis';
 
 /**
  * Detail-page editor for tile_layer items (#179). Three states:
@@ -522,6 +523,12 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
             ) : null}
           </div>
         </section>
+      ) : null}
+
+      {/* Terrain analysis: only elevation (dem) layers, once the
+          file is in place. */}
+      {ready && data.dem ? (
+        <DemAnalysisSection itemId={itemId} canEdit={canEdit} />
       ) : null}
 
       {/* Metadata card */}

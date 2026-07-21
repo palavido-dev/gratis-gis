@@ -50,6 +50,23 @@ export class AnalysisController {
     return this.analysis.createViewshedJob(user, itemId, body);
   }
 
+  @Post('items/:itemId/analysis/contours')
+  createContours(
+    @CurrentUser() user: AuthUser,
+    @Param('itemId') itemId: string,
+    @Body() body: { intervalM?: number },
+  ) {
+    return this.analysis.createContoursJob(user, itemId, body);
+  }
+
+  @Post('items/:itemId/analysis/steepness')
+  createSteepness(
+    @CurrentUser() user: AuthUser,
+    @Param('itemId') itemId: string,
+  ) {
+    return this.analysis.createSteepnessJob(user, itemId);
+  }
+
   @Get('items/:itemId/analysis/jobs')
   listJobs(@CurrentUser() user: AuthUser, @Param('itemId') itemId: string) {
     return this.analysis.listJobsForItem(user, itemId);

@@ -7,6 +7,7 @@ import { ConfigModule } from '@nestjs/config';
 import { ImportJobsWorkerModule } from './import-jobs/import-jobs-worker.module.js';
 import { LeaderElectionModule } from './cron/leader-election.module.js';
 import { TileLayerWorkerModule } from './tile-layer/tile-layer-worker.module.js';
+import { AnalysisBridgeModule } from './analysis/analysis-bridge.module.js';
 
 /**
  * portal-worker entry point (#115 P8).
@@ -50,6 +51,9 @@ import { TileLayerWorkerModule } from './tile-layer/tile-layer-worker.module.js'
     // raster pyramid from the COG via gdal2tiles.py + pmtiles
     // convert.  See pyramid.worker.ts for the state machine.
     TileLayerWorkerModule,
+    // Analysis-to-import bridge: stages vector analysis outputs
+    // (contours) from MinIO into the async import pipeline above.
+    AnalysisBridgeModule,
   ],
 })
 class WorkerAppModule {}

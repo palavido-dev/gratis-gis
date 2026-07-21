@@ -669,10 +669,263 @@ def do_viewshed(conn, s3, job) -> None:
         shutil.rmtree(work, ignore_errors=True)
 
 
+def do_contours(conn, s3, job):
+    """Contour lines from an elevation COG: the GDAL half.
+
+    gdal_contour draws the lines in the DEM's CRS; ogr2ogr
+    reprojects to WGS84 (proper GeoJSON); a post-pass adds a feet
+    field so popups read naturally for imperial users. The GeoJSON
+    then goes to MinIO and the job flips to the 'ingest' state,
+    where the API-side analysis bridge stages it into the EXISTING
+    async import pipeline (engine writes stay in TypeScript). This
+    handler therefore returns "handoff" so the main loop does not
+    mark the job done.
+    """
+    params = job["params"] or {}
+    interval = float(params.get("intervalM", 3.048))
+    if not (0.5 <= interval <= 500):
+        raise RuntimeError(
+            "The height between lines must be between 0.5 and 500 meters."
+        )
+
+    source = item_data(conn, job["source_item_id"])
+    storage_key = source.get("cogStorageKey") or source.get("storageKey")
+    if not storage_key:
+        raise RuntimeError("The elevation layer has no file.")
+
+    work = SCRATCH / f"job-{job['id']}"
+    work.mkdir(parents=True, exist_ok=True)
+    try:
+        src = work / "elevation.tif"
+        log(f"  downloading {storage_key}")
+        s3.download_file(BUCKET, storage_key, str(src))
+        set_progress(conn, job["id"], 15)
+
+        raw = work / "contours-raw.geojson"
+        run(
+            [
+                "gdal_contour",
+                "-b",
+                "1",
+                "-a",
+                "elevation_m",
+                "-i",
+                str(interval),
+                "-f",
+                "GeoJSON",
+                str(src),
+                str(raw),
+            ],
+            work,
+        )
+        set_progress(conn, job["id"], 55)
+
+        # Reproject to WGS84 so the GeoJSON is spec-shaped; the
+        # import pipeline would also handle it, but being explicit
+        # here means the artifact is valid on its own.
+        wgs = work / "contours.geojson"
+        run(
+            [
+                "ogr2ogr",
+                "-f",
+                "GeoJSON",
+                "-t_srs",
+                "EPSG:4326",
+                str(wgs),
+                str(raw),
+            ],
+            work,
+        )
+        set_progress(conn, job["id"], 65)
+
+        # Feet field post-pass + feature count in one read.
+        doc = json.loads(wgs.read_text())
+        feats = doc.get("features", [])
+        if not feats:
+            raise RuntimeError(
+                "No contour lines came out. The elevation layer may "
+                "be flat at this line spacing; try a smaller height "
+                "between lines."
+            )
+        for f in feats:
+            props = f.setdefault("properties", {})
+            ele = props.get("elevation_m")
+            if isinstance(ele, (int, float)):
+                props["elevation_ft"] = round(ele * 3.28084, 1)
+        wgs.write_text(json.dumps(doc))
+        set_progress(conn, job["id"], 72)
+
+        key = f"analysis-artifact/{uuid.uuid4()}.geojson"
+        size = wgs.stat().st_size
+        log(f"  uploading {size} bytes ({len(feats)} lines) to {key}")
+        s3.upload_file(
+            str(wgs),
+            BUCKET,
+            key,
+            ExtraArgs={"ContentType": "application/geo+json"},
+        )
+
+        # Hand off to the API-side bridge: merge the artifact key
+        # into params and flip the state. The bridge stages the
+        # file, enqueues the import job, and closes this job out.
+        new_params = dict(params)
+        new_params["artifactKey"] = key
+        new_params["featureCount"] = len(feats)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE analysis_job
+                SET state = 'ingest', params = %s, progress = 80
+                WHERE id = %s
+                """,
+                (json.dumps(new_params), job["id"]),
+            )
+        conn.commit()
+        return "handoff"
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def do_steepness(conn, s3, job) -> None:
+    """Steepness (slope) map from an elevation COG.
+
+    gdaldem slope in degrees, colored through a fixed green-to-red
+    ramp (flat to steep) into an RGBA COG that rides the normal
+    cog->pmtiles pyramid path. Nodata stays transparent.
+    """
+    source = item_data(conn, job["source_item_id"])
+    storage_key = source.get("cogStorageKey") or source.get("storageKey")
+    if not storage_key:
+        raise RuntimeError("The elevation layer has no file.")
+
+    work = SCRATCH / f"job-{job['id']}"
+    work.mkdir(parents=True, exist_ok=True)
+    try:
+        src = work / "elevation.tif"
+        log(f"  downloading {storage_key}")
+        s3.download_file(BUCKET, storage_key, str(src))
+        set_progress(conn, job["id"], 15)
+
+        from osgeo import gdal
+
+        gdal.UseExceptions()
+        ds = gdal.Open(str(src))
+        res = abs(ds.GetGeoTransform()[1])
+        ds = None
+
+        slope = work / "slope.tif"
+        run(
+            [
+                "gdaldem",
+                "slope",
+                str(src),
+                str(slope),
+                "-compute_edges",
+            ],
+            work,
+        )
+        set_progress(conn, job["id"], 55)
+
+        # Degrees -> color. Stops chosen for how people talk about
+        # ground: walkable, gentle, noticeable, steep, very steep,
+        # cliff-like. Values between stops interpolate.
+        colors = work / "colors.txt"
+        colors.write_text(
+            "nv 0 0 0 0\n"
+            "0 34 139 34 255\n"
+            "5 154 205 50 255\n"
+            "10 255 221 51 255\n"
+            "20 255 140 0 255\n"
+            "30 205 60 40 255\n"
+            "45 139 26 26 255\n"
+            "90 92 10 10 255\n"
+        )
+        rgba = work / "rgba.tif"
+        run(
+            [
+                "gdaldem",
+                "color-relief",
+                str(slope),
+                str(colors),
+                str(rgba),
+                "-alpha",
+            ],
+            work,
+        )
+        set_progress(conn, job["id"], 75)
+
+        cog = work / "steepness.cog.tif"
+        run(
+            [
+                "gdal_translate",
+                str(rgba),
+                str(cog),
+                "-of",
+                "COG",
+                "-co",
+                "COMPRESS=DEFLATE",
+            ],
+            work,
+        )
+        set_progress(conn, job["id"], 85)
+
+        key = f"item-tile-layer/{uuid.uuid4()}"
+        size = cog.stat().st_size
+        log(f"  uploading {size} bytes to {key}")
+        s3.upload_file(
+            str(cog),
+            BUCKET,
+            key,
+            ExtraArgs={"ContentType": "image/tiff"},
+        )
+        set_progress(conn, job["id"], 95)
+
+        bbox = wgs84_bbox(cog)
+        max_zoom = max(0, min(19, math.ceil(math.log2(156543.03 / res))))
+        data = {
+            "version": 1,
+            "format": "cog",
+            "kind": "raster",
+            "storageKey": key,
+            "storageUrl": f"/api/portal/storage/private/{key}",
+            "fileName": "steepness.tif",
+            "sizeBytes": size,
+            "uploadedAt": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
+            "originalFormat": "cog",
+            "cogStorageKey": key,
+            "cogStorageUrl": f"/api/portal/storage/private/{key}",
+            "cogSizeBytes": size,
+            "processingState": "cog-ready",
+            "tileType": "png",
+            "maxZoom": max_zoom,
+            "minZoom": 0,
+            "tileUrl": f"cog:///api/portal/tile-layer/{job['target_item_id']}/file",
+        }
+        if bbox:
+            data["bbox"] = bbox
+            data["centerLng"] = (bbox[0] + bbox[2]) / 2
+            data["centerLat"] = (bbox[1] + bbox[3]) / 2
+            data["centerZoom"] = max(0, max_zoom - 3)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE item
+                SET data_json = %s, updated_at = now()
+                WHERE id = %s
+                """,
+                (json.dumps(data), job["target_item_id"]),
+            )
+        conn.commit()
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 HANDLERS = {
     "hillshade": do_hillshade,
     "elevation": do_elevation,
     "viewshed": do_viewshed,
+    "contours": do_contours,
+    "steepness": do_steepness,
 }
 
 
@@ -703,9 +956,15 @@ def main() -> None:
                 )
                 continue
             try:
-                handler(conn, s3, job)
-                finish_job(conn, job["id"], None)
-                log(f"job {job['id']}: done")
+                outcome = handler(conn, s3, job)
+                if outcome == "handoff":
+                    # The handler moved the job into a state another
+                    # worker owns (e.g. contours -> 'ingest' for the
+                    # API-side bridge). Do not mark it done.
+                    log(f"job {job['id']}: handed off")
+                else:
+                    finish_job(conn, job["id"], None)
+                    log(f"job {job['id']}: done")
             except Exception as err:
                 conn.rollback()
                 log(f"job {job['id']}: FAILED\n{traceback.format_exc()}")
