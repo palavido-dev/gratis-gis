@@ -100,6 +100,18 @@ RUN mkdir -p "apps/portal-web/public/duckdb-ext/${DUCKDB_WASM_CORE_VERSION}/${DU
       || exit 1; \
     done
 
+# MobileSAM mask decoder for the magic-outline tool: served as a
+# static asset and executed in the browser via onnxruntime-web.
+# Pulled from our pinned model release (Apache-2.0 provenance in
+# the release notes) and hash-verified. Not committed to git: 16MB
+# of weights don't belong in the repo; local dev without the file
+# gets a plain "tool not installed" message in the editor.
+RUN mkdir -p apps/portal-web/public/models \
+    && curl -fsSL --retry 3 \
+      -o apps/portal-web/public/models/mobilesam-decoder.onnx \
+      "https://github.com/palavido-dev/gratis-gis/releases/download/models-mobilesam-v1/mobilesam-decoder.onnx" \
+    && echo "b748cd34954653a52582745e4a853ae1f785a485b24a20a5c58565ab4c5f30a5  apps/portal-web/public/models/mobilesam-decoder.onnx" | sha256sum -c -
+
 # GG_DEPLOYMENT_ID feeds next.config's `deploymentId`, which appends
 # a per-deploy query param to every /_next asset URL. Required
 # because Turbopack (the Next 16 default bundler) reuses chunk

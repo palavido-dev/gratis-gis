@@ -1121,6 +1121,140 @@ def do_heightmap(conn, s3, job) -> None:
         shutil.rmtree(work, ignore_errors=True)
 
 
+# ---- SAM click-to-outline: image embeddings ----------------------
+#
+# The magic-outline digitizing tool runs MobileSAM split in two:
+# the heavy image ENCODER runs here (one job per 1024px map window,
+# cached forever in MinIO), and the light mask DECODER runs in the
+# browser per click. This handler is the encoder half.
+#
+# Window addressing: "supertiles" of 1024px on the standard web
+# mercator grid, i.e. tile coords at zoom (z - 2). One embedding
+# is 256x64x64 float32 = 4 MiB; the cache key is
+# sam-embed/<itemId>/<z>/<gx>/<gy>.bin with a sibling .json.
+
+SAM_ENCODER_PATH = os.environ.get(
+    "SAM_ENCODER_PATH", "/models/mobilesam-encoder.onnx"
+)
+WEBMERC_HALF = 20037508.342789244
+_SAM_SESSION = None
+
+
+def sam_session():
+    """Lazy-load the ONNX encoder once per worker process."""
+    global _SAM_SESSION
+    if _SAM_SESSION is None:
+        import onnxruntime
+
+        _SAM_SESSION = onnxruntime.InferenceSession(
+            SAM_ENCODER_PATH, providers=["CPUExecutionProvider"]
+        )
+    return _SAM_SESSION
+
+
+def supertile_bounds(z: int, gx: int, gy: int):
+    """Web-mercator bounds of a 1024px supertile (= 4x4 z-tiles)."""
+    n = 2 ** (z - 2)
+    size = (2 * WEBMERC_HALF) / n
+    x0 = -WEBMERC_HALF + gx * size
+    y1 = WEBMERC_HALF - gy * size
+    return x0, y1 - size, x0 + size, y1
+
+
+def do_sam_embed(conn, s3, job) -> None:
+    params = job["params"] or {}
+    z = int(params["z"])
+    gx = int(params["gx"])
+    gy = int(params["gy"])
+    if not (14 <= z <= 22):
+        raise RuntimeError("Zoom in further to use the outline tool.")
+
+    source = item_data(conn, job["source_item_id"])
+    key = source.get("cogStorageKey")
+    if not key:
+        raise RuntimeError("This imagery layer has no image file.")
+
+    import numpy as np
+    from osgeo import gdal
+
+    gdal.UseExceptions()
+    # Windowed read straight from MinIO: GDAL's S3 filesystem with
+    # the endpoint pointed at the internal MinIO service. Only the
+    # blocks under the window are fetched, so embedding a view
+    # costs a few MB, not the whole county image.
+    endpoint = os.environ.get("MINIO_ENDPOINT", "http://minio:9000")
+    gdal.SetConfigOption(
+        "AWS_S3_ENDPOINT", endpoint.replace("http://", "").replace("https://", "")
+    )
+    gdal.SetConfigOption("AWS_HTTPS", "NO" if endpoint.startswith("http://") else "YES")
+    gdal.SetConfigOption("AWS_VIRTUAL_HOSTING", "FALSE")
+    gdal.SetConfigOption("AWS_ACCESS_KEY_ID", os.environ["MINIO_ACCESS_KEY"])
+    gdal.SetConfigOption("AWS_SECRET_ACCESS_KEY", os.environ["MINIO_SECRET_KEY"])
+
+    x0, y0, x1, y1 = supertile_bounds(z, gx, gy)
+    src_path = f"/vsis3/{BUCKET}/{key}"
+    set_progress(conn, job["id"], 10)
+    ds = gdal.Open(src_path)
+    try:
+        window = gdal.Translate(
+            "/vsimem/sam-window.tif",
+            ds,
+            projWin=[x0, y1, x1, y0],
+            width=1024,
+            height=1024,
+            resampleAlg="bilinear",
+        )
+        arr = window.ReadAsArray()  # (bands, 1024, 1024)
+        window = None
+    finally:
+        ds = None
+        try:
+            gdal.Unlink("/vsimem/sam-window.tif")
+        except Exception:
+            pass
+    set_progress(conn, job["id"], 35)
+
+    if arr is None:
+        raise RuntimeError("Could not read the imagery under this view.")
+    if arr.ndim == 2:  # single band -> fake RGB
+        arr = np.stack([arr, arr, arr])
+    rgb = arr[:3].astype(np.float32)  # (3, 1024, 1024)
+    # SAM's ImageNet-style normalization, channel order RGB.
+    mean = np.array([123.675, 116.28, 103.53], dtype=np.float32).reshape(3, 1, 1)
+    std = np.array([58.395, 57.12, 57.375], dtype=np.float32).reshape(3, 1, 1)
+    tensor = ((rgb - mean) / std)[np.newaxis, ...]  # (1, 3, 1024, 1024)
+
+    sess = sam_session()
+    input_name = sess.get_inputs()[0].name
+    set_progress(conn, job["id"], 45)
+    (embedding,) = sess.run(None, {input_name: tensor})
+    set_progress(conn, job["id"], 85)
+    emb = np.ascontiguousarray(embedding.astype(np.float32))
+
+    base = f"sam-embed/{job['source_item_id']}/{z}/{gx}/{gy}"
+    s3.put_object(
+        Bucket=BUCKET,
+        Key=f"{base}.bin",
+        Body=emb.tobytes(),
+        ContentType="application/octet-stream",
+    )
+    s3.put_object(
+        Bucket=BUCKET,
+        Key=f"{base}.json",
+        Body=json.dumps(
+            {
+                "version": "mobilesam-v1",
+                "shape": list(emb.shape),
+                "mercBounds": [x0, y0, x1, y1],
+                "z": z,
+                "gx": gx,
+                "gy": gy,
+            }
+        ).encode(),
+        ContentType="application/json",
+    )
+
+
 HANDLERS = {
     "hillshade": do_hillshade,
     "elevation": do_elevation,
@@ -1128,6 +1262,7 @@ HANDLERS = {
     "contours": do_contours,
     "steepness": do_steepness,
     "heightmap": do_heightmap,
+    "sam-embed": do_sam_embed,
 }
 
 

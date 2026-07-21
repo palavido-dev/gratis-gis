@@ -24,7 +24,18 @@ RUN micromamba install -y -n base -c conda-forge \
       gdal=3.13 \
       psycopg2 \
       boto3 \
+      numpy \
+      onnxruntime \
     && micromamba clean --all --yes
+
+# MobileSAM image encoder for the magic-outline tool (#sam). Pulled
+# from our own pinned model release (exported from the official
+# Apache-2.0 MobileSAM checkpoint; provenance + license in the
+# release notes) and hash-verified so a tampered or truncated
+# download fails the build, not the first job.
+ADD https://github.com/palavido-dev/gratis-gis/releases/download/models-mobilesam-v1/mobilesam-encoder.onnx /models/mobilesam-encoder.onnx
+RUN echo "d02f3fe0bd70731cd6efd004ca1fef1e14e6ac2e1c4804a2ca0926256d886cdf  /models/mobilesam-encoder.onnx" | sha256sum -c - \
+    && chmod a+r /models/mobilesam-encoder.onnx
 
 WORKDIR /app
 COPY tools/pointcloud-worker/runner.py /app/runner.py

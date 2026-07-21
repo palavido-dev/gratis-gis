@@ -499,6 +499,19 @@ export class StorageService implements OnModuleInit {
     await pipeline(obj.body, createWriteStream(destPath));
   }
 
+  /** True when an object exists under the key. Head request only. */
+  async objectExists(key: string): Promise<boolean> {
+    try {
+      const { HeadObjectCommand } = await import('@aws-sdk/client-s3');
+      await this.client.send(
+        new HeadObjectCommand({ Bucket: this.bucket, Key: key }),
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   /** Delete an object by key. Idempotent. Used when a feature
    *  attachment row is removed so we don't leak bytes in MinIO. */
   async deleteObject(key: string): Promise<void> {
