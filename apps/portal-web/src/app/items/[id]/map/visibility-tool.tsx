@@ -307,8 +307,8 @@ export function VisibilityTool({
       cancelled = true;
       window.clearInterval(timer);
     };
-    // phase.step transition to 'running' carries stable ids.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Keyed on the running job's id: a new run re-arms the poll,
+    // and leaving 'running' tears it down via the cleanup.
   }, [phase.step === 'running' ? phase.jobId : null]);
 
   function setUnitsPersist(u: Units) {
