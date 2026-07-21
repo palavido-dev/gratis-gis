@@ -210,6 +210,7 @@ export const ptBR: Partial<CatalogShape> = {
     responses: 'Respostas',
     configure: 'Configurar',
     previewData: 'Pré-visualizar dados',
+    addToMap: 'Adicionar ao mapa',
     moveToFolder: 'Mover para pasta',
     removeFromFolder: 'Remover desta pasta',
     removeFromNamedFolder: 'Remover de "{folder}"',

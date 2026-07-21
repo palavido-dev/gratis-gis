@@ -2491,6 +2491,48 @@ function syncDrawings(
 const TERRAIN_SOURCE_ID = 'gg-terrain-dem';
 
 /**
+ * "Getting the 3D ground ready..." chip (#186 follow-up). Reading
+ * the elevation file's first tiles takes real time (tens of seconds
+ * for a large survey, and again after every basemap switch since
+ * setStyle rebuilds terrain), during which the map renders black
+ * with no feedback (user report). Same visual pattern as the point
+ * cloud loading chip; hidden when the map settles or after a
+ * safety window.
+ */
+const terrainChips = new WeakMap<
+  maplibregl.Map,
+  { el: HTMLDivElement; cleanup: () => void }
+>();
+
+function showTerrainChip(m: maplibregl.Map): void {
+  if (terrainChips.has(m)) return;
+  const el = document.createElement('div');
+  el.className =
+    'pointer-events-none absolute bottom-8 left-1/2 z-10 -translate-x-1/2 rounded-full border border-border bg-surface-1/95 px-3 py-1.5 text-xs text-ink-1 shadow-raised backdrop-blur';
+  el.setAttribute('role', 'status');
+  el.textContent = 'Getting the 3D ground ready...';
+  m.getContainer().appendChild(el);
+  const hide = () => hideTerrainChip(m);
+  m.once('idle', hide);
+  const timer = window.setTimeout(hide, 45000);
+  terrainChips.set(m, {
+    el,
+    cleanup: () => {
+      m.off('idle', hide);
+      window.clearTimeout(timer);
+    },
+  });
+}
+
+function hideTerrainChip(m: maplibregl.Map): void {
+  const entry = terrainChips.get(m);
+  if (!entry) return;
+  terrainChips.delete(m);
+  entry.cleanup();
+  entry.el.remove();
+}
+
+/**
  * Apply or clear 3D terrain (#186). Idempotent; also called from
  * the basemap-swap path because setStyle wipes sources and terrain.
  */
@@ -2500,7 +2542,8 @@ function applyTerrain(
 ): void {
   try {
     if (terrain?.tileUrl) {
-      if (!m.getSource(TERRAIN_SOURCE_ID)) {
+      const fresh = !m.getSource(TERRAIN_SOURCE_ID);
+      if (fresh) {
         m.addSource(TERRAIN_SOURCE_ID, {
           type: 'raster-dem',
           // The cog protocol's #dem mode turns the single-band
@@ -2513,7 +2556,9 @@ function applyTerrain(
         source: TERRAIN_SOURCE_ID,
         exaggeration: terrain.exaggeration ?? 1,
       });
+      if (fresh) showTerrainChip(m);
     } else {
+      hideTerrainChip(m);
       if (m.getTerrain()) m.setTerrain(null);
       if (m.getSource(TERRAIN_SOURCE_ID)) {
         m.removeSource(TERRAIN_SOURCE_ID);

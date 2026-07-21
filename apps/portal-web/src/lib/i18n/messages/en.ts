@@ -216,6 +216,7 @@ export const en = {
     responses: 'Responses',
     configure: 'Configure',
     previewData: 'Preview data',
+    addToMap: 'Add to map',
     moveToFolder: 'Move to folder',
     removeFromFolder: 'Remove from this folder',
     removeFromNamedFolder: 'Remove from "{folder}"',

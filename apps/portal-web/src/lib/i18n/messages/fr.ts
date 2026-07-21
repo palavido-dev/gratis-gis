@@ -212,6 +212,7 @@ export const fr: Partial<CatalogShape> = {
     responses: 'Réponses',
     configure: 'Configurer',
     previewData: 'Aperçu des données',
+    addToMap: 'Ajouter à une carte',
     moveToFolder: 'Déplacer vers un dossier',
     removeFromFolder: 'Retirer de ce dossier',
     removeFromNamedFolder: 'Retirer de "{folder}"',

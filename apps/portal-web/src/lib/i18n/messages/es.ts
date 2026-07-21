@@ -214,6 +214,7 @@ export const es: Partial<CatalogShape> = {
     responses: 'Respuestas',
     configure: 'Configurar',
     previewData: 'Vista previa de datos',
+    addToMap: 'Añadir al mapa',
     moveToFolder: 'Mover a carpeta',
     removeFromFolder: 'Quitar de esta carpeta',
     removeFromNamedFolder: 'Quitar de "{folder}"',

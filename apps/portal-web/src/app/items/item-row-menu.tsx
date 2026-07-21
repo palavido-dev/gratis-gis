@@ -8,6 +8,7 @@ import {
   Eye,
   FolderMinus,
   FolderPlus,
+  Map as MapIcon,
   MoreVertical,
   Settings,
   Trash2,
@@ -33,6 +34,19 @@ import { useT } from '@/lib/i18n/locale-context';
 const PREVIEWABLE_TYPES: ReadonlySet<ItemType> = new Set([
   'data_layer',
   'arcgis_service',
+]);
+
+/** #185: types the "Add to map" quick action supports. Elevation
+ *  layers and vector tile packages are excluded on the item PAGE
+ *  where full data is available; the list row lacks `data`, so
+ *  those rarer cases surface their explanatory message inside the
+ *  builder instead of hiding the entry here. */
+const ADDABLE_TYPES: ReadonlySet<ItemType> = new Set([
+  'data_layer',
+  'derived_layer',
+  'point_cloud',
+  'arcgis_service',
+  'tile_layer',
 ]);
 
 interface Props {
@@ -212,6 +226,23 @@ export function ItemRowMenu({
               <Eye className="h-3.5 w-3.5 text-muted" />
               <span className="flex-1">{t('itemMenu.previewData')}</span>
             </button>
+          ) : null}
+          {/* #185/#187: one-click "look at this on a map". Opens a
+              working map with the item pre-added; nothing is
+              created unless the user saves it. */}
+          {ADDABLE_TYPES.has(itemType) ? (
+            <a
+              role="menuitem"
+              href={`/maps/new?add=${itemId}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpen(false);
+              }}
+              className="flex items-center gap-2 border-t border-border px-3 py-2 text-ink-1 hover:bg-surface-2"
+            >
+              <MapIcon className="h-3.5 w-3.5 text-muted" />
+              <span className="flex-1">{t('itemMenu.addToMap')}</span>
+            </a>
           ) : null}
           {canManage && onShare ? (
             <button
