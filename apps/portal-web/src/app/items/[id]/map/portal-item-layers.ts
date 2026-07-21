@@ -322,28 +322,32 @@ export async function layersForPortalItem(
     return { layers };
   }
   // data_layer / derived_layer. The lite list attaches `_layers` for
-  // v3 items; a bare item (e.g. from the detail page) needs the
-  // sublayer list fetched the same way the items list derives it.
+  // v3 items; a bare item (from a detail page or an id-only ?add=)
+  // carries the same information in its own data blob
+  // (DataLayerDataV3.layers), so hydrate and read it from there.
+  // Every rendered sublayer MUST carry a layerKey: the MVT tile
+  // endpoint only exists per sublayer, so a v3 layer without one
+  // silently draws nothing (the original auto-add bug).
   const lite = input as PortalItemWithSublayers;
   if (input.type === 'data_layer') {
     let sublayers = lite._layers;
     if (!sublayers) {
-      try {
-        const res = await fetch(`/api/portal/items/${input.id}/layers`);
-        if (res.ok) {
-          const rows = (await res.json()) as Array<{
-            id: string;
-            label?: string;
-            geometryType?: string | null;
-          }>;
-          sublayers = rows.map((r) => ({
-            id: r.id,
-            label: r.label ?? r.id,
-            geometryType: r.geometryType ?? null,
-          }));
-        }
-      } catch {
-        /* fall through to the single-layer path */
+      const { item, error } = await fetchHydratedItem(input);
+      if (!item) return { error: error ?? `Could not load ${input.title}.` };
+      const d = item.data as {
+        version?: number;
+        layers?: Array<{
+          id: string;
+          label?: string;
+          geometryType?: string | null;
+        }>;
+      } | null;
+      if (d?.version === 3 && Array.isArray(d.layers)) {
+        sublayers = d.layers.map((r) => ({
+          id: r.id,
+          label: r.label ?? r.id,
+          geometryType: r.geometryType ?? null,
+        }));
       }
     }
     if (sublayers && sublayers.length > 0) {
