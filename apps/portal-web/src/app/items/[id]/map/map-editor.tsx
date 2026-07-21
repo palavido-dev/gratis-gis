@@ -21,6 +21,7 @@ import type {
   MapLayerAccess,
 } from '@gratis-gis/shared-types';
 import { layersForPortalItem } from './portal-item-layers';
+import { toast } from '@/lib/toast';
 import {
   DEFAULT_LAYER_ACCESS,
   DEFAULT_LAYER_INTERACTIONS,
@@ -754,6 +755,68 @@ export function MapEditor({
     markDirty();
   }
 
+  /**
+   * #186 follow-up (user feedback: "why isn't the hillshade coming
+   * in as 3D?"): when a layer with a stamped coverage box joins a
+   * map that has no terrain yet, look for an elevation layer whose
+   * coverage overlaps and switch terrain on automatically, with a
+   * notice saying how to turn it off. Never overrides an existing
+   * terrain choice; runs at most once per builder session.
+   */
+  const autoTerrainTried = useRef(false);
+  async function maybeAutoTerrain(added: MapLayer[]) {
+    if (!canEdit || autoTerrainTried.current || map.terrain) return;
+    const withBox = added.find(
+      (l) =>
+        (l.source.kind === 'tile' || l.source.kind === 'point-cloud') &&
+        l.source.bboxWgs84,
+    );
+    if (
+      !withBox ||
+      (withBox.source.kind !== 'tile' &&
+        withBox.source.kind !== 'point-cloud') ||
+      !withBox.source.bboxWgs84
+    ) {
+      return;
+    }
+    autoTerrainTried.current = true;
+    const [w, s, e, n] = withBox.source.bboxWgs84;
+    try {
+      const res = await fetch('/api/portal/items?type=tile_layer');
+      if (!res.ok) return;
+      const items = (await res.json()) as Array<{
+        id: string;
+        title: string;
+        data?: {
+          dem?: boolean;
+          tileUrl?: string;
+          bbox?: [number, number, number, number];
+        } | null;
+      }>;
+      const match = items.find((i) => {
+        if (!i.data?.dem || !i.data.tileUrl || !i.data.bbox) return false;
+        const [bw, bs, be, bn] = i.data.bbox;
+        return bw < e && be > w && bs < n && bn > s;
+      });
+      if (!match) return;
+      setMap((m) =>
+        m.terrain
+          ? m
+          : {
+              ...m,
+              terrain: { itemId: match.id, tileUrl: match.data!.tileUrl! },
+            },
+      );
+      markDirty();
+      toast(`3D terrain is on, using "${match.title}".`, {
+        description:
+          'Tilt the map (right-drag) to see it. Turn it off under the basemap button.',
+      });
+    } catch {
+      /* enhancement only; never block the add */
+    }
+  }
+
   // Elevation layers available for 3D terrain (#186): tile_layer
   // items flagged dem. Fetched lazily the first time the basemap
   // menu opens; the list is tiny (analysis outputs), so the non-lite
@@ -866,6 +929,7 @@ export function MapEditor({
   function addLayer(layer: MapLayer) {
     setMap((m) => ({ ...m, layers: [layer, ...m.layers] }));
     markDirty();
+    void maybeAutoTerrain([layer]);
   }
 
   // #185: auto-add a portal item's layers on first mount (the "Add
@@ -893,6 +957,7 @@ export function MapEditor({
         if (layers && layers.length > 0) {
           setMap((m) => ({ ...m, layers: [...layers, ...m.layers] }));
           markDirty();
+          void maybeAutoTerrain(layers);
           // Zoom to the added content when it stamped a coverage box
           // (imagery, point clouds); feature layers keep the map's
           // camera and load by viewport.
