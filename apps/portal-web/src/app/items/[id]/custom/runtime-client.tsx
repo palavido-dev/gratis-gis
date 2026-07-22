@@ -6020,12 +6020,71 @@ function ElevationProfileWidgetRender({ widget }: { widget: CustomWidget }) {
   );
 }
 
+// Transient preview overlay for the magic-outline review step. A
+// dashed orange draft signals "not saved yet," distinct from the
+// committed features in the target layer. Lives outside the `gg:`
+// overlay namespace so nothing else touches it.
+const MAGIC_PREVIEW_SRC = 'gg-magic-preview';
+function drawMagicPreview(
+  map: maplibregl.Map,
+  ring: Array<[number, number]>,
+): void {
+  const data: GeoJSON.FeatureCollection = {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        geometry: { type: 'Polygon', coordinates: [ring] },
+        properties: {},
+      },
+    ],
+  };
+  const existing = map.getSource(MAGIC_PREVIEW_SRC) as
+    | maplibregl.GeoJSONSource
+    | undefined;
+  if (existing) {
+    existing.setData(data);
+    return;
+  }
+  map.addSource(MAGIC_PREVIEW_SRC, { type: 'geojson', data });
+  map.addLayer({
+    id: `${MAGIC_PREVIEW_SRC}-fill`,
+    type: 'fill',
+    source: MAGIC_PREVIEW_SRC,
+    paint: { 'fill-color': '#f97316', 'fill-opacity': 0.25 },
+  });
+  map.addLayer({
+    id: `${MAGIC_PREVIEW_SRC}-line`,
+    type: 'line',
+    source: MAGIC_PREVIEW_SRC,
+    paint: {
+      'line-color': '#f97316',
+      'line-width': 2,
+      'line-dasharray': [2, 1],
+    },
+  });
+}
+function clearMagicPreview(map: maplibregl.Map): void {
+  try {
+    for (const id of [
+      `${MAGIC_PREVIEW_SRC}-fill`,
+      `${MAGIC_PREVIEW_SRC}-line`,
+    ]) {
+      if (map.getLayer(id)) map.removeLayer(id);
+    }
+    if (map.getSource(MAGIC_PREVIEW_SRC)) map.removeSource(MAGIC_PREVIEW_SRC);
+  } catch {
+    /* map torn down mid-clear */
+  }
+}
+
 /**
  * Magic outline widget: a toolbar toggle that arms the SAM
  * click-to-outline pipeline against the bound map's imagery. A
- * click traces the thing under the cursor into a polygon and POSTs
- * it to the chosen editable polygon layer, then refetches that
- * layer so the outline appears. Same engine (lib/sam-outline) the
+ * click traces the thing under the cursor into a polygon. With
+ * review on (default) the outline is previewed on the map and the
+ * user Saves or Discards it; with review off it writes straight to
+ * the chosen editable layer. Same engine (lib/sam-outline) the
  * standalone editor uses.
  */
 function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
@@ -6053,6 +6112,16 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
   const [targetIdx, setTargetIdx] = useState(0);
   const targetIdxRef = useRef(targetIdx);
   targetIdxRef.current = targetIdx;
+  // Review-before-saving. On (default) previews each outline and
+  // waits for Save/Discard; off writes immediately for fast runs.
+  const [review, setReview] = useState(true);
+  const reviewRef = useRef(review);
+  reviewRef.current = review;
+  // The outline awaiting Save/Discard while reviewing.
+  const [pending, setPending] = useState<{
+    ring: Array<[number, number]>;
+    targetIdx: number;
+  } | null>(null);
 
   // Live map layers (for finding the imagery to trace from) via a
   // ref so the stable click handler reads the current list.
@@ -6062,6 +6131,51 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
   layersRef.current = ctx?.states[cfg.mapWidgetId]?.mapData.layers ?? [];
   const mutRef = useRef(mut);
   mutRef.current = mut;
+
+  // Commit one outline to a target layer. Extracted so both the
+  // immediate path and the review Save button use it.
+  const doSave = useCallback(
+    async (ring: Array<[number, number]>, tIdx: number) => {
+      const tgts = mutRef.current?.targets ?? [];
+      const target = tgts[tIdx] ?? tgts[0];
+      if (!target) return;
+      setStatus('Saving...');
+      try {
+        const res = await fetch(
+          `/api/portal/items/${target.dataLayerId}/layers/${encodeURIComponent(
+            target.layerKey,
+          )}/features`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              features: [
+                {
+                  geometry: { type: 'Polygon', coordinates: [ring] },
+                  properties: {},
+                },
+              ],
+            }),
+          },
+        );
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          throw new Error(text || `HTTP ${res.status}`);
+        }
+        setStatus('Outline added.');
+        ctx?.refreshMapLayer(cfg.mapWidgetId, target.mapLayer.id);
+        window.setTimeout(() => setStatus(null), 2000);
+      } catch (err) {
+        setStatus(
+          err instanceof Error ? err.message : 'Could not save the outline.',
+        );
+        window.setTimeout(() => setStatus(null), 4000);
+      }
+    },
+    [ctx, cfg.mapWidgetId],
+  );
+  const doSaveRef = useRef(doSave);
+  doSaveRef.current = doSave;
 
   // Suppress feature popups while arming clicks.
   const setSuppressed = ctx?.setPopupSuppressed;
@@ -6110,32 +6224,14 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
         )
         .then(async ({ ring }) => {
           if (cancelled) return;
-          setStatus('Saving...');
-          const res = await fetch(
-            `/api/portal/items/${target.dataLayerId}/layers/${encodeURIComponent(
-              target.layerKey,
-            )}/features`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                features: [
-                  {
-                    geometry: { type: 'Polygon', coordinates: [ring] },
-                    properties: {},
-                  },
-                ],
-              }),
-            },
-          );
-          if (!res.ok) {
-            const text = await res.text().catch(() => '');
-            throw new Error(text || `HTTP ${res.status}`);
+          if (reviewRef.current) {
+            // Preview it and wait for Save / Discard.
+            drawMagicPreview(map, ring);
+            setPending({ ring, targetIdx: targetIdxRef.current });
+            setStatus('Review the outline, then Save or Discard.');
+          } else {
+            await doSaveRef.current(ring, targetIdxRef.current);
           }
-          if (cancelled) return;
-          setStatus('Outline added.');
-          ctx?.refreshMapLayer(cfg.mapWidgetId, target.mapLayer.id);
-          window.setTimeout(() => !cancelled && setStatus(null), 2000);
         })
         .catch((err: unknown) => {
           if (cancelled) return;
@@ -6155,8 +6251,17 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
       cancelled = true;
       map.off('click', onClick);
       canvas.style.cursor = prev;
+      clearMagicPreview(map);
     };
   }, [map, active, cfg.mapWidgetId, ctx]);
+
+  // Drop any pending preview when the tool turns off.
+  useEffect(() => {
+    if (!active) {
+      if (map) clearMagicPreview(map);
+      setPending(null);
+    }
+  }, [active, map]);
 
   const container = map?.getContainer() ?? null;
 
@@ -6217,23 +6322,72 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
                   Squared
                 </span>
               </div>
-              {(mut?.targets.length ?? 0) > 1 ? (
+              {/* Always show the destination, even with one layer,
+                  so the user is never unsure where data lands. */}
+              {(mut?.targets.length ?? 0) >= 1 ? (
                 <div className="flex items-center gap-2 rounded-full bg-[hsl(var(--app-surface-0)/0.95)] px-3 py-1.5 shadow-lg backdrop-blur">
                   <span className="text-2xs text-[hsl(var(--app-muted))]">
                     Save to
                   </span>
-                  <select
-                    value={targetIdx}
-                    onChange={(e) => setTargetIdx(Number(e.target.value))}
-                    aria-label="Layer new outlines are saved to"
-                    className="rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-2 py-0.5 text-2xs text-[hsl(var(--app-ink-0))]"
+                  {(mut?.targets.length ?? 0) > 1 ? (
+                    <select
+                      value={targetIdx}
+                      onChange={(e) => setTargetIdx(Number(e.target.value))}
+                      aria-label="Layer new outlines are saved to"
+                      className="rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-2 py-0.5 text-2xs text-[hsl(var(--app-ink-0))]"
+                    >
+                      {(mut?.targets ?? []).map((t, i) => (
+                        <option key={`${t.dataLayerId}:${t.layerKey}`} value={i}>
+                          {t.title}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="text-2xs font-medium text-[hsl(var(--app-ink-0))]">
+                      {mut?.targets[0]?.title}
+                    </span>
+                  )}
+                </div>
+              ) : null}
+              <label className="flex items-center gap-1.5 rounded-full bg-[hsl(var(--app-surface-0)/0.95)] px-3 py-1.5 text-2xs text-[hsl(var(--app-ink-1))] shadow-lg backdrop-blur">
+                <input
+                  type="checkbox"
+                  checked={review}
+                  onChange={(e) => {
+                    setReview(e.target.checked);
+                    // Turning review off drops any staged preview.
+                    if (!e.target.checked && map) {
+                      clearMagicPreview(map);
+                      setPending(null);
+                    }
+                  }}
+                />
+                Review before saving
+              </label>
+              {pending ? (
+                <div className="flex items-center gap-2 rounded-full bg-[hsl(var(--app-surface-0)/0.95)] px-2 py-1 shadow-lg backdrop-blur">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void doSave(pending.ring, pending.targetIdx);
+                      if (map) clearMagicPreview(map);
+                      setPending(null);
+                    }}
+                    className="rounded-full bg-[hsl(var(--app-accent))] px-3 py-1 text-2xs font-medium text-white hover:opacity-90"
                   >
-                    {(mut?.targets ?? []).map((t, i) => (
-                      <option key={`${t.dataLayerId}:${t.layerKey}`} value={i}>
-                        {t.title}
-                      </option>
-                    ))}
-                  </select>
+                    Save outline
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (map) clearMagicPreview(map);
+                      setPending(null);
+                      setStatus(null);
+                    }}
+                    className="rounded-full border border-[hsl(var(--app-border))] px-3 py-1 text-2xs font-medium text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
+                  >
+                    Discard
+                  </button>
                 </div>
               ) : null}
             </div>,
