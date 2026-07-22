@@ -399,6 +399,38 @@ export async function outlineAt(
       "Nothing distinct under that click. Try clicking the middle of what you're outlining.",
     );
   }
+
+  // Runaway-mask guard. Clicking open ground (a field, a lake, a
+  // parking lot) makes SAM segment the whole homogeneous region,
+  // which comes back as a mask that fills most of the view. That is
+  // technically-correct SAM but never what the user wanted, so
+  // reject anything that spans nearly the whole window or covers
+  // most of its pixels, and tell them to click a distinct object.
+  let minX = w;
+  let minY = h;
+  let maxX = 0;
+  let maxY = 0;
+  let onCount = 0;
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      if (binary[y * w + x]) {
+        onCount += 1;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  const spanX = (maxX - minX + 1) / w;
+  const spanY = (maxY - minY + 1) / h;
+  const areaFrac = onCount / (w * h);
+  if ((spanX >= 0.92 && spanY >= 0.92) || areaFrac >= 0.8) {
+    throw new Error(
+      'That looks like open ground, not a distinct feature. Zoom in and click the middle of a building, pond, or other object.',
+    );
+  }
+
   // ~1.5px tolerance at mask scale keeps corners while dropping the
   // pixel stair-steps.
   const simplified = simplify(traced, 1.5);

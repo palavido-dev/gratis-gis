@@ -5963,7 +5963,7 @@ function BookmarkWidgetRender({ widget }: { widget: CustomWidget }) {
 function ElevationProfileWidgetRender({ widget }: { widget: CustomWidget }) {
   if (widget.config.kind !== 'elevation-profile') return null;
   const ctx = useContext(CustomMapsContext);
-  const { mapWidgetId, showLabel } = widget.config;
+  const { mapWidgetId } = widget.config;
   const map = ctx?.maps[mapWidgetId] ?? null;
   const terrain = ctx?.states[mapWidgetId]?.mapData.terrain ?? null;
   const [active, setActive] = useState(false);
@@ -5993,14 +5993,22 @@ function ElevationProfileWidgetRender({ widget }: { widget: CustomWidget }) {
         disabled={!map}
         aria-pressed={active}
         title="Elevation profile"
-        className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-medium transition-opacity disabled:cursor-not-allowed disabled:opacity-50 ${
+        style={
           active
-            ? 'bg-[hsl(var(--app-accent))] text-white'
-            : 'border border-[hsl(var(--app-border))] text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]'
+            ? {
+                backgroundColor: 'hsl(var(--app-header-ink))',
+                color: 'hsl(var(--app-header-bg))',
+              }
+            : undefined
+        }
+        className={`group/tool flex h-full min-w-[64px] flex-col items-center justify-center gap-0.5 rounded-md px-2.5 py-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+          active
+            ? ''
+            : 'text-[hsl(var(--app-header-ink)/0.85)] hover:bg-[hsl(var(--app-header-ink)/0.12)] hover:text-[hsl(var(--app-header-ink))]'
         }`}
       >
-        <ChartSpline className="h-3.5 w-3.5" strokeWidth={1.75} />
-        {showLabel ? 'Elevation profile' : null}
+        <ChartSpline className="h-5 w-5" strokeWidth={1.75} />
+        <span className="text-2xs font-medium leading-none">Profile</span>
       </button>
       <ElevationProfileTool
         map={map}
@@ -6146,14 +6154,27 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
         disabled={!map}
         aria-pressed={active}
         title="Magic outline"
-        className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-medium transition-opacity disabled:cursor-not-allowed disabled:opacity-50 ${
+        // Match the app-bar tool chrome (Search / Select / etc.):
+        // icon over label, header-ink idle, inverted when active
+        // (inline style dodges the JIT arbitrary-value miss).
+        style={
           active
-            ? 'bg-[hsl(var(--app-accent))] text-white'
-            : 'border border-[hsl(var(--app-border))] text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]'
+            ? {
+                backgroundColor: 'hsl(var(--app-header-ink))',
+                color: 'hsl(var(--app-header-bg))',
+              }
+            : undefined
+        }
+        className={`group/tool flex h-full min-w-[64px] flex-col items-center justify-center gap-0.5 rounded-md px-2.5 py-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+          active
+            ? ''
+            : 'text-[hsl(var(--app-header-ink)/0.85)] hover:bg-[hsl(var(--app-header-ink)/0.12)] hover:text-[hsl(var(--app-header-ink))]'
         }`}
       >
-        <Wand2 className="h-3.5 w-3.5" strokeWidth={1.75} />
-        {cfg.showLabel ? 'Magic outline' : null}
+        <Wand2 className="h-5 w-5" strokeWidth={1.75} />
+        <span className="text-2xs font-medium leading-none">
+          Magic outline
+        </span>
       </button>
       {active && container
         ? createPortal(
