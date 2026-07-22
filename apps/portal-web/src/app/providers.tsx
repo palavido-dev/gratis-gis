@@ -8,6 +8,7 @@ import type { ReactNode } from 'react';
 import { AppToaster } from '@/components/app-toaster';
 import { DialogProvider } from '@/components/dialog-provider';
 import { HelpDrawerProvider } from '@/components/help-drawer';
+import { SessionExpiredNotice } from '@/components/session-expired-notice';
 import { LocaleProvider } from '@/lib/i18n/locale-context';
 import type { SupportedLocale } from '@/lib/i18n/locales';
 
@@ -29,7 +30,14 @@ export function Providers({
       <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
         <LocaleProvider locale={locale}>
           <DialogProvider>
-            <HelpDrawerProvider>{children}</HelpDrawerProvider>
+            <HelpDrawerProvider>
+              {/* #195: must sit inside SessionProvider (reads
+                  useSession) and LocaleProvider (reads useT); above
+                  the app shell so the banner spans every page,
+                  including full-viewport map editors. */}
+              <SessionExpiredNotice />
+              {children}
+            </HelpDrawerProvider>
           </DialogProvider>
           <AppToaster />
         </LocaleProvider>

@@ -123,6 +123,8 @@ export const en = {
     generic: 'Something went wrong',
     unauthorized: 'Sign in to continue',
     notFound: 'Not found',
+    sessionExpired:
+      'Your sign-in expired. Sign in again to see everything you have access to.',
   },
   addToFolder: {
     heading: 'Add {count, plural, one {# item} other {# items}} to a folder',

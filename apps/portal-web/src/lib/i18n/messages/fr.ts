@@ -118,6 +118,8 @@ export const fr: Partial<CatalogShape> = {
     generic: 'Une erreur est survenue',
     unauthorized: 'Connectez-vous pour continuer',
     notFound: 'Introuvable',
+    sessionExpired:
+      'Votre session a expiré. Reconnectez-vous pour retrouver tout ce à quoi vous avez accès.',
   },
   addToFolder: {
     heading: 'Ajouter {count, plural, one {# élément} other {# éléments}} à un dossier',

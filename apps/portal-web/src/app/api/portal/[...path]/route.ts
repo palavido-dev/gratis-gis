@@ -15,6 +15,24 @@ import { authOptions, type SessionWithToken } from '@/lib/auth';
 const API_BASE = process.env.PORTAL_API_URL ?? 'http://localhost:4000';
 
 /**
+ * #195: one log line per minute (not per request) when a request
+ * arrives with a session whose token refresh has failed. A single
+ * map view fires dozens of byte-range reads, so an unthrottled log
+ * would bury everything else while adding no information.
+ */
+let lastStaleWarnAt = 0;
+function warnStaleSession(method: string, suffix: string): void {
+  const now = Date.now();
+  if (now - lastStaleWarnAt < 60_000) return;
+  lastStaleWarnAt = now;
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[bff] session token refresh failed; treating as signed out ` +
+      `(${method} /api/${suffix.slice(0, 80)})`,
+  );
+}
+
+/**
  * Long-running upstream dispatcher for ingest, per-layer import,
  * and whole-layer export routes. Default undici fetch() caps the
  * response-headers wait at 30 s, which is plenty for an admin click
@@ -263,6 +281,21 @@ async function forward(req: NextRequest, pathSegments: string[]) {
   const suffix = pathSegments.join('/');
   const qs = req.nextUrl.search;
 
+  // #195: a session whose Keycloak refresh has failed still carries
+  // the last access token it ever minted, plus an error flag (see
+  // refreshAccessToken in lib/auth.ts). Forwarding that dead bearer
+  // is worse than forwarding nothing: strict routes 401, and the
+  // optional-auth byte-serving routes (tile-layer / point-cloud
+  // file) silently downgrade the caller to anonymous, so org-only
+  // layers 404 while the public parts of the page keep working and
+  // the UI still shows the user as signed in. Treat the session as
+  // signed out instead: GETs fall through the same public allowlist
+  // an anonymous visitor uses, and everything else gets an explicit
+  // session-expired 401 the client can surface.
+  const sessionStale = Boolean(session?.error);
+  const accessToken = sessionStale ? undefined : session?.accessToken;
+  if (sessionStale) warnStaleSession(req.method, suffix);
+
   // #307: when an anonymous visitor opens a publicly-shared viewer,
   // the runtime makes client-side fetches for layer features and
   // map item metadata. Without a session we'd 401 here; instead,
@@ -270,7 +303,7 @@ async function forward(req: NextRequest, pathSegments: string[]) {
   // surface and forward without auth. portal-api enforces
   // access='public' on those endpoints.
   const publicRewrite =
-    !session?.accessToken && req.method === 'GET'
+    !accessToken && req.method === 'GET'
       ? publicRewriteForAnonymousGet(suffix)
       : null;
 
@@ -278,12 +311,19 @@ async function forward(req: NextRequest, pathSegments: string[]) {
   // /feedback). portal-api has @Public() on the matching route
   // and rate-limits per IP + honeypot internally.
   const allowAnonymousPost =
-    !session?.accessToken &&
-    req.method === 'POST' &&
-    isAnonymousPostAllowed(suffix);
+    !accessToken && req.method === 'POST' && isAnonymousPostAllowed(suffix);
 
-  if (!session?.accessToken && !publicRewrite && !allowAnonymousPost) {
-    return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
+  if (!accessToken && !publicRewrite && !allowAnonymousPost) {
+    // `code` lets clients distinguish "never signed in" from "your
+    // sign-in decayed"; the session-expired banner keys off the
+    // session object itself, but API consumers (QGIS plugin, tests)
+    // get an honest machine-readable reason too.
+    return NextResponse.json(
+      sessionStale
+        ? { message: 'Unauthorized', code: 'session-expired' }
+        : { message: 'Unauthorized' },
+      { status: 401 },
+    );
   }
 
   const effectiveSuffix = publicRewrite ?? suffix;
@@ -293,8 +333,8 @@ async function forward(req: NextRequest, pathSegments: string[]) {
   // boundary in the value (e.g. `multipart/form-data; boundary=----x`)
   // and strip-to-"application/json" corrupts them.
   const headers: Record<string, string> = {};
-  if (session?.accessToken) {
-    headers.authorization = `Bearer ${session.accessToken}`;
+  if (accessToken) {
+    headers.authorization = `Bearer ${accessToken}`;
   }
   const ct = req.headers.get('content-type');
   if (ct) headers['content-type'] = ct;

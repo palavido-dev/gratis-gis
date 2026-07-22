@@ -119,6 +119,8 @@ export const de: Partial<CatalogShape> = {
     generic: 'Etwas ist schiefgelaufen',
     unauthorized: 'Melden Sie sich an, um fortzufahren',
     notFound: 'Nicht gefunden',
+    sessionExpired:
+      'Ihre Anmeldung ist abgelaufen. Melden Sie sich erneut an, um wieder alles zu sehen, worauf Sie Zugriff haben.',
   },
   addToFolder: {
     heading: '{count, plural, one {# Element} other {# Elemente}} zu einem Ordner hinzufügen',

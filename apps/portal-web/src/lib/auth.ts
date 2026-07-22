@@ -12,6 +12,24 @@ const tokenEndpoint = `${keycloakUrl}/realms/${realm}/protocol/openid-connect/to
 const REFRESH_LEEWAY_SECONDS = 30;
 
 /**
+ * Refresh failures repeat on every request for as long as a browser
+ * holds a dead refresh token (for example after the golden restore
+ * drops the Keycloak database, which invalidates every session).
+ * Log the first failure per minute rather than one line per request
+ * so the signal survives in production logs without flooding them.
+ * Before this existed, refresh failures were fully silent and the
+ * broken-session state (#195) was invisible server-side.
+ */
+let lastRefreshWarnAt = 0;
+function warnRefreshFailure(reason: string): void {
+  const now = Date.now();
+  if (now - lastRefreshWarnAt < 60_000) return;
+  lastRefreshWarnAt = now;
+  // eslint-disable-next-line no-console
+  console.warn(`[auth] access token refresh failed: ${reason}`);
+}
+
+/**
  * Trade the captured refresh_token for a fresh access_token + new
  * refresh_token from Keycloak. Returns an updated JWT mirror; on
  * failure, marks the token with `error: 'RefreshAccessTokenError'`
@@ -28,6 +46,7 @@ async function refreshAccessToken(token: JWT): Promise<JWT> {
   try {
     const refreshToken = token.refreshToken as string | undefined;
     if (!refreshToken) {
+      warnRefreshFailure('no refresh token on session');
       return { ...token, error: 'RefreshAccessTokenError' };
     }
     const body = new URLSearchParams({
@@ -51,6 +70,9 @@ async function refreshAccessToken(token: JWT): Promise<JWT> {
       error?: string;
     };
     if (!res.ok || !data.access_token) {
+      warnRefreshFailure(
+        `keycloak responded ${res.status}${data.error ? ` (${data.error})` : ''}`,
+      );
       return { ...token, error: 'RefreshAccessTokenError' };
     }
     const expiresIn = typeof data.expires_in === 'number' ? data.expires_in : 300;
@@ -66,6 +88,7 @@ async function refreshAccessToken(token: JWT): Promise<JWT> {
       error: undefined,
     } as JWT;
   } catch {
+    warnRefreshFailure('token endpoint unreachable');
     return { ...token, error: 'RefreshAccessTokenError' };
   }
 }

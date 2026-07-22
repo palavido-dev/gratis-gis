@@ -120,6 +120,8 @@ export const es: Partial<CatalogShape> = {
     generic: 'Algo salió mal',
     unauthorized: 'Inicia sesión para continuar',
     notFound: 'No encontrado',
+    sessionExpired:
+      'Tu sesión ha caducado. Inicia sesión de nuevo para ver todo aquello a lo que tienes acceso.',
   },
   addToFolder: {
     heading: 'Añadir {count, plural, one {# elemento} other {# elementos}} a una carpeta',

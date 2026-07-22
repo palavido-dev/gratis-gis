@@ -116,6 +116,8 @@ export const ptBR: Partial<CatalogShape> = {
     generic: 'Algo deu errado',
     unauthorized: 'Entre para continuar',
     notFound: 'Não encontrado',
+    sessionExpired:
+      'Seu login expirou. Entre novamente para ver tudo a que você tem acesso.',
   },
   addToFolder: {
     heading: 'Adicionar {count, plural, one {# item} other {# itens}} a uma pasta',
