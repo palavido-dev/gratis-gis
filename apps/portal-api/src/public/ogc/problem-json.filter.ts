@@ -2,11 +2,11 @@
 import {
   ArgumentsHost,
   Catch,
-  ExceptionFilter,
   HttpException,
   HttpStatus,
   Logger,
 } from '@nestjs/common';
+import { BaseExceptionFilter } from '@nestjs/core';
 import type { Request, Response } from 'express';
 
 /**
@@ -38,19 +38,28 @@ import type { Request, Response } from 'express';
  * already parses the portal's plain-JSON error shape.
  */
 @Catch()
-export class OgcProblemJsonFilter implements ExceptionFilter {
+export class OgcProblemJsonFilter extends BaseExceptionFilter {
   private readonly log = new Logger(OgcProblemJsonFilter.name);
 
-  catch(exception: unknown, host: ArgumentsHost): void {
+  override catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
     const req = ctx.getRequest<Request>();
     const res = ctx.getResponse<Response>();
 
-    // Out-of-scope paths: re-throw so Nest's default exception
-    // handler runs and produces the existing plain-JSON shape.
+    // Out-of-scope paths: delegate to Nest's base filter so they
+    // keep the standard plain-JSON envelope (#197). The previous
+    // code THREW here on the assumption Nest's default handler
+    // would pick the exception back up; it does not. An exception
+    // thrown from inside an exception filter escapes Nest entirely
+    // and lands in Express's default error handler, which renders
+    // a bare HTML page. Net effect: from the day this filter
+    // shipped, every error on every non-OGC route came back as
+    // text/html with no message, which clients then surfaced as
+    // unreadable raw markup.
     const url = req.originalUrl ?? req.url ?? '';
     if (!url.startsWith('/api/public/ogc/') && url !== '/api/public/ogc') {
-      throw exception;
+      super.catch(exception, host);
+      return;
     }
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
