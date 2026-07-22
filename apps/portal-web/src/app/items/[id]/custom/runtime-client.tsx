@@ -6041,6 +6041,11 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
   });
   const [active, setActive] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  // Natural (0) -> Squared (1). Read live by the click handler via
+  // a ref so sliding it doesn't tear down the map listeners.
+  const [squareness, setSquareness] = useState(0);
+  const squarenessRef = useRef(squareness);
+  squarenessRef.current = squareness;
 
   // Live map layers (for finding the imagery to trace from) via a
   // ref so the stable click handler reads the current list.
@@ -6092,6 +6097,7 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
             e.lngLat.lat,
             map.getZoom(),
             (m) => !cancelled && setStatus(m),
+            squarenessRef.current,
           ),
         )
         .then(async ({ ring }) => {
@@ -6178,11 +6184,31 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
       </button>
       {active && container
         ? createPortal(
-            <div
-              role="status"
-              className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full bg-[hsl(var(--app-surface-0)/0.95)] px-4 py-1.5 text-xs font-medium text-[hsl(var(--app-ink-1))] shadow-lg backdrop-blur"
-            >
-              {status ?? 'Click a building or field to outline it.'}
+            <div className="absolute left-1/2 top-3 z-20 flex -translate-x-1/2 flex-col items-center gap-1.5">
+              <div
+                role="status"
+                className="pointer-events-none rounded-full bg-[hsl(var(--app-surface-0)/0.95)] px-4 py-1.5 text-xs font-medium text-[hsl(var(--app-ink-1))] shadow-lg backdrop-blur"
+              >
+                {status ?? 'Click a building, pond, or lot to outline it.'}
+              </div>
+              <div className="flex items-center gap-2 rounded-full bg-[hsl(var(--app-surface-0)/0.95)] px-3 py-1.5 shadow-lg backdrop-blur">
+                <span className="text-2xs text-[hsl(var(--app-muted))]">
+                  Natural
+                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={squareness}
+                  onChange={(e) => setSquareness(Number(e.target.value))}
+                  aria-label="Edge shape: natural to squared"
+                  className="h-1 w-40 cursor-pointer accent-[hsl(var(--app-accent))]"
+                />
+                <span className="text-2xs text-[hsl(var(--app-muted))]">
+                  Squared
+                </span>
+              </div>
             </div>,
             container,
           )

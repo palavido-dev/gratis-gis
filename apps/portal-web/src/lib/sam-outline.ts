@@ -370,9 +370,87 @@ function simplify(
 }
 
 /**
+ * Regularize a polygon ring toward a squared, right-angled shape,
+ * blended by `strength` (0 = leave natural, 1 = fully squared).
+ *
+ * Works in the ring's own pixel space (square web-mercator cells,
+ * so distances and angles are meaningful). The method: find the
+ * building's dominant orientation, snap every edge's direction to
+ * that orthogonal frame by `strength`, walk the snapped edges to
+ * rebuild the outline, and spread the tiny closure gap evenly so
+ * the ring stays closed. At strength 1 the result is fully
+ * rectilinear in the dominant orientation (handles L-shapes, not
+ * just rectangles); in between it's a smooth morph.
+ */
+function regularizeRing(
+  pts: Array<[number, number]>,
+  strength: number,
+): Array<[number, number]> {
+  const n = pts.length;
+  if (strength <= 0 || n < 4) return pts;
+  const s = Math.min(1, strength);
+
+  const dirs: number[] = [];
+  const lens: number[] = [];
+  for (let i = 0; i < n; i += 1) {
+    const [ax, ay] = pts[i]!;
+    const [bx, by] = pts[(i + 1) % n]!;
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len = Math.hypot(dx, dy) || 1e-6;
+    lens.push(len);
+    dirs.push(Math.atan2(dy, dx));
+  }
+
+  // Dominant orientation, length-weighted, modulo 90 degrees.
+  // Averaging on the 4x-angle circle collapses the four right-angle
+  // rotations onto one point so perpendicular edges reinforce it.
+  let sc = 0;
+  let ss = 0;
+  for (let i = 0; i < n; i += 1) {
+    sc += lens[i]! * Math.cos(4 * dirs[i]!);
+    ss += lens[i]! * Math.sin(4 * dirs[i]!);
+  }
+  const theta = Math.atan2(ss, sc) / 4;
+  const HALF_PI = Math.PI / 2;
+
+  // Snap each edge's direction toward the nearest axis of the
+  // dominant frame, blended by strength.
+  const newPts: Array<[number, number]> = [[pts[0]![0], pts[0]![1]]];
+  for (let i = 0; i < n - 1; i += 1) {
+    const a = dirs[i]!;
+    const k = Math.round((a - theta) / HALF_PI);
+    const snapped = theta + k * HALF_PI;
+    // Shortest-arc blend between the natural and snapped angle.
+    let diff = snapped - a;
+    while (diff > Math.PI) diff -= 2 * Math.PI;
+    while (diff < -Math.PI) diff += 2 * Math.PI;
+    const na = a + s * diff;
+    const prev = newPts[i]!;
+    newPts.push([
+      prev[0] + lens[i]! * Math.cos(na),
+      prev[1] + lens[i]! * Math.sin(na),
+    ]);
+  }
+
+  // Spread the closure gap (last rebuilt vertex vs first) evenly so
+  // the ring closes without a visible kink.
+  const last = newPts[newPts.length - 1]!;
+  const errX = last[0] - newPts[0]![0];
+  const errY = last[1] - newPts[0]![1];
+  const out: Array<[number, number]> = [];
+  for (let i = 0; i < n; i += 1) {
+    const t = i / n;
+    out.push([newPts[i]![0] - errX * t, newPts[i]![1] - errY * t]);
+  }
+  return out;
+}
+
+/**
  * Full click-to-polygon pipeline against one imagery item. zoom is
  * the map's current zoom; the analysis window matches what the
- * user is looking at.
+ * user is looking at. `squareness` (0..1) morphs the result from
+ * the natural traced boundary toward a squared, right-angled shape.
  */
 export async function outlineAt(
   itemId: string,
@@ -380,6 +458,7 @@ export async function outlineAt(
   lat: number,
   zoom: number,
   onProgress?: (msg: string) => void,
+  squareness = 0,
 ): Promise<OutlineResult> {
   const z = Math.min(22, Math.max(14, Math.round(zoom)));
   const { key, px, py } = supertileFor(lng, lat, z);
@@ -431,15 +510,17 @@ export async function outlineAt(
     );
   }
 
-  // ~1.5px tolerance at mask scale keeps corners while dropping the
-  // pixel stair-steps.
-  const simplified = simplify(traced, 1.5);
+  // Tolerance grows with squareness so a squared result also sheds
+  // the little jogs a purely orthogonal shape shouldn't have.
+  const eps = 1.5 + squareness * 2.5;
+  const simplified = simplify(traced, eps);
   if (simplified.length < 3) {
     throw new Error('The outline came out too small to keep.');
   }
+  const shaped = regularizeRing(simplified, squareness);
 
   const { x0, y1, size } = supertileBounds(key);
-  const ring = simplified.map(([mx, my]) => {
+  const ring = shaped.map(([mx, my]) => {
     const wx = x0 + ((mx + 0.5) / w) * size;
     const wy = y1 - ((my + 0.5) / h) * size;
     return fromMerc(wx, wy);
