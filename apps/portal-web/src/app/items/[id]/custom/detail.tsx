@@ -4059,11 +4059,14 @@ function WidgetConfigForm({
             Show label next to the icon
           </label>
           <p className="text-xs leading-snug text-muted">
-            Viewers click a building or field on the map&apos;s
-            imagery layer; its outline is traced and saved into the
-            first editable polygon layer (set under the app&apos;s
-            Editable layers). The map needs an imagery layer and at
-            least one editable polygon layer.
+            Viewers click a building, pond, or lot on the map&apos;s
+            imagery; its outline is traced and saved to an editable
+            layer. When the app has more than one editable layer the
+            tool shows a &quot;Save to&quot; picker so a user can
+            digitize several feature types into their own layers in
+            one session, plus a Natural-to-Squared slider. Needs an
+            imagery layer and at least one editable layer (set under
+            the app&apos;s Editable layers).
           </p>
         </>
       );

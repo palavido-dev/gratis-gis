@@ -6046,6 +6046,13 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
   const [squareness, setSquareness] = useState(0);
   const squarenessRef = useRef(squareness);
   squarenessRef.current = squareness;
+  // Which editable layer new outlines are saved to. Lets a user
+  // digitize several feature types (buildings, ponds, lots) into
+  // their own layers in one session by switching this live. Read
+  // via a ref so switching doesn't re-arm the map listeners.
+  const [targetIdx, setTargetIdx] = useState(0);
+  const targetIdxRef = useRef(targetIdx);
+  targetIdxRef.current = targetIdx;
 
   // Live map layers (for finding the imagery to trace from) via a
   // ref so the stable click handler reads the current list.
@@ -6081,9 +6088,10 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
         window.setTimeout(() => !cancelled && setStatus(null), 3500);
         return;
       }
-      const target = mutRef.current?.targets[0];
+      const tgts = mutRef.current?.targets ?? [];
+      const target = tgts[targetIdxRef.current] ?? tgts[0];
       if (!target) {
-        setStatus('No editable polygon layer set. Add one in the app settings.');
+        setStatus('No editable layer set. Add one in the app settings.');
         window.setTimeout(() => !cancelled && setStatus(null), 3500);
         return;
       }
@@ -6209,6 +6217,25 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
                   Squared
                 </span>
               </div>
+              {(mut?.targets.length ?? 0) > 1 ? (
+                <div className="flex items-center gap-2 rounded-full bg-[hsl(var(--app-surface-0)/0.95)] px-3 py-1.5 shadow-lg backdrop-blur">
+                  <span className="text-2xs text-[hsl(var(--app-muted))]">
+                    Save to
+                  </span>
+                  <select
+                    value={targetIdx}
+                    onChange={(e) => setTargetIdx(Number(e.target.value))}
+                    aria-label="Layer new outlines are saved to"
+                    className="rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-2 py-0.5 text-2xs text-[hsl(var(--app-ink-0))]"
+                  >
+                    {(mut?.targets ?? []).map((t, i) => (
+                      <option key={`${t.dataLayerId}:${t.layerKey}`} value={i}>
+                        {t.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
             </div>,
             container,
           )
