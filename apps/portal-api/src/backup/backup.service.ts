@@ -642,6 +642,38 @@ export class BackupService implements OnModuleInit {
         );
       }
     }
+
+    // File-level safety net. The DB-row sweep above only knows about
+    // runs still in backup_run. On a deployment whose database is
+    // periodically rolled back to a snapshot (e.g. the public demo
+    // that resets nightly), those rows revert and every archive they
+    // described becomes an orphan no DB-driven sweep can ever see, so
+    // the files pile up unbounded. Also prune the archive DIRECTORY
+    // directly: keep the newest `cap` archives by their ISO-
+    // timestamped filename and delete the rest. Scoped to the
+    // backup-*.tar.gz naming so staging dirs and anything else are
+    // never touched.
+    try {
+      const { archiveDirectory } = await this.getConfig();
+      const archives = (await fs.readdir(archiveDirectory))
+        .filter((f) => /^backup-.*\.tar\.gz$/.test(f))
+        .sort()
+        .reverse(); // newest first (ISO timestamps sort chronologically)
+      for (const stale of archives.slice(cap)) {
+        try {
+          await fs.unlink(path.join(archiveDirectory, stale));
+          removed += 1;
+        } catch (e) {
+          this.log.warn(
+            `Retention: could not remove orphan ${stale}: ${(e as Error).message}`,
+          );
+        }
+      }
+    } catch (e) {
+      this.log.warn(
+        `Retention: archive-directory sweep failed: ${(e as Error).message}`,
+      );
+    }
     return { removed };
   }
 
