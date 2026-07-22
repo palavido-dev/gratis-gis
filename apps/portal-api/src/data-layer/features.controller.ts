@@ -95,6 +95,25 @@ class UpdateFeatureBodyDto {
 }
 
 /**
+ * #196: engine feature ids are entity UUIDs. Anything else can never
+ * match a row, and letting it through means the raw query 500s on
+ * the uuid cast deep inside the engine. The practical case: a map
+ * selection built against a source without stable row ids carries
+ * sequential numbers ("4"); the delete/update widgets used to relay
+ * those straight into the URL.
+ */
+const FEATURE_ID_SHAPE =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+function assertFeatureIdShape(featureId: string): void {
+  if (!FEATURE_ID_SHAPE.test(featureId)) {
+    throw new BadRequestException(
+      'That selection does not match a saved feature. Reselect the feature on the map and try again.',
+    );
+  }
+}
+
+/**
  * Per-layer feature CRUD for v3 data_layer items.
  *
  * Routes sit under /items/:id/layers/:layerId/... so they live
@@ -1242,6 +1261,7 @@ export class DataLayerFeaturesController {
     @Body() body: UpdateFeatureBodyDto,
     @Headers('x-editor-id') editorId?: string,
   ) {
+    assertFeatureIdShape(featureId);
     const { rowScope, isTable, geoLimit } = await this.assertV3Layer(
       user,
       itemId,
@@ -1291,6 +1311,7 @@ export class DataLayerFeaturesController {
     @Param('fid') featureId: string,
     @Headers('x-editor-id') editorId?: string,
   ) {
+    assertFeatureIdShape(featureId);
     const { rowScope } = await this.assertV3Layer(
       user,
       itemId,
