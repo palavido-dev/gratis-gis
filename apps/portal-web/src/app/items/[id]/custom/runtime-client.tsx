@@ -6020,6 +6020,30 @@ function ElevationProfileWidgetRender({ widget }: { widget: CustomWidget }) {
   );
 }
 
+// #194: shared app-bar tool chrome for the mutation tool widgets
+// (magic outline, edit feature, delete feature). Mirrors the
+// ToolWidgetSlot in-bar geometry (icon over label, header-ink idle,
+// inverted while active) so these read as peers of Search / Select /
+// Basemaps instead of stray pill buttons on the header.
+const BAR_TOOL_CLASS =
+  'group/tool flex h-full min-w-[64px] flex-col items-center justify-center gap-0.5 rounded-md px-2.5 py-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-50';
+const BAR_TOOL_IDLE =
+  'text-[hsl(var(--app-header-ink)/0.85)] hover:bg-[hsl(var(--app-header-ink)/0.12)] hover:text-[hsl(var(--app-header-ink))]';
+// Inline style rather than Tailwind classes: the inverted state uses
+// theme tokens inside arbitrary values, which the JIT can miss when
+// the class string is assembled at runtime.
+const BAR_TOOL_ACTIVE_STYLE = {
+  backgroundColor: 'hsl(var(--app-header-ink))',
+  color: 'hsl(var(--app-header-bg))',
+} as const;
+
+// #196: engine feature ids are entity UUIDs. Selection sets can also
+// carry per-session numeric ids (sources without a stable row id);
+// those can never match a saved row, so the mutation widgets filter
+// them out up front instead of sending doomed requests.
+const ENTITY_ID_SHAPE =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
 // Transient preview overlay for the magic-outline review step. A
 // dashed orange draft signals "not saved yet," distinct from the
 // committed features in the target layer. Lives outside the `gg:`
@@ -6273,22 +6297,9 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
         disabled={!map}
         aria-pressed={active}
         title="Magic outline"
-        // Match the app-bar tool chrome (Search / Select / etc.):
-        // icon over label, header-ink idle, inverted when active
-        // (inline style dodges the JIT arbitrary-value miss).
-        style={
-          active
-            ? {
-                backgroundColor: 'hsl(var(--app-header-ink))',
-                color: 'hsl(var(--app-header-bg))',
-              }
-            : undefined
-        }
-        className={`group/tool flex h-full min-w-[64px] flex-col items-center justify-center gap-0.5 rounded-md px-2.5 py-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-          active
-            ? ''
-            : 'text-[hsl(var(--app-header-ink)/0.85)] hover:bg-[hsl(var(--app-header-ink)/0.12)] hover:text-[hsl(var(--app-header-ink))]'
-        }`}
+        // Match the app-bar tool chrome (Search / Select / etc.).
+        style={active ? BAR_TOOL_ACTIVE_STYLE : undefined}
+        className={`${BAR_TOOL_CLASS} ${active ? '' : BAR_TOOL_IDLE}`}
       >
         <Wand2 className="h-5 w-5" strokeWidth={1.75} />
         <span className="text-2xs font-medium leading-none">
@@ -7222,6 +7233,12 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
   if (widget.config.kind !== 'edit-feature') return null;
   const cfg = widget.config;
   const appAt = useAppTime();
+  // #194: app-bar placement wears the shared tool chrome and floats
+  // its working UI over the bound map instead of unfolding inside
+  // the header (where a form has no room and inherits header ink).
+  const ctx = useContext(CustomMapsContext);
+  const inAppBar = useContext(AppBarContext);
+  const container = ctx?.maps[cfg.mapWidgetId]?.getContainer() ?? null;
   const mut = useMutationTargets({
     mapWidgetId: cfg.mapWidgetId,
     ...(typeof cfg.targetIndex === 'number'
@@ -7323,7 +7340,22 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
       );
       if (!res.ok) {
         const text = await res.text().catch(() => '');
-        throw new Error(`HTTP ${res.status}${text ? `: ${text}` : ''}`);
+        // Prefer the server's message field over dumping a raw
+        // HTML / JSON body into the panel (#196).
+        let msg = `HTTP ${res.status}`;
+        try {
+          const parsed = JSON.parse(text) as { message?: string };
+          if (parsed.message) msg = parsed.message;
+        } catch {
+          /* non-JSON body; keep the status-code message */
+        }
+        throw new Error(msg);
+      }
+      // Refetch the layer's tiles so the edited attributes show up
+      // immediately instead of after the next zoom crosses a tile
+      // boundary (#196).
+      if (editing) {
+        ctx?.refreshMapLayer(cfg.mapWidgetId, editing.target.mapLayer.id);
       }
       setBusy({ state: 'idle' });
       setEditing(null);
@@ -7345,6 +7377,82 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
     );
   }
 
+  const buttonTitle = inTimeTravel
+    ? 'Editing is disabled while viewing a past snapshot.'
+    : active
+      ? 'Click an editable feature on the map to edit it. Click here again to exit edit mode.'
+      : 'Enter edit mode, then click any editable feature on the map.';
+
+  const formCard = editing ? (
+    <div className="overflow-auto rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0))]">
+      {schema.loading ? (
+        <p className="p-3 text-xs italic text-[hsl(var(--app-muted))]">Loading schema…</p>
+      ) : schema.error ? (
+        <p className="p-3 text-xs text-[hsl(var(--app-danger))]">{schema.error}</p>
+      ) : (
+        <AttributeForm
+          fields={schema.fields}
+          editableFieldNames={null}
+          initial={editing.properties}
+          layerTitle={editing.target.title}
+          submitting={busy.state === 'submitting'}
+          errorMessage={busy.state === 'error' ? busy.message : null}
+          onCancel={() => {
+            setEditing(null);
+            setBusy({ state: 'idle' });
+          }}
+          onSubmit={submit}
+          submitLabel="Update"
+          title="Edit feature"
+        />
+      )}
+    </div>
+  ) : null;
+
+  // #194: in the app bar, wear the shared tool chrome and float the
+  // hint / form over the bound map (same portal pattern as the magic
+  // outline tool). The old bordered-pill markup stays for panel and
+  // canvas placements.
+  if (inAppBar) {
+    return (
+      <>
+        <button
+          type="button"
+          disabled={inTimeTravel}
+          onClick={() => setActive((a) => !a)}
+          aria-pressed={active}
+          title={buttonTitle}
+          style={active ? BAR_TOOL_ACTIVE_STYLE : undefined}
+          className={`${BAR_TOOL_CLASS} ${active ? '' : BAR_TOOL_IDLE}`}
+        >
+          <Pencil className="h-5 w-5" strokeWidth={1.75} />
+          <span className="text-2xs font-medium leading-none">
+            {cfg.label || 'Edit feature'}
+          </span>
+        </button>
+        {container && active
+          ? createPortal(
+              <div className="absolute left-1/2 top-3 z-20 flex w-[340px] max-w-[92%] -translate-x-1/2 flex-col items-center gap-1.5">
+                {!editing ? (
+                  <div
+                    role="status"
+                    className="pointer-events-none rounded-full bg-[hsl(var(--app-surface-0)/0.95)] px-4 py-1.5 text-xs font-medium text-[hsl(var(--app-ink-1))] shadow-lg backdrop-blur"
+                  >
+                    Click any editable feature on the map.
+                  </div>
+                ) : (
+                  <div className="max-h-[70vh] w-full overflow-auto shadow-lg">
+                    {formCard}
+                  </div>
+                )}
+              </div>,
+              container,
+            )
+          : null}
+      </>
+    );
+  }
+
   return (
     <div className="flex h-full w-full flex-col gap-2 p-2">
       <button
@@ -7356,13 +7464,7 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
             ? 'border-[hsl(var(--app-accent))] bg-[hsl(var(--app-accent))] text-white hover:bg-[hsl(var(--app-accent)/0.9)]'
             : 'border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] text-[hsl(var(--app-ink-0))] hover:bg-[hsl(var(--app-surface-2))]'
         }`}
-        title={
-          inTimeTravel
-            ? 'Editing is disabled while viewing a past snapshot.'
-            : active
-              ? 'Click an editable feature on the map to edit it. Click here again to exit edit mode.'
-              : 'Enter edit mode, then click any editable feature on the map.'
-        }
+        title={buttonTitle}
       >
         <Pencil className="h-3.5 w-3.5" />
         {cfg.label || 'Edit feature'}
@@ -7373,31 +7475,7 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
           Click any editable feature on the map.
         </p>
       ) : null}
-      {editing ? (
-        <div className="flex-1 overflow-auto rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0))]">
-          {schema.loading ? (
-            <p className="p-3 text-xs italic text-[hsl(var(--app-muted))]">Loading schema…</p>
-          ) : schema.error ? (
-            <p className="p-3 text-xs text-[hsl(var(--app-danger))]">{schema.error}</p>
-          ) : (
-            <AttributeForm
-              fields={schema.fields}
-              editableFieldNames={null}
-              initial={editing.properties}
-              layerTitle={editing.target.title}
-              submitting={busy.state === 'submitting'}
-              errorMessage={busy.state === 'error' ? busy.message : null}
-              onCancel={() => {
-                setEditing(null);
-                setBusy({ state: 'idle' });
-              }}
-              onSubmit={submit}
-              submitLabel="Update"
-              title="Edit feature"
-            />
-          )}
-        </div>
-      ) : null}
+      {editing ? <div className="flex-1">{formCard}</div> : null}
     </div>
   );
 }
@@ -7427,55 +7505,115 @@ function DeleteFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
   });
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState<WriteBusyState>({ state: 'idle' });
+  // #194: app-bar placement wears the shared tool chrome; the
+  // confirm card floats over the bound map on a solid surface
+  // (the old translucent danger tint was unreadable over imagery).
+  const ctx = useContext(CustomMapsContext);
+  const inAppBar = useContext(AppBarContext);
+  const container = ctx?.maps[cfg.mapWidgetId]?.getContainer() ?? null;
 
   const inTimeTravel = appAt !== null;
   // Build per-target selection lists from the bound map's
   // selectionByLayerId.  Filter to selections on layers the widget
   // covers (so a stray selection on a non-editable layer doesn't
-  // count toward the total).
-  const perTarget = useMemo(() => {
+  // count toward the total), and to ids that can actually name a
+  // saved row (#196): per-session numeric ids from sources without
+  // a stable row id are counted separately and skipped.
+  const { perTarget, totalSelected, unmatched } = useMemo(() => {
     const out: Array<{
       target: MutationTarget;
-      ids: Array<string | number>;
+      ids: string[];
     }> = [];
+    let skipped = 0;
     for (const t of mut?.targets ?? []) {
       const set = mut?.selectionByLayerId[t.mapLayer.id];
       if (!set || set.size === 0) continue;
-      out.push({ target: t, ids: Array.from(set) });
+      const ids: string[] = [];
+      for (const raw of set) {
+        const s = String(raw);
+        if (ENTITY_ID_SHAPE.test(s)) ids.push(s);
+        else skipped += 1;
+      }
+      if (ids.length > 0) out.push({ target: t, ids });
     }
-    return out;
+    return {
+      perTarget: out,
+      totalSelected: out.reduce((n, p) => n + p.ids.length, 0),
+      unmatched: skipped,
+    };
   }, [mut?.targets, mut?.selectionByLayerId]);
-  const totalSelected = perTarget.reduce((n, p) => n + p.ids.length, 0);
 
   async function doDelete() {
     setBusy({ state: 'submitting' });
-    try {
-      // Sequential per (target, feature) -- bulk delete is a
-      // follow-up.  ~ms each, so dozens of features finish in
-      // under a second.
-      for (const { target, ids } of perTarget) {
-        for (const id of ids) {
+    // Sequential per (target, feature) -- bulk delete is a
+    // follow-up.  ~ms each, so dozens of features finish in
+    // under a second.  Failures are collected per feature (#196)
+    // instead of aborting the whole run on the first one, so a
+    // single bad row doesn't strand the rest of the selection.
+    const failures: string[] = [];
+    let deleted = 0;
+    for (const { target, ids } of perTarget) {
+      let touched = false;
+      for (const id of ids) {
+        try {
           const res = await fetch(
             `/api/portal/items/${target.dataLayerId}/layers/${encodeURIComponent(
               target.layerKey,
-            )}/features/${encodeURIComponent(String(id))}`,
+            )}/features/${encodeURIComponent(id)}`,
             { method: 'DELETE' },
           );
           if (!res.ok && res.status !== 204) {
             const text = await res.text().catch(() => '');
-            throw new Error(
-              `HTTP ${res.status} on ${target.title}${text ? `: ${text}` : ''}`,
-            );
+            // Prefer the server's message over dumping a raw HTML
+            // or JSON body into the card.
+            let msg = `HTTP ${res.status}`;
+            try {
+              const parsed = JSON.parse(text) as { message?: string };
+              if (parsed.message) msg = parsed.message;
+            } catch {
+              /* non-JSON body; keep the status-code message */
+            }
+            failures.push(`${target.title}: ${msg}`);
+          } else {
+            deleted += 1;
+            touched = true;
           }
+        } catch (e) {
+          failures.push(
+            `${target.title}: ${e instanceof Error ? e.message : 'request failed'}`,
+          );
         }
       }
-      setBusy({ state: 'idle' });
-      setConfirming(false);
-    } catch (e) {
+      // Refetch the layer's tiles so the removed features disappear
+      // immediately instead of after the next zoom.
+      if (touched) ctx?.refreshMapLayer(cfg.mapWidgetId, target.mapLayer.id);
+    }
+    // Drop the deleted ids from the shared selection so the map
+    // highlight and the toolbar count reset along with the rows.
+    if (deleted > 0 && ctx && cfg.mapWidgetId) {
+      ctx.update(cfg.mapWidgetId, (cur) => {
+        const nextSelection = { ...cur.selection };
+        for (const { target, ids } of perTarget) {
+          const current = nextSelection[target.mapLayer.id];
+          if (!current) continue;
+          const next = new Set(current);
+          for (const id of ids) next.delete(id);
+          nextSelection[target.mapLayer.id] = next;
+        }
+        return { ...cur, selection: nextSelection };
+      });
+    }
+    if (failures.length > 0) {
+      const first = failures[0] ?? 'request failed';
       setBusy({
         state: 'error',
-        message: e instanceof Error ? e.message : 'Delete failed',
+        message:
+          `Deleted ${deleted}. Could not delete ${failures.length}: ${first}` +
+          (failures.length > 1 ? ` (and ${failures.length - 1} more)` : ''),
       });
+    } else {
+      setBusy({ state: 'idle' });
+      setConfirming(false);
     }
   }
 
@@ -7489,6 +7627,97 @@ function DeleteFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
     );
   }
 
+  const buttonTitle = inTimeTravel
+    ? 'Editing is disabled while viewing a past snapshot.'
+    : totalSelected === 0
+      ? unmatched > 0
+        ? 'Reselect the features on the map, then try again.'
+        : 'Select feature(s) on the bound map first.'
+      : undefined;
+
+  // Solid surface + normal ink (#194): the confirm card renders over
+  // the map in app-bar placements, and the old 10%-danger tint with
+  // danger-colored body text was unreadable over aerial imagery.
+  const confirmCard = confirming ? (
+    <div className="space-y-2 rounded-md border border-[hsl(var(--app-danger)/0.5)] bg-[hsl(var(--app-surface-0))] p-3 text-xs text-[hsl(var(--app-ink-1))] shadow-lg">
+      <p className="font-medium text-[hsl(var(--app-danger))]">
+        Delete {totalSelected} feature{totalSelected === 1 ? '' : 's'}?
+      </p>
+      <ul className="space-y-0.5 pl-3 text-2xs">
+        {perTarget.map(({ target, ids }) => (
+          <li key={target.mapLayer.id}>
+            <strong>{target.title}</strong>: {ids.length}
+          </li>
+        ))}
+      </ul>
+      {unmatched > 0 ? (
+        <p className="text-2xs text-[hsl(var(--app-muted))]">
+          {unmatched} selected item{unmatched === 1 ? '' : 's'} could not
+          be matched to saved features and will be skipped.
+        </p>
+      ) : null}
+      <p className="text-2xs text-[hsl(var(--app-muted))]">
+        Deleted features stay in the layer&rsquo;s history, so this can
+        be undone later.
+      </p>
+      {busy.state === 'error' ? (
+        <p className="text-[hsl(var(--app-danger))]">{busy.message}</p>
+      ) : null}
+      <div className="flex gap-2">
+        <button
+          type="button"
+          disabled={busy.state === 'submitting'}
+          onClick={doDelete}
+          className="rounded-md bg-[hsl(var(--app-danger))] px-3 py-1 text-xs font-medium text-white hover:bg-[hsl(var(--app-danger)/0.8)] disabled:opacity-50"
+        >
+          {busy.state === 'submitting' ? 'Deleting…' : 'Delete'}
+        </button>
+        <button
+          type="button"
+          disabled={busy.state === 'submitting'}
+          onClick={() => {
+            setConfirming(false);
+            setBusy({ state: 'idle' });
+          }}
+          className="rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-3 py-1 text-xs text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))] disabled:opacity-50"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  ) : null;
+
+  // #194: app-bar placement wears the shared tool chrome; the
+  // confirm card floats over the bound map via portal (same pattern
+  // as the magic outline tool).
+  if (inAppBar) {
+    return (
+      <>
+        <button
+          type="button"
+          disabled={inTimeTravel || totalSelected === 0}
+          onClick={() => setConfirming(true)}
+          title={buttonTitle}
+          className={`${BAR_TOOL_CLASS} ${BAR_TOOL_IDLE}`}
+        >
+          <Trash2 className="h-5 w-5" strokeWidth={1.75} />
+          <span className="text-2xs font-medium leading-none">
+            {cfg.label || 'Delete feature'}
+            {totalSelected > 0 ? ` (${totalSelected})` : ''}
+          </span>
+        </button>
+        {container && confirming
+          ? createPortal(
+              <div className="absolute left-1/2 top-3 z-20 w-[340px] max-w-[92%] -translate-x-1/2">
+                {confirmCard}
+              </div>,
+              container,
+            )
+          : null}
+      </>
+    );
+  }
+
   return (
     <div className="flex h-full w-full flex-col gap-2 p-2">
       <button
@@ -7496,13 +7725,7 @@ function DeleteFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
         disabled={inTimeTravel || totalSelected === 0}
         onClick={() => setConfirming(true)}
         className="inline-flex items-center gap-1 rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-2 py-1 text-xs font-medium text-[hsl(var(--app-ink-0))] hover:bg-[hsl(var(--app-danger)/0.1)] hover:text-[hsl(var(--app-danger))] disabled:cursor-not-allowed disabled:opacity-50"
-        title={
-          inTimeTravel
-            ? 'Editing is disabled while viewing a past snapshot.'
-            : totalSelected === 0
-              ? 'Select feature(s) on the bound map first.'
-              : undefined
-        }
+        title={buttonTitle}
       >
         <Trash2 className="h-3.5 w-3.5" />
         {cfg.label || 'Delete feature'}
@@ -7510,49 +7733,7 @@ function DeleteFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
           <span className="text-[hsl(var(--app-muted))]">({totalSelected})</span>
         ) : null}
       </button>
-      {confirming ? (
-        <div className="space-y-2 rounded-md border border-[hsl(var(--app-danger)/0.4)] bg-[hsl(var(--app-danger)/0.1)] p-3 text-xs text-[hsl(var(--app-danger))]">
-          <p>
-            Delete <strong>{totalSelected}</strong> feature
-            {totalSelected === 1 ? '' : 's'}?
-          </p>
-          <ul className="space-y-0.5 pl-3 text-2xs">
-            {perTarget.map(({ target, ids }) => (
-              <li key={target.mapLayer.id}>
-                <strong>{target.title}</strong>: {ids.length}
-              </li>
-            ))}
-          </ul>
-          <p className="text-2xs text-[hsl(var(--app-danger))]">
-            This is recorded as a delete observation; read the layer
-            "as of" a moment before this action to recover.
-          </p>
-          {busy.state === 'error' ? (
-            <p className="text-[hsl(var(--app-danger))]">{busy.message}</p>
-          ) : null}
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={busy.state === 'submitting'}
-              onClick={doDelete}
-              className="rounded-md bg-[hsl(var(--app-danger))] px-3 py-1 text-xs font-medium text-white hover:bg-[hsl(var(--app-danger)/0.8)] disabled:opacity-50"
-            >
-              {busy.state === 'submitting' ? 'Deleting…' : 'Delete'}
-            </button>
-            <button
-              type="button"
-              disabled={busy.state === 'submitting'}
-              onClick={() => {
-                setConfirming(false);
-                setBusy({ state: 'idle' });
-              }}
-              className="rounded-md border border-[hsl(var(--app-danger)/0.4)] bg-[hsl(var(--app-surface-1))] px-3 py-1 text-xs text-[hsl(var(--app-danger))] hover:bg-[hsl(var(--app-danger)/0.15)] disabled:opacity-50"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : null}
+      {confirmCard}
     </div>
   );
 }

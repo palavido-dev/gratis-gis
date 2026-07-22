@@ -419,19 +419,35 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
         // every prop update.
         const layer = (layersRef.current ?? []).find((l) => l.id === layerId);
         if (!layer) return;
+        // Two source shapes to refresh (#196):
+        //
+        //   - Vector (MVT) sources, which every data-layer overlay
+        //     uses since #115 P12. MapLibre keys its tile cache on
+        //     the URL template, so re-setting the tiles array with a
+        //     bumped `refresh` serial drops every cached tile for
+        //     this source and refetches the viewport. Without this,
+        //     a just-saved or just-deleted feature only showed up
+        //     after a zoom happened to cross a tile boundary. The
+        //     server tile route ignores unknown query params, so the
+        //     serial is free.
+        //   - GeoJSON sources (inline FCs, tool-run results,
+        //     editor targets): setData with the current URL / FC
+        //     forces a refetch, as before.
+        if (src.type === 'vector') {
+          const vectorSrc = src as maplibregl.VectorTileSource;
+          const current = vectorSrc.tiles?.[0];
+          if (!current) return;
+          let base = current.replace(/[?&]refresh=\d+/, '');
+          if (!base.includes('?') && base.includes('&')) {
+            base = base.replace('&', '?');
+          }
+          const sep = base.includes('?') ? '&' : '?';
+          vectorSrc.setTiles([`${base}${sep}refresh=${Date.now()}`]);
+          return;
+        }
         const data = sourceData(layer, clipBoundaryRef.current);
         if (data === null) return;
-        // GeoJSONSource.setData accepts URL or inline FC. Calling it
-        // with the source's current URL forces MapLibre to refetch,
-        // which is exactly what we want after an edit lands. The cast
-        // is safe because every overlay we add is a geojson source
-        // (see syncOverlays.addSource above).
-        const geojsonSrc = src as maplibregl.GeoJSONSource;
-        if (typeof data === 'string') {
-          geojsonSrc.setData(data);
-        } else {
-          geojsonSrc.setData(data);
-        }
+        (src as maplibregl.GeoJSONSource).setData(data);
       },
       flyAndHighlight: ({ bbox, center, layerId, featureProps }) => {
         const m = mapRef.current;
