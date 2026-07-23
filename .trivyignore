@@ -61,6 +61,17 @@ CVE-2026-42508
 CVE-2026-46595
 CVE-2026-46597
 
+# 2026-07-23: google.golang.org/grpc HIGH advisory against the same
+# statically linked pmtiles binary. pmtiles vendors grpc v1.79.3
+# (fixed upstream in 1.82.1) inside the release binary; no go-pmtiles
+# release has bumped it, so this cannot be cleared by a version bump.
+# grpc is only reachable if the binary runs its server mode, which we
+# never invoke: our only use is offline MBTiles -> PMTiles conversion
+# (tile-conversion.ts), off the request path. Same accept-and-track
+# rationale as the block above; clears when the pmtiles rebuild (#178)
+# lands.
+GHSA-hrxh-6v49-42gf
+
 # ------------------------------------------------------------------
 # gdal-async@3.12.3 ships @mapbox/node-pre-gyp as a bundledDependency
 # (see "bundledDependencies" in its package.json). node-pre-gyp pulls
