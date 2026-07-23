@@ -5,9 +5,15 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { Prisma } from '@prisma/client';
-import type { PointCloudData, ISODateString } from '@gratis-gis/shared-types';
+import type {
+  PointCloudData,
+  PointCloudSource,
+  ISODateString,
+} from '@gratis-gis/shared-types';
 import { isPointCloudData } from '@gratis-gis/shared-types';
 
 import { ItemsService } from '../items/items.service.js';
@@ -52,7 +58,194 @@ export class PointCloudService {
     private readonly sharing: SharingService,
     private readonly storage: StorageService,
     private readonly prisma: PrismaService,
+    private readonly cfg: ConfigService,
   ) {}
+
+  /**
+   * Merging tiles needs the point cloud worker, which only runs
+   * where the server-heavy analysis tier is enabled. Refuse with a
+   * plain-language 503 rather than queue a job nothing will pick up.
+   * Same gate the analysis jobs use.
+   */
+  private assertServerTier(): void {
+    const tiers = (this.cfg.get<string>('ANALYSIS_TIERS') ?? '')
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
+    if (!tiers.includes('server-heavy')) {
+      throw new ServiceUnavailableException(
+        'Merging lidar tiles is not enabled on this portal. The administrator can enable it by deploying the analysis worker (see infra docs).',
+      );
+    }
+  }
+
+  /**
+   * Validate a batch of uploaded source tiles from a finalize-style
+   * body: each key must sit under our own prefix (the body is
+   * client-supplied), and the count/sizes must be sane. Returns the
+   * normalized PointCloudSource records.
+   */
+  private validateSources(
+    sources: Array<{ storageKey: string; fileName: string; sizeBytes: number }>,
+  ): PointCloudSource[] {
+    if (!Array.isArray(sources) || sources.length === 0) {
+      throw new BadRequestException('Add at least one lidar file.');
+    }
+    if (sources.length > 500) {
+      throw new BadRequestException(
+        'That is more than 500 tiles in one go. Split it into smaller batches.',
+      );
+    }
+    const now = new Date().toISOString() as ISODateString;
+    const seen = new Set<string>();
+    return sources.map((s) => {
+      if (typeof s.storageKey !== 'string' || s.storageKey.length === 0) {
+        throw new BadRequestException('A source tile is missing its storageKey.');
+      }
+      if (!s.storageKey.startsWith('item-point-cloud/')) {
+        throw new BadRequestException(
+          'A source tile is not a point-cloud upload.',
+        );
+      }
+      if (seen.has(s.storageKey)) {
+        throw new BadRequestException('The same tile was added twice.');
+      }
+      seen.add(s.storageKey);
+      if (typeof s.fileName !== 'string' || s.fileName.length === 0) {
+        throw new BadRequestException('A source tile is missing its fileName.');
+      }
+      if (
+        typeof s.sizeBytes !== 'number' ||
+        !Number.isFinite(s.sizeBytes) ||
+        s.sizeBytes <= 0
+      ) {
+        throw new BadRequestException('A source tile has an invalid size.');
+      }
+      return {
+        storageKey: s.storageKey,
+        fileName: s.fileName,
+        sizeBytes: s.sizeBytes,
+        addedAt: now,
+      };
+    });
+  }
+
+  /**
+   * Queue a merge of the given source tiles into this point cloud's
+   * COPC (#200). Records the sources on the item, flips it to
+   * 'building', and enqueues a copc-build job the worker runs with
+   * untwine. The item's currently-served file (if any) is left in
+   * place so a rebuild never blanks a live layer.
+   */
+  async buildFromSources(
+    user: AuthUser,
+    itemId: string,
+    body: {
+      sources: Array<{ storageKey: string; fileName: string; sizeBytes: number }>;
+    },
+  ): Promise<{ jobId: string; itemId: string }> {
+    this.assertServerTier();
+    const item = await this.items.get(user, itemId);
+    if (item.type !== 'point_cloud') {
+      throw new BadRequestException(`Item ${itemId} is not a point_cloud.`);
+    }
+    if (!this.sharing.canAdmin(user, item)) {
+      throw new ForbiddenException(
+        'Only the owner or an org admin can build this point cloud.',
+      );
+    }
+    const sources = this.validateSources(body.sources);
+    return this.enqueueBuild(user, item, sources);
+  }
+
+  /**
+   * Append more source tiles to an existing point cloud and rebuild
+   * the merged COPC over the full set (#200). Re-merge from retained
+   * sources rather than appending to the octree, which COPC does not
+   * support cleanly.
+   */
+  async addSources(
+    user: AuthUser,
+    itemId: string,
+    body: {
+      sources: Array<{ storageKey: string; fileName: string; sizeBytes: number }>;
+    },
+  ): Promise<{ jobId: string; itemId: string }> {
+    this.assertServerTier();
+    const item = await this.items.get(user, itemId);
+    if (item.type !== 'point_cloud') {
+      throw new BadRequestException(`Item ${itemId} is not a point_cloud.`);
+    }
+    if (!this.sharing.canAdmin(user, item)) {
+      throw new ForbiddenException(
+        'Only the owner or an org admin can add tiles to this point cloud.',
+      );
+    }
+    const added = this.validateSources(body.sources);
+    const prev = isPointCloudData(item.data) ? item.data : null;
+    const existingSources = prev?.sources ?? [];
+    const existingKeys = new Set(existingSources.map((s) => s.storageKey));
+    for (const s of added) {
+      if (existingKeys.has(s.storageKey)) {
+        throw new BadRequestException(
+          'One of those tiles is already part of this point cloud.',
+        );
+      }
+    }
+    const merged = [...existingSources, ...added];
+    return this.enqueueBuild(user, item, merged);
+  }
+
+  /**
+   * Shared tail of build + add: write the source list and 'building'
+   * state onto the item, then create the copc-build job. Keeps the
+   * existing served file and metadata untouched so the layer stays
+   * live until the worker swaps in the freshly merged COPC.
+   */
+  private async enqueueBuild(
+    user: AuthUser,
+    item: { id: string; data: unknown },
+    sources: PointCloudSource[],
+  ): Promise<{ jobId: string; itemId: string }> {
+    const prev = isPointCloudData(item.data) ? item.data : null;
+    const data: PointCloudData = {
+      // Preserve the currently-served file + metadata during a
+      // rebuild; a fresh build starts from an empty served file.
+      ...(prev ?? {
+        version: 1,
+        format: 'copc',
+        storageKey: '',
+        storageUrl: '',
+        fileName: '',
+        sizeBytes: 0,
+        uploadedAt: new Date(0).toISOString() as ISODateString,
+      }),
+      version: 1,
+      format: 'copc',
+      sources,
+      processingState: 'building',
+    };
+    delete data.processingError;
+
+    await this.items.update(user, item.id, {
+      data: data as unknown as Prisma.JsonObject,
+    });
+
+    const job = await this.prisma.analysisJob.create({
+      data: {
+        orgId: user.orgId,
+        userId: user.id,
+        kind: 'copc-build',
+        params: { sourceKeys: sources.map((s) => s.storageKey) },
+        sourceItemId: item.id,
+        targetItemId: item.id,
+      },
+    });
+    this.log.log(
+      `point_cloud ${item.id}: queued copc-build over ${sources.length} tile(s) (job ${job.id})`,
+    );
+    return { jobId: job.id, itemId: item.id };
+  }
 
   async finalizeUpload(
     user: AuthUser,

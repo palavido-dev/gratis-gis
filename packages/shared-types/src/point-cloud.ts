@@ -23,13 +23,37 @@ import type { ISODateString } from './ids';
 
 export type PointCloudDataVersion = 1;
 
+/**
+ * One retained source tile behind a merged point cloud (#200). When
+ * a cloud is built from several lidar tiles, the originals are kept
+ * so more tiles can be added later and the merged COPC rebuilt from
+ * the full set. A single-file upload has no sources (it is already
+ * its own finished COPC).
+ */
+export interface PointCloudSource {
+  /** MinIO object key of the retained source tile. */
+  storageKey: string;
+  /** Original filename, for display and rebuild logs. */
+  fileName: string;
+  /** Size in bytes. */
+  sizeBytes: number;
+  /** When this tile was added to the cloud. */
+  addedAt: ISODateString;
+}
+
+/** Build lifecycle for the merge pipeline (#200). Absent is treated
+ *  as 'ready': single-file uploads never run a build. */
+export type PointCloudProcessingState = 'building' | 'ready' | 'failed';
+
 export interface PointCloudData {
   version: PointCloudDataVersion;
   /** Only COPC in v1. Kept as a field so a future EPT or 3D-Tiles
    *  flavor can join without a data migration. */
   format: 'copc';
-  /** MinIO object key of the uploaded file. Used for serving and
-   *  delete cleanup. */
+  /** MinIO object key of the served file. For a single-file upload
+   *  this is the user's COPC; for a merged cloud (#200) it is the
+   *  derived merged COPC, and the originals live in `sources`. Used
+   *  for serving and delete cleanup. */
   storageKey: string;
   /** API-mediated URL for the file (private storage kind; the
    *  bucket denies anonymous GET on the prefix). */
@@ -81,6 +105,25 @@ export interface PointCloudData {
    * whole-file download.
    */
   dataUrl?: string;
+
+  // ------------------------- merge pipeline (#200) -------------------------
+
+  /**
+   * Retained source tiles when this cloud was built by merging
+   * several lidar files. Kept so more tiles can be added later and
+   * the merged COPC rebuilt from the full set. Absent for a single-
+   * file upload.
+   */
+  sources?: PointCloudSource[];
+  /**
+   * Build lifecycle. 'building' while the worker merges the sources,
+   * 'ready' once the merged COPC is served, 'failed' with a reason
+   * in processingError. Absent means ready (single-file uploads
+   * never run a build).
+   */
+  processingState?: PointCloudProcessingState;
+  /** Plain-language failure reason when processingState is 'failed'. */
+  processingError?: string;
 }
 
 export const DEFAULT_POINT_CLOUD: PointCloudData = {

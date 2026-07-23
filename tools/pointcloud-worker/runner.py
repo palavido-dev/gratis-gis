@@ -1255,6 +1255,206 @@ def do_sam_embed(conn, s3, job) -> None:
     )
 
 
+def copc_header_meta(path: Path) -> dict:
+    """Lift point count, bounds, LAS version, point format, RGB flag,
+    and CRS WKT from a COPC/LAS file via `pdal info --metadata`.
+    Mirrors what the TypeScript finalize path reads from a single
+    upload, so a merged cloud (#200) carries the same metadata a
+    hand-uploaded one does."""
+    proc = subprocess.run(
+        ["pdal", "info", "--metadata", str(path)],
+        capture_output=True,
+        text=True,
+        timeout=900,
+    )
+    if proc.returncode != 0:
+        tail = (proc.stderr or proc.stdout or "").strip()[-800:]
+        raise RuntimeError(f"pdal info failed: {tail}")
+    m = (json.loads(proc.stdout) or {}).get("metadata", {}) or {}
+    # Some PDAL builds nest the header under the reader stage name;
+    # normalize to whichever dict actually carries the point count.
+    if "count" not in m:
+        for v in m.values():
+            if isinstance(v, dict) and "count" in v:
+                m = v
+                break
+    pdrf = int(m.get("dataformat_id", 0))
+    srs = m.get("srs") if isinstance(m.get("srs"), dict) else {}
+    wkt = (
+        srs.get("compoundwkt")
+        or srs.get("wkt")
+        or m.get("comp_spatialreference")
+        or m.get("spatialreference")
+        or ""
+    )
+    return {
+        "count": int(m.get("count", 0)),
+        "bounds": [
+            float(m["minx"]),
+            float(m["miny"]),
+            float(m["minz"]),
+            float(m["maxx"]),
+            float(m["maxy"]),
+            float(m["maxz"]),
+        ],
+        "pointFormat": pdrf,
+        "lasVersion": f"{m.get('major_version', 1)}.{m.get('minor_version', 4)}",
+        # COPC allows point formats 6/7/8; 7 and 8 carry RGB. Include
+        # the older RGB formats too so a pre-COPC source is read right.
+        "hasRgb": pdrf in (2, 3, 5, 7, 8),
+        "crsWkt": wkt,
+    }
+
+
+def bounds_to_wgs84(bounds: list[float], wkt: str) -> list[float] | None:
+    """[w, s, e, n] from native bounds + WKT via osr. None on failure;
+    the viewer just skips the pre-load bounding when it is absent."""
+    if not wkt:
+        return None
+    try:
+        from osgeo import osr
+
+        src = osr.SpatialReference()
+        src.ImportFromWkt(wkt)
+        dst = osr.SpatialReference()
+        dst.ImportFromEPSG(4326)
+        src.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        dst.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        tx = osr.CoordinateTransformation(src, dst)
+        corners = [
+            (bounds[0], bounds[1]),
+            (bounds[0], bounds[4]),
+            (bounds[3], bounds[1]),
+            (bounds[3], bounds[4]),
+        ]
+        pts = [tx.TransformPoint(x, y)[:2] for x, y in corners]
+        lons = [p[0] for p in pts]
+        lats = [p[1] for p in pts]
+        return [min(lons), min(lats), max(lons), max(lats)]
+    except Exception:
+        return None
+
+
+def do_copc_build(conn, s3, job) -> None:
+    """Merge several lidar tiles into one COPC (#200).
+
+    Downloads the retained source tiles named in params.sourceKeys,
+    runs untwine to build a single-file COPC over the whole set,
+    lifts the merged header, uploads it, and stamps the point_cloud
+    item 'ready'. Re-runnable by design: adding tiles later re-
+    enqueues this over the full source set, and the item swaps to
+    the freshly merged file with no gap in what the viewer serves
+    (the old merged COPC is deleted only after the new one is live).
+    """
+    params = job["params"] or {}
+    source_keys = params.get("sourceKeys") or []
+    if not source_keys:
+        raise RuntimeError("No source tiles to merge.")
+    item_id = job["target_item_id"] or job["source_item_id"]
+    existing = item_data(conn, item_id)
+    existing = existing if isinstance(existing, dict) else {}
+
+    work = SCRATCH / f"copc-{job['id']}"
+    srcdir = work / "src"
+    srcdir.mkdir(parents=True, exist_ok=True)
+    try:
+        for i, key in enumerate(source_keys):
+            dest = srcdir / f"tile-{i:04d}.laz"
+            log(f"  downloading source {i + 1}/{len(source_keys)}: {key}")
+            s3.download_file(BUCKET, key, str(dest))
+        set_progress(conn, job["id"], 25)
+
+        # untwine 1.5: single-file COPC is the default output. --files
+        # takes the directory of tiles; --output_dir is (despite the
+        # name) the output filename.
+        merged = work / "merged.copc.laz"
+        run(
+            ["untwine", "--files", str(srcdir), "--output_dir", str(merged)],
+            work,
+        )
+        if not merged.exists():
+            raise RuntimeError("The merge produced no output file.")
+        set_progress(conn, job["id"], 75)
+
+        meta = copc_header_meta(merged)
+        set_progress(conn, job["id"], 82)
+
+        key = f"item-point-cloud/{uuid.uuid4()}"
+        size = merged.stat().st_size
+        log(f"  uploading merged COPC ({size} bytes, {meta['count']} pts) to {key}")
+        s3.upload_file(str(merged), BUCKET, key)
+        set_progress(conn, job["id"], 92)
+
+        prev_key = existing.get("storageKey")
+        data = dict(existing)
+        data.update(
+            {
+                "version": 1,
+                "format": "copc",
+                "storageKey": key,
+                "storageUrl": f"/api/portal/storage/private/{key}",
+                "sizeBytes": size,
+                "uploadedAt": time.strftime(
+                    "%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()
+                ),
+                "pointCount": meta["count"],
+                "bounds": meta["bounds"],
+                "lasVersion": meta["lasVersion"],
+                "pointFormat": meta["pointFormat"],
+                "hasRgb": meta["hasRgb"],
+                "dataUrl": f"/api/portal/point-cloud/{item_id}/file.copc.laz",
+                "processingState": "ready",
+            }
+        )
+        data.pop("processingError", None)
+        if meta["crsWkt"]:
+            data["crsWkt"] = meta["crsWkt"]
+        bbox = bounds_to_wgs84(meta["bounds"], meta["crsWkt"])
+        if bbox:
+            data["bboxWgs84"] = bbox
+        if not data.get("fileName"):
+            data["fileName"] = "merged.copc.laz"
+
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE item SET data_json = %s, updated_at = now() WHERE id = %s",
+                (json.dumps(data), item_id),
+            )
+        conn.commit()
+
+        # The old merged COPC is now superseded. Never delete a source
+        # tile (retained for re-merge) or the file we just wrote.
+        if prev_key and prev_key != key and prev_key not in source_keys:
+            try:
+                s3.delete_object(Bucket=BUCKET, Key=prev_key)
+            except Exception as err:
+                log(f"  warn: could not delete old merged {prev_key}: {err}")
+    except Exception:
+        # Stamp the item 'failed' so the UI stops spinning and shows a
+        # reason; re-raise so the job row is marked failed too. The
+        # retained sources let the user retry without re-uploading.
+        try:
+            failed = dict(existing)
+            failed["processingState"] = "failed"
+            failed["processingError"] = (
+                "The tiles could not be merged. Check that they are lidar "
+                "files (.laz / .las / .copc.laz) in a matching coordinate "
+                "system."
+            )
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE item SET data_json = %s, updated_at = now() "
+                    "WHERE id = %s",
+                    (json.dumps(failed), item_id),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+        raise
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 HANDLERS = {
     "hillshade": do_hillshade,
     "elevation": do_elevation,
@@ -1263,6 +1463,7 @@ HANDLERS = {
     "steepness": do_steepness,
     "heightmap": do_heightmap,
     "sam-embed": do_sam_embed,
+    "copc-build": do_copc_build,
 }
 
 

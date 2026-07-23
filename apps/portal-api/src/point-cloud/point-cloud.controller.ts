@@ -63,6 +63,48 @@ export class PointCloudController {
   }
 
   /**
+   * Merge several uploaded lidar tiles into this point cloud's COPC
+   * (#200). The browser presigned-PUTs each tile, then posts the
+   * list here; the worker merges them with untwine. Returns the
+   * build job id so the panel can poll the item for 'ready'.
+   */
+  @Post('items/:itemId/point-cloud/build')
+  async build(
+    @CurrentUser() user: AuthUser,
+    @Param('itemId') itemId: string,
+    @Body()
+    body: {
+      sources: Array<{
+        storageKey: string;
+        fileName: string;
+        sizeBytes: number;
+      }>;
+    },
+  ) {
+    return this.pointCloud.buildFromSources(user, itemId, body);
+  }
+
+  /**
+   * Add more tiles to an existing point cloud and rebuild the merged
+   * COPC over the full set (#200). Same body shape as build.
+   */
+  @Post('items/:itemId/point-cloud/add-sources')
+  async addSources(
+    @CurrentUser() user: AuthUser,
+    @Param('itemId') itemId: string,
+    @Body()
+    body: {
+      sources: Array<{
+        storageKey: string;
+        fileName: string;
+        sizeBytes: number;
+      }>;
+    },
+  ) {
+    return this.pointCloud.addSources(user, itemId, body);
+  }
+
+  /**
    * Range-request proxy. COPC readers issue many small ranged
    * reads (header, then octree hierarchy pages, then node chunks
    * as the camera moves), so this endpoint mirrors the tile-layer
