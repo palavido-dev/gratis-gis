@@ -183,7 +183,23 @@ export class PointCloudService {
     }
     const added = this.validateSources(body.sources);
     const prev = isPointCloudData(item.data) ? item.data : null;
-    const existingSources = prev?.sources ?? [];
+    const existingSources = [...(prev?.sources ?? [])];
+    // Adding tiles to a cloud that was a single-file upload: the
+    // original file is not yet in sources[], so seed it as the first
+    // source. untwine reads a COPC as happily as a raw LAZ, so the
+    // re-merge folds the original in rather than dropping it.
+    if (
+      existingSources.length === 0 &&
+      prev?.storageKey &&
+      prev.storageKey.startsWith('item-point-cloud/')
+    ) {
+      existingSources.push({
+        storageKey: prev.storageKey,
+        fileName: prev.fileName || 'original.copc.laz',
+        sizeBytes: prev.sizeBytes || 0,
+        addedAt: prev.uploadedAt ?? (new Date().toISOString() as ISODateString),
+      });
+    }
     const existingKeys = new Set(existingSources.map((s) => s.storageKey));
     for (const s of added) {
       if (existingKeys.has(s.storageKey)) {

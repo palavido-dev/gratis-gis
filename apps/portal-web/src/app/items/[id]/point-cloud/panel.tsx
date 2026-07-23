@@ -51,109 +51,247 @@ interface Props {
 
 export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
   const [data, setData] = useState<PointCloudData>(initial);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [finalizing, setFinalizing] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [phase, setPhase] = useState<'idle' | 'uploading' | 'submitting'>(
+    'idle',
+  );
+  const [progressLabel, setProgressLabel] = useState('');
+  const [progressPct, setProgressPct] = useState(0);
   const [copied, setCopied] = useState(false);
 
-  function pickFile() {
-    fileInputRef.current?.click();
-  }
+  // Separate pickers for "new / replace" and "add tiles" so each
+  // change handler knows the user's intent without guessing.
+  const newInputRef = useRef<HTMLInputElement | null>(null);
+  const addInputRef = useRef<HTMLInputElement | null>(null);
 
-  function onFileChange(ev: React.ChangeEvent<HTMLInputElement>) {
-    const file = ev.target.files?.[0];
-    if (!file) return;
-    ev.target.value = '';
-    const lower = file.name.toLowerCase();
-    if (!lower.endsWith('.laz') && !lower.endsWith('.las')) {
-      setUploadError(
-        'Point cloud items accept COPC files (.copc.laz). Convert other lidar formats with: pdal translate input.las output.copc.laz',
-      );
-      return;
+  const building = data.processingState === 'building';
+  const buildFailed = data.processingState === 'failed';
+  const hasFile = isPointCloudData(data) && data.storageKey.length > 0;
+  const ready = hasFile && !building;
+  const busy = phase !== 'idle';
+  const sourceCount = data.sources?.length ?? 0;
+
+  // While the worker merges tiles (#200), poll the item so the panel
+  // flips to ready (or failed) on its own without a manual refresh.
+  useEffect(() => {
+    if (!building) return;
+    let cancelled = false;
+    async function tick() {
+      try {
+        const res = await fetch(`/api/portal/items/${itemId}`);
+        if (!res.ok) return;
+        const body = (await res.json()) as {
+          data?: unknown;
+          item?: { data?: unknown };
+        };
+        const d = body.item?.data ?? body.data;
+        if (!cancelled && isPointCloudData(d)) setData(d);
+      } catch {
+        /* transient; the next tick retries */
+      }
     }
-    void runUpload(file);
+    const id = window.setInterval(() => void tick(), 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [building, itemId]);
+
+  /** Presign + PUT one file. Returns its source descriptor, or null
+   *  after setting an error (caller aborts the batch). */
+  async function uploadOne(file: File): Promise<{
+    storageKey: string;
+    publicUrl: string;
+    fileName: string;
+    sizeBytes: number;
+  } | null> {
+    const presignRes = await fetch('/api/portal/storage/presign-upload', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        kind: 'item-point-cloud',
+        contentType: 'application/octet-stream',
+      }),
+    });
+    if (!presignRes.ok) {
+      setError(await errorMessage(presignRes, 'Could not start upload'));
+      return null;
+    }
+    const presign = (await presignRes.json()) as {
+      uploadUrl: string;
+      publicUrl: string;
+      key: string;
+      maxBytes: number;
+    };
+    if (file.size > presign.maxBytes) {
+      setError(
+        `${file.name} is ${(file.size / 1024 / 1024).toFixed(1)} MB but the per-file limit is ${(presign.maxBytes / 1024 / 1024 / 1024).toFixed(1)} GB.`,
+      );
+      return null;
+    }
+    await new Promise<void>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          setProgressPct(Math.round((e.loaded / e.total) * 100));
+        }
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) resolve();
+        else reject(new Error(`Upload failed (HTTP ${xhr.status})`));
+      };
+      xhr.onerror = () => reject(new Error('Upload network error'));
+      xhr.open('PUT', presign.uploadUrl);
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+      xhr.send(file);
+    });
+    return {
+      storageKey: presign.key,
+      publicUrl: presign.publicUrl,
+      fileName: file.name,
+      sizeBytes: file.size,
+    };
   }
 
-  async function runUpload(file: File) {
-    setUploadError(null);
-    setUploadProgress(0);
-    setUploading(true);
-    try {
-      // 1) Presigned PUT.
-      const presignRes = await fetch('/api/portal/storage/presign-upload', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          kind: 'item-point-cloud',
-          contentType: 'application/octet-stream',
-        }),
-      });
-      if (!presignRes.ok) {
-        setUploadError(await errorMessage(presignRes, 'Presign failed'));
-        return;
-      }
-      const presign = (await presignRes.json()) as {
-        uploadUrl: string;
-        publicUrl: string;
-        key: string;
-        maxBytes: number;
-      };
-      if (file.size > presign.maxBytes) {
-        setUploadError(
-          `File is ${(file.size / 1024 / 1024).toFixed(1)} MB but the per-file limit is ${(presign.maxBytes / 1024 / 1024 / 1024).toFixed(1)} GB.`,
+  function lidarNamesOk(files: File[]): boolean {
+    for (const f of files) {
+      const l = f.name.toLowerCase();
+      if (!l.endsWith('.laz') && !l.endsWith('.las')) {
+        setError(
+          'Point clouds accept lidar files (.laz, .las, or .copc.laz).',
         );
-        return;
+        return false;
       }
+    }
+    return true;
+  }
 
-      // 2) PUT bytes straight to storage; XHR for upload progress.
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) {
-            setUploadProgress(Math.round((e.loaded / e.total) * 100));
-          }
-        };
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) resolve();
-          else reject(new Error(`Upload failed (HTTP ${xhr.status})`));
-        };
-        xhr.onerror = () => reject(new Error('Upload network error'));
-        xhr.open('PUT', presign.uploadUrl);
-        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-        xhr.send(file);
-      });
+  async function refresh() {
+    try {
+      const res = await fetch(`/api/portal/items/${itemId}`);
+      if (!res.ok) return;
+      const body = (await res.json()) as {
+        data?: unknown;
+        item?: { data?: unknown };
+      };
+      const d = body.item?.data ?? body.data;
+      if (isPointCloudData(d)) setData(d);
+    } catch {
+      /* the building poll will pick up the state shortly */
+    }
+  }
 
-      // 3) Finalize: server validates the COPC header from the
-      // uploaded bytes and lifts the metadata.
-      setUploadProgress(100);
-      setFinalizing(true);
-      const finalizeRes = await fetch(
+  /** Empty-state / replace picker: one ready COPC takes the fast
+   *  finalize path; several tiles (or a plain LAS that needs
+   *  building) go through the merge. */
+  async function onPickNew(ev: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(ev.target.files ?? []);
+    ev.target.value = '';
+    if (files.length === 0) return;
+    setError(null);
+    if (!lidarNamesOk(files)) return;
+    if (
+      files.length === 1 &&
+      files[0]!.name.toLowerCase().endsWith('.copc.laz')
+    ) {
+      await runFinalize(files[0]!);
+    } else {
+      await runBuild(files, 'build');
+    }
+  }
+
+  async function onPickAdd(ev: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(ev.target.files ?? []);
+    ev.target.value = '';
+    if (files.length === 0) return;
+    setError(null);
+    if (!lidarNamesOk(files)) return;
+    await runBuild(files, 'add-sources');
+  }
+
+  /** Single ready COPC: upload + finalize (no worker). */
+  async function runFinalize(file: File) {
+    setPhase('uploading');
+    setProgressPct(0);
+    setProgressLabel('Uploading');
+    try {
+      const up = await uploadOne(file);
+      if (!up) return;
+      setPhase('submitting');
+      setProgressLabel('Checking the file');
+      const res = await fetch(
         `/api/portal/items/${itemId}/point-cloud/finalize`,
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
-            storageKey: presign.key,
-            storageUrl: presign.publicUrl,
-            fileName: file.name,
-            sizeBytes: file.size,
+            storageKey: up.storageKey,
+            storageUrl: up.publicUrl,
+            fileName: up.fileName,
+            sizeBytes: up.sizeBytes,
           }),
         },
       );
-      if (!finalizeRes.ok) {
-        setUploadError(await errorMessage(finalizeRes, 'Finalize failed'));
+      if (!res.ok) {
+        setError(await errorMessage(res, 'Could not finalize the upload'));
         return;
       }
-      const body = (await finalizeRes.json()) as { data: PointCloudData };
+      const body = (await res.json()) as { data: PointCloudData };
       setData(body.data);
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : 'Upload failed.');
+      setError(err instanceof Error ? err.message : 'Upload failed.');
     } finally {
-      setUploading(false);
-      setFinalizing(false);
-      setUploadProgress(0);
+      setPhase('idle');
+      setProgressPct(0);
+    }
+  }
+
+  /** Several tiles (or add-more): upload each, then kick off the
+   *  server merge. The item flips to 'building'; the poll takes over. */
+  async function runBuild(files: File[], endpoint: 'build' | 'add-sources') {
+    setPhase('uploading');
+    setProgressPct(0);
+    try {
+      const sources: Array<{
+        storageKey: string;
+        fileName: string;
+        sizeBytes: number;
+      }> = [];
+      for (let i = 0; i < files.length; i += 1) {
+        setProgressLabel(`Uploading tile ${i + 1} of ${files.length}`);
+        setProgressPct(0);
+        const up = await uploadOne(files[i]!);
+        if (!up) return; // error already surfaced
+        sources.push({
+          storageKey: up.storageKey,
+          fileName: up.fileName,
+          sizeBytes: up.sizeBytes,
+        });
+      }
+      setPhase('submitting');
+      setProgressLabel(
+        endpoint === 'add-sources' ? 'Starting rebuild' : 'Starting merge',
+      );
+      const res = await fetch(
+        `/api/portal/items/${itemId}/point-cloud/${endpoint}`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ sources }),
+        },
+      );
+      if (!res.ok) {
+        setError(await errorMessage(res, 'Could not start the merge'));
+        return;
+      }
+      // The server flipped the item to 'building'; pick that up so the
+      // poll effect starts and the UI shows progress.
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Upload failed.');
+    } finally {
+      setPhase('idle');
+      setProgressPct(0);
     }
   }
 
@@ -170,8 +308,6 @@ export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
     }
   }
 
-  const ready = isPointCloudData(data) && data.storageKey.length > 0;
-
   return (
     <div className="space-y-4">
       <section className="overflow-hidden rounded-lg border border-border bg-surface-1 shadow-card">
@@ -180,60 +316,80 @@ export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
           <h2 className="text-sm font-medium text-ink-0">Point cloud file</h2>
         </div>
         <div className="space-y-4 p-4">
-          {!ready && !uploading ? (
+          {!hasFile && !building && !busy ? (
             <div className="rounded-md border border-dashed border-border px-4 py-8 text-center">
               <p className="text-sm text-ink-1">
-                Upload a COPC point cloud (.copc.laz).
+                Add lidar and build a point cloud.
               </p>
               <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-muted">
-                COPC is cloud-optimized lidar: viewers stream only the
-                points in view instead of downloading the whole file.
-                Convert plain LAS/LAZ with{' '}
-                <code className="rounded bg-surface-2 px-1 py-0.5 font-mono text-2xs">
-                  pdal translate input.las output.copc.laz
-                </code>
+                Pick one file or select several tiles at once. Multiple
+                tiles are stitched into a single point cloud on the
+                server, and you can add more tiles to it later. Accepts
+                .copc.laz, .laz, and .las.
               </p>
               {canEdit ? (
                 <button
                   type="button"
-                  onClick={pickFile}
+                  onClick={() => newInputRef.current?.click()}
                   className="mt-4 inline-flex items-center gap-2 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent/90"
                 >
                   <UploadIcon className="h-4 w-4" />
-                  Choose file
+                  Choose lidar files
                 </button>
               ) : (
-                <p className="mt-3 text-xs text-muted">
-                  No file uploaded yet.
-                </p>
+                <p className="mt-3 text-xs text-muted">No file uploaded yet.</p>
               )}
             </div>
           ) : null}
 
-          {uploading ? (
+          {busy ? (
             <div className="rounded-md border border-border bg-surface-0 px-4 py-4">
               <p className="flex items-center gap-2 text-sm text-ink-0">
                 <Loader2 className="h-4 w-4 animate-spin text-accent" />
-                {finalizing
-                  ? 'Verifying the COPC header...'
-                  : `Uploading... ${uploadProgress}%`}
+                {phase === 'submitting'
+                  ? progressLabel
+                  : `${progressLabel}... ${progressPct}%`}
               </p>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-2">
-                <div
-                  className="h-full rounded-full bg-accent transition-all"
-                  style={{ width: `${uploadProgress}%` }}
-                />
-              </div>
+              {phase === 'uploading' ? (
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-2">
+                  <div
+                    className="h-full rounded-full bg-accent transition-all"
+                    style={{ width: `${progressPct}%` }}
+                  />
+                </div>
+              ) : null}
             </div>
           ) : null}
 
-          {uploadError ? (
+          {building && !busy ? (
+            <div className="flex items-center gap-2 rounded-md border border-accent/30 bg-accent/5 px-3 py-2.5 text-sm text-ink-1">
+              <Loader2 className="h-4 w-4 animate-spin text-accent" />
+              <span>
+                {sourceCount > 0
+                  ? `Merging ${sourceCount} ${sourceCount === 1 ? 'tile' : 'tiles'} into one point cloud...`
+                  : 'Building your point cloud...'}
+                {hasFile ? ' The current version stays available until it finishes.' : ''}
+              </span>
+            </div>
+          ) : null}
+
+          {buildFailed && !busy ? (
             <div className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger">
-              {uploadError}
+              {data.processingError ??
+                'The tiles could not be merged.'}{' '}
+              {canEdit
+                ? 'Your uploaded tiles were kept. Add them again or try different files.'
+                : ''}
             </div>
           ) : null}
 
-          {ready ? (
+          {error ? (
+            <div className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger">
+              {error}
+            </div>
+          ) : null}
+
+          {hasFile ? (
             <>
               {data.dataUrl ? <PointCloudViewer data={data} /> : null}
               <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
@@ -253,7 +409,9 @@ export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
                 />
                 <MetaItem
                   label="Colors"
-                  value={data.hasRgb ? 'RGB embedded' : 'No RGB (elevation coloring)'}
+                  value={
+                    data.hasRgb ? 'RGB embedded' : 'No RGB (elevation coloring)'
+                  }
                 />
                 <MetaItem
                   label="Elevation range"
@@ -264,6 +422,17 @@ export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
                   }
                 />
               </dl>
+
+              {sourceCount > 0 ? (
+                <p className="text-xs text-muted">
+                  Built by merging{' '}
+                  <span className="font-medium text-ink-1">
+                    {sourceCount}
+                  </span>{' '}
+                  {sourceCount === 1 ? 'tile' : 'tiles'}.
+                </p>
+              ) : null}
+
               {data.crsWkt ? (
                 <details className="text-xs text-muted">
                   <summary className="cursor-pointer select-none hover:text-ink-1">
@@ -304,32 +473,50 @@ export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
               ) : null}
 
               {canEdit ? (
-                <button
-                  type="button"
-                  onClick={pickFile}
-                  disabled={uploading}
-                  className="inline-flex items-center gap-2 rounded-md border border-border bg-surface-0 px-3 py-1.5 text-xs font-medium text-ink-0 transition-colors hover:border-accent hover:bg-accent/5 disabled:opacity-50"
-                >
-                  <UploadIcon className="h-3.5 w-3.5" />
-                  Replace file
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => addInputRef.current?.click()}
+                    disabled={busy || building}
+                    className="inline-flex items-center gap-2 rounded-md border border-border bg-surface-0 px-3 py-1.5 text-xs font-medium text-ink-0 transition-colors hover:border-accent hover:bg-accent/5 disabled:opacity-50"
+                  >
+                    <UploadIcon className="h-3.5 w-3.5" />
+                    Add more tiles
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => newInputRef.current?.click()}
+                    disabled={busy || building}
+                    className="inline-flex items-center gap-2 rounded-md border border-border bg-surface-0 px-3 py-1.5 text-xs font-medium text-ink-0 transition-colors hover:border-accent hover:bg-accent/5 disabled:opacity-50"
+                  >
+                    <UploadIcon className="h-3.5 w-3.5" />
+                    Replace
+                  </button>
+                </div>
               ) : null}
             </>
           ) : null}
 
           <input
-            ref={fileInputRef}
+            ref={newInputRef}
             type="file"
             accept=".laz,.las"
+            multiple
             className="hidden"
-            onChange={onFileChange}
+            onChange={onPickNew}
+          />
+          <input
+            ref={addInputRef}
+            type="file"
+            accept=".laz,.las"
+            multiple
+            className="hidden"
+            onChange={onPickAdd}
           />
         </div>
       </section>
 
-      {ready && canEdit ? (
-        <HillshadeSection itemId={itemId} />
-      ) : null}
+      {ready && canEdit ? <HillshadeSection itemId={itemId} /> : null}
     </div>
   );
 }
