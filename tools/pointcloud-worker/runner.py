@@ -70,6 +70,15 @@ SCRATCH_MIN_RESERVE_BYTES = int(
 # tunable budget. #205 will estimate the real time up front and
 # reject a merge that would blow this, instead of dying at the wall.
 MERGE_TIMEOUT_SEC = int(os.environ.get("MERGE_TIMEOUT_SEC", "14400"))
+# Point-cloud gridding (PDAL writers.gdal) for hillshade / elevation /
+# height maps reads every point in a single pass; on a large cloud it
+# legitimately runs past the small analysis jobs' 1h subprocess
+# timeout (the 1.88B-point Elkins DTM grid was still going at 1h and
+# got killed). Give the gridding its own generous, tunable ceiling,
+# same shape as the merge budget. #208 (chunked gridding) is the
+# structural fix that bounds this; this just stops the wall from
+# killing a working grid meanwhile.
+ANALYSIS_TIMEOUT_SEC = int(os.environ.get("ANALYSIS_TIMEOUT_SEC", "14400"))
 GIB = 1024**3
 
 
@@ -107,6 +116,72 @@ def run(cmd: list[str], cwd: Path) -> None:
 def free_bytes(path: Path) -> int:
     """Free bytes on the filesystem holding `path`."""
     return shutil.disk_usage(str(path)).free
+
+
+def run_long(
+    cmd: list[str],
+    cwd: Path,
+    conn,
+    job_id: str,
+    timeout: int,
+    prog_from: int,
+    prog_to: int,
+    tau: float = 1200.0,
+) -> None:
+    """Run a long, single-shot tool (a PDAL gridding pass) that emits
+    no progress of its own. Popen + poll so we can (a) honor a
+    generous timeout instead of the 1h subprocess default that was
+    silently killing large grids, and (b) creep the job progress from
+    prog_from toward prog_to on a time curve so the UI shows movement
+    instead of a frozen percentage. The curve is asymptotic
+    (1 - e^-t/tau), so it never claims to finish early; the caller
+    sets the real prog_to once the process actually returns. Same
+    failure contract as run()."""
+    log(
+        f"  $ {' '.join(cmd)}  "
+        f"(long-running, <{timeout // 3600}h, progress {prog_from}->{prog_to})"
+    )
+    proc = subprocess.Popen(
+        cmd, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True,
+    )
+    t0 = time.time()
+    deadline = t0 + timeout
+    last = -1
+    try:
+        while True:
+            try:
+                proc.wait(timeout=10)
+                break
+            except subprocess.TimeoutExpired:
+                pass
+            elapsed = time.time() - t0
+            frac = 1.0 - math.exp(-elapsed / tau)
+            pct = min(prog_from + int((prog_to - prog_from) * frac), prog_to - 1)
+            if pct != last:
+                try:
+                    set_progress(conn, job_id, pct)
+                except Exception:
+                    pass  # progress is cosmetic; never fail the job over it
+                last = pct
+            if time.time() > deadline:
+                proc.kill()
+                proc.wait(timeout=30)
+                raise RuntimeError(
+                    f"The gridding step ran longer than {timeout // 3600} "
+                    "hours and was stopped. Try a coarser resolution or a "
+                    "smaller area."
+                )
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+    if proc.returncode != 0:
+        err = ""
+        try:
+            err = (proc.stderr.read() or "")[-800:] if proc.stderr else ""
+        except Exception:
+            pass
+        raise RuntimeError(f"{cmd[0]} failed: {err.strip()}")
 
 
 def run_with_disk_watchdog(
@@ -314,7 +389,10 @@ def do_hillshade(conn, s3, job) -> None:
         )
         pipeline = work / "pipeline.json"
         pipeline.write_text(json.dumps({"pipeline": stages}))
-        run(["pdal", "pipeline", str(pipeline)], work)
+        run_long(
+            ["pdal", "pipeline", str(pipeline)], work,
+            conn, job["id"], ANALYSIS_TIMEOUT_SEC, 15, 60,
+        )
         set_progress(conn, job["id"], 60)
 
         hs = work / "hillshade.tif"
@@ -463,7 +541,10 @@ def do_elevation(conn, s3, job) -> None:
         ]
         pipeline = work / "pipeline.json"
         pipeline.write_text(json.dumps({"pipeline": stages}))
-        run(["pdal", "pipeline", str(pipeline)], work)
+        run_long(
+            ["pdal", "pipeline", str(pipeline)], work,
+            conn, job["id"], ANALYSIS_TIMEOUT_SEC, 15, 60,
+        )
         set_progress(conn, job["id"], 60)
 
         # DEM COG recipe from the browser COG protocol's docs: the
@@ -1049,7 +1130,13 @@ def do_heightmap(conn, s3, job) -> None:
         s3.download_file(BUCKET, storage_key, str(src))
         set_progress(conn, job["id"], 10)
 
-        def grid(out: Path, ground_only: bool, output_type: str) -> None:
+        def grid(
+            out: Path,
+            ground_only: bool,
+            output_type: str,
+            prog_from: int,
+            prog_to: int,
+        ) -> None:
             stages: list[dict] = [
                 {"type": "readers.copc", "filename": str(src)}
             ]
@@ -1075,13 +1162,16 @@ def do_heightmap(conn, s3, job) -> None:
             )
             pipeline = work / f"pipeline-{out.stem}.json"
             pipeline.write_text(json.dumps({"pipeline": stages}))
-            run(["pdal", "pipeline", str(pipeline)], work)
+            run_long(
+                ["pdal", "pipeline", str(pipeline)], work,
+                conn, job["id"], ANALYSIS_TIMEOUT_SEC, prog_from, prog_to,
+            )
 
         dsm = work / "dsm.tif"
-        grid(dsm, ground_only=False, output_type="max")
+        grid(dsm, ground_only=False, output_type="max", prog_from=10, prog_to=40)
         set_progress(conn, job["id"], 40)
         dtm = work / "dtm.tif"
-        grid(dtm, ground_only=True, output_type="idw")
+        grid(dtm, ground_only=True, output_type="idw", prog_from=40, prog_to=65)
         set_progress(conn, job["id"], 65)
 
         height = work / "height.tif"
