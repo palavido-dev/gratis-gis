@@ -63,6 +63,13 @@ SCRATCH_SAFETY_FACTOR = float(os.environ.get("MERGE_SCRATCH_FACTOR", "5"))
 SCRATCH_MIN_RESERVE_BYTES = int(
     os.environ.get("MERGE_MIN_FREE_GB", "10")
 ) * 1024**3
+# Wall-clock ceiling for a single merge's untwine pass. The small
+# analysis jobs use a 1h subprocess timeout; a large point cloud
+# merge legitimately runs much longer (303 tiles / 16GB was still
+# building past an hour), so copc-build gets its own generous,
+# tunable budget. #205 will estimate the real time up front and
+# reject a merge that would blow this, instead of dying at the wall.
+MERGE_TIMEOUT_SEC = int(os.environ.get("MERGE_TIMEOUT_SEC", "14400"))
 GIB = 1024**3
 
 
@@ -103,18 +110,21 @@ def free_bytes(path: Path) -> int:
 
 
 def run_with_disk_watchdog(
-    cmd: list[str], cwd: Path, watch: Path, reserve: int
+    cmd: list[str], cwd: Path, watch: Path, reserve: int, timeout: int = 3600
 ) -> None:
     """Run a long tool while watching free space on `watch`. If free
     space falls below `reserve`, kill the process and raise rather
     than let it fill the disk (which, on a volume shared with MinIO,
     would take down live storage). Same failure contract as run()."""
-    log(f"  $ {' '.join(cmd)}  (watchdog: keep >{reserve // GIB}GB free)")
+    log(
+        f"  $ {' '.join(cmd)}  "
+        f"(watchdog: keep >{reserve // GIB}GB free, <{timeout // 3600}h)"
+    )
     proc = subprocess.Popen(
         cmd, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True,
     )
-    deadline = time.time() + 3600
+    deadline = time.time() + timeout
     try:
         while True:
             try:
@@ -135,7 +145,8 @@ def run_with_disk_watchdog(
                 proc.kill()
                 proc.wait(timeout=30)
                 raise RuntimeError(
-                    f"{cmd[0]} ran longer than an hour and was stopped."
+                    f"The merge ran longer than {timeout // 3600} hours and "
+                    "was stopped. This area is very large; try fewer tiles."
                 )
     finally:
         if proc.poll() is None:
@@ -1434,6 +1445,7 @@ def do_copc_build(conn, s3, job) -> None:
         # up front if scratch can't hold the download plus untwine's
         # much larger out-of-core temp, rather than filling the disk.
         total_src = 0
+        t_start = time.time()
         for key in source_keys:
             try:
                 total_src += int(
@@ -1455,6 +1467,7 @@ def do_copc_build(conn, s3, job) -> None:
                 "the worker a larger scratch disk."
             )
 
+        t_dl0 = time.time()
         for i, key in enumerate(source_keys):
             dest = srcdir / f"tile-{i:04d}.laz"
             log(f"  downloading source {i + 1}/{len(source_keys)}: {key}")
@@ -1467,6 +1480,7 @@ def do_copc_build(conn, s3, job) -> None:
                     f"space fell below {SCRATCH_MIN_RESERVE_BYTES // GIB}GB. "
                     "Use fewer tiles or a larger scratch disk."
                 )
+        download_secs = int(time.time() - t_dl0)
         set_progress(conn, job["id"], 25)
 
         # untwine 1.5: single-file COPC is the default output. --files
@@ -1475,12 +1489,15 @@ def do_copc_build(conn, s3, job) -> None:
         # oversize out-of-core temp gets killed before it fills the
         # volume (which would take MinIO down with it).
         merged = work / "merged.copc.laz"
+        t_untwine0 = time.time()
         run_with_disk_watchdog(
             ["untwine", "--files", str(srcdir), "--output_dir", str(merged)],
             work,
             SCRATCH,
             SCRATCH_MIN_RESERVE_BYTES,
+            MERGE_TIMEOUT_SEC,
         )
+        untwine_secs = int(time.time() - t_untwine0)
         if not merged.exists():
             raise RuntimeError("The merge produced no output file.")
         set_progress(conn, job["id"], 75)
@@ -1490,6 +1507,17 @@ def do_copc_build(conn, s3, job) -> None:
 
         key = f"item-point-cloud/{uuid.uuid4()}"
         size = merged.stat().st_size
+        # Baseline timing (#205): one structured line per completed
+        # merge so we can fit a "X GB / N tiles -> ~H hours" model and
+        # reject oversized jobs up front instead of dying at the wall.
+        total_secs = int(time.time() - t_start)
+        log(
+            "MERGE_STATS "
+            f"tiles={len(source_keys)} in_bytes={total_src} "
+            f"out_bytes={size} points={meta['count']} "
+            f"download_secs={download_secs} untwine_secs={untwine_secs} "
+            f"total_secs={total_secs}"
+        )
         log(f"  uploading merged COPC ({size} bytes, {meta['count']} pts) to {key}")
         s3.upload_file(str(merged), BUCKET, key)
         set_progress(conn, job["id"], 92)
