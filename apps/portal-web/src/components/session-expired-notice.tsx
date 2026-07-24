@@ -38,7 +38,7 @@ export function SessionExpiredNotice() {
         onClick={() => void signIn('keycloak')}
         className="rounded-md border border-warn/40 bg-surface-1 px-3 py-1 text-xs font-medium text-ink-1 hover:bg-surface-2"
       >
-        {t('common.signIn')}
+        {t('nav.signIn')}
       </button>
     </div>
   );
