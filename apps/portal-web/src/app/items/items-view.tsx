@@ -396,7 +396,17 @@ export function ItemsView({
     const counts = new Map<ItemType, number>();
     for (const it of sourceItems)
       counts.set(it.type, (counts.get(it.type) ?? 0) + 1);
-    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+    // Order the facet by its user-facing label, not by count. Sorting
+    // by count reshuffles the list every time the item mix changes, so
+    // a type never sits in a predictable spot and you have to re-scan
+    // the whole list to find one. Alphabetical by label keeps each type
+    // in the place your eye expects (#207). getItemTypeLabel is the same
+    // label the popover renders, so the visible order matches the sort.
+    return Array.from(counts.entries()).sort((a, b) =>
+      getItemTypeLabel(a[0]).localeCompare(getItemTypeLabel(b[0]), undefined, {
+        sensitivity: 'base',
+      }),
+    );
   }, [sourceItems]);
 
   // #258: web_app template counts. Walks the same sourceItems pool
