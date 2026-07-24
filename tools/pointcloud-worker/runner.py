@@ -45,6 +45,26 @@ SCRATCH = Path(os.environ.get("SCRATCH_DIR", "/scratch"))
 # inserted by future paths that forget.
 MAX_RASTER_CELLS = 12000 * 12000
 
+# Disk safety for the point cloud merge (#203). A merge downloads
+# every source tile into scratch AND untwine builds a large out-of-
+# core temp on top of that, empirically well over the compressed
+# input size (LAZ decompresses ~10x). Without a guard, a merge that
+# is too big for the scratch disk fills it and, when scratch shares
+# a volume with MinIO, endangers live object storage. So:
+#   - before downloading, require free scratch of at least
+#     SCRATCH_SAFETY_FACTOR x the total source size, or fail fast with
+#     a plain-language message.
+#   - never let free space fall below SCRATCH_MIN_RESERVE_BYTES mid-
+#     run: checked in the download loop and by a watchdog around
+#     untwine, which kills the merge rather than fill the disk.
+# Both are env-tunable so an operator with a big dedicated scratch
+# disk can loosen them.
+SCRATCH_SAFETY_FACTOR = float(os.environ.get("MERGE_SCRATCH_FACTOR", "5"))
+SCRATCH_MIN_RESERVE_BYTES = int(
+    os.environ.get("MERGE_MIN_FREE_GB", "10")
+) * 1024**3
+GIB = 1024**3
+
 
 def log(msg: str) -> None:
     print(msg, flush=True)
@@ -75,6 +95,58 @@ def run(cmd: list[str], cwd: Path) -> None:
     if proc.returncode != 0:
         tail = (proc.stderr or proc.stdout or "").strip()[-800:]
         raise RuntimeError(f"{cmd[0]} failed: {tail}")
+
+
+def free_bytes(path: Path) -> int:
+    """Free bytes on the filesystem holding `path`."""
+    return shutil.disk_usage(str(path)).free
+
+
+def run_with_disk_watchdog(
+    cmd: list[str], cwd: Path, watch: Path, reserve: int
+) -> None:
+    """Run a long tool while watching free space on `watch`. If free
+    space falls below `reserve`, kill the process and raise rather
+    than let it fill the disk (which, on a volume shared with MinIO,
+    would take down live storage). Same failure contract as run()."""
+    log(f"  $ {' '.join(cmd)}  (watchdog: keep >{reserve // GIB}GB free)")
+    proc = subprocess.Popen(
+        cmd, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True,
+    )
+    deadline = time.time() + 3600
+    try:
+        while True:
+            try:
+                proc.wait(timeout=5)
+                break
+            except subprocess.TimeoutExpired:
+                pass
+            if free_bytes(watch) < reserve:
+                proc.kill()
+                proc.wait(timeout=30)
+                raise RuntimeError(
+                    "Stopped the merge to protect the disk: free working "
+                    f"space dropped below {reserve // GIB}GB. This set of "
+                    "tiles needs more scratch space than is available. "
+                    "Use fewer tiles or a larger scratch disk."
+                )
+            if time.time() > deadline:
+                proc.kill()
+                proc.wait(timeout=30)
+                raise RuntimeError(
+                    f"{cmd[0]} ran longer than an hour and was stopped."
+                )
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+    if proc.returncode != 0:
+        err = ""
+        try:
+            err = (proc.stderr.read() or "")[-800:] if proc.stderr else ""
+        except Exception:
+            pass
+        raise RuntimeError(f"{cmd[0]} failed: {err.strip()}")
 
 
 def set_progress(conn, job_id: str, pct: int) -> None:
@@ -1358,19 +1430,56 @@ def do_copc_build(conn, s3, job) -> None:
     srcdir = work / "src"
     srcdir.mkdir(parents=True, exist_ok=True)
     try:
+        # Pre-flight disk check (#203). Sum the source sizes and refuse
+        # up front if scratch can't hold the download plus untwine's
+        # much larger out-of-core temp, rather than filling the disk.
+        total_src = 0
+        for key in source_keys:
+            try:
+                total_src += int(
+                    s3.head_object(Bucket=BUCKET, Key=key)["ContentLength"]
+                )
+            except Exception as err:
+                raise RuntimeError(f"A source tile is missing: {key} ({err})")
+        needed = int(total_src * SCRATCH_SAFETY_FACTOR)
+        avail = free_bytes(SCRATCH)
+        log(
+            f"  {len(source_keys)} tiles, {total_src // GIB}GB; "
+            f"need ~{needed // GIB}GB scratch, {avail // GIB}GB free"
+        )
+        if avail < needed:
+            raise RuntimeError(
+                f"This merge of {len(source_keys)} tiles needs about "
+                f"{needed // GIB}GB of free working space but only "
+                f"{avail // GIB}GB is available. Use fewer tiles, or give "
+                "the worker a larger scratch disk."
+            )
+
         for i, key in enumerate(source_keys):
             dest = srcdir / f"tile-{i:04d}.laz"
             log(f"  downloading source {i + 1}/{len(source_keys)}: {key}")
             s3.download_file(BUCKET, key, str(dest))
+            # Bail if the download itself is eating into the reserve
+            # (protects co-located MinIO from a runaway).
+            if free_bytes(SCRATCH) < SCRATCH_MIN_RESERVE_BYTES:
+                raise RuntimeError(
+                    "Stopped downloading tiles to protect the disk: free "
+                    f"space fell below {SCRATCH_MIN_RESERVE_BYTES // GIB}GB. "
+                    "Use fewer tiles or a larger scratch disk."
+                )
         set_progress(conn, job["id"], 25)
 
         # untwine 1.5: single-file COPC is the default output. --files
         # takes the directory of tiles; --output_dir is (despite the
-        # name) the output filename.
+        # name) the output filename. Run under the disk watchdog so an
+        # oversize out-of-core temp gets killed before it fills the
+        # volume (which would take MinIO down with it).
         merged = work / "merged.copc.laz"
-        run(
+        run_with_disk_watchdog(
             ["untwine", "--files", str(srcdir), "--output_dir", str(merged)],
             work,
+            SCRATCH,
+            SCRATCH_MIN_RESERVE_BYTES,
         )
         if not merged.exists():
             raise RuntimeError("The merge produced no output file.")
@@ -1429,17 +1538,30 @@ def do_copc_build(conn, s3, job) -> None:
                 s3.delete_object(Bucket=BUCKET, Key=prev_key)
             except Exception as err:
                 log(f"  warn: could not delete old merged {prev_key}: {err}")
-    except Exception:
+    except Exception as exc:
         # Stamp the item 'failed' so the UI stops spinning and shows a
         # reason; re-raise so the job row is marked failed too. The
         # retained sources let the user retry without re-uploading.
+        # Surface our own plain-language reasons (disk space, a missing
+        # tile) directly; fall back to the generic message for opaque
+        # tool failures (an untwine/pdal stderr tail is not user copy).
+        msg = str(exc)
+        low = msg.lower()
+        user_facing = any(
+            kw in low
+            for kw in ("working space", "protect the disk", "a source tile is missing", "produced no output")
+        )
         try:
             failed = dict(existing)
             failed["processingState"] = "failed"
             failed["processingError"] = (
-                "The tiles could not be merged. Check that they are lidar "
-                "files (.laz / .las / .copc.laz) in a matching coordinate "
-                "system."
+                msg[:400]
+                if user_facing
+                else (
+                    "The tiles could not be merged. Check that they are lidar "
+                    "files (.laz / .las / .copc.laz) in a matching coordinate "
+                    "system."
+                )
             )
             with conn.cursor() as cur:
                 cur.execute(
