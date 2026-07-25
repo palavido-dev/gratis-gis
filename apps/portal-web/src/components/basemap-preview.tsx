@@ -24,7 +24,7 @@
 import { useEffect, useRef } from 'react';
 import maplibregl from 'maplibre-gl';
 import type { BasemapData } from '@gratis-gis/shared-types';
-import { basemapDataToStyle } from '@/lib/custom-basemap';
+import { basemapDataToStyle, ensureRasterProtocols } from '@/lib/custom-basemap';
 
 interface Props {
   data: BasemapData;
@@ -68,6 +68,7 @@ export function BasemapPreview({
     if (!containerRef.current) return;
     const style = basemapDataToStyle(data);
     if (!style) return; // empty data: leave the placeholder visible
+    ensureRasterProtocols(); // pmtiles/cog basemaps need the schemes registered (#209)
     const m = new maplibregl.Map({
       container: containerRef.current,
       style: style.kind === 'url' ? style.url : style.style,

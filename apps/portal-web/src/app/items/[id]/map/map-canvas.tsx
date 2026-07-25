@@ -39,6 +39,7 @@ import {
 } from '@gratis-gis/shared-types';
 import {
   customBasemapToStyle,
+  ensureRasterProtocols,
   type CustomBasemap,
 } from '@/lib/custom-basemap';
 import { getCachedUserName } from '@/lib/user-name-cache';
@@ -596,6 +597,12 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
   // Create the map once; tear down on unmount.
   useEffect(() => {
     if (mapRef.current || !containerRef.current) return;
+    // Register pmtiles:// and cog:// before the map is built so the
+    // initial style's basemap and every raster/DEM source can resolve
+    // its scheme. Doing it here (not relying on a module-load side
+    // effect in another chunk) is what keeps raster overlays and
+    // draped terrain rendering after a bundler chunk reshuffle (#209).
+    ensureRasterProtocols();
     const m = new maplibregl.Map({
       container: containerRef.current,
       style: resolveStyle(),

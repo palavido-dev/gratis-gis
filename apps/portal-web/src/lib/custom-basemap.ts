@@ -22,32 +22,67 @@ import type { BasemapData } from '@gratis-gis/shared-types';
 //               and stays valid even after the pyramid lands so
 //               an older saved view still resolves.
 //
-// We do this at module load (rather than per-map mount) because
-// the protocol is global state on the maplibregl singleton; a
-// per-mount register+remove pair would race when multiple maps
-// share a page. The guard makes the module idempotent under HMR.
+// The protocol is global state on the maplibregl singleton, so we
+// register each scheme once per page and guard with a global flag so
+// repeat calls (multiple maps on a page, HMR) are no-ops.
 declare global {
   // eslint-disable-next-line no-var
   var __ggPmtilesRegistered: boolean | undefined;
   // eslint-disable-next-line no-var
   var __ggCogRegistered: boolean | undefined;
 }
-if (typeof globalThis.__ggPmtilesRegistered === 'undefined') {
-  const protocol = new Protocol();
-  maplibregl.addProtocol('pmtiles', protocol.tile);
-  globalThis.__ggPmtilesRegistered = true;
+
+/**
+ * Register the pmtiles:// and cog:// protocols on the MapLibre
+ * singleton. Idempotent and safe to call from every map mount.
+ * Each scheme registers independently inside its own try/catch so a
+ * failure loading one plugin never blocks the other.
+ *
+ * Call this explicitly at map init, BEFORE the map adds any pmtiles
+ * or cog source. It used to run only as a bare module-load side
+ * effect, which worked while this module shared a client chunk with
+ * the map. A Next build (16.2.x) split it into a separate chunk that
+ * no longer executed before the map created its raster sources, so
+ * every tile fetch threw "URL scheme pmtiles is not supported" and no
+ * raster overlay or DEM-draped terrain drew (#209). An explicit call
+ * runs in the map's own code path, independent of chunk splitting.
+ */
+export function ensureRasterProtocols(): void {
+  // addProtocol touches the browser-only maplibregl singleton; skip
+  // during SSR so a server render never sets the guard for the client.
+  if (typeof window === 'undefined') return;
+  if (globalThis.__ggPmtilesRegistered === undefined) {
+    try {
+      const protocol = new Protocol();
+      maplibregl.addProtocol('pmtiles', protocol.tile);
+      globalThis.__ggPmtilesRegistered = true;
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('failed to register the pmtiles:// map protocol', err);
+    }
+  }
+  if (globalThis.__ggCogRegistered === undefined) {
+    try {
+      // The @geomatico plugin exports the handler as the function
+      // itself. MapLibre's addProtocol() typings disagree on the
+      // handler shape across versions, hence the unknown cast.
+      maplibregl.addProtocol(
+        'cog',
+        cogProtocol as unknown as Parameters<typeof maplibregl.addProtocol>[1],
+      );
+      globalThis.__ggCogRegistered = true;
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('failed to register the cog:// map protocol', err);
+    }
+  }
 }
-if (typeof globalThis.__ggCogRegistered === 'undefined') {
-  // The @geomatico plugin exports the protocol handler as the
-  // default export.  Different versions of MapLibre's
-  // addProtocol() typings disagree on the handler shape, hence
-  // the unknown cast.
-  maplibregl.addProtocol(
-    'cog',
-    cogProtocol as unknown as Parameters<typeof maplibregl.addProtocol>[1],
-  );
-  globalThis.__ggCogRegistered = true;
-}
+
+// Best-effort registration at module load for any importer that
+// renders a pmtiles/cog source without calling ensureRasterProtocols
+// first. The reliable path is the explicit call at map init (see the
+// doc above); this is only a backstop.
+ensureRasterProtocols();
 
 /**
  * Shape of a custom basemap row coming back from /api/basemaps.

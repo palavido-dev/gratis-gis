@@ -28,10 +28,12 @@ import { useEffect, useRef } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { MapData } from '@gratis-gis/shared-types';
-// Side-effect import: registers the pmtiles:// + cog:// MapLibre
-// protocols globally so pmtiles- or cog-backed basemaps render
-// through the same handler the canvas uses.
-import { basemapDataToStyle } from '@/lib/custom-basemap';
+// ensureRasterProtocols registers the pmtiles:// + cog:// MapLibre
+// protocols so pmtiles- or cog-backed basemaps render through the
+// same handler the canvas uses. Called explicitly before the map is
+// built (not relied on as a module-load side effect, which a bundler
+// chunk split can leave unrun before the map loads its sources; #209).
+import { basemapDataToStyle, ensureRasterProtocols } from '@/lib/custom-basemap';
 import type { BasemapData } from '@gratis-gis/shared-types';
 
 import {
@@ -92,6 +94,7 @@ export function MapSnapshot({
         ? scaleToZoom(scaleOverride, lat)
         : mapData.zoom;
 
+    ensureRasterProtocols();
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: styleArg,
