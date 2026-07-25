@@ -12,6 +12,8 @@ import {
   useState,
 } from 'react';
 import maplibregl from 'maplibre-gl';
+import { Protocol as PMTilesProtocol } from 'pmtiles';
+import { cogProtocol } from '@geomatico/maplibre-cog-protocol';
 import type {
   DrawingSet,
   MapData,
@@ -39,10 +41,41 @@ import {
 } from '@gratis-gis/shared-types';
 import {
   customBasemapToStyle,
-  ensureRasterProtocols,
   type CustomBasemap,
 } from '@/lib/custom-basemap';
 import { getCachedUserName } from '@/lib/user-name-cache';
+
+// Register pmtiles:// and cog:// on THIS module's maplibregl instance.
+// maplibre-gl, this map component, and these two protocol plugins all
+// compile into the same client chunk, so registering here guarantees
+// the schemes exist on the exact maplibregl `new maplibregl.Map` uses,
+// before any source loads. Registering from a separate module
+// (lib/custom-basemap) did not survive a Next 16.2 chunk split: the
+// side effect ran in another chunk that executed too late for the map,
+// so every raster tile and DEM-drape source failed with "URL scheme
+// pmtiles/cog is not supported" and nothing drew (#209). The guard is
+// a flag on the maplibregl object itself so it is idempotent and an
+// SSR pass (window undefined) cannot mark it registered for the client.
+function registerMapProtocols(): void {
+  if (typeof window === 'undefined') return;
+  const gl = maplibregl as unknown as { __ggRasterProtocols?: boolean };
+  if (gl.__ggRasterProtocols) return;
+  try {
+    maplibregl.addProtocol('pmtiles', new PMTilesProtocol().tile);
+    maplibregl.addProtocol(
+      'cog',
+      cogProtocol as unknown as Parameters<typeof maplibregl.addProtocol>[1],
+    );
+    gl.__ggRasterProtocols = true;
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[gg] map raster protocol registration failed', err);
+  }
+}
+// Runs when this chunk loads (same chunk as maplibre core), so the
+// schemes are ready before any map mounts. Also re-asserted per map
+// create below as belt-and-suspenders; the flag makes repeats free.
+registerMapProtocols();
 
 /**
  * Absolute fallback MapLibre style. Used only when the map references a
@@ -597,12 +630,12 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
   // Create the map once; tear down on unmount.
   useEffect(() => {
     if (mapRef.current || !containerRef.current) return;
-    // Register pmtiles:// and cog:// before the map is built so the
-    // initial style's basemap and every raster/DEM source can resolve
-    // its scheme. Doing it here (not relying on a module-load side
-    // effect in another chunk) is what keeps raster overlays and
-    // draped terrain rendering after a bundler chunk reshuffle (#209).
-    ensureRasterProtocols();
+    // Re-assert pmtiles:// and cog:// on this module's maplibregl right
+    // before building the map, so the initial style's basemap and every
+    // raster/DEM source can resolve its scheme. Registration also runs
+    // at module load above; this is the idempotent belt-and-suspenders
+    // (see registerMapProtocols for the #209 chunk-split history).
+    registerMapProtocols();
     const m = new maplibregl.Map({
       container: containerRef.current,
       style: resolveStyle(),
