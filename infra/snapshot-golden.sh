@@ -158,11 +158,19 @@ echo "=== Snapshotting MinIO volume ==="
 # write, and stopping it briefly while the app services are also
 # stopped is fine). Stop minio too:
 dc stop minio
+# Uncompressed tar on purpose. The MinIO volume is dominated by
+# already-compressed point-cloud data (COPC / LAZ) and raster tiles;
+# gzip buys ~0 size but costs ~40 min of single-core CPU on a ~30GB
+# volume, and restore-golden pays that same cost on every nightly
+# reset (a 40-min demo outage). Plain tar keeps both the snapshot and
+# the nightly restore disk-bound (a few minutes). The golden lives on
+# the 200GB volume so the larger uncompressed archive is not a space
+# concern. restore-golden.sh's `tar xf` must stay in sync with this.
 docker run --rm \
   -v "${COMPOSE_PROJECT}_miniodata":/data:ro \
   -v "$GOLDEN_DIR":/out \
   alpine:3.20 \
-  tar czf /out/minio.tar.gz -C /data .
+  tar cf /out/minio.tar -C /data .
 
 echo "=== Restarting app services ==="
 dc start minio

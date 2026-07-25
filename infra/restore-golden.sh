@@ -10,7 +10,8 @@
 #   - `keycloak` Postgres database  (same, from
 #     /var/lib/gratis-gis-golden/postgres-keycloak.dump).
 #   - `miniodata` Docker volume contents  (wipe + untar from
-#     /var/lib/gratis-gis-golden/minio.tar.gz).
+#     /var/lib/gratis-gis-golden/minio.tar; uncompressed on purpose,
+#     see snapshot-golden.sh for why).
 #
 # What does NOT get restored:
 #   - TLS / ACME state (caddy-data, caddy-config). Reset never
@@ -94,7 +95,7 @@ esac
 # up, and the operator gets a clear error pointing at the missing
 # file. If we deleted the live DB first and THEN noticed the snapshot
 # was incomplete, we'd be in a much worse spot.
-for f in postgres-app.dump postgres-keycloak.dump minio.tar.gz; do
+for f in postgres-app.dump postgres-keycloak.dump minio.tar; do
   if [[ ! -s "$GOLDEN_DIR/$f" ]]; then
     echo "FATAL: snapshot artifact missing or empty: $GOLDEN_DIR/$f" >&2
     echo "       Run infra/snapshot-golden.sh first to seed the golden state." >&2
@@ -191,7 +192,7 @@ docker run --rm \
   -v "${COMPOSE_PROJECT}_miniodata":/data \
   -v "$GOLDEN_DIR":/in:ro \
   alpine:3.20 \
-  sh -c 'rm -rf /data/..?* /data/.[!.]* /data/* && tar xzf /in/minio.tar.gz -C /data'
+  sh -c 'rm -rf /data/..?* /data/.[!.]* /data/* && tar xf /in/minio.tar -C /data'
 dc start minio
 
 echo "=== Restarting app services ==="
