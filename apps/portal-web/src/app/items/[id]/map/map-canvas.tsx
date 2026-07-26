@@ -292,10 +292,13 @@ export interface MapCanvasHandle {
  * the current state: so a state update anywhere else always produces
  * a correct render with no hand-synced imperative code.
  *
- * The synchronization strategy is blunt by design: on any layer-list
- * change we tear down and rebuild our overlay sources. The underlying
- * basemap and camera survive, so the user never sees a flash. A smarter
- * diff is possible later; for now simplicity beats theoretical perf.
+ * The synchronization strategy stays a single reconcile pass: any
+ * layer-list change re-runs syncOverlays. Sources keep their tile /
+ * data caches when their data URL is unchanged (raster tile, MVT,
+ * geojson-url; see the keep-alive blocks in syncOverlays) and their
+ * style layers are updated in place; everything else is torn down
+ * and rebuilt. The underlying basemap and camera survive either way,
+ * so the user never sees a flash.
  */
 export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
   {
@@ -2730,8 +2733,51 @@ function styleSheetReady(m: maplibregl.Map): boolean {
 }
 
 /**
- * Remove any overlay sources + layers from a previous render, then add
- * the current set. Stable identifiers mean teardown is mechanical.
+ * Canonical MVT tile URL template for a data-layer source, with the
+ * clip boundary and bitemporal `at` params baked in.
+ *
+ * #87: MVT URLs accept an `at` query string in addition to the
+ * {z}/{x}/{y} template. MapLibre treats the whole string as the tile
+ * URL template, so the query string just rides along on every
+ * per-tile fetch. Building the URL here means every visible tile
+ * asks for the engine's projection at that moment; MapLibre's cache
+ * keys on the full URL so swapping `at` invalidates the cache
+ * automatically.
+ *
+ * Shared by the keep-alive decision and the addSource call inside
+ * syncOverlays so both always agree on what "the URL" is. If the two
+ * drifted, keep-alive would either keep a source whose params
+ * changed (stale data) or flush the tile cache it exists to protect.
+ */
+function dataLayerTileUrl(
+  source: { itemId: string; layerKey?: string },
+  boundaryFilterItemId: string | null | undefined,
+  mapClipBoundaryId: string | undefined,
+  asOfTime: string | null | undefined,
+): string {
+  const base = source.layerKey
+    ? `/api/portal/items/${source.itemId}/layers/${encodeURIComponent(source.layerKey)}/tile/{z}/{x}/{y}.mvt`
+    : `/api/portal/items/${source.itemId}/tile/{z}/{x}/{y}.mvt`;
+  // #79: the per-layer boundary wins over the map-level clip so a
+  // layer can opt into a tighter scope.
+  const effectiveClip = boundaryFilterItemId ?? mapClipBoundaryId ?? null;
+  const tileParams: string[] = [];
+  if (effectiveClip) {
+    tileParams.push(`clip=${encodeURIComponent(effectiveClip)}`);
+  }
+  if (asOfTime) {
+    tileParams.push(`at=${encodeURIComponent(asOfTime)}`);
+  }
+  return tileParams.length > 0 ? `${base}?${tileParams.join('&')}` : base;
+}
+
+/**
+ * Reconcile overlay sources + layers with the current layer list.
+ * Stable identifiers keep the bookkeeping mechanical. Sources whose
+ * data URL is unchanged this pass (raster tile, data-layer MVT,
+ * geojson-url) survive with their tile / data caches intact and only
+ * get in-place style-layer updates; everything else is torn down and
+ * rebuilt.
  */
 function syncOverlays(
   m: maplibregl.Map,
@@ -2782,7 +2828,84 @@ function syncOverlays(
       keepTileUrl.set(`gg:${l.id}`, l.source.tileUrl);
     }
   }
+
+  // Same idea for vector (MVT) data-layer sources and geojson-url
+  // sources: rebuilding one flushes MapLibre's tile / data cache for
+  // that source, so a paint-only change (the opacity slider, a color
+  // pick) made the layer blank out and refetch every visible tile,
+  // worst on county-scale MVT layers. A source survives the pass
+  // when the layer is still visible, still wants the same source
+  // type, and resolves to the same data URL (tiles template with
+  // clip / time params baked in, or the geojson URL). Everything the
+  // URL does NOT capture (paint, layout, client-side attribute
+  // filters, zoom ranges, stacking order) is updated in place on the
+  // surviving style layers in the add loop below.
+  //
+  // The canonical URL is stamped on the layer's `-fill` style layer
+  // metadata at add time (mirroring the raster ggTileUrl pattern)
+  // rather than read from the live source, because the live source
+  // mutates underneath us: a GeoJSON source swaps its `data` to the
+  // fetched FeatureCollection once loaded, and refreshLayerSource
+  // appends a refresh serial to live MVT tile URLs after edits.
+  //
+  // Deliberately NOT kept: geojson-inline (an inline FC has no URL
+  // identity), arcgis-rest / postgis-live (added empty and filled
+  // imperatively by the moveend effects), and editor targets that
+  // wear the data-layer kind (their live data is replaced by bbox
+  // fetches). Those keep the rebuild-every-pass behavior.
+  const keepDataUrl = new Map<
+    string,
+    { url: string; type: 'vector' | 'geojson' }
+  >();
+  for (const l of layers) {
+    if (!l.visible) continue;
+    if (
+      l.source.kind === 'data-layer' &&
+      !l.id.startsWith('editor-target:')
+    ) {
+      keepDataUrl.set(`gg:${l.id}`, {
+        url: dataLayerTileUrl(
+          l.source,
+          l.boundaryFilterItemId,
+          mapClipBoundaryId,
+          asOfTime,
+        ),
+        type: 'vector',
+      });
+    } else if (l.source.kind === 'geojson-url') {
+      keepDataUrl.set(`gg:${l.id}`, { url: l.source.url, type: 'geojson' });
+    }
+  }
+
   const style = m.getStyle();
+  // Serialized specs of every overlay layer from the previous pass.
+  // Read twice: by the keep-alive decision just below (the -fill
+  // layer carries the URL stamp) and by the add loop's in-place
+  // updates (union-diffing paint / layout keys so dropped properties
+  // get reset instead of lingering).
+  const priorSpecs = new Map<string, maplibregl.LayerSpecification>();
+  if (style?.layers) {
+    for (const l of style.layers) {
+      if (l.id.startsWith('gg:')) priorSpecs.set(l.id, l);
+    }
+  }
+  // Resolve which candidates actually survive. The source must still
+  // exist with the desired type (a basemap swap wipes every source)
+  // and the URL recorded by the prior pass must match this pass's.
+  // Any miss falls back to a full rebuild, which also self-heals
+  // styles built before the metadata stamp existed.
+  const keptDataSources = new Set<string>();
+  for (const [srcId, want] of keepDataUrl) {
+    const src = m.getSource(srcId);
+    if (!src || (src.type as unknown as string) !== want.type) continue;
+    const priorUrl = (
+      priorSpecs.get(`${srcId}-fill`)?.metadata as
+        | { ggDataUrl?: string }
+        | undefined
+    )?.ggDataUrl;
+    if (priorUrl && priorUrl === want.url) keptDataSources.add(srcId);
+  }
+
   if (style?.layers) {
     for (const l of style.layers) {
       if (!l.id.startsWith('gg:')) continue;
@@ -2792,6 +2915,13 @@ function syncOverlays(
           ?.ggTileUrl;
         if (priorUrl && keepTileUrl.get(srcId) === priorUrl) continue;
       }
+      // Style layers reading from a kept source survive teardown so
+      // the source is never left layer-less (removeSource refuses
+      // that anyway). The add loop reconciles them in place, swaps
+      // individual ones whose type flipped, and prunes any that are
+      // no longer wanted.
+      const specSource = (l as { source?: string }).source;
+      if (specSource && keptDataSources.has(specSource)) continue;
       m.removeLayer(l.id);
     }
   }
@@ -2799,6 +2929,7 @@ function syncOverlays(
     for (const id of Object.keys(style.sources)) {
       if (id.startsWith('gg:')) {
         if (keepTileUrl.has(id) && m.getLayer(`${id}:raster`)) continue;
+        if (keptDataSources.has(id)) continue;
         try {
           m.removeSource(id);
         } catch {
@@ -2806,6 +2937,25 @@ function syncOverlays(
         }
       }
     }
+  }
+  // Hover feature-state used to die with the rebuilt source; on a
+  // kept source it would linger with no mousemove to clear it (the
+  // pointer is typically on a panel slider, not the canvas, when a
+  // sync fires). Clear it explicitly so the highlight resets exactly
+  // as it always did; the next mousemove re-applies it.
+  const hovered = hoveredRef.current;
+  if (hovered && keptDataSources.has(hovered.sourceId)) {
+    const hoverSrc = m.getSource(hovered.sourceId);
+    m.setFeatureState(
+      hoverSrc && (hoverSrc.type as unknown as string) === 'vector'
+        ? {
+            source: hovered.sourceId,
+            sourceLayer: 'features',
+            id: hovered.featureId,
+          }
+        : { source: hovered.sourceId, id: hovered.featureId },
+      { hover: false },
+    );
   }
   hoveredRef.current = null;
 
@@ -2916,40 +3066,45 @@ function syncOverlays(
     // table-mode editing.
     const isMvt =
       layer.source.kind === 'data-layer' && !isEditorTarget;
+
+    // Keep-alive verdict, decided against the live style before the
+    // teardown pass. When kept, the source (and MapLibre's tile /
+    // data cache for it) stays put and applyLayer below updates the
+    // style layers in place instead of re-adding them. keepUrl is
+    // this layer's canonical data URL; it doubles as the metadata
+    // stamp the NEXT pass's keep decision compares against, so it is
+    // written onto the -fill layer spec further down.
+    const kept = keptDataSources.has(sourceId);
+    const keepUrl = keepDataUrl.get(sourceId)?.url;
+
     if (isMvt && layer.source.kind === 'data-layer') {
-      const dataSource = layer.source;
-      const base = dataSource.layerKey
-        ? `/api/portal/items/${dataSource.itemId}/layers/${encodeURIComponent(dataSource.layerKey)}/tile/{z}/{x}/{y}.mvt`
-        : `/api/portal/items/${dataSource.itemId}/tile/{z}/{x}/{y}.mvt`;
-      const effectiveClip =
-        layer.boundaryFilterItemId ?? mapClipBoundaryId ?? null;
-      // #87 -- MVT URLs accept an `at` query string in addition to
-      // the {z}/{x}/{y} template.  MapLibre treats the whole string
-      // as the tile URL template, so the query string just rides
-      // along on every per-tile fetch.  Building the URL here means
-      // every visible tile asks for the engine's projection at that
-      // moment; MapLibre's cache keys on the full URL so swapping
-      // `at` invalidates the cache automatically.
-      const tileParams: string[] = [];
-      if (effectiveClip) {
-        tileParams.push(`clip=${encodeURIComponent(effectiveClip)}`);
+      if (!kept) {
+        // #87 / #79: the clip and as-of params are baked into the
+        // tile URL template by dataLayerTileUrl (see its docstring),
+        // so MapLibre's URL-keyed tile cache invalidates itself
+        // whenever either changes. keepUrl is that same URL; the
+        // fallback recompute only runs if the precompute ever skips
+        // a layer this branch sees, which would be a logic bug.
+        const tileUrl =
+          keepUrl ??
+          dataLayerTileUrl(
+            layer.source,
+            layer.boundaryFilterItemId,
+            mapClipBoundaryId,
+            asOfTime,
+          );
+        m.addSource(sourceId, {
+          type: 'vector',
+          tiles: [tileUrl],
+          minzoom: 0,
+          maxzoom: 22,
+          // Vector-source promoteId is keyed by source-layer name.
+          // Our MVT emits one layer named "features", so we attach
+          // the promote rule there.
+          promoteId: { features: '_global_id' },
+        });
       }
-      if (asOfTime) {
-        tileParams.push(`at=${encodeURIComponent(asOfTime)}`);
-      }
-      const tileUrl =
-        tileParams.length > 0 ? `${base}?${tileParams.join('&')}` : base;
-      m.addSource(sourceId, {
-        type: 'vector',
-        tiles: [tileUrl],
-        minzoom: 0,
-        maxzoom: 22,
-        // Vector-source promoteId is keyed by source-layer name.
-        // Our MVT emits one layer named "features", so we attach
-        // the promote rule there.
-        promoteId: { features: '_global_id' },
-      });
-    } else {
+    } else if (!kept) {
       m.addSource(sourceId, {
         type: 'geojson',
         data,
@@ -2964,6 +3119,87 @@ function syncOverlays(
     // property at all -- supplying it on a geojson source throws.
     // We spread sourceLayerProp into every addLayer call below.
     const sourceLayerProp = isMvt ? { 'source-layer': 'features' as const } : {};
+
+    // Ids this pass wants for THIS source, in add order. Drives the
+    // stale-layer prune at the end of the iteration on the kept path.
+    const wantedIds = new Set<string>();
+    /**
+     * Add-or-update one style layer. On a rebuilt source this is a
+     * plain addLayer, exactly as before. On a kept source the layer
+     * is updated in place (filter, zoom range, layout, paint) and
+     * repositioned with moveLayer the same way the raster keep-alive
+     * block above does, so a paint-only change like the opacity
+     * slider reduces to setPaintProperty and the source's already
+     * loaded tiles keep rendering throughout. MapLibre's setters
+     * no-op internally (deepEqual) when a value is unchanged, so the
+     * untouched properties cost nothing and dirty nothing.
+     *
+     * A kept source can still need a structural swap of a single
+     * style layer: the point layer flips between circle and symbol
+     * when icons finish registering, fill flips to fill-extrusion.
+     * A type change can't be patched in place, so just that one
+     * layer is re-added; the source, and every other layer reading
+     * from it, stays put.
+     */
+    const applyLayer = (specInput: maplibregl.AddLayerObject): void => {
+      const spec = specInput as unknown as {
+        id: string;
+        type: string;
+        filter?: unknown;
+        minzoom?: number;
+        maxzoom?: number;
+        layout?: Record<string, unknown>;
+        paint?: Record<string, unknown>;
+      };
+      wantedIds.add(spec.id);
+      const prior = kept
+        ? (priorSpecs.get(spec.id) as unknown as typeof spec | undefined)
+        : undefined;
+      if (!prior || prior.type !== spec.type) {
+        // On the kept path the old layer survived teardown and
+        // addLayer throws on a duplicate id, so drop it first.
+        if (prior && m.getLayer(spec.id)) m.removeLayer(spec.id);
+        m.addLayer(specInput);
+        return;
+      }
+      // Only touch the filter when either side has one: setFilter
+      // treats null as an explicit clear even when nothing was set,
+      // which would dirty the style every pass for the filterless
+      // label case.
+      if (spec.filter !== undefined || prior.filter !== undefined) {
+        m.setFilter(
+          spec.id,
+          (spec.filter ?? null) as maplibregl.FilterSpecification | null,
+        );
+      }
+      m.setLayerZoomRange(
+        spec.id,
+        spec.minzoom ?? ZOOM_MIN,
+        spec.maxzoom ?? ZOOM_MAX,
+      );
+      // Union of prior + next keys so properties the new spec drops
+      // (the dash array on a now-solid stroke, icon-color when tint
+      // turns off) are reset to defaults instead of lingering.
+      const layoutKeys = new Set([
+        ...Object.keys(prior.layout ?? {}),
+        ...Object.keys(spec.layout ?? {}),
+      ]);
+      for (const key of layoutKeys) {
+        m.setLayoutProperty(spec.id, key, spec.layout?.[key]);
+      }
+      const paintKeys = new Set([
+        ...Object.keys(prior.paint ?? {}),
+        ...Object.keys(spec.paint ?? {}),
+      ]);
+      for (const key of paintKeys) {
+        m.setPaintProperty(spec.id, key, spec.paint?.[key]);
+      }
+      // Reposition to this pass's stacking slot: moveLayer with no
+      // beforeId appends to the top, which is exactly where this
+      // iteration's layer belongs (same convention as the raster
+      // keep path above).
+      m.moveLayer(spec.id);
+    };
 
     const op = layer.opacity;
     const s = layer.style;
@@ -3161,11 +3397,15 @@ function syncOverlays(
     // base opacity without the hover/selection bumps.
     const extrusion = s.polygon.extrusion;
     if (extrusion?.enabled && extrusion.heightField) {
-      m.addLayer({
+      applyLayer({
         id: `gg:${layer.id}-fill`,
         type: 'fill-extrusion',
         source: sourceId,
         ...sourceLayerProp,
+        // Canonical data URL stamp the next pass's keep-alive
+        // decision reads (see keepDataUrl up top). Only present for
+        // source kinds that participate in keep-alive.
+        ...(keepUrl ? { metadata: { ggDataUrl: keepUrl } } : {}),
         minzoom,
         maxzoom,
         filter: combineFilter(
@@ -3197,11 +3437,13 @@ function syncOverlays(
     } else {
       // Selection bumps opacity so picked polygons read as
       // highlighted even against a translucent base style.
-      m.addLayer({
+      applyLayer({
         id: `gg:${layer.id}-fill`,
         type: 'fill',
         source: sourceId,
         ...sourceLayerProp,
+        // URL stamp for keep-alive; twin of the extrusion branch.
+        ...(keepUrl ? { metadata: { ggDataUrl: keepUrl } } : {}),
         minzoom,
         maxzoom,
         filter: combineFilter(
@@ -3233,7 +3475,7 @@ function syncOverlays(
     // style picks them at render time; switching the polygon's
     // strokeDashStyle re-runs this addLayer.
     const polyDashArr = dashArrayFor(s.polygon.strokeDashStyle);
-    m.addLayer({
+    applyLayer({
       id: `gg:${layer.id}-poly-line`,
       type: 'line',
       source: sourceId,
@@ -3275,7 +3517,7 @@ function syncOverlays(
 
     // LineString geometries.
     const lineDashArr = dashArrayFor(s.line.dashStyle);
-    m.addLayer({
+    applyLayer({
       id: `gg:${layer.id}-line`,
       type: 'line',
       source: sourceId,
@@ -3348,7 +3590,7 @@ function syncOverlays(
         // map). Scale with iconSize so a bigger icon gets a bigger
         // background.
         const bgRadius = 11 * s.point.iconSize;
-        m.addLayer({
+        applyLayer({
           id: `gg:${layer.id}-icon-bg`,
           type: 'circle',
           source: sourceId,
@@ -3372,7 +3614,7 @@ function syncOverlays(
       // Selection halo under the icon. Rendered as a separate circle
       // layer so it reads through whatever the symbol shows on top
       // works for both SDF and plain icon variants.
-      m.addLayer({
+      applyLayer({
         id: `gg:${layer.id}-icon-halo`,
         type: 'circle',
         source: sourceId,
@@ -3392,7 +3634,7 @@ function syncOverlays(
           'circle-opacity': op,
         },
       });
-      m.addLayer({
+      applyLayer({
         id: `gg:${layer.id}-circle`,
         type: 'symbol',
         source: sourceId,
@@ -3430,7 +3672,7 @@ function syncOverlays(
         },
       });
     } else {
-      m.addLayer({
+      applyLayer({
         id: `gg:${layer.id}-circle`,
         type: 'circle',
         source: sourceId,
@@ -3498,7 +3740,18 @@ function syncOverlays(
           layer.filter,
         ) as maplibregl.FilterSpecification;
       }
-      m.addLayer(symbolLayer);
+      applyLayer(symbolLayer);
+    }
+
+    // Kept sources skip the global teardown, so prune any of their
+    // style layers this pass no longer wants (labels toggled off,
+    // the icon background removed) here instead.
+    if (kept) {
+      for (const [priorId, priorSpec] of priorSpecs) {
+        if ((priorSpec as { source?: string }).source !== sourceId) continue;
+        if (wantedIds.has(priorId)) continue;
+        if (m.getLayer(priorId)) m.removeLayer(priorId);
+      }
     }
   }
 
