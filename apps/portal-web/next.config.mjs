@@ -1,4 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { createRequire } from 'node:module';
+
+// Resolve maplibre-gl to a single absolute path so Turbopack keeps ONE
+// module instance of it. On the plugin-heavy maps route (map-canvas +
+// maplibre-gl-lidar + terra-draw adapter + cog protocol) Turbopack was
+// instantiating maplibre-gl twice: maplibregl.addProtocol('pmtiles' /
+// 'cog') wrote one instance's protocol registry while the map read the
+// other's, so every raster tile and DEM-draped terrain source failed
+// with "URL scheme not supported" and nothing drew, even though the
+// item preview (a lighter route that stayed single-instance) rendered
+// fine (#209). Aliasing the bare specifier to one resolved file
+// collapses it to a single instance so addProtocol reaches the map.
+const require = createRequire(import.meta.url);
+const maplibrePath = require.resolve('maplibre-gl');
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -19,6 +34,14 @@ const nextConfig = {
   // framework + version to every visitor.
   poweredByHeader: false,
   transpilePackages: ['@gratis-gis/ui', '@gratis-gis/shared-types'],
+  turbopack: {
+    // Collapse maplibre-gl to a single instance (see maplibrePath note
+    // above). Without this, addProtocol and the map read different
+    // protocol registries and raster/DEM layers never draw (#209).
+    resolveAlias: {
+      'maplibre-gl': maplibrePath,
+    },
+  },
   experimental: {
     // Required because our shared packages export TS directly without a build step.
     externalDir: true,
