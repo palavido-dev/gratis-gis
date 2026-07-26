@@ -26,11 +26,19 @@ export interface DataLayerLayerShape {
     name: string;
     type: 'string' | 'number' | 'boolean' | 'date';
     /**
-     * Honoured by the engine indexing pass (#23) when present. The
-     * pre-engine v3 service used this to add a btree on the typed
-     * column; the engine equivalent is a JSONB expression index over
-     * `attrs->>'<field>'`, which the engine adapter creates on the
-     * observation table the first time a scope is written to.
+     * Drives two things. (1) Which fields the search UI offers,
+     * as always. (2) Which per-field partial trigram indexes
+     * DataLayerSearchIndexService (search-index.service.ts)
+     * maintains on the observation table: one
+     * gin((attrs->>'<field>') gin_trgm_ops) WHERE scope = '<scope>'
+     * per searchable field, mirroring the geocoder's rebuildIndexes
+     * pattern, built/dropped by the admin housekeeping "Build
+     * search indexes" action (schema saves are pure metadata since
+     * Phase 2.5, so index reconcile is not inline with the save).
+     * The whole-blob trigram index that briefly existed
+     * (observation_attrs_trgm) was dropped by migration
+     * 20260618120000 as redundant and operationally harmful; never
+     * re-add it.
      */
     searchable?: boolean;
   }>;

@@ -2,16 +2,17 @@
 import { Module } from '@nestjs/common';
 
 import { DataLayerTablesService } from './tables.service.js';
+import { DataLayerSearchIndexService } from './search-index.service.js';
 
 /**
  * Dependency-free (besides PrismaService) module that provides the
  * read-only data-layer helpers (bbox aggregate, last activity,
- * count, truncate). ItemsModule imports this so housekeeping and
- * the data_layer detail surface can stay independent of the full
- * feature CRUD module.
+ * count, truncate) plus the search-index reconciler. ItemsModule
+ * imports this so housekeeping and the data_layer detail surface
+ * can stay independent of the full feature CRUD module.
  */
 @Module({
-  providers: [DataLayerTablesService],
-  exports: [DataLayerTablesService],
+  providers: [DataLayerTablesService, DataLayerSearchIndexService],
+  exports: [DataLayerTablesService, DataLayerSearchIndexService],
 })
 export class DataLayerTablesModule {}
