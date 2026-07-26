@@ -827,7 +827,27 @@ export class ItemsService {
       user.orgRole === 'admin'
         ? { orgId: user.orgId, deletedAt: { not: null } }
         : { ownerId: user.id, deletedAt: { not: null } };
-    return this.prisma.item.findMany({ where, orderBy: { deletedAt: 'desc' } });
+    return this.prisma.item.findMany({
+      where,
+      orderBy: { deletedAt: 'desc' },
+      // Same lean owner projection as the live list and the detail
+      // read. An org admin's trash shows other people's items, so the
+      // rows need an owner label, and the pre-snapshot demo purge
+      // (infra/cleanup-non-admin.mjs) keys its keep-or-purge decision
+      // on owner.username and hard-aborts when it is missing. This
+      // include is what that guard tripped on the first v0.9.0 golden
+      // refresh: the endpoint had never serialized the owner at all.
+      include: {
+        owner: {
+          select: {
+            id: true,
+            username: true,
+            fullName: true,
+            avatarUrl: true,
+          },
+        },
+      },
+    });
   }
 
   async get(user: AuthUser, id: string, opts: { includeTrashed?: boolean } = {}) {

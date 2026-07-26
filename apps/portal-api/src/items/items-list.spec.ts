@@ -498,3 +498,22 @@ describe('ItemsService update expectedUpdatedAt precondition', () => {
     expect(prisma.item.update).toHaveBeenCalledTimes(1);
   });
 });
+
+// v0.9.1 regression: the trash list must serialize the lean owner
+// projection. The pre-snapshot demo purge keys keep-or-purge on
+// owner.username and hard-aborts when it is missing, which is exactly
+// what happened on the first v0.9.0 golden refresh.
+describe('listTrash owner projection', () => {
+  it('includes the lean owner select', async () => {
+    const prisma = makePrisma();
+    const svc = makeService(prisma);
+    await svc.listTrash({ id: 'u1', orgId: 'o1', orgRole: 'admin' } as never);
+    const arg = prisma.item.findMany.mock.calls[0][0];
+    expect(arg.include.owner.select).toEqual({
+      id: true,
+      username: true,
+      fullName: true,
+      avatarUrl: true,
+    });
+  });
+});

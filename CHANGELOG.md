@@ -5,6 +5,19 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.1] - 2026-07-26
+
+### Fixed
+
+- The trash listing now serializes the lean owner projection like the
+  live list and the detail read. The pre-snapshot demo purge keys its
+  keep-or-purge decision on the owner and correctly refused to run
+  against rows without one, which blocked the golden refresh after the
+  v0.9.0 deploy.
+- The purge script requests the API's real page cap instead of a
+  parameter that never existed, and documents the fail-safe direction
+  when an org outgrows one page.
+
 ## [0.9.0] - 2026-07-26
 
 The first tagged release. GratisGIS has been developed in the open on
@@ -123,4 +136,5 @@ Everything is new in a first release. What ships, briefly:
   4.24.15, sharp, fast-uri, postcss, brace-expansion, tar, and the
   `@hono/node-server` override.
 
+[0.9.1]: https://github.com/palavido-dev/gratis-gis/releases/tag/v0.9.1
 [0.9.0]: https://github.com/palavido-dev/gratis-gis/releases/tag/v0.9.0

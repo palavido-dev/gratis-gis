@@ -150,8 +150,14 @@ async function listAllItems(token) {
       byId.set(it.id, it);
     }
   }
-  await pull('/api/items?pageSize=500');
-  await pull('/api/items/trash?pageSize=500', { tolerate404: true });
+  // limit=1000 is the API's hard page cap (pageSize was never a real
+  // parameter). The demo org sits far below it; if it ever grows past
+  // the cap, unfetched items are simply left alone, which fails in
+  // the safe direction for a purge (leftover content, never a wrong
+  // delete). Note the live list also pages by default now; keep this
+  // in mind before reusing the script against a large org.
+  await pull('/api/items?limit=1000');
+  await pull('/api/items/trash', { tolerate404: true });
   return [...byId.values()];
 }
 
