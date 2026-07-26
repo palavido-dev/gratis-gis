@@ -21,6 +21,23 @@ import { StorageService } from '../storage/storage.service.js';
 import { TileLayerService } from './tile-layer.service.js';
 
 /**
+ * Content types the tile pipeline legitimately serves inline
+ * (PMTiles archives, COGs, raster tiles).  Everything else leaves
+ * this endpoint as a download: the stored object carries whatever
+ * Content-Type the presigned PUT claimed, so an upload stored as
+ * text/html or image/svg+xml rendered inline from this @Public
+ * route would be stored XSS on the api origin.
+ */
+const INLINE_SAFE_TILE_TYPES = new Set([
+  'application/octet-stream',
+  'image/tiff',
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/avif',
+]);
+
+/**
  * HTTP surface for tile_layer items (#179).
  *
  *   POST /items/:id/tile-layer/finalize
@@ -151,10 +168,26 @@ export class TileLayerController {
       itemId,
       format,
     );
+    const upstream = await this.storage.streamObject(storageKey, rangeHeader);
+    res.status(upstream.statusCode);
+    if (upstream.contentRange) res.setHeader('Content-Range', upstream.contentRange);
+    if (upstream.contentLength !== undefined) {
+      res.setHeader('Content-Length', String(upstream.contentLength));
+    }
+    if (upstream.contentType) res.setHeader('Content-Type', upstream.contentType);
+    if (upstream.etag) res.setHeader('ETag', upstream.etag);
     // ?download=1 turns the response into a named file download for
     // the detail page's Download buttons (QGIS / desktop GIS use).
     // The bytes are identical to what map rendering streams; this
     // only adds the attachment disposition + a friendly filename.
+    // Without it, anything outside the raster/binary allowlist is
+    // still forced to an attachment: the Content-Type going out is
+    // whatever the stored object claims, and letting an active
+    // type render inline from this origin would be stored XSS.
+    const servedType = (upstream.contentType ?? '')
+      .split(';')[0]!
+      .trim()
+      .toLowerCase();
     if (req.query.download === '1') {
       const name = await this.tileLayer.downloadFileName(
         user,
@@ -165,15 +198,12 @@ export class TileLayerController {
         'Content-Disposition',
         `attachment; filename="${name.replace(/["\\\r\n]/g, '')}"`,
       );
+    } else if (!INLINE_SAFE_TILE_TYPES.has(servedType)) {
+      res.setHeader('Content-Disposition', 'attachment');
     }
-    const upstream = await this.storage.streamObject(storageKey, rangeHeader);
-    res.status(upstream.statusCode);
-    if (upstream.contentRange) res.setHeader('Content-Range', upstream.contentRange);
-    if (upstream.contentLength !== undefined) {
-      res.setHeader('Content-Length', String(upstream.contentLength));
-    }
-    if (upstream.contentType) res.setHeader('Content-Type', upstream.contentType);
-    if (upstream.etag) res.setHeader('ETag', upstream.etag);
+    // nosniff so a browser never second-guesses the declared type
+    // into something scriptable.
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     // Range support: advertise so MapLibre + browsers know to
     // request slices.
     res.setHeader('Accept-Ranges', upstream.acceptRanges ?? 'bytes');

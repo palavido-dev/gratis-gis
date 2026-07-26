@@ -43,6 +43,7 @@ import { Logger } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { Public } from '../auth/public.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { safeFetch } from '../common/net-guards.js';
 
 /**
  * Shared UUID-shape gate. Used on anon paths to bail before
@@ -469,7 +470,14 @@ export class ItemsController {
     if (!href) return null;
     if (href.startsWith('data:')) return href;
     try {
-      const res = await fetch(href, {
+      // safeFetch, not fetch: the URL comes straight out of user-
+      // controlled item fields (thumbnailDesign / basemap config),
+      // and this endpoint is @Public, so a raw fetch here would be
+      // an unauthenticated SSRF into the docker network.  The SSRF
+      // guard's rejection lands in the catch below, so a blocked
+      // URL degrades the same way a broken one does: the SVG just
+      // renders without that layer.
+      const res = await safeFetch(href, {
         signal: AbortSignal.timeout(10_000),
       });
       if (!res.ok) return null;

@@ -42,6 +42,10 @@ export function isPrivateOrLoopbackHost(host: string): boolean {
     const [, a, b] = m;
     const aN = Number(a);
     const bN = Number(b);
+    // 0.0.0.0/8 ("this network").  0.0.0.0 in particular connects
+    // to the local host on Linux (the kernel treats it like
+    // 127.0.0.1), so it is loopback in every way that matters.
+    if (aN === 0) return true;
     if (aN === 10) return true;
     if (aN === 127) return true;
     if (aN === 169 && bN === 254) return true;
@@ -52,15 +56,35 @@ export function isPrivateOrLoopbackHost(host: string): boolean {
     if (aN === 100 && bN >= 64 && bN <= 127) return true;
     return false;
   }
-  // IPv6 loopback / link-local / unique-local. URL parsing wraps v6
-  // hosts in brackets, so we check both bracketed and bare forms.
-  if (host === '::1') return true;
-  if (host.startsWith('[::1]') || host.startsWith('[fc') || host.startsWith('[fd')) {
-    return true;
+  // IPv6.  URL parsing wraps v6 hosts in brackets while DNS-lookup
+  // results come back bare, so strip the brackets and run one set
+  // of checks over both spellings.
+  let v6 = host;
+  if (v6.startsWith('[') && v6.endsWith(']')) v6 = v6.slice(1, -1);
+  if (v6.includes(':')) {
+    const bare = v6.toLowerCase();
+    // Loopback, plus the unspecified address (the v6 spelling of
+    // 0.0.0.0, which likewise lands on the local host).
+    if (bare === '::1' || bare === '::') return true;
+    // Unique-local fc00::/7.
+    if (bare.startsWith('fc') || bare.startsWith('fd')) return true;
+    // IPv4-mapped addresses (::ffff:a.b.c.d, or the equivalent
+    // hex groups ::ffff:aabb:ccdd).  The socket connects to the
+    // embedded IPv4 address, so the IPv4 rules decide; without
+    // this mapping, [::ffff:127.0.0.1] walks straight past the
+    // checks above.  Only a private verdict short-circuits here:
+    // public mapped forms still fall through to the hostname
+    // heuristics below so this stays a strictly tightening check.
+    const dotted = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(bare);
+    if (dotted && isPrivateOrLoopbackHost(dotted[1] ?? '')) return true;
+    const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(bare);
+    if (hex) {
+      const hi = parseInt(hex[1] ?? '0', 16);
+      const lo = parseInt(hex[2] ?? '0', 16);
+      const quad = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+      if (isPrivateOrLoopbackHost(quad)) return true;
+    }
   }
-  // Bare IPv6 without brackets (DNS-lookup result format).
-  if (host.startsWith('fc') && host.includes(':')) return true;
-  if (host.startsWith('fd') && host.includes(':')) return true;
   if (host === 'localhost' || host.endsWith('.localhost')) return true;
   // Any bare single-label hostname in our prod deploy is a docker
   // compose service name and must not be fetched from a
@@ -121,10 +145,49 @@ export async function assertSafeOutboundUrl(rawUrl: string): Promise<URL> {
   return url;
 }
 
+/** Statuses the fetch spec treats as followable redirects. */
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+/**
+ * Redirect-hop ceiling for safeFetch.  Deep chains on probe-style
+ * traffic are either misconfiguration or an attempt to burn our
+ * request budget; legitimate services settle in one or two hops.
+ */
+const MAX_REDIRECT_HOPS = 5;
+
+/**
+ * Headers that describe a request body.  Dropped when a redirect
+ * downgrades the method to GET, per the fetch spec's
+ * request-body-header list.
+ */
+const BODY_HEADERS = [
+  'content-encoding',
+  'content-language',
+  'content-location',
+  'content-length',
+  'content-type',
+];
+
+/**
+ * Credential-bearing headers.  Stripped when a redirect leaves the
+ * origin we validated, mirroring what undici's own redirect
+ * handling does, so a hostile Location target cannot harvest them.
+ */
+const CREDENTIAL_HEADERS = ['authorization', 'proxy-authorization', 'cookie'];
+
 /**
  * Drop-in replacement for `fetch()` that validates the URL before
  * dispatching.  Use this for every outbound HTTP call originating
  * from a user-supplied URL.
+ *
+ * Redirects are followed manually, up to MAX_REDIRECT_HOPS, with
+ * every Location re-validated through `assertSafeOutboundUrl`
+ * before it is fetched.  The runtime's built-in `redirect:
+ * 'follow'` would only validate the first URL: a public host that
+ * 302s to http://169.254.169.254/ would be followed with no check,
+ * which defeats the whole guard.  Callers that pass `redirect:
+ * 'manual'` or `'error'` keep that behavior (no unchecked follow
+ * can happen on either).
  *
  * For fixed, deploy-time URLs (the Keycloak token endpoint via
  * AUTH_URL env, MinIO inside the docker network) call `fetch`
@@ -135,6 +198,79 @@ export async function safeFetch(
   rawUrl: string,
   init?: RequestInit,
 ): Promise<Response> {
-  const url = await assertSafeOutboundUrl(rawUrl);
-  return fetch(url, init);
+  // Caller opted out of following ('manual' returns the 3xx as-is,
+  // 'error' makes fetch throw on it); neither can hop to an
+  // unchecked host, so a single validated dispatch suffices.
+  if (init?.redirect === 'manual' || init?.redirect === 'error') {
+    const url = await assertSafeOutboundUrl(rawUrl);
+    return fetch(url, init);
+  }
+
+  let currentUrl = await assertSafeOutboundUrl(rawUrl);
+  let method = (init?.method ?? 'GET').toUpperCase();
+  // Typed via RequestInit['body'] so we don't depend on the DOM
+  // lib's BodyInit name (portal-api compiles with node types only);
+  // undefined is the "no body" sentinel, matching fetch's own
+  // semantics.  On a method downgrade we clear it back to that.
+  let body: RequestInit['body'] = init?.body ?? undefined;
+  const headers = new Headers(init?.headers);
+
+  for (let hop = 0; ; hop++) {
+    // Build the per-hop init explicitly: exactOptionalPropertyTypes
+    // forbids handing fetch a `body: undefined`, so set it only
+    // when present.
+    const hopInit: RequestInit = {
+      ...init,
+      method,
+      headers,
+      redirect: 'manual',
+    };
+    if (body === undefined || body === null) {
+      delete hopInit.body;
+    } else {
+      hopInit.body = body;
+    }
+    const res = await fetch(currentUrl, hopInit);
+    if (!REDIRECT_STATUSES.has(res.status)) return res;
+    const location = res.headers.get('location');
+    // Redirect status without a Location is not followable; hand
+    // it back like fetch itself would.
+    if (!location) return res;
+    if (hop >= MAX_REDIRECT_HOPS) {
+      throw new UnsafeOutboundUrlError(
+        `too many redirects (limit ${MAX_REDIRECT_HOPS}) fetching ${rawUrl}`,
+      );
+    }
+    let nextRaw: string;
+    try {
+      // Location may be relative; resolve against the hop that
+      // issued it.
+      nextRaw = new URL(location, currentUrl).toString();
+    } catch {
+      throw new UnsafeOutboundUrlError(`invalid redirect Location: ${location}`);
+    }
+    const nextUrl = await assertSafeOutboundUrl(nextRaw);
+    // We won't read this hop's body; release it so the connection
+    // can be reused instead of idling until timeout.
+    try {
+      await res.body?.cancel();
+    } catch {
+      /* already errored or consumed; nothing to release */
+    }
+    // Method rewrite per the fetch spec: 303 always downgrades to
+    // GET; 301/302 do too when the request was a POST.  307/308
+    // preserve method and body.
+    if (
+      res.status === 303 ||
+      ((res.status === 301 || res.status === 302) && method === 'POST')
+    ) {
+      method = 'GET';
+      body = undefined;
+      for (const h of BODY_HEADERS) headers.delete(h);
+    }
+    if (nextUrl.origin !== currentUrl.origin) {
+      for (const h of CREDENTIAL_HEADERS) headers.delete(h);
+    }
+    currentUrl = nextUrl;
+  }
 }

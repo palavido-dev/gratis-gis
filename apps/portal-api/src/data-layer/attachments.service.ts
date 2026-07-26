@@ -1,8 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageService } from '../storage/storage.service.js';
+
+/**
+ * Storage-key prefix the presign path mints for attachment uploads
+ * (StorageService composes keys as `<kind>/<uuid>`). register()
+ * takes the key from the client, so it must be pinned here: an
+ * arbitrary key would later be deleted verbatim by remove(),
+ * turning attachment delete into arbitrary-MinIO-object delete,
+ * and served through the private-asset route under the wrong ACL.
+ */
+const ATTACHMENT_KEY_PREFIX = 'feature-attachment/';
 
 /**
  * Per-feature attachments for v3 feature-service items. Metadata lives
@@ -52,6 +66,14 @@ export class DataLayerAttachmentsService {
     input: RegisterAttachmentInput,
     userId: string,
   ) {
+    if (
+      typeof input.storageKey !== 'string' ||
+      !input.storageKey.startsWith(ATTACHMENT_KEY_PREFIX)
+    ) {
+      throw new BadRequestException(
+        'storageKey is not an attachment upload',
+      );
+    }
     return this.prisma.featureAttachment.create({
       data: {
         itemId,
@@ -94,6 +116,12 @@ export class DataLayerAttachmentsService {
     });
     if (!row) throw new NotFoundException('Attachment not found');
     await this.prisma.featureAttachment.delete({ where: { id: row.id } });
-    await this.storage.deleteObject(row.storageKey);
+    // Re-check the prefix before touching storage: rows registered
+    // before the guard above landed could carry an arbitrary key,
+    // and deleting one verbatim is exactly the primitive we are
+    // closing. A leaked object is the safe failure mode.
+    if (row.storageKey.startsWith(ATTACHMENT_KEY_PREFIX)) {
+      await this.storage.deleteObject(row.storageKey);
+    }
   }
 }

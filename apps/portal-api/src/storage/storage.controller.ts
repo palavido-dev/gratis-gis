@@ -144,20 +144,17 @@ export class StorageController {
 
     // Sharing check + filename for content-disposition.
     let filename = key;
-    let safeMime = 'application/octet-stream';
     if (kind === 'feature-attachment') {
       const att = await this.prisma.featureAttachment.findFirst({
         where: { storageKey },
         select: {
           fileName: true,
-          mime: true,
           itemId: true,
           layerId: true,
         },
       });
       if (!att) throw new NotFoundException('Attachment not found');
       filename = att.fileName || key;
-      safeMime = att.mime || 'application/octet-stream';
       // ACL: read on the parent data_layer item. Anonymous callers
       // are only allowed if the parent is access='public'.
       if (user) {
@@ -199,16 +196,12 @@ export class StorageController {
         select: { id: true, type: true, data: true, access: true },
       });
       if (!item) throw new NotFoundException('File not found');
-      // Pull mime + filename when present in item.data.
+      // Pull the filename when present in item.data.
       const data = (item.data ?? {}) as Record<string, unknown>;
       filename =
         (typeof data.fileName === 'string' && data.fileName) ||
         (typeof data.originalFileName === 'string' && data.originalFileName) ||
         key;
-      safeMime =
-        (typeof data.mime === 'string' && data.mime) ||
-        (typeof data.contentType === 'string' && data.contentType) ||
-        'application/octet-stream';
       if (user) {
         // ACL: read on the item via the standard guard.
         const itemFull = await this.items.get(user, item.id);
@@ -225,10 +218,22 @@ export class StorageController {
     }
 
     // Stream bytes.  Force Content-Disposition: attachment for
-    // anything outside an image MIME allowlist so an HTML upload
+    // anything outside a raster-image allowlist so an HTML upload
     // cannot render inline as an XSS payload from this origin.
-    const isImage = /^image\/(png|jpeg|webp|gif|svg\+xml)$/i.test(safeMime);
+    // The decision keys off the Content-Type actually going out on
+    // the wire (the stored object's), NOT the DB-recorded mime:
+    // the two can disagree (the presigned PUT stamps the stored
+    // type, register() records whatever the client claimed), and
+    // the browser acts on the served header.  SVG is deliberately
+    // absent from the allowlist: it is a script container, so it
+    // downloads like any other active type.  Unknown or missing
+    // types default to attachment.
     const upstream = await this.storage.streamObject(storageKey, rangeHeader);
+    const servedType = (upstream.contentType ?? '')
+      .split(';')[0]!
+      .trim()
+      .toLowerCase();
+    const inlineSafe = /^image\/(png|jpeg|webp|gif|avif)$/.test(servedType);
 
     res.status(upstream.statusCode);
     if (upstream.contentType) res.setHeader('Content-Type', upstream.contentType);
@@ -240,7 +245,7 @@ export class StorageController {
     res.setHeader('Accept-Ranges', upstream.acceptRanges ?? 'bytes');
     res.setHeader(
       'Content-Disposition',
-      `${isImage ? 'inline' : 'attachment'}; filename="${filename.replace(/"/g, '')}"`,
+      `${inlineSafe ? 'inline' : 'attachment'}; filename="${filename.replace(/["\\\r\n]/g, '')}"`,
     );
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'private, max-age=60');

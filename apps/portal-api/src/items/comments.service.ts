@@ -179,6 +179,17 @@ export class CommentsService {
     const body = this.sanitizeBody(input.body);
     const item = await this.loadItem(itemId);
     await this.assertCanRead(user, item);
+    // The thread must belong to the item in the path (reply() gets
+    // this right). Without the check, read access to ANY item lets
+    // a caller address comments on items they cannot see, and the
+    // editor override below would be evaluated against the wrong
+    // item.
+    const thread = await this.prisma.commentThread.findUnique({
+      where: { id: threadId },
+    });
+    if (!thread || thread.itemId !== itemId) {
+      throw new NotFoundException('Comment thread not found');
+    }
     const existing = await this.prisma.comment.findUnique({
       where: { id: commentId },
     });
@@ -211,6 +222,18 @@ export class CommentsService {
   ): Promise<void> {
     const item = await this.loadItem(itemId);
     await this.assertCanRead(user, item);
+    // Same cross-item guard as editComment. A missing thread stays
+    // idempotent (deleting the last comment cascades the thread
+    // away, so a retry legitimately finds nothing); a thread that
+    // exists under a DIFFERENT item is a cross-item probe and gets
+    // a hard NotFound instead.
+    const thread = await this.prisma.commentThread.findUnique({
+      where: { id: threadId },
+    });
+    if (!thread) return;
+    if (thread.itemId !== itemId) {
+      throw new NotFoundException('Comment thread not found');
+    }
     const existing = await this.prisma.comment.findUnique({
       where: { id: commentId },
     });

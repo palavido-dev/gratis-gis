@@ -43,6 +43,7 @@ import type { EsriWebMap } from '@gratis-gis/engine';
 import { DEFAULT_FILE, DEFAULT_FOLDER } from '@gratis-gis/shared-types';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { safeFetch } from '../common/net-guards.js';
 import { ItemsService } from '../items/items.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { WebMapJsonImportService } from '../items/web-map-json-import.service.js';
@@ -702,7 +703,10 @@ export class AgoImportService {
     // ArcGIS portal.
     const portalBase = inferPortalBaseFromRow(row);
     const downloadUrl = `${portalBase}/content/items/${row.agoId}/data?token=${encodeURIComponent(token)}`;
-    const res = await fetch(downloadUrl);
+    // safeFetch, not fetch: the base comes off the user-supplied
+    // dry-run report, so this download must pass the same SSRF
+    // guard the AgoClient routes all its traffic through.
+    const res = await safeFetch(downloadUrl);
     if (!res.ok) {
       throw new Error(
         `AGO returned HTTP ${res.status} on /items/${row.agoId}/data`,
@@ -936,7 +940,10 @@ async function probeAgoService(
   if (token) u.searchParams.set('token', token);
   let res: Response;
   try {
-    res = await fetch(u.toString());
+    // safeFetch, not fetch: the service URL comes off the user-
+    // supplied dry-run report. A blocked URL surfaces as the same
+    // per-item warning a network error does.
+    res = await safeFetch(u.toString());
   } catch (e) {
     return { ok: false, reason: `network error: ${errorMessage(e)}` };
   }

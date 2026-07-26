@@ -35,6 +35,7 @@ import { DEFAULT_DATA_LAYER_V3 } from '@gratis-gis/shared-types';
 import type { Prisma } from '@prisma/client';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { assertSafeOutboundUrl, safeFetch } from '../common/net-guards.js';
 import { ItemsService } from '../items/items.service.js';
 import { DataLayerFeaturesService } from '../data-layer/features.service.js';
 import { StorageService } from '../storage/storage.service.js';
@@ -199,6 +200,14 @@ export class AgoHostedFsImportService {
   }): Promise<HostedFsImportResult> {
     const warnings: string[] = [];
     const cleanUrl = args.serviceUrl.replace(/\/+$/, '');
+
+    // The service URL comes off the user-supplied dry-run report
+    // and seeds every per-layer / per-feature / per-attachment URL
+    // this importer builds. Validate it once up front so a hostile
+    // URL fails loudly here instead of surfacing as hundreds of
+    // swallowed per-row errors deeper in the walk (each fetch below
+    // still goes through safeFetch as defense in depth).
+    await assertSafeOutboundUrl(`${cleanUrl}?f=json`);
 
     // 1. probe service
     const desc = await this.fetchJson<AgoServiceDescribe>(
@@ -519,7 +528,9 @@ export class AgoHostedFsImportService {
         );
         if (args.token) attUrl.searchParams.set('token', args.token);
         try {
-          const res = await fetch(attUrl.toString());
+          // safeFetch: attachment URLs derive from the report's
+          // service URL, same trust level as everything else here.
+          const res = await safeFetch(attUrl.toString());
           if (!res.ok || !res.body) continue;
           const ab = await res.arrayBuffer();
           const buf = Buffer.from(ab);
@@ -594,7 +605,10 @@ export class AgoHostedFsImportService {
     const fetchUrl = token
       ? `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`
       : url;
-    const res = await fetch(fetchUrl);
+    // safeFetch, not fetch: every URL funneled through here derives
+    // from the user-supplied dry-run report (ago-client.ts routes
+    // its own traffic through the same guard).
+    const res = await safeFetch(fetchUrl);
     if (!res.ok) {
       throw new Error(
         `AGO request failed (HTTP ${res.status}) for ${url}`,

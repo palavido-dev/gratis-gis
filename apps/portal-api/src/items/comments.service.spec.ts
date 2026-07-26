@@ -273,6 +273,10 @@ describe('CommentsService', () => {
       prisma.item.findFirst.mockResolvedValue(
         makeItem({ access: 'public', ownerId: 'someone-else' }),
       );
+      prisma.commentThread.findUnique.mockResolvedValue({
+        id: 'thread-1',
+        itemId: 'item-1',
+      });
       prisma.comment.findUnique.mockResolvedValue({
         id: 'c-1',
         threadId: 'thread-1',
@@ -289,6 +293,10 @@ describe('CommentsService', () => {
       prisma.item.findFirst.mockResolvedValue(
         makeItem({ access: 'public', ownerId: 'author-1' }),
       );
+      prisma.commentThread.findUnique.mockResolvedValue({
+        id: 'thread-1',
+        itemId: 'item-1',
+      });
       prisma.comment.findUnique.mockResolvedValue({
         id: 'c-1',
         threadId: 'thread-1',
@@ -301,6 +309,105 @@ describe('CommentsService', () => {
       expect(prisma.commentThread.delete).toHaveBeenCalledWith({
         where: { id: 'thread-1' },
       });
+    });
+
+    it('stays idempotent when the thread is already gone', async () => {
+      const prisma = makePrisma();
+      prisma.item.findFirst.mockResolvedValue(
+        makeItem({ access: 'public', ownerId: 'author-1' }),
+      );
+      prisma.commentThread.findUnique.mockResolvedValue(null);
+      const svc = makeService(prisma);
+      await expect(
+        svc.deleteComment(makeUser(), 'item-1', 'thread-1', 'c-1'),
+      ).resolves.toBeUndefined();
+      expect(prisma.comment.delete).not.toHaveBeenCalled();
+    });
+
+    it('refuses delete through a thread that belongs to another item', async () => {
+      // Regression: the caller has read (and even edit) rights on
+      // item-1, but the thread hangs off a different item. Before
+      // the thread ownership check, the editor override was
+      // evaluated against the wrong item and the delete went
+      // through.
+      const prisma = makePrisma();
+      prisma.item.findFirst.mockResolvedValue(
+        makeItem({ access: 'public', ownerId: 'author-1' }),
+      );
+      prisma.commentThread.findUnique.mockResolvedValue({
+        id: 'thread-1',
+        itemId: 'other-item',
+      });
+      prisma.comment.findUnique.mockResolvedValue({
+        id: 'c-1',
+        threadId: 'thread-1',
+        authorId: 'other-user',
+      });
+      const svc = makeService(prisma);
+      await expect(
+        svc.deleteComment(makeUser(), 'item-1', 'thread-1', 'c-1'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.comment.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('editComment', () => {
+    it('refuses edit through a thread that belongs to another item', async () => {
+      const prisma = makePrisma();
+      prisma.item.findFirst.mockResolvedValue(
+        makeItem({ access: 'public', ownerId: 'author-1' }),
+      );
+      prisma.commentThread.findUnique.mockResolvedValue({
+        id: 'thread-1',
+        itemId: 'other-item',
+      });
+      prisma.comment.findUnique.mockResolvedValue({
+        id: 'c-1',
+        threadId: 'thread-1',
+        authorId: 'other-user',
+        createdAt: new Date(),
+      });
+      const svc = makeService(prisma);
+      await expect(
+        svc.editComment(makeUser(), 'item-1', 'thread-1', 'c-1', {
+          body: 'overwritten',
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.comment.update).not.toHaveBeenCalled();
+    });
+
+    it('lets the author edit within the window when the thread matches', async () => {
+      const prisma = makePrisma();
+      prisma.item.findFirst.mockResolvedValue(
+        makeItem({ access: 'public', ownerId: 'someone-else' }),
+      );
+      prisma.commentThread.findUnique.mockResolvedValue({
+        id: 'thread-1',
+        itemId: 'item-1',
+      });
+      prisma.comment.findUnique.mockResolvedValue({
+        id: 'c-1',
+        threadId: 'thread-1',
+        authorId: 'author-1',
+        createdAt: new Date(),
+      });
+      prisma.comment.update.mockResolvedValue({
+        id: 'c-1',
+        threadId: 'thread-1',
+        authorId: 'author-1',
+        body: 'fixed',
+        createdAt: new Date(),
+        editedAt: new Date(),
+      });
+      const svc = makeService(prisma);
+      const out = await svc.editComment(
+        makeUser(),
+        'item-1',
+        'thread-1',
+        'c-1',
+        { body: 'fixed' },
+      );
+      expect(out.body).toBe('fixed');
     });
   });
 });

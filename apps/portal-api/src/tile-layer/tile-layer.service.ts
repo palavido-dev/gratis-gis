@@ -44,6 +44,18 @@ const RAW_RASTER_HEADROOM = 2.5;
 const PRE_TILED_HEADROOM = 1.5;
 
 /**
+ * Storage-key prefix the presign path mints for tile-layer uploads
+ * (StorageService composes keys as `<kind>/<uuid>` and the upload
+ * kind here is `item-tile-layer`).  Every client-supplied or
+ * item-data-supplied key must sit under it before we read or
+ * delete through it with portal-api's credentials: the serve proxy
+ * is @Public, so an unpinned key would let any MinIO object
+ * (feature-attachment/..., item-file/...) be exfiltrated through a
+ * tile_layer item.  Mirrors the point-cloud finalize guard.
+ */
+const TILE_LAYER_KEY_PREFIX = 'item-tile-layer/';
+
+/**
  * Service for the tile_layer item type (#179).
  *
  * Two responsibilities:
@@ -111,6 +123,13 @@ export class TileLayerService {
     }
     if (typeof input.storageKey !== 'string' || input.storageKey.length === 0) {
       throw new BadRequestException('storageKey is required');
+    }
+    // Only accept keys under our own prefix: the finalize body is
+    // client-supplied, and a key pointing into another prefix
+    // (attachments, file items) must not become readable through
+    // the public tile-layer proxy.
+    if (!input.storageKey.startsWith(TILE_LAYER_KEY_PREFIX)) {
+      throw new BadRequestException('storageKey is not a tile-layer upload');
     }
     if (typeof input.storageUrl !== 'string' || input.storageUrl.length === 0) {
       throw new BadRequestException('storageUrl is required');
@@ -261,20 +280,25 @@ export class TileLayerService {
       return data;
     }
 
-    // PMTiles branch.  Read the PMTiles header via HTTP range
-    // requests against the MinIO public URL. The pmtiles library
-    // handles directory walking and metadata parsing; we only
-    // need to provide a Source that fetches byte ranges.
+    // PMTiles branch.  Read the PMTiles header via ranged reads
+    // through the S3 SDK against the (prefix-validated) storage
+    // key. The pmtiles library handles directory walking and
+    // metadata parsing; we only need to provide a Source that
+    // fetches byte ranges.  Reading by key rather than fetching
+    // the client-supplied storageUrl closes the SSRF that URL
+    // opened (finalize would range-read any URL the client put in
+    // the body), and it also works for private-kind objects, whose
+    // publicUrl is a relative api path plain fetch cannot resolve.
     let header: Header | null = null;
     let metadata: Record<string, unknown> = {};
     try {
-      const source = new FetchRangeSource(effectiveStorageUrl);
+      const source = new StorageRangeSource(this.storage, effectiveStorageKey);
       const pmt = new PMTiles(source);
       header = await pmt.getHeader();
       metadata = (await pmt.getMetadata()) as Record<string, unknown>;
     } catch (err) {
       this.log.warn(
-        `Failed to parse PMTiles header at ${effectiveStorageUrl}: ${err instanceof Error ? err.message : err}`,
+        `Failed to parse PMTiles header for ${effectiveStorageKey}: ${err instanceof Error ? err.message : err}`,
       );
       // Best-effort: keep the upload but persist with empty
       // metadata so the user can still try (the file might be
@@ -428,6 +452,14 @@ export class TileLayerService {
       );
     }
     const d = data as unknown as Record<string, unknown>;
+    // Serve-time prefix pin, same rule as finalize: item.data is
+    // owner-writable through the generic items PATCH, so a key
+    // that escaped the finalize check (or was edited in later)
+    // must still never make this @Public proxy stream another
+    // prefix's objects with portal-api's credentials.  A
+    // non-conforming key is treated as absent.
+    const tileKey = (v: unknown): string | null =>
+      typeof v === 'string' && v.startsWith(TILE_LAYER_KEY_PREFIX) ? v : null;
     // #185: an explicit format pins the bytes a client gets. Map
     // layers stamp a format-suffixed URL at add time; without the
     // pin, a layer stamped cog:// during the pre-pyramid window
@@ -435,18 +467,14 @@ export class TileLayerService {
     // background build finishes and the bare endpoint switches to
     // preferring the pyramid.
     if (format === 'pmtiles') {
-      if (typeof d.pmtilesStorageKey === 'string' && d.pmtilesStorageKey) {
-        return d.pmtilesStorageKey;
-      }
+      const pmtilesKey = tileKey(d.pmtilesStorageKey);
+      if (pmtilesKey) return pmtilesKey;
       throw new NotFoundException(
         'This layer has no optimized tile file yet.',
       );
     }
     if (format === 'cog') {
-      const cogKey =
-        (typeof d.cogStorageKey === 'string' && d.cogStorageKey) ||
-        (typeof d.storageKey === 'string' && d.storageKey) ||
-        null;
+      const cogKey = tileKey(d.cogStorageKey) ?? tileKey(d.storageKey);
       if (cogKey) return cogKey;
       throw new NotFoundException('This layer has no image file.');
     }
@@ -456,10 +484,9 @@ export class TileLayerService {
     // `storageKey` for older rows that predate the hybrid serving
     // model.
     const key =
-      (typeof d.pmtilesStorageKey === 'string' && d.pmtilesStorageKey) ||
-      (typeof d.cogStorageKey === 'string' && d.cogStorageKey) ||
-      (typeof d.storageKey === 'string' && d.storageKey) ||
-      null;
+      tileKey(d.pmtilesStorageKey) ??
+      tileKey(d.cogStorageKey) ??
+      tileKey(d.storageKey);
     if (!key) {
       throw new NotFoundException('Tile layer storage key is missing.');
     }
@@ -660,6 +687,15 @@ export class TileLayerService {
     if (!isTileLayerData(data)) return;
     const tl: TileLayerData = data;
     if (!tl.storageKey) return;
+    // Re-check the prefix before deleting: item.data is owner-
+    // writable, so a key edited to point at another prefix would
+    // otherwise turn purge into an arbitrary-object delete.
+    if (!tl.storageKey.startsWith(TILE_LAYER_KEY_PREFIX)) {
+      this.log.warn(
+        `Refusing to delete non-tile-layer key ${tl.storageKey} while purging item ${itemId}`,
+      );
+      return;
+    }
     try {
       await this.storage.deleteObject(tl.storageKey);
     } catch (err) {
@@ -718,56 +754,69 @@ function pickString(
 }
 
 /**
- * pmtiles.Source adapter that range-reads a public HTTP URL with
- * the global fetch() (Node 20+). The pmtiles package ships a
- * built-in FetchSource but only for the browser; on the server
- * we need to provide our own minimal implementation.
+ * pmtiles.Source adapter that range-reads a MinIO object through
+ * the S3 SDK with portal-api's credentials.  The pmtiles package
+ * ships a built-in FetchSource but only for the browser; on the
+ * server we read by storage KEY so no user-supplied URL is ever
+ * fetched (the previous fetch-based source took the finalize
+ * body's storageUrl verbatim, which was an SSRF surface) and so
+ * private-prefix objects stay readable after the bucket policy
+ * denied anonymous GET on them.
  *
- * Caches the etag so re-reads of the same file across calls
- * benefit from PMTiles's own directory cache. We deliberately
- * don't add a higher-level cache here; the package caches
- * decoded directories internally and the header itself is small.
+ * No higher-level caching here: the package caches decoded
+ * directories internally and the header itself is small.
  */
-class FetchRangeSource implements Source {
-  private etag?: string;
-
-  constructor(private readonly url: string) {}
+class StorageRangeSource implements Source {
+  constructor(
+    private readonly storage: StorageService,
+    private readonly key: string,
+  ) {}
 
   getKey(): string {
-    return this.url;
+    return this.key;
   }
 
-  async getBytes(
-    offset: number,
-    length: number,
-    signal?: AbortSignal,
-  ): Promise<RangeResponse> {
-    const headers: Record<string, string> = {
-      Range: `bytes=${offset}-${offset + length - 1}`,
-    };
-    if (this.etag) headers['If-Match'] = this.etag;
-    const init: RequestInit = { headers };
-    if (signal) init.signal = signal;
-    const res = await fetch(this.url, init);
-    if (res.status === 416) {
-      throw new Error(
-        `PMTiles source replied 416 for range ${offset}-${offset + length - 1}; file may be smaller than the directory claims`,
-      );
-    }
-    if (!res.ok) {
-      throw new Error(
-        `PMTiles source HTTP ${res.status} for range ${offset}-${offset + length - 1}`,
-      );
-    }
-    const etag = res.headers.get('etag') ?? undefined;
-    if (etag && !this.etag) this.etag = etag;
-    const buf = await res.arrayBuffer();
-    const result: RangeResponse = { data: buf };
-    if (etag) result.etag = etag;
-    const cc = res.headers.get('cache-control');
-    if (cc) result.cacheControl = cc;
-    const expires = res.headers.get('expires');
-    if (expires) result.expires = expires;
+  async getBytes(offset: number, length: number): Promise<RangeResponse> {
+    const upstream = await this.storage.streamObject(
+      this.key,
+      `bytes=${offset}-${offset + length - 1}`,
+    );
+    const buf = await collectStream(upstream.body, length);
+    // Copy into a fresh ArrayBuffer: Buffer views a pooled slab
+    // whose .buffer is wider than the payload (and typed
+    // ArrayBufferLike), while pmtiles wants exactly-sized plain
+    // ArrayBuffer data.
+    const data = new ArrayBuffer(buf.byteLength);
+    new Uint8Array(data).set(buf);
+    const result: RangeResponse = { data };
+    if (upstream.etag) result.etag = upstream.etag;
     return result;
   }
+}
+
+/**
+ * Collect a readable stream into a Buffer, hard-capped.  The cap
+ * is belt and braces: the Range header already bounds the
+ * response, but a misbehaving upstream must not buffer unbounded
+ * bytes into the api heap.  Mirrors the point-cloud service's
+ * helper.
+ */
+function collectStream(
+  stream: NodeJS.ReadableStream,
+  maxBytes: number,
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    stream.on('data', (chunk: Buffer) => {
+      total += chunk.length;
+      if (total > maxBytes) {
+        reject(new Error('Ranged read returned more bytes than requested'));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    stream.on('end', () => resolve(Buffer.concat(chunks)));
+    stream.on('error', reject);
+  });
 }

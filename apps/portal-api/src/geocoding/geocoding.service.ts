@@ -19,6 +19,7 @@ import type { AuthUser } from '../auth/auth-sync.service.js';
 import {
   assertSafeOutboundUrl,
   isPrivateOrLoopbackHost,
+  safeFetch,
   UnsafeOutboundUrlError,
 } from '../common/net-guards.js';
 
@@ -770,10 +771,17 @@ export class GeocodingService {
     const url = `${base}/findAddressCandidates?${params.toString()}`;
     let res: Response;
     try {
-      res = await fetch(url, {
+      // safeFetch, not fetch: externalUrl was validated at probe
+      // time, but item.data is editable afterwards, so the runtime
+      // query path needs the same SSRF guard the admin probe path
+      // runs.
+      res = await safeFetch(url, {
         headers: { 'user-agent': 'GratisGIS/geocoder' },
       });
     } catch (err) {
+      if (err instanceof UnsafeOutboundUrlError) {
+        throw new BadRequestException(err.message);
+      }
       this.log.warn(
         `External geocoder fetch failed for ${url}: ${err instanceof Error ? err.message : err}`,
       );

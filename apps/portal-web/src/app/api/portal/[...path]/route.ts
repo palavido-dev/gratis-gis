@@ -266,6 +266,21 @@ function isAnonymousPostAllowed(suffix: string): boolean {
   return false;
 }
 
+/**
+ * True when a path segment would collapse during URL normalization:
+ * empty (from '//'), a single dot, or a double dot. WHATWG URL (and
+ * therefore fetch) also treats the percent-encoded spellings '%2e',
+ * '%2e%2e', '.%2e', and '%2e.' as dot segments, so those count too:
+ * Next decodes catch-all segments once, meaning a double-encoded
+ * '%252e%252e' arrives here as the literal text '%2e%2e' and would
+ * still normalize into '..' when the upstream URL is parsed.
+ */
+function isDotOrEmptySegment(segment: string): boolean {
+  if (segment === '') return true;
+  const decodedDots = segment.toLowerCase().replace(/%2e/g, '.');
+  return decodedDots === '.' || decodedDots === '..';
+}
+
 async function forward(req: NextRequest, pathSegments: string[]) {
   // Per-hop timing log behind the BFF_TIMING flag. Lets us split a
   // slow page load into "cookie + getServerSession" vs "upstream
@@ -280,6 +295,20 @@ async function forward(req: NextRequest, pathSegments: string[]) {
 
   const suffix = pathSegments.join('/');
   const qs = req.nextUrl.search;
+
+  // Reject path traversal before ANY allowlist matching. Next hands
+  // catch-all segments over percent-decoded, so a caller can smuggle
+  // '..' (sent as %2e%2e) or a '/' inside one segment (sent as %2f);
+  // once joined into the upstream URL those collapse into a
+  // DIFFERENT /api path than the one the regexes below inspected,
+  // letting an anonymous request walk out of the public allowlist
+  // into arbitrary /api endpoints. We re-split the joined suffix so
+  // segments introduced by an embedded decoded '/' are checked too.
+  // No legitimate client sends dot or empty segments, so a flat 400
+  // is safe for authenticated callers as well.
+  if (suffix.split('/').some(isDotOrEmptySegment)) {
+    return NextResponse.json({ message: 'Bad request' }, { status: 400 });
+  }
 
   // #195: a session whose Keycloak refresh has failed still carries
   // the last access token it ever minted, plus an error flag (see

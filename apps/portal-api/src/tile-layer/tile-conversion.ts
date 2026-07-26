@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { spawn } from 'node:child_process';
-import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { createWriteStream } from 'node:fs';
+import { mkdir, mkdtemp, open, rm, stat, writeFile } from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
+import { Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import { crc32, createInflateRaw } from 'node:zlib';
 
 import type { TileLayerOriginalFormat } from '@gratis-gis/shared-types';
 
@@ -27,7 +32,8 @@ import type { TileLayerOriginalFormat } from '@gratis-gis/shared-types';
  *   - .mbtiles : `pmtiles convert in.mbtiles out.pmtiles`. The
  *     pmtiles Go CLI bundled into the api image handles the
  *     SQLite read + PMTiles directory build.
- *   - .zip (XYZ tile directory): unzip into a temp dir, then
+ *   - .zip (XYZ tile directory): extracted in-process (see
+ *     `extractZipToDir`) into a temp dir, then
  *     `pmtiles convert <tile-dir> out.pmtiles`. The CLI walks
  *     {z}/{x}/{y}.{ext} structure and builds a PMTiles archive.
  *   - .tif / .tiff / .geotiff / .cog : `gdalwarp -t_srs EPSG:3857
@@ -217,14 +223,20 @@ export async function convertUpload(
 
   let outputPath = join(workDir, 'out.pmtiles');
   if (originalFormat === 'xyz-zip') {
-    // Unzip into a tile-dir subdirectory first. The pmtiles CLI
+    // Extract into a tile-dir subdirectory first. The pmtiles CLI
     // walks the tree expecting {z}/{x}/{y}.{ext} layout (or
     // {z}/{x}/{y}.pbf for vector). Some zips wrap the tree in
     // an extra root directory; pmtiles handles either shape
     // because it scans for the {z} integer pattern.
+    //
+    // In-process extraction rather than spawning Info-ZIP: the
+    // prod api image ships no unzip binary (the advertised format
+    // died with ENOENT), and a walker we own is the only way to
+    // refuse symlink members, traversal names, and past-the-
+    // ceiling expansion before anything touches the disk.
     const tileDir = join(workDir, 'tiles');
     await mkdir(tileDir, { recursive: true });
-    await runCommand('unzip', ['-q', inputPath, '-d', tileDir]);
+    await extractZipToDir(inputPath, tileDir);
     // The pmtiles convert CLI for directory input requires a
     // metadata.json at the tile-dir root; if the zip doesn't
     // include one we synthesize a minimal placeholder. The
@@ -461,6 +473,449 @@ export async function cleanupConversion(workDir: string): Promise<void> {
   } catch {
     /* best-effort */
   }
+}
+
+// ----------------------------------------------------------------
+// In-process zip extraction (XYZ tile-dir uploads)
+// ----------------------------------------------------------------
+
+/**
+ * Ceilings for zip extraction.  A tile pyramid is many small
+ * images; anything past these bounds is a mistake or a zip bomb.
+ * The byte ceiling sits an order of magnitude above the largest
+ * pre-tiled uploads the disk-headroom check waves through (the
+ * upload size times PRE_TILED_HEADROOM), and the entry ceiling
+ * covers a deep regional pyramid without letting one crafted
+ * archive allocate millions of inodes.  Extraction aborts (and
+ * the caller's workDir cleanup reclaims the partial output) the
+ * moment either would be crossed.
+ */
+export const MAX_ZIP_ENTRIES = 100_000;
+export const MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES = 10 * 1024 * 1024 * 1024;
+
+/**
+ * Central-directory size ceiling.  100k entries of tile-path-
+ * length names fit in a few MB; refusing anything bigger keeps a
+ * lying header from making us allocate gigabytes before the entry
+ * walk even starts.
+ */
+const MAX_ZIP_CENTRAL_DIR_BYTES = 64 * 1024 * 1024;
+
+// Zip on-disk record signatures (little-endian, per APPNOTE.TXT).
+const EOCD_SIG = 0x06054b50;
+const EOCD64_LOCATOR_SIG = 0x07064b50;
+const EOCD64_SIG = 0x06064b50;
+const CEN_SIG = 0x02014b50;
+const LOC_SIG = 0x04034b50;
+
+interface ZipEntry {
+  name: string;
+  flags: number;
+  method: number;
+  crc: number;
+  compressedSize: number;
+  uncompressedSize: number;
+  localHeaderOffset: number;
+  externalAttrs: number;
+}
+
+/**
+ * Extract a zip archive into `destDir` using node's own zlib, no
+ * external binary.  Exists because spawning Info-ZIP was wrong
+ * three ways at once: the binary isn't in the prod runtime image
+ * (ENOENT for the advertised format), it enforces no expansion
+ * ceiling (zip bomb), and it materializes symlink members, which
+ * lets a crafted archive write outside the extraction dir.
+ *
+ * Guarantees:
+ *   - every entry path resolves inside `destDir` (no `..`, no
+ *     absolute paths, backslash separators normalized first)
+ *   - symlink and encrypted members are refused outright
+ *   - total decompressed output and entry count are capped, with
+ *     the byte cap enforced while inflating so a deflate stream
+ *     lying about its size still cannot run past it
+ *   - per-entry CRC32 is verified, matching what unzip did, so
+ *     corruption fails loudly instead of producing broken tiles
+ *
+ * Sizes, CRCs, and offsets come from the central directory (the
+ * authoritative copy); only name/extra lengths are re-read from
+ * each local header, because writers legitimately differ there
+ * and the data offset depends on them.
+ */
+export async function extractZipToDir(
+  zipPath: string,
+  destDir: string,
+): Promise<void> {
+  const fh = await open(zipPath, 'r');
+  try {
+    const { size: fileSize } = await fh.stat();
+    const entries = await readCentralDirectory(fh, fileSize);
+
+    // Pre-flight on the declared sizes so an honestly-labeled bomb
+    // is refused before a single byte lands on disk.  The inflate
+    // counter below re-enforces the same ceiling against liars.
+    let declaredTotal = 0;
+    for (const e of entries) declaredTotal += e.uncompressedSize;
+    if (declaredTotal > MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES) {
+      throw new Error(
+        `Zip expands to ${declaredTotal} bytes, past the ${MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES}-byte extraction ceiling`,
+      );
+    }
+
+    const destRoot = resolve(destDir);
+    let budget = MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES;
+    for (const entry of entries) {
+      budget -= await extractEntry(fh, fileSize, entry, destRoot, budget);
+    }
+  } finally {
+    await fh.close();
+  }
+}
+
+/** Locate + parse the central directory. Handles the ZIP64 record
+ *  chain, since a >65535-entry pyramid is well within our entry
+ *  ceiling and 4GB+ archives are realistic for imagery. */
+async function readCentralDirectory(
+  fh: FileHandle,
+  fileSize: number,
+): Promise<ZipEntry[]> {
+  if (fileSize < 22) throw new Error('Not a zip file (too small)');
+  // The EOCD sits in the last 22 + 65535 bytes (fixed record plus
+  // maximum comment). Scan backwards for a signature whose comment
+  // length lines up with the end of file, so a signature byte
+  // pattern inside the comment cannot decoy us.
+  const tailLen = Math.min(fileSize, 22 + 0xffff);
+  const tail = await readExact(fh, fileSize - tailLen, tailLen);
+  let eocdPos = -1;
+  for (let i = tailLen - 22; i >= 0; i--) {
+    if (tail.readUInt32LE(i) === EOCD_SIG) {
+      const commentLen = tail.readUInt16LE(i + 20);
+      if (i + 22 + commentLen === tailLen) {
+        eocdPos = i;
+        break;
+      }
+    }
+  }
+  if (eocdPos < 0) {
+    throw new Error('Not a zip file (no end-of-central-directory record)');
+  }
+  let diskNumber: number = tail.readUInt16LE(eocdPos + 4);
+  let cdStartDisk: number = tail.readUInt16LE(eocdPos + 6);
+  let totalEntries: number = tail.readUInt16LE(eocdPos + 10);
+  let cdSize: number = tail.readUInt32LE(eocdPos + 12);
+  let cdOffset: number = tail.readUInt32LE(eocdPos + 16);
+
+  // Sentinel values redirect through the ZIP64 locator to the
+  // 64-bit record.
+  if (
+    totalEntries === 0xffff ||
+    cdSize === 0xffffffff ||
+    cdOffset === 0xffffffff
+  ) {
+    const locOffset = fileSize - tailLen + eocdPos - 20;
+    if (locOffset >= 0) {
+      const loc = await readExact(fh, locOffset, 20);
+      if (loc.readUInt32LE(0) === EOCD64_LOCATOR_SIG) {
+        const eocd64Offset = toSafeNumber(
+          loc.readBigUInt64LE(8),
+          'zip64 record offset',
+        );
+        if (eocd64Offset + 56 > fileSize) {
+          throw new Error('Corrupt zip: zip64 record extends past end of file');
+        }
+        const rec = await readExact(fh, eocd64Offset, 56);
+        if (rec.readUInt32LE(0) !== EOCD64_SIG) {
+          throw new Error(
+            'Corrupt zip: bad zip64 end-of-central-directory record',
+          );
+        }
+        diskNumber = rec.readUInt32LE(16);
+        cdStartDisk = rec.readUInt32LE(20);
+        totalEntries = toSafeNumber(rec.readBigUInt64LE(32), 'entry count');
+        cdSize = toSafeNumber(rec.readBigUInt64LE(40), 'central directory size');
+        cdOffset = toSafeNumber(
+          rec.readBigUInt64LE(48),
+          'central directory offset',
+        );
+      }
+    }
+  }
+  if (diskNumber !== 0 || cdStartDisk !== 0) {
+    throw new Error('Multi-disk zip archives are not supported');
+  }
+  if (totalEntries > MAX_ZIP_ENTRIES) {
+    throw new Error(
+      `Zip has ${totalEntries} entries, past the ${MAX_ZIP_ENTRIES}-entry ceiling`,
+    );
+  }
+  if (cdSize > MAX_ZIP_CENTRAL_DIR_BYTES) {
+    throw new Error('Corrupt zip: central directory is implausibly large');
+  }
+  if (cdOffset + cdSize > fileSize) {
+    throw new Error('Corrupt zip: central directory extends past end of file');
+  }
+
+  const cd = await readExact(fh, cdOffset, cdSize);
+  const entries: ZipEntry[] = [];
+  let p = 0;
+  for (let i = 0; i < totalEntries; i++) {
+    if (p + 46 > cd.length || cd.readUInt32LE(p) !== CEN_SIG) {
+      throw new Error('Corrupt zip: bad central directory entry');
+    }
+    const flags = cd.readUInt16LE(p + 8);
+    const method = cd.readUInt16LE(p + 10);
+    const crc = cd.readUInt32LE(p + 16);
+    let compressedSize: number = cd.readUInt32LE(p + 20);
+    let uncompressedSize: number = cd.readUInt32LE(p + 24);
+    const nameLen = cd.readUInt16LE(p + 28);
+    const extraLen = cd.readUInt16LE(p + 30);
+    const commentLen = cd.readUInt16LE(p + 32);
+    const externalAttrs = cd.readUInt32LE(p + 38);
+    let localHeaderOffset: number = cd.readUInt32LE(p + 42);
+    if (p + 46 + nameLen + extraLen + commentLen > cd.length) {
+      throw new Error('Corrupt zip: central directory entry overruns');
+    }
+    const name = cd.subarray(p + 46, p + 46 + nameLen).toString('utf8');
+    // ZIP64 extended-information extra field: whichever of the
+    // three fixed fields overflowed appears here, 64-bit, in this
+    // exact order.
+    if (
+      compressedSize === 0xffffffff ||
+      uncompressedSize === 0xffffffff ||
+      localHeaderOffset === 0xffffffff
+    ) {
+      const extra = cd.subarray(
+        p + 46 + nameLen,
+        p + 46 + nameLen + extraLen,
+      );
+      let q = 0;
+      while (q + 4 <= extra.length) {
+        const fieldId = extra.readUInt16LE(q);
+        const fieldLen = extra.readUInt16LE(q + 2);
+        if (q + 4 + fieldLen > extra.length) break;
+        if (fieldId === 0x0001) {
+          let r = q + 4;
+          const fieldEnd = q + 4 + fieldLen;
+          if (uncompressedSize === 0xffffffff && r + 8 <= fieldEnd) {
+            uncompressedSize = toSafeNumber(
+              extra.readBigUInt64LE(r),
+              `uncompressed size of ${name}`,
+            );
+            r += 8;
+          }
+          if (compressedSize === 0xffffffff && r + 8 <= fieldEnd) {
+            compressedSize = toSafeNumber(
+              extra.readBigUInt64LE(r),
+              `compressed size of ${name}`,
+            );
+            r += 8;
+          }
+          if (localHeaderOffset === 0xffffffff && r + 8 <= fieldEnd) {
+            localHeaderOffset = toSafeNumber(
+              extra.readBigUInt64LE(r),
+              `local header offset of ${name}`,
+            );
+          }
+          break;
+        }
+        q += 4 + fieldLen;
+      }
+    }
+    entries.push({
+      name,
+      flags,
+      method,
+      crc,
+      compressedSize,
+      uncompressedSize,
+      localHeaderOffset,
+      externalAttrs,
+    });
+    p += 46 + nameLen + extraLen + commentLen;
+  }
+  return entries;
+}
+
+/**
+ * Validate an entry name and resolve its destination.  Rejection,
+ * not sanitization: a zip that ships `../` or absolute paths is
+ * hostile or broken, and silently rewriting its layout would feed
+ * the pmtiles CLI a tree the author never built.
+ */
+function safeEntryDestination(
+  destRoot: string,
+  rawName: string,
+): { dest: string; isDir: boolean } {
+  // Zip mandates '/' separators but Windows-built archives show
+  // up with '\'; normalize first so the traversal checks see real
+  // segments either way.
+  const name = rawName.replace(/\\/g, '/');
+  if (name.length === 0 || name.includes('\0')) {
+    throw new Error(`Unsafe zip entry name: ${JSON.stringify(rawName)}`);
+  }
+  if (name.startsWith('/') || /^[a-zA-Z]:/.test(name)) {
+    throw new Error(`Zip entry has an absolute path: ${rawName}`);
+  }
+  const isDir = name.endsWith('/');
+  const segments = name.split('/').filter((s) => s.length > 0 && s !== '.');
+  for (const segment of segments) {
+    if (segment === '..') {
+      throw new Error(`Zip entry escapes the extraction directory: ${rawName}`);
+    }
+  }
+  if (segments.length === 0 && !isDir) {
+    throw new Error(`Unsafe zip entry name: ${JSON.stringify(rawName)}`);
+  }
+  const dest = resolve(destRoot, segments.join('/'));
+  // Belt and braces after the segment check: confirm containment
+  // on the resolved path so no path trick survives.
+  if (dest !== destRoot && !dest.startsWith(destRoot + sep)) {
+    throw new Error(`Zip entry escapes the extraction directory: ${rawName}`);
+  }
+  return { dest, isDir };
+}
+
+/** Extract one entry. Returns the number of bytes written so the
+ *  caller can charge them against the archive-wide budget. */
+async function extractEntry(
+  fh: FileHandle,
+  fileSize: number,
+  entry: ZipEntry,
+  destRoot: string,
+  budget: number,
+): Promise<number> {
+  const { dest, isDir } = safeEntryDestination(destRoot, entry.name);
+
+  // Unix mode travels in the high 16 bits of the external
+  // attributes.  Symlink members are how zip extractors get talked
+  // into writing outside the target dir (drop a link, then write
+  // "through" it on a later entry), and a tile pyramid has no
+  // business shipping links.  Refuse rather than skip so the
+  // uploader learns why their archive was rejected.
+  if (((entry.externalAttrs >>> 16) & 0xf000) === 0xa000) {
+    throw new Error(`Zip entry is a symlink, refusing to extract: ${entry.name}`);
+  }
+  if ((entry.flags & 0x0001) !== 0) {
+    throw new Error(`Zip entry is encrypted: ${entry.name}`);
+  }
+
+  if (isDir) {
+    await mkdir(dest, { recursive: true });
+    return 0;
+  }
+  if (entry.method !== 0 && entry.method !== 8) {
+    throw new Error(
+      `Unsupported zip compression method ${entry.method} for ${entry.name}`,
+    );
+  }
+  if (entry.method === 0 && entry.compressedSize !== entry.uncompressedSize) {
+    throw new Error(`Corrupt zip: stored entry size mismatch on ${entry.name}`);
+  }
+
+  await mkdir(dirname(dest), { recursive: true });
+
+  if (entry.compressedSize === 0) {
+    // Zero-byte member (an empty tile, or a dir recorded without
+    // the trailing slash by an odd writer). Nothing to stream.
+    if (entry.uncompressedSize !== 0 || entry.crc !== 0) {
+      throw new Error(`Corrupt zip: empty entry with nonzero size on ${entry.name}`);
+    }
+    await writeFile(dest, Buffer.alloc(0));
+    return 0;
+  }
+
+  // The local header's name/extra lengths can legitimately differ
+  // from the central directory's, and the data offset depends on
+  // them, so re-read those two fields from the local copy.
+  if (entry.localHeaderOffset + 30 > fileSize) {
+    throw new Error(`Corrupt zip: local header out of range for ${entry.name}`);
+  }
+  const loc = await readExact(fh, entry.localHeaderOffset, 30);
+  if (loc.readUInt32LE(0) !== LOC_SIG) {
+    throw new Error(`Corrupt zip: bad local header for ${entry.name}`);
+  }
+  const dataStart =
+    entry.localHeaderOffset + 30 + loc.readUInt16LE(26) + loc.readUInt16LE(28);
+  if (dataStart + entry.compressedSize > fileSize) {
+    throw new Error(
+      `Corrupt zip: entry data extends past end of file for ${entry.name}`,
+    );
+  }
+
+  let written = 0;
+  let crc = 0;
+  const counter = new Transform({
+    transform(chunk: Buffer, _enc, cb) {
+      written += chunk.length;
+      // A deflate stream inflating past its declared size is a zip
+      // bomb (or corruption); either way, stop it, not the disk.
+      if (written > entry.uncompressedSize) {
+        cb(new Error(`Zip entry inflated past its declared size: ${entry.name}`));
+        return;
+      }
+      if (written > budget) {
+        cb(
+          new Error(
+            `Zip expands past the ${MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES}-byte extraction ceiling`,
+          ),
+        );
+        return;
+      }
+      crc = crc32(chunk, crc);
+      cb(null, chunk);
+    },
+  });
+
+  const source = fh.createReadStream({
+    start: dataStart,
+    end: dataStart + entry.compressedSize - 1,
+    autoClose: false,
+  });
+  const sink = createWriteStream(dest);
+  if (entry.method === 8) {
+    await pipeline(source, createInflateRaw(), counter, sink);
+  } else {
+    await pipeline(source, counter, sink);
+  }
+  if (written !== entry.uncompressedSize) {
+    throw new Error(
+      `Corrupt zip: ${entry.name} inflated to ${written} bytes, expected ${entry.uncompressedSize}`,
+    );
+  }
+  // Matching what Info-ZIP verified: silent corruption here would
+  // surface later as broken tiles with no cause attached.
+  if ((crc >>> 0) !== entry.crc) {
+    throw new Error(`Corrupt zip: CRC mismatch on ${entry.name}`);
+  }
+  return written;
+}
+
+/** Positioned read of exactly `length` bytes, or throw. */
+async function readExact(
+  fh: FileHandle,
+  position: number,
+  length: number,
+): Promise<Buffer> {
+  const buf = Buffer.alloc(length);
+  let done = 0;
+  while (done < length) {
+    const { bytesRead } = await fh.read(buf, done, length - done, position + done);
+    if (bytesRead <= 0) {
+      throw new Error('Corrupt zip: unexpected end of file');
+    }
+    done += bytesRead;
+  }
+  return buf;
+}
+
+/** Narrow a zip64 bigint field to a JS number, refusing values a
+ *  double cannot represent exactly (they would silently corrupt
+ *  offset math). */
+function toSafeNumber(value: bigint, what: string): number {
+  if (value > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error(`Corrupt zip: ${what} out of range`);
+  }
+  return Number(value);
 }
 
 // ----------------------------------------------------------------

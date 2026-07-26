@@ -8,6 +8,12 @@
 // public address: the guard still executes its full logic (so a
 // regression that bypasses it still fails loudly), but the test
 // no longer depends on live DNS.
+//
+// Fixture service URLs use the FQDN server.example.com rather
+// than a bare `server` hostname: single-label hosts are exactly
+// what the SSRF guard rejects (docker service names), and the
+// auto-probe + file re-host paths now route through safeFetch
+// like the rest of the importer.
 jest.mock('node:dns/promises', () => ({
   lookup: jest.fn(async () => ({ address: '151.101.1.1', family: 4 })),
 }));
@@ -168,7 +174,7 @@ describe('AgoImportService.run', () => {
         id: 'svc-1',
         type: 'Feature Service',
         title: 'Parcels',
-        url: 'https://server/arcgis/rest/services/Parcels/FeatureServer',
+        url: 'https://server.example.com/arcgis/rest/services/Parcels/FeatureServer',
       }),
       sample({ id: 'file-1', type: 'PDF', title: 'Spec.pdf' }),
     ];
@@ -243,19 +249,19 @@ describe('AgoImportService.run', () => {
         id: 'svc-1',
         type: 'Feature Service',
         title: 'Will succeed',
-        url: 'https://server/arcgis/rest/services/A/FeatureServer',
+        url: 'https://server.example.com/arcgis/rest/services/A/FeatureServer',
       }),
       sample({
         id: 'svc-2',
         type: 'Feature Service',
         title: 'Will fail',
-        url: 'https://server/arcgis/rest/services/B/FeatureServer',
+        url: 'https://server.example.com/arcgis/rest/services/B/FeatureServer',
       }),
       sample({
         id: 'svc-3',
         type: 'Feature Service',
         title: 'Will also succeed',
-        url: 'https://server/arcgis/rest/services/C/FeatureServer',
+        url: 'https://server.example.com/arcgis/rest/services/C/FeatureServer',
       }),
     ];
     const fakeItems = {
@@ -386,21 +392,21 @@ describe('AgoImportService.run', () => {
         type: 'Feature Service',
         title: 'Private svc',
         access: 'private',
-        url: 'https://server/arcgis/rest/services/Priv/FeatureServer',
+        url: 'https://server.example.com/arcgis/rest/services/Priv/FeatureServer',
       }),
       sample({
         id: 'svc-org',
         type: 'Feature Service',
         title: 'Org svc',
         access: 'org',
-        url: 'https://server/arcgis/rest/services/Org/FeatureServer',
+        url: 'https://server.example.com/arcgis/rest/services/Org/FeatureServer',
       }),
       sample({
         id: 'svc-pub',
         type: 'Feature Service',
         title: 'Public svc',
         access: 'public',
-        url: 'https://server/arcgis/rest/services/Pub/FeatureServer',
+        url: 'https://server.example.com/arcgis/rest/services/Pub/FeatureServer',
       }),
       // AGO's `shared` (specific groups) value has no items-table
       // equivalent on the portal; the importer collapses it to `org`
@@ -410,7 +416,7 @@ describe('AgoImportService.run', () => {
         type: 'Feature Service',
         title: 'Shared svc',
         access: 'shared',
-        url: 'https://server/arcgis/rest/services/Sh/FeatureServer',
+        url: 'https://server.example.com/arcgis/rest/services/Sh/FeatureServer',
       }),
     ];
     const fakeItems = makeFakeItems();
@@ -442,20 +448,20 @@ describe('AgoImportService.run', () => {
         type: 'Feature Service',
         title: 'In Field Data',
         ownerFolder: 'folder-1',
-        url: 'https://server/arcgis/rest/services/A/FeatureServer',
+        url: 'https://server.example.com/arcgis/rest/services/A/FeatureServer',
       }),
       sample({
         id: 'svc-2',
         type: 'Feature Service',
         title: 'Also in Field Data',
         ownerFolder: 'folder-1',
-        url: 'https://server/arcgis/rest/services/B/FeatureServer',
+        url: 'https://server.example.com/arcgis/rest/services/B/FeatureServer',
       }),
       sample({
         id: 'svc-3',
         type: 'Feature Service',
         title: 'At root',
-        url: 'https://server/arcgis/rest/services/C/FeatureServer',
+        url: 'https://server.example.com/arcgis/rest/services/C/FeatureServer',
       }),
     ];
     const report = reportFrom(items);
@@ -662,7 +668,7 @@ describe('AgoImportService.run', () => {
         id: 'svc-ms',
         type: 'Map Service',
         title: 'County Map',
-        url: 'https://server/arcgis/rest/services/County/MapServer',
+        url: 'https://server.example.com/arcgis/rest/services/County/MapServer',
       }),
     ];
     // The probe fetch hits /MapServer?f=json&token=tok and returns
@@ -740,7 +746,7 @@ describe('AgoImportService.run', () => {
         id: 'svc-blocked',
         type: 'Feature Service',
         title: 'Blocked svc',
-        url: 'https://server/arcgis/rest/services/Blocked/FeatureServer',
+        url: 'https://server.example.com/arcgis/rest/services/Blocked/FeatureServer',
       }),
     ];
     // Probe gets a 403: item still gets created, warning is emitted.

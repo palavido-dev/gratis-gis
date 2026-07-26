@@ -168,7 +168,19 @@ export class GroupsService {
   }
 
   async addMember(user: AuthUser, groupId: string, memberId: string, role: GroupRole = 'member') {
-    await this.assertAdminOfGroup(user, groupId);
+    const group = await this.assertAdminOfGroup(user, groupId);
+    // The added user must live in the group's org: groups are an
+    // in-org sharing surface, and a member from another tenant
+    // would see every item shared to the group across the org
+    // boundary. NotFound rather than Forbidden so this endpoint
+    // cannot be used to probe which user ids exist in other orgs.
+    const member = await this.prisma.user.findUnique({
+      where: { id: memberId },
+      select: { orgId: true },
+    });
+    if (!member || member.orgId !== group.orgId) {
+      throw new NotFoundException('User not found');
+    }
     return this.prisma.groupMember.upsert({
       where: { groupId_userId: { groupId, userId: memberId } },
       update: { role },
@@ -197,8 +209,22 @@ export class GroupsService {
     });
   }
 
+  /**
+   * Gate for membership mutations. Resolves the group row and
+   * returns it so callers can check invariants against it (org
+   * match on add) without a second query.
+   */
   private async assertAdminOfGroup(user: AuthUser, groupId: string) {
-    if (user.orgRole === 'admin') return;
+    const group = await this.prisma.group.findUnique({ where: { id: groupId } });
+    // orgRole admin is not a cross-tenant capability: an admin
+    // manages membership only inside their own org. The org check
+    // runs before any role shortcut and answers NotFound so a
+    // foreign group is indistinguishable from a missing one.
+    // Trashed groups are also off-limits; restore them first.
+    if (!group || group.deletedAt || group.orgId !== user.orgId) {
+      throw new NotFoundException('Group not found or you are not a member');
+    }
+    if (user.orgRole === 'admin') return group;
     const membership = await this.prisma.groupMember.findUnique({
       where: { groupId_userId: { groupId, userId: user.id } },
     });
@@ -206,5 +232,6 @@ export class GroupsService {
     if (membership.role !== 'admin') {
       throw new ForbiddenException('Group admin permission required');
     }
+    return group;
   }
 }
