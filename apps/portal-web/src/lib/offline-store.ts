@@ -11,7 +11,7 @@
  * Critical design choices the doc settled:
  *   - Records are JSON, never opaque sqlite or geodatabase blobs.
  *   - Filenames + admin-facing labels avoid GUIDs.
- *   - Recovery never depends on sync succeeding -- the queue is its
+ *   - Recovery never depends on sync succeeding; the queue is its
  *     own export-able artifact.
  */
 
@@ -20,13 +20,28 @@ import type { FormSchema } from '@gratis-gis/form-schema';
 
 /** Database name for the portal-web origin. One DB across all
  *  deployments cached on this device; the store keys carry the
- *  deployment id so multi-deployment users don't collide. */
+ *  deployment id so multi-deployment users don't collide.
+ *
+ * !!! LOCKSTEP WARNING (public/sw.js) !!!
+ * The service worker replays the `queue` store during Background
+ * Sync (so captures still upload after the tab closes) and reads
+ * `deployments` bboxes to pin downloaded tiles against cache
+ * eviction. A service worker cannot import this module, so sw.js
+ * duplicates BY HAND: this DB name, the 'queue' and 'deployments'
+ * store names and key paths, the QueueRecord fields it touches
+ * (syncStatus, lastAttemptAt, retryCount, failureReason, op,
+ * dataLayerId, layerKey, globalId, geometry, properties, queuedAt,
+ * dataCollectionId, id), CachedDeployment.bbox, and the replay
+ * endpoints from offline-sync.ts. If you rename a store, change a
+ * key path, add a syncStatus value, or move an endpoint, update
+ * public/sw.js in the same change or background replay silently
+ * stops matching this schema. */
 export const OFFLINE_DB_NAME = 'gratisgis-offline';
 
 /**
  * Schema version. Bump when adding stores or changing key paths;
  * `onupgradeneeded` migrates forward. Old caches are best-effort
- * preserved -- if a deployment was cached on v1 and the user updates
+ * preserved; if a deployment was cached on v1 and the user updates
  * to v2 with a breaking change, we'd issue a notice that they need
  * to re-download (better than silently truncating).
  */
@@ -68,7 +83,7 @@ export interface CachedLayerSchema {
   layerKey: string;
   /** SHA-256 of the canonical-JSON serialised fields list. */
   schemaHash: string;
-  /** The fields themselves -- what the client saw at download time.
+  /** The fields themselves, i.e. what the client saw at download time.
    *  Stored alongside the hash so the admin recovery console can
    *  show diffs without re-fetching the original. */
   fields: FeatureField[];
@@ -106,7 +121,9 @@ export interface CachedDeployment {
 }
 
 /** Pending operation queued offline. Mirrors the doc's QueueRecord
- *  shape exactly. */
+ *  shape exactly. LOCKSTEP: public/sw.js replays these rows during
+ *  Background Sync; see the warning on OFFLINE_DB_NAME above before
+ *  changing any field or status value. */
 export interface QueueRecord {
   id: string;
   dataCollectionId: string;
@@ -403,6 +420,52 @@ export async function listPickListsForDeployment(
 }
 
 // ---------------------------------------------------------------------------
+// Background Sync arming
+// ---------------------------------------------------------------------------
+
+/** One-shot Background Sync tag the service worker listens for.
+ *  LOCKSTEP: must match SYNC_TAG in public/sw.js. */
+export const BACKGROUND_SYNC_TAG = 'gg-offline-queue';
+
+/** Narrow structural type for the Background Sync surface so this
+ *  compiles regardless of whether the ambient DOM lib ships
+ *  SyncManager typings. */
+type SyncCapableRegistration = ServiceWorkerRegistration & {
+  sync?: { register(tag: string): Promise<void> };
+};
+
+/**
+ * Ask the browser to fire the service worker's 'sync' event when
+ * connectivity returns, so queued captures replay even if every tab
+ * closes first. Fire-and-forget on purpose:
+ *   - navigator.serviceWorker.ready never resolves in dev (the
+ *     SwRegistrar unregisters the worker there), and an enqueue must
+ *     never block on service worker state;
+ *   - Background Sync is Chromium-only. Firefox/Safari fail the
+ *     feature checks and fall back silently to the existing in-app
+ *     online drains (offline-sync.ts and the forms respond page),
+ *     which remain the primary replay path everywhere.
+ */
+export function requestBackgroundSync(): void {
+  try {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
+      return;
+    }
+    if (typeof window === 'undefined' || !('SyncManager' in window)) return;
+    void navigator.serviceWorker.ready
+      .then((reg) =>
+        (reg as SyncCapableRegistration).sync?.register(BACKGROUND_SYNC_TAG),
+      )
+      .catch(() => {
+        // Registration can be denied (permissions policy, private
+        // mode). The in-app drain still covers those sessions.
+      });
+  } catch {
+    // Arming sync must never break a queue write.
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Queue
 // ---------------------------------------------------------------------------
 
@@ -410,6 +473,11 @@ export async function enqueueRecord(record: QueueRecord): Promise<void> {
   await withStore(STORES.queue, 'readwrite', (s) => {
     s.put(record);
   });
+  // Arm a background replay for this record so it reaches the server
+  // even if the worker pockets the phone and the tab dies before
+  // coverage returns. Runs after the put so a registration that
+  // fires instantly still finds the row.
+  requestBackgroundSync();
 }
 
 export async function listQueue(

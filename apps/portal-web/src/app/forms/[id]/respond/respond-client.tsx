@@ -12,6 +12,7 @@ import {
   type QueuedSubmission,
 } from '@/lib/form-offline';
 import { uploadPendingAttachmentsInResponse } from '@/lib/form-attachment-upload';
+import { requestBackgroundSync } from '@/lib/offline-store';
 
 interface Props {
   form: FormSchema;
@@ -30,6 +31,15 @@ interface Props {
  *      drain path as anything stale.
  *   3. If offline, leave it queued; the periodic check (or the
  *      next online event) will drain.
+ *   4. Every queue write also arms the service worker's one-shot
+ *      Background Sync tag, so on Chromium the row still replays if
+ *      the tab closes before connectivity returns. The worker's
+ *      drain (public/sw.js) marks rows 'sent'/'failed' in the same
+ *      IndexedDB, and this outbox already re-reads statuses on every
+ *      refresh, so the two drains coexist; duplicate sends collapse
+ *      server-side via the (formId, clientId) upsert. Rows carrying
+ *      offline-captured attachments are skipped by the worker (they
+ *      need the presign upload walk below) and drain here instead.
  *
  * Server-side endpoint: POST /api/portal/forms/:id/submissions with
  *   { clientId, schemaVersion, response, capturedAt }
@@ -53,7 +63,7 @@ export function RespondClient({ form, formItemTitle }: Props) {
       const all = await listQueued();
       setOutbox(all.filter((r) => r.formId === form.id && r.status !== 'sent'));
     } catch {
-      // IndexedDB unavailable (private browsing, etc) -- runtime still
+      // IndexedDB unavailable (private browsing, etc); runtime still
       // works for online-only submissions.
     }
   }, [form.id]);
@@ -117,6 +127,9 @@ export function RespondClient({ form, formItemTitle }: Props) {
       schemaVersion: form.schemaVersion,
       response,
     });
+    // Arm background replay in case the tab closes before we get a
+    // network (no-op off Chromium; see strategy note above).
+    requestBackgroundSync();
     await refreshOutbox();
     if (navigator.onLine) {
       // Best-effort drain. If it fails the row stays queued and the

@@ -2,6 +2,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { requestBackgroundSync } from '@/lib/offline-store';
 
 /**
  * Registers the GratisGIS service worker. Renders nothing.
@@ -9,13 +10,21 @@ import { useEffect } from 'react';
  * Must be a client component: placed in the root layout so it runs once
  * per browser session regardless of which page is visited first.
  *
- * This component used to also wire an online listener that flushed a
- * legacy write queue from lib/sync.ts. That queue had no producers
- * (nothing ever called its queueFeatureWrite), so the listener was
- * removed along with the module. The real offline write queue lives
- * in the 'gratisgis-offline' IndexedDB (lib/offline-store.ts) and is
- * drained by lib/offline-sync.ts from the field runtime and catalog,
- * which own their own online listeners.
+ * Besides registering the worker, this re-arms the one-shot
+ * Background Sync tag on every load. The tag is normally armed at
+ * enqueue time (offline-store.ts / the forms respond page), but a
+ * registration is consumed once it fires successfully and Chromium
+ * abandons it after a few failed retries, so rows can survive from a
+ * session whose registration is long gone (crash mid-drain, retries
+ * exhausted while the device sat in a dead zone). Re-arming here is
+ * nearly free: when the queues are empty the worker's drain no-ops
+ * without even creating the databases.
+ *
+ * The in-app drains remain the primary replay path: lib/offline-sync.ts
+ * runs from the field runtime and catalog, and the forms respond page
+ * drains its own submissions outbox. The worker's sync handler is the
+ * closed-tab safety net (Chromium only; elsewhere requestBackgroundSync
+ * is a silent no-op).
  */
 export function SwRegistrar() {
   useEffect(() => {
@@ -59,6 +68,12 @@ export function SwRegistrar() {
 
     navigator.serviceWorker
       .register('/sw.js', { scope: '/' })
+      .then(() => {
+        // Catch-up arming for queued rows from earlier sessions; see
+        // the component doc comment. Uses navigator.serviceWorker.ready
+        // internally, so it waits for the worker to activate.
+        requestBackgroundSync();
+      })
       .catch((err) => console.warn('[SW] Registration failed:', err));
   }, []);
 

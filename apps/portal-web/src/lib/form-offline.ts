@@ -20,6 +20,10 @@
  * doesn't pull in another dep just to wrap promises.
  */
 
+// LOCKSTEP: public/sw.js duplicates this DB name, the store name, and
+// the queued-submission record shape for its Background Sync drain (a
+// service worker cannot import TS). Any change here must be mirrored
+// there, and vice versa.
 const DB_NAME = 'gratisgis-forms';
 const DB_VERSION = 1;
 const STORE = 'submissions';
