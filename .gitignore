@@ -65,6 +65,10 @@ HANDOFF.md
 DECISIONS.md
 docs/handoff/
 .git-commit-msg
+
+# Release-notes scratch files pasted into gh release create; the
+# published release body is the source of truth once the tag is up.
+.release-notes-*.md
 # Stray temp files left behind by some Windows tools (#42 followup)
 _tmp_*
 

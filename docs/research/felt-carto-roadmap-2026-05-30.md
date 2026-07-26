@@ -12,8 +12,8 @@ primitive**. The Reddit chorus that calls Felt "Figma for maps" is
 almost always pointing at this specific use case — a project manager
 or non-GIS stakeholder opens a shared map, marks it up, leaves notes,
 and ships the markup back to the team. Felt makes that workflow
-trivial. AGO makes it nearly impossible without a tool license. It
-maps cleanly onto our editor pane and shared sharing model and is a
+trivial; in the ArcGIS world it typically requires extra licensing.
+It maps cleanly onto our editor pane and shared sharing model and is a
 strict prerequisite for the comments-on-features story, so it leads
 the sequence.
 
@@ -55,8 +55,8 @@ GitHub issues filed for each item:
 7. **Smart upload (geocode + geomatch)** is an enhancement to the
    existing ingest pipeline, not a new system.
 8. **MCP server** is a thin facade over the existing tool-runner API.
-   Smallest lift, large positioning win against Felt's Enterprise-gated
-   MCP.
+   Smallest lift, large positioning win: the comparable offerings are
+   gated to Enterprise plans.
 
 Sequencing: 1 → 2 → 3 forms the collaboration story and should run as
 a single coherent stream. 4 / 5 / 6 / 7 / 8 are independent and can be
@@ -76,7 +76,7 @@ corrections, "move this depot 200 ft east," "this sidewalk is wrong
 here." Every redline / markup tool we have today in the ArcGIS world
 costs a Pro license or a Field Maps subscription. Shipping this
 inside the standard portal viewer, on the standard share permission,
-is a clean wedge against both Felt and AGO.
+is a clear differentiator.
 
 ### Design
 
@@ -271,7 +271,7 @@ plus feature-id stability is the non-trivial part). Medium for Phase 3.
 
 ### Strategic value
 
-The third Figma-for-maps leg. The HN crowd writes off Felt's other AI
+The third Figma-for-maps leg. HN commentary is skeptical of Felt's AI
 features but consistently respects the multi-cursor experience. The
 phase-1 lift (presence indicators only) is cheap and the marketing
 read is high.
@@ -431,7 +431,7 @@ externally-hosted source.
 
 New item type? Or new variant of `data_layer`?
 
-Per the `ago-pattern-check` rule, the question to ask is whether AGO
+Before borrowing AGO's shape here, the question to ask is whether AGO
 treats this as a feature service (data_layer-shaped) or as a workspace
 connection (separate construct). AGO treats it as a registered store
 plus a service. We can simplify: a new `data_layer` source kind,
@@ -757,7 +757,8 @@ Small.
 Demo-portal sign-ins from the EU and South America have made it
 visible that the English-only UI is a real adoption blocker for the
 exact audience GratisGIS is trying to serve (small teams in places
-where ArcGIS pricing is even more painful than in the US). Felt and
+where commercial GIS pricing is even harder to justify than in the
+US). Felt and
 CARTO are both English-first today; Felt's docs are English-only,
 CARTO's docs offer a smattering of Spanish marketing pages but the
 product UI is English. Shipping a real localized product is a
@@ -792,9 +793,9 @@ JSON-catalog model server-side; the locale comes from the
 - Coordinates: degrees-minutes-seconds vs decimal degrees, locale-
   selectable.
 - Units: already locale-selectable via the existing unit picker per
-  the `gratisgis-no-dev-jargon` memory; default-by-locale wiring is
-  the additional step (imperial default for US English, metric for
-  everywhere else).
+  the project's plain-language convention; default-by-locale wiring
+  is the additional step (imperial default for US English, metric
+  for everywhere else).
 
 ### Landing points in code
 
@@ -986,10 +987,9 @@ End-of-quarter state if all three streams land:
 - Day-one live PostGIS read where Felt and CARTO both gate it to
   Enterprise.
 - Print/PDF that's better than either vendor ships.
-- An open MCP that Felt has gated and CARTO has tucked into Enterprise.
+- An open MCP where both vendors gate theirs to Enterprise plans.
 - A localized portal serving the EU + LATAM audience that's been
   hitting the demo in English-only mode, with a community-translation
   workflow that scales beyond what the maintainer can do alone.
 
-That's a defensible quarter against both vendors with no AGO-flavored
-marketing required.
+That is a defensible quarter's roadmap on its own merits.

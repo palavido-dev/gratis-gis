@@ -28,7 +28,8 @@ curl -fsSL https://raw.githubusercontent.com/palavido-dev/gratis-gis/main/infra/
 ```
 
 It clones the repo to `/opt/gratis-gis` (override with `GRATIS_DIR`),
-runs the guided setup, deploys, and prints where to sign in.
+checks out the newest release tag (override with `GG_REF`), runs the
+guided setup, deploys, and prints where to sign in.
 
 The same flow by hand:
 
@@ -83,9 +84,11 @@ cd /opt/gratis-gis
 ./infra/deploy.sh
 ```
 
-The deploy script fetches the latest main, rebuilds, applies database
-migrations, and swaps containers. Run one deploy at a time and let it
-finish.
+The deploy script checks out the newest release tag (override with
+`GG_REF`), rebuilds, applies database migrations, and swaps
+containers. Run one deploy at a time and let it finish. Back up
+before upgrading; the full procedure, including rollback, is in
+[UPGRADING.md](./UPGRADING.md).
 
 ## Backups
 

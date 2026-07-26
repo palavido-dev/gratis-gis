@@ -4,15 +4,52 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/palavido-dev/gratis-gis/main/infra/install.sh | bash
 #
-# Clones the repo, runs the guided setup, deploys the stack, and
-# prints where to sign in. Prompts still work when piped because
-# setup.sh reads from /dev/tty. Override the defaults with env vars:
+# Clones the repo, checks out the newest release tag, runs the guided
+# setup, deploys the stack, and prints where to sign in. Prompts still
+# work when piped because setup.sh reads from /dev/tty. Override the
+# defaults with env vars:
 #   GRATIS_DIR=/opt/gratis-gis   install location
 #   GRATIS_REPO=<git url>        repository to clone
+#   GG_REF=v0.9.0                tag, branch, or sha to install
+#                                (default: newest release tag)
 #
 # Everything runs inside main() so a partially downloaded script
 # cannot execute half an installer.
 set -euo pipefail
+
+# Resolve which ref to install. GG_REF (a tag, branch, or commit sha)
+# wins when set; otherwise the newest release tag (vX.Y.Z only, so a
+# pre-release like v1.0.0-rc.1 is never auto-picked); when the remote
+# has no release tags yet, fall back to main with a warning so
+# pre-release checkouts keep deploying. Failing to LIST tags is fatal
+# rather than a silent fallback: a transient network error must not
+# flip a release-pinned deploy back onto main.
+#
+# Keep this function in sync with the copy in infra/deploy.sh.
+gg_resolve_ref() {
+  local remote="$1"
+  if [[ -n "${GG_REF:-}" ]]; then
+    printf '%s\n' "$GG_REF"
+    return 0
+  fi
+  local tags latest
+  if ! tags="$(git ls-remote --tags --refs "$remote" 'v[0-9]*')"; then
+    echo "FATAL: could not list release tags on ${remote}." >&2
+    return 1
+  fi
+  latest="$(printf '%s\n' "$tags" \
+    | awk '{print $2}' \
+    | sed 's|^refs/tags/||' \
+    | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+    | sort -V \
+    | tail -n 1)" || true
+  if [[ -n "$latest" ]]; then
+    printf '%s\n' "$latest"
+  else
+    echo "WARN: no release tags found on ${remote}; falling back to main." >&2
+    printf '%s\n' "main"
+  fi
+}
 
 main() {
   local repo="${GRATIS_REPO:-https://github.com/palavido-dev/gratis-gis}"
@@ -41,14 +78,29 @@ main() {
     exit 1
   fi
 
+  local fresh_clone=0
   if [ -d "${dir}/.git" ]; then
     echo "Using the existing checkout at ${dir}."
   else
     echo "Cloning ${repo} to ${dir}..."
     mkdir -p "$(dirname "$dir")"
     git clone --depth 1 "$repo" "$dir"
+    fresh_clone=1
   fi
   cd "$dir"
+
+  # A fresh clone sits at the tip of the default branch; move it to
+  # the release ref so the FIRST deploy already runs the released
+  # deploy script. Existing checkouts are left alone here: deploy.sh
+  # re-resolves the ref and hard-resets to it on every run, and may
+  # be guarding local state we should not clobber from the installer.
+  if [ "$fresh_clone" = "1" ]; then
+    local ref
+    ref="$(gg_resolve_ref "$repo")"
+    echo "Checking out ${ref}..."
+    git fetch --quiet --depth 1 origin "$ref"
+    git checkout --quiet --detach FETCH_HEAD
+  fi
 
   if [ -f infra/.env.prod ]; then
     echo "infra/.env.prod already exists; keeping it. (Run ./infra/setup.sh --force to regenerate.)"

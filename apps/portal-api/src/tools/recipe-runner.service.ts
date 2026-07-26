@@ -477,7 +477,7 @@ export class RecipeRunnerService {
       sourceConditions.push(`entity = ANY($${sqlParams.length}::text[])`);
     }
     const sourceFragment = dataLayerSourceSqlFragment(sourceScope, {
-      extraConditions: sourceConditions,
+      collapseConditions: sourceConditions,
     });
 
     const ctes: string[] = [`tool_source AS (${sourceFragment})`];

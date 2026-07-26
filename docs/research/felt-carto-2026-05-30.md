@@ -1,12 +1,10 @@
 # Felt and CARTO: competitive research for GratisGIS
 
-Researched 2026-05-30. Five parallel agents pulled marketing pages, docs,
-blog posts, customer stories, Hacker News threads, and review-site
-verbatims (G2, Capterra, TrustRadius, xpay). Reddit was blocked at the
-tool layer for both Chrome MCP and WebSearch (Reddit blocks Anthropic's
-user agent and Chrome MCP has Reddit on its safety blocklist); HN + G2
-serve as the proxy for community sentiment and are over-represented in
-direct quotes for that reason.
+Researched 2026-05-30 from marketing pages, docs, blog posts, customer
+stories, Hacker News threads, and review-site verbatims (G2, Capterra,
+TrustRadius, xpay). Reddit could not be crawled during this pass; HN +
+G2 serve as the proxy for community sentiment and are over-represented
+in direct quotes for that reason.
 
 The aim is not "what do Felt and CARTO do." The aim is "what specific
 features and design choices do small teams pay for and praise, and which
@@ -62,7 +60,7 @@ Concrete features:
 - **One seat type** across the workspace ("No named users vs viewers
   vs contributors vs publishers"). 10 full seats included on
   Professional + unlimited free viewers; +$50/seat/month above 10.
-  This is a direct dig at AGO's named-user licensing.
+  This positions directly against named-user licensing models.
 - **Non-lock-in export at any time, any plan, including post-cancel**:
   Shapefile, GeoJSON, GeoPackage, GeoTIFF, CSV. Marketed as a
   competitive virtue.
@@ -218,9 +216,8 @@ concrete on.
 - **Cost visibility.** Every map interaction triggers a charge to
   the customer's warehouse. CARTO charges for the platform; warehouse
   compute is a separate bill that hits the customer after the fact.
-  This is the structural attack vector Felt's CARTO-alternatives page
-  hammers on, and it's a real architectural difference, not just
-  marketing.
+  Felt's CARTO-alternatives page leans on this point, and it is a
+  real architectural difference rather than a marketing line.
 
 ### 2.3 Pricing reality
 
@@ -243,8 +240,8 @@ carto.com/pricing is "Get a quote":
   **$25k-$100k/yr** band for a single business unit, with Strategic /
   Custom in the low-to-mid six figures. CARTO declines to confirm.
 
-The most consistent public complaint pattern is **opacity + double-
-billing + adversarial sales experience**. The strongest single
+The most consistent public complaint pattern is **pricing opacity +
+double-billing surprise + sales friction**. The strongest single
 public statement: an HN comment in July 2025 calling CARTO's sales
 "awful" and pricing "wildly expensive and opaque." G2 verified
 reviewers frame it structurally: "they've removed any pricing tier
@@ -324,7 +321,7 @@ alternatives like QGIS or Kepler.gl might be better options."
   - CARTO → Dekart / kepler.gl / DIY PostGIS + deck.gl, driven by
     pricing opacity and warehouse-cost surprise.
   - CARTO → ArcGIS Online when teams hit the SQL ceiling and need
-    deeper analysis. Ironic.
+    deeper analysis.
   - Felt → Mapbox Studio + React when pixel control or large datasets
     are needed.
   - Felt → QGIS when the user concludes Felt isn't "real GIS."
@@ -340,7 +337,7 @@ alternatives like QGIS or Kepler.gl might be better options."
 - **PDF export of layout-style print maps** that respect legend +
   scale-bar conventions.
 
-These are gaps GratisGIS can credibly attack.
+These are gaps GratisGIS can credibly close.
 
 ---
 
@@ -424,10 +421,9 @@ estimates the cost-to-impact tradeoff.
 8. **MCP server.** Felt and CARTO both shipped one in 2025-2026.
    For GratisGIS this is mostly a thin wrapper that exposes our
    existing tool-runner and recipe APIs as MCP tools. Doable
-   relatively cheaply because the engine work is done. Marketing
-   value is high — "GratisGIS works with Claude / Cursor / your
-   IDE-of-choice the same way Felt does, except we don't gate it
-   to Enterprise." Genuinely small lift, large positioning win.
+   relatively cheaply because the engine work is done. Positioning
+   value is high: MCP access ships on every install, with no plan
+   gating. Genuinely small lift.
 
 ### Tier C — lower priority but worth flagging
 
@@ -448,9 +444,9 @@ estimates the cost-to-impact tradeoff.
 11. **Routing.** Still deferred (#154). Worth revisiting if the
     OpenRouteService self-host footprint we sketched earlier turns
     out to be cheaper than initially thought. Felt isochrones are
-    Enterprise-only and CARTO does isolines via Workflows; "iso-
-    chrone in a starter template, on any plan" would be a sharp
-    competitive line.
+    Enterprise-only and CARTO does isolines via Workflows; an
+    isochrone starter template available on every install would be
+    a clear differentiator.
 
 ### Anti-takeaways: things to deliberately *not* copy
 
@@ -464,30 +460,14 @@ estimates the cost-to-impact tradeoff.
   `dashboard` as its own item type so a dashboard can mix multiple
   maps + non-map widgets. Don't collapse.
 - **CARTO-style pricing opacity.** When we add a hosted edition,
-  publish prices. Pricing transparency is itself a competitive
-  weapon against both vendors.
+  publish prices. Pricing transparency is itself a differentiator.
 
 ---
 
-## 5. The narrative for marketing / Reddit context
+## 5. Positioning notes
 
-If we're framing GratisGIS positioning against the Felt/CARTO
-conversation people are actually having on Reddit, the wedge is:
-
-- **Against Felt:** "Same collaboration model. Same upload-anything
-  ingest. We're open-source self-hosted. No 'no commercial use'
-  rule. No $2,400/yr floor."
-- **Against CARTO:** "Same Workflows-style no-code DAG. Same
-  warehouse-native read. No double-billing surprise from your
-  warehouse. We run on your PostGIS. Published prices when we add
-  a hosted tier."
-- **Against both:** "Versioning, true self-host, true public item
-  catalogue, real print/PDF. Things they don't ship."
-
-Per your existing rules: don't post any of this on Reddit yourself,
-don't put Esri product names in any of this user-facing copy, no
-em dashes. The narrative is for the *next time someone else asks*
-the question on r/gis and we want to answer with substance.
+The positioning and outreach notes that used to live in this section
+were moved out of the public tree.
 
 ---
 

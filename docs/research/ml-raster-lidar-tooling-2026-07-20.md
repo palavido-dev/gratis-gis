@@ -184,7 +184,7 @@ the practical open pipeline is samgeo segmentation plus footprint
 cleanup with [Building-Regulariser](https://github.com/DPIRD-DMA/Building-Regulariser)
 ([PyPI](https://pypi.org/project/buildingregulariser/), same shop as
 OmniCloudMask), which squares wobbly outlines to principal
-directions, the open equivalent of Esri's paid regularize tool.
+directions, the open equivalent of Esri's regularize tool.
 Road extraction remains research-grade in open source; nothing met
 the "well vetted" bar this pass.
 

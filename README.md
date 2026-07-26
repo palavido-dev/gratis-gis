@@ -12,7 +12,11 @@ on your own infrastructure, with open file formats throughout (PostGIS,
 GeoJSON, MVT, OGC API). No license fees; your only cost is the hardware (or
 cloud bill) you choose to run it on.
 
-**Status:** Active development, pre-v1. Working today: the portal (items,
+**Status:** Active development, pre-v1, with tagged releases starting
+at v0.9.0 (see [CHANGELOG.md](./CHANGELOG.md)). Until v1.0.0, minor
+releases may include breaking changes, each called out in the
+changelog; the full policy is in
+[docs/VERSIONING.md](./docs/VERSIONING.md). Working today: the portal (items,
 groups, sharing with row/column/geographic limits), web map authoring on
 PostGIS-backed data layers with vector-tile rendering for large datasets,
 Esri WebMap JSON import/export plus an ArcGIS Online content importer,
@@ -179,9 +183,12 @@ plugin), git, and curl:
 curl -fsSL https://raw.githubusercontent.com/palavido-dev/gratis-gis/main/infra/install.sh | bash
 ```
 
-It clones the repo to `/opt/gratis-gis`, asks for your domain and
-email, generates every secret, deploys the stack, and prints where to
-sign in. Prefer to see each step? The same flow by hand:
+It clones the repo to `/opt/gratis-gis`, checks out the latest release
+tag, asks for your domain and email, generates every secret, deploys
+the stack, and prints where to sign in. Installs and upgrades track
+tagged releases; set `GG_REF` to pin a specific tag, branch, or commit
+(see [docs/UPGRADING.md](./docs/UPGRADING.md)). Prefer to see each
+step? The same flow by hand:
 
 ```bash
 git clone https://github.com/palavido-dev/gratis-gis /opt/gratis-gis

@@ -1,35 +1,36 @@
 # Outside perspective: where GratisGIS goes next (2026-07-16)
 
-A strategic deep-dive requested by Matt: what are we missing, is the
-UI professional enough, are we wrong to skip 3D and advanced spatial
-analysis, and how do we leapfrog ArcGIS Online rather than chase it.
+A strategic deep-dive: what are we missing, is the UI professional
+enough, are we wrong to skip 3D and advanced spatial analysis, and
+where can GratisGIS differentiate rather than chase feature parity.
 Based on a full UI audit of portal-web (202 tsx files), web research
 current to July 2026 (Esri UC 2026 week), and the state of the repo
 at commit 3454280.
 
 ## The framing question first
 
-"Blow AGO out of the water" can mean two different roadmaps. One is
-parity-chasing: match Scene Viewer, match Map Viewer analysis, match
-Experience Builder, feature for feature. The other is asymmetric:
-do the things Esri's revenue model structurally forbids them from
-doing. The research is unambiguous that the second is the winning
-frame, because AGO's weaknesses are not engineering weaknesses.
-Esri shipped plenty in 2025-2026 (Gaussian splat layers with analysis
-tools, Google Photorealistic 3D Tiles basemaps, AI assistants going
-GA, Parquet feature layers in beta, MCP support for Location
-Services). What users actually hate about AGO is the metering:
-feature storage at roughly 200x the credit cost of file storage,
-analysis tools that burn unpredictable credits, GeoAnalytics Server
-deprecated in favor of a separately licensed Spark engine, concurrent
-use licenses killed in Q2 2026, perpetual maintenance forcibly
-converted to subscriptions. Esri's constraint is that anything free
-at point of use cannibalizes User Type and credit revenue.
+Competing with the incumbent cloud GIS platforms can mean two
+different roadmaps. One is parity-chasing: match Scene Viewer, match
+Map Viewer analysis, match Experience Builder, feature for feature.
+The other is asymmetric: focus on what a metered, per-user revenue
+model makes hard for any vendor to offer. The research is unambiguous
+that the second is the winning frame, because AGO's weaknesses are
+not engineering weaknesses. Esri shipped plenty in 2025-2026
+(Gaussian splat layers with analysis tools, Google Photorealistic 3D
+Tiles basemaps, AI assistants going GA, Parquet feature layers in
+beta, MCP support for Location Services). The most common user
+complaints about AGO center on the metering: feature storage at
+roughly 200x the credit cost of file storage, analysis tools that
+burn unpredictable credits, GeoAnalytics Server deprecated in favor
+of a separately licensed Spark engine, concurrent use licenses
+discontinued in Q2 2026, perpetual maintenance converted to
+subscriptions. A credit-and-user-type revenue model leaves little
+room to make any of that free at point of use.
 
-So the thesis of this memo: every place AGO charges friction, do it
-free, instant, and open. That is the "no excuse" proof. A feature
-Esri also has, delivered without the meter, is a stronger statement
-than a feature Esri lacks.
+So the thesis of this memo: wherever the established platforms meter
+a capability, offer it free, instant, and open. A capability
+delivered without a meter is a stronger differentiator than a novel
+capability nobody else has.
 
 ## Part 1: The honest UI verdict
 
@@ -124,9 +125,9 @@ Recommended shape, deliberately NOT Scene-Viewer-shaped: no separate
 `point_cloud` (COPC), `tileset_3d` (3D Tiles), and `terrain` source
 kind on the existing map item, rendered through a deck.gl overlay
 the map canvas mounts when any 3D layer is present, with a pitch
-toggle. AGO separates Map Viewer and Scene Viewer because of product
-lineage, not because users want two apps. One map that goes 3D when
-the data does is the better design and a visible differentiator.
+toggle. AGO ships Map Viewer and Scene Viewer as separate apps. One
+map that goes 3D when the data does is the better design and a
+visible differentiator.
 
 Phasing: (a) COPC upload + streaming + render, roughly the effort of
 the PMTiles pipeline that already exists; (b) 3D Tiles item kind +
@@ -135,12 +136,12 @@ building footprints with height attributes; (d) splat ingestion.
 Phases a and b alone would put GratisGIS ahead of every open-source
 portal and remove the "no 3D" objection.
 
-## Part 3: Advanced analysis, the anti-credit weapon
+## Part 3: Advanced analysis, free at point of use
 
-This is the sharpest possible contrast with AGO and the strongest
-answer to "prove Esri has no excuse." AGO's browser analysis is a
-fixed, credit-metered tool list; heavy work needs Pro, Notebooks
-(more credits), or a separately licensed Spark engine.
+This is the sharpest available contrast with metered platforms.
+AGO's browser analysis is a fixed, credit-metered tool list; heavy
+work needs Pro, Notebooks (more credits), or a separately licensed
+Spark engine.
 
 The 2026 open stack makes "every analysis free and instant" real:
 
@@ -149,8 +150,9 @@ The 2026 open stack makes "every analysis free and instant" real:
   apps already query Overture GeoParquet directly in-browser.
   Shipping an Analysis surface where any layer can be filtered,
   joined, buffered, and aggregated with spatial SQL executing on
-  the client costs the server nothing and the user nothing. Esri
-  cannot copy this without detonating credit revenue.
+  the client costs the server nothing and the user nothing. A
+  credit-metered platform could not match this without giving up
+  that revenue.
 - GeoParquet is now a native Parquet/Iceberg type (Feb 2026) and
   even AGO added read-only Parquet layers in beta. GeoParquet
   import/export is table stakes for 2026 credibility and is also
@@ -177,18 +179,18 @@ cloud LLMs only, nothing that runs real spatial analysis end to end,
 and MCP only for Location Services. Felt's AI (natural language to
 SQL over customer warehouses) is Enterprise-gated. CARTO's agents
 are warehouse-native and aimed at data teams. Mundi.ai proves an
-open AGPL "AI-native GIS" has demand, but it is a thin app, not a
-portal.
+open AGPL "AI-native GIS" has demand, though it is a focused app
+rather than a full portal.
 
 GratisGIS already shipped an MCP server Phase 1 (#161, read-only
-tools). The leapfrog is a permission-inheriting agent that lives in
-the portal: it writes real SQL against the org's own PostGIS with
+tools). The differentiating move is a permission-inheriting agent
+that lives in the portal: it writes real SQL against the org's own PostGIS with
 the caller's own share-scoped permissions, invokes recipes/tools as
 its function library, styles layers, and works with local or
 self-hosted LLMs. Open source, local model support, and full data
-access is a combination none of Esri, Felt, or CARTO will offer,
-for revenue or cloud-dependency reasons respectively. The MCP Phase
-2 write tools plus the recipe runner are most of the plumbing.
+access is a combination none of the commercial platforms offer
+today. The MCP Phase 2 write tools plus the recipe runner are most
+of the plumbing.
 
 ## Part 5: The differentiator already in the codebase that nobody sees
 
@@ -201,8 +203,8 @@ archive-enabled Enterprise geodatabases. GratisGIS could ship a
 time-travel slider on any data layer, per-feature edit history with
 who/when/what diffs, and one-click restore of any feature to any
 prior state, essentially by writing UI over data that already
-exists. This is the single most "Esri has no excuse" feature
-available because it falls out of a better substrate, and it doubles
+exists. This is the clearest case of a capability that falls out
+of a better substrate, and it doubles
 as an editing-safety story (nothing a field crew does is ever
 unrecoverable) that municipal buyers will care about.
 
@@ -210,7 +212,7 @@ unrecoverable) that municipal buyers will care about.
 
 - Install and first-run (#147): still the one greenfield ticket, and
   the top-of-funnel bottleneck. Single-command install, seeded
-  sample data, guided first map. The 2026 Esri licensing shocks are
+  sample data, guided first map. The 2026 Esri licensing changes are
   actively pushing orgs into evaluations; they have to be able to
   stand the thing up in an afternoon.
 - Zero frontend tests (plan already exists: Playwright E2E first).
@@ -231,10 +233,10 @@ unrecoverable) that municipal buyers will care about.
 1. Now, cheap, compounding: UI polish pass (dark mode, dialog/toast
    primitives, type scale, skeletons, brand mark) plus #147
    install/onboarding. These change how every subsequent demo lands.
-2. Next, the anti-credit weapon: GeoParquet import/export, then the
-   DuckDB-WASM analysis surface with recipe fallback. Ship with a
-   public comparison: this analysis in AGO costs N credits, here it
-   is free and ran in your browser.
+2. Next, analysis free at point of use: GeoParquet import/export,
+   then the DuckDB-WASM analysis surface with recipe fallback. Ship
+   with an honest note that the analysis ran in the visitor's own
+   browser at no server cost.
 3. Then 3D phases a and b (COPC, then 3D Tiles + terrain via deck.gl
    overlay on the existing map, no separate scene app).
 4. In parallel, as a slow burn: time-travel UI over the observation
@@ -246,6 +248,7 @@ unrecoverable) that municipal buyers will care about.
 Tile cache phases 1-3 and Playwright smoke tests should ride along
 as engineering hygiene regardless of the order above.
 
-The one-sentence version: stop measuring against what AGO has and
-start shipping what Esri's business model forbids, wrapped in a UI
-polished enough that nobody can dismiss it as a hobby project.
+The one-sentence version: measure less against incumbent feature
+lists and more against what a self-hosted, unmetered platform can
+uniquely offer, wrapped in a UI polished enough to be taken
+seriously.

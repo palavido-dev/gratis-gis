@@ -66,14 +66,14 @@ flips them on. Concretely:
 
 ## The thesis, sharpened
 
-Esri's constraint is its revenue model. It meters analysis two ways:
-by consumed credits (routing, enrichment, per-1,000-feature vector
-ops, imagery and deep-learning by the pixel) and by paid desktop
-extensions (Spatial Analyst gates contours, viewshed, solar, and all
-of hydrology; Image Analyst gates imagery deep learning; 3D Analyst
-gates 3D line-of-sight). A self-hosted portal pays none of that at the
-margin. So the workbench should lead with exactly the operations Esri
-charges for, because that is where "we do this for free" lands hardest.
+Esri meters analysis two ways: by consumed credits (routing,
+enrichment, per-1,000-feature vector ops, imagery and deep-learning
+by the pixel) and by paid desktop extensions (Spatial Analyst gates
+contours, viewshed, solar, and all of hydrology; Image Analyst gates
+imagery deep learning; 3D Analyst gates 3D line-of-sight). A
+self-hosted portal pays none of that at the margin. So the workbench
+should lead with the operations that are commonly metered elsewhere,
+because that is where free at point of use is most visible.
 
 Two honest nuances the research surfaced, so we do not overclaim:
 - ArcGIS Online already gives Create Viewshed, Create Watersheds, and
@@ -239,7 +239,7 @@ https://registry.opendata.aws/copernicus-dem/ ·
 https://opentopography.org/developers ·
 https://earth-search.aws.element84.com/v1/api.html
 
-## The asymmetric-vs-Esri wins (what to lead with)
+## Comparison with metered analysis (what to lead with)
 
 | Capability | How Esri meters it | Our free equivalent |
 | --- | --- | --- |
@@ -271,8 +271,8 @@ From Felt, QGIS Processing, and AGO:
    interactive (this is exactly our recipe/derived-layer job model).
 4. Non-destructive: every run produces a new layer with sensible
    default symbology and never mutates the source, so tools chain.
-5. Occupy AGO's "Estimate credits" slot with "Free" (or a runtime
-   estimate). Same reassurance, opposite message.
+5. Show "Free" (or a runtime estimate) in the spot where metered
+   platforms show a credit estimate. Same reassurance.
 6. Instant client-side (DuckDB-WASM / turf) for small-N vector; async
    server job for raster, routing, and large-N, with an up-front "clip
    to your area first" nudge on big inputs.
@@ -289,8 +289,8 @@ Phase 1 — In-browser vector workbench. Extend the DuckDB-WASM Analyze
 panel from raw SQL into a small set of one-click tools (buffer, spatial
 join, clip/erase, dissolve, nearest, centroid, H3 density, cluster)
 with the plain-language card UX and save-as-layer output. Zero server
-cost; directly monetizes the "free where Esri meters per feature"
-story; reuses everything from #175. The guided query builder (#176) is
+cost; makes the free-at-point-of-use contrast concrete; reuses
+everything from #175. The guided query builder (#176) is
 the same UX surface.
 
 Phase 2 — Server terrain + hydrology toolkit as recipe steps. Bundle
@@ -327,5 +327,5 @@ what turns the Analyze panel from attribute-only SQL into spatial SQL.
   to the stack, or hold the line at Node/Rust-binary and defer those?
 - Which three tools would you want first? My vote: buffer + spatial
   join (Phase 1, instant), watershed-from-a-click (Phase 2, the
-  "wow, and Esri gates this" moment), and building-footprint fetch
-  (Phase 3, the AI-adjacent quick win).
+  strongest demo moment), and building-footprint fetch (Phase 3,
+  the AI-adjacent quick win).

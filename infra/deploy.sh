@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # One-shot deploy of the gratisgis.org production stack. Idempotent:
-# safe to re-run after every git pull. Run from the repo root on the
-# deploy host.
+# safe to re-run any time. Run from the repo root on the deploy host.
 #
-#   ./infra/deploy.sh
+#   ./infra/deploy.sh                  deploy the newest release tag
+#   GG_REF=v0.9.0 ./infra/deploy.sh    deploy a specific tag, branch, or sha
 #
 # What it does:
 #   1. Sanity-checks that infra/.env.prod exists.
+#   1b. Syncs the checkout to the release ref (see gg_resolve_ref).
 #   2. Builds the portal-api + portal-web images from source.
 #   3. Rolls the stack with `docker compose up -d`. Containers whose
 #      image / config didn't change keep running.
@@ -50,17 +51,64 @@ if [[ ! -f infra/.env.prod ]]; then
   exit 1
 fi
 
-# Fast-forward to origin/main before building. Without this, deploy.sh
-# happily rebuilds whatever stale checkout already lives at REPO_ROOT,
-# which is exactly what bit us on 2026-05-09: ada310c was on origin
-# but prod was still at eddcaf2, so the new admin-users overflow fix
-# never landed in the rebuilt portal-web image and the user reported
-# "I logged out, hard refresh, still no changes." Resetting hard to
-# origin/main is safe here because the deploy host has no real local
-# work; .env.prod and any state are outside the worktree.
-echo "=== Syncing repo to origin/main ==="
-git fetch --quiet origin
-git reset --hard origin/main
+# Resolve which ref to deploy. GG_REF (a tag, branch, or commit sha)
+# wins when set; otherwise the newest release tag (vX.Y.Z only, so a
+# pre-release like v1.0.0-rc.1 is never auto-picked); when the remote
+# has no release tags yet, fall back to main with a warning so
+# pre-release checkouts keep deploying. Failing to LIST tags is fatal
+# rather than a silent fallback: a transient network error must not
+# flip a release-pinned deploy back onto main.
+#
+# Keep this function in sync with the copy in infra/install.sh.
+gg_resolve_ref() {
+  local remote="$1"
+  if [[ -n "${GG_REF:-}" ]]; then
+    printf '%s\n' "$GG_REF"
+    return 0
+  fi
+  local tags latest
+  if ! tags="$(git ls-remote --tags --refs "$remote" 'v[0-9]*')"; then
+    echo "FATAL: could not list release tags on ${remote}." >&2
+    return 1
+  fi
+  latest="$(printf '%s\n' "$tags" \
+    | awk '{print $2}' \
+    | sed 's|^refs/tags/||' \
+    | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+    | sort -V \
+    | tail -n 1)" || true
+  if [[ -n "$latest" ]]; then
+    printf '%s\n' "$latest"
+  else
+    echo "WARN: no release tags found on ${remote}; falling back to main." >&2
+    printf '%s\n' "main"
+  fi
+}
+
+# Sync the checkout to the resolved ref before building. Without this,
+# deploy.sh happily rebuilds whatever stale checkout already lives at
+# REPO_ROOT, which is exactly what bit us on 2026-05-09: ada310c was
+# on origin but prod was still at eddcaf2, so the new admin-users
+# overflow fix never landed in the rebuilt portal-web image and the
+# user reported "I logged out, hard refresh, still no changes."
+# Resetting hard is safe here because the deploy host has no real
+# local work; .env.prod and any state are outside the worktree.
+GG_DEPLOY_REF="$(gg_resolve_ref origin)"
+echo "=== Syncing repo to ${GG_DEPLOY_REF} ==="
+git fetch --quiet --tags origin
+# Turn the ref into a commit, preferring a tag, then a branch on
+# origin (so "main" means the freshly fetched origin/main and never a
+# stale local branch), then anything rev-parse understands (a sha).
+GG_DEPLOY_COMMIT="$(
+  git rev-parse --verify --quiet "refs/tags/${GG_DEPLOY_REF}^{commit}" \
+    || git rev-parse --verify --quiet "refs/remotes/origin/${GG_DEPLOY_REF}^{commit}" \
+    || git rev-parse --verify --quiet "${GG_DEPLOY_REF}^{commit}"
+)" || {
+  echo "FATAL: cannot resolve '${GG_DEPLOY_REF}' to a commit. Check GG_REF." >&2
+  exit 1
+}
+git reset --hard "$GG_DEPLOY_COMMIT"
+echo "Deploying ref ${GG_DEPLOY_REF} at commit:"
 git log --oneline -1
 
 # All the GENERATE placeholders have to be replaced before deploy or

@@ -346,7 +346,7 @@ export function MapEditor({
           fetch('/api/portal/items?type=geocoding_service&lite=1').then((r) =>
             r.ok ? r.json() : [],
           ),
-          fetch('/api/portal/items?type=service').then((r) =>
+          fetch('/api/portal/items?type=service&full=1').then((r) =>
             r.ok ? r.json() : [],
           ),
         ]);
@@ -795,7 +795,7 @@ export function MapEditor({
     autoTerrainTried.current = true;
     const [w, s, e, n] = withBox.source.bboxWgs84;
     try {
-      const res = await fetch('/api/portal/items?type=tile_layer');
+      const res = await fetch('/api/portal/items?type=tile_layer&full=1');
       if (!res.ok) return;
       const items = (await res.json()) as Array<{
         id: string;
@@ -859,7 +859,7 @@ export function MapEditor({
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch('/api/portal/items?type=tile_layer');
+        const res = await fetch('/api/portal/items?type=tile_layer&full=1');
         if (!res.ok || cancelled) return;
         const items = (await res.json()) as Array<{
           id: string;

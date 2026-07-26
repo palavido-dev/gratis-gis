@@ -335,7 +335,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
         // folders + drill-in children. Folders are tiny rows; the
         // payload cost is negligible vs the data_layer / arcgis_service
         // list we lite-mode for.
-        const res = await fetch('/api/portal/items?type=folder', {
+        const res = await fetch('/api/portal/items?type=folder&full=1', {
           signal: controller.signal,
         });
         if (!res.ok || cancelled) return;
