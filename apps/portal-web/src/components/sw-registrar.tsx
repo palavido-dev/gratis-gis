@@ -2,14 +2,20 @@
 'use client';
 
 import { useEffect } from 'react';
-import { listenForOnline } from '@/lib/sync';
 
 /**
- * Registers the GratisGIS service worker and sets up an online-reconnect
- * handler to flush the pending write queue. Renders nothing.
+ * Registers the GratisGIS service worker. Renders nothing.
  *
  * Must be a client component: placed in the root layout so it runs once
  * per browser session regardless of which page is visited first.
+ *
+ * This component used to also wire an online listener that flushed a
+ * legacy write queue from lib/sync.ts. That queue had no producers
+ * (nothing ever called its queueFeatureWrite), so the listener was
+ * removed along with the module. The real offline write queue lives
+ * in the 'gratisgis-offline' IndexedDB (lib/offline-store.ts) and is
+ * drained by lib/offline-sync.ts from the field runtime and catalog,
+ * which own their own online listeners.
  */
 export function SwRegistrar() {
   useEffect(() => {
@@ -54,10 +60,6 @@ export function SwRegistrar() {
     navigator.serviceWorker
       .register('/sw.js', { scope: '/' })
       .catch((err) => console.warn('[SW] Registration failed:', err));
-
-    // Flush queued writes whenever connectivity is restored.
-    const cleanup = listenForOnline();
-    return cleanup;
   }, []);
 
   return null;

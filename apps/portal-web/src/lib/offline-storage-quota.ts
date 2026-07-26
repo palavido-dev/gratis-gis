@@ -239,18 +239,6 @@ export async function checkDownloadFits(
   return { fits: true, freeBytes: free, quota: est.quota };
 }
 
-/**
- * Format a byte count for display in compact UI surfaces (badges,
- * progress bars, dialogs). Mirrors the format the existing offline
- * download manager uses internally so usage labels and "estimated
- * size" labels read consistently.
- */
-export function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  const kb = n / 1024;
-  if (kb < 1024) return `${Math.round(kb)} KB`;
-  const mb = kb / 1024;
-  if (mb < 1024) return `${mb.toFixed(mb >= 100 ? 0 : 1)} MB`;
-  const gb = mb / 1024;
-  return `${gb.toFixed(gb >= 10 ? 1 : 2)} GB`;
-}
+// Byte formatting for quota UI lives in lib/format-bytes.ts; the
+// local copy this module used to export had drifted from its four
+// siblings and had no importers left.

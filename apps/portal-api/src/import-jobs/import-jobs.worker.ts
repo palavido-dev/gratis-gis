@@ -13,6 +13,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { CopyWriter } from '../engine/copy-writer.js';
+import { dataLayerScope } from '../engine/data-layer.js';
 
 /**
  * In-process worker for ImportJob rows (#115).
@@ -39,6 +40,19 @@ import { CopyWriter } from '../engine/copy-writer.js';
 export class ImportJobsWorker implements OnModuleInit {
   private readonly log = new Logger(ImportJobsWorker.name);
   private readonly POLL_INTERVAL_MS = 1000;
+  /**
+   * Run the stale-'running' recovery sweep every this-many loop
+   * iterations (roughly once a minute at the 1s poll). Boot-time
+   * recovery alone cannot catch a crashed job: docker restarts the
+   * worker within seconds, so at boot the dead job's heartbeat is
+   * only seconds old and the 5-minute staleness threshold skips it
+   * forever. The periodic sweep re-checks once the heartbeat has
+   * actually gone stale. recoverStaleRunning is heartbeat-guarded
+   * and uses a plain conditional updateMany, so sweeping while other
+   * replicas work is safe.
+   */
+  private readonly RECOVERY_EVERY_TICKS = 60;
+  private ticksSinceRecovery = 0;
   private running = false;
 
   constructor(
@@ -56,7 +70,11 @@ export class ImportJobsWorker implements OnModuleInit {
     // row is still status='running' but no live worker is touching
     // it. Mark them failed with a clear message; the user can re-
     // upload to retry. Done before starting the loop so we don't
-    // race the same recovery against an in-flight claim.
+    // race the same recovery against an in-flight claim. This boot
+    // pass only catches heartbeats that were ALREADY stale (a long
+    // outage); a fast docker restart leaves the crashed job's
+    // heartbeat fresh, which the periodic sweep in the loop picks
+    // up once the threshold elapses.
     await this.jobs.recoverStaleRunning().catch((err) => {
       this.log.warn(
         `Stale-job recovery on boot failed: ${
@@ -75,6 +93,23 @@ export class ImportJobsWorker implements OnModuleInit {
   private async loop(): Promise<void> {
     while (this.running) {
       try {
+        // Periodic stale-job sweep (see RECOVERY_EVERY_TICKS). Tick
+        // counting instead of wall-clock keeps this trivially free
+        // of drift bugs; while this worker is busy on a long job the
+        // loop is not iterating, so the sweep just runs at the next
+        // boundary between jobs, which is fine: a job THIS process
+        // is actively working keeps its heartbeat fresh anyway.
+        this.ticksSinceRecovery += 1;
+        if (this.ticksSinceRecovery >= this.RECOVERY_EVERY_TICKS) {
+          this.ticksSinceRecovery = 0;
+          await this.jobs.recoverStaleRunning().catch((err) => {
+            this.log.warn(
+              `Periodic stale-job recovery failed: ${
+                err instanceof Error ? err.message : err
+              }`,
+            );
+          });
+        }
         const job = await this.jobs.claimNext();
         if (job) {
           await this.runJob(job).catch((err) => {
@@ -187,12 +222,6 @@ export class ImportJobsWorker implements OnModuleInit {
         capabilities: new Set(),
       };
 
-      // Truncate first when mode=replace so a partial-failure run
-      // leaves an empty layer rather than half-old/half-new mix.
-      if (job.mode === 'replace') {
-        await this.dataLayerTables.truncateLayer(job.itemId, job.layerId);
-      }
-
       // Property whitelist (sparse schemas drop unknown columns;
       // empty schema = take everything).
       const fieldNames = new Set((layer.fields ?? []).map((f) => f.name));
@@ -223,17 +252,30 @@ export class ImportJobsWorker implements OnModuleInit {
       // commit. The writer is closed cleanly on success and
       // aborted on any throw or cancel so a partial run never
       // stays half-written.
+      //
+      // Replace mode: the truncate DELETE runs on the writer's own
+      // connection inside this same transaction, before COPY mode
+      // starts. That makes replace atomic: commit swaps old rows
+      // for new in one step, while failure or cancel rolls back
+      // BOTH the delete and the partial COPY, leaving the layer
+      // exactly as it was before the import. The previous shape
+      // (truncateLayer committing in its own transaction up front)
+      // left the layer empty whenever the COPY didn't commit.
       const databaseUrl = process.env.DATABASE_URL;
       if (!databaseUrl) {
         throw new Error('DATABASE_URL is not set; COPY ingest cannot start.');
       }
       const writer = new CopyWriter(databaseUrl);
-      await writer.start();
       let copyClosed = false;
       let meta: Awaited<
         ReturnType<IngestService['streamLayerFromPath']>
       >;
       try {
+        await writer.begin();
+        if (job.mode === 'replace') {
+          await writer.deleteScope(dataLayerScope(job.itemId, job.layerId));
+        }
+        writer.beginCopy();
         meta = await this.ingest.streamLayerFromPath(
           staged.filePath,
           job.sourceLayerName,
@@ -271,7 +313,9 @@ export class ImportJobsWorker implements OnModuleInit {
         // streamed before the cancel -- which was the bug behind
         // 1.3M ghost rows in observation after multiple cancelled
         // imports today. Branch on cancelled and call abort()
-        // instead so the partial-load rolls back cleanly.
+        // instead so the partial-load rolls back cleanly (for
+        // replace mode the scoped delete rolls back with it,
+        // restoring the pre-import rows).
         if (cancelled) {
           await writer.abort();
           copyClosed = true;
@@ -295,11 +339,16 @@ export class ImportJobsWorker implements OnModuleInit {
 
       if (cancelled) {
         // The job row is already at status='cancelled' (the user
-        // clicked Cancel). Skip the source-stamp + bbox recompute;
-        // the data we already inserted stays so the user can keep
-        // it or run replace again.
+        // clicked Cancel). Skip the source-stamp + bbox recompute.
+        // Nothing we streamed was kept: the COPY transaction rolled
+        // back above, and for replace mode the scoped delete rolled
+        // back with it, so the layer holds exactly its pre-import
+        // rows. Zero the inserted counter so the job row (and the
+        // banner reading it) does not claim rows that never
+        // committed.
+        await this.jobs.zeroInsertedForCancelled(job.id);
         this.log.log(
-          `Job ${job.id} cancelled at ${totalInserted} of ${meta.total}.`,
+          `Job ${job.id} cancelled; rolled back ${totalInserted} streamed of ${meta.total}.`,
         );
         return;
       }

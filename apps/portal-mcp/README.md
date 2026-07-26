@@ -4,15 +4,15 @@ A small [Model Context Protocol](https://modelcontextprotocol.io) server that
 exposes a read-only view of a GratisGIS portal to MCP clients (Claude Desktop,
 Cursor, custom agents). Connects over stdio. Phase 1 ships three tools.
 
-Felt and CARTO both gate their MCP integrations to Enterprise tiers; this
-one ships in the open under AGPL-3.0-or-later.
+The server ships with the platform under AGPL-3.0-or-later and works
+against any GratisGIS portal you can sign into.
 
 ## Tools shipped in Phase 1
 
-- `list_items` — paginated browse of items the caller can read, filtered by
+- `list_items`: paginated browse of items the caller can read, filtered by
   type and free-text query.
-- `get_item` — full metadata for a single item by id.
-- `read_layer_features` — GeoJSON FeatureCollection for a `data_layer`,
+- `get_item`: full metadata for a single item by id.
+- `read_layer_features`: GeoJSON FeatureCollection for a `data_layer`,
   capped per call so a large layer cannot exhaust the model context.
 
 Phase 2 will add write tools (`run_tool`, `create_data_layer_from_geojson`).

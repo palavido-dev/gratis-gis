@@ -268,7 +268,6 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
     const controller = new AbortController();
     setPortalLoading(true);
     const handle = setTimeout(async () => {
-      const t0 = performance.now();
       try {
         const q = portalQ.trim();
         const qs = new URLSearchParams({
@@ -305,10 +304,6 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
           return bt - at;
         });
         setPortalItems(items);
-        // eslint-disable-next-line no-console
-        console.log(
-          `[portal] loaded ${items.length} items in ${Math.round(performance.now() - t0)}ms`,
-        );
       } catch (err) {
         if ((err as Error)?.name === 'AbortError') return;
         // eslint-disable-next-line no-console

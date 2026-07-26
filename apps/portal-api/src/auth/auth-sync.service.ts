@@ -102,13 +102,20 @@ export class AuthSyncService {
   private readonly printTemplateSeedInFlight = new Map<string, Promise<void>>();
 
   /**
-   * Per-process cache of `userId -> last time we wrote lastSeenAt`.
-   * Throttles the UPDATE to once per LAST_SEEN_THROTTLE_MS so the
-   * stable-state cost of an authenticated request is one SELECT
-   * (the user upsert) and not one UPDATE every time. The user's
-   * actual freshness signal is bounded above by this throttle, which
-   * is fine for housekeeping (we measure stale users in days, not
-   * seconds).
+   * Per-process cache of `token sub -> last time we wrote
+   * lastSeenAt`. Throttles the lastSeenAt write to once per
+   * LAST_SEEN_THROTTLE_MS so the stable-state cost of an
+   * authenticated request is one SELECT (the user read) and no
+   * write at all. The user's actual freshness signal is bounded
+   * above by this throttle, which is fine for housekeeping (we
+   * measure stale users in days, not seconds).
+   *
+   * Keyed by the JWT `sub`, the identifier available before the row
+   * is read. It must be the SAME key on read and write: an earlier
+   * version read by sub but recorded by local user id, so for
+   * seeded users (whose local id predates Keycloak and differs from
+   * sub) the throttle never engaged and every request wrote the row
+   * anyway.
    */
   private readonly lastSeenWrittenAt = new Map<string, number>();
   private static readonly LAST_SEEN_THROTTLE_MS = 60_000;
@@ -172,11 +179,6 @@ export class AuthSyncService {
     // Decide whether we should refresh `lastSeenAt` on this request.
     // We rate-limit it to once per LAST_SEEN_THROTTLE_MS per user so
     // hot-path auth doesn't write to the user row on every API call.
-    // The `findUnique` + `update` split lets us skip the UPDATE when
-    // the throttle is active; the user upsert otherwise still happens
-    // unconditionally since a brand-new user always needs to be
-    // created and a returning user occasionally needs a profile sync
-    // (email / name / role changed in Keycloak).
     const now = Date.now();
     const lastWrite = this.lastSeenWrittenAt.get(claims.sub) ?? 0;
     const writeLastSeen =
@@ -186,50 +188,76 @@ export class AuthSyncService {
     // particular) are provisioned without an email attribute and the
     // token therefore has no `email` claim. The local `user.email`
     // column is non-nullable, so passing through `undefined` would
-    // crash the upsert with PrismaClientValidationError on every
+    // crash the write with PrismaClientValidationError on every
     // authed request from that user. Synthesize a deterministic
-    // placeholder so the upsert always succeeds; if Keycloak later
+    // placeholder so the write always succeeds; if Keycloak later
     // starts sending a real email the next request overwrites it.
     const email =
       claims.email ?? `${claims.preferred_username}@local.gratisgis`;
 
-    const user = await this.prisma.user.upsert({
+    // Read-first sync. The previous shape was an unconditional
+    // upsert whose update branch rewrote email/fullName/orgRole/
+    // orgId on EVERY authenticated request even when nothing had
+    // changed: pure WAL churn, plus row-lock serialization when a
+    // burst of parallel requests (a 30-tile map load) all queued on
+    // the same user row. Steady state is now read-only: when the
+    // row exists, the claims match, and the lastSeenAt throttle
+    // window has not elapsed, no write happens at all. A write only
+    // fires when the profile actually changed in Keycloak or the
+    // throttle expired, and then only with the fields that need it.
+    const existing = await this.prisma.user.findUnique({
       where: { username: claims.preferred_username },
-      update: {
-        email,
-        fullName: claims.name,
-        orgRole: normalisedRole,
-        orgId: org.id,
-        // Throttled per-process: most requests skip writing this and
-        // just leave the previous timestamp in place. The housekeeping
-        // page measures staleness in days so a 60s lag is irrelevant
-        // there but cuts ~1 UPDATE per request out of the auth hot
-        // path. lastSeenAt is still ALWAYS set on the create branch.
-        ...(writeLastSeen ? { lastSeenAt: new Date() } : {}),
-      },
-      create: {
-        // New users (not seeded) adopt Keycloak's sub as their local id, so
-        // the two systems stay aligned when there's no prior record.
-        id: claims.sub,
-        orgId: org.id,
-        username: claims.preferred_username,
-        email,
-        fullName: claims.name,
-        orgRole: normalisedRole,
-        lastSeenAt: new Date(),
-      },
     });
+    // fullName only counts as changed when the token carries a name:
+    // Prisma skips undefined fields, so the old upsert also left
+    // fullName untouched for tokens without a `name` claim.
+    const claimsChanged =
+      existing === null ||
+      existing.email !== email ||
+      (claims.name !== undefined && existing.fullName !== claims.name) ||
+      existing.orgRole !== normalisedRole ||
+      existing.orgId !== org.id;
+
+    const user =
+      existing !== null && !claimsChanged && !writeLastSeen
+        ? existing
+        : await this.prisma.user.upsert({
+            // Kept as an upsert rather than create-or-update so the
+            // first-sign-in stampede (NextAuth + portal SSR firing in
+            // parallel) can't race two creates into a unique-violation
+            // on username; the race loser just lands in the update
+            // branch.
+            where: { username: claims.preferred_username },
+            update: {
+              ...(claimsChanged
+                ? {
+                    email,
+                    fullName: claims.name,
+                    orgRole: normalisedRole,
+                    orgId: org.id,
+                  }
+                : {}),
+              ...(writeLastSeen ? { lastSeenAt: new Date() } : {}),
+            },
+            create: {
+              // New users (not seeded) adopt Keycloak's sub as their local id, so
+              // the two systems stay aligned when there's no prior record.
+              id: claims.sub,
+              orgId: org.id,
+              username: claims.preferred_username,
+              email,
+              fullName: claims.name,
+              orgRole: normalisedRole,
+              lastSeenAt: new Date(),
+            },
+          });
     if (writeLastSeen) {
       // Record the write so the throttle holds for the next minute.
-      // We also record a write on the create path so a brand-new user
-      // doesn't get a redundant update on their second request.
-      this.lastSeenWrittenAt.set(user.id, now);
-    } else if (lastWrite === 0) {
-      // First time we've seen this user in this process: seed the
-      // throttle map so any prior write counts forward. The DB write
-      // happened (see upsert update branch above gated on the same
-      // condition), so set to now.
-      this.lastSeenWrittenAt.set(user.id, now);
+      // Whenever writeLastSeen is true a write definitely happened
+      // (either the update's lastSeenAt or the create's), including
+      // for brand-new users, whose unseen map entry always makes
+      // writeLastSeen true on their first request in this process.
+      this.lastSeenWrittenAt.set(claims.sub, now);
     }
 
     // Auto-disable enforcement (#85). When auto_disable_at is in

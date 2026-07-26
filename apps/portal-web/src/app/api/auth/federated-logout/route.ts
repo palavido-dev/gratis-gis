@@ -22,9 +22,14 @@ import { keycloakEndSessionBase } from '@/lib/auth';
  *      its own Sign in link). The next sign-in click goes through
  *      Keycloak's login form for real because there is no SSO session.
  *
- * Route is GET so it can be the target of a normal `<Link>` / `<a>`.
- * The app-shell's "Sign out" menu item points here instead of
- * `/api/auth/signout`.
+ * Contract: this route does NOT clear the NextAuth session cookie.
+ * Every caller must run NextAuth's client-side signOut({ redirect:
+ * false }) FIRST and only then navigate here; the shared
+ * federatedSignOut() helper in components/user-menu.tsx does both
+ * (plus the service worker cache purge) and is the only sanctioned
+ * way in. Do not link to this route directly: a bare link leaves
+ * the NextAuth cookie alive, so the portal still treats the user
+ * as signed in even though Keycloak's SSO session is gone.
  */
 export async function GET(req: NextRequest) {
   // getToken's `secret` field is required; fall back to an empty

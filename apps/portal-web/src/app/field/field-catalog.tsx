@@ -14,11 +14,11 @@ import {
 } from 'lucide-react';
 import {
   deleteDeployment,
-  formatBytes,
   listDeployments,
   listQueue,
   type CachedDeployment,
 } from '@/lib/offline-store';
+import { formatBytes } from '@/lib/format-bytes';
 import { postQueueManifest } from '@/lib/offline-queue-beacon';
 import { syncQueue } from '@/lib/offline-sync';
 

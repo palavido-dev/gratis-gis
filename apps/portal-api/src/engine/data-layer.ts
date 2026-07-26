@@ -94,6 +94,15 @@ export interface ListFeaturesArgs {
    *  returned. Used by callers that want one feature back rather
    *  than the whole collection (e.g. update path read-back). */
   entity?: string;
+  /**
+   * Explicit multi-entity filter: restricts the result to the named
+   * entities. Same caller contract as `pageFeatures`: ids must be
+   * validated as UUIDs upstream (they are cast through `::uuid` in
+   * the SQL). Powers selection-scoped operations, e.g. Calculate
+   * Field with scope='selection', where silently ignoring the set
+   * would widen a write to the whole layer.
+   */
+  entityIds?: string[];
   /** Viewport filter as `[minLng, minLat, maxLng, maxLat]` in EPSG:4326. */
   bbox?: [number, number, number, number];
   /**
@@ -679,6 +688,7 @@ export class DataLayerEngine {
       ListFeaturesArgs,
       | 'ownRowsOnly'
       | 'entity'
+      | 'entityIds'
       | 'isTable'
       | 'bbox'
       | 'geoLimit'
@@ -704,6 +714,20 @@ export class DataLayerEngine {
     if (args.entity !== undefined) {
       candidateFilters.push(
         Prisma.sql`AND entity = ${args.entity}::uuid`,
+      );
+    }
+
+    if (args.entityIds !== undefined && args.entityIds.length > 0) {
+      // Same fragment shape as `pageFeatures`: the caller validates
+      // these are UUIDs upstream; cast each through ::uuid so a
+      // non-uuid string can't reach the planner. Applied to the
+      // current-state rows (not the candidate CTE) because entity
+      // ids never change across observations, so filtering the
+      // currents directly is equivalent and skips the semi-join.
+      currentFilters.push(
+        Prisma.sql`AND entity = ANY(ARRAY[${Prisma.join(
+          args.entityIds.map((id) => Prisma.sql`${id}::uuid`),
+        )}])`,
       );
     }
 

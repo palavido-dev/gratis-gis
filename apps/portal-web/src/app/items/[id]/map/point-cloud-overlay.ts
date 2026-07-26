@@ -45,8 +45,6 @@ interface OverlayState {
   clouds: Map<string, CloudEntry>;
   /** maxPitch to restore when the last 3D layer leaves */
   prevMaxPitch: number;
-  /** serialization chain for sync calls */
-  op: Promise<void>;
   /** "Loading point cloud..." chip shown during initial loads. A
    *  200M-point cloud takes ~10s of header + hierarchy fetches
    *  before the first point draws; without messaging that reads
@@ -59,6 +57,28 @@ interface OverlayState {
 const states = new WeakMap<maplibregl.Map, OverlayState>();
 
 /**
+ * Per-map serialization chain for reconcile ops. Kept OUTSIDE
+ * OverlayState on purpose: the state entry is deleted when the last
+ * cloud leaves and recreated when one returns, and a chain stored
+ * on the state was simply dropped for any sync issued before the
+ * entry existed (i.e. during the slow first load), letting two
+ * reconciles run concurrently and double-add a LidarControl. The
+ * chain is stored unconditionally on every sync and only dies with
+ * the map reference itself.
+ */
+const opChains = new WeakMap<maplibregl.Map, Promise<void>>();
+
+/**
+ * Maps whose canvas has unmounted. A reconcile still queued behind
+ * a slow load must not resurrect indicator DOM or controls on a map
+ * that is being removed; entries die with the map reference. Only
+ * the exported unmount teardown sets this: the "last cloud toggled
+ * off" path must not, because that map lives on and clouds may
+ * return.
+ */
+const disposedMaps = new WeakSet<maplibregl.Map>();
+
+/**
  * Reconcile the loaded controls with the map's visible point-cloud
  * layers. Fire-and-forget from the canvas layer effect; errors
  * degrade to a console warning + missing layer rather than
@@ -68,21 +88,34 @@ export function syncPointCloudOverlay(
   map: maplibregl.Map,
   layers: MapLayer[],
 ): void {
-  const state = states.get(map);
   const desired = layers.filter(
     (l): l is PcLayer => l.source.kind === 'point-cloud' && l.visible,
   );
-  if (desired.length === 0 && !state) return; // common case: 2D map
-  const chain = (state?.op ?? Promise.resolve()).then(() =>
+  // Common case: a 2D map that never had a point-cloud layer. No
+  // chain to queue behind, no state a reconcile could tear down.
+  if (desired.length === 0 && !opChains.has(map) && !states.has(map)) return;
+  const chain = (opChains.get(map) ?? Promise.resolve()).then(() =>
     reconcile(map, desired).catch((err) => {
       console.warn('point-cloud overlay sync failed', err);
     }),
   );
-  if (state) state.op = chain;
+  opChains.set(map, chain);
 }
 
-/** Full teardown for canvas unmount. Safe when nothing mounted. */
+/**
+ * Full teardown for canvas unmount. Safe when nothing mounted.
+ * Tombstones the map so reconciles still queued behind a slow load
+ * become no-ops instead of re-adding controls to a dying map.
+ */
 export function teardownPointCloudOverlay(map: maplibregl.Map): void {
+  disposedMaps.add(map);
+  disposeOverlayState(map);
+}
+
+/** Remove the indicator + every control and drop the state entry.
+ *  Shared by the unmount teardown and the "last cloud toggled off"
+ *  reconcile branch (which must not tombstone the map). */
+function disposeOverlayState(map: maplibregl.Map): void {
   const state = states.get(map);
   if (!state) return;
   states.delete(map);
@@ -157,37 +190,46 @@ async function reconcile(
   map: maplibregl.Map,
   desired: PcLayer[],
 ): Promise<void> {
+  // The canvas unmounted while this op sat in the queue: the map is
+  // being removed and must not get fresh controls or indicator DOM.
+  if (disposedMaps.has(map)) return;
+
   let state = states.get(map);
 
   if (desired.length === 0) {
     if (state) {
       map.setMaxPitch(state.prevMaxPitch);
-      teardownPointCloudOverlay(map);
+      disposeOverlayState(map);
     }
     return;
   }
 
+  // Create the state entry BEFORE the first await so it exists from
+  // the moment this reconcile starts. Ops are serialized through
+  // opChains, so nothing else can create a competing entry.
   if (!state) {
-    const mod = await import('maplibre-gl-lidar');
+    state = {
+      clouds: new Map(),
+      prevMaxPitch: map.getMaxPitch(),
+      indicator: makeIndicator(map),
+      mod: null,
+    };
+    states.set(map, state);
+    // 3D needs headroom to look under the horizon; MapLibre's
+    // default 60 reads flat for terrain.
+    map.setMaxPitch(85);
+  }
+
+  let mod = state.mod;
+  if (!mod) {
+    mod = await import('maplibre-gl-lidar');
     // The control's panel styles ship separately; loading them here
     // keeps them in the lazy chunk too.
     await import('maplibre-gl-lidar/style.css');
-    // Guard against a concurrent create that won the race while we
-    // awaited the import.
-    state = states.get(map);
-    if (!state) {
-      state = {
-        clouds: new Map(),
-        prevMaxPitch: map.getMaxPitch(),
-        op: Promise.resolve(),
-        indicator: makeIndicator(map),
-        mod,
-      };
-      states.set(map, state);
-      // 3D needs headroom to look under the horizon; MapLibre's
-      // default 60 reads flat for terrain.
-      map.setMaxPitch(85);
-    }
+    // Unmount teardown can interleave with the import; the WeakMap
+    // entry is the source of truth for whether this map still wants
+    // the overlay.
+    if (states.get(map) !== state) return;
     state.mod = mod;
   }
 
@@ -200,11 +242,17 @@ async function reconcile(
     }
   }
 
-  // Create + load a control for each new layer.
-  const toLoad = desired.filter((l) => !state.clouds.has(l.id));
-  for (const [i, layer] of toLoad.entries()) {
-    const mod = state.mod;
-    if (!mod) return; // teardown raced the import
+  // Create + load a control for each new layer. Loads are slow
+  // (network + wasm decode) and the synchronous unmount teardown can
+  // interleave at any await, so the "does this layer still need a
+  // control" decision is re-checked on every iteration instead of
+  // trusting a plan computed before the awaits: a stale plan could
+  // add a second control for a layer that already has one, or add
+  // controls to a map that no longer wants them.
+  const planned = desired.filter((l) => !state.clouds.has(l.id));
+  for (const [i, layer] of planned.entries()) {
+    if (states.get(map) !== state) return; // torn down mid-loop
+    if (state.clouds.has(layer.id)) continue; // already has a control
     const isHuge = (layer.source.pointCount ?? 0) > 20_000_000;
     const theme = document.documentElement.classList.contains('dark')
       ? ('dark' as const)
@@ -234,8 +282,8 @@ async function reconcile(
     const url = `${window.location.origin}${layer.source.dataUrl}`;
     showIndicator(
       state,
-      toLoad.length > 1
-        ? `Loading point clouds (${i + 1} of ${toLoad.length})...`
+      planned.length > 1
+        ? `Loading point clouds (${i + 1} of ${planned.length})...`
         : `Loading ${layer.title}...`,
     );
     try {
@@ -249,7 +297,7 @@ async function reconcile(
       state.clouds.delete(layer.id);
     }
   }
-  if (toLoad.length > 0) hideIndicator(state);
+  if (planned.length > 0) hideIndicator(state);
 
   // Per-layer styling: each control gets its own layer's persisted
   // choices. No topmost-wins compromise anymore.

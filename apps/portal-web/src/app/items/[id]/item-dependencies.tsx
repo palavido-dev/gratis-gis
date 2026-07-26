@@ -13,7 +13,11 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import type { ItemAccess, ItemType } from '@gratis-gis/shared-types';
-import { getItemTypeIcon, getItemTypeAccent } from '@/lib/item-type-icon';
+import {
+  getItemTypeIcon,
+  getItemTypeAccent,
+  getItemTypeLabel,
+} from '@/lib/item-type-icon';
 
 /**
  * Item dependency panel shown on the detail page. Two lists:
@@ -52,43 +56,59 @@ export function ItemDependencies({ itemId }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [upRes, downRes] = await Promise.all([
-        fetch(
-          `/api/portal/items/${itemId}/dependents?transitive=${transitive ? 'true' : 'false'}`,
-        ),
-        fetch(
-          `/api/portal/items/${itemId}/dependencies?transitive=${transitive ? 'true' : 'false'}`,
-        ),
-      ]);
-      // Include the response body in error messages so the UI actually
-      // says why it failed instead of just echoing a status code.
-      if (!upRes.ok) {
-        const text = await upRes.text().catch(() => '');
-        throw new Error(
-          `Used-by query failed (${upRes.status}): ${text || upRes.statusText || 'no body'}`,
-        );
+  // The effect passes an abort signal so unmounting or flipping the
+  // transitive toggle cancels the in-flight pair instead of letting
+  // a slow earlier response overwrite the newer toggle's result.
+  // The Refresh button omits the signal.
+  const load = useCallback(
+    async (signal?: AbortSignal) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const init: RequestInit = signal ? { signal } : {};
+        const [upRes, downRes] = await Promise.all([
+          fetch(
+            `/api/portal/items/${itemId}/dependents?transitive=${transitive ? 'true' : 'false'}`,
+            init,
+          ),
+          fetch(
+            `/api/portal/items/${itemId}/dependencies?transitive=${transitive ? 'true' : 'false'}`,
+            init,
+          ),
+        ]);
+        // Include the response body in error messages so the UI actually
+        // says why it failed instead of just echoing a status code.
+        if (!upRes.ok) {
+          const text = await upRes.text().catch(() => '');
+          throw new Error(
+            `Used-by query failed (${upRes.status}): ${text || upRes.statusText || 'no body'}`,
+          );
+        }
+        if (!downRes.ok) {
+          const text = await downRes.text().catch(() => '');
+          throw new Error(
+            `Depends-on query failed (${downRes.status}): ${text || downRes.statusText || 'no body'}`,
+          );
+        }
+        const up = (await upRes.json()) as Row[];
+        const down = (await downRes.json()) as Row[];
+        if (signal?.aborted) return;
+        setDependents(up);
+        setDependencies(down);
+      } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return;
+        setError((err as Error).message ?? 'Could not load dependency data');
+      } finally {
+        if (!signal?.aborted) setLoading(false);
       }
-      if (!downRes.ok) {
-        const text = await downRes.text().catch(() => '');
-        throw new Error(
-          `Depends-on query failed (${downRes.status}): ${text || downRes.statusText || 'no body'}`,
-        );
-      }
-      setDependents((await upRes.json()) as Row[]);
-      setDependencies((await downRes.json()) as Row[]);
-    } catch (err) {
-      setError((err as Error).message ?? 'Could not load dependency data');
-    } finally {
-      setLoading(false);
-    }
-  }, [itemId, transitive]);
+    },
+    [itemId, transitive],
+  );
 
   useEffect(() => {
-    void load();
+    const controller = new AbortController();
+    void load(controller.signal);
+    return () => controller.abort();
   }, [load]);
 
   return (
@@ -225,7 +245,7 @@ function DependencyList({
                     {r.title}
                   </p>
                   <p className="truncate text-2xs uppercase tracking-wide text-muted">
-                    {r.type.replace(/_/g, ' ')}
+                    {getItemTypeLabel(r.type)}
                   </p>
                 </span>
                 <ChevronDown className="h-3 w-3 -rotate-90 shrink-0 text-muted" />

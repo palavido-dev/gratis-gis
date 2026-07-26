@@ -26,10 +26,15 @@ import type {
  *   1. Start from the referenced map's MapData. If the Editor has no
  *      mapId, start from DEFAULT_MAP (default basemap, world view, no
  *      reference layers).
- *   2. Append one MapLayer per Editor target whose underlying v3
- *      sublayer resolved successfully. Targets pointing at deleted /
- *      renamed layers are silently dropped here; the config page
- *      surfaces those with a warning so the author can fix it.
+ *   2. Prepend one MapLayer per Editor target whose underlying v3
+ *      sublayer resolved successfully. MapData.layers index 0 is the
+ *      TOP of the render stack, so prepending keeps the editable
+ *      layers above the reference map's layers; appending them put
+ *      the purple targets UNDER any opaque reference overlay, where
+ *      they were invisible and unclickable. Targets pointing at
+ *      deleted / renamed layers are silently dropped here; the
+ *      config page surfaces those with a warning so the author can
+ *      fix it.
  *   3. Target layers use a distinct purple-accent style so authors
  *      can tell editable layers apart from reference layers in the
  *      canvas at a glance.
@@ -158,7 +163,9 @@ export function buildEditorMapData(args: {
   return {
     mapData: {
       ...base,
-      layers: [...(base.layers ?? []), ...newLayers],
+      // Targets first: index 0 renders on top, and the editable
+      // layers must sit above the reference map's layers.
+      layers: [...newLayers, ...(base.layers ?? [])],
     },
     targetLayerIds,
   };

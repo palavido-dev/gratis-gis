@@ -54,6 +54,16 @@ import { StorageService } from '../storage/storage.service.js';
  * item continues to serve from its COG.  An admin can hit the
  * retry endpoint to flip back to 'cog-ready' for another pass.
  */
+/**
+ * How many crashed build attempts an item gets before boot recovery
+ * stops re-arming it and flips it to 'tiling-failed'.  Counted via
+ * `tilingAttempts` in data_json: a stale 'tiling' row found at boot
+ * means the previous attempt died mid-build (the worker never
+ * reached its own success or markFailed patch), so each recovery
+ * increments the counter.
+ */
+const MAX_TILING_ATTEMPTS = 3;
+
 @Injectable()
 export class TileLayerPyramidWorker implements OnModuleInit {
   private readonly log = new Logger(TileLayerPyramidWorker.name);
@@ -71,8 +81,18 @@ export class TileLayerPyramidWorker implements OnModuleInit {
 
   async onModuleInit() {
     // Recover any 'tiling' rows abandoned by a prior worker
-    // process (container killed mid-build, oom, etc).  Flip them
-    // back to 'cog-ready' so the next loop tick re-claims them.
+    // process (container killed mid-build, oom, etc), bounded by
+    // an attempt budget.  Unconditional re-arming turned a crash-
+    // inducing item into a poison pill: claimNext picks oldest
+    // first, so the same item was re-claimed after every restart
+    // and everything behind it starved forever.  The budget is
+    // tracked as `tilingAttempts` in data_json: each recovery of a
+    // stale 'tiling' row counts one crashed attempt, and once
+    // MAX_TILING_ATTEMPTS crashed attempts have been observed the
+    // item flips to 'tiling-failed' with a clear error instead of
+    // re-arming.  A successful build (or the recovery fail-out
+    // itself) clears the counter, so an explicit admin retry gets
+    // a fresh budget.
     try {
       // NOTE: Prisma maps the model + several fields + the enum
       // value to different underlying SQL identifiers:
@@ -84,15 +104,34 @@ export class TileLayerPyramidWorker implements OnModuleInit {
       // rejects the query (relation "Item" does not exist, or
       // invalid input value for enum "ItemType": 'tile_layer').
       // The explicit `::"ItemType"` cast mirrors items.service.ts.
-      const result = await this.prisma.$executeRaw`
+      //
+      // Two passes, fail-out first so the second pass only re-arms
+      // items still under budget.  This recovery is a boot-time,
+      // single-worker path today, so the tiny window between the
+      // statements cannot race another sweep.
+      const failed = await this.prisma.$executeRaw`
         UPDATE "item"
-        SET "data_json" = jsonb_set("data_json", '{processingState}', '"cog-ready"')
+        SET "data_json" = ("data_json" - 'tilingAttempts') || jsonb_build_object(
+          'processingState', 'tiling-failed',
+          'tilingError',
+          'The tiling worker crashed repeatedly while building this pyramid (' || ${MAX_TILING_ATTEMPTS}::text || ' attempts). The layer still serves from its original file. Retry from the layer page, and check the worker logs if it keeps failing.'
+        )
+        WHERE type = 'tile-layer'::"ItemType"
+          AND "data_json"->>'processingState' = 'tiling'
+          AND COALESCE(("data_json"->>'tilingAttempts')::int, 0) >= ${MAX_TILING_ATTEMPTS - 1}
+      `;
+      const rearmed = await this.prisma.$executeRaw`
+        UPDATE "item"
+        SET "data_json" = "data_json" || jsonb_build_object(
+          'processingState', 'cog-ready',
+          'tilingAttempts', COALESCE(("data_json"->>'tilingAttempts')::int, 0) + 1
+        )
         WHERE type = 'tile-layer'::"ItemType"
           AND "data_json"->>'processingState' = 'tiling'
       `;
-      if (result > 0) {
+      if (failed > 0 || rearmed > 0) {
         this.log.log(
-          `Recovered ${result} stale 'tiling' row(s) back to 'cog-ready' on boot.`,
+          `Stale 'tiling' recovery on boot: re-armed ${rearmed} row(s) to 'cog-ready', failed out ${failed} row(s) after ${MAX_TILING_ATTEMPTS} crashed attempts.`,
         );
       }
     } catch (err) {
@@ -408,13 +447,14 @@ export class TileLayerPyramidWorker implements OnModuleInit {
     `;
   }
 
-  /** Remove the tilingError key from Item.data, if present.
-   *  Used after a successful build so the error from a prior
-   *  failed attempt doesn't linger. */
+  /** Remove the tilingError and tilingAttempts keys from
+   *  Item.data, if present.  Used after a successful build so the
+   *  error from a prior failed attempt doesn't linger and so the
+   *  crash-recovery attempt budget resets for any future re-tile. */
   private async clearTilingError(itemId: string): Promise<void> {
     await this.prisma.$executeRaw`
       UPDATE "item"
-      SET "data_json" = "data_json" - 'tilingError'
+      SET "data_json" = "data_json" - 'tilingError' - 'tilingAttempts'
       WHERE id = ${itemId}::uuid
     `;
   }
@@ -431,6 +471,15 @@ export class TileLayerPyramidWorker implements OnModuleInit {
       processingState: 'tiling-failed',
       tilingError: truncated,
     });
+    // A clean failure ends any crash streak: the worker survived to
+    // report it, so an explicit admin retry should start with the
+    // full MAX_TILING_ATTEMPTS crash-recovery budget rather than
+    // inheriting counts from before this terminal state.
+    await this.prisma.$executeRaw`
+      UPDATE "item"
+      SET "data_json" = "data_json" - 'tilingAttempts'
+      WHERE id = ${itemId}::uuid
+    `;
   }
 
   // -----------------------------------------------------------

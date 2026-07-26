@@ -17,19 +17,25 @@
 //   - initialState.viewpoint (center + scale)
 //   - version + authoringApp + authoringAppVersion
 //
-// Anything we don't understand on the way in is preserved verbatim
-// under `__unknown` so we don't lose information across an
-// import / export round trip. Anything we don't have a Lens
-// equivalent for on the way out is omitted with a comment in the
-// output explaining what was skipped.
+// Honest lossiness statement: anything outside that subset is
+// DROPPED. On the way in, unmodeled top-level WebMap keys (tables,
+// widgets, applicationProperties, ...) and unsupported layer types
+// surface as entries in the returned `warnings` list so the import
+// UI can tell the user what did not survive; unmodeled per-layer
+// properties (popupInfo and friends) are dropped without a per-key
+// warning to keep the list readable. On the way out, lenses with no
+// map representation are omitted; callers detect that by comparing
+// input and output lengths (see lensesToWebMapJson). There is no
+// preservation stash: a WebMap that round-trips through a Lens
+// keeps only what the Lens models.
 
-import type { Lens, BBox, LensView } from './lens.js';
+import type { Lens, LensAttrFilter, BBox, LensView } from './lens.js';
 
 /**
  * Minimum WebMapJSON shape the converter recognises. Wider than
  * we emit (input often has fields we ignore), narrower than the
- * full spec. Fields not enumerated here ride along inside
- * `__unknown` on the Lens side for round-tripping.
+ * full spec. Fields not enumerated here are dropped on import;
+ * the top-level ones are reported in the importer's warnings list.
  */
 export interface EsriWebMap {
   version: string;
@@ -89,17 +95,24 @@ export interface EsriInitialState {
 
 /**
  * Inputs the converter needs that aren't part of the lens itself:
- * the public URL prefix (so emitted FeatureLayer URLs are
- * fetchable from outside the portal) and the chosen basemap tile
- * URL + attribution.
+ * the public portal base URL (so emitted layer URLs are fetchable
+ * from outside the portal) and the chosen basemap tile URL +
+ * attribution.
  */
 export interface WebMapJsonContext {
   /**
-   * Absolute URL prefix for a lens's GeoJSON endpoint, e.g.
-   * `https://portal.example.org/api/lenses`. The converter appends
-   * `/<lensId>/features` to produce the FeatureLayer URL.
+   * Absolute portal origin, e.g. `https://portal.example.org`
+   * (trailing slash tolerated). The converter derives each layer's
+   * per-sublayer data URL from this plus the lens's
+   * `data_layer:<itemId>:<layerKey>` scope:
+   *   - geojson render: `<base>/api/items/<itemId>/layers/<layerKey>/geojson`
+   *   - mvt render:     `<base>/api/items/<itemId>/layers/<layerKey>/tile/{z}/{x}/{y}.mvt`
+   * These are the routes DataLayerFeaturesController actually
+   * serves; the previous `/api/lenses/...` URLs pointed at a
+   * controller that never existed, so every exported WebMap
+   * carried dead links and the importer rejected our own output.
    */
-  lensUrlPrefix: string;
+  portalBaseUrl: string;
   /** A single basemap to emit; v1 doesn't compose multi-layer basemaps. */
   basemap: {
     id: string;
@@ -153,12 +166,13 @@ export function lensToWebMapJson(
  * `args.view` (typically the source map item's saved camera
  * state); a missing view omits initialState entirely.
  *
- * Skipped lenses (table-shaped or scalar) leave a gap in the
- * output -- the operationalLayers length may be smaller than
+ * Skipped lenses (table-shaped, scalar, or without a resolvable
+ * single data_layer scope) leave a gap in the output: the
+ * operationalLayers length may be smaller than
  * `args.lenses.length`. Caller can compare lengths to detect.
  */
 export function lensesToWebMapJson(
-  args: { lenses: Lens[]; view?: import('./lens.js').LensView },
+  args: { lenses: Lens[]; view?: LensView },
   ctx: WebMapJsonContext,
 ): EsriWebMap {
   const operationalLayers: EsriOperationalLayer[] = [];
@@ -193,40 +207,74 @@ export function lensesToWebMapJson(
 
 /**
  * Translate a single Lens to its EsriOperationalLayer. Returns
- * undefined for non-map renderers (geojson_table / scalar_json).
- * Exposed so callers that build a WebMap from non-Lens sources
- * (e.g. an arcgis-rest map layer that points straight at an
- * external FeatureService) can mix lens-shaped and bare-URL
- * layers in one document.
+ * undefined for non-map renderers (geojson_table / scalar_json)
+ * and for lenses whose scope cannot be resolved to a single
+ * data_layer sublayer (no scope, several scopes, or a non
+ * data_layer scope): those have no fetchable portal URL, and
+ * emitting a fabricated one would just be a dead link in the
+ * exported document. Exposed so callers that build a WebMap from
+ * non-Lens sources (e.g. an arcgis-rest map layer that points
+ * straight at an external FeatureService) can mix lens-shaped and
+ * bare-URL layers in one document.
  */
 export function operationalLayerForLens(
   lens: Lens,
   ctx: WebMapJsonContext,
 ): EsriOperationalLayer | undefined {
+  if (lens.render.kind !== 'geojson' && lens.render.kind !== 'mvt') {
+    // geojson_table and scalar_json have no map representation.
+    return undefined;
+  }
+  const scope =
+    lens.query.scopes.length === 1 ? lens.query.scopes[0] : undefined;
+  const parts = scope !== undefined ? dataLayerScopeParts(scope) : null;
+  if (!parts) return undefined;
+  const base = ctx.portalBaseUrl.replace(/\/+$/, '');
+  const layerBase = `${base}/api/items/${parts.itemId}/layers/${parts.layerKey}`;
   if (lens.render.kind === 'geojson') {
     const def = esriDefinitionFromAttrFilter(lens);
     return {
       id: lens.id,
       title: lens.name,
-      url: `${ctx.lensUrlPrefix}/${lens.id}/features`,
+      url: `${layerBase}/geojson`,
       layerType: 'ArcGISFeatureLayer',
       visibility: true,
       opacity: 1,
       ...(def && { layerDefinition: { definitionExpression: def } }),
     };
   }
-  if (lens.render.kind === 'mvt') {
-    return {
-      id: lens.id,
-      title: lens.name,
-      url: `${ctx.lensUrlPrefix}/${lens.id}/tiles/{z}/{y}/{x}.pbf`,
-      layerType: 'VectorTileLayer',
-      visibility: true,
-      opacity: 1,
-    };
-  }
-  // geojson_table and scalar_json have no map representation.
-  return undefined;
+  return {
+    id: lens.id,
+    title: lens.name,
+    // z/x/y order, matching DataLayerFeaturesController's
+    // `tile/:z/:x/:y.mvt` route (the previous emission used the
+    // TMS-flavoured {z}/{y}/{x}.pbf order against a nonexistent
+    // controller).
+    url: `${layerBase}/tile/{z}/{x}/{y}.mvt`,
+    layerType: 'VectorTileLayer',
+    visibility: true,
+    opacity: 1,
+  };
+}
+
+/**
+ * Parse the engine's canonical `data_layer:<itemId>:<layerKey>`
+ * scope string (see dataLayerScope in the portal-api engine
+ * adapter, the single writer of these). Returns null for anything
+ * else so callers can tell "not a portal data layer" apart from a
+ * malformed scope. Neither component can contain `:`; item ids are
+ * UUIDs and layer keys are identifier-shaped.
+ */
+function dataLayerScopeParts(
+  scope: string,
+): { itemId: string; layerKey: string } | null {
+  const parts = scope.split(':');
+  if (parts.length !== 3) return null;
+  if (parts[0] !== 'data_layer') return null;
+  const itemId = parts[1];
+  const layerKey = parts[2];
+  if (!itemId || !layerKey) return null;
+  return { itemId, layerKey };
 }
 
 /**
@@ -290,6 +338,20 @@ export function webMapJsonToLenses(json: EsriWebMap): {
   if (typeof json.version !== 'string' || json.version.length === 0) {
     throw new Error('webMapJsonToLenses: missing or empty `version`');
   }
+  // Surface what we are about to drop. The converter models only a
+  // subset of the WebMap spec; any other top-level key (tables,
+  // widgets, applicationProperties, ...) does not survive the
+  // import, and pretending otherwise cost us a debugging session
+  // once already. One aggregate warning keeps the dry-run summary
+  // readable.
+  const droppedKeys = Object.keys(json).filter(
+    (k) => !MODELED_WEB_MAP_KEYS.has(k),
+  );
+  if (droppedKeys.length > 0) {
+    warnings.push(
+      `Unsupported WebMap properties were dropped on import: ${droppedKeys.join(', ')}.`,
+    );
+  }
   const view =
     json.initialState?.viewpoint !== undefined
       ? lensViewFromViewpoint(json.initialState.viewpoint)
@@ -348,6 +410,20 @@ export function webMapJsonToLenses(json: EsriWebMap): {
 // ---------------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------------
+
+/**
+ * Top-level WebMap keys the importer actually reads. Everything
+ * else is dropped with an aggregate warning (see
+ * webMapJsonToLenses).
+ */
+const MODELED_WEB_MAP_KEYS = new Set([
+  'version',
+  'authoringApp',
+  'authoringAppVersion',
+  'operationalLayers',
+  'baseMap',
+  'initialState',
+]);
 
 function viewportFromLensView(view: LensView): EsriInitialState {
   if (view.viewport) {
@@ -513,55 +589,188 @@ function esriDefinitionFromAttrFilter(lens: Lens): string | null {
 }
 
 /**
+ * Field identifier fragment shared by every definition-expression
+ * pattern below. Two alternatives:
+ *   - a double-quoted name with SQL `""` escaping, which is what WE
+ *     emit (`"area" >= 5000`), and
+ *   - a bare SQL identifier, which is what real AGO / ArcGIS Pro
+ *     emit (`STATUS = 'Open'`). Bare names follow the usual
+ *     letter-then-word-characters identifier shape.
+ * Exactly one of the two capture groups matches.
+ */
+const FIELD_FRAGMENT = '(?:"((?:[^"]|"")+)"|([A-Za-z_][A-Za-z0-9_]*))';
+
+/** Resolve the two FIELD_FRAGMENT capture groups to the field name,
+ *  unescaping `""` in the quoted variant. */
+function fieldFromMatch(
+  quoted: string | undefined,
+  bare: string | undefined,
+): string {
+  if (quoted !== undefined) return quoted.replace(/""/g, '"');
+  return bare as string;
+}
+
+/**
+ * Parse one SQL literal: `'string'` (with `''` escaping), a
+ * numeric literal, a boolean, or NULL. Mirrors exactly what
+ * esriDefinitionFromAttrFilter's formatValue can produce so the
+ * converter round-trips its own output.
+ */
+function parseSqlLiteral(
+  raw: string,
+): { ok: true; value: string | number | boolean | null } | { ok: false } {
+  const t = raw.trim();
+  const str = t.match(/^'((?:[^']|'')*)'$/);
+  if (str) return { ok: true, value: (str[1] as string).replace(/''/g, "'") };
+  if (/^-?\d+(?:\.\d+)?$/.test(t)) return { ok: true, value: Number(t) };
+  if (/^(?:true|false)$/i.test(t)) return { ok: true, value: /^t/i.test(t) };
+  if (/^null$/i.test(t)) return { ok: true, value: null };
+  return { ok: false };
+}
+
+/**
+ * Parse the body of an `IN (...)` list into literal values. A
+ * character scan rather than a comma split because string literals
+ * may contain commas (`IN ('a,b', 'c')`). Returns null when any
+ * element fails to parse, when the list is empty, or on a dangling
+ * comma; the caller degrades to a warning + dropped filter.
+ */
+function parseSqlLiteralList(
+  body: string,
+): Array<string | number | boolean> | null {
+  const out: Array<string | number | boolean> = [];
+  const n = body.length;
+  let i = 0;
+  let expectElement = true;
+  while (i < n) {
+    while (i < n && /\s/.test(body[i]!)) i += 1;
+    if (i >= n) break;
+    let end: number;
+    if (body[i] === "'") {
+      // Quoted literal: scan to the closing quote, treating '' as
+      // an escaped quote rather than a terminator.
+      let j = i + 1;
+      for (;;) {
+        if (j >= n) return null; // unterminated string
+        if (body[j] === "'") {
+          if (body[j + 1] === "'") {
+            j += 2;
+            continue;
+          }
+          break;
+        }
+        j += 1;
+      }
+      end = j + 1;
+    } else {
+      end = i;
+      while (end < n && body[end] !== ',') end += 1;
+    }
+    const lit = parseSqlLiteral(body.slice(i, end));
+    // NULL inside IN(...) never matches anything in SQL and the
+    // LensAttrFilter list shape has no slot for it; treat it as
+    // unparseable rather than silently narrowing the list.
+    if (!lit.ok || lit.value === null) return null;
+    out.push(lit.value);
+    expectElement = false;
+    i = end;
+    while (i < n && /\s/.test(body[i]!)) i += 1;
+    if (i < n) {
+      if (body[i] !== ',') return null;
+      i += 1;
+      expectElement = true;
+    }
+  }
+  if (expectElement) return null; // empty list or dangling comma
+  return out;
+}
+
+/**
  * Reverse of esriDefinitionFromAttrFilter for the import flow.
- * Handles only the simple shapes we emit; anything more complex is
- * surfaced as a warning and the filter is dropped (the import still
- * succeeds, just without the predicate). A general SQL parser is a
- * Phase 4 candidate.
+ * Covers every shape that function emits (comparators, IN, the two
+ * LIKE forms, IS [NOT] NULL, NULL literals) with both quoted and
+ * bare field identifiers, so an exported portal WebMap re-imports
+ * with its filter intact and plain AGO expressions like
+ * `STATUS = 'Open'` are lifted too. Anything more complex (AND /
+ * OR trees, functions, subqueries) is surfaced as a warning and
+ * the filter is dropped; the import still succeeds, just without
+ * the predicate. A general SQL parser is a Phase 4 candidate.
  */
 function attrFilterFromEsriDefinition(
   expr: string,
   warnings: string[],
-): import('./lens.js').LensAttrFilter | null {
+): LensAttrFilter | null {
   const trimmed = expr.trim();
-  // "field" OP literal. The string literal subgroup uses
-  // SQL-style `''` escaping (`'O''Brien'` -> `O'Brien`), so we
-  // capture (?:[^']|'')*` and unescape after the match.
-  const m = trimmed.match(
-    /^"([^"]+)"\s*(=|<>|<|<=|>|>=)\s*('((?:[^']|'')*)'|(-?\d+(?:\.\d+)?)|(true|false|TRUE|FALSE))$/,
+
+  // field OP literal.
+  const cmp = trimmed.match(
+    new RegExp(`^${FIELD_FRAGMENT}\\s*(<>|<=|>=|=|<|>)\\s*(.+)$`),
   );
-  if (m) {
-    const field = m[1] as string;
-    const op = m[2] as string;
-    const stringLit = m[4];
-    const numLit = m[5];
-    const boolLit = m[6];
-    const value =
-      stringLit !== undefined
-        ? stringLit.replace(/''/g, "'")
-        : numLit !== undefined
-          ? Number(numLit)
-          : boolLit !== undefined
-            ? /^t/i.test(boolLit)
-            : null;
-    const opMap: Record<string, import('./lens.js').LensAttrFilter['op']> = {
-      '=': 'eq',
-      '<>': 'neq',
-      '<': 'lt',
-      '<=': 'lte',
-      '>': 'gt',
-      '>=': 'gte',
-    };
-    return { field, op: opMap[op]!, value };
+  if (cmp) {
+    const field = fieldFromMatch(cmp[1], cmp[2]);
+    const op = cmp[3] as string;
+    const lit = parseSqlLiteral(cmp[4] as string);
+    if (lit.ok) {
+      const opMap: Record<string, LensAttrFilter['op']> = {
+        '=': 'eq',
+        '<>': 'neq',
+        '<': 'lt',
+        '<=': 'lte',
+        '>': 'gt',
+        '>=': 'gte',
+      };
+      return { field, op: opMap[op]!, value: lit.value };
+    }
   }
-  // "field" IS NULL / IS NOT NULL
-  const nullMatch = trimmed.match(/^"([^"]+)"\s+IS\s+(NOT\s+)?NULL$/i);
+
+  // field IS NULL / IS NOT NULL.
+  const nullMatch = trimmed.match(
+    new RegExp(`^${FIELD_FRAGMENT}\\s+IS\\s+(NOT\\s+)?NULL$`, 'i'),
+  );
   if (nullMatch) {
     return {
-      field: nullMatch[1] as string,
-      op: nullMatch[2] ? 'isNotNull' : 'isNull',
+      field: fieldFromMatch(nullMatch[1], nullMatch[2]),
+      op: nullMatch[3] ? 'isNotNull' : 'isNull',
     };
   }
+
+  // field IN (literal, literal, ...).
+  const inMatch = trimmed.match(
+    new RegExp(`^${FIELD_FRAGMENT}\\s+IN\\s*\\((.*)\\)$`, 'i'),
+  );
+  if (inMatch) {
+    const values = parseSqlLiteralList(inMatch[3] as string);
+    if (values !== null) {
+      return {
+        field: fieldFromMatch(inMatch[1], inMatch[2]),
+        op: 'in',
+        value: values,
+      };
+    }
+  }
+
+  // field LIKE 'pattern'. We only ever emit two pattern shapes:
+  // '%value%' for contains and 'value%' for startsWith, where any
+  // interior % came from the value itself, so stripping exactly the
+  // sentinel wildcards reconstructs the original value (a contains
+  // of "50%" emits '%50%%' and parses back to "50%"). Patterns that
+  // fit neither shape (leading-%-only, interior-wildcard authored
+  // expressions) have no LensAttrFilter equivalent and fall through
+  // to the warning.
+  const likeMatch = trimmed.match(
+    new RegExp(`^${FIELD_FRAGMENT}\\s+LIKE\\s+'((?:[^']|'')*)'$`, 'i'),
+  );
+  if (likeMatch) {
+    const field = fieldFromMatch(likeMatch[1], likeMatch[2]);
+    const pattern = (likeMatch[3] as string).replace(/''/g, "'");
+    if (pattern.length >= 2 && pattern.startsWith('%') && pattern.endsWith('%')) {
+      return { field, op: 'contains', value: pattern.slice(1, -1) };
+    }
+    if (pattern.endsWith('%')) {
+      return { field, op: 'startsWith', value: pattern.slice(0, -1) };
+    }
+  }
+
   warnings.push(
     `Definition expression "${expr}" was not recognised; filter dropped on import.`,
   );

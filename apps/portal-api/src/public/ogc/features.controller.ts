@@ -111,14 +111,22 @@ export class OgcFeaturesController {
     // into the engine's LIMIT clause. We over-fetch by `offset` so
     // the JS slice still gives correct pagination -- offset push-
     // down at the engine level is a follow-up; until then this caps
-    // worst-case fetch at (offset + limit), which is bounded by the
-    // controller's limit clamp (10 000) plus whatever the caller
+    // worst-case fetch at (offset + limit + 1), which is bounded by
+    // the controller's limit clamp (10 000) plus whatever the caller
     // offset is.
+    //
+    // The `+ 1` is the next-page probe. With the fetch capped at
+    // exactly offset + limit, the fetched count could never exceed
+    // the window, so the `next` link never emitted and clients saw
+    // every collection end after one page. Fetching one extra row
+    // tells us cheaply whether another page exists; the probe row
+    // is sliced off the response below.
+    const fetchN = offset + limit + 1;
     const opts: {
       bbox?: [number, number, number, number];
       limit?: number;
     } = {
-      limit: offset + limit,
+      limit: fetchN,
     };
     if (bboxParam) {
       opts.bbox = parseBbox(bboxParam, bboxCrs);
@@ -141,8 +149,11 @@ export class OgcFeaturesController {
     // Per OGC API Features Part 1 7.18.2, numberMatched is OPTIONAL;
     // when omitted, clients fall back to relying on `next` link
     // presence to keep paging. We surface what we know (the size of
-    // the slice we returned) as numberReturned and skip the field.
-    const total = features.length;
+    // the slice we returned) as numberReturned and omit the field
+    // entirely. Reporting the fetch-capped count as numberMatched
+    // was a lie that told paging clients the collection ended at
+    // whatever window they happened to request.
+    const hasMore = features.length > offset + limit;
     let slice = features.slice(offset, offset + limit);
     if (crs === 'epsg-4326') {
       slice = slice.map(swapAxes);
@@ -158,7 +169,7 @@ export class OgcFeaturesController {
         type: 'application/json',
       },
     ];
-    if (offset + limit < total) {
+    if (hasMore) {
       links.push({
         href: pagedUrl(selfBase, limit, offset + limit, bboxParam, sortbyParam, crsParam, bboxCrsParam),
         rel: 'next',
@@ -176,7 +187,6 @@ export class OgcFeaturesController {
     return {
       type: 'FeatureCollection',
       timeStamp: new Date().toISOString(),
-      numberMatched: total,
       numberReturned: slice.length,
       features: slice,
       links,

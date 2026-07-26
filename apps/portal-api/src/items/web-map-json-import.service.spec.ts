@@ -115,7 +115,7 @@ const baseWebMap: EsriWebMap = {
 };
 
 describe('WebMapJsonImportService', () => {
-  it('creates a map item with one MapLayer per recognised operational layer', async () => {
+  it('creates a map item with one MapLayer per recognised operational layer, stack order flipped', async () => {
     const items = makeItemsMock();
     const svc = new WebMapJsonImportService(makePrismaMock(), items.service);
     const result = await svc.import({
@@ -127,12 +127,21 @@ describe('WebMapJsonImportService', () => {
     expect(result.skippedLayerCount).toBe(0);
     const args = items.lastCreate.args as {
       type: string;
-      data: { layers: Array<{ source: { kind: string } }> };
+      data: { layers: Array<{ title: string; source: { kind: string } }> };
     };
     expect(args.type).toBe('map');
     expect(args.data.layers).toHaveLength(3);
+    // Esri draws operationalLayers[0] first (bottom of the stack);
+    // MapData.layers[0] is the portal render stack's TOP. The
+    // importer flips the document order so the imported map stacks
+    // like the source: the WebMap's LAST layer lands at index 0.
     const kinds = args.data.layers.map((l) => l.source.kind);
-    expect(kinds).toEqual(['arcgis-rest', 'arcgis-rest', 'geojson-url']);
+    expect(kinds).toEqual(['geojson-url', 'arcgis-rest', 'arcgis-rest']);
+    expect(args.data.layers.map((l) => l.title)).toEqual([
+      'Public POIs',
+      'Parcels',
+      'Roads',
+    ]);
   });
 
   it('parses out FeatureServer / MapServer layer ids', async () => {
@@ -151,7 +160,8 @@ describe('WebMapJsonImportService', () => {
         }>;
       };
     };
-    expect(args.data.layers[0]?.source).toEqual({
+    // Indexes are the reverse of the WebMap document order.
+    expect(args.data.layers[2]?.source).toEqual({
       kind: 'arcgis-rest',
       url: 'https://services.example.com/arcgis/rest/services/Transport/FeatureServer',
       layerId: 0,
@@ -163,9 +173,53 @@ describe('WebMapJsonImportService', () => {
       layerId: 3,
       serviceType: 'MapServer',
     });
-    expect(args.data.layers[2]?.source).toEqual({
+    expect(args.data.layers[0]?.source).toEqual({
       kind: 'geojson-url',
       url: 'https://example.com/data/poi.geojson',
+    });
+  });
+
+  it('resolves portal per-sublayer URLs back into data-layer sources', async () => {
+    // The exact URL shapes our own exporter emits. Re-importing an
+    // exported portal map must land portal-rooted layers, not
+    // opaque URL layers (the old /api/lenses emission made the
+    // importer reject its own export outright).
+    const items = makeItemsMock();
+    const svc = new WebMapJsonImportService(makePrismaMock(), items.service);
+    const wm: EsriWebMap = {
+      ...baseWebMap,
+      operationalLayers: [
+        {
+          id: 'portal-geojson',
+          title: 'Parcels',
+          url: 'https://portal.example.org/api/items/dl-1/layers/lyr_a/geojson',
+          layerType: 'ArcGISFeatureLayer',
+        },
+        {
+          id: 'portal-tiles',
+          title: 'Big parcels',
+          url: 'https://portal.example.org/api/items/dl-2/layers/lyr_b/tile/{z}/{x}/{y}.mvt',
+          layerType: 'VectorTileLayer',
+        },
+      ],
+    };
+    const result = await svc.import({ user: makeUser(), webMap: wm });
+    expect(result.layerCount).toBe(2);
+    expect(result.skippedLayerCount).toBe(0);
+    const args = items.lastCreate.args as {
+      data: { layers: Array<{ source: unknown }> };
+    };
+    // Reversed: the tile layer was the document's last entry, so it
+    // imports at index 0 (top of the portal stack).
+    expect(args.data.layers[0]?.source).toEqual({
+      kind: 'data-layer',
+      itemId: 'dl-2',
+      layerKey: 'lyr_b',
+    });
+    expect(args.data.layers[1]?.source).toEqual({
+      kind: 'data-layer',
+      itemId: 'dl-1',
+      layerKey: 'lyr_a',
     });
   });
 
@@ -188,9 +242,111 @@ describe('WebMapJsonImportService', () => {
     const args = items.lastCreate.args as {
       data: { layers: Array<{ source: { sourceItemId?: string } }> };
     };
-    expect(args.data.layers[0]?.source.sourceItemId).toBe('arcgis-portal-1');
+    // Roads (the matching layer) sits at index 2 after the stack
+    // flip.
+    expect(args.data.layers[2]?.source.sourceItemId).toBe('arcgis-portal-1');
     // Layers without a matching portal item omit sourceItemId.
     expect(args.data.layers[1]?.source.sourceItemId).toBeUndefined();
+  });
+
+  it('builds imported layers from the shared MapLayer defaults', async () => {
+    const items = makeItemsMock();
+    const svc = new WebMapJsonImportService(makePrismaMock(), items.service);
+    await svc.import({ user: makeUser(), webMap: baseWebMap });
+    const args = items.lastCreate.args as {
+      data: {
+        layers: Array<Record<string, unknown>>;
+      };
+    };
+    const layer = args.data.layers[0]!;
+    // The declared MapLayer contract, not the drifted hand-rolled
+    // shape (which wrote interactions.hoverEffect / clickToZoom and
+    // labels.expression, none of which exist, and omitted declared
+    // popup / labels / search fields).
+    expect(layer.popup).toEqual({
+      enabled: true,
+      mode: 'all',
+      fields: [],
+      titleTemplate: '',
+      bodyTemplate: '',
+    });
+    expect(layer.interactions).toEqual({
+      hoverHighlight: true,
+      editingEnabled: false,
+      selectable: true,
+    });
+    expect(layer.labels).toMatchObject({ enabled: false, template: '' });
+    expect(layer.labels).not.toHaveProperty('expression');
+    expect(layer.search).toEqual({
+      enabled: false,
+      fields: [],
+      labelTemplate: '',
+    });
+    expect(layer.scale).toEqual({
+      minZoom: null,
+      maxZoom: null,
+      scaleWithZoom: true,
+      labelsMinZoom: null,
+      labelsMaxZoom: null,
+    });
+    expect(layer.access).toEqual({ policy: 'inherit', entries: [] });
+    // Style defaults come from the shared DEFAULT_LAYER_STYLE.
+    const style = layer.style as {
+      point: { color: string; symbol: string };
+    };
+    expect(style.point.color).toBe('#6366f1');
+  });
+
+  it('carries a parsed definitionExpression onto the MapLayer filter', async () => {
+    const items = makeItemsMock();
+    const svc = new WebMapJsonImportService(makePrismaMock(), items.service);
+    const wm: EsriWebMap = {
+      ...baseWebMap,
+      operationalLayers: [
+        {
+          id: 'filtered',
+          title: 'Open things',
+          url: 'https://services.example.com/arcgis/rest/services/X/FeatureServer/0',
+          layerType: 'ArcGISFeatureLayer',
+          layerDefinition: { definitionExpression: "STATUS = 'Open'" },
+        },
+      ],
+    };
+    await svc.import({ user: makeUser(), webMap: wm });
+    const args = items.lastCreate.args as {
+      data: { layers: Array<{ filter: unknown }> };
+    };
+    expect(args.data.layers[0]?.filter).toEqual({
+      combinator: 'all',
+      clauses: [{ field: 'STATUS', op: '==', value: 'Open' }],
+    });
+  });
+
+  it('warns and imports unfiltered when the filter operator has no portal equivalent', async () => {
+    const items = makeItemsMock();
+    const svc = new WebMapJsonImportService(makePrismaMock(), items.service);
+    const wm: EsriWebMap = {
+      ...baseWebMap,
+      operationalLayers: [
+        {
+          id: 'in-filtered',
+          title: 'Zoned',
+          url: 'https://services.example.com/arcgis/rest/services/X/FeatureServer/0',
+          layerType: 'ArcGISFeatureLayer',
+          layerDefinition: {
+            definitionExpression: "ZONE IN ('R1', 'R2')",
+          },
+        },
+      ],
+    };
+    const result = await svc.import({ user: makeUser(), webMap: wm });
+    const args = items.lastCreate.args as {
+      data: { layers: Array<{ filter: unknown }> };
+    };
+    expect(args.data.layers[0]?.filter).toBeNull();
+    expect(
+      result.warnings.some((w) => /no portal equivalent/.test(w)),
+    ).toBe(true);
   });
 
   it('resolves the basemap by tileUrl match', async () => {

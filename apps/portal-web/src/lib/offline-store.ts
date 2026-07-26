@@ -475,18 +475,9 @@ export async function getStorageEstimate(): Promise<{
   return { quota: e.quota, usage: e.usage };
 }
 
-/**
- * Format a byte count for display ("4.2 MB", "1.1 GB"). Used in the
- * download-progress UI and the cached-deployments list.
- */
-export function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  const kb = n / 1024;
-  if (kb < 1024) return `${kb.toFixed(1)} KB`;
-  const mb = kb / 1024;
-  if (mb < 1024) return `${mb.toFixed(1)} MB`;
-  return `${(mb / 1024).toFixed(2)} GB`;
-}
+// Byte formatting for the download-progress UI and the
+// cached-deployments list moved to lib/format-bytes.ts (shared with
+// every other size-rendering surface); import it from there.
 
 // ---------------------------------------------------------------------------
 // Schema hashing

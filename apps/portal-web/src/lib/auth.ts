@@ -30,6 +30,20 @@ function warnRefreshFailure(reason: string): void {
 }
 
 /**
+ * In-flight refresh de-duplication, keyed by refresh token. A page
+ * mount fans out into many parallel server-side requests (a map
+ * view fires dozens), and each one runs the jwt() callback; once
+ * the access token expires, every request in that burst decided to
+ * refresh, stampeding Keycloak with parallel POSTs for the same
+ * session. With realms that rotate refresh tokens this is worse
+ * than load: the first grant invalidates the token the rest are
+ * still presenting. Sharing one promise per refresh token means
+ * one Keycloak round-trip per burst; every concurrent caller gets
+ * the same refreshed JWT.
+ */
+const inFlightRefreshes = new Map<string, Promise<JWT>>();
+
+/**
  * Trade the captured refresh_token for a fresh access_token + new
  * refresh_token from Keycloak. Returns an updated JWT mirror; on
  * failure, marks the token with `error: 'RefreshAccessTokenError'`
@@ -43,12 +57,28 @@ function warnRefreshFailure(reason: string): void {
  * expires.
  */
 async function refreshAccessToken(token: JWT): Promise<JWT> {
+  const refreshToken = token.refreshToken as string | undefined;
+  if (!refreshToken) {
+    warnRefreshFailure('no refresh token on session');
+    return { ...token, error: 'RefreshAccessTokenError' };
+  }
+  const inFlight = inFlightRefreshes.get(refreshToken);
+  if (inFlight) return inFlight;
+  const pending = requestRefreshedToken(token, refreshToken).finally(() => {
+    inFlightRefreshes.delete(refreshToken);
+  });
+  inFlightRefreshes.set(refreshToken, pending);
+  return pending;
+}
+
+/** The actual Keycloak round-trip behind refreshAccessToken. Never
+ *  rejects: failures come back as the same token with the error
+ *  flag set, matching the pre-dedup semantics. */
+async function requestRefreshedToken(
+  token: JWT,
+  refreshToken: string,
+): Promise<JWT> {
   try {
-    const refreshToken = token.refreshToken as string | undefined;
-    if (!refreshToken) {
-      warnRefreshFailure('no refresh token on session');
-      return { ...token, error: 'RefreshAccessTokenError' };
-    }
     const body = new URLSearchParams({
       grant_type: 'refresh_token',
       refresh_token: refreshToken,

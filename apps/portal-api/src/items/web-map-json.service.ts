@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Item } from '@prisma/client';
 import {
   type EsriBaseMap,
   type EsriOperationalLayer,
   type EsriWebMap,
   type Lens,
+  type LensAttrFilter,
   type LensView,
+  type WebMapJsonContext,
   lensesToWebMapJson,
+  operationalLayerForLens,
 } from '@gratis-gis/engine';
 
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -16,12 +19,18 @@ import { PrismaService } from '../prisma/prisma.service.js';
  * Build an Esri WebMapJSON document from a portal `map` item.
  *
  * Walks `MapData.layers[]` and produces one operationalLayer per
- * renderable layer in order. Internal portal sources (data-layer
- * sublayers, derived layers) ride through the engine's Lens type
- * + `lensesToWebMapJson` converter. External sources
- * (arcgis-rest, geojson-url) emit operationalLayers directly
- * since they aren't engine-managed and don't have an internal
- * scope.
+ * renderable layer. Internal portal sources (data-layer sublayers,
+ * derived layers) ride through the engine's Lens type +
+ * `operationalLayerForLens`. External sources (arcgis-rest,
+ * geojson-url) emit operationalLayers directly since they aren't
+ * engine-managed and don't have an internal scope.
+ *
+ * Ordering: `MapData.layers` index 0 is the TOP of the portal
+ * render stack, while the Esri WebMap contract draws
+ * operationalLayers[0] FIRST (bottom of the stack). The walk
+ * therefore runs over the portal layers in reverse, emitting the
+ * bottom-most portal layer first, so third-party clients stack the
+ * layers exactly the way the portal does.
  *
  * The basemap reference on the map item is resolved to its
  * basemap item; the resulting tileUrl + attribution flow into the
@@ -45,13 +54,15 @@ import { PrismaService } from '../prisma/prisma.service.js';
  */
 @Injectable()
 export class WebMapJsonService {
+  private readonly log = new Logger(WebMapJsonService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async buildForMap(args: {
     map: Item;
     /**
      * Absolute URL prefix the converter uses when emitting
-     * portal-internal lens URLs (e.g. `https://portal.example.org`).
+     * portal-internal layer URLs (e.g. `https://portal.example.org`).
      * Pulled from the request host so a portal that lives behind a
      * load balancer or a custom domain emits the right links
      * without hardcoding an env var.
@@ -73,48 +84,88 @@ export class WebMapJsonService {
     // dropped its basemap items.
     const basemap = await this.resolveBasemap(map);
 
-    // Walk each MapLayer once, classifying it as either a Lens (we
-    // build one and run it through the converter) or a direct
-    // emit (arcgis-rest etc., bypasses Lens). Group layers and
+    const view = lensViewFromMapData(data);
+    const ctx: WebMapJsonContext = {
+      portalBaseUrl: portalBaseUrl.replace(/\/+$/, ''),
+      basemap,
+    };
+
+    // Walk the portal layers in REVERSE (bottom of the render stack
+    // first) so the emitted operationalLayers honour the Esri
+    // contract: index 0 is drawn first and sits at the bottom.
+    // Emitting each layer in a single pass, whether it goes through
+    // the Lens converter (data-layer) or a direct translation
+    // (arcgis-rest, geojson-url), keeps interleaved portal and
+    // external layers in their true relative order; the previous
+    // two-bucket approach grouped all portal layers before all
+    // external ones regardless of authored order. Group layers and
     // unsupported sources are skipped silently; clients see only
     // what they can render.
-    const lenses: Lens[] = [];
-    const directLayers: EsriOperationalLayer[] = [];
-    for (const layer of layers) {
+    const operationalLayers: EsriOperationalLayer[] = [];
+    for (let i = layers.length - 1; i >= 0; i -= 1) {
+      const layer = layers[i]!;
       if (!layer.visible) continue;
       const source = layer.source;
       if (!source) continue;
       if (source.kind === 'data-layer') {
-        const lens = lensFromDataLayerSource(layer, source);
-        if (lens) lenses.push(lens);
+        const lens = this.lensFromDataLayerSource(layer, source);
+        if (lens) {
+          const op = operationalLayerForLens(lens, ctx);
+          if (op) operationalLayers.push(op);
+        }
       } else if (source.kind === 'arcgis-rest') {
         const direct = operationalLayerFromArcgisRest(layer, source);
-        if (direct) directLayers.push(direct);
+        if (direct) operationalLayers.push(direct);
       } else if (source.kind === 'geojson-url') {
-        directLayers.push(operationalLayerFromGeoJsonUrl(layer, source));
+        operationalLayers.push(operationalLayerFromGeoJsonUrl(layer, source));
       }
       // geojson-inline and group are not emitted.
     }
 
-    const view = lensViewFromMapData(data);
-    const ctx = {
-      lensUrlPrefix: `${portalBaseUrl.replace(/\/$/, '')}/api/lenses`,
-      basemap,
-    };
-    const wm = lensesToWebMapJson({ lenses, ...(view ? { view } : {}) }, ctx);
-
-    // Append directLayers (arcgis-rest / geojson-url) AFTER the
-    // lens-shaped layers. This keeps layer ordering stable: portal
-    // layers stack above external layers in MapLibre on the portal
-    // side, so the WebMap output mirrors that. Reorder upstream
-    // first if AGO ordering ever has to differ.
-    if (directLayers.length > 0) {
-      wm.operationalLayers = [
-        ...(wm.operationalLayers ?? []),
-        ...directLayers,
-      ];
-    }
+    // The engine call builds the envelope (version, authoring
+    // metadata, basemap, viewpoint); the operationalLayers were
+    // assembled above so interleaving and stacking order survive.
+    const wm = lensesToWebMapJson(
+      { lenses: [], ...(view ? { view } : {}) },
+      ctx,
+    );
+    wm.operationalLayers = operationalLayers;
     return wm;
+  }
+
+  /**
+   * Build the engine Lens for a data-layer MapLayer source. v3
+   * multi-layer items have a layerKey; v2/v1 single-table items
+   * omit it and we use the conventional 'default' layer id
+   * (matching what DerivedLayersService.validateAndEnrich does for
+   * v2 sources). The layer's single-clause filter (when present
+   * and translatable) becomes the lens's attrFilter so the WebMap
+   * carries a definitionExpression; untranslatable filters are
+   * logged and skipped rather than partially emitted, because a
+   * partial predicate would silently widen what external clients
+   * see relative to the portal map.
+   */
+  private lensFromDataLayerSource(
+    layer: MapLayerShape,
+    source: { kind: 'data-layer'; itemId: string; layerKey?: string },
+  ): Lens | null {
+    const layerKey = source.layerKey ?? 'default';
+    const scope = `data_layer:${source.itemId}:${layerKey}`;
+    const translated = attrFilterFromMapLayerFilter(layer.filter);
+    if (translated.skippedReason) {
+      this.log.warn(
+        `web-map.json export: layer "${layer.title || layer.id}" filter not exported (${translated.skippedReason}).`,
+      );
+    }
+    return {
+      id: layer.id,
+      name: layer.title || 'Layer',
+      query: {
+        scopes: [scope],
+        ...(translated.filter ? { attrFilter: translated.filter } : {}),
+      },
+      render: { kind: 'geojson' },
+    };
   }
 
   /**
@@ -189,22 +240,69 @@ export class WebMapJsonService {
 // stay private so the wire shape doesn't escape this module.
 // ---------------------------------------------------------------------------
 
-function lensFromDataLayerSource(
-  layer: MapLayerShape,
-  source: { kind: 'data-layer'; itemId: string; layerKey?: string },
-): Lens | null {
-  // Build the engine scope. v3 multi-layer items have a layerKey;
-  // v2/v1 single-table items omit it and we use the conventional
-  // 'default' layer id (matching what
-  // DerivedLayersService.validateAndEnrich does for v2 sources).
-  const layerKey = source.layerKey ?? 'default';
-  const scope = `data_layer:${source.itemId}:${layerKey}`;
-  return {
-    id: layer.id,
-    name: layer.title || 'Layer',
-    query: { scopes: [scope] },
-    render: { kind: 'geojson' },
+/**
+ * Translate a MapLayer's single-clause filter into the lens
+ * attrFilter shape. Result carries either the translated filter,
+ * or a skippedReason when the layer has a filter we cannot emit
+ * faithfully:
+ *
+ *   - Multi-clause filters: LensAttrFilter is single-clause by
+ *     design (Phase 4 grows predicate trees); emitting only one
+ *     clause of an AND/OR group would change the layer's meaning.
+ *   - Ordered comparisons with a non-numeric value: the map viewer
+ *     drops those clauses at render time (clauseToExpr returns
+ *     null), so the faithful export of a clause the portal itself
+ *     ignores is no filter at all.
+ *
+ * Value handling mirrors the viewer's semantics: ordered ops
+ * (>, >=, <, <=) coerce the stored string to a number; equality
+ * and contains keep the string verbatim (so values like '01' do
+ * not get lossily renumbered).
+ */
+function attrFilterFromMapLayerFilter(
+  filter: MapLayerFilterShape | null | undefined,
+): { filter?: LensAttrFilter; skippedReason?: string } {
+  if (!filter || !Array.isArray(filter.clauses) || filter.clauses.length === 0) {
+    return {};
+  }
+  if (filter.clauses.length > 1) {
+    return {
+      skippedReason: `multi-clause filters are not representable in a WebMap definitionExpression yet (${filter.clauses.length} clauses)`,
+    };
+  }
+  const clause = filter.clauses[0]!;
+  if (typeof clause.field !== 'string' || clause.field.length === 0) {
+    return { skippedReason: 'filter clause has no field' };
+  }
+  const opMap: Record<string, LensAttrFilter['op']> = {
+    '==': 'eq',
+    '!=': 'neq',
+    '>': 'gt',
+    '>=': 'gte',
+    '<': 'lt',
+    '<=': 'lte',
+    contains: 'contains',
+    'is-null': 'isNull',
+    'is-not-null': 'isNotNull',
   };
+  const op = clause.op !== undefined ? opMap[clause.op] : undefined;
+  if (!op) {
+    return { skippedReason: `unsupported filter operator "${clause.op}"` };
+  }
+  if (op === 'isNull' || op === 'isNotNull') {
+    return { filter: { field: clause.field, op } };
+  }
+  const raw = clause.value ?? '';
+  if (op === 'gt' || op === 'gte' || op === 'lt' || op === 'lte') {
+    const n = Number(raw);
+    if (raw.trim() === '' || !Number.isFinite(n)) {
+      return {
+        skippedReason: `ordered comparison against non-numeric value "${raw}"`,
+      };
+    }
+    return { filter: { field: clause.field, op, value: n } };
+  }
+  return { filter: { field: clause.field, op, value: raw } };
 }
 
 function operationalLayerFromArcgisRest(
@@ -307,6 +405,14 @@ interface MapLayerShape {
     | { kind: 'geojson-url'; url: string }
     | { kind: 'geojson-inline'; geojson: unknown }
     | { kind: 'group' };
+  /** Loose mirror of shared-types MapLayerFilter; fields optional
+   *  because item.data arrives unvalidated. */
+  filter?: MapLayerFilterShape | null;
+}
+
+interface MapLayerFilterShape {
+  combinator?: 'all' | 'any';
+  clauses?: Array<{ field?: string; op?: string; value?: string }>;
 }
 
 interface BasemapDataShape {

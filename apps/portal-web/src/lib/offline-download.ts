@@ -29,6 +29,7 @@ import {
   putForm,
   putPickList,
 } from './offline-store';
+import { formatBytes } from './format-bytes';
 import { warmTiles } from './offline-tile-warmer';
 
 /** One editable layer the manager should fetch features for. Same
@@ -140,7 +141,7 @@ export async function downloadDeployment(
   // size is computed during persist when we know byte counts.
   progress.estimatedSize =
     input.layers.length * 50 * ESTIMATED_BYTES_PER_FEATURE;
-  progress.message = `Estimated ~${formatBytesShort(progress.estimatedSize)}`;
+  progress.message = `Estimated ~${formatBytes(progress.estimatedSize)}`;
   onProgress({ ...progress });
 
   // Layer schemas: hash + capture every layer's field list now so
@@ -409,12 +410,4 @@ function stableId(f: GeoJSON.Feature): string {
     h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
   }
   return `synth:${h.toString(16).padStart(8, '0')}`;
-}
-
-/** Compact byte formatter for the progress messages. */
-function formatBytesShort(n: number): string {
-  if (n < 1024) return `${n}B`;
-  const kb = n / 1024;
-  if (kb < 1024) return `${Math.round(kb)} KB`;
-  return `${(kb / 1024).toFixed(1)} MB`;
 }

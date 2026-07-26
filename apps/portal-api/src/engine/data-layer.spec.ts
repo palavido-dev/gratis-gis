@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { Prisma } from '@prisma/client';
 import { type Observation, isUuid, uuidv7 } from '@gratis-gis/engine';
 
 import {
@@ -504,6 +505,72 @@ describe('DataLayerEngine.listFeatures', () => {
       limit: 50,
     });
     expect(out.features).toHaveLength(1);
+  });
+
+  it('threads entityIds into the WHERE clause as a uuid-cast ANY filter', async () => {
+    // Capturing fake: flatten the tagged-template call back through
+    // Prisma.sql so nested fragments (the entityIds filter travels
+    // inside `currentExtras`) surface in one inspectable text +
+    // bind-values pair. This pins the regression where a caller's
+    // entityIds was silently dropped because the args type had no
+    // such member, turning a selection-scoped Calculate Field into
+    // a whole-layer rewrite.
+    const captured: Prisma.Sql[] = [];
+    const capturingPrisma = {
+      async $queryRaw(strings: TemplateStringsArray, ...values: unknown[]) {
+        captured.push(Prisma.sql(strings, ...values));
+        return [];
+      },
+    } as unknown as PrismaService;
+    const engine = makeFakeEngine();
+    const adapter = new DataLayerEngine(
+      engine.fake,
+      capturingPrisma,
+      makeFakeLensPolicy(),
+      makeTileCache(),
+    );
+    const a = uuidv7();
+    const b = uuidv7();
+
+    await adapter.listFeatures({
+      itemId: ITEM_ID,
+      layerId: LAYER_ID,
+      entityIds: [a, b],
+    });
+
+    expect(captured).toHaveLength(1);
+    const q = captured[0]!;
+    expect(q.sql).toContain('entity = ANY(ARRAY[');
+    expect(q.sql).toContain('::uuid');
+    expect(q.values).toEqual(expect.arrayContaining([a, b]));
+  });
+
+  it('issues no entity ANY filter when entityIds is absent or empty', async () => {
+    const captured: Prisma.Sql[] = [];
+    const capturingPrisma = {
+      async $queryRaw(strings: TemplateStringsArray, ...values: unknown[]) {
+        captured.push(Prisma.sql(strings, ...values));
+        return [];
+      },
+    } as unknown as PrismaService;
+    const engine = makeFakeEngine();
+    const adapter = new DataLayerEngine(
+      engine.fake,
+      capturingPrisma,
+      makeFakeLensPolicy(),
+      makeTileCache(),
+    );
+
+    await adapter.listFeatures({ itemId: ITEM_ID, layerId: LAYER_ID });
+    await adapter.listFeatures({
+      itemId: ITEM_ID,
+      layerId: LAYER_ID,
+      entityIds: [],
+    });
+
+    for (const q of captured) {
+      expect(q.sql).not.toContain('entity = ANY(ARRAY[');
+    }
   });
 
   // -----------------------------------------------------------------

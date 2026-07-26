@@ -305,23 +305,26 @@ export default async function CustomAppRuntimePage(props: Props) {
   // Build the base MapData every Map widget starts from when it has
   // no per-widget override. Inherits basemap + viewport + non-target
   // layers from the referenced map when app.mapId is set, falls
-  // through to DEFAULT_MAP otherwise. Then appends every resolved
+  // through to DEFAULT_MAP otherwise. Then prepends every resolved
   // target layer so a fresh app with one Map widget shows its
-  // targets right away.
+  // targets right away: MapData.layers index 0 is the TOP of the
+  // render stack, so targets must come first or an opaque reference
+  // layer draws over them.
   const referencedMapData = app.mapId
     ? mapDataById.get(app.mapId) ?? null
     : null;
   const baseLayers = referencedMapData?.layers ?? [];
   const baseMapData: MapData = {
     ...(referencedMapData ?? DEFAULT_MAP),
-    layers: [...baseLayers, ...resolvedTargets.map((t) => t.mapLayer)],
+    layers: [...resolvedTargets.map((t) => t.mapLayer), ...baseLayers],
   };
 
   // #363: per-Map-widget MapData. When a Map widget has its own
   // config.mapId the runtime uses THAT, not the app default. Targets
-  // are appended on top so the per-widget map still picks up the
-  // app's target layers (otherwise authors lose their feature data
-  // when overriding the basemap+viewport host).
+  // are prepended (index 0 renders on top) so the per-widget map
+  // still picks up the app's target layers above its own layers
+  // (otherwise authors lose their feature data when overriding the
+  // basemap+viewport host).
   const widgetMapData: Record<string, MapData> = {};
   for (const p of app.pages) {
     for (const w of p.widgets) {
@@ -333,7 +336,10 @@ export default async function CustomAppRuntimePage(props: Props) {
       const overrideLayers = overrideData.layers ?? [];
       widgetMapData[w.id] = {
         ...overrideData,
-        layers: [...overrideLayers, ...resolvedTargets.map((t) => t.mapLayer)],
+        layers: [
+          ...resolvedTargets.map((t) => t.mapLayer),
+          ...overrideLayers,
+        ],
       };
     }
   }

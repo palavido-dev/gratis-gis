@@ -54,7 +54,6 @@ import { PwaInstallButton } from '@/components/pwa-install-button';
 import {
   deleteDeployment,
   enqueueRecord,
-  formatBytes,
   getDeployment,
   hashLayerSchema,
   listFeaturesForLayer,
@@ -65,6 +64,7 @@ import {
   type CachedFeature,
   type QueueRecord,
 } from '@/lib/offline-store';
+import { formatBytes } from '@/lib/format-bytes';
 import { newGlobalId, syncQueue, type SyncResult } from '@/lib/offline-sync';
 import {
   downloadDeployment,

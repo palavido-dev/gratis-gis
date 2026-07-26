@@ -4,9 +4,25 @@ import type { Prisma } from '@prisma/client';
 import {
   type EsriWebMap,
   type Lens,
+  type LensAttrFilter,
   type LensView,
   webMapJsonToLenses,
 } from '@gratis-gis/engine';
+import {
+  DEFAULT_LAYER_ACCESS,
+  DEFAULT_LAYER_INTERACTIONS,
+  DEFAULT_LAYER_LABELS,
+  DEFAULT_LAYER_POPUP,
+  DEFAULT_LAYER_SCALE,
+  DEFAULT_LAYER_SEARCH,
+  DEFAULT_LAYER_STYLE,
+} from '@gratis-gis/shared-types';
+import type {
+  MapFilterOp,
+  MapLayer,
+  MapLayerFilter,
+  MapLayerStyle,
+} from '@gratis-gis/shared-types';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -19,8 +35,13 @@ import { ItemsService } from './items.service.js';
  *
  * The resolver is best-effort:
  *
- *   - Each operationalLayer's URL is matched against the org's
- *     existing arcgis_service items first. If a match is found,
+ *   - Portal per-sublayer URLs (the exact
+ *     `/api/items/<id>/layers/<key>/geojson` and
+ *     `/api/items/<id>/layers/<key>/tile/{z}/{x}/{y}.mvt` shapes
+ *     our own exporter emits) become `kind: 'data-layer'` sources,
+ *     so a portal map round-trips its own export.
+ *   - Each remaining operationalLayer URL is matched against the
+ *     org's existing arcgis_service items. If a match is found,
  *     the resulting MapLayer references that item directly via a
  *     `kind: 'arcgis-rest'` source pointed at the same URL.
  *   - Unmatched FeatureServer / MapServer URLs become bare
@@ -154,7 +175,7 @@ export class WebMapJsonImportService {
     // MapLayer record. The lens carries the original URL stashed
     // under query.sourceUrl; we never persist the lens itself
     // since v1 doesn't have a Lens registry.
-    const layers: MapLayerOut[] = [];
+    const layers: MapLayer[] = [];
     let skipped = 0;
     let remappedToDataLayerCount = 0;
     for (const lens of parsed.lenses) {
@@ -175,7 +196,7 @@ export class WebMapJsonImportService {
         ? matchAgoDataLayerSource(sourceUrl, args.agoDataLayerLookup)
         : null;
       if (dataLayerSource) {
-        layers.push(buildMapLayer({ lens, source: dataLayerSource }));
+        layers.push(buildMapLayer({ lens, source: dataLayerSource, warnings }));
         remappedToDataLayerCount += 1;
         continue;
       }
@@ -191,7 +212,7 @@ export class WebMapJsonImportService {
         );
         continue;
       }
-      layers.push(buildMapLayer({ lens, source: mapped }));
+      layers.push(buildMapLayer({ lens, source: mapped, warnings }));
     }
 
     if (layers.length === 0) {
@@ -200,6 +221,14 @@ export class WebMapJsonImportService {
           'Check that the source has at least one ArcGISFeatureLayer or VectorTileLayer.',
       );
     }
+
+    // MapData.layers index 0 is the TOP of the portal render stack;
+    // Esri operationalLayers index 0 is the BOTTOM (drawn first, per
+    // the WebMap spec). Flip the document order at this boundary so
+    // the imported map stacks the way the source map did. Reversed
+    // after the walk rather than by iterating backwards so warnings
+    // stay in document order.
+    layers.reverse();
 
     // Resolve the basemap to a portal item by tileUrl match. No
     // match -> empty string sentinel; the viewer falls back to
@@ -273,22 +302,16 @@ export class WebMapJsonImportService {
 // Internals
 // ---------------------------------------------------------------------------
 
-interface ResolvedSource {
-  source: MapLayerOut['source'];
-  /**
-   * Optional warning copy the caller surfaces if this resolution
-   * involved a partial match (e.g. URL pointed at a portal item
-   * that's been trashed).
-   */
-  warning?: string;
-}
-
 /**
  * Translate an Esri operationalLayer URL into a portal MapLayer
  * source. Returns undefined for URLs we can't classify; callers
  * surface that as a per-layer warning.
  *
  * URL patterns recognised:
+ *   - .../api/items/<id>/layers/<key>/geojson
+ *                                -> data-layer (our own export)
+ *   - .../api/items/<id>/layers/<key>/tile/{z}/{x}/{y}.mvt
+ *                                -> data-layer (our own export)
  *   - .../FeatureServer/<n>      -> arcgis-rest, FeatureServer
  *   - .../MapServer/<n>          -> arcgis-rest, MapServer
  *   - .../{z}/{x}/{y}.pbf        -> arcgis-rest (vector tiles served
@@ -322,7 +345,7 @@ function matchAgoDataLayerSource(
     string,
     { itemId: string; agoLayerIdToSublayerKey: Record<number, string> }
   >,
-): MapLayerOut['source'] | null {
+): MapLayer['source'] | null {
   const url = sourceUrl.trim();
   if (!url) return null;
   // Match the same FeatureServer/MapServer + integer sublayer
@@ -351,9 +374,39 @@ function mapSourceFromUrl(args: {
   url: string;
   renderKind: 'geojson' | 'mvt' | 'geojson_table' | 'scalar_json';
   arcgisByUrl: Map<string, string>;
-}): MapLayerOut['source'] | null {
+}): MapLayer['source'] | null {
   const url = args.url.trim();
   if (url.length === 0) return null;
+
+  // Portal per-sublayer endpoints, the exact URL shapes our own
+  // exporter emits (see WebMapJsonContext in the engine). Recognized
+  // first so a re-imported portal export lands as a portal-rooted
+  // data-layer source instead of an opaque URL. The host part is
+  // deliberately not checked: this service does not know the
+  // portal's public origin(s) (proxies, custom domains), and the
+  // path shape is distinctive enough that a false positive requires
+  // a URL from another GratisGIS portal, where a local data-layer
+  // reference is still the closest available meaning.
+  const portalGeojson = url.match(
+    /\/api\/items\/([^/]+)\/layers\/([^/]+)\/geojson(?:\?.*)?$/i,
+  );
+  if (portalGeojson) {
+    return {
+      kind: 'data-layer',
+      itemId: portalGeojson[1] as string,
+      layerKey: portalGeojson[2] as string,
+    };
+  }
+  const portalTile = url.match(
+    /\/api\/items\/([^/]+)\/layers\/([^/]+)\/tile\/\{z\}\/\{x\}\/\{y\}\.mvt$/i,
+  );
+  if (portalTile) {
+    return {
+      kind: 'data-layer',
+      itemId: portalTile[1] as string,
+      layerKey: portalTile[2] as string,
+    };
+  }
 
   // FeatureServer / MapServer with a layer-id suffix: parse it.
   const featureServer = url.match(/^(.*\/FeatureServer)\/(\d+)\/?$/i);
@@ -396,8 +449,10 @@ function mapSourceFromUrl(args: {
 
 function buildMapLayer(args: {
   lens: Omit<Lens, 'id'>;
-  source: MapLayerOut['source'];
-}): MapLayerOut {
+  source: MapLayer['source'];
+  /** Import-level warning sink for filter shapes we cannot carry. */
+  warnings: string[];
+}): MapLayer {
   // Stable layer id keeps round-trip metadata predictable. UUID
   // is overkill but we don't have a better counter handy.
   const id = `imported-${Math.random().toString(36).slice(2, 10)}`;
@@ -412,6 +467,15 @@ function buildMapLayer(args: {
   const agoRenderer = (args.lens.query as { agoRenderer?: unknown })
     .agoRenderer;
   const style = mergeAgoSymbolIntoStyle(defaultLayerStyle(), agoRenderer);
+  // Everything not explicitly imported rides the shared DEFAULT_*
+  // constants, spread into fresh objects (samples.service.ts is the
+  // reference pattern). The previous hand-rolled literal here had
+  // drifted from the MapLayer contract: it wrote fields no consumer
+  // reads (interactions.hoverEffect, labels.expression) and omitted
+  // declared ones (popup.mode, labels.template, search.labelTemplate),
+  // so imported maps carried a shape no other surface produced.
+  // Typing the literal as MapLayer makes that class of drift a
+  // compile error.
   return {
     id,
     title: args.lens.name,
@@ -420,20 +484,68 @@ function buildMapLayer(args: {
     source: args.source,
     style,
     renderer: { kind: 'simple' },
-    popup: { enabled: true, fields: [] },
-    interactions: { hoverEffect: false, clickToZoom: false },
-    labels: { enabled: false, expression: '' },
-    search: { enabled: false, fields: [] },
-    filter: null,
-    scale: {
-      minZoom: null,
-      maxZoom: null,
-      scaleWithZoom: true,
-      labelsMinZoom: null,
-      labelsMaxZoom: null,
-    },
-    access: { policy: 'inherit', entries: [] },
+    popup: { ...DEFAULT_LAYER_POPUP },
+    interactions: { ...DEFAULT_LAYER_INTERACTIONS },
+    labels: { ...DEFAULT_LAYER_LABELS },
+    search: { ...DEFAULT_LAYER_SEARCH },
+    filter: mapLayerFilterFromLens(args.lens, args.warnings),
+    scale: { ...DEFAULT_LAYER_SCALE },
+    access: { ...DEFAULT_LAYER_ACCESS, entries: [] },
   };
+}
+
+/**
+ * Carry the imported lens's single-clause attrFilter (parsed from
+ * the WebMap's definitionExpression by the engine) onto the portal
+ * MapLayer as a one-clause filter, completing the filter round trip
+ * that the exporter starts in lensFromDataLayerSource. Operators
+ * without a MapFilterOp equivalent (`in`, `startsWith`) surface as
+ * an import warning and the layer imports unfiltered; MapFilterOp
+ * values stay strings by contract (the viewer coerces at render
+ * time), so numbers and booleans are stringified.
+ */
+function mapLayerFilterFromLens(
+  lens: Omit<Lens, 'id'>,
+  warnings: string[],
+): MapLayerFilter | null {
+  const f = lens.query.attrFilter;
+  if (!f) return null;
+  // `field = NULL` (an eq/neq against a NULL literal) never matches
+  // as a SQL comparison; the author's intent is the null check, so
+  // map it to the portal's is-null / is-not-null ops.
+  if (f.value === null && (f.op === 'eq' || f.op === 'neq')) {
+    return {
+      combinator: 'all',
+      clauses: [
+        {
+          field: f.field,
+          op: f.op === 'eq' ? 'is-null' : 'is-not-null',
+          value: '',
+        },
+      ],
+    };
+  }
+  const opMap: Partial<Record<LensAttrFilter['op'], MapFilterOp>> = {
+    eq: '==',
+    neq: '!=',
+    gt: '>',
+    gte: '>=',
+    lt: '<',
+    lte: '<=',
+    contains: 'contains',
+    isNull: 'is-null',
+    isNotNull: 'is-not-null',
+  };
+  const op = opMap[f.op];
+  if (!op) {
+    warnings.push(
+      `Layer "${lens.name}": filter operator "${f.op}" has no portal equivalent; layer imported without its filter.`,
+    );
+    return null;
+  }
+  const value =
+    op === 'is-null' || op === 'is-not-null' ? '' : String(f.value ?? '');
+  return { combinator: 'all', clauses: [{ field: f.field, op, value }] };
 }
 
 /**
@@ -458,12 +570,12 @@ function buildMapLayer(args: {
  * defaults.
  */
 function mergeAgoSymbolIntoStyle(
-  base: MapLayerOut['style'],
+  base: MapLayerStyle,
   renderer: unknown,
-): MapLayerOut['style'] {
+): MapLayerStyle {
   const sym = extractEsriSymbol(renderer);
   if (!sym) return base;
-  const next: MapLayerOut['style'] = JSON.parse(JSON.stringify(base));
+  const next: MapLayerStyle = JSON.parse(JSON.stringify(base));
   const type = (sym as { type?: string }).type;
   if (type === 'esriSFS') {
     const fill = rgbaToHexOpacity((sym as { color?: unknown }).color);
@@ -567,33 +679,18 @@ function rgbaToHexOpacity(
   return { hex, opacity };
 }
 
-function defaultLayerStyle(): MapLayerOut['style'] {
+function defaultLayerStyle(): MapLayerStyle {
+  // Fresh per-section copies of the shared default style. This
+  // replaced a locally-drifted style literal: the shared default is
+  // the single source of truth for "what a layer looks like with no
+  // styling information" (its polygon values already carry the
+  // visible-on-any-basemap tuning from #70), and the copies keep
+  // mergeAgoSymbolIntoStyle's mutation of the returned object from
+  // ever writing back into the module-level constant.
   return {
-    point: {
-      color: '#3b82f6',
-      radius: 6,
-      strokeColor: '#1e3a8a',
-      strokeWidth: 1,
-      symbol: 'circle',
-      iconName: '',
-      iconSize: 1,
-      iconTint: false,
-    },
-    line: { color: '#3b82f6', width: 2 },
-    // Polygon defaults: bumped from light-blue / 40% opacity to a
-    // saturated blue / 25% opacity with a 2px stroke. The previous
-    // values were nearly invisible against a topographic basemap,
-    // which made AGO-imported polygon layers look like they hadn't
-    // imported at all (#70). A future pass that lifts the AGO
-    // renderer's actual colour will replace this default per-layer
-    // (#71); these values are the fallback when no renderer info
-    // is available.
-    polygon: {
-      fillColor: '#3b82f6',
-      fillOpacity: 0.25,
-      strokeColor: '#1e3a8a',
-      strokeWidth: 2,
-    },
+    point: { ...DEFAULT_LAYER_STYLE.point },
+    line: { ...DEFAULT_LAYER_STYLE.line },
+    polygon: { ...DEFAULT_LAYER_STYLE.polygon },
   };
 }
 
@@ -602,62 +699,6 @@ function guessTitle(webMap: EsriWebMap): string {
     return `${webMap.authoringApp} import`;
   }
   return '';
-}
-
-// ---------------------------------------------------------------------------
-// Loose MapLayer / source shape. Mirrors what the shared-types
-// MapData definition expects on the wire; kept narrow so the
-// service compiles without pulling on a full MapData import.
-// ---------------------------------------------------------------------------
-
-interface MapLayerOut {
-  id: string;
-  title: string;
-  visible: boolean;
-  opacity: number;
-  source:
-    | { kind: 'data-layer'; itemId: string; layerKey?: string }
-    | {
-        kind: 'arcgis-rest';
-        url: string;
-        layerId: number;
-        serviceType: 'MapServer' | 'FeatureServer';
-        sourceItemId?: string;
-      }
-    | { kind: 'geojson-url'; url: string };
-  style: {
-    point: {
-      color: string;
-      radius: number;
-      strokeColor: string;
-      strokeWidth: number;
-      symbol: 'circle' | 'icon';
-      iconName: string;
-      iconSize: number;
-      iconTint: boolean;
-    };
-    line: { color: string; width: number };
-    polygon: {
-      fillColor: string;
-      fillOpacity: number;
-      strokeColor: string;
-      strokeWidth: number;
-    };
-  };
-  renderer: { kind: 'simple' };
-  popup: { enabled: boolean; fields: string[] };
-  interactions: { hoverEffect: boolean; clickToZoom: boolean };
-  labels: { enabled: boolean; expression: string };
-  search: { enabled: boolean; fields: string[] };
-  filter: null;
-  scale: {
-    minZoom: number | null;
-    maxZoom: number | null;
-    scaleWithZoom: boolean;
-    labelsMinZoom: number | null;
-    labelsMaxZoom: number | null;
-  };
-  access: { policy: 'inherit'; entries: [] };
 }
 
 // `LensView` is referenced by the engine; re-export so the

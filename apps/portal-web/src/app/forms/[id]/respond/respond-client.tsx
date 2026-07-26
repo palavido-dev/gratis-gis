@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CloudOff, RefreshCcw, Wifi } from 'lucide-react';
 import type { FormSchema, Response } from '@gratis-gis/form-schema';
 import { FormRuntime } from '@/components/form-runtime';
@@ -41,6 +41,12 @@ export function RespondClient({ form, formItemTitle }: Props) {
   );
   const [outbox, setOutbox] = useState<QueuedSubmission[]>([]);
   const [draining, setDraining] = useState(false);
+  // Concurrency guard for drainOnce. Held in a ref, not read from
+  // the `draining` state: state in the callback would put it in the
+  // dep array, so every drain would mint a new drainOnce identity,
+  // re-run the mount effect below, and kick off the next drain in
+  // an endless loop. The state copy exists purely for the UI.
+  const drainingRef = useRef(false);
 
   const refreshOutbox = useCallback(async () => {
     try {
@@ -53,7 +59,8 @@ export function RespondClient({ form, formItemTitle }: Props) {
   }, [form.id]);
 
   const drainOnce = useCallback(async () => {
-    if (draining) return;
+    if (drainingRef.current) return;
+    drainingRef.current = true;
     setDraining(true);
     try {
       await drain(form.id, async (row) => {
@@ -82,10 +89,11 @@ export function RespondClient({ form, formItemTitle }: Props) {
         }
       });
     } finally {
+      drainingRef.current = false;
       setDraining(false);
       await refreshOutbox();
     }
-  }, [draining, form.id, refreshOutbox]);
+  }, [form.id, refreshOutbox]);
 
   useEffect(() => {
     const onOnline = () => {

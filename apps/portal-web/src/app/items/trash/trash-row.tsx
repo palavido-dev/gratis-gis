@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { RotateCcw, Trash2 } from 'lucide-react';
 import type { Item } from '@gratis-gis/shared-types';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { getItemTypeLabel } from '@/lib/item-type-icon';
 import { useT } from '@/lib/i18n/locale-context';
 
 interface Props {
@@ -78,7 +79,9 @@ export function TrashRow({ item, retentionDays }: Props) {
     <tr className="border-b border-border last:border-0">
       <td className="py-3 pr-4">
         <div className="font-medium text-ink-0">{item.title}</div>
-        <div className="mt-0.5 text-xs text-muted">{item.type}</div>
+        <div className="mt-0.5 text-xs text-muted">
+          {getItemTypeLabel(item.type)}
+        </div>
       </td>
       <td className="py-3 pr-4 text-xs text-muted">
         {deletedAt ? deletedAt.toLocaleString() : ''}

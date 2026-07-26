@@ -22,6 +22,7 @@ import type { ItemType } from '@gratis-gis/shared-types';
 import {
   getItemHref,
   getItemTypeIcon,
+  getItemTypeLabel,
   getItemTypeTileClasses,
   hasRuntime,
 } from '@/lib/item-type-icon';
@@ -659,7 +660,7 @@ function ItemCard({ item }: { item: LandingData['items'][number] }) {
         )}
         <div className="flex flex-1 flex-col p-3">
           <p className="text-2xs uppercase tracking-wide text-muted">
-            {item.type.replace(/_/g, ' ')}
+            {getItemTypeLabel(item.type)}
           </p>
           <h3 className="mt-0.5 truncate text-sm font-semibold text-ink-0">
             {item.title}

@@ -161,6 +161,14 @@ export class DataLayerTablesService {
    * history. The append-only log alternative (write a tombstone per
    * entity) preserves history but isn't what replace-ingest asked
    * for and would balloon the log on full-file refreshes.
+   *
+   * Caveat: this DELETE commits in its own transaction. The async
+   * import worker no longer calls it for replace mode; it runs the
+   * scoped delete through CopyWriter.deleteScope INSIDE the COPY
+   * transaction, so a failed or cancelled replace rolls back to the
+   * pre-import rows instead of an empty layer. The synchronous
+   * ingest controller still uses this method and carries that
+   * empty-on-failure caveat.
    */
   async truncateLayer(itemId: string, layerId: string): Promise<void> {
     const scope = `data_layer:${itemId}:${layerId}`;

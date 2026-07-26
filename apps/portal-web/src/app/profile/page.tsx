@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { Bell, LogOut } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { SignOutButton } from '@/components/user-menu';
 import { AvatarEditor } from './avatar-editor';
 import { ProfileIdentityForm } from './profile-identity-form';
 
@@ -78,13 +79,15 @@ export default async function ProfilePage() {
           <Bell className="h-4 w-4" />
           Notification preferences
         </Link>
-        <Link
-          href="/api/auth/federated-logout"
-          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 shadow-card hover:bg-surface-2"
-        >
+        {/* Sign out must run the client-side flow (NextAuth
+            signOut() first, then the Keycloak end-session hop).
+            A bare link to /api/auth/federated-logout leaves the
+            NextAuth cookie alive, so the browser would come back
+            still signed in to the portal. */}
+        <SignOutButton className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 shadow-card hover:bg-surface-2">
           <LogOut className="h-4 w-4" />
           Sign out
-        </Link>
+        </SignOutButton>
       </section>
     </div>
   );

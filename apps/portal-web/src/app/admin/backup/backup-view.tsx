@@ -16,6 +16,7 @@ import {
   XCircle,
 } from 'lucide-react';
 
+import { formatBytes } from '@/lib/format-bytes';
 import { RestoreDialog } from './restore-dialog';
 
 /**
@@ -726,13 +727,6 @@ function WhatsIncluded() {
       </p>
     </section>
   );
-}
-
-function formatBytes(n: bigint): string {
-  if (n < 1024n) return `${n} B`;
-  if (n < 1024n * 1024n) return `${(Number(n) / 1024).toFixed(0)} KB`;
-  if (n < 1024n * 1024n * 1024n) return `${(Number(n) / 1024 / 1024).toFixed(1)} MB`;
-  return `${(Number(n) / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
 function formatDuration(ms: number): string {

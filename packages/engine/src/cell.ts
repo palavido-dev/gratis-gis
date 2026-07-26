@@ -7,11 +7,17 @@
 // rationale (uniform area, six-neighbor topology, modern open-source
 // spatial stack standardized on H3).
 //
-// We compute the cell from a representative interior point (centroid for
-// polygons, the geometry itself for points). For multipart geometries we
-// use the first part. This is approximate by design: the cell is a
-// partition / coarse-filter aid, not a precise containment test. The
-// authoritative geometry stays in the `geom` column.
+// We compute the cell from the geometry's FIRST VERTEX (the point's own
+// coordinates for points; the first coordinate of the first part / outer
+// ring for everything else). Not a centroid: the chosen point can sit on
+// the boundary of a polygon, but it is cheap, deterministic, and needs no
+// geometry math. This is approximate by design: the cell is a partition /
+// coarse-filter aid, not a precise containment test. The authoritative
+// geometry stays in the `geom` column. Any SQL-side recomputation of the
+// cell (backfills, triggers) must reproduce this function byte-for-byte,
+// first vertex and all; deriving the cell from ST_Centroid or any other
+// point would silently partition the same feature into a different cell
+// than the write path did.
 
 import { latLngToCell } from 'h3-js';
 
@@ -23,7 +29,8 @@ export const H3_RESOLUTION = 7;
 /**
  * Pick a representative `[lng, lat]` point for a geometry. Used as input to
  * the H3 cell function. For Points we use the coordinates directly; for
- * everything else we approximate by averaging the bounds. This is fine for
+ * everything else we take the FIRST VERTEX (first coordinate of the first
+ * part / outer ring). No averaging, no centroid. This is fine for
  * partition routing; precision lives in `geom`.
  */
 export function representativePoint(

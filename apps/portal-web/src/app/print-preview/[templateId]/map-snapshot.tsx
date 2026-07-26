@@ -24,7 +24,7 @@
  * Basemap raster tiles still rasterize (PDF can't carry slippy tile
  * vector data), but vector data layers paint as path primitives.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { MapData } from '@gratis-gis/shared-types';
@@ -59,9 +59,18 @@ export function MapSnapshot({
   scaleOverride,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  // Titles of layers whose data fetch failed. Rendered as a visible
+  // notice ON the sheet: a PDF gets handed around detached from the
+  // app, so the sheet itself has to say when it is incomplete
+  // instead of silently omitting data.
+  const [failedLayers, setFailedLayers] = useState<string[]>([]);
 
   useEffect(() => {
     if (!containerRef.current) return;
+    // Guards the async load handler against a torn-down map
+    // (unmount, or a prop change re-running this effect).
+    let disposed = false;
+    setFailedLayers([]);
 
     // Resolve the map style from the basemap blob. When unset we
     // keep the OSM raster fallback so a brand-new map's preview
@@ -122,17 +131,42 @@ export function MapSnapshot({
         bounds.getEast(),
         bounds.getNorth(),
       ];
+      // Every loader below records its layer here on failure. The
+      // canvas can afford to shrug off a failed layer fetch (the
+      // user sees the gap and reloads); a print cannot, because the
+      // gap ships inside a PDF that looks complete.
+      const failures: string[] = [];
       const tasks: Array<Promise<void>> = [];
       for (const layer of mapData.layers ?? []) {
         if (!layer.visible) continue;
         const sourceId = `pg:${layer.id}`;
         if (layer.source.kind === 'data-layer') {
-          const url = layer.source.layerKey
-            ? `/api/portal/items/${layer.source.itemId}/layers/${encodeURIComponent(layer.source.layerKey)}/geojson`
-            : `/api/portal/items/${layer.source.itemId}/geojson`;
-          addGeoJsonSourceFromUrl(map, sourceId, url);
-          addPaintForLayer(map, sourceId, layer.id, layer);
-          addLabelLayer(map, sourceId, layer.id, layer);
+          const src = layer.source;
+          const base = src.layerKey
+            ? `/api/portal/items/${src.itemId}/layers/${encodeURIComponent(src.layerKey)}/geojson`
+            : `/api/portal/items/${src.itemId}/geojson`;
+          // Scope the fetch the way the canvas does for its
+          // editor-target GeoJSON reads: bbox-clip to the print
+          // viewport so a county-scale layer doesn't trip the
+          // server row cap with rows that aren't even on the
+          // sheet, and forward the boundary clip (layer-level
+          // first, then the map-wide default view scope) so the
+          // print shows the same subset the bound map shows.
+          const params = new URLSearchParams({ bbox: bbox.join(',') });
+          const clip = layer.boundaryFilterItemId ?? mapData.clipBoundaryId;
+          if (clip) params.set('clip', clip);
+          tasks.push(
+            fetchLayerGeoJson(`${base}?${params.toString()}`)
+              .then((data) => {
+                if (disposed) return;
+                addGeoJsonSourceFromData(map, sourceId, data);
+                addPaintForLayer(map, sourceId, layer.id, layer);
+                addLabelLayer(map, sourceId, layer.id, layer);
+              })
+              .catch(() => {
+                failures.push(layer.title);
+              }),
+          );
         } else if (layer.source.kind === 'arcgis-rest') {
           const src = layer.source;
           const params = new URLSearchParams({
@@ -149,23 +183,21 @@ export function MapSnapshot({
           const baseUrl = src.proxyUrl ?? src.url;
           const queryUrl = `${baseUrl}/${src.layerId}/query?${params.toString()}`;
           tasks.push(
-            fetch(queryUrl)
-              .then((r) => r.json())
+            fetchLayerGeoJson(queryUrl)
               .then((data) => {
-                addGeoJsonSourceFromData(
-                  map,
-                  sourceId,
-                  data as GeoJSON.FeatureCollection,
-                );
+                if (disposed) return;
+                addGeoJsonSourceFromData(map, sourceId, data);
                 addPaintForLayer(map, sourceId, layer.id, layer);
                 addLabelLayer(map, sourceId, layer.id, layer);
               })
-              .catch(() => undefined),
+              .catch(() => {
+                failures.push(layer.title);
+              }),
           );
         } else if (layer.source.kind === 'postgis-live') {
           const src = layer.source;
           tasks.push(
-            fetch(
+            fetchLayerGeoJson(
               `/api/portal/postgis-live/${src.serviceItemId}/features`,
               {
                 method: 'POST',
@@ -180,17 +212,15 @@ export function MapSnapshot({
                 }),
               },
             )
-              .then((r) => r.json())
               .then((data) => {
-                addGeoJsonSourceFromData(
-                  map,
-                  sourceId,
-                  data as GeoJSON.FeatureCollection,
-                );
+                if (disposed) return;
+                addGeoJsonSourceFromData(map, sourceId, data);
                 addPaintForLayer(map, sourceId, layer.id, layer);
                 addLabelLayer(map, sourceId, layer.id, layer);
               })
-              .catch(() => undefined),
+              .catch(() => {
+                failures.push(layer.title);
+              }),
           );
         }
         // geojson-url / geojson-inline / group fall through:
@@ -200,8 +230,14 @@ export function MapSnapshot({
         //     data_layer on save
       }
       await Promise.all(tasks);
+      if (!disposed && failures.length > 0) {
+        setFailedLayers(failures);
+      }
       // Signal readiness once tiles + data sources have idled.
-      // Puppeteer waitForSelector picks this up.
+      // Puppeteer waitForSelector picks this up. We mark ready even
+      // when layers failed: the pipeline still has to finish the
+      // PDF, and the visible notice above keeps the sheet honest
+      // about what is missing.
       const markReady = () => {
         document.body.dataset.mapReady = 'true';
       };
@@ -212,32 +248,77 @@ export function MapSnapshot({
       setTimeout(markReady, 12_000);
     });
     return () => {
+      disposed = true;
       map.remove();
     };
   }, [mapData, basemapData, scaleOverride]);
 
   return (
-    <div
-      ref={containerRef}
-      style={{
-        width: '100%',
-        height: '100%',
-        background: '#f8fafc',
-      }}
-    />
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <div
+        ref={containerRef}
+        style={{
+          width: '100%',
+          height: '100%',
+          background: '#f8fafc',
+        }}
+      />
+      {failedLayers.length > 0 ? (
+        <div
+          style={{
+            position: 'absolute',
+            left: 8,
+            bottom: 8,
+            maxWidth: '85%',
+            padding: '4px 8px',
+            background: 'rgba(255, 255, 255, 0.92)',
+            border: '1px solid #b45309',
+            borderRadius: 4,
+            color: '#92400e',
+            fontSize: 11,
+            lineHeight: 1.4,
+          }}
+        >
+          {failedLayers.length === 1
+            ? '1 map layer failed to load'
+            : `${failedLayers.length} map layers failed to load`}
+          {': '}
+          {failedLayers.join(', ')}. This map is incomplete.
+        </div>
+      ) : null}
+    </div>
   );
 }
 
-function addGeoJsonSourceFromUrl(
-  map: maplibregl.Map,
-  sourceId: string,
+/**
+ * Fetch one layer's GeoJSON for the snapshot, strictly. Throws on
+ * non-2xx responses, non-JSON bodies (an HTML error page would
+ * otherwise slip through), and the ArcGIS 200-with-error envelope,
+ * so the caller can record the layer as failed instead of shipping
+ * a PDF that silently omits it.
+ */
+async function fetchLayerGeoJson(
   url: string,
-): void {
-  try {
-    map.addSource(sourceId, { type: 'geojson', data: url });
-  } catch {
-    /* HMR re-add - ignore */
+  init?: RequestInit,
+): Promise<GeoJSON.FeatureCollection> {
+  const res = await fetch(url, init);
+  if (!res.ok) {
+    throw new Error(`request failed with status ${res.status}`);
   }
+  const contentType = res.headers.get('content-type') ?? '';
+  if (!/\bjson\b/i.test(contentType)) {
+    throw new Error(
+      `expected JSON, received ${contentType || 'no content type'}`,
+    );
+  }
+  const data = (await res.json()) as
+    | GeoJSON.FeatureCollection
+    | { error?: unknown };
+  if ('error' in data && data.error) {
+    // ArcGIS servers report failures as HTTP 200 with an error body.
+    throw new Error('upstream service reported an error');
+  }
+  return data as GeoJSON.FeatureCollection;
 }
 
 function addGeoJsonSourceFromData(

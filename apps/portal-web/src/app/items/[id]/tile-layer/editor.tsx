@@ -4,8 +4,7 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
-import { Protocol } from 'pmtiles';
-import { cogProtocol } from '@geomatico/maplibre-cog-protocol';
+import { ensureRasterProtocols } from '@/lib/custom-basemap';
 import {
   Check,
   Copy,
@@ -19,6 +18,7 @@ import type {
   TileLayerOriginalFormat,
 } from '@gratis-gis/shared-types';
 import { isTileLayerData } from '@gratis-gis/shared-types';
+import { formatBytes } from '@/lib/format-bytes';
 import { DemAnalysisSection } from './dem-analysis';
 
 /**
@@ -81,7 +81,18 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
         const body = (await res.json()) as { item?: { data?: unknown } };
         if (cancelled) return;
         if (body.item?.data && isTileLayerData(body.item.data)) {
-          setData(body.item.data);
+          const next = body.item.data;
+          // Most ticks return a payload identical to what we already
+          // hold, just as a fresh object.  Adopting that new identity
+          // re-rendered everything keyed on `data`, most painfully the
+          // TilePreview effect, which tears down and recreates its
+          // whole MapLibre map, so the preview flashed every 5s for
+          // the duration of a pyramid build.  Keep the old object when
+          // the content is unchanged; stableStringify makes the
+          // comparison independent of server key ordering.
+          setData((prev) =>
+            stableStringify(prev) === stableStringify(next) ? prev : next,
+          );
         }
       } catch {
         /* network blips are fine; next tick will retry */
@@ -114,23 +125,17 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
     }
   }
 
-  // Register the pmtiles and cog protocols with MapLibre once
-  // per page load.  pmtiles serves PMTiles archives via range
-  // requests; cog serves Cloud-Optimized GeoTIFFs the same way
-  // (powering the bridge state for raw raster uploads waiting on
-  // their PMTiles pyramid).  Idempotent registration so HMR re-
-  // renders don't double-register.
+  // Register the pmtiles and cog protocols through the shared
+  // helper.  Registration is global state on the maplibregl
+  // singleton, idempotent, and must OUTLIVE this editor: an unmount
+  // cleanup used to call removeProtocol here while the global
+  // registration guards elsewhere (map-canvas, custom-basemap)
+  // stayed set, so after visiting a tile-layer page every later map
+  // surface in the same SPA session failed with "URL scheme not
+  // supported" until a hard reload.  Leaving the schemes registered
+  // matches every other map surface.
   useEffect(() => {
-    const proto = new Protocol();
-    maplibregl.addProtocol('pmtiles', proto.tile);
-    maplibregl.addProtocol(
-      'cog',
-      cogProtocol as unknown as Parameters<typeof maplibregl.addProtocol>[1],
-    );
-    return () => {
-      maplibregl.removeProtocol('pmtiles');
-      maplibregl.removeProtocol('cog');
-    };
+    ensureRasterProtocols();
   }, []);
 
   async function pickFile() {
@@ -344,7 +349,7 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
               <div className="flex items-baseline gap-2 text-ink-0">
                 <span className="font-medium">{data.fileName}</span>
                 <span className="text-xs text-muted">
-                  {humanSize(data.sizeBytes)}
+                  {formatBytes(data.sizeBytes)}
                 </span>
               </div>
               {data.name || data.description ? (
@@ -486,7 +491,7 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
                     : ''}
                   . The original file is kept too (
                   {data.cogSizeBytes !== undefined
-                    ? humanSize(data.cogSizeBytes)
+                    ? formatBytes(data.cogSizeBytes)
                     : 'size unknown'}
                   ).
                 </span>
@@ -558,7 +563,7 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
                   : '(not listed in the file)'
               }
             />
-            <Metric label="Size on disk" value={humanSize(data.sizeBytes)} />
+            <Metric label="Size on disk" value={formatBytes(data.sizeBytes)} />
             {data.originalFormat && data.originalFormat !== 'pmtiles' ? (
               <Metric
                 label="Original upload"
@@ -806,10 +811,27 @@ function humanDate(iso: string): string {
   return d.toLocaleString();
 }
 
-function humanSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024)
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+/**
+ * JSON.stringify with object keys sorted at every level, so two
+ * structurally equal payloads serialize identically regardless of
+ * the key order the server happened to emit.  Used by the status
+ * poll to detect "nothing actually changed" ticks.  Both operands
+ * are JSON-derived (RSC-serialized prop or res.json()), so
+ * undefined never appears in practice; objects drop undefined
+ * members to mirror JSON.stringify semantics anyway.
+ */
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value) ?? 'null';
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((v) => stableStringify(v)).join(',')}]`;
+  }
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, v]) => v !== undefined)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return `{${entries
+    .map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`)
+    .join(',')}}`;
 }
+

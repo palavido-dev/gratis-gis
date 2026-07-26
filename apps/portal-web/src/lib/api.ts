@@ -25,7 +25,16 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
 
   const session = (await getServerSession(authOptions)) as SessionWithToken | null;
   const tSession = trace ? Date.now() : 0;
-  if (!session?.accessToken) {
+  // #195: a session whose Keycloak refresh failed still carries the
+  // last access token it ever minted plus an error flag (set by
+  // refreshAccessToken in lib/auth.ts). Forwarding that dead bearer
+  // guarantees a 401 from portal-api, which surfaces to the user as
+  // the route error boundary. Treat it exactly like having no
+  // session: send the user through sign-in to mint a fresh token.
+  if (
+    !session?.accessToken ||
+    session.error === 'RefreshAccessTokenError'
+  ) {
     // Redirect via the custom /signin so the user skips the
     // default provider picker (we have only one provider).
     redirect('/signin');
@@ -108,5 +117,12 @@ export async function hasSession(): Promise<boolean> {
   const session = (await getServerSession(
     authOptions,
   )) as SessionWithToken | null;
-  return Boolean(session?.accessToken);
+  // A session with the refresh-failure flag is a dead session: its
+  // access token can no longer be renewed and portal-api rejects
+  // it. Reporting it as "signed in" made viewer pages take the
+  // authenticated fetch path and crash to the error boundary for
+  // returning visitors; reporting signed-out lets them fall back
+  // to their anonymous /api/public fetch path, which is exactly
+  // what an expired visitor should see.
+  return Boolean(session?.accessToken && !session.error);
 }

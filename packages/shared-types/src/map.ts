@@ -160,9 +160,12 @@ export interface MapData {
    * of the LayerList display. The runtime's syncOverlays iterates
    * this array in reverse to add MapLibre layers in the right
    * stacking order. Matches the universal layered-graphics
-   * convention (QGIS, ArcGIS, Photoshop, Figma) and Esri's WebMap
-   * `operationalLayers` spec ("lowest indexed layer rendered on
-   * top"), so WebMap JSON round-trips with no index reversal.
+   * convention (QGIS, ArcGIS Pro's contents pane, Photoshop,
+   * Figma). Note this is the OPPOSITE of Esri's WebMap
+   * `operationalLayers` contract, where index 0 is drawn FIRST and
+   * therefore sits at the BOTTOM of the stack; the WebMap JSON
+   * converters reverse the array at both the export and import
+   * boundaries.
    */
   layers: MapLayer[];
   search: MapSearchConfig;
@@ -1281,27 +1284,41 @@ export function scaledStyleExpression<T extends string | number>(
   const classes = layer.scaledSymbology ?? [];
   if (classes.length === 0) return pick(layer.style);
   const base = pick(layer.style);
-  // Build sorted (zoom, value) transitions.  For each class we
-  // emit (minZoom, classValue), and (maxZoom, base) UNLESS the
-  // next class starts at exactly maxZoom (which would make the
-  // intermediate "return to base" pointless).
-  const sorted = [...classes]
-    .map((c, i) => ({ i, c, start: c.minZoom ?? 0 }))
-    .sort((a, b) => a.start - b.start);
-  const transitions: Array<{ zoom: number; value: T }> = [];
-  for (let i = 0; i < sorted.length; i += 1) {
-    const { c } = sorted[i]!;
-    const start = c.minZoom ?? 0;
-    transitions.push({ zoom: start, value: pick(c.style) });
+  // Collect every boundary zoom at which the set of matching classes
+  // can change: each class's start (minZoom, 0 when unbounded below)
+  // and end (maxZoom, when bounded). Between two adjacent boundaries
+  // no class starts or ends, so the effective value is constant
+  // there. Sorting the unique boundary set ascending guarantees the
+  // emitted stops are strictly ascending, which is a hard MapLibre
+  // requirement: a step expression whose stops repeat or descend
+  // fails expression validation, the paint property never registers,
+  // and the layer silently renders blank. The previous per-class
+  // transition emitter violated that whenever two classes shared a
+  // minZoom or overlapped.
+  const boundarySet = new Set<number>();
+  for (const c of classes) {
+    boundarySet.add(c.minZoom ?? 0);
     if (c.maxZoom !== undefined && c.maxZoom !== null) {
-      const next = sorted[i + 1]?.c;
-      const nextStart = next?.minZoom ?? -1;
-      if (nextStart !== c.maxZoom) {
-        transitions.push({ zoom: c.maxZoom, value: base });
-      }
+      boundarySet.add(c.maxZoom);
     }
   }
-  if (transitions.length === 0) return base;
+  const boundaries = [...boundarySet].sort((a, b) => a - b);
+  // Value at each boundary: the FIRST class in authoring order whose
+  // [minZoom, maxZoom) range contains that zoom, exactly mirroring
+  // effectiveStyleAtZoom so the legend / editor preview and the
+  // rendered map can never disagree. This also settles which class
+  // wins at a shared boundary: where one class ends and another
+  // starts at the same zoom, the ending class no longer matches
+  // (maxZoom is exclusive) so the starting class wins; where two
+  // classes start at the same zoom, the earlier one in the array
+  // wins (first-match-wins). When no class matches, the layer
+  // returns to the base style, which covers gaps between classes.
+  const transitions = boundaries.map((zoom) => {
+    const active = classes.find(
+      (c) => zoom >= (c.minZoom ?? -Infinity) && zoom < (c.maxZoom ?? Infinity),
+    );
+    return { zoom, value: active ? pick(active.style) : base };
+  });
   // MapLibre's step expression: ['step', input, default, stop1,
   // val1, stop2, val2, ...].  `default` is the value BEFORE the
   // first stop.  If the first transition is at zoom 0 we'd be
@@ -1310,21 +1327,33 @@ export function scaledStyleExpression<T extends string | number>(
   // the first stop.
   let defaultValue: T = base;
   let stops = transitions;
-  if (stops[0]!.zoom <= 0) {
+  if (stops.length > 0 && stops[0]!.zoom <= 0) {
     defaultValue = stops[0]!.value;
     stops = stops.slice(1);
   }
-  // No stops left after the collapse -- the single class covers the
-  // entire zoom range. Returning `['step', ['zoom'], defaultValue]`
-  // here would be a zero-stop step expression, which MapLibre rejects
-  // ("step has no stops"). The whole paint property silently fails
-  // to register and the geometry vanishes -- the WV Parcels symptom
-  // where adding one any-to-any class made the fill disappear.
-  // Return the resolved value directly so callers see the same shape
-  // they'd get with zero classes.
-  if (stops.length === 0) return defaultValue;
-  const expr: unknown[] = ['step', ['zoom'], defaultValue];
+  // Drop stops that repeat the value already in effect. Purely an
+  // output-size nicety for well-formed inputs, but load-bearing for
+  // overlapping classes: an overlapped class's start boundary often
+  // resolves to the same first-match value as the range before it.
+  const pruned: Array<{ zoom: number; value: T }> = [];
+  let inEffect: T = defaultValue;
   for (const s of stops) {
+    if (s.value === inEffect) continue;
+    pruned.push(s);
+    inEffect = s.value;
+  }
+  // No stops left after collapsing: one class (or one value)
+  // covers the entire zoom range. Returning
+  // `['step', ['zoom'], defaultValue]` here would be a zero-stop
+  // step expression, which MapLibre rejects ("step has no stops").
+  // The whole paint property silently fails to register and the
+  // geometry vanishes (the WV Parcels symptom, where adding one
+  // any-to-any class made the fill disappear). Return the resolved
+  // value directly so callers see the same shape they'd get with
+  // zero classes.
+  if (pruned.length === 0) return defaultValue;
+  const expr: unknown[] = ['step', ['zoom'], defaultValue];
+  for (const s of pruned) {
     expr.push(s.zoom, s.value);
   }
   return expr;

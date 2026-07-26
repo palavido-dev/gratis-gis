@@ -1,6 +1,7 @@
 {
   "source": {
     "repo": "openstreetmap/id-tagging-schema",
+    "license": "ISC",
     "ref": "main",
     "generatedAt": "2026-05-24T22:55:37.402Z",
     "generatorVersion": 1

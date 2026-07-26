@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   AlertTriangle,
@@ -119,27 +119,39 @@ export function UserAccessDialog({ userId, username, onClose }: Props) {
   // when seeing every accessible item is what the admin wants.
   const [showOwned, setShowOwned] = useState(false);
 
-  const reload = useMemo(
-    () => async () => {
+  // The mount effect passes an abort signal so closing the dialog
+  // (or reopening it for a different user) cancels the in-flight
+  // bundle fetch instead of letting the stale response land on the
+  // wrong user's dialog. Post-mutation refreshes omit the signal.
+  const reload = useCallback(
+    async (signal?: AbortSignal) => {
       setLoading(true);
       setError(null);
       try {
-        const r = await fetch(`/api/portal/admin/users/${userId}/access`);
+        const r = await fetch(
+          `/api/portal/admin/users/${userId}/access`,
+          signal ? { signal } : {},
+        );
         if (!r.ok) {
           throw new Error(`HTTP ${r.status}`);
         }
-        setBundle((await r.json()) as UserAccessBundle);
+        const body = (await r.json()) as UserAccessBundle;
+        if (signal?.aborted) return;
+        setBundle(body);
       } catch (e) {
+        if ((e as Error)?.name === 'AbortError') return;
         setError((e as Error).message ?? 'Could not load access.');
       } finally {
-        setLoading(false);
+        if (!signal?.aborted) setLoading(false);
       }
     },
     [userId],
   );
 
   useEffect(() => {
-    void reload();
+    const controller = new AbortController();
+    void reload(controller.signal);
+    return () => controller.abort();
   }, [reload]);
 
   // Esc closes; matches the rest of the dialog set.

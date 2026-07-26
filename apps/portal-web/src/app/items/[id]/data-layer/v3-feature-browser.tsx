@@ -106,33 +106,47 @@ export function V3FeatureBrowser({
    */
   const PAGE_LIMIT = 5000;
 
-  const reload = useCallback(async () => {
-    setError(null);
-    setLoading(true);
-    try {
-      const res = await fetch(
-        `/api/portal/items/${itemId}/layers/${layer.id}/features-page?limit=${PAGE_LIMIT}`,
-      );
-      if (!res.ok) {
-        setError(`Could not load features: ${res.status} ${await res.text()}`);
-        return;
+  // The mount effect passes an abort signal so switching sublayers
+  // (or unmounting) cancels the in-flight page instead of letting a
+  // slow earlier layer's rows land on top of the newer layer's
+  // table. Post-mutation refreshes omit the signal.
+  const reload = useCallback(
+    async (signal?: AbortSignal) => {
+      setError(null);
+      setLoading(true);
+      try {
+        const res = await fetch(
+          `/api/portal/items/${itemId}/layers/${layer.id}/features-page?limit=${PAGE_LIMIT}`,
+          signal ? { signal } : {},
+        );
+        if (!res.ok) {
+          setError(
+            `Could not load features: ${res.status} ${await res.text()}`,
+          );
+          return;
+        }
+        const body = (await res.json()) as {
+          features: FeatureRecord[];
+          count: number;
+          truncated: boolean;
+        };
+        if (signal?.aborted) return;
+        setFeatures(body.features ?? []);
+        setTruncated(Boolean(body.truncated));
+      } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return;
+        setError((err as Error).message || 'Could not load features');
+      } finally {
+        if (!signal?.aborted) setLoading(false);
       }
-      const body = (await res.json()) as {
-        features: FeatureRecord[];
-        count: number;
-        truncated: boolean;
-      };
-      setFeatures(body.features ?? []);
-      setTruncated(Boolean(body.truncated));
-    } catch (err) {
-      setError((err as Error).message || 'Could not load features');
-    } finally {
-      setLoading(false);
-    }
-  }, [itemId, layer.id]);
+    },
+    [itemId, layer.id],
+  );
 
   useEffect(() => {
-    void reload();
+    const controller = new AbortController();
+    void reload(controller.signal);
+    return () => controller.abort();
   }, [reload]);
 
   function startEdit(feature: FeatureRecord) {

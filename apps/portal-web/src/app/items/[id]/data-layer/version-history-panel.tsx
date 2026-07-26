@@ -74,15 +74,15 @@ export function VersionHistoryPanel({ itemId, canEdit, userNames }: Props) {
     }
   }, [itemId]);
 
-  // Only fetch on first open: if a user never expands the panel
-  // we shouldn't pay the round-trip. Reload on subsequent opens is
-  // fine: history changes rarely relative to how often the panel
-  // is clicked, and a stale list is easy enough to refresh.
+  // Fetch on the open transition only: if a user never expands the
+  // panel we shouldn't pay the round-trip, and each re-open
+  // refreshes a list that changes rarely anyway. The effect must
+  // NOT key on the result / loading state: an item with zero
+  // snapshots would re-arm it after every completed fetch (empty
+  // list, not loading, no error) and loop the request forever.
   useEffect(() => {
-    if (open && snapshots.length === 0 && !loading && !error) {
-      void reload();
-    }
-  }, [open, snapshots.length, loading, error, reload]);
+    if (open) void reload();
+  }, [open, reload]);
 
   if (!canEdit) return null;
 

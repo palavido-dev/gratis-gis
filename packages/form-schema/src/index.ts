@@ -1521,24 +1521,93 @@ export interface ValidationResult {
  * fields are not validated), required (incl. required-if), constraint
  * expressions, and per-type bounds (min/max length, min/max value,
  * min/max selected, etc).
+ *
+ * Repeat groups: the runtime stores each repeat group's answers as
+ * an array of per-instance objects under `response[groupId]`, and
+ * evaluates child visibility / required / constraint expressions
+ * against the instance object (see the runtime's GroupField, which
+ * hands each instance to its children as their whole response).
+ * The walk here mirrors that exactly, the same way pruneHidden
+ * does: children of a repeat group are validated once per instance
+ * against the instance object, never at top-level keys. The
+ * previous flat walk read repeat children at top-level keys, which
+ * made any repeat with a required child permanently unsubmittable
+ * (the top-level key never exists) while the real instance values
+ * went completely unvalidated.
+ *
+ * Errors inside an instance carry a path-shaped questionId,
+ * `<groupId>[<index>].<childId>` (nesting concatenates), so the
+ * caller can tell WHICH instance failed.
  */
 export function validate(form: FormSchema, response: Response): ValidationResult {
   const errors: ValidationError[] = [];
-  for (const q of walkQuestions(form)) {
+  validateQuestionList(form.questions, response, '', errors);
+  return { ok: errors.length === 0, errors };
+}
+
+/**
+ * Shared walker behind validate(). `response` is the evaluation
+ * context for this level: the full response at the top, the
+ * instance object inside a repeat group. `pathPrefix` accumulates
+ * `<groupId>[<index>].` segments so nested repeats stay
+ * addressable.
+ */
+function validateQuestionList(
+  questions: Question[],
+  response: Response,
+  pathPrefix: string,
+  errors: ValidationError[],
+): void {
+  for (const q of questions) {
     if (
       q.type === 'page' ||
       q.type === 'note' ||
-      q.type === 'group' ||
       q.type === 'divider' ||
       q.type === 'image-display'
     ) {
+      continue;
+    }
+    if (q.type === 'group') {
+      if (q.repeat) {
+        // Repeat group: instances live under response[q.id]. Gate
+        // on the group's own visibility (mirrors pruneHidden's
+        // repeat branch); a hidden group's instances are pruned
+        // before submit, so validating them would reject data the
+        // respondent can neither see nor fix. Nested repeats
+        // recurse naturally: the instance object becomes the
+        // context, so a repeat inside a repeat reads its own
+        // instance array off the parent instance.
+        if (!isVisible(q, response)) continue;
+        const instances = response[q.id];
+        if (!Array.isArray(instances)) continue;
+        for (let i = 0; i < instances.length; i += 1) {
+          const inst = instances[i];
+          const instObj: Response =
+            inst && typeof inst === 'object' && !Array.isArray(inst)
+              ? (inst as Response)
+              : {};
+          validateQuestionList(
+            q.children,
+            instObj,
+            `${pathPrefix}${q.id}[${i}].`,
+            errors,
+          );
+        }
+        continue;
+      }
+      // Non-repeat group: children write at the current level's
+      // keys (#288), so recurse with the same context and path.
+      validateQuestionList(q.children, response, pathPrefix, errors);
       continue;
     }
     if (!isVisible(q, response)) continue;
 
     const value = response[q.id];
     if (isRequired(q, response) && isEmpty(value)) {
-      errors.push({ questionId: q.id, message: 'This field is required.' });
+      errors.push({
+        questionId: `${pathPrefix}${q.id}`,
+        message: 'This field is required.',
+      });
       continue;
     }
     // Matrix questions with perRowRequired enforce row-level checks
@@ -1551,7 +1620,7 @@ export function validate(form: FormSchema, response: Response): ValidationResult
 
     const typeError = validateType(q, value);
     if (typeError) {
-      errors.push({ questionId: q.id, message: typeError });
+      errors.push({ questionId: `${pathPrefix}${q.id}`, message: typeError });
       continue;
     }
 
@@ -1559,13 +1628,12 @@ export function validate(form: FormSchema, response: Response): ValidationResult
       const ok = evaluate(q.constraint, response);
       if (!ok) {
         errors.push({
-          questionId: q.id,
+          questionId: `${pathPrefix}${q.id}`,
           message: q.message ?? 'Value is not valid.',
         });
       }
     }
   }
-  return { ok: errors.length === 0, errors };
 }
 
 export function isVisible(q: Question, response: Response): boolean {

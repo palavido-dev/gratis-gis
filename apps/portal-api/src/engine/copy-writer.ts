@@ -73,7 +73,23 @@ export class CopyWriter {
     });
   }
 
+  /**
+   * Convenience for callers that need no pre-COPY work inside the
+   * transaction: open it and immediately enter COPY mode. Callers
+   * that must run statements in the same transaction first (the
+   * replace-mode scoped delete) call `begin()`, then their
+   * statements, then `beginCopy()` themselves. Once the COPY
+   * starts, the connection can execute nothing else until it ends.
+   */
   async start(): Promise<void> {
+    await this.begin();
+    this.beginCopy();
+  }
+
+  /** Open the connection and the transaction WITHOUT starting the
+   *  COPY stream yet, leaving room for statements that must share
+   *  the transaction (see `deleteScope`). Pair with `beginCopy()`. */
+  async begin(): Promise<void> {
     this.client = await this.pool.connect();
     // SET LOCAL synchronous_commit=off for this transaction.
     // Bulk imports are re-runnable; trading per-commit fsync
@@ -82,6 +98,43 @@ export class CopyWriter {
     // the same client (none in this design) get default behavior.
     await this.client.query('BEGIN');
     await this.client.query('SET LOCAL synchronous_commit = OFF');
+  }
+
+  /**
+   * Delete every observation row in `scope` on this writer's own
+   * connection, inside the transaction the subsequent COPY joins.
+   * Replace-mode imports run their truncate through here so a
+   * failed or cancelled import rolls the delete back together with
+   * the partial COPY, restoring the exact pre-import state. A
+   * truncate committed in a separate transaction (the old shape)
+   * left the layer EMPTY on failure: old rows deleted, new rows
+   * rolled back.
+   *
+   * Only valid between `begin()` and `beginCopy()`: once the COPY
+   * statement is issued the connection is in copy-in mode and
+   * rejects ordinary queries.
+   */
+  async deleteScope(scope: string): Promise<void> {
+    if (!this.client) {
+      throw new Error('CopyWriter.deleteScope called before begin().');
+    }
+    if (this.stream) {
+      throw new Error(
+        'CopyWriter.deleteScope called after beginCopy(); the COPY stream owns the connection now.',
+      );
+    }
+    await this.client.query('DELETE FROM observation WHERE scope = $1', [
+      scope,
+    ]);
+  }
+
+  /** Issue the COPY statement and spawn the encoder worker. After
+   *  this the connection is dedicated to the COPY until `end()` or
+   *  `abort()`. */
+  beginCopy(): void {
+    if (!this.client) {
+      throw new Error('CopyWriter.beginCopy called before begin().');
+    }
     const sql =
       'COPY observation (' +
       [

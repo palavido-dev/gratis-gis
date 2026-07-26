@@ -95,9 +95,12 @@ export function isEditorItem(item: {
   // EditorData (the legacy detail-page save before the WebAppData
   // wrapper preservation fix) has no `template` field but DOES have
   // EditorData's structural markers. Treat it as an editor item so
-  // the runtime + dispatch keep working pre-migration. The data
-  // migration in 20260505030000_rewrap_webapp_data fixes the stored
-  // shape on next portal-api boot.
+  // the runtime + dispatch keep working. The one-time data
+  // migration 20260505030000_rewrap_webapp_data rewrapped the rows
+  // that existed when it was applied; Prisma migrations do not
+  // rerun, so any row written in the legacy shape after that point
+  // stays unwrapped until something rewrites it. This branch is
+  // that permanent tolerance.
   if (
     d &&
     typeof d === 'object' &&
@@ -176,7 +179,9 @@ export function isViewerItem(item: {
   if (d?.template === 'viewer') return true;
   // Tolerance branch: web_app item whose data is unwrapped ViewerData
   // (pre-fix detail-page save stripped the WebAppData wrapper). The
-  // 20260505030000 migration rewraps these on next portal-api boot.
+  // one-time 20260505030000 migration rewrapped the rows that
+  // existed when it ran; migrations do not rerun, so rows written
+  // in the legacy shape afterwards rely on this branch permanently.
   // ViewerData has `targets` + `tools` but no `snapping`, which is
   // how we distinguish it from an unwrapped EditorData.
   if (

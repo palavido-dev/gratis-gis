@@ -28,6 +28,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import traceback
 import uuid
@@ -118,6 +119,18 @@ def free_bytes(path: Path) -> int:
     return shutil.disk_usage(str(path)).free
 
 
+def output_tail(handle, limit: int = 800) -> str:
+    # Last `limit` characters of a child-output temp file, decoded
+    # leniently. Reads a few bytes more than `limit` so a multi-byte
+    # character split at the seek point cannot eat into the tail.
+    try:
+        size = handle.seek(0, os.SEEK_END)
+        handle.seek(max(0, size - 4 * limit))
+        return handle.read().decode("utf-8", errors="replace")[-limit:].strip()
+    except Exception:
+        return ""
+
+
 def run_long(
     cmd: list[str],
     cwd: Path,
@@ -141,47 +154,52 @@ def run_long(
         f"  $ {' '.join(cmd)}  "
         f"(long-running, <{timeout // 3600}h, progress {prog_from}->{prog_to})"
     )
-    proc = subprocess.Popen(
-        cmd, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True,
-    )
-    t0 = time.time()
-    deadline = t0 + timeout
-    last = -1
-    try:
-        while True:
-            try:
-                proc.wait(timeout=10)
-                break
-            except subprocess.TimeoutExpired:
-                pass
-            elapsed = time.time() - t0
-            frac = 1.0 - math.exp(-elapsed / tau)
-            pct = min(prog_from + int((prog_to - prog_from) * frac), prog_to - 1)
-            if pct != last:
-                try:
-                    set_progress(conn, job_id, pct)
-                except Exception:
-                    pass  # progress is cosmetic; never fail the job over it
-                last = pct
-            if time.time() > deadline:
-                proc.kill()
-                proc.wait(timeout=30)
-                raise RuntimeError(
-                    f"The gridding step ran longer than {timeout // 3600} "
-                    "hours and was stopped. Try a coarser resolution or a "
-                    "smaller area."
-                )
-    finally:
-        if proc.poll() is None:
-            proc.kill()
-    if proc.returncode != 0:
-        err = ""
+    # Child stdout/stderr go to temp files, not pipes. A pipe that
+    # nobody drains while the child runs fills its 64KB kernel buffer
+    # and blocks the child forever; chatty tools hit that wall, hung,
+    # and then died at the deadline with a misleading timeout error.
+    # Files have no backpressure, and the error tail is read after
+    # exit. They live in the job's work dir so they sit on the
+    # watched scratch disk and any leftovers ride the existing
+    # rmtree cleanup.
+    with tempfile.TemporaryFile(dir=str(cwd)) as out_f, \
+            tempfile.TemporaryFile(dir=str(cwd)) as err_f:
+        proc = subprocess.Popen(cmd, cwd=str(cwd), stdout=out_f, stderr=err_f)
+        t0 = time.time()
+        deadline = t0 + timeout
+        last = -1
         try:
-            err = (proc.stderr.read() or "")[-800:] if proc.stderr else ""
-        except Exception:
-            pass
-        raise RuntimeError(f"{cmd[0]} failed: {err.strip()}")
+            while True:
+                try:
+                    proc.wait(timeout=10)
+                    break
+                except subprocess.TimeoutExpired:
+                    pass
+                elapsed = time.time() - t0
+                frac = 1.0 - math.exp(-elapsed / tau)
+                pct = min(
+                    prog_from + int((prog_to - prog_from) * frac), prog_to - 1
+                )
+                if pct != last:
+                    try:
+                        set_progress(conn, job_id, pct)
+                    except Exception:
+                        pass  # progress is cosmetic; never fail the job over it
+                    last = pct
+                if time.time() > deadline:
+                    proc.kill()
+                    proc.wait(timeout=30)
+                    raise RuntimeError(
+                        f"The gridding step ran longer than {timeout // 3600} "
+                        "hours and was stopped. Try a coarser resolution or a "
+                        "smaller area."
+                    )
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+        if proc.returncode != 0:
+            err = output_tail(err_f) or output_tail(out_f)
+            raise RuntimeError(f"{cmd[0]} failed: {err}")
 
 
 def run_with_disk_watchdog(
@@ -195,44 +213,44 @@ def run_with_disk_watchdog(
         f"  $ {' '.join(cmd)}  "
         f"(watchdog: keep >{reserve // GIB}GB free, <{timeout // 3600}h)"
     )
-    proc = subprocess.Popen(
-        cmd, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True,
-    )
-    deadline = time.time() + timeout
-    try:
-        while True:
-            try:
-                proc.wait(timeout=5)
-                break
-            except subprocess.TimeoutExpired:
-                pass
-            if free_bytes(watch) < reserve:
-                proc.kill()
-                proc.wait(timeout=30)
-                raise RuntimeError(
-                    "Stopped the merge to protect the disk: free working "
-                    f"space dropped below {reserve // GIB}GB. This set of "
-                    "tiles needs more scratch space than is available. "
-                    "Use fewer tiles or a larger scratch disk."
-                )
-            if time.time() > deadline:
-                proc.kill()
-                proc.wait(timeout=30)
-                raise RuntimeError(
-                    f"The merge ran longer than {timeout // 3600} hours and "
-                    "was stopped. This area is very large; try fewer tiles."
-                )
-    finally:
-        if proc.poll() is None:
-            proc.kill()
-    if proc.returncode != 0:
-        err = ""
+    # Temp files instead of pipes, same rationale as run_long: an
+    # undrained pipe deadlocks a chatty child (untwine logs per tile,
+    # so hundreds of tiles overflow the 64KB pipe buffer) and the
+    # watchdog then kills a healthy merge with a bogus timeout.
+    with tempfile.TemporaryFile(dir=str(cwd)) as out_f, \
+            tempfile.TemporaryFile(dir=str(cwd)) as err_f:
+        proc = subprocess.Popen(cmd, cwd=str(cwd), stdout=out_f, stderr=err_f)
+        deadline = time.time() + timeout
         try:
-            err = (proc.stderr.read() or "")[-800:] if proc.stderr else ""
-        except Exception:
-            pass
-        raise RuntimeError(f"{cmd[0]} failed: {err.strip()}")
+            while True:
+                try:
+                    proc.wait(timeout=5)
+                    break
+                except subprocess.TimeoutExpired:
+                    pass
+                if free_bytes(watch) < reserve:
+                    proc.kill()
+                    proc.wait(timeout=30)
+                    raise RuntimeError(
+                        "Stopped the merge to protect the disk: free working "
+                        f"space dropped below {reserve // GIB}GB. This set of "
+                        "tiles needs more scratch space than is available. "
+                        "Use fewer tiles or a larger scratch disk."
+                    )
+                if time.time() > deadline:
+                    proc.kill()
+                    proc.wait(timeout=30)
+                    raise RuntimeError(
+                        f"The merge ran longer than {timeout // 3600} hours "
+                        "and was stopped. This area is very large; try fewer "
+                        "tiles."
+                    )
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+        if proc.returncode != 0:
+            err = output_tail(err_f) or output_tail(out_f)
+            raise RuntimeError(f"{cmd[0]} failed: {err}")
 
 
 def set_progress(conn, job_id: str, pct: int) -> None:
@@ -304,6 +322,68 @@ def item_data(conn, item_id: str) -> dict:
     if row is None:
         raise RuntimeError("Source item no longer exists.")
     return row[0] or {}
+
+
+def merge_item_data(conn, item_id: str, patch: dict) -> None:
+    # Merge `patch` into item.data_json instead of replacing the
+    # whole document. Jobs here run for hours, and the API keeps
+    # writing to the same item meanwhile; a wholesale write of a dict
+    # the worker computed (or snapshotted at job start) silently
+    # erases those concurrent changes. The jsonb || merge only
+    # touches the keys the worker owns, so everything else survives.
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE item
+            SET data_json = data_json || %s::jsonb, updated_at = now()
+            WHERE id = %s
+            """,
+            (json.dumps(patch), item_id),
+        )
+    conn.commit()
+
+
+# Job kinds whose pre-created target item is a raster tile_layer stub
+# that only this worker ever fills in. On failure the stub must not
+# stay a blank husk with no state; main() stamps it via
+# stamp_target_failed. The other kinds are excluded on purpose:
+# copc-build stamps its own item with a tailored message inside its
+# handler, contours' data_layer target is settled by the API-side
+# analysis bridge, and sam-embed has no target item at all.
+RASTER_TARGET_KINDS = {
+    "hillshade",
+    "elevation",
+    "viewshed",
+    "steepness",
+    "heightmap",
+}
+
+
+def stamp_target_failed(conn, job, error: str) -> None:
+    """Mark a failed job's pre-created target item as failed.
+
+    Mirrors the copc-build failure stamp: processingState 'failed'
+    plus a plain-language processingError, merged into data_json so
+    concurrent API writes survive. Best-effort: the job row already
+    carries the authoritative error, so a failure here only costs
+    the item-page hint, not the diagnosis.
+    """
+    if job.get("kind") not in RASTER_TARGET_KINDS:
+        return
+    target = job.get("target_item_id")
+    if not target:
+        return
+    try:
+        merge_item_data(
+            conn,
+            target,
+            {
+                "processingState": "failed",
+                "processingError": (error or "The analysis failed.")[:400],
+            },
+        )
+    except Exception:
+        conn.rollback()
 
 
 def wgs84_bbox(tif: Path) -> list[float] | None:
@@ -472,16 +552,10 @@ def do_hillshade(conn, s3, job) -> None:
             data["centerLng"] = (bbox[0] + bbox[2]) / 2
             data["centerLat"] = (bbox[1] + bbox[3]) / 2
             data["centerZoom"] = max(0, max_zoom - 3)
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                UPDATE item
-                SET data_json = %s, updated_at = now()
-                WHERE id = %s
-                """,
-                (json.dumps(data), job["target_item_id"]),
-            )
-        conn.commit()
+        # Patch, not replace: every key in `data` is worker-owned;
+        # anything the API added to the item while the job ran
+        # survives the merge (see merge_item_data).
+        merge_item_data(conn, job["target_item_id"], data)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -622,16 +696,10 @@ def do_elevation(conn, s3, job) -> None:
             data["centerLng"] = (bbox[0] + bbox[2]) / 2
             data["centerLat"] = (bbox[1] + bbox[3]) / 2
             data["centerZoom"] = max(0, max_zoom - 3)
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                UPDATE item
-                SET data_json = %s, updated_at = now()
-                WHERE id = %s
-                """,
-                (json.dumps(data), job["target_item_id"]),
-            )
-        conn.commit()
+        # Patch, not replace: every key in `data` is worker-owned;
+        # anything the API added to the item while the job ran
+        # survives the merge (see merge_item_data).
+        merge_item_data(conn, job["target_item_id"], data)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -819,16 +887,10 @@ def do_viewshed(conn, s3, job) -> None:
             data["centerLng"] = (bbox[0] + bbox[2]) / 2
             data["centerLat"] = (bbox[1] + bbox[3]) / 2
             data["centerZoom"] = max(0, max_zoom - 3)
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                UPDATE item
-                SET data_json = %s, updated_at = now()
-                WHERE id = %s
-                """,
-                (json.dumps(data), job["target_item_id"]),
-            )
-        conn.commit()
+        # Patch, not replace: every key in `data` is worker-owned;
+        # anything the API added to the item while the job ran
+        # survives the merge (see merge_item_data).
+        merge_item_data(conn, job["target_item_id"], data)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -1070,16 +1132,10 @@ def do_steepness(conn, s3, job) -> None:
             data["centerLng"] = (bbox[0] + bbox[2]) / 2
             data["centerLat"] = (bbox[1] + bbox[3]) / 2
             data["centerZoom"] = max(0, max_zoom - 3)
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                UPDATE item
-                SET data_json = %s, updated_at = now()
-                WHERE id = %s
-                """,
-                (json.dumps(data), job["target_item_id"]),
-            )
-        conn.commit()
+        # Patch, not replace: every key in `data` is worker-owned;
+        # anything the API added to the item while the job ran
+        # survives the merge (see merge_item_data).
+        merge_item_data(conn, job["target_item_id"], data)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -1280,16 +1336,10 @@ def do_heightmap(conn, s3, job) -> None:
             data["centerLng"] = (bbox[0] + bbox[2]) / 2
             data["centerLat"] = (bbox[1] + bbox[3]) / 2
             data["centerZoom"] = max(0, max_zoom - 3)
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                UPDATE item
-                SET data_json = %s, updated_at = now()
-                WHERE id = %s
-                """,
-                (json.dumps(data), job["target_item_id"]),
-            )
-        conn.commit()
+        # Patch, not replace: every key in `data` is worker-owned;
+        # anything the API added to the item while the job ran
+        # survives the merge (see merge_item_data).
+        merge_item_data(conn, job["target_item_id"], data)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -1524,8 +1574,13 @@ def do_copc_build(conn, s3, job) -> None:
     if not source_keys:
         raise RuntimeError("No source tiles to merge.")
     item_id = job["target_item_id"] or job["source_item_id"]
-    existing = item_data(conn, item_id)
-    existing = existing if isinstance(existing, dict) else {}
+    # Existence check only, before we download gigabytes for a
+    # deleted item. The data itself is deliberately NOT retained: a
+    # merge runs for hours and the API keeps updating this item
+    # meanwhile (newly uploaded source tiles land in sourceKeys), so
+    # the final stamp below re-reads current state inside its own
+    # transaction instead of trusting a job-start snapshot.
+    item_data(conn, item_id)
 
     work = SCRATCH / f"copc-{job['id']}"
     srcdir = work / "src"
@@ -1612,40 +1667,59 @@ def do_copc_build(conn, s3, job) -> None:
         s3.upload_file(str(merged), BUCKET, key)
         set_progress(conn, job["id"], 92)
 
-        prev_key = existing.get("storageKey")
-        data = dict(existing)
-        data.update(
-            {
-                "version": 1,
-                "format": "copc",
-                "storageKey": key,
-                "storageUrl": f"/api/portal/storage/private/{key}",
-                "sizeBytes": size,
-                "uploadedAt": time.strftime(
-                    "%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()
-                ),
-                "pointCount": meta["count"],
-                "bounds": meta["bounds"],
-                "lasVersion": meta["lasVersion"],
-                "pointFormat": meta["pointFormat"],
-                "hasRgb": meta["hasRgb"],
-                "dataUrl": f"/api/portal/point-cloud/{item_id}/file.copc.laz",
-                "processingState": "ready",
-            }
-        )
-        data.pop("processingError", None)
+        # Final stamp: patch only the keys this worker owns. Writing
+        # back a whole dict snapshotted at job start clobbered every
+        # concurrent API write; for copc that meant source tiles the
+        # user added mid-merge vanished from sourceKeys. The two
+        # values that must be derived from CURRENT state (the
+        # superseded merged file to delete, the fileName default) are
+        # re-read inside this same transaction under the row lock, so
+        # nothing can slide in between the read and the write.
+        patch = {
+            "version": 1,
+            "format": "copc",
+            "storageKey": key,
+            "storageUrl": f"/api/portal/storage/private/{key}",
+            "sizeBytes": size,
+            "uploadedAt": time.strftime(
+                "%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()
+            ),
+            "pointCount": meta["count"],
+            "bounds": meta["bounds"],
+            "lasVersion": meta["lasVersion"],
+            "pointFormat": meta["pointFormat"],
+            "hasRgb": meta["hasRgb"],
+            "dataUrl": f"/api/portal/point-cloud/{item_id}/file.copc.laz",
+            "processingState": "ready",
+        }
         if meta["crsWkt"]:
-            data["crsWkt"] = meta["crsWkt"]
+            patch["crsWkt"] = meta["crsWkt"]
         bbox = bounds_to_wgs84(meta["bounds"], meta["crsWkt"])
         if bbox:
-            data["bboxWgs84"] = bbox
-        if not data.get("fileName"):
-            data["fileName"] = "merged.copc.laz"
+            patch["bboxWgs84"] = bbox
 
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE item SET data_json = %s, updated_at = now() WHERE id = %s",
-                (json.dumps(data), item_id),
+                "SELECT data_json FROM item WHERE id = %s FOR UPDATE",
+                (item_id,),
+            )
+            row = cur.fetchone()
+            current = (
+                row[0] if row is not None and isinstance(row[0], dict) else {}
+            )
+            prev_key = current.get("storageKey")
+            if not current.get("fileName"):
+                patch["fileName"] = "merged.copc.laz"
+            # `- 'processingError'` clears a stale failure note from
+            # a previous run; || cannot remove keys, only set them.
+            cur.execute(
+                """
+                UPDATE item
+                SET data_json = (data_json - 'processingError') || %s::jsonb,
+                    updated_at = now()
+                WHERE id = %s
+                """,
+                (json.dumps(patch), item_id),
             )
         conn.commit()
 
@@ -1663,31 +1737,39 @@ def do_copc_build(conn, s3, job) -> None:
         # Surface our own plain-language reasons (disk space, a missing
         # tile) directly; fall back to the generic message for opaque
         # tool failures (an untwine/pdal stderr tail is not user copy).
+        # Patch, not replace: writing back the job-start snapshot here
+        # had the same clobber problem as the success path, erasing
+        # source tiles added while the merge ran.
         msg = str(exc)
         low = msg.lower()
         user_facing = any(
             kw in low
             for kw in ("working space", "protect the disk", "a source tile is missing", "produced no output")
         )
+        # Roll back first: if `exc` was a database error, the open
+        # transaction is aborted and the stamp below would be
+        # rejected until it is cleared.
         try:
-            failed = dict(existing)
-            failed["processingState"] = "failed"
-            failed["processingError"] = (
-                msg[:400]
-                if user_facing
-                else (
-                    "The tiles could not be merged. Check that they are lidar "
-                    "files (.laz / .las / .copc.laz) in a matching coordinate "
-                    "system."
-                )
+            conn.rollback()
+        except Exception:
+            pass
+        try:
+            merge_item_data(
+                conn,
+                item_id,
+                {
+                    "processingState": "failed",
+                    "processingError": (
+                        msg[:400]
+                        if user_facing
+                        else (
+                            "The tiles could not be merged. Check that they "
+                            "are lidar files (.laz / .las / .copc.laz) in a "
+                            "matching coordinate system."
+                        )
+                    ),
+                },
             )
-            with conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE item SET data_json = %s, updated_at = now() "
-                    "WHERE id = %s",
-                    (json.dumps(failed), item_id),
-                )
-            conn.commit()
         except Exception:
             conn.rollback()
         raise
@@ -1747,6 +1829,10 @@ def main() -> None:
                 conn.rollback()
                 log(f"job {job['id']}: FAILED\n{traceback.format_exc()}")
                 finish_job(conn, job["id"], str(err))
+                # Raster jobs pre-create their target tile_layer item;
+                # without this stamp a failure leaves that item as a
+                # blank husk with no state and no explanation.
+                stamp_target_failed(conn, job, str(err))
         except psycopg2.Error:
             log("db connection lost; reconnecting")
             time.sleep(5)

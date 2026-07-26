@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 
-import type { GeoJsonGeometry } from '@gratis-gis/engine';
+import { isUuid, type GeoJsonGeometry } from '@gratis-gis/engine';
 import {
   ExpressionError,
   evaluateExpression,
@@ -604,6 +604,34 @@ export class DataLayerFeaturesService {
       throw err;
     }
 
+    // 'selection' scope must never fall through to the whole layer:
+    // an empty or malformed selection here would silently widen the
+    // write to every row (the exact failure mode #selection-scope
+    // shipped with, when entityIds was dropped on the engine floor).
+    // Validate the ids up front so the engine's ::uuid casts can't
+    // 500 and so the documented row cap applies to the selection
+    // itself, not just the rows it happens to match.
+    let selectionIds: string[] | undefined;
+    if (args.scope === 'selection') {
+      const ids = args.selectedIds ?? [];
+      if (ids.length === 0) {
+        throw new BadRequestException(
+          "scope 'selection' requires a non-empty selectedIds list",
+        );
+      }
+      if (ids.length > MAX_CALC_FIELD_ROWS) {
+        throw new BadRequestException(
+          `Calculate Field is capped at ${MAX_CALC_FIELD_ROWS} rows per call; narrow the scope or split into smaller batches`,
+        );
+      }
+      if (ids.some((id) => !isUuid(id))) {
+        throw new BadRequestException(
+          'selectedIds must be feature ids (UUIDs)',
+        );
+      }
+      selectionIds = ids;
+    }
+
     // Fetch the affected entities.  In 'selection' mode we limit
     // to selectedIds; otherwise we pull every entity in the
     // sublayer.  ownRowsOnly + isTable mirror the regular update
@@ -611,9 +639,7 @@ export class DataLayerFeaturesService {
     const features = await this.dataLayer.listFeatures({
       itemId: args.itemId,
       layerId: args.layerId,
-      ...(args.scope === 'selection' && args.selectedIds
-        ? { entityIds: args.selectedIds }
-        : {}),
+      ...(selectionIds !== undefined ? { entityIds: selectionIds } : {}),
       ...(args.ownRowsOnly === true
         ? { ownRowsOnly: { userId: args.user.id } }
         : {}),

@@ -1,0 +1,24 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "noEmit": false,
+    "module": "CommonJS",
+    // Same build shape as shared-types / engine: a CommonJS dist is
+    // the one output that BOTH consumers can load. portal-api's
+    // compiled Nest server require()s this package at runtime for
+    // server-side submission validation (the "one shared evaluator"
+    // promise in src/index.ts), and Node cannot load the raw .ts
+    // sources (extensionless ESM imports, no type stripping on the
+    // supported floor of node 22). portal-web keeps consuming the
+    // dist through the bundler like it does shared-types.
+    "moduleResolution": "node10",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "incremental": false,
+    "ignoreDeprecations": "6.0"
+  },
+  "include": ["src/**/*"]
+}

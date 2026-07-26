@@ -353,6 +353,11 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
   // current value without re-running its effect on terrain change.
   const terrainRef = useRef<MapData['terrain'] | undefined>(map.terrain);
   terrainRef.current = map.terrain;
+  // #154: ref-shadow of the drawings prop for the same reason:
+  // setStyle wipes the drawings overlay too, and the swap path must
+  // restore it without re-running on every drawings change.
+  const drawingsRef = useRef<DrawingSetForRender[] | undefined>(drawings);
+  drawingsRef.current = drawings;
   // #89: ref-shadow the edit-claimed set + click callback so the
   // long-lived click handler (mounted once per map instance) reads
   // the current values without forcing a remount when the parent
@@ -405,17 +410,12 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
   // vertices whenever the camera moves. Vertices live in lng/lat so
   // they anchor to the map, but we render them in pixel space via
   // map.project(); bumping this ensures the render picks up fresh
-  // projections after a pan/zoom.
+  // projections after a pan/zoom. The 'move' listener that bumps it
+  // is wired inside the map create effect with the other map-level
+  // listeners: a standalone effect declared up here runs before the
+  // create effect on mount (mapRef still null), so it never
+  // attached and the vertex overlay went stale after every pan.
   const [projectTick, setProjectTick] = useState(0);
-  useEffect(() => {
-    const m = mapRef.current;
-    if (!m) return;
-    const onMove = () => setProjectTick((t) => t + 1);
-    m.on('move', onMove);
-    return () => {
-      m.off('move', onMove);
-    };
-  }, []);
 
   useImperativeHandle(
     ref,
@@ -513,6 +513,9 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
           m.setFeatureState(featureStateRef(m, sourceId, prevId), { hover: true });
           // Clear after a couple seconds so the pulse feels temporary.
           setTimeout(() => {
+            // The canvas can unmount during the pulse; touching a
+            // removed map instance throws inside MapLibre.
+            if (mapRef.current !== m) return;
             m.setFeatureState(featureStateRef(m, sourceId, prevId), { hover: false });
           }, 2500);
         };
@@ -732,6 +735,11 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     // to wait for the user to pan before they get a bbox.
     m.once('load', fireViewport);
 
+    // Camera-move tick for the polygon-select vertex overlay (see
+    // the projectTick declaration for why it lives here).
+    const onProjectMove = () => setProjectTick((t) => t + 1);
+    m.on('move', onProjectMove);
+
     // Register the default icon library. Layer sync waits on this via
     // the `iconsTick` state: each time a batch of icons finishes
     // registering we bump the tick so the sync effect re-runs and any
@@ -771,6 +779,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     return () => {
       cancelled = true;
       onMapReadyRef.current?.(null);
+      m.off('move', onProjectMove);
       // #179: stop point-cloud streaming + drop the control before
       // the map dies so in-flight node fetches don't land on a
       // removed instance.
@@ -859,7 +868,13 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
         hoveredRef,
         clipBoundaryRef.current,
         asOfTimeRef.current,
+        appliedSelectionRef,
       );
+      // #154: setStyle wiped the drawings overlay too; restore it
+      // here or markup vanishes on basemap switch until the panel
+      // next mutates the drawings prop. After syncOverlays, so the
+      // markup layers land back above the re-added data layers.
+      syncDrawings(m, drawingsRef.current ?? []);
       // #186: setStyle wiped the raster-dem source and the terrain
       // setting along with everything else; restore them.
       applyTerrain(m, terrainRef.current);
@@ -917,14 +932,28 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
       const once = () => {
         if (!styleSheetReady(m)) return;
         m.off('styledata', once);
-        syncOverlays(m, map.layers, hoveredRef, map.clipBoundaryId, asOfTime);
+        syncOverlays(
+          m,
+          map.layers,
+          hoveredRef,
+          map.clipBoundaryId,
+          asOfTime,
+          appliedSelectionRef,
+        );
       };
       m.on('styledata', once);
       return () => {
         m.off('styledata', once);
       };
     }
-    syncOverlays(m, map.layers, hoveredRef, map.clipBoundaryId, asOfTime);
+    syncOverlays(
+      m,
+      map.layers,
+      hoveredRef,
+      map.clipBoundaryId,
+      asOfTime,
+      appliedSelectionRef,
+    );
     // Also re-sync when the map-level clip changes so existing
     // overlay sources pick up / drop the ?clip query param without
     // the user needing to reload (#79).  #87 adds asOfTime as a
@@ -1073,6 +1102,12 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     m.on('moveend', refetchAll);
     return () => {
       m.off('moveend', refetchAll);
+      // Abort in-flight fetches: a late response would setData on a
+      // source that the re-run just rebuilt (or on a removed map
+      // after unmount). The re-run's immediate refetchAll re-issues
+      // whatever is still wanted.
+      for (const c of Object.values(arcgisControllers.current)) c.abort();
+      arcgisControllers.current = {};
     };
   }, [map.layers, iconsTick]);
 
@@ -1162,6 +1197,10 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     m.on('moveend', refetchAll);
     return () => {
       m.off('moveend', refetchAll);
+      // Same as the arcgis effect: abort so late responses cannot
+      // land on rebuilt sources or a removed map.
+      for (const c of Object.values(postgisControllers.current)) c.abort();
+      postgisControllers.current = {};
     };
   }, [map.layers, iconsTick]);
 
@@ -1255,6 +1294,10 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     m.on('moveend', refetchAll);
     return () => {
       m.off('moveend', refetchAll);
+      // Same as the arcgis effect: abort so late responses cannot
+      // land on rebuilt sources or a removed map.
+      for (const c of Object.values(dataLayerControllers.current)) c.abort();
+      dataLayerControllers.current = {};
     };
     // #87: include asOfTime so scrubbing back in time triggers a
     // full refetch with the new `at` parameter -- without this dep,
@@ -1279,20 +1322,34 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     // queryRenderedFeatures keeps the cursor from turning into a
     // "clickable" pointer and stops hover highlight from firing on
     // data the user isn't cleared to read.
-    const interactiveLayerIds = (): string[] => {
+    //
+    // Cached rather than computed per event: the previous closure
+    // ran m.getStyle(), which serializes the entire style, on every
+    // mousemove and click. The candidate set only changes when this
+    // effect re-runs (map.layers dep) or when the style itself
+    // mutates (overlay sync, basemap swap), and every style
+    // mutation fires 'styledata', so recompute exactly there.
+    let interactiveIds: string[] = [];
+    const recomputeInteractiveIds = () => {
       // getStyle() can return undefined before the initial style load
-      // completes and during style transitions. Bail out with an empty
+      // completes and during style transitions. Fall back to an empty
       // list: the hover / popup / click paths all no-op cleanly when
       // there are no interactive layer ids to query.
       const style = m.getStyle();
-      if (!style) return [];
+      if (!style) {
+        interactiveIds = [];
+        return;
+      }
       const existing = new Set((style.layers ?? []).map((sl) => sl.id));
       const queryable = map.layers.filter(
         (l) => l.effective === undefined || l.effective.query !== false,
       );
-      const wanted = queryable.flatMap((l) => overlayLayerIds(l.id));
-      return wanted.filter((id) => existing.has(id));
+      interactiveIds = queryable
+        .flatMap((l) => overlayLayerIds(l.id))
+        .filter((id) => existing.has(id));
     };
+    recomputeInteractiveIds();
+    m.on('styledata', recomputeInteractiveIds);
 
     function onMouseMove(e: maplibregl.MapMouseEvent) {
       // Skip the hover + "pointer over feature" cursor while any
@@ -1313,7 +1370,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
       }
 
       const hits = m!.queryRenderedFeatures(e.point, {
-        layers: interactiveLayerIds(),
+        layers: interactiveIds,
       });
       m!.getCanvas().style.cursor = hits.length > 0 ? 'pointer' : '';
 
@@ -1371,15 +1428,17 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
           prev !== null &&
           prev.layerId === featureKey.layerId &&
           prev.featureId === featureKey.featureId;
-        const html = renderPopupHtml(
-          layerForHover,
-          hit.properties ?? {},
-        );
         if (hoverPopupRef.current && sameFeature) {
           // Same feature, just track cursor: update position so
           // the popup follows the pointer through the feature.
+          // The HTML depends only on the feature, so skip the
+          // rebuild too (it used to run on every mousemove).
           hoverPopupRef.current.setLngLat(e.lngLat);
         } else {
+          const html = renderPopupHtml(
+            layerForHover,
+            hit.properties ?? {},
+          );
           // Different feature (or first show): create / re-target.
           hoverPopupRef.current?.remove();
           hoverPopupRef.current = new maplibregl.Popup({
@@ -1424,7 +1483,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
       // click should never compete with their drag/vertex logic.
       if (tool === 'rectangle' || tool === 'polygon') return;
       const hits = m!.queryRenderedFeatures(e.point, {
-        layers: interactiveLayerIds(),
+        layers: interactiveIds,
       });
 
       if (tool === 'click') {
@@ -1572,11 +1631,17 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     }
 
     m.on('mousemove', onMouseMove);
-    m.on('mouseleave', onMouseLeave);
+    // Map-level 'mouseleave' never fires in MapLibre 5 (that name is
+    // reserved for layer-scoped delegated listeners); the canvas-exit
+    // event at map level is 'mouseout'. Binding the wrong name left
+    // hover state, the pointer cursor, and hover popups stuck when
+    // the cursor left the canvas.
+    m.on('mouseout', onMouseLeave);
     m.on('click', onClick);
     return () => {
+      m.off('styledata', recomputeInteractiveIds);
       m.off('mousemove', onMouseMove);
-      m.off('mouseleave', onMouseLeave);
+      m.off('mouseout', onMouseLeave);
       m.off('click', onClick);
     };
   }, [map.layers, suppressPopup]);
@@ -1704,13 +1769,15 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     m.on('click', onClick);
     m.on('dblclick', onDblClick);
     m.on('mousemove', onMouseMove);
-    m.on('mouseleave', onMouseLeave);
+    // 'mouseout' is the map-level canvas-exit event; 'mouseleave'
+    // only fires for layer-scoped listeners (see the popup effect).
+    m.on('mouseout', onMouseLeave);
     window.addEventListener('keydown', onKeyDown);
     return () => {
       m.off('click', onClick);
       m.off('dblclick', onDblClick);
       m.off('mousemove', onMouseMove);
-      m.off('mouseleave', onMouseLeave);
+      m.off('mouseout', onMouseLeave);
       m.doubleClickZoom.enable();
       window.removeEventListener('keydown', onKeyDown);
       setPolygonVerts([]);
@@ -2598,13 +2665,25 @@ function applyTerrain(
 ): void {
   try {
     if (terrain?.tileUrl) {
+      // The cog protocol's #dem mode turns the single-band
+      // elevation COG into terrain tiles on the fly.
+      const demUrl = `${terrain.tileUrl}#dem`;
+      const existing = m.getSource(TERRAIN_SOURCE_ID) as
+        | maplibregl.RasterDEMTileSource
+        | undefined;
+      // A different DEM pick must rebuild the source: keeping the
+      // old source and only updating exaggeration leaves MapLibre
+      // silently rendering the previous DEM's tiles. The source's
+      // own url is the ground truth for what is currently applied.
+      if (existing && existing.url !== demUrl) {
+        m.setTerrain(null);
+        m.removeSource(TERRAIN_SOURCE_ID);
+      }
       const fresh = !m.getSource(TERRAIN_SOURCE_ID);
       if (fresh) {
         m.addSource(TERRAIN_SOURCE_ID, {
           type: 'raster-dem',
-          // The cog protocol's #dem mode turns the single-band
-          // elevation COG into terrain tiles on the fly.
-          url: `${terrain.tileUrl}#dem`,
+          url: demUrl,
           tileSize: 256,
         });
       }
@@ -2669,6 +2748,18 @@ function syncOverlays(
    * and MapLibre refetches tiles with the new URL.
    */
   asOfTime?: string | null,
+  /**
+   * #318 follow-up: the canvas's bookkeeping of which feature ids
+   * currently carry `selected` feature-state. Rebuilding a source
+   * here wipes MapLibre's feature-state while this ref still lists
+   * the ids, so the diffing selection effect saw nothing to change
+   * and the highlight silently vanished (toolbar count intact).
+   * When passed, the tail of this function re-applies the selected
+   * state on every source that exists after the rebuild.
+   */
+  appliedSelectionRef?: React.MutableRefObject<
+    Record<string, Set<number | string>>
+  >,
 ) {
   // Remove previously-added overlay layers. Everything we own starts
   // with `gg:` so we can distinguish from basemap layers.
@@ -3422,6 +3513,48 @@ function syncOverlays(
           // Ignore: a layer may have been removed by a concurrent
           // sync; the next render will fix it.
         }
+      }
+    }
+    // #154 invariant: markup always reads above the data layers.
+    // The force-to-top pass above just raised every gg: layer over
+    // the drawings pair, burying markup, so re-assert the drawings
+    // layers at the very top. Stroke before fill mirrors the order
+    // syncDrawings adds them in (fill paints above its halo).
+    for (const id of [DRAWINGS_STROKE_LAYER_ID, DRAWINGS_FILL_LAYER_ID]) {
+      if (!m.getLayer(id)) continue;
+      try {
+        m.moveLayer(id);
+      } catch {
+        // Ignore: the drawings sync may have removed it
+        // concurrently; its next run re-adds on top anyway.
+      }
+    }
+  }
+
+  // Re-apply selection feature-state on rebuilt sources (see the
+  // appliedSelectionRef param doc). setFeatureState before tiles /
+  // data arrive is fine: MapLibre stores the state per id and
+  // applies it as features load. Raster sources have no feature
+  // state, so only vector / geojson sources qualify (a selection
+  // can only ever reference those anyway).
+  if (appliedSelectionRef) {
+    for (const [layerId, ids] of Object.entries(
+      appliedSelectionRef.current,
+    )) {
+      const sourceId = `gg:${layerId}`;
+      const src = m.getSource(sourceId);
+      if (!src) continue;
+      const srcType = src.type as unknown as string;
+      if (srcType !== 'vector' && srcType !== 'geojson') continue;
+      for (const id of ids) {
+        // Same shape rule as featureStateRef in the component:
+        // vector sources need the sourceLayer, geojson must omit it.
+        m.setFeatureState(
+          srcType === 'vector'
+            ? { source: sourceId, sourceLayer: 'features', id }
+            : { source: sourceId, id },
+          { selected: true },
+        );
       }
     }
   }

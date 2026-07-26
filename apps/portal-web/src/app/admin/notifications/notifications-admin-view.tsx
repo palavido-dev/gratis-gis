@@ -144,14 +144,20 @@ export function NotificationsAdminView({
     setRefreshing(true);
     setError(null);
     try {
-      const [s, r] = await Promise.all([
-        fetch('/api/portal/admin/notifications/stats').then(
-          (res) => res.json() as Promise<Stats>,
-        ),
-        fetch('/api/portal/admin/notifications/recent').then(
-          (res) => res.json() as Promise<RecentRow[]>,
-        ),
+      const [sRes, rRes] = await Promise.all([
+        fetch('/api/portal/admin/notifications/stats'),
+        fetch('/api/portal/admin/notifications/recent'),
       ]);
+      // Without these checks a 401 / 500 body would be parsed as if
+      // it were stats and render NaN metrics instead of an error.
+      if (!sRes.ok) {
+        throw new Error(`Could not refresh stats (${sRes.status})`);
+      }
+      if (!rRes.ok) {
+        throw new Error(`Could not refresh recent activity (${rRes.status})`);
+      }
+      const s = (await sRes.json()) as Stats;
+      const r = (await rRes.json()) as RecentRow[];
       setStats(s);
       setRecent(r);
     } catch (err) {
@@ -182,15 +188,23 @@ export function NotificationsAdminView({
       if (!res.ok) {
         throw new Error(`${res.status} ${await res.text()}`);
       }
-      const s = (await fetch(
-        '/api/portal/admin/notifications/stats',
-      ).then((r) => r.json())) as Stats;
-      setStats(s);
     } catch (err) {
+      // Only the retry POST itself rolls back the optimistic row.
       setRecent(prev);
       setError(
         err instanceof Error ? err.message : 'Retry failed; try again.',
       );
+      setRetryingId(null);
+      return;
+    }
+    // The retry succeeded: the notification is re-queued server-side
+    // no matter what happens below. Refreshing the dashboard numbers
+    // happens OUTSIDE the rollback path so a failed refresh can't
+    // masquerade as a failed retry; that used to roll the row back
+    // and tempt the admin into queueing the same email twice.
+    // refresh() reports its own failures via the error banner.
+    try {
+      await refresh();
     } finally {
       setRetryingId(null);
     }

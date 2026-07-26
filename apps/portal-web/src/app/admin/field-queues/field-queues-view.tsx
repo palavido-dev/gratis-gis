@@ -12,7 +12,7 @@ import {
   Trash2,
 } from 'lucide-react';
 
-import { formatBytes } from '@/lib/offline-store';
+import { formatBytes } from '@/lib/format-bytes';
 import { useConfirm } from '@/components/dialog-provider';
 
 /**

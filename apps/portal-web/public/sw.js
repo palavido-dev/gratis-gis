@@ -4,21 +4,28 @@
  *
  * Caching strategy:
  *   - Static assets (JS, CSS, fonts, images): Cache-first with background revalidation.
- *   - GeoJSON feature data (/api/portal/items/:id/geojson): Network-first with
+ *   - GeoJSON feature data (/api/portal/items/:id/geojson and the v3
+ *     per-layer /api/portal/items/:id/layers/:key/geojson): Network-first with
  *     cache fallback so maps render offline with the last-seen dataset.
  *   - Other portal-api reads (/api/portal/*): Network-first with no offline fallback
  *     (these need fresh auth tokens and change frequently).
- *   - Queued writes: Stored in IndexedDB and replayed when online via Background Sync.
+ *   - Sign-out: the page posts 'gg:clear-user-caches' and the worker drops the
+ *     tile + geojson caches, since both hold auth-gated org data.
+ *
+ * Offline feature WRITES are not this worker's job: they queue in the
+ * 'gratisgis-offline' IndexedDB (lib/offline-store.ts) and drain from the
+ * main thread via lib/offline-sync.ts.
  *
  * Versioning: bump CACHE_VERSION on every deploy so stale assets are evicted.
  */
 
-// v4: evict every static cache populated before deploymentId-based
-// asset URLs. Turbopack (Next 16) reuses chunk filenames across
-// builds, so the v3 static caches held stale JS that cache-first
-// kept serving after every deploy; the ?dpl= query on asset URLs
-// now makes each deploy's entries distinct.
-const CACHE_VERSION = 'v4';
+// v5: widen the geojson cache pattern to the v3 per-layer shape and
+// purge user caches on sign-out; bumping rotates every runtime cache
+// so entries written under the old rules don't linger.
+// (v4 evicted static caches that predate deploymentId-based asset
+// URLs: Turbopack reuses chunk filenames across builds, so the ?dpl=
+// query on asset URLs is what keeps each deploy's entries distinct.)
+const CACHE_VERSION = 'v5';
 const STATIC_CACHE = `gratis-static-${CACHE_VERSION}`;
 const GEOJSON_CACHE = `gratis-geojson-${CACHE_VERSION}`;
 // Slice 10: basemap + reference tiles. Keyed separately from static
@@ -31,11 +38,10 @@ const TILES_CACHE = `gratis-tiles-${CACHE_VERSION}`;
 // somewhere usable, online or not.
 const SHELL_CACHE = `gratis-shell-${CACHE_VERSION}`;
 const FIELD_OFFLINE_SHELL = '/field/offline.html';
-const SYNC_QUEUE_TAG = 'gratis-feature-sync';
 
 // Detect the Next.js dev server. Dev chunks under /_next/static/ reuse
 // filenames across restarts, so cache-first serves up stale JS whose
-// module IDs no longer exist in the current webpack runtime — that
+// module IDs no longer exist in the current webpack runtime, and that
 // produces the dreaded `options.factory undefined` crash. Short-
 // circuit static asset caching when running on localhost so dev is
 // always fresh. The SwRegistrar should prevent this SW from loading
@@ -58,7 +64,10 @@ const STATIC_PATTERNS = [
   /\.(?:png|jpg|jpeg|svg|ico|webp|woff2?)$/,
 ];
 
-const GEOJSON_PATTERN = /\/api\/portal\/items\/[^/]+\/geojson/;
+// Matches both the legacy item-level shape (/items/:id/geojson) and
+// the v3 per-layer shape (/items/:id/layers/:key/geojson) so multi-
+// layer data layers get the same offline fallback as legacy items.
+const GEOJSON_PATTERN = /\/api\/portal\/items\/[^/]+(?:\/layers\/[^/]+)?\/geojson/;
 
 /**
  * Tile URL patterns. Catches the conventions every basemap provider
@@ -211,16 +220,31 @@ self.addEventListener('message', (event) => {
     });
     return;
   }
-});
-
-// -------------------------------------------------------------------------
-// Background Sync: replay queued feature writes when back online.
-// -------------------------------------------------------------------------
-self.addEventListener('sync', (event) => {
-  if (event.tag === SYNC_QUEUE_TAG) {
-    event.waitUntil(replayQueue());
+  if (data.type === 'gg:clear-user-caches') {
+    // Sign-out hook. The tile and geojson caches hold auth-gated
+    // portal responses (MVT tiles, per-layer geojson) fetched with
+    // the departing user's session; left in place, the next person
+    // on a shared machine could read that org data straight out of
+    // cache without ever signing in. Static assets and the offline
+    // shell carry no user data, so they survive. The sender waits
+    // for the ack (with a timeout) before navigating to Keycloak.
+    void Promise.all([
+      caches.delete(TILES_CACHE),
+      caches.delete(GEOJSON_CACHE),
+    ]).then(() => {
+      event.ports[0]?.postMessage({ ok: true });
+    });
+    return;
   }
 });
+
+// NOTE: this worker used to register a Background Sync handler that
+// replayed a 'sync_queue' store from the 'gratis-gis' IndexedDB.
+// Nothing ever wrote to that queue (its producer, lib/sync.ts
+// queueFeatureWrite, had no callers), so the handler promised a
+// sync that could never happen. The real offline write queue lives
+// in the 'gratisgis-offline' IndexedDB (lib/offline-store.ts) and
+// is drained from the main thread by lib/offline-sync.ts.
 
 // -------------------------------------------------------------------------
 // Helpers
@@ -346,7 +370,7 @@ async function networkFirstWithCache(request, cacheName) {
     }
     return response;
   } catch {
-    // Network failed — serve from cache.
+    // Network failed: serve from cache.
     const cached = await cache.match(request);
     if (cached) return cached;
     // No cache either; return an empty FeatureCollection so MapLibre
@@ -358,91 +382,3 @@ async function networkFirstWithCache(request, cacheName) {
   }
 }
 
-/**
- * Read pending writes from IndexedDB and replay them against the API.
- * Successfully replayed ops are removed from the queue. Failed ones
- * stay and will be retried on the next sync event.
- */
-async function replayQueue() {
-  let db;
-  try {
-    db = await openDb();
-  } catch {
-    return;
-  }
-
-  const tx = db.transaction('sync_queue', 'readwrite');
-  const store = tx.objectStore('sync_queue');
-  const ops = await idbAll(store);
-
-  for (const op of ops) {
-    try {
-      await replayOp(op);
-      // Remove on success.
-      const delTx = db.transaction('sync_queue', 'readwrite');
-      delTx.objectStore('sync_queue').delete(op.id);
-      await idbComplete(delTx);
-    } catch {
-      // Leave in queue; will retry on next sync.
-    }
-  }
-}
-
-async function replayOp(op) {
-  const { itemId, method, path, body } = op;
-  const url = `/api/portal/items/${itemId}${path}`;
-  const response = await fetch(url, {
-    method,
-    headers: body ? { 'content-type': 'application/json' } : {},
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!response.ok) {
-    throw new Error(`Sync failed: ${response.status}`);
-  }
-}
-
-// -------------------------------------------------------------------------
-// Minimal IndexedDB helpers (no library deps in SW scope)
-// -------------------------------------------------------------------------
-
-const DB_NAME = 'gratis-gis';
-const DB_VERSION = 1;
-
-function openDb() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = (event) => {
-      const db = event.target.result;
-      if (!db.objectStoreNames.contains('sync_queue')) {
-        const store = db.createObjectStore('sync_queue', { keyPath: 'id' });
-        store.createIndex('itemId', 'itemId', { unique: false });
-        store.createIndex('queuedAt', 'queuedAt', { unique: false });
-      }
-      if (!db.objectStoreNames.contains('feature_cache')) {
-        const fc = db.createObjectStore('feature_cache', { keyPath: ['itemId', 'globalId'] });
-        fc.createIndex('itemId', 'itemId', { unique: false });
-        fc.createIndex('syncedAt', 'syncedAt', { unique: false });
-      }
-      if (!db.objectStoreNames.contains('sync_cursors')) {
-        db.createObjectStore('sync_cursors', { keyPath: 'itemId' });
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-function idbAll(store) {
-  return new Promise((resolve, reject) => {
-    const req = store.getAll();
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-function idbComplete(tx) {
-  return new Promise((resolve, reject) => {
-    tx.oncomplete = resolve;
-    tx.onerror = () => reject(tx.error);
-  });
-}

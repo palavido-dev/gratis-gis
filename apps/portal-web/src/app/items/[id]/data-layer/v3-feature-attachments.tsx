@@ -62,24 +62,42 @@ export function V3FeatureAttachments({
 
   const basePath = `/api/portal/items/${itemId}/layers/${layerId}/features/${featureId}/attachments`;
 
-  const reload = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(basePath);
-      if (!res.ok) {
-        setError(`Could not load attachments: ${res.status}`);
-        return;
+  // The mount effect passes an abort signal so a fast unmount or a
+  // feature flip cancels the in-flight request instead of letting a
+  // stale response land on the next feature's gallery. Callers
+  // refreshing after a mutation omit the signal.
+  const reload = useCallback(
+    async (signal?: AbortSignal) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(basePath, signal ? { signal } : {});
+        if (!res.ok) {
+          setError(`Could not load attachments: ${res.status}`);
+          return;
+        }
+        const body = (await res.json()) as Attachment[];
+        if (signal?.aborted) return;
+        setItems(body);
+      } catch (err) {
+        // Abort means the component moved on; anything else (network
+        // drop, JSON parse) deserves a visible message instead of an
+        // unhandled rejection that leaves the gallery stuck empty.
+        if ((err as Error)?.name === 'AbortError') return;
+        setError(
+          (err as Error).message || 'Could not load attachments',
+        );
+      } finally {
+        if (!signal?.aborted) setLoading(false);
       }
-      const body = (await res.json()) as Attachment[];
-      setItems(body);
-    } finally {
-      setLoading(false);
-    }
-  }, [basePath]);
+    },
+    [basePath],
+  );
 
   useEffect(() => {
-    void reload();
+    const controller = new AbortController();
+    void reload(controller.signal);
+    return () => controller.abort();
   }, [reload]);
 
   async function handleFile(file: File) {

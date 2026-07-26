@@ -3,6 +3,7 @@
 
 import { useEffect } from 'react';
 import { AlertTriangle, RefreshCcw } from 'lucide-react';
+import { SignOutButton } from '@/components/user-menu';
 
 /**
  * Route-level error boundary. When a server component throws (most
@@ -48,12 +49,14 @@ export default function RouteError({
             <RefreshCcw className="h-4 w-4" />
             Try again
           </button>
-          <a
-            href="/api/auth/federated-logout"
-            className="inline-flex h-9 items-center rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 shadow-card hover:bg-surface-2"
-          >
+          {/* Sign out must run the full client-side flow (NextAuth
+              signOut() first, then the Keycloak end-session hop).
+              A bare link to /api/auth/federated-logout leaves the
+              NextAuth cookie alive, which for a dead session means
+              the user lands right back on this error screen. */}
+          <SignOutButton className="inline-flex h-9 items-center rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 shadow-card hover:bg-surface-2">
             Sign out
-          </a>
+          </SignOutButton>
         </div>
         {error.digest ? (
           <p className="mt-4 text-xs text-muted">Digest: {error.digest}</p>

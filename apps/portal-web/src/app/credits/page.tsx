@@ -107,6 +107,15 @@ const STACK: StackRow[] = [
     projects: [{ label: 'h3-js', href: 'https://github.com/uber/h3-js' }],
   },
   {
+    layer: 'OSM preset catalog',
+    projects: [
+      {
+        label: 'iD tagging schema',
+        href: 'https://github.com/openstreetmap/id-tagging-schema',
+      },
+    ],
+  },
+  {
     layer: 'Analysis engine',
     projects: [{ label: 'DuckDB', href: 'https://duckdb.org/' }],
   },
@@ -128,6 +137,15 @@ const STACK: StackRow[] = [
       {
         label: 'maplibre-cog-protocol',
         href: 'https://github.com/geomatico/maplibre-cog-protocol',
+      },
+    ],
+  },
+  {
+    layer: 'Imagery segmentation',
+    projects: [
+      {
+        label: 'MobileSAM',
+        href: 'https://github.com/ChaoningZhang/MobileSAM',
       },
     ],
   },

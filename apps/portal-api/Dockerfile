@@ -67,17 +67,19 @@ COPY apps ./apps
 
 RUN pnpm install --frozen-lockfile
 
-# @gratis-gis/shared-types and @gratis-gis/engine both declare
-# "main": "./dist/index.js" so they must be tsc-compiled before
-# downstream packages can import from them; the runtime image is
-# plain Node and cannot parse a workspace package whose entrypoint
-# is raw TypeScript. form-schema and ui are pure-TS (they expose
-# ./src/index.ts directly) so they don't need a separate build
-# step here -- nothing in the api runtime requires them. Building
+# @gratis-gis/shared-types, @gratis-gis/engine, and
+# @gratis-gis/form-schema all declare "main": "./dist/index.js" so
+# they must be tsc-compiled before downstream packages can import
+# from them; the runtime image is plain Node and cannot parse a
+# workspace package whose entrypoint is raw TypeScript. form-schema
+# joined the compiled set when the api started running the shared
+# form validator server-side (forms.service submit path). ui stays
+# pure-TS (nothing in the api runtime requires it). Building
 # everything via turbo would also work but takes longer and pulls
 # in the apps too.
 RUN pnpm -C packages/shared-types build
 RUN pnpm -C packages/engine build
+RUN pnpm -C packages/form-schema build
 
 # Prisma client (generated into node_modules/.prisma/client) and the
 # Nest build (dist/) both happen here.

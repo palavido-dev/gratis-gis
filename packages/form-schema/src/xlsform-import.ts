@@ -290,9 +290,12 @@ export function importXlsForm(
 
     // Stash raw XLSForm expressions on q.meta so the form item
     // retains the original semantics until the author re-authors
-    // them in the GratisGIS expression editor.  These ARE evaluated
-    // at runtime today (TODO: a follow-up slice can plug an XPath
-    // adapter); the meta block at least preserves the intent.
+    // them in the GratisGIS expression editor.  These are NOT
+    // evaluated at runtime: nothing parses XPath today, so an
+    // imported relevant / constraint / calculation has no effect
+    // until re-authored (the warning below tells the author so).
+    // The meta block preserves the intent for that re-authoring
+    // and for a possible future XPath adapter slice.
     const xlsformMeta: Record<string, string> = {};
     if (typeof row.relevant === 'string' && row.relevant.trim().length > 0) {
       xlsformMeta.relevant = row.relevant.trim();

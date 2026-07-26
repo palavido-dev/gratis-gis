@@ -211,6 +211,22 @@ export class ImportJobsService {
     this.log.warn(`Import job ${jobId} failed: ${errorMessage}`);
   }
 
+  /**
+   * After a cancelled import's COPY transaction rolls back, none of
+   * the streamed rows exist anymore (and for replace mode the old
+   * rows are back untouched). The progress beats that ran while the
+   * import was live left a nonzero insertedFeatures on the row,
+   * which the UI would read as "N rows were kept". Zero it so the
+   * job row tells the truth. Guarded on status='cancelled' so a
+   * racing state change can't be clobbered.
+   */
+  async zeroInsertedForCancelled(jobId: string): Promise<void> {
+    await this.prisma.importJob.updateMany({
+      where: { id: jobId, status: 'cancelled' },
+      data: { insertedFeatures: 0 },
+    });
+  }
+
   /** Test the running-job's row to see whether the user clicked
    *  cancel. Worker calls between batches. */
   async isCancelled(jobId: string): Promise<boolean> {
@@ -222,15 +238,23 @@ export class ImportJobsService {
   }
 
   /**
-   * Recovery on startup: a worker that crashed mid-import leaves a
-   * 'running' row with no live process behind it. On boot, we
+   * Stale-'running' recovery: a worker that crashed mid-import
+   * leaves a 'running' row with no live process behind it. We
    * surface those rows as failed with a clear message so the user
    * sees what happened and can retry. Detected by status='running'
    * with a stale heartbeat (older than the threshold).
    *
+   * Called at worker boot AND periodically from the poll loop. The
+   * periodic call matters: docker restarts a crashed worker within
+   * seconds, so at boot the dead job's heartbeat is still fresher
+   * than the threshold and the boot pass alone would skip it
+   * forever, stranding the job as 'running'.
+   *
    * Threshold default 5 minutes is generous; a healthy worker beats
    * every batch (~10s). If the heartbeat is older than that, the
-   * worker is gone or wedged and the job is effectively dead.
+   * worker is gone or wedged and the job is effectively dead. The
+   * heartbeat guard also makes concurrent sweeps safe: a job a live
+   * worker is actively processing keeps beating and never matches.
    */
   async recoverStaleRunning(maxAgeMs: number = 5 * 60 * 1000): Promise<void> {
     const cutoff = new Date(Date.now() - maxAgeMs);

@@ -73,14 +73,31 @@ export type ViewerTool =
   | 'legend'
   | 'print';
 
-export const DEFAULT_VIEWER_TOOLS: ViewerTool[] = [
+/**
+ * Recursively Object.freeze a default so no consumer can corrupt
+ * shared module state. The DEFAULT_* constants below get spread
+ * into fresh objects at every use site, but a spread is shallow:
+ * nested arrays / objects still alias the module-level constant,
+ * and one accidental in-place mutation would silently change the
+ * defaults for every later caller in the same process. Freezing
+ * turns that bug into a loud TypeError at the mutation site.
+ */
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === 'object') {
+    for (const inner of Object.values(value)) deepFreeze(inner);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+export const DEFAULT_VIEWER_TOOLS: ViewerTool[] = deepFreeze([
   'select',
   'query',
   'measure',
   'attribute-table',
   'legend',
   'print',
-];
+]);
 
 /**
  * Freshly-created Viewer with the defaults we want every new viewer
@@ -88,8 +105,8 @@ export const DEFAULT_VIEWER_TOOLS: ViewerTool[] = [
  * on the detail page after create. The runtime renders an empty-state
  * prompt until the first target is added (mirrors the editor).
  */
-export const DEFAULT_VIEWER: ViewerData = {
+export const DEFAULT_VIEWER: ViewerData = deepFreeze({
   version: 1,
   targets: [],
   tools: DEFAULT_VIEWER_TOOLS,
-};
+});

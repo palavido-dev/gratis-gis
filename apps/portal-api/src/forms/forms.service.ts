@@ -1,6 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { validate } from '@gratis-gis/form-schema';
+import type { FormSchema, Response as FormResponse } from '@gratis-gis/form-schema';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
@@ -94,6 +102,60 @@ export class FormsService {
     if (Number.isNaN(captured.getTime())) {
       throw new ForbiddenException('Invalid capturedAt.');
     }
+
+    // Idempotent re-drain short-circuit. A row already stored under
+    // (formId, clientId) means the server accepted this capture in a
+    // previous drain; return it without re-validating. The schema
+    // may have changed since acceptance (an author adding a required
+    // question, say), and retroactively rejecting an already-durable
+    // row would wedge the client's offline outbox in a permanent
+    // retry loop against data that is already saved.
+    const existing = await this.prisma.formSubmission.findUnique({
+      where: { formId_clientId: { formId: form.id, clientId: dto.clientId } },
+      select: { id: true },
+    });
+    if (existing) {
+      return { id: existing.id, created: false };
+    }
+
+    // Server-side validation with the SAME evaluator the browser
+    // runtime uses (the one-source-of-truth promise in
+    // @gratis-gis/form-schema). Until this landed, the server
+    // accepted any JSON object as a submission: required fields,
+    // constraints, and type checks only existed client-side, so a
+    // stale tab or a hand-crafted POST could store rows the form's
+    // own rules reject. There is no draft / partial-save path to
+    // preserve: the runtime always validates + prunes before its
+    // single POST endpoint, so every request here claims to be a
+    // complete submission.
+    const schema = readFormSchema(form.data);
+    if (!schema) {
+      throw new BadRequestException(
+        'This form has no saved schema; it cannot accept submissions.',
+      );
+    }
+    if (dto.schemaVersion !== schema.schemaVersion) {
+      throw new BadRequestException(
+        `Submission was captured against schema version ${dto.schemaVersion}, ` +
+          `but the form's current schema version is ${schema.schemaVersion}. ` +
+          'Re-open the form to pick up the latest version and try again.',
+      );
+    }
+    const validation = validate(schema, dto.response as FormResponse);
+    if (!validation.ok) {
+      const details = validation.errors
+        .map((e) => `${e.questionId}: ${e.message}`)
+        .join('; ');
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        message: `Submission failed validation: ${details}`,
+        // Structured copy so the runtime can map errors back onto
+        // fields instead of parsing the message string.
+        fieldErrors: validation.errors,
+      });
+    }
+
     const result = await this.prisma.formSubmission.upsert({
       where: { formId_clientId: { formId: form.id, clientId: dto.clientId } },
       create: {
@@ -740,6 +802,25 @@ export class FormsService {
     }
     return this.prisma.formSubmission.count({ where: { formId: form.id } });
   }
+}
+
+/**
+ * Read the FormSchema off the form item's data JSON, or null when
+ * the stored shape is not a usable schema. A form item's data IS
+ * its FormSchema (the respond page and designer share this
+ * contract, keying on the `questions` array); we additionally
+ * require a numeric schemaVersion because the submit path compares
+ * it against the client's captured version. No coercion, no
+ * defaulting: a form whose data cannot be read as a schema cannot
+ * be rendered by the runtime either, so refusing its submissions
+ * is the consistent posture.
+ */
+function readFormSchema(data: Prisma.JsonValue): FormSchema | null {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  const d = data as { schemaVersion?: unknown; questions?: unknown };
+  if (typeof d.schemaVersion !== 'number') return null;
+  if (!Array.isArray(d.questions)) return null;
+  return data as unknown as FormSchema;
 }
 
 /**

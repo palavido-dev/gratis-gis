@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-or-later",
+  "author": "Matt Palavido <matthew.palavido@gmail.com>",
   "description": "Model Context Protocol server for GratisGIS. Exposes a read-only view of items and layers to MCP clients (Claude Desktop, Cursor, etc.).",
   "type": "module",
   "bin": {
@@ -12,6 +13,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
+    "lint": "eslint \"src/**/*.ts\"",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
