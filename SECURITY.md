@@ -8,7 +8,7 @@ for everyone who runs it.
 
 Please report suspected security issues privately, by email, to:
 
-    mmatthew.palavido@gmail.com
+    matthew.palavido@gmail.com
 
 If your finding involves data that should not be sent in cleartext
 (credentials, exploit proofs, screenshots of private data), say so in
@@ -45,6 +45,15 @@ A useful report typically has:
 GratisGIS is currently maintained by a single developer; we will not
 always be able to ship a fix as fast as a larger project would. We
 will be honest about the timeline.
+
+## Dependency overrides
+
+The root `package.json` carries a `pnpm.overrides` block that pins
+transitive dependencies past known advisories. These pins are
+reviewed when a new advisory lands (Dependabot + the security
+workflow flag them) and on a monthly pass; an override is removed
+once every dependent in the tree requires a fixed version on its
+own.
 
 ## Scope
 

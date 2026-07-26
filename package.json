@@ -30,6 +30,7 @@
     "url": "https://github.com/palavido-dev/gratis-gis.git"
   },
   "license": "AGPL-3.0-or-later",
+  "author": "Matt Palavido <matthew.palavido@gmail.com>",
   "packageManager": "pnpm@9.12.0",
   "engines": {
     "node": ">=22.0.0",

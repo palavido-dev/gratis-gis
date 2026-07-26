@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: If you use GratisGIS in your work, please cite it as below.
+title: GratisGIS
+type: software
+authors:
+  - family-names: Palavido
+    given-names: Matt
+    email: matthew.palavido@gmail.com
+repository-code: https://github.com/palavido-dev/gratis-gis
+url: https://gratisgis.org
+license: AGPL-3.0-or-later

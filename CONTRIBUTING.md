@@ -6,9 +6,10 @@ organized and how to propose changes.
 ## Project state
 
 GratisGIS is in active pre-v1 development. The core portal, web maps,
-forms, dashboards, App Builder, field PWA, and the observation-log
-engine with Cedar policy authorization are all working today (see the
-status section in the [README](./README.md)). The architecture is
+forms, App Builder, field PWA, and the observation-log engine with
+Cedar policy authorization are all working today (see the status
+section in the [README](./README.md)); dashboards and document
+reports are planned but not yet built. The architecture is
 stabilizing but expect the occasional pivot on internals; cross-app
 contracts in [packages/shared-types](./packages/shared-types) and the
 API surface are the parts we try hardest to keep settled. The issue
@@ -19,8 +20,9 @@ tracker reflects near-term work from [ROADMAP.md](./ROADMAP.md).
 - `main` is always deployable.
 - Feature work happens on branches named `feat/<short-slug>`; bug fixes on
   `fix/<short-slug>`.
-- PRs require passing CI (lint, typecheck, test, build) and at least one
-  review.
+- PRs require passing CI (lint, typecheck, test, build). The project
+  currently has a single maintainer, so reviews from other contributors
+  are welcome but not required; the maintainer reviews and merges.
 
 ## Commit messages
 
@@ -60,9 +62,10 @@ the front.
 These rules apply everywhere we write prose for this project: code
 comments, commit messages, PR descriptions, docs, and markdown files.
 
-- **No em dashes.** Do not use the `—` character. Do not use `--` as a
-  substitute for an em dash. Pick a comma, colon, period, or parenthesis
-  based on what the sentence actually needs.
+- **No em dashes.** Do not use the em dash character (U+2014), and do
+  not use two consecutive hyphens as a substitute for one. Pick a comma,
+  colon, period, or parenthesis based on what the sentence actually
+  needs.
 - **No AI attribution or tells.** No `Claude`, `Anthropic`, `AI`,
   `Co-Authored-By` lines that reference an LLM, `Generated with`, or
   similar. Write in your own voice.

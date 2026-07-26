@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Root ESLint flat config. Individual packages may extend or override.
 import js from '@eslint/js';
 import tsParser from '@typescript-eslint/parser';
@@ -32,7 +33,7 @@ export default [
   },
   js.configs.recommended,
 
-  // TypeScript files — application source across portal-api,
+  // TypeScript files: application source across portal-api,
   // portal-web, shared packages, etc. TypeScript itself handles
   // undefined-reference detection, so `no-undef` is redundant (and
   // spuriously flags DOM / Node globals the flat config doesn't list).
@@ -49,7 +50,7 @@ export default [
     },
     // Plugins are registered so existing `// eslint-disable-next-line
     // <rule>` directives in the codebase resolve to a known rule; we
-    // deliberately don't enable the rules globally — each would
+    // deliberately don't enable the rules globally; each would
     // produce a flood of warnings we haven't triaged. The disables
     // already act as author intent ("I've looked at this, it's fine")
     // and that's what matters for CI to go green.
@@ -81,7 +82,7 @@ export default [
     },
   },
 
-  // Plain JS — mostly config files we let through with permissive
+  // Plain JS: mostly config files we let through with permissive
   // globals. The `public/**` service worker is excluded above.
   {
     files: ['**/*.js', '**/*.mjs', '**/*.cjs'],

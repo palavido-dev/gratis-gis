@@ -11,7 +11,8 @@
  *
  * Run on demand:
  *   node scripts/sync-osm-presets.mjs
- *   (optionally with --tag=v6.10.0 to pin a specific upstream tag)
+ *   (defaults to the pinned upstream release below; override with
+ *   --tag=vX.Y.Z, and bump PINNED_REF when adopting a new release)
  *
  * The output is committed to the repo so the runtime doesn't need
  * network access to load the catalog.  Re-run periodically to pick
@@ -45,10 +46,14 @@ const OUTPUT_PATH = resolve(
   'preset-catalog.json',
 );
 
-// Default to main; --tag=vX.Y.Z pins to a release tag.
+// Pinned upstream release tag so syncs are reproducible instead of
+// tracking whatever `main` happens to be. Bump deliberately, review
+// the diff, commit the regenerated catalog. --tag=vX.Y.Z overrides
+// for a one-off run.
+const PINNED_REF = 'v7.0.1';
 const args = process.argv.slice(2);
 const tagFlag = args.find((a) => a.startsWith('--tag='));
-const ref = tagFlag ? tagFlag.split('=')[1] : 'main';
+const ref = tagFlag ? tagFlag.split('=')[1] : PINNED_REF;
 
 const PRESETS_URL = `https://raw.githubusercontent.com/openstreetmap/id-tagging-schema/${ref}/dist/presets.min.json`;
 const TRANSLATIONS_URL = `https://raw.githubusercontent.com/openstreetmap/id-tagging-schema/${ref}/dist/translations/en.min.json`;
@@ -184,6 +189,9 @@ async function main() {
   const out = {
     source: {
       repo: 'openstreetmap/id-tagging-schema',
+      // Upstream preset JSON is ISC; the OSM data the presets
+      // describe is ODbL. See THIRD_PARTY_NOTICES.md.
+      license: 'ISC',
       ref,
       generatedAt: new Date().toISOString(),
       generatorVersion: 1,

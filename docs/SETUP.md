@@ -26,7 +26,7 @@ You need four things on the host machine:
 | Tool | Why | Recommended install on macOS |
 | --- | --- | --- |
 | Docker Desktop 4.30+ | Runs the infra containers | Download from docker.com (Apple Silicon build) |
-| Node.js 20 LTS or newer | Runs portal-api / portal-web | `brew install node@20` or [Volta](https://volta.sh) / nvm |
+| Node.js 22 or newer | Runs portal-api / portal-web (`engines` requires >=22) | `brew install node@22` or [Volta](https://volta.sh) / nvm |
 | pnpm 9+ | Package manager (the repo is a pnpm workspace) | `corepack enable && corepack prepare pnpm@latest --activate` |
 | Git | Cloning + commits | `xcode-select --install` includes it, or `brew install git` |
 
@@ -57,11 +57,23 @@ cd gratis-gis
 pnpm install
 ```
 
-`pnpm install` walks the workspace and pulls dependencies for all
-five packages: `apps/portal-api`, `apps/portal-web`,
-`packages/shared-types`, `packages/form-schema`, `packages/ui`.
-First-time install is a few minutes; subsequent installs are
-seconds.
+`pnpm install` walks the workspace and pulls dependencies for every
+workspace package: `apps/portal-api`, `apps/portal-web`,
+`apps/portal-mcp`, `packages/engine`, `packages/shared-types`,
+`packages/form-schema`, and `packages/ui`. First-time install is a
+few minutes; subsequent installs are seconds.
+
+Then create the per-app env files from the template at the repo
+root. Each app reads the `.env` in its own directory (portal-api via
+Nest's ConfigModule and Prisma, portal-web via Next.js):
+
+```bash
+cp .env.example apps/portal-api/.env
+cp .env.example apps/portal-web/.env
+```
+
+The defaults match the dev docker-compose stack, so for a first run
+you don't need to edit anything.
 
 
 ## 3. Start the infra containers
@@ -73,7 +85,8 @@ pnpm infra:up
 This is a thin wrapper around `docker compose -f infra/docker-compose.yml up -d`.
 It boots:
 
-- Postgres 16 + PostGIS 3 on port `5432`
+- Postgres 17 + PostGIS 3.5 on port `5432` (built from
+  `infra/postgres/Dockerfile`)
 - Keycloak 26 on port `8080` (admin console at `/admin`)
 - MinIO on port `9000` (S3) and `9001` (web console)
 - pg\_tileserv on port `7800`
@@ -278,36 +291,36 @@ via "Reset password" once SMTP is healthy.
 
 ## 9. Common gotchas
 
-**"Port 5432 is already in use"** — you have another Postgres
+**"Port 5432 is already in use"**: you have another Postgres
 running on the host. Stop it (`brew services stop postgresql`) or
 change the port in `infra/docker-compose.yml`.
 
-**"Port 8080 is already in use"** — Keycloak's port. macOS itself
+**"Port 8080 is already in use"**: Keycloak's port. macOS itself
 sometimes binds 8080; check with `lsof -i :8080`.
 
-**Sign-in loops back to the Keycloak page** — the portal-web's
+**Sign-in loops back to the Keycloak page**: the portal-web's
 `NEXTAUTH_URL` and Keycloak's redirect URIs need to agree. The
 defaults assume `http://localhost:3000`; if you're running behind
 a different hostname, update both the realm export and the env.
 
-**`pnpm install` fails with "ENOTFOUND" or SSL errors** — your
+**`pnpm install` fails with "ENOTFOUND" or SSL errors**: your
 corporate network may be MITM-ing TLS. Set
 `NODE_EXTRA_CA_CERTS` to your org's root CA.
 
-**Containers exit immediately after `pnpm infra:up`** — check
+**Containers exit immediately after `pnpm infra:up`**: check
 `pnpm infra:logs`. Most often Postgres rejected the volume because
 of a previous failed init; `pnpm infra:reset` clears it.
 
-**Apple Silicon: `no matching manifest for linux/arm64/v8`** —
+**Apple Silicon: `no matching manifest for linux/arm64/v8`**:
 make sure Rosetta emulation is enabled in Docker Desktop (Settings
 → General). pg\_tileserv and Nominatim are amd64-only.
 
-**Apple Silicon: containers feel slow** — make sure you didn't
+**Apple Silicon: containers feel slow**: make sure you didn't
 accidentally pull the amd64 versions of the multi-arch images. A
 fresh `pnpm infra:reset` + `pnpm infra:up` will pull arm64 builds
 where available.
 
-**`db:seed` errors with "user already exists"** — you ran the seed
+**`db:seed` errors with "user already exists"**: you ran the seed
 twice without resetting. The seed is idempotent on uuids but
 Keycloak's realm import will fail re-import on a duplicate user.
 For a clean reseed, drop the database (`pnpm infra:reset`) and
@@ -320,11 +333,15 @@ re-run.
 gratis-gis/
 ├── apps/
 │   ├── portal-api/        NestJS backend (port 4000)
-│   └── portal-web/        Next.js frontend (port 3000)
+│   ├── portal-web/        Next.js frontend (port 3000)
+│   └── portal-mcp/        Read-only MCP server for the portal API
 ├── packages/
+│   ├── engine/            Observation-log engine core
 │   ├── shared-types/      TS types both apps depend on
 │   ├── form-schema/       Form definition + validators
 │   └── ui/                Shared React components
+├── tools/
+│   └── pointcloud-worker/ Point-cloud processing worker (Python)
 ├── docs/                  Architecture + this guide
 ├── infra/                 Docker compose, Keycloak realm, init SQL
 └── deploy/                Production deployment notes
@@ -332,13 +349,13 @@ gratis-gis/
 
 The pieces you'll touch most often:
 
-- **`apps/portal-web/src/app/items/...`** — the frontend pages for
+- **`apps/portal-web/src/app/items/...`**: the frontend pages for
   every item type
-- **`apps/portal-api/src/items/...`** — the backend item / sharing
+- **`apps/portal-api/src/items/...`**: the backend item / sharing
   / admin services
-- **`apps/portal-api/prisma/schema.prisma`** — DB schema; create a
+- **`apps/portal-api/prisma/schema.prisma`**: DB schema; create a
   new migration with `pnpm --filter @gratis-gis/portal-api prisma migrate dev`
-- **`packages/shared-types/src/...`** — types shared across api +
+- **`packages/shared-types/src/...`**: types shared across api +
   web (item types, sharing shapes, etc.)
 
 

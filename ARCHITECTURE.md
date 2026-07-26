@@ -21,8 +21,8 @@ building) and `ROADMAP.md` (when we're building it).
    the sync engine is first-class.
 5. **Composable OSS infra.** Identity (Keycloak), storage (MinIO), tiles
    (pg\_tileserv), and geoprocessing are swappable.
-6. **Strict service boundaries.** Each app (portal-api, portal-web, field-app)
-   is independently deployable; cross-service contracts live in
+6. **Strict service boundaries.** Each app (portal-api, portal-web,
+   portal-mcp) is independently deployable; cross-service contracts live in
    `packages/shared-types`.
 7. **Sensible defaults > configuration.** Every knob has a good default.
    Admins should never *have* to read a reference manual; they should be
@@ -49,14 +49,14 @@ building) and `ROADMAP.md` (when we're building it).
                        ├──▶  pg_tileserv (vector tiles from PostGIS)
                        │
  ┌─────────────┐       │
- │  field-app  │───────┘  (React Native, sync via REST + CouchDB-style deltas)
- │ (RN/Expo)   │
+ │  field PWA  │───────┘  (served by portal-web at /field; offline
+ │ (portal-web)│           caching + queued sync via REST deltas)
  └─────────────┘
 ```
 
 ## Services
 
-### portal-api (NestJS, Node 20)
+### portal-api (NestJS, Node 22)
 
 The single authoritative backend. Exposes REST + JSON; modules:
 
@@ -85,11 +85,19 @@ The single authoritative backend. Exposes REST + JSON; modules:
 
 OpenAPI spec is auto-generated and published at `/docs`.
 
-### portal-web (Next.js 14, App Router)
+### portal-web (Next.js 16, App Router)
 
 Consumes portal-api. Uses `next-auth` with a Keycloak provider. Server
 components do data fetching with the user's JWT forwarded; client
 components handle interactive UI (maps, builders).
+
+### portal-mcp (Model Context Protocol server)
+
+A small stdio MCP server that exposes a read-only view of a portal
+(list items, get item, read layer features) to MCP clients such as
+Claude Desktop and Cursor. Authenticates against portal-api with a
+bearer token; sharing and geographic limits are enforced server-side
+like any other client. See `apps/portal-mcp/README.md`.
 
 ### External data access (read-only API)
 
@@ -118,25 +126,28 @@ UI bindings.
 
 See [docs/tool-builder.md](./docs/tool-builder.md).
 
-### field-app (future, React Native + Expo)
+### Field surface (shipped, part of portal-web)
 
-Single app for all data collection:
+Data collection ships as an installable PWA inside portal-web (the
+`/field` routes), not as a separate native app:
 
-- Browse items shared with you
-- Download a form/web-map for offline use
-- Collect features (forms + geometry capture)
-- Sync when online (conflict-aware deltas)
+- Browse items shared with you and download deployments for offline use
+- Collect features (forms + point/line/polygon capture, photos,
+  sketches, barcodes, audio, video)
+- Offline caching via a service worker plus an IndexedDB store
+  (`sw.js` and `src/lib/offline-*.ts`); queued writes sync when back
+  online with per-edit retry, so one bad row cannot poison the batch
 
-Uses the **same form renderer** as portal-web (shipped from
-`packages/form-renderer`), so the form designer produces artifacts that
-render identically on web and mobile.
+The field surface uses the same form renderer as the rest of
+portal-web (`src/components/form-runtime.tsx`), so a form authored in
+the designer renders identically on desktop and in the field.
 
 ### Shared packages
 
+- `packages/engine`: observation-log engine core shared between apps
+  (lens types, WebMap JSON conversion)
 - `packages/shared-types`. API contracts, enums, branded IDs
 - `packages/form-schema`. TypeScript types & JSON Schema for form definitions
-- `packages/form-renderer`: (future) React components that render a form
-  schema, isomorphic across Next.js and React Native
 - `packages/geo`: (future) geometry helpers, spatial utilities (wraps turf.js)
 - `packages/ui`: shared React components (buttons, dialogs, tables)
 
@@ -148,15 +159,12 @@ Organization 1───* User *───* Group
        └────────── owns ───────┤
                                │
 Item *──── ItemShare *── (Group | User | Org | public)
-
-Item.type ∈ {
-  map, data_layer, derived_layer, arcgis_service, form,
-  form_submission_collection, web_app, report_template, dashboard,
-  file, layer_package, tool, widget_package, pick_list,
-  geo_boundary, basemap, wms_service, wfs_service, service, folder,
-  editor, data_collection
-}
 ```
+
+`Item.type` is a closed string union of 28 values (map, data_layer,
+form, web_app, tool, basemap, point_cloud, ...). The single source of
+truth is `ITEM_TYPES` in `packages/shared-types/src/item-types.ts`;
+this document deliberately does not duplicate the full list.
 
 See [docs/data-model.md](./docs/data-model.md) for full detail.
 
@@ -259,8 +267,10 @@ display endpoints that want Web Mercator tiles, never for writes.
 
 ## Offline & Sync
 
-The field app stores local state in SQLite (via Expo's SQLite or WatermelonDB).
-Sync uses a pull/push delta model:
+The field PWA stores local state in IndexedDB (a queue of pending
+write ops, a per-item feature cache, and per-item sync cursors),
+shared between the page and the service worker. Sync uses a pull/push
+delta model:
 
 - **Pull**: client passes a `since` cursor; server returns changed features
   and form-submission rows.

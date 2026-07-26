@@ -2,13 +2,15 @@
 
 [![CI](https://github.com/palavido-dev/gratis-gis/actions/workflows/ci.yml/badge.svg)](https://github.com/palavido-dev/gratis-gis/actions/workflows/ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL%20v3-blue.svg)](./LICENSE)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)](https://www.typescriptlang.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-6.x-blue)](https://www.typescriptlang.org/)
 [![PostgreSQL + PostGIS](https://img.shields.io/badge/PostgreSQL%20%2B%20PostGIS-17%20%2F%203.5-336791?logo=postgresql&logoColor=white)](https://postgis.net/)
 
 A self-hosted, open-source platform for geospatial portals: maps, layers, forms,
-field data collection, dashboards, and reports. Runs on your own infrastructure.
-Open file formats throughout (PostGIS, GeoJSON, MVT, OGC API). No license fees;
-your only cost is the hardware (or cloud bill) you choose to run it on.
+field data collection, web apps, and analysis tools. Dashboards and document
+reports are on the roadmap (the item types exist as placeholders today). Runs
+on your own infrastructure, with open file formats throughout (PostGIS,
+GeoJSON, MVT, OGC API). No license fees; your only cost is the hardware (or
+cloud bill) you choose to run it on.
 
 **Status:** Active development, pre-v1. Working today: the portal (items,
 groups, sharing with row/column/geographic limits), web map authoring on
@@ -146,15 +148,21 @@ threat.
 gratis-gis/
 ├── apps/
 │   ├── portal-api/        NestJS backend
-│   ├── portal-web/        Next.js portal UI
-│   └── (future) field-app, form-designer, app-builder,
-│                report-builder, tool-builder
+│   ├── portal-web/        Next.js portal UI (includes the field PWA,
+│   │                      app builder, and tool surfaces)
+│   └── portal-mcp/        Model Context Protocol server (read-only
+│                          portal access for MCP clients)
 ├── packages/
+│   ├── engine/            Observation-log engine core (lenses,
+│   │                      WebMap JSON conversion)
 │   ├── shared-types/      Domain types shared across apps
 │   ├── form-schema/       Form-definition types
 │   └── ui/                Shared React component library
+├── tools/
+│   └── pointcloud-worker/ COPC/point-cloud processing worker (Python)
 ├── docs/                  Architecture and data-model docs
 ├── infra/                 Docker-compose and bootstrap scripts
+├── deploy/                Production installer
 └── .github/workflows/     CI
 ```
 
@@ -191,13 +199,18 @@ operational details.
 
 ## Developer Quick Start
 
-Prereqs: Node 20+, pnpm 9+, Docker Desktop, git.
+Prereqs: Node 22+, pnpm 9+, Docker Desktop, git.
 
 ```bash
 # Clone and install
 git clone https://github.com/<you>/gratis-gis.git
 cd gratis-gis
 pnpm install
+
+# Create the per-app env files from the template (each app reads
+# the .env in its own directory)
+cp .env.example apps/portal-api/.env
+cp .env.example apps/portal-web/.env
 
 # Start infra (Postgres/PostGIS, Keycloak, MinIO, pg_tileserv)
 pnpm infra:up
@@ -242,6 +255,8 @@ Deeper design references:
 - [CONTRIBUTING.md](./CONTRIBUTING.md): how to contribute
 
 ## License
+
+Copyright (C) 2026 Matt Palavido
 
 GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later). See
 [LICENSE](./LICENSE) for the full text.

@@ -42,7 +42,8 @@ react-native
 monorepo
 ```
 
-Apply with:
+Apply with the command below (bash line continuations; on Windows,
+cmd.exe uses `^` and PowerShell uses a backtick instead of `\`):
 
 ```bash
 gh repo edit <owner>/gratis-gis \
@@ -63,11 +64,14 @@ small; badge clutter looks unprofessional.
 
 ```markdown
 [![CI](https://github.com/<owner>/gratis-gis/actions/workflows/ci.yml/badge.svg)](https://github.com/<owner>/gratis-gis/actions/workflows/ci.yml)
-[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)](https://www.typescriptlang.org/)
-[![PostgreSQL + PostGIS](https://img.shields.io/badge/PostgreSQL%20%2B%20PostGIS-16%20%2F%203-336791?logo=postgresql&logoColor=white)](https://postgis.net/)
-[![OSS Geospatial](https://img.shields.io/badge/OSGeo-friendly-brightgreen)](https://www.osgeo.org/)
+[![License: AGPL v3](https://img.shields.io/badge/license-AGPL%20v3-blue.svg)](./LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-6.x-blue)](https://www.typescriptlang.org/)
+[![PostgreSQL + PostGIS](https://img.shields.io/badge/PostgreSQL%20%2B%20PostGIS-17%20%2F%203.5-336791?logo=postgresql&logoColor=white)](https://postgis.net/)
 ```
+
+Keep the version badges in sync with `package.json` (TypeScript) and
+`infra/postgres/Dockerfile` (PostgreSQL / PostGIS) when either is
+bumped.
 
 ## package.json keywords
 

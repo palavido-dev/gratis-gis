@@ -1,5 +1,11 @@
 # GratisGIS Roadmap
 
+> **Historical planning document** (note added 2026-07-26). Phase
+> statuses below drift as work lands and are not continuously
+> re-audited; treat them as a record of intent. For what actually
+> ships today, the Status section in [README.md](./README.md) is
+> the source of truth.
+
 A phased delivery plan. Each phase is intended to be independently useful and
 demo-able; phases intentionally build on one another.
 
@@ -132,10 +138,11 @@ shape.
 
 ## Phase 6: Tool & Widget Builder (pillar 6) 🟨 partial
 
-The derived-layer pillar half is solid. The general "node-graph
-authoring + executor" half is design-stage only; the design doc
-(`docs/tool-builder.md`) specifies the React Flow stack and
-node taxonomy, but no app code exists.
+The derived-layer pillar half is solid. Updated 2026-07-26: tool
+items now ship a recipe editor and a server-side recipe runner
+(`apps/portal-web/src/app/items/[id]/tool/` and
+`apps/portal-api/src/tools/`); the React Flow node-graph builder
+described in `docs/tool-builder.md` remains future work.
 
 - [x] Derived-layer item type (chained PostGIS spatial pipelines)
 - [x] Tool catalog: buffer, centroid, convex-hull, dissolve, fishnet,
@@ -207,13 +214,14 @@ scope; the "tool" item type covers reusable computation inside the
 portal. External clients access the engine read-only data API via
 personal access tokens.
 
-## Phase 8.5: OGC API breadth 🟦 not started
+## Phase 8.5: OGC API breadth 🟩 largely landed
 
 Goal: widen the OGC API surface so QGIS, GDAL/ogr2ogr, OpenLayers,
 MapTiler, leafmap, and other standards-aware tooling can consume the
-portal without bespoke connectors. Today the only OGC API surface
-shipped is a minimal Features (Part 1: Core + GeoJSON) at
-`/api/public/ogc/*` plus legacy CSW 2.0.2 for metadata harvest.
+portal without bespoke connectors. Updated 2026-07-26: Features,
+Tiles, Styles, and Records controllers now ship under
+`apps/portal-api/src/public/ogc/` (plus legacy CSW 2.0.2 for
+metadata harvest); the checklist below predates that work.
 
 Treat OGC API conformance as an underlying driver: anywhere a new
 public surface can be shaped to match an OGC API standard at low
