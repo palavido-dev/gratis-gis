@@ -56,9 +56,13 @@ import { getCachedUserName } from '@/lib/user-name-cache';
 // pmtiles/cog is not supported" and nothing drew (#209). The guard is
 // a flag on the maplibregl object itself so it is idempotent and an
 // SSR pass (window undefined) cannot mark it registered for the client.
-function registerMapProtocols(): void {
+function registerMapProtocols(where: string): void {
   if (typeof window === 'undefined') return;
   const gl = maplibregl as unknown as { __ggRasterProtocols?: boolean };
+  // eslint-disable-next-line no-console
+  console.info(
+    `[gg] registerMapProtocols(${where}) already=${!!gl.__ggRasterProtocols} addProtocol=${typeof maplibregl.addProtocol}`,
+  );
   if (gl.__ggRasterProtocols) return;
   try {
     maplibregl.addProtocol('pmtiles', new PMTilesProtocol().tile);
@@ -67,6 +71,8 @@ function registerMapProtocols(): void {
       cogProtocol as unknown as Parameters<typeof maplibregl.addProtocol>[1],
     );
     gl.__ggRasterProtocols = true;
+    // eslint-disable-next-line no-console
+    console.info(`[gg] pmtiles+cog registered ok (${where})`);
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('[gg] map raster protocol registration failed', err);
@@ -74,8 +80,9 @@ function registerMapProtocols(): void {
 }
 // Runs when this chunk loads (same chunk as maplibre core), so the
 // schemes are ready before any map mounts. Also re-asserted per map
-// create below as belt-and-suspenders; the flag makes repeats free.
-registerMapProtocols();
+// create and before each tile source add as belt-and-suspenders; the
+// flag makes repeats free.
+registerMapProtocols('module');
 
 /**
  * Absolute fallback MapLibre style. Used only when the map references a
@@ -635,7 +642,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     // raster/DEM source can resolve its scheme. Registration also runs
     // at module load above; this is the idempotent belt-and-suspenders
     // (see registerMapProtocols for the #209 chunk-split history).
-    registerMapProtocols();
+    registerMapProtocols('create-effect');
     const m = new maplibregl.Map({
       container: containerRef.current,
       style: resolveStyle(),
@@ -2735,6 +2742,10 @@ function syncOverlays(
     // so no {z}/{x}/{y} template is involved.
     if (layer.source.kind === 'tile') {
       const src = layer.source;
+      // Register pmtiles/cog immediately before the source is added, on
+      // this module's maplibregl instance, so the scheme cannot be
+      // missing at addSource time no matter how chunks loaded (#209).
+      registerMapProtocols('tile-add');
       const rasterId = `gg:${layer.id}:raster`;
       if (m.getLayer(rasterId)) {
         // Survived the teardown (same tile URL): reposition to this
