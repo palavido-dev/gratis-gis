@@ -51,7 +51,11 @@ export default async function NewScratchMapPage(props: Props) {
   }
 
   const [basemaps, geoBoundaries] = await Promise.all([
-    apiFetch<Array<Item<BasemapData>>>('/api/items?type=basemap')
+    // full=1: basemapItemToCustomBasemap reads each row's tile /
+    // style config out of data, which the list strips by default.
+    // The geo_boundary list below stays lite: only id + title feed
+    // the Default Extent picker.
+    apiFetch<Array<Item<BasemapData>>>('/api/items?type=basemap&full=1')
       .then((items) =>
         items
           .map(basemapItemToCustomBasemap)

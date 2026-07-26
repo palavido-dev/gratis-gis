@@ -108,6 +108,16 @@ class UpdateItemDto {
   // time dereference is the source of truth.
   @IsOptional() @IsUUID('loose') publicGeoBoundaryId?: string | null;
   @IsOptional() @IsUUID('loose') orgGeoBoundaryId?: string | null;
+  // Optimistic-concurrency precondition. ISO timestamp of the
+  // updatedAt the client loaded; the service 409s when the row has
+  // moved on so read-modify-write editors (the folder page) cannot
+  // silently revert a concurrent save. Optional and opt-in: clients
+  // that omit it keep the historic last-write-wins behaviour. Lives
+  // in the body (not an If-Unmodified-Since header) because the BFF
+  // proxy forwards JSON bodies verbatim but only an allowlist of
+  // request headers, and HTTP-date has only second precision while
+  // updatedAt is millisecond-keyed.
+  @IsOptional() @IsDateString() expectedUpdatedAt?: string;
 }
 
 class ReassignOwnerDto {
@@ -232,6 +242,14 @@ export class ItemsController {
   private readonly lastUsageWrittenAt = new Map<string, number>();
   private static readonly USAGE_THROTTLE_MS = 60_000;
 
+  /** Default page size for GET /items when the caller sends no
+   *  ?limit=. Big enough that every org-sized portal today gets the
+   *  whole list in one page; small enough to bound a runaway org. */
+  static readonly DEFAULT_LIST_LIMIT = 500;
+  /** Hard ceiling for ?limit= so a caller cannot opt back into an
+   *  unbounded response by asking for limit=999999. */
+  static readonly MAX_LIST_LIMIT = 1000;
+
   constructor(
     private readonly items: ItemsService,
     private readonly snapshots: DataSnapshotService,
@@ -242,8 +260,9 @@ export class ItemsController {
   ) {}
 
   @Get()
-  list(
+  async list(
     @CurrentUser() user: AuthUser,
+    @Res({ passthrough: true }) res: Response,
     @Query('mine') mine?: string,
     @Query('type') type?: string,
     @Query('q') q?: string,
@@ -251,6 +270,9 @@ export class ItemsController {
     @Query('bbox') bbox?: string,
     @Query('buffer') buffer?: string,
     @Query('lite') lite?: string,
+    @Query('full') full?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
     @Query('sharedWithGroupId') sharedWithGroupId?: string,
   ) {
     // Build opts without explicit-undefined keys so `exactOptionalPropertyTypes`
@@ -264,6 +286,8 @@ export class ItemsController {
       bufferKm?: number;
       lite?: boolean;
       sharedWithGroupId?: string;
+      limit?: number;
+      offset?: number;
     } = {};
     if (mine === 'true') opts.mine = true;
     // ?type accepts a single ItemType or a comma-separated list.
@@ -287,7 +311,16 @@ export class ItemsController {
     }
     if (q !== undefined) opts.q = q;
     if (ownerId !== undefined) opts.ownerId = ownerId;
-    if (lite === '1' || lite === 'true') opts.lite = true;
+    // Narrow-by-default: the list strips the heavy data_json blob
+    // unless the caller explicitly asks for it with ?full=1. The old
+    // ?lite=1 flag keeps working (it now matches the default), and a
+    // caller that contradicts itself with both flags gets lite, the
+    // safe shape. Full payloads for every row turned org-sized lists
+    // into multi-MB responses; callers that truly need data for many
+    // rows opt back in, everyone else fetches single items by id.
+    const wantFull = full === '1' || full === 'true';
+    const wantLite = lite === '1' || lite === 'true';
+    opts.lite = wantLite || !wantFull;
     // sharedWithGroupId (#100): only accept obvious UUID-shaped values.
     // The service layer would error on a malformed group id at query
     // time anyway, but a quick reject here keeps that error surface
@@ -312,7 +345,26 @@ export class ItemsController {
       const km = Number(buffer);
       if (Number.isFinite(km) && km >= 0) opts.bufferKm = km;
     }
-    return this.items.list(user, opts);
+    // Pagination: server-side default page so the endpoint is never
+    // unbounded again, hard cap so a caller cannot opt back into
+    // unbounded by passing limit=999999. Malformed values fall back
+    // to the default rather than 400 so old bookmarked URLs with
+    // stray params keep working.
+    const parsedLimit = Number.parseInt(limit ?? '', 10);
+    opts.limit =
+      Number.isFinite(parsedLimit) && parsedLimit > 0
+        ? Math.min(parsedLimit, ItemsController.MAX_LIST_LIMIT)
+        : ItemsController.DEFAULT_LIST_LIMIT;
+    const parsedOffset = Number.parseInt(offset ?? '', 10);
+    if (Number.isFinite(parsedOffset) && parsedOffset > 0) {
+      opts.offset = parsedOffset;
+    }
+    const { rows, total } = await this.items.listPaged(user, opts);
+    // The body stays a plain JSON array (existing consumers parse it
+    // as one); the total rides in a response header so pagers can
+    // size themselves without an envelope change.
+    res.setHeader('X-Total-Count', String(total));
+    return rows;
   }
 
   // NOTE: /items/trash must be declared before /items/:id so Nest's

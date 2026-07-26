@@ -41,6 +41,27 @@ interface ItemSummary {
   thumbnailUrl: string | null;
 }
 
+/**
+ * Page through the items list until a short batch. The API caps
+ * each list response (default 500 rows, max 1000) now, and this
+ * picker curates from the COMPLETE public set, so it walks offset
+ * pages instead of trusting one bounded response. Hard stop at 50
+ * pages so a server bug can never loop the browser forever.
+ */
+async function fetchAllListPages<T>(base: string): Promise<T[]> {
+  const PAGE = 1000;
+  const all: T[] = [];
+  for (let page = 0; page < 50; page += 1) {
+    const sep = base.includes('?') ? '&' : '?';
+    const res = await fetch(`${base}${sep}limit=${PAGE}&offset=${page * PAGE}`);
+    if (!res.ok) throw new Error(`Could not load items: ${res.status}`);
+    const rows = (await res.json()) as T[];
+    all.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return all;
+}
+
 interface Props {
   value: string[];
   onChange: (next: string[]) => void;
@@ -61,14 +82,12 @@ export function FeaturedItemsPicker({ value, onChange }: Props) {
       try {
         // The server-side list endpoint filters by visibility, so
         // public items are the intersection of "listed to me" and
-        // `access === 'public'`. We fetch the whole visible set and
-        // narrow here: saves needing a new API for a single page.
-        const res = await fetch('/api/portal/items');
-        if (!res.ok) {
-          setLoadError(`Could not load items: ${res.status}`);
-          return;
-        }
-        const body = (await res.json()) as ItemSummary[];
+        // `access === 'public'`. We fetch the whole visible set
+        // (paged; see fetchAllListPages) and narrow here: saves
+        // needing a new API for a single page.
+        const body = await fetchAllListPages<ItemSummary>(
+          '/api/portal/items',
+        );
         if (cancelled) return;
         const publics = body
           .filter((i) => i.access === 'public')

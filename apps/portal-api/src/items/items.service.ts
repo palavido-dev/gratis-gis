@@ -111,6 +111,95 @@ export interface UpdateItemInput {
    */
   publicGeoBoundaryId?: string | null | undefined;
   orgGeoBoundaryId?: string | null | undefined;
+  /**
+   * Optimistic-concurrency precondition. When supplied, the update
+   * only lands if the row's current updatedAt matches this ISO
+   * timestamp exactly; otherwise the service throws 409 Conflict so
+   * the client can refetch instead of silently overwriting someone
+   * else's save. Opt-in: clients that never send it keep the old
+   * last-write-wins behaviour, so no existing editor breaks.
+   */
+  expectedUpdatedAt?: string | undefined;
+}
+
+/**
+ * Options accepted by list() / listPaged(). Extracted to a named
+ * interface so the WHERE builder, the row query, and the count can
+ * all share one shape without re-declaring the inline type.
+ */
+export interface ItemsListOptions {
+  mine?: boolean;
+  /**
+   * Single ItemType or array of types. The controller normalises
+   * a comma-separated `?type=` query into one or the other so a
+   * caller fetching both data_layer and arcgis_service can do it
+   * in one round-trip.
+   */
+  type?: ItemType | ItemType[];
+  q?: string;
+  /**
+   * Subset of fields the `q` search targets. Defaults to all
+   * three (title, description, tags) when omitted; smart
+   * folders (#38) pass a narrower list when the author wants
+   * to scope the search.
+   */
+  searchFields?: Array<'title' | 'description' | 'tags'>;
+  /**
+   * Filter to items owned by a specific user. Intended for the
+   * admin 'user delete -> reassign their items' flow. Anyone may
+   * filter by their own id (equivalent to `mine: true`); filtering
+   * by anyone else's id requires org-admin, enforced below.
+   */
+  ownerId?: string;
+  /**
+   * Optional spatial filter. When set, the list is restricted to
+   * items whose cached `bbox_geom` (set by ItemsService on save
+   * via itemBbox()) intersects the given envelope. EPSG:4326,
+   * [west, south, east, north]. Items without a cached bbox are
+   * NOT excluded; the spatial filter narrows, not gates, so
+   * non-spatial item types (forms, dashboards, etc.) keep showing
+   * up alongside the spatial matches. (#24)
+   */
+  bbox?: [number, number, number, number];
+  /**
+   * Buffer (km) expanding the user's bbox before the intersect
+   * check. Lets a user search "around this area" rather than
+   * "strictly inside". Defaults to 0; clamped to [0, 100000] at
+   * the controller. Buffering is done in degrees as a coarse
+   * approximation (deg ~ 111 km at the equator) so we don't
+   * incur a per-row reproject; it's a search heuristic, not a
+   * survey-grade query.
+   */
+  bufferKm?: number;
+  /**
+   * Slim projection: when true, the response omits the heavy
+   * `data` JSONB blob and instead attaches small derived fields:
+   * `_subLayerCount` on arcgis_service rows, `_storageType` and
+   * `_layers` on data_layer rows, and `_template` on web_app rows
+   * so list surfaces can badge / route without the payload. This
+   * is the DEFAULT for the HTTP list endpoint now; callers that
+   * genuinely need the payload for every row pass ?full=1. (#52)
+   */
+  lite?: boolean;
+  /**
+   * Filter to items that have an active share row pointing at the
+   * given group (#100). The Add Layer dialog's Groups tab uses
+   * this so an author drilling into a group sees only the items
+   * the group has been granted access to. Note we still apply
+   * `visibleWhere`: a non-member of the group with no other
+   * route to an item should not see it appear here. The intersection
+   * is the right "items in this group from my perspective" set.
+   */
+  sharedWithGroupId?: string;
+  /**
+   * Page size. Optional at this layer so internal callers (smart
+   * folders, admin sweeps) keep the historic unbounded behaviour;
+   * the HTTP controller always passes a bounded value (default
+   * 500, hard cap 1000).
+   */
+  limit?: number;
+  /** Rows to skip before the page starts. Pairs with `limit`. */
+  offset?: number;
 }
 
 /**
@@ -302,81 +391,40 @@ export class ItemsService {
     private readonly storage: StorageService,
   ) {}
 
-  async list(
-    user: AuthUser,
-    opts: {
-      mine?: boolean;
-      /**
-       * Single ItemType or array of types. The controller normalises
-       * a comma-separated `?type=` query into one or the other so a
-       * caller fetching both data_layer and arcgis_service can do it
-       * in one round-trip.
-       */
-      type?: ItemType | ItemType[];
-      q?: string;
-      /**
-       * Subset of fields the `q` search targets. Defaults to all
-       * three (title, description, tags) when omitted; smart
-       * folders (#38) pass a narrower list when the author wants
-       * to scope the search.
-       */
-      searchFields?: Array<'title' | 'description' | 'tags'>;
-      /**
-       * Filter to items owned by a specific user. Intended for the
-       * admin 'user delete -> reassign their items' flow. Anyone may
-       * filter by their own id (equivalent to `mine: true`); filtering
-       * by anyone else's id requires org-admin, enforced below.
-       */
-      ownerId?: string;
-      /**
-       * Optional spatial filter. When set, the list is restricted to
-       * items whose cached `bbox_geom` (set by ItemsService on save
-       * via itemBbox()) intersects the given envelope. EPSG:4326,
-       * [west, south, east, north]. Items without a cached bbox are
-       * NOT excluded; the spatial filter narrows, not gates, so
-       * non-spatial item types (forms, dashboards, etc.) keep showing
-       * up alongside the spatial matches. (#24)
-       */
-      bbox?: [number, number, number, number];
-      /**
-       * Buffer (km) expanding the user's bbox before the intersect
-       * check. Lets a user search "around this area" rather than
-       * "strictly inside". Defaults to 0; clamped to [0, 100000] at
-       * the controller. Buffering is done in degrees as a coarse
-       * approximation (deg ~ 111 km at the equator) so we don't
-       * incur a per-row reproject; it's a search heuristic, not a
-       * survey-grade query.
-       */
-      bufferKm?: number;
-      /**
-       * Slim projection: when true, the response omits the heavy
-       * `data` JSONB blob and instead attaches a `_subLayerCount`
-       * derived field on arcgis_service items so the Add Layer
-       * dialog can still render the "+N layers" badge without
-       * shipping hundreds of KB of layer metadata per row. Callers
-       * that need the full payload (the items page, item detail
-       * fetches) leave this off. (#52)
-       */
-      lite?: boolean;
-      /**
-       * Filter to items that have an active share row pointing at the
-       * given group (#100). The Add Layer dialog's Groups tab uses
-       * this so an author drilling into a group sees only the items
-       * the group has been granted access to. Note we still apply
-       * `visibleWhere` -- a non-member of the group with no other
-       * route to an item should not see it appear here. The intersection
-       * is the right "items in this group from my perspective" set.
-       */
-      sharedWithGroupId?: string;
-    } = {},
-  ) {
-    // Lightweight per-call timing log behind the ITEMS_LIST_TIMING env
-    // flag so a slow load can be diagnosed without hand-instrumenting
-    // every request. Overhead is one Date.now() per phase so it is
-    // safe to leave on in production if needed.
-    const traceTiming = process.env.ITEMS_LIST_TIMING === '1';
-    const tStart = traceTiming ? Date.now() : 0;
+  async list(user: AuthUser, opts: ItemsListOptions = {}) {
+    const where = await this.buildListWhere(user, opts);
+    return this.queryListRows(where, opts);
+  }
 
+  /**
+   * Paged list plus a total count for the HTTP surface. Builds the
+   * WHERE clause once and runs the page query and the count in
+   * parallel so X-Total-Count always describes the same filter set
+   * the rows came from (type / q / scope / bbox included). Kept
+   * separate from list() so internal callers (smart folders, folder
+   * resolution) keep the historic unbounded, no-count behaviour.
+   */
+  async listPaged(
+    user: AuthUser,
+    opts: ItemsListOptions = {},
+  ): Promise<{ rows: unknown[]; total: number }> {
+    const where = await this.buildListWhere(user, opts);
+    const [rows, total] = await Promise.all([
+      this.queryListRows(where, opts),
+      this.prisma.item.count({ where }),
+    ]);
+    return { rows, total };
+  }
+
+  /**
+   * Shared WHERE builder for list() / listPaged(). Async because
+   * the spatial filter resolves candidate ids through a raw
+   * PostGIS query before the Prisma query runs.
+   */
+  private async buildListWhere(
+    user: AuthUser,
+    opts: ItemsListOptions,
+  ): Promise<Prisma.ItemWhereInput> {
     const where: Prisma.ItemWhereInput = opts.mine
       ? { ownerId: user.id, deletedAt: null }
       : this.sharing.visibleWhere(user);
@@ -387,11 +435,7 @@ export class ItemsService {
     // the items inside use the "Apply folder sharing" bulk action
     // on the folder page (#67), which writes real share rows on
     // each child item. Cleaner contract: items.list answers from
-    // visibleWhere alone; no inherited-id splicing. tInheritDone
-    // stays in the timing log as a zero-duration step so the log
-    // format doesn't have to change in this commit.
-    const tInheritStart = traceTiming ? Date.now() : 0;
-    let tInheritDone = tInheritStart;
+    // visibleWhere alone; no inherited-id splicing.
     if (opts.type) {
       where.type = Array.isArray(opts.type) ? { in: opts.type } : opts.type;
     }
@@ -496,6 +540,25 @@ export class ItemsService {
         { id: { in: idSet } },
       ];
     }
+    return where;
+  }
+
+  /**
+   * Run the list SELECT (plus lite-mode annotations) for a prebuilt
+   * WHERE clause. Split from list() so listPaged() can reuse the
+   * exact same projection while running the count off the same
+   * WHERE object.
+   */
+  private async queryListRows(
+    where: Prisma.ItemWhereInput,
+    opts: ItemsListOptions,
+  ) {
+    // Lightweight per-call timing log behind the ITEMS_LIST_TIMING env
+    // flag so a slow load can be diagnosed without hand-instrumenting
+    // every request. Overhead is one Date.now() per phase so it is
+    // safe to leave on in production if needed.
+    const traceTiming = process.env.ITEMS_LIST_TIMING === '1';
+    const tStart = traceTiming ? Date.now() : 0;
     // Include shares in the list response so the items page can render
     // sharing badges without a second round-trip per item. Most items
     // have zero-to-single-digit share rows, so the extra join is cheap
@@ -507,7 +570,6 @@ export class ItemsService {
     // response. The list view doesn't need most of what's in there;
     // arcgis_service items get a derived `_subLayerCount` attached
     // below so the dialog can still render the "+N layers" badge.
-    if (traceTiming && tInheritDone === 0) tInheritDone = Date.now();
     const baseSelect = {
       id: true,
       orgId: true,
@@ -539,16 +601,31 @@ export class ItemsService {
         },
       },
     } as const;
+    // Pagination is opt-in at this layer: the HTTP controller always
+    // passes a bounded limit (default 500, cap 1000) while internal
+    // callers omit both knobs and keep the full result set. Built as
+    // conditional spreads so an absent knob never reaches Prisma as
+    // an explicit-undefined key (exactOptionalPropertyTypes).
+    const page = {
+      ...(typeof opts.limit === 'number' && opts.limit > 0
+        ? { take: Math.floor(opts.limit) }
+        : {}),
+      ...(typeof opts.offset === 'number' && opts.offset > 0
+        ? { skip: Math.floor(opts.offset) }
+        : {}),
+    };
     const rows = opts.lite
       ? await this.prisma.item.findMany({
           where,
           select: baseSelect,
           orderBy: { updatedAt: 'desc' },
+          ...page,
         })
       : await this.prisma.item.findMany({
           where,
           select: { ...baseSelect, data: true },
           orderBy: { updatedAt: 'desc' },
+          ...page,
         });
 
     let result: unknown[] = rows;
@@ -640,6 +717,49 @@ export class ItemsService {
         }
       }
 
+      // Compute the `_template` discriminator for web_app rows.
+      // Now that the list strips data_json by default, the items
+      // page still needs to know whether a web_app row is an
+      // editor / viewer / custom app to deep-link "Open" into the
+      // right runtime and to drive the template facet. One string
+      // per row instead of the full app config. The two boolean
+      // key-existence probes reproduce the legacy-shape tolerance
+      // in shared-types isEditorItem / isViewerItem (rows saved
+      // before the WebAppData wrapper fix carry no `template` key
+      // but are structurally recognisable).
+      const webAppIds = rows
+        .filter((r) => r.type === 'web_app')
+        .map((r) => r.id);
+      const templates = new Map<string, string | null>();
+      if (webAppIds.length > 0) {
+        const tpl = await this.prisma.$queryRaw<
+          Array<{
+            id: string;
+            template: string | null;
+            has_targets: boolean;
+            has_snapping: boolean;
+            has_tools: boolean;
+          }>
+        >`
+          SELECT id::text AS id,
+                 (data_json ->> 'template')          AS template,
+                 jsonb_exists(data_json, 'targets')  AS has_targets,
+                 jsonb_exists(data_json, 'snapping') AS has_snapping,
+                 jsonb_exists(data_json, 'tools')    AS has_tools
+          FROM "item"
+          WHERE id = ANY(${webAppIds}::uuid[])
+        `;
+        for (const t of tpl) {
+          const legacyShape =
+            t.has_targets && t.has_snapping
+              ? 'editor'
+              : t.has_targets && t.has_tools
+                ? 'viewer'
+                : null;
+          templates.set(t.id, t.template ?? legacyShape);
+        }
+      }
+
       result = rows.map((r) => {
         if (r.type === 'arcgis_service') {
           return { ...r, _subLayerCount: counts.get(r.id) ?? 0 };
@@ -653,6 +773,9 @@ export class ItemsService {
             _layers: sublayerInfo.get(r.id) ?? [],
           };
         }
+        if (r.type === 'web_app') {
+          return { ...r, _template: templates.get(r.id) ?? null };
+        }
         return r;
       });
     }
@@ -665,18 +788,19 @@ export class ItemsService {
       // Pass user-influenced values (typeLabel, q) as separate args
       // rather than interpolating them into the format string. Keeps
       // any CR/LF or format-specifier characters from corrupting the
-      // log stream (CodeQL js/log-injection).
+      // log stream (CodeQL js/log-injection). The old inherit phase
+      // died with the where-builder split; findMany now measures
+      // this method's whole query + annotation span.
       // eslint-disable-next-line no-console
       console.log(
         '[items.list] type=%s mine=%s lite=%s q=%s rows=%d ' +
-          'inherit=%dms findMany=%dms total=%dms',
+          'findMany=%dms total=%dms',
         typeLabel,
         opts.mine ?? false,
         opts.lite ?? false,
         opts.q ?? '',
         rows.length,
-        tInheritDone - tStart,
-        tFindDone - tInheritDone,
+        tFindDone - tStart,
         tFindDone - tStart,
       );
     }
@@ -1328,6 +1452,28 @@ export class ItemsService {
     const shares = await this.prisma.itemShare.findMany({ where: { itemId: id } });
     if (!this.sharing.canEdit(user, item, shares)) {
       throw new ForbiddenException('You do not have edit permission on this item');
+    }
+
+    // Optimistic-concurrency precondition (opt-in). Clients that
+    // read-modify-write a whole sub-document (the folder editor's
+    // childItemIds is the canonical case) send the updatedAt they
+    // loaded; if another tab or admin saved in between, we refuse
+    // with 409 instead of silently reverting their change. Clients
+    // that never send the field keep the old last-write-wins
+    // behaviour, so nothing else breaks. Millisecond-exact compare:
+    // updatedAt is timestamp(3) and every save bumps it, so equal
+    // ms means "the row I read is the row I am replacing".
+    if (
+      input.expectedUpdatedAt !== undefined &&
+      input.expectedUpdatedAt !== null
+    ) {
+      const expectedMs = Date.parse(input.expectedUpdatedAt);
+      const actualMs = new Date(item.updatedAt).getTime();
+      if (!Number.isFinite(expectedMs) || expectedMs !== actualMs) {
+        throw new ConflictException(
+          'This item changed since you loaded it. Refresh to see the latest version, then apply your change again.',
+        );
+      }
     }
 
     // Form-paired data_layer access invariant.  A form's "submissions"

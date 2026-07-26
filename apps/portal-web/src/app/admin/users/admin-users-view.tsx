@@ -238,18 +238,28 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
     // "orphaned content" is a worse UX than "please pick a new owner").
     setWorking(user.id);
     try {
-      const res = await fetch(
-        `/api/portal/items?ownerId=${encodeURIComponent(user.id)}`,
-      );
-      if (!res.ok) {
-        setError(`Could not check owned items: ${res.status}`);
-        return;
+      // Paged walk, not a single fetch: the list endpoint caps each
+      // response now, and this preflight must see EVERY owned item;
+      // missing rows past the cap would let a delete orphan them.
+      const owned: Array<{ id: string; title: string; type: string }> = [];
+      const PAGE = 1000;
+      for (let page = 0; page < 50; page += 1) {
+        const res = await fetch(
+          `/api/portal/items?ownerId=${encodeURIComponent(user.id)}` +
+            `&limit=${PAGE}&offset=${page * PAGE}`,
+        );
+        if (!res.ok) {
+          setError(`Could not check owned items: ${res.status}`);
+          return;
+        }
+        const rows = (await res.json()) as Array<{
+          id: string;
+          title: string;
+          type: string;
+        }>;
+        owned.push(...rows);
+        if (rows.length < PAGE) break;
       }
-      const owned = (await res.json()) as Array<{
-        id: string;
-        title: string;
-        type: string;
-      }>;
       if (owned.length > 0) {
         // Stash and let the dialog drive reassign-then-delete.
         setDeleteWithItems({ user, items: owned });

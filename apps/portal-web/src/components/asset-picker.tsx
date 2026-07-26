@@ -81,7 +81,9 @@ const PRESIGN_ENDPOINT = '/api/portal/storage/presign-upload';
 // filter dropped every File item that didn't happen to have an
 // extension in its title, so the picker came up empty.  Asking
 // for the full payload keeps the picker honest.
-const FILE_LIST_ENDPOINT = '/api/portal/items?type=file';
+// full=1: see above; the mime filter needs data, and the items
+// list strips data_json by default now.
+const FILE_LIST_ENDPOINT = '/api/portal/items?type=file&full=1';
 
 export function AssetPicker({
   value,

@@ -34,7 +34,7 @@ export default async function FieldCatalogPage() {
   let sessionExpired = false;
   try {
     deployments = await apiFetch<ItemWithShares[]>(
-      '/api/items?type=data_collection',
+      '/api/items?type=data_collection&full=1',
     );
   } catch (err) {
     // #254 phase 2: distinguish auth failure (silent session expiry,

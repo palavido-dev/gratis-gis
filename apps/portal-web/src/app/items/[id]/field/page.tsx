@@ -168,7 +168,9 @@ export default async function FieldRuntimePage(props: Props) {
   // collectors to do).
   const [mapItem, basemapItems] = await Promise.all([
     fetchItem<Item<MapData>>(`/api/items/${dc.mapId}`).catch(() => null),
-    fetchItemList<Array<Item<BasemapData>>>('/api/items?type=basemap').catch(
+    // full=1: the field runtime builds renderable basemaps from each
+    // row's data payload, which the list now strips by default.
+    fetchItemList<Array<Item<BasemapData>>>('/api/items?type=basemap&full=1').catch(
       () => [] as Array<Item<BasemapData>>,
     ),
   ]);

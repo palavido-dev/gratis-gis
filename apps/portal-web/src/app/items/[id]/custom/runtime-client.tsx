@@ -2930,7 +2930,10 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
           }
         } else {
           const res = await fetch(
-            '/api/portal/items?type=print_template',
+            // full=1: the print flow renders straight from each
+            // template's data payload, which the list now strips
+            // by default.
+            '/api/portal/items?type=print_template&full=1',
             { cache: 'no-store' },
           );
           if (!res.ok) {

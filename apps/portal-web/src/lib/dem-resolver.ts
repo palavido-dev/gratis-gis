@@ -44,7 +44,7 @@ export async function resolveDemForBbox(
   }
   const [w, s, e, n] = bbox;
   try {
-    const res = await fetch('/api/portal/items?type=tile_layer');
+    const res = await fetch('/api/portal/items?type=tile_layer&full=1');
     if (!res.ok) return null;
     const items = (await res.json()) as Array<{
       id: string;

@@ -43,10 +43,43 @@ interface Props {
 
 export function DataPreviewDrawer({ item, onClose }: Props) {
   const t = useT();
-  const sublayers = useMemo(() => extractSublayers(item), [item]);
+  // The items list ships without data_json by default now, but the
+  // sublayer picker needs the item's layer manifest. Resolve the
+  // full item by id at open time when the row arrived lite; rows
+  // that still carry data (full=1 callers) skip the round-trip.
+  const [resolved, setResolved] = useState<ItemWithShares>(item);
+  useEffect(() => {
+    setResolved(item);
+    const needsData =
+      (item.type === 'data_layer' || item.type === 'arcgis_service') &&
+      (item.data === undefined || item.data === null);
+    if (!needsData) return;
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const res = await fetch(`/api/portal/items/${item.id}`, {
+          signal: controller.signal,
+        });
+        if (!res.ok) return;
+        const full = (await res.json()) as ItemWithShares;
+        setResolved(full);
+      } catch {
+        /* non-fatal: the drawer just shows no sublayers */
+      }
+    })();
+    return () => controller.abort();
+  }, [item]);
+  const sublayers = useMemo(() => extractSublayers(resolved), [resolved]);
   const [activeId, setActiveId] = useState<string | number | null>(
     sublayers[0]?.id ?? null,
   );
+  // Promote the first sublayer once the async resolve delivers the
+  // manifest; on a lite row the initial render has none to pick.
+  useEffect(() => {
+    if (activeId == null && sublayers.length > 0) {
+      setActiveId(sublayers[0]!.id);
+    }
+  }, [sublayers, activeId]);
   const [features, setFeatures] = useState<GeoJSON.Feature[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -306,7 +339,14 @@ export function DataPreviewDrawer({ item, onClose }: Props) {
 
 function extractSublayers(item: ItemWithShares): SublayerOption[] {
   if (item.type === 'data_layer') {
-    const data = item.data as DataLayerData | null;
+    const data = item.data as DataLayerData | null | undefined;
+    if (data === undefined || data === null) {
+      // Lite list row: the component is resolving the full item by
+      // id right now. Returning nothing (instead of the v1 'self'
+      // fallback) keeps the drawer from firing a premature
+      // item-level /geojson fetch at what may be a v3 item.
+      return [];
+    }
     if (data && 'version' in data && data.version === 3) {
       return data.layers.map((l) => ({
         id: l.id,

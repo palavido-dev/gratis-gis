@@ -257,7 +257,9 @@ export function CustomAppDetail({
           }
         }
         const [mapsRes, ...mapResponses] = await Promise.all([
-          fetch('/api/portal/items?type=basemap'),
+          // full=1: preview basemaps are built from each row's data
+          // payload, which the list now strips by default.
+          fetch('/api/portal/items?type=basemap&full=1'),
           ...Array.from(uniqueMapIds).map((id) =>
             fetch(`/api/portal/items/${id}`),
           ),

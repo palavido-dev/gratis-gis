@@ -56,8 +56,13 @@ export default async function ItemsPage(props: Props) {
   );
   // Pull every folder the caller can see in this org so the rail
   // tree can render top-level eagerly. Failure is non-fatal -- the
-  // rail simply renders empty.
-  const folders = await apiFetch<ItemWithShares[]>('/api/items?type=folder')
+  // rail simply renders empty. full=1: the tree shape comes from
+  // each folder's data.childItemIds, which the lite default strips.
+  // limit=1000 is the API's hard cap; a rail past a thousand
+  // folders is already unusable, so no pager here.
+  const folders = await apiFetch<ItemWithShares[]>(
+    '/api/items?type=folder&full=1&limit=1000',
+  )
     .then((rows) =>
       rows.map<FolderRailNode>((r) => ({
         id: r.id,

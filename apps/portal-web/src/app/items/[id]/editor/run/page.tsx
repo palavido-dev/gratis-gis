@@ -119,7 +119,9 @@ export default async function EditorRuntimePage(props: Props) {
   );
 
   const [basemapItems, referencedMap, targetItems] = await Promise.all([
-    apiFetch<Array<Item<BasemapData>>>('/api/items?type=basemap').catch(
+    // full=1: the runtime builds renderable basemaps from each row's
+    // data payload, which the list now strips by default.
+    apiFetch<Array<Item<BasemapData>>>('/api/items?type=basemap&full=1').catch(
       () => [] as Array<Item<BasemapData>>,
     ),
     editor.mapId

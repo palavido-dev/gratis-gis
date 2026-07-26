@@ -65,11 +65,13 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
  *     is an obvious future addition but needs a user/name lookup we
  *     don't carry on the list response today.
  *
- * The server hands us the full item list (with shares joined) so all
- * filtering and grouping is in-memory; that's fine for org-sized
- * lists (up to a few thousand items). If it stops being fine we can
- * push filters back to the API without changing this component's
- * public shape.
+ * The server hands us the first page of the item list (with shares
+ * joined, capped at the API's 500-row default page); a "Load more"
+ * control appends further pages client-side via ?offset=. Filtering
+ * and grouping run in-memory over whatever has been loaded, which is
+ * fine for org-sized lists. If it stops being fine we can push the
+ * filters back to the API without changing this component's public
+ * shape.
  */
 interface Props {
   items: ItemWithShares[];
@@ -130,18 +132,75 @@ type TranslateFn = (
   params?: Record<string, string | number>,
 ) => string;
 
+/** Mirrors the API's server-side default page size for GET /items.
+ *  Used both to ask for explicit pages and as the "batch came back
+ *  exactly full, there may be more" heuristic. */
+const LIST_PAGE_SIZE = 500;
+
+/**
+ * The list endpoint strips data_json by default and instead
+ * annotates web_app rows with a `_template` discriminator (one
+ * string instead of the whole app config). Rebuild the minimal
+ * `data.template` shape those rows used to carry so everything
+ * downstream (the template facet, getItemHref / hasRuntime deep
+ * links, the kebab's Open action) keeps reading the field it has
+ * always read.
+ */
+function withListTemplateShim(it: ItemWithShares): ItemWithShares {
+  if (it.type !== 'web_app') return it;
+  if (it.data !== undefined && it.data !== null) return it;
+  const tpl = (it as ItemWithShares & { _template?: string | null })
+    ._template;
+  if (!tpl) return it;
+  return { ...it, data: { template: tpl } };
+}
+
 function sortLabel(t: TranslateFn, key: SortBy): string {
   return t(`items.sort.${key}`);
 }
 
 export function ItemsView({
-  items,
+  items: serverItems,
   currentUser,
   folders = [],
   activeFolder = null,
   geoBoundaries = [],
 }: Props) {
   const t = useT();
+  // The server render is capped at the API's default page size (500)
+  // now, so the view keeps its own tail of pages fetched via "Load
+  // more". Reset whenever a fresh first page arrives (navigation,
+  // router.refresh) so pages from different filter sets never mix.
+  const [extraItems, setExtraItems] = useState<ItemWithShares[]>([]);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
+  // null = no client page fetched yet; derive "maybe more" from the
+  // first page instead. The API emits X-Total-Count, but the BFF
+  // proxy only forwards an allowlist of response headers that does
+  // not include it, so the client sizes pages by batch fullness: a
+  // batch that came back exactly full may have more behind it.
+  const [tailBatchFull, setTailBatchFull] = useState<boolean | null>(null);
+  useEffect(() => {
+    setExtraItems([]);
+    setTailBatchFull(null);
+    setLoadMoreError(null);
+  }, [serverItems]);
+  // Merge the server page with client-loaded pages, de-duped by id
+  // (an item edited mid-paging can shift across the updatedAt sort
+  // and reappear), and rebuild the lite `_template` annotation into
+  // the `data.template` shape downstream code reads.
+  const items = useMemo(() => {
+    const merged: ItemWithShares[] = [];
+    const seen = new Set<string>();
+    for (const it of [...serverItems, ...extraItems]) {
+      if (seen.has(it.id)) continue;
+      seen.add(it.id);
+      merged.push(withListTemplateShim(it));
+    }
+    return merged;
+  }, [serverItems, extraItems]);
+  const maybeMoreItems =
+    tailBatchFull ?? serverItems.length === LIST_PAGE_SIZE;
   // Initial defaults match the "manage my own portal" workflow most
   // users hit: a dense list grouped by type, A-Z so the same item is
   // always in the same spot. The localStorage rehydrate below
@@ -582,7 +641,9 @@ export function ItemsView({
         throw new Error(Array.isArray(msg) ? msg.join('; ') : msg);
       }
       const next = (await res.json()) as ItemWithShares[];
-      setSpatialItems(next);
+      // Same lite-row shim the main list applies; spatial results
+      // come from the same endpoint and ship without data_json.
+      setSpatialItems(next.map(withListTemplateShim));
       setSpatialActive({ bbox, bufferKm });
       // #86 follow-up: do NOT close the panel on apply. Pre-#86 the
       // apply was driven by the explicit "Use this area" button so
@@ -604,6 +665,49 @@ export function ItemsView({
     setSpatialActive(null);
     setSpatialItems(null);
     setSpatialError(null);
+  }
+
+  /**
+   * Fetch the next page of the list. Reproduces the server
+   * component's query (scope + free-text search) and walks offset
+   * past everything already held; the id de-dupe in the `items`
+   * merge absorbs rows that shift across page boundaries when
+   * something is edited mid-paging.
+   */
+  async function loadMoreItems() {
+    setLoadingMore(true);
+    setLoadMoreError(null);
+    try {
+      const params = new URLSearchParams();
+      const scopeParam = searchParams?.get('scope');
+      const legacyMine = searchParams?.get('mine');
+      const scopeIsMine =
+        scopeParam === 'all'
+          ? false
+          : scopeParam === 'mine'
+            ? true
+            : legacyMine === 'true'
+              ? true
+              : legacyMine === 'false'
+                ? false
+                : true;
+      if (scopeIsMine) params.set('mine', 'true');
+      const q = searchParams?.get('q');
+      if (q) params.set('q', q);
+      params.set('limit', String(LIST_PAGE_SIZE));
+      params.set('offset', String(serverItems.length + extraItems.length));
+      const res = await fetch(`/api/portal/items?${params.toString()}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const batch = (await res.json()) as ItemWithShares[];
+      setExtraItems((prev) => [...prev, ...batch]);
+      setTailBatchFull(batch.length === LIST_PAGE_SIZE);
+    } catch (e) {
+      setLoadMoreError(
+        e instanceof Error ? e.message : 'Could not load more items.',
+      );
+    } finally {
+      setLoadingMore(false);
+    }
   }
 
   /**
@@ -1103,6 +1207,39 @@ export function ItemsView({
         onTagClick={onToggleTag}
         activeTags={tagFilter}
       />
+      {/* Pager for the server's 500-row page cap. Hidden inside a
+          folder (folder contents are resolved whole, not paged) and
+          while an area search result is on screen (that pool came
+          from a different query). Batch-fullness heuristic; see the
+          tailBatchFull note above for why the header total is not
+          available client-side. */}
+      {!activeFolder && !spatialActive && maybeMoreItems ? (
+        <div className="mt-4 flex flex-col items-center gap-2">
+          {loadMoreError ? (
+            <p role="alert" className="text-xs text-danger">
+              {loadMoreError}
+            </p>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => void loadMoreItems()}
+            disabled={loadingMore}
+            className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-surface-1 px-4 text-sm text-ink-1 shadow-card hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {loadingMore ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading more...
+              </>
+            ) : (
+              'Load more'
+            )}
+          </button>
+          <p className="text-2xs text-muted">
+            Showing the first {items.length} items.
+          </p>
+        </div>
+      ) : null}
       {showReassign ? (
         <ReassignOwnerDialog
           heading={t('items.reassignHeading', { count: selected.size })}

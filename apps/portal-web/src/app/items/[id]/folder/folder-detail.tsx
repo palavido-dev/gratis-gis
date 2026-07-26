@@ -37,6 +37,13 @@ import {
   type PrincipalOption,
 } from '@/components/principal-picker';
 
+/** Shown when a PATCH is refused with 409 because another tab or
+ *  admin saved this folder after we loaded it. Plain language on
+ *  purpose; the component also refetches so the message describes
+ *  what already happened, not a chore for the user. */
+const FOLDER_CONFLICT_MESSAGE =
+  'This folder changed since you opened it. Refresh to see the latest.';
+
 /** A single hop in the parent breadcrumb. Server-computed so the
  *  detail page renders the path without a client round-trip. */
 export interface FolderBreadcrumbHop {
@@ -47,6 +54,14 @@ export interface FolderBreadcrumbHop {
 interface Props {
   itemId: string;
   initial: FolderData;
+  /**
+   * The folder item's updatedAt as of the server render. Sent back
+   * with every PATCH as `expectedUpdatedAt` so a save from another
+   * tab or admin turns our write into a 409 instead of a silent
+   * revert of their change (folder writes are read-modify-write
+   * over childItemIds, so last-write-wins loses data here).
+   */
+  updatedAt: string;
   /** Pre-resolved children, in the folder's authoritative order. */
   initialChildren: ItemWithShares[];
   /**
@@ -90,6 +105,7 @@ interface Props {
 export function FolderDetail({
   itemId,
   initial,
+  updatedAt,
   initialChildren,
   breadcrumb,
   canEdit,
@@ -104,6 +120,14 @@ export function FolderDetail({
   const [orderedIds, setOrderedIds] = useState<string[]>(
     initial.childItemIds,
   );
+  // Concurrency handle for the PATCH precondition. Seeded from the
+  // server render, bumped from every successful PATCH response so
+  // back-to-back edits in this tab keep matching, and re-synced
+  // whenever router.refresh() delivers fresh props.
+  const [itemUpdatedAt, setItemUpdatedAt] = useState<string>(updatedAt);
+  useEffect(() => {
+    setItemUpdatedAt(updatedAt);
+  }, [updatedAt]);
   // Smart-folder state (#38). When `smartQuery` is non-null this
   // folder is "smart": its contents come from the saved query
   // instead of childItemIds. The saved query is mirrored locally
@@ -162,6 +186,49 @@ export function FolderDetail({
     };
   }, [itemId]);
 
+  /**
+   * A PATCH bounced with 409: someone else changed this folder after
+   * we loaded it. Never overwrite. Show a plain-language explanation
+   * and pull the server's current state (order, smart query, and the
+   * concurrency handle) so the user's next action starts from what
+   * is actually saved.
+   */
+  async function reloadAfterConflict() {
+    setError(FOLDER_CONFLICT_MESSAGE);
+    try {
+      const res = await fetch(`/api/portal/items/${itemId}`, {
+        cache: 'no-store',
+      });
+      if (res.ok) {
+        const fresh = (await res.json()) as {
+          updatedAt: string;
+          data?: {
+            childItemIds?: unknown;
+            smartQuery?: FolderSmartQuery | null;
+          } | null;
+        };
+        setItemUpdatedAt(fresh.updatedAt);
+        const ids = Array.isArray(fresh.data?.childItemIds)
+          ? (fresh.data!.childItemIds as unknown[]).filter(
+              (x): x is string => typeof x === 'string',
+            )
+          : [];
+        setOrderedIds(ids);
+        setSmartQuery(fresh.data?.smartQuery ?? null);
+      }
+      const contents = await fetch(
+        `/api/portal/items/${itemId}/folder-contents`,
+        { cache: 'no-store' },
+      );
+      if (contents.ok) {
+        setChildren((await contents.json()) as ItemWithShares[]);
+      }
+    } catch {
+      /* non-fatal: the router.refresh below re-renders from the server */
+    }
+    router.refresh();
+  }
+
   // useMemo retained so future filters can derive from orderedIds
   // without invalidating the visibleCount calculation below.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -195,21 +262,41 @@ export function FolderDetail({
     setError(null);
     setRemoving((prev) => new Set(prev).add(childId));
     try {
+      // The PATCH carries ONLY what this action changes: the ordered
+      // id list under the folder's fixed version tag. Remove (and
+      // reorder) are only offered on static folders, so this is the
+      // complete FolderData; building it fresh instead of spreading
+      // the server-render snapshot means a field edited elsewhere
+      // since page load (smartQuery today, anything added tomorrow)
+      // cannot ride along and get reverted by this write.
       const next: FolderData = {
-        ...initial,
+        version: 1,
         childItemIds: orderedIds.filter((id: string) => id !== childId),
       };
       const res = await fetch(`/api/portal/items/${itemId}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ data: next }),
+        body: JSON.stringify({
+          data: next,
+          expectedUpdatedAt: itemUpdatedAt,
+        }),
       });
+      if (res.status === 409) {
+        await reloadAfterConflict();
+        return;
+      }
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         const msg =
           (body as { message?: string | string[] }).message ??
           `HTTP ${res.status}`;
         throw new Error(Array.isArray(msg) ? msg.join('; ') : msg);
+      }
+      const saved = (await res.json().catch(() => null)) as {
+        updatedAt?: string;
+      } | null;
+      if (typeof saved?.updatedAt === 'string') {
+        setItemUpdatedAt(saved.updatedAt);
       }
       setChildren((prev) => prev.filter((c) => c.id !== childId));
       setOrderedIds(next.childItemIds);
@@ -262,18 +349,37 @@ export function FolderDetail({
       return reordered;
     });
     try {
-      const payload: FolderData = { ...initial, childItemIds: next };
+      // Same minimal payload rationale as removeFromFolder: only the
+      // ordered id list this drop changed, plus the concurrency
+      // handle so a save that raced us 409s instead of losing.
+      const payload: FolderData = { version: 1, childItemIds: next };
       const res = await fetch(`/api/portal/items/${itemId}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ data: payload }),
+        body: JSON.stringify({
+          data: payload,
+          expectedUpdatedAt: itemUpdatedAt,
+        }),
       });
+      if (res.status === 409) {
+        // reloadAfterConflict overwrites the optimistic order with
+        // the server's current one, which supersedes the rollback
+        // path below.
+        await reloadAfterConflict();
+        return;
+      }
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         const msg =
           (body as { message?: string | string[] }).message ??
           `HTTP ${res.status}`;
         throw new Error(Array.isArray(msg) ? msg.join('; ') : msg);
+      }
+      const saved = (await res.json().catch(() => null)) as {
+        updatedAt?: string;
+      } | null;
+      if (typeof saved?.updatedAt === 'string') {
+        setItemUpdatedAt(saved.updatedAt);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Reorder failed');
@@ -309,26 +415,40 @@ export function FolderDetail({
     setSmartSaving(true);
     setError(null);
     try {
-      // Build the new FolderData. When demoting (next === null),
-      // OMIT smartQuery so exactOptionalPropertyTypes is satisfied
-      // and the resolver's `data.smartQuery` check sees `undefined`
-      // rather than `null` (either works at runtime, but the type
-      // shape only allows omission, not explicit null).
-      const { smartQuery: _drop, ...base } = initial;
+      // Build the new FolderData from live state only. When demoting
+      // (next === null), OMIT smartQuery so exactOptionalPropertyTypes
+      // is satisfied and the resolver's `data.smartQuery` check sees
+      // `undefined` rather than `null`. childItemIds must ride along
+      // because item.data is replaced whole server-side and the ids
+      // are what a demoted folder falls back to.
       const payload: FolderData = next
-        ? { ...base, childItemIds: orderedIds, smartQuery: next }
-        : { ...base, childItemIds: orderedIds };
+        ? { version: 1, childItemIds: orderedIds, smartQuery: next }
+        : { version: 1, childItemIds: orderedIds };
       const res = await fetch(`/api/portal/items/${itemId}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ data: payload }),
+        body: JSON.stringify({
+          data: payload,
+          expectedUpdatedAt: itemUpdatedAt,
+        }),
       });
+      if (res.status === 409) {
+        setSmartQuery(prev);
+        await reloadAfterConflict();
+        return;
+      }
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         const msg =
           (body as { message?: string | string[] }).message ??
           `HTTP ${res.status}`;
         throw new Error(Array.isArray(msg) ? msg.join('; ') : msg);
+      }
+      const saved = (await res.json().catch(() => null)) as {
+        updatedAt?: string;
+      } | null;
+      if (typeof saved?.updatedAt === 'string') {
+        setItemUpdatedAt(saved.updatedAt);
       }
       router.refresh();
     } catch (e) {

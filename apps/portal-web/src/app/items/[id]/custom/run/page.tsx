@@ -255,12 +255,15 @@ export default async function CustomAppRuntimePage(props: Props) {
   // can't pop the BasemapGallery to swap. Promoting basemap
   // visibility for anon is a separate decision (we'd need an
   // explicit "include in public list" gate per basemap).
+  // full=1 on both lists: the runtime renders basemaps from each
+  // row's data payload and resolves theme tokens from the theme
+  // item's data, and the list strips data_json by default now.
   const [basemapItems, themeItems, ...mapItems] = await Promise.all([
-    fetchItemList<Array<Item<BasemapData>>>('/api/items?type=basemap').catch(
-      () => [] as Array<Item<BasemapData>>,
-    ),
+    fetchItemList<Array<Item<BasemapData>>>(
+      '/api/items?type=basemap&full=1',
+    ).catch(() => [] as Array<Item<BasemapData>>),
     fetchItemList<Array<Item<ThemeItemData> & { seedKind?: string | null }>>(
-      '/api/items?type=theme',
+      '/api/items?type=theme&full=1',
     ).catch(
       () => [] as Array<Item<ThemeItemData> & { seedKind?: string | null }>,
     ),

@@ -246,25 +246,67 @@ export class PublicController {
    * type=basemap today; callers asking for any other type get an
    * empty list rather than the full public catalog (the dedicated
    * landing / catalog feeds are the right surface for that).
+   *
+   * Mirrors the authed list's paging contract so the runtime pages
+   * can swap one for the other without branching: data_json is
+   * stripped unless ?full=1, ?limit= / ?offset= page the result
+   * (default 500, hard cap 1000), and X-Total-Count carries the
+   * unpaged total. The body stays a plain JSON array.
    */
   @Public()
   @Get('items')
-  async items(@Query('type') type?: string) {
-    if (type !== 'basemap') return [];
-    return this.prisma.item.findMany({
-      where: { type: 'basemap', access: 'public', deletedAt: null },
-      include: {
-        owner: {
-          select: {
-            id: true,
-            username: true,
-            fullName: true,
-            avatarUrl: true,
+  async items(
+    @Res({ passthrough: true }) res: Response,
+    @Query('type') type?: string,
+    @Query('full') full?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    if (type !== 'basemap') {
+      // Keep the header present on the refusal path too so a pager
+      // that trusts it never mistakes "not allowed" for "more pages".
+      res.setHeader('X-Total-Count', '0');
+      return [];
+    }
+    const where = {
+      type: 'basemap',
+      access: 'public',
+      deletedAt: null,
+    } as const;
+    const parsedLimit = Number.parseInt(limit ?? '', 10);
+    const take =
+      Number.isFinite(parsedLimit) && parsedLimit > 0
+        ? Math.min(parsedLimit, 1000)
+        : 500;
+    const parsedOffset = Number.parseInt(offset ?? '', 10);
+    const skip =
+      Number.isFinite(parsedOffset) && parsedOffset > 0 ? parsedOffset : 0;
+    const wantFull = full === '1' || full === 'true';
+    const [rows, total] = await Promise.all([
+      this.prisma.item.findMany({
+        where,
+        // omit-not-select keeps the row shape identical to the old
+        // response minus data_json, so anonymous consumers see the
+        // exact same fields they always did.
+        ...(wantFull ? {} : { omit: { data: true } }),
+        include: {
+          owner: {
+            select: {
+              id: true,
+              username: true,
+              fullName: true,
+              avatarUrl: true,
+            },
           },
         },
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
+        orderBy: { updatedAt: 'desc' },
+        take,
+        ...(skip > 0 ? { skip } : {}),
+      }),
+      this.prisma.item.count({ where }),
+    ]);
+    res.setHeader('X-Total-Count', String(total));
+    return rows;
   }
 
   /**

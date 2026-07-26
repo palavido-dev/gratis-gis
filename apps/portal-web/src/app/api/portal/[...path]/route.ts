@@ -520,6 +520,11 @@ async function forward(req: NextRequest, pathSegments: string[]) {
       ...(upstream.headers.get('content-length')
         ? { 'content-length': upstream.headers.get('content-length')! }
         : {}),
+      // Paged list endpoints report the total row count here so the
+      // browser can page without an envelope around the JSON array.
+      ...(upstream.headers.get('x-total-count')
+        ? { 'x-total-count': upstream.headers.get('x-total-count')! }
+        : {}),
     },
   });
 }

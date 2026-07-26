@@ -261,7 +261,9 @@ export default async function FormResponsesPage(props: Props) {
   if (configuredMapId) editor.mapId = configuredMapId;
 
   const [basemapItems, referencedMap] = await Promise.all([
-    fetchItemList<Array<Item<BasemapData>>>('/api/items?type=basemap').catch(
+    // full=1: the response-map preview builds renderable basemaps
+    // from each row's data payload, which the list strips by default.
+    fetchItemList<Array<Item<BasemapData>>>('/api/items?type=basemap&full=1').catch(
       () => [] as Array<Item<BasemapData>>,
     ),
     // #91: when the author picked a reference map in the Responses

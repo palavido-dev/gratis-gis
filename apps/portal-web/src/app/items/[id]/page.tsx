@@ -258,9 +258,11 @@ export default async function ItemDetailPage(props: Props) {
     themeItems,
     canDownload,
   ] = await Promise.all([
-    // Web map basemap library.
+    // Web map basemap library. full=1: the list default strips
+    // data_json, but basemapItemToCustomBasemap needs each row's
+    // tile/style config to build renderable entries.
     isMap
-      ? apiFetch<Array<Item<BasemapData>>>('/api/items?type=basemap')
+      ? apiFetch<Array<Item<BasemapData>>>('/api/items?type=basemap&full=1')
           .then((items) =>
             items
               .map(basemapItemToCustomBasemap)
@@ -283,10 +285,14 @@ export default async function ItemDetailPage(props: Props) {
         ).catch(() => [] as ItemWithShares[])
       : Promise.resolve([] as ItemWithShares[]),
     // Every folder the caller can see, used to compute the breadcrumb.
+    // full=1: the parent-chain walk below reads data.childItemIds on
+    // every folder row, which the lite default strips. limit=1000 is
+    // the API's hard cap; breadcrumbs degrade gracefully if an org
+    // somehow exceeds it (the chain just stops earlier).
     isFolder
-      ? apiFetch<ItemWithShares[]>('/api/items?type=folder').catch(
-          () => [] as ItemWithShares[],
-        )
+      ? apiFetch<ItemWithShares[]>(
+          '/api/items?type=folder&full=1&limit=1000',
+        ).catch(() => [] as ItemWithShares[])
       : Promise.resolve([] as ItemWithShares[]),
     // Geo-boundary library. Map editors use it for the Default
     // Extent picker; SharingPanel (#80) uses it for the tier-level
@@ -306,6 +312,8 @@ export default async function ItemDetailPage(props: Props) {
     // #22: theme catalog for the Custom Web App designer's theme
     // picker.  Only fetched when looking at a custom-app item so
     // the round-trip doesn't run on every detail page view.
+    // full=1: the theme picker renders each theme's swatch from
+    // data.swatch, so this small list needs its payload.
     needsThemes
       ? apiFetch<
           Array<{
@@ -315,7 +323,7 @@ export default async function ItemDetailPage(props: Props) {
             seedKind: string | null;
             data: { swatch?: string };
           }>
-        >('/api/items?type=theme').catch(() => [])
+        >('/api/items?type=theme&full=1').catch(() => [])
       : Promise.resolve(
           [] as Array<{
             id: string;
@@ -803,6 +811,7 @@ export default async function ItemDetailPage(props: Props) {
               ...DEFAULT_FOLDER,
               ...((item.data ?? {}) as Partial<FolderData>),
             }}
+            updatedAt={item.updatedAt}
             initialChildren={folderChildren as Parameters<typeof FolderDetail>[0]['initialChildren']}
             breadcrumb={folderBreadcrumb}
             canEdit={canManage}
