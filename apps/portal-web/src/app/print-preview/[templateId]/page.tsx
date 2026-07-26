@@ -34,12 +34,12 @@ const PRIVATE_API_BASE =
   process.env.PORTAL_API_INTERNAL_URL ?? 'http://portal-api:4000';
 
 interface Props {
-  params: { templateId: string };
-  searchParams: {
+  params: Promise<{ templateId: string }>;
+  searchParams: Promise<{
     map?: string;
     renderToken?: string;
     p?: string;
-  };
+  }>;
 }
 
 interface JobBundle {
@@ -57,12 +57,9 @@ interface JobBundle {
   basemap: BasemapData | null;
 }
 
-export default async function PrintPreviewPage({
-  params,
-  searchParams,
-}: Props) {
-  const { templateId } = params;
-  const { map: mapId, renderToken, p } = searchParams;
+export default async function PrintPreviewPage(props: Props) {
+  const { templateId } = await props.params;
+  const { map: mapId, renderToken, p } = await props.searchParams;
 
   if (!templateId || !mapId || !renderToken) notFound();
 

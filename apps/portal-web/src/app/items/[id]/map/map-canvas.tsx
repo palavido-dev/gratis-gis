@@ -45,24 +45,23 @@ import {
 } from '@/lib/custom-basemap';
 import { getCachedUserName } from '@/lib/user-name-cache';
 
-// Register pmtiles:// and cog:// on THIS module's maplibregl instance.
-// maplibre-gl, this map component, and these two protocol plugins all
-// compile into the same client chunk, so registering here guarantees
-// the schemes exist on the exact maplibregl `new maplibregl.Map` uses,
-// before any source loads. Registering from a separate module
-// (lib/custom-basemap) did not survive a Next 16.2 chunk split: the
-// side effect ran in another chunk that executed too late for the map,
-// so every raster tile and DEM-drape source failed with "URL scheme
-// pmtiles/cog is not supported" and nothing drew (#209). The guard is
-// a flag on the maplibregl object itself so it is idempotent and an
-// SSR pass (window undefined) cannot mark it registered for the client.
-function registerMapProtocols(where: string): void {
+// Register pmtiles:// and cog:// on THIS module's maplibregl instance,
+// at module load and again in the map's create effect. Registration
+// must run against the same maplibregl object `new maplibregl.Map`
+// uses: #209 was a run of raster/DEM sources failing with "URL scheme
+// pmtiles/cog is not supported" because the production bundler
+// (Turbopack) could split maplibre-gl into two runtime instances, so
+// addProtocol wrote one instance's registry while the map read the
+// other's. Production now builds with webpack (next build --webpack),
+// whose runtime keys every module by one id and cannot duplicate the
+// registry; registering inline here (instead of via a side effect in
+// another module) additionally keeps the timing correct no matter how
+// chunks load. The guard is a flag on the maplibregl object itself so
+// it is idempotent and an SSR pass (window undefined) cannot mark it
+// registered for the client.
+function registerMapProtocols(): void {
   if (typeof window === 'undefined') return;
   const gl = maplibregl as unknown as { __ggRasterProtocols?: boolean };
-  // eslint-disable-next-line no-console
-  console.info(
-    `[gg] registerMapProtocols(${where}) already=${!!gl.__ggRasterProtocols} addProtocol=${typeof maplibregl.addProtocol}`,
-  );
   if (gl.__ggRasterProtocols) return;
   try {
     maplibregl.addProtocol('pmtiles', new PMTilesProtocol().tile);
@@ -71,18 +70,12 @@ function registerMapProtocols(where: string): void {
       cogProtocol as unknown as Parameters<typeof maplibregl.addProtocol>[1],
     );
     gl.__ggRasterProtocols = true;
-    // eslint-disable-next-line no-console
-    console.info(`[gg] pmtiles+cog registered ok (${where})`);
   } catch (err) {
     // eslint-disable-next-line no-console
-    console.error('[gg] map raster protocol registration failed', err);
+    console.error('map raster protocol registration failed', err);
   }
 }
-// Runs when this chunk loads (same chunk as maplibre core), so the
-// schemes are ready before any map mounts. Also re-asserted per map
-// create and before each tile source add as belt-and-suspenders; the
-// flag makes repeats free.
-registerMapProtocols('module');
+registerMapProtocols();
 
 /**
  * Absolute fallback MapLibre style. Used only when the map references a
@@ -641,8 +634,8 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     // before building the map, so the initial style's basemap and every
     // raster/DEM source can resolve its scheme. Registration also runs
     // at module load above; this is the idempotent belt-and-suspenders
-    // (see registerMapProtocols for the #209 chunk-split history).
-    registerMapProtocols('create-effect');
+    // (see registerMapProtocols for the #209 history).
+    registerMapProtocols();
     const m = new maplibregl.Map({
       container: containerRef.current,
       style: resolveStyle(),
@@ -2742,10 +2735,6 @@ function syncOverlays(
     // so no {z}/{x}/{y} template is involved.
     if (layer.source.kind === 'tile') {
       const src = layer.source;
-      // Register pmtiles/cog immediately before the source is added, on
-      // this module's maplibregl instance, so the scheme cannot be
-      // missing at addSource time no matter how chunks loaded (#209).
-      registerMapProtocols('tile-add');
       const rasterId = `gg:${layer.id}:raster`;
       if (m.getLayer(rasterId)) {
         // Survived the teardown (same tile URL): reposition to this

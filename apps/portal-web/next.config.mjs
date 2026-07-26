@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { fileURLToPath } from 'node:url';
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -18,17 +20,7 @@ const nextConfig = {
   // information disclosure, no functional reason to advertise the
   // framework + version to every visitor.
   poweredByHeader: false,
-  // maplibre-gl is transpiled through Next so every importer (app code
-  // plus maplibre-gl-lidar / terra-draw adapter / cog protocol) shares
-  // ONE module instance. Turbopack was otherwise instantiating it twice
-  // on the maps route, so maplibregl.addProtocol('pmtiles'/'cog') wrote
-  // one instance's protocol registry while the map read the other's and
-  // raster/DEM layers never drew (#209).
-  transpilePackages: [
-    '@gratis-gis/ui',
-    '@gratis-gis/shared-types',
-    'maplibre-gl',
-  ],
+  transpilePackages: ['@gratis-gis/ui', '@gratis-gis/shared-types'],
   experimental: {
     // Required because our shared packages export TS directly without a build step.
     externalDir: true,
@@ -43,7 +35,10 @@ const nextConfig = {
   // The standalone tracer needs to know where the workspace root is so it
   // includes packages/* deps, otherwise the build warns about multiple
   // lockfiles and may miss workspace package files at runtime.
-  outputFileTracingRoot: new URL('../../', import.meta.url).pathname,
+  // fileURLToPath (not URL.pathname) so the path is valid on Windows
+  // too: .pathname yields "/C:/Users/..." which the build rejects with
+  // an Invalid distDirRoot panic, breaking local production builds.
+  outputFileTracingRoot: fileURLToPath(new URL('../../', import.meta.url)),
   // #118 help docs.  The /help route reads .md files from
   // content/help/ via fs at request time -- the tracer can't see
   // them (no static import), so the standalone build leaves them
