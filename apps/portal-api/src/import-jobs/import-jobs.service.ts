@@ -227,6 +227,25 @@ export class ImportJobsService {
     });
   }
 
+  /**
+   * Failure-path twin of zeroInsertedForCancelled. The whole import
+   * runs inside one COPY transaction, so when the worker fails a
+   * job before that transaction committed, every streamed row was
+   * rolled back and the insertedFeatures the progress beats left on
+   * the row describes rows that do not exist. The worker calls this
+   * after markFailed, but ONLY when it knows the transaction never
+   * committed: a failure in the post-commit bookkeeping (source
+   * stamp, bbox refresh) leaves the rows in place, and zeroing the
+   * counter there would lie in the opposite direction. Guarded on
+   * status='failed' so a racing state change can't be clobbered.
+   */
+  async zeroInsertedForFailed(jobId: string): Promise<void> {
+    await this.prisma.importJob.updateMany({
+      where: { id: jobId, status: 'failed' },
+      data: { insertedFeatures: 0 },
+    });
+  }
+
   /** Test the running-job's row to see whether the user clicked
    *  cancel. Worker calls between batches. */
   async isCancelled(jobId: string): Promise<boolean> {
@@ -274,6 +293,16 @@ export class ImportJobsService {
       data: {
         status: 'failed',
         finishedAt: new Date(),
+        // The crashed worker's COPY transaction died with its
+        // connection, so Postgres rolled back every streamed row;
+        // the insertedFeatures left behind by the progress beats
+        // counts rows that no longer exist. Zero it in the same
+        // update so the recovered row doesn't claim phantom rows.
+        // (A crash inside the tiny window between COMMIT and
+        // markSucceeded would make 0 an undercount, but "re-upload
+        // to retry" is the honest instruction either way; the
+        // pre-crash counter was wrong in the common case.)
+        insertedFeatures: 0,
         errorMessage:
           'Worker crashed before completing this import. Re-upload to retry.',
       },

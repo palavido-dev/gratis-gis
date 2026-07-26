@@ -513,20 +513,68 @@ export class StorageService implements OnModuleInit {
   }
 
   /** Delete an object by key. Idempotent. Used when a feature
-   *  attachment row is removed so we don't leak bytes in MinIO. */
-  async deleteObject(key: string): Promise<void> {
+   *  attachment row is removed so we don't leak bytes in MinIO.
+   *  Returns whether the delete call succeeded so callers that
+   *  report counts (the housekeeping orphan sweep) can be honest
+   *  about partial failures; existing callers ignore the value. */
+  async deleteObject(key: string): Promise<boolean> {
     try {
       const { DeleteObjectCommand } = await import('@aws-sdk/client-s3');
       await this.client.send(
         new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
       );
+      return true;
     } catch (err) {
       // Non-fatal: log, don't throw. A stuck metadata row is worse
       // than a leaked 25 MB object.
       this.log.warn(
         `Failed to delete ${key}: ${err instanceof Error ? err.message : err}`,
       );
+      return false;
     }
+  }
+
+  /**
+   * List every object under a key prefix (paginated walk, same
+   * mechanics as getBucketUsage). Powers the housekeeping orphaned-
+   * upload sweep, which needs key + size + age for each object so
+   * it can cross-check against the referencing rows. Throws on
+   * enumeration failure rather than returning a partial list: the
+   * sweep must never mistake "listing died halfway" for "these are
+   * all the objects" (the caller treats a throw as "storage
+   * unavailable" and reports that instead of guessing).
+   */
+  async listObjectsUnder(prefix: string): Promise<
+    Array<{ key: string; sizeBytes: number; lastModified: Date | null }>
+  > {
+    const out: Array<{
+      key: string;
+      sizeBytes: number;
+      lastModified: Date | null;
+    }> = [];
+    let continuationToken: string | undefined;
+    do {
+      const cmd = new ListObjectsV2Command({
+        Bucket: this.bucket,
+        Prefix: prefix,
+        ...(continuationToken
+          ? { ContinuationToken: continuationToken }
+          : {}),
+      });
+      const res = await this.client.send(cmd);
+      for (const obj of res.Contents ?? []) {
+        if (!obj.Key) continue;
+        out.push({
+          key: obj.Key,
+          sizeBytes: obj.Size ?? 0,
+          lastModified: obj.LastModified ?? null,
+        });
+      }
+      continuationToken = res.IsTruncated
+        ? res.NextContinuationToken
+        : undefined;
+    } while (continuationToken);
+    return out;
   }
 
   /** Exposed for DTO tests and error messages. */

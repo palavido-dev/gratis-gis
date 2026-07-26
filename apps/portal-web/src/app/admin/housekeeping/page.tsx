@@ -12,6 +12,10 @@ import {
 } from './housekeeping-schedule-card';
 import { StarterTemplatesCard } from './starter-templates-card';
 import { StarterThemesCard } from './starter-themes-card';
+import {
+  OrphanedUploadsCard,
+  type OrphanedUploadsReport,
+} from './orphaned-uploads-card';
 
 interface StarterStatusResponse {
   starters: Array<{
@@ -108,6 +112,16 @@ export default async function AdminHousekeepingPage() {
         </div>
       </Suspense>
 
+      {/* Orphaned uploads: walks the MinIO prefixes + a reference
+          scan, so it can take a few seconds on a big bucket. Own
+          boundary keeps it off the critical path. Read-only fetch;
+          the delete lives behind a confirm inside the card. */}
+      <Suspense fallback={<SkeletonCard />}>
+        <div className="mb-6">
+          <OrphanedUploadsSection />
+        </div>
+      </Suspense>
+
       {/* The big bundle: storage + stale-items + stale-users +
           large-items + expiring-shares + expiring-users + largest-
           tables + largest-data-layers + summary.  Slowest of the
@@ -155,6 +169,17 @@ async function StarterThemesSection() {
     return <StarterThemesCard initial={resp.starters} />;
   } catch (err) {
     return <SectionError label="themes" err={err} />;
+  }
+}
+
+async function OrphanedUploadsSection() {
+  try {
+    const report = await apiFetch<OrphanedUploadsReport>(
+      '/api/admin/housekeeping/orphaned-uploads',
+    );
+    return <OrphanedUploadsCard initial={report} />;
+  } catch (err) {
+    return <SectionError label="orphaned uploads" err={err} />;
   }
 }
 

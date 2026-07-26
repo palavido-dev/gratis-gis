@@ -15,6 +15,7 @@ import {
   HardDrive,
   Layers,
   Loader2,
+  Search,
   Timer,
   Trash2,
   User as UserIcon,
@@ -167,7 +168,9 @@ export function HousekeepingView({ bundle }: Props) {
   // ambiguous. Each set is the id of a ticked row.
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
-  const [busy, setBusy] = useState<'items' | 'users' | 'extents' | null>(null);
+  const [busy, setBusy] = useState<
+    'items' | 'users' | 'extents' | 'search-indexes' | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
 
@@ -205,6 +208,60 @@ export function HousekeepingView({ bundle }: Props) {
     } catch (e) {
       setError(
         e instanceof Error ? e.message : 'Could not recompute extents.',
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /**
+   * Build / reconcile the per-searchable-field trigram indexes that
+   * back the map search bar on data_layer items. Run after marking
+   * fields searchable or after a big import: schema saves are pure
+   * metadata and never build indexes inline, so this button is the
+   * moment the operator chooses to pay the build cost (feature
+   * writes to a layer stall briefly per index while it builds;
+   * reads keep flowing).
+   */
+  async function buildSearchIndexes() {
+    setBusy('search-indexes');
+    setError(null);
+    try {
+      const r = await fetch(
+        '/api/portal/admin/housekeeping/build-search-indexes',
+        { method: 'POST' },
+      );
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const result = (await r.json()) as {
+        scannedItems: number;
+        indexedLayers: number;
+        created: string[];
+        kept: string[];
+        dropped: string[];
+        droppedInvalid: string[];
+        orphansDropped: string[];
+        skippedFields: Array<{ scope: string; field: string; reason: string }>;
+        durationMs: number;
+      };
+      const bits = [
+        `${result.created.length} built`,
+        `${result.kept.length} already current`,
+        `${
+          result.dropped.length +
+          result.droppedInvalid.length +
+          result.orphansDropped.length
+        } removed`,
+      ];
+      if (result.skippedFields.length > 0) {
+        bits.push(`${result.skippedFields.length} field(s) skipped`);
+      }
+      setFlash(
+        `Search indexes across ${result.indexedLayers} layer(s): ${bits.join(', ')} in ${(result.durationMs / 1000).toFixed(1)}s.`,
+      );
+      setTimeout(() => setFlash(null), 8000);
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : 'Could not build search indexes.',
       );
     } finally {
       setBusy(null);
@@ -304,12 +361,25 @@ export function HousekeepingView({ bundle }: Props) {
       // query shape so no new endpoint is needed.
       const perUserItems = await Promise.all(
         withItems.map(async (u) => {
-          const r = await fetch(
-            `/api/portal/items?ownerId=${encodeURIComponent(u.id)}`,
-          );
-          if (!r.ok) throw new Error(`Could not list ${u.username}'s items`);
-          const rows = (await r.json()) as Array<{ id: string }>;
-          return rows.map((r) => r.id);
+          // Paged walk, not a single fetch: the list endpoint caps
+          // each response now, and a reassignment that silently
+          // missed rows past the cap would strand those items on a
+          // user who is about to be disabled.
+          const ids: string[] = [];
+          const PAGE = 1000;
+          for (let page = 0; page < 50; page += 1) {
+            const r = await fetch(
+              `/api/portal/items?ownerId=${encodeURIComponent(u.id)}` +
+                `&limit=${PAGE}&offset=${page * PAGE}`,
+            );
+            if (!r.ok) {
+              throw new Error(`Could not list ${u.username}'s items`);
+            }
+            const rows = (await r.json()) as Array<{ id: string }>;
+            ids.push(...rows.map((row) => row.id));
+            if (rows.length < PAGE) break;
+          }
+          return ids;
         }),
       );
       const itemIds = perUserItems.flat();
@@ -494,6 +564,34 @@ export function HousekeepingView({ bundle }: Props) {
             <Database className="h-3.5 w-3.5" />
           )}
           Recompute extents
+        </button>
+      </div>
+
+      {/* Search-index maintenance: builds the per-searchable-field
+          trigram indexes behind the map search bar. Sibling of the
+          extents bar above because both are "walk everything and
+          fix physical state" actions; kept as separate rows so the
+          copy can explain when each one matters. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface-2 px-3 py-2 text-xs">
+        <span className="text-muted">
+          Build feature-search indexes for every data layer field
+          marked searchable. Run after changing searchable fields or
+          importing a large dataset; big layers may take a minute
+          per field and pause feature edits on that layer while each
+          index builds.
+        </span>
+        <button
+          type="button"
+          onClick={buildSearchIndexes}
+          disabled={busy === 'search-indexes'}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 py-1 text-xs font-medium hover:bg-surface-2 disabled:opacity-50"
+        >
+          {busy === 'search-indexes' ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Search className="h-3.5 w-3.5" />
+          )}
+          Build search indexes
         </button>
       </div>
 

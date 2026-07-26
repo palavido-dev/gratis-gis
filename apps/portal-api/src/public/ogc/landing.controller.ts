@@ -107,12 +107,18 @@ export class OgcLandingController {
         // for the bounded interpretation: we don't reproject beyond
         // axis-order swap in v1.
         'http://www.opengis.net/spec/ogcapi-features-2/1.0/conf/crs',
-        // OGC API - Features Part 3 (sortby).  features.controller
-        // already accepts the `sortby` query param and honours
-        // `-fieldname` for descending order; advertising the class
-        // lets clients trust the behaviour. CQL2-Text filtering
-        // (features-filter) is a separate follow-up.
-        'http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/sorting',
+        // NOTE deliberately absent: a Features sorting class. The
+        // list previously declared
+        // `ogcapi-features-3/1.0/conf/sorting`, which is not a real
+        // conformance class (Part 3 is Filtering, OGC 19-079r2, and
+        // defines no sorting; feature sorting exists only as the
+        // draft Part 8). The implementation also only sorted the
+        // fetched page, not the collection. Until the engine read
+        // grows an ORDER BY hook, /collections/:id/items rejects
+        // `sortby` with 400 per Part 1 /req/core/query-param-unknown
+        // (the parameter is no longer in the API definition below).
+        // The Records class below keeps its sorting URI: /records
+        // really does sort the full set in the database.
         // OGC API - Styles Part 1
         'http://www.opengis.net/spec/ogcapi-styles-1/1.0/conf/core',
         'http://www.opengis.net/spec/ogcapi-styles-1/1.0/conf/mapbox-styles',
@@ -266,18 +272,20 @@ export class OgcLandingController {
                   'Output CRS. EPSG:4326 swaps coordinate axes ' +
                   'to lat/lon order; CRS84 keeps lon/lat.',
               },
-              {
-                name: 'sortby',
-                in: 'query',
-                schema: { type: 'string' },
-                description:
-                  'Property name to sort by; prefix with `-` for ' +
-                  'descending. Multiple keys via comma-separated ' +
-                  'list.',
-              },
+              // `sortby` is intentionally NOT declared here: the
+              // endpoint rejects it with 400 (see the conformance
+              // note above and features.controller.ts). Keeping it
+              // out of the API definition is what makes the 400 the
+              // spec-mandated response (Part 1
+              // /req/core/query-param-unknown).
             ],
             responses: {
               '200': { description: 'GeoJSON FeatureCollection' },
+              '400': {
+                description:
+                  'Invalid parameter value, or a parameter not in ' +
+                  'this API definition (e.g. sortby)',
+              },
               '404': { description: 'Collection not found' },
             },
           },

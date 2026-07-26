@@ -185,3 +185,63 @@ describe('OgcFeaturesController.items paging', () => {
     ]);
   });
 });
+
+describe('OgcFeaturesController.items sortby rejection', () => {
+  // `sortby` used to be accepted but only sorted the fetched page,
+  // which is worse than not sorting: clients that paged got
+  // globally-unsorted data under a sorted banner. The parameter is
+  // now outside the API definition, so Part 1
+  // /req/core/query-param-unknown makes 400 the required response.
+  it('rejects sortby with a 400', async () => {
+    const { controller, listFeatures } = makeController(10);
+
+    await expect(
+      controller.items(
+        makeReq(),
+        ITEM_ID,
+        undefined,
+        undefined,
+        undefined,
+        '3',
+        '0',
+        'name',
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+    // Rejection happens before any engine read is issued.
+    expect(listFeatures).not.toHaveBeenCalled();
+  });
+
+  it('rejects descending-prefixed sortby the same way', async () => {
+    const { controller } = makeController(10);
+    await expect(
+      controller.items(
+        makeReq(),
+        ITEM_ID,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        '-name',
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('keeps paging links free of sortby', async () => {
+    const { controller } = makeController(10);
+    const res = await controller.items(
+      makeReq(),
+      ITEM_ID,
+      undefined,
+      undefined,
+      undefined,
+      '3',
+      '3',
+    );
+    for (const link of res.links) {
+      if (link.rel === 'next' || link.rel === 'prev') {
+        expect(new URL(link.href!).searchParams.has('sortby')).toBe(false);
+      }
+    }
+  });
+});

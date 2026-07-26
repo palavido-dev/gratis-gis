@@ -30,8 +30,11 @@ import { parseCollectionId, formatCollectionId } from './collection-id.js';
  *     break.
  *   - CRS84 is the default output / bbox CRS; clients may request
  *     EPSG:4326 to get lat/lon axis order.
- *   - Sortby supports comma-separated property names, optional `-`
- *     prefix for descending.
+ *   - `sortby` is rejected with 400. The engine read path has no
+ *     ORDER BY hook, so the old implementation sorted only the
+ *     fetched page, which silently produced globally-unsorted
+ *     results across pages. See the guard in `items()` for the
+ *     spec argument.
  *
  * Conformance URIs are declared in `landing.controller.ts`. Adding a
  * new class means appending the URI there, not editing this file.
@@ -97,6 +100,42 @@ export class OgcFeaturesController {
     const row = await this.resolvePublicCollection(id);
     if (!row) throw new NotFoundException('Collection not found.');
 
+    // Honest `sortby` handling: reject instead of pretending.
+    //
+    // The previous implementation sorted the FETCHED WINDOW in JS
+    // (offset + limit + 1 rows out of the engine's stable entity
+    // ordering), so any collection larger than one page came back
+    // globally unsorted while the API advertised sorting. Pushing
+    // the sort into SQL isn't currently possible without modifying
+    // the engine read path (DataLayerEngine.listFeatures exposes no
+    // ORDER BY hook, and that module is owned by another
+    // workstream today).
+    //
+    // Spec basis for the 400: sorting was never a ratified OGC API
+    // Features conformance class in the first place. The previously
+    // declared URI (ogcapi-features-3 .../conf/sorting) does not
+    // exist: Part 3 is "Filtering" (OGC 19-079r2) and defines no
+    // sorting class; feature sorting is only the DRAFT Part 8
+    // (Sorting), which we do not implement. With `sortby` removed
+    // from the conformance list and from the OpenAPI document,
+    // OGC API - Features Part 1: Core (OGC 17-069r4) requirement
+    // /req/core/query-param-unknown applies: a request with a query
+    // parameter not specified in the API definition SHALL get a
+    // status 400. Silently dropping the parameter would return
+    // results the client explicitly asked NOT to get, in an order
+    // it believes is sorted.
+    //
+    // Catalog records at /records keep their real, whitelisted,
+    // full-set sortby (ogcapi-records-1 declares sorting and that
+    // path sorts in the database before paginating).
+    if (sortbyParam !== undefined) {
+      throw new BadRequestException(
+        'sortby is not supported yet on feature collections. ' +
+          'Remove the parameter; items are returned in a stable ' +
+          'feature-id order suitable for paging.',
+      );
+    }
+
     const limit = clamp(parseInt(limitParam ?? '', 10) || 100, 1, 10_000);
     const offset = Math.max(0, parseInt(offsetParam ?? '', 10) || 0);
     const crs = parseCrs(crsParam);
@@ -134,15 +173,11 @@ export class OgcFeaturesController {
 
     const fc = await this.v3.listFeatures(row.itemId, row.layerId, opts);
 
-    let features = fc.features as Array<{
+    const features = fc.features as Array<{
       id?: string | number;
       properties?: Record<string, unknown>;
       geometry?: { coordinates?: unknown };
     }>;
-
-    if (sortbyParam) {
-      features = applySortby(features, sortbyParam);
-    }
 
     // numberMatched is unknowable without a count-only query (which
     // would cost as much as the slow full-fetch we just avoided).
@@ -171,14 +206,14 @@ export class OgcFeaturesController {
     ];
     if (hasMore) {
       links.push({
-        href: pagedUrl(selfBase, limit, offset + limit, bboxParam, sortbyParam, crsParam, bboxCrsParam),
+        href: pagedUrl(selfBase, limit, offset + limit, bboxParam, crsParam, bboxCrsParam),
         rel: 'next',
         type: 'application/geo+json',
       });
     }
     if (offset > 0) {
       links.push({
-        href: pagedUrl(selfBase, limit, Math.max(0, offset - limit), bboxParam, sortbyParam, crsParam, bboxCrsParam),
+        href: pagedUrl(selfBase, limit, Math.max(0, offset - limit), bboxParam, crsParam, bboxCrsParam),
         rel: 'prev',
         type: 'application/geo+json',
       });
@@ -466,44 +501,6 @@ function parseBbox(
 }
 
 /**
- * Sort an array of GeoJSON features in place by one or more
- * property keys. `sortby` is comma-separated; an optional `-`
- * prefix marks descending. Unknown keys are silently ignored
- * (matches the OGC API Features Sortby extension; missing
- * properties don't 400, they just sort to the end).
- */
-function applySortby<
-  T extends { properties?: Record<string, unknown> },
->(features: T[], sortby: string): T[] {
-  const keys = sortby
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0)
-    .map((s) => {
-      if (s.startsWith('-')) return { key: s.slice(1), dir: -1 as const };
-      if (s.startsWith('+')) return { key: s.slice(1), dir: 1 as const };
-      return { key: s, dir: 1 as const };
-    });
-  if (keys.length === 0) return features;
-  return [...features].sort((a, b) => {
-    for (const { key, dir } of keys) {
-      const av = a.properties?.[key];
-      const bv = b.properties?.[key];
-      const cmp = compareValues(av, bv);
-      if (cmp !== 0) return cmp * dir;
-    }
-    return 0;
-  });
-}
-
-function compareValues(a: unknown, b: unknown): number {
-  if (a === undefined || a === null) return b === undefined || b === null ? 0 : 1;
-  if (b === undefined || b === null) return -1;
-  if (typeof a === 'number' && typeof b === 'number') return a - b;
-  return String(a).localeCompare(String(b));
-}
-
-/**
  * Swap GeoJSON coordinate axes (lon/lat <-> lat/lon). The engine
  * stores and returns CRS84 (lon/lat); when the OGC client requests
  * EPSG:4326 we swap on the way out per Features Part 2.
@@ -566,7 +563,6 @@ function pagedUrl(
   limit: number,
   offset: number,
   bbox: string | undefined,
-  sortby: string | undefined,
   crs: string | undefined,
   bboxCrs: string | undefined,
 ): string {
@@ -574,7 +570,6 @@ function pagedUrl(
   url.searchParams.set('limit', String(limit));
   url.searchParams.set('offset', String(offset));
   if (bbox) url.searchParams.set('bbox', bbox);
-  if (sortby) url.searchParams.set('sortby', sortby);
   if (crs) url.searchParams.set('crs', crs);
   if (bboxCrs) url.searchParams.set('bbox-crs', bboxCrs);
   return url.toString();

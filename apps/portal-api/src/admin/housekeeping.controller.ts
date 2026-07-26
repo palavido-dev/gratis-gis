@@ -187,6 +187,47 @@ export class HousekeepingController {
   async recomputeExtents(@CurrentUser() user: AuthUser) {
     return this.housekeeping.recomputeExtents(user.orgId);
   }
+
+  /**
+   * Build / reconcile per-searchable-field trigram indexes on the
+   * observation table for every data_layer in the org. Run after
+   * marking fields searchable (schema saves are metadata-only and
+   * do not build indexes inline) or after a big import, so the map
+   * search bar stops scanning county-scale layers per keystroke.
+   * Synchronous like recompute-extents: the admin waits and gets
+   * the created / kept / dropped breakdown back.
+   */
+  @Post('build-search-indexes')
+  async buildSearchIndexes(@CurrentUser() user: AuthUser) {
+    return this.housekeeping.buildSearchIndexes(user.orgId);
+  }
+
+  /**
+   * Orphaned-uploads DRY RUN. Lists objects in the MinIO bucket's
+   * managed upload prefixes that are older than the age floor and
+   * that no database row references anymore (crashed imports,
+   * abandoned wizards, deleted rows whose best-effort object
+   * delete failed). Read-only: returns counts, bytes, and a key
+   * sample so the admin sees exactly what a purge would remove.
+   * The delete is a separate explicit POST below.
+   */
+  @Get('orphaned-uploads')
+  orphanedUploads() {
+    return this.housekeeping.orphanedUploadsReport();
+  }
+
+  /**
+   * Orphaned-uploads PURGE: the destructive second step. The
+   * orphan set is recomputed server-side at this moment; the
+   * client cannot submit keys, so a stale report tab can never
+   * delete an object that has since gained a reference. Objects
+   * remain subject to the same age floor and reference checks as
+   * the dry run.
+   */
+  @Post('orphaned-uploads/purge')
+  purgeOrphanedUploads() {
+    return this.housekeeping.purgeOrphanedUploads();
+  }
 }
 
 /**

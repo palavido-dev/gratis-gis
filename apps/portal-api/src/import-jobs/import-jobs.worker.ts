@@ -154,6 +154,13 @@ export class ImportJobsWorker implements OnModuleInit {
     this.log.log(
       `Running import job ${job.id}: ${job.sourceFileName} layer="${job.sourceLayerName}" mode=${job.mode}`,
     );
+    // Whether the COPY transaction reached COMMIT. The failure
+    // handler at the bottom needs this to keep the row's counters
+    // honest: before commit, a failure rolls back every streamed
+    // row (so insertedFeatures must be zeroed); after commit the
+    // rows are durable (so the counter must be left alone even if
+    // post-commit bookkeeping like the source stamp throws).
+    let copyCommitted = false;
     try {
       // Resolve the staged file. If it has expired, fail the job
       // with an actionable message rather than throwing some
@@ -322,6 +329,7 @@ export class ImportJobsWorker implements OnModuleInit {
         } else {
           await writer.end();
           copyClosed = true;
+          copyCommitted = true;
         }
       } finally {
         if (!copyClosed) {
@@ -408,6 +416,15 @@ export class ImportJobsWorker implements OnModuleInit {
         err instanceof Error ? err.stack : undefined,
       );
       await this.jobs.markFailed(job.id, msg);
+      // Counter honesty on failure, mirroring the cancelled path:
+      // when the COPY transaction never committed, the rollback
+      // erased every streamed row, so the insertedFeatures the
+      // progress beats wrote is a claim about rows that don't
+      // exist. Post-commit failures (source stamp, read-back) keep
+      // the counter: those rows are real and durable.
+      if (!copyCommitted) {
+        await this.jobs.zeroInsertedForFailed(job.id);
+      }
     }
   }
 

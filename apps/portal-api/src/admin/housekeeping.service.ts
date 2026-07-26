@@ -11,6 +11,10 @@ import {
   type DataLayerLayerShape,
 } from '../data-layer/tables.service.js';
 import {
+  DataLayerSearchIndexService,
+  type SearchIndexBuildResult,
+} from '../data-layer/search-index.service.js';
+import {
   CredentialService,
   type CredentialPayload,
 } from '../items/credential.service.js';
@@ -48,9 +52,25 @@ export class HousekeepingService {
     private readonly prisma: PrismaService,
     private readonly cfg: ConfigService,
     private readonly dataLayerTables: DataLayerTablesService,
+    private readonly searchIndexes: DataLayerSearchIndexService,
     private readonly credentials: CredentialService,
     private readonly storage: StorageService,
   ) {}
+
+  /**
+   * Build / reconcile the per-searchable-field trigram indexes for
+   * every data_layer in the org (#observation-search-index). Same
+   * "walk all items and fix the physical state" family as
+   * recomputeExtents below: an explicit admin action rather than a
+   * boot-time pass, because index builds on county-scale layers
+   * take real time and briefly stall feature writes per index, so
+   * an operator should choose the moment. Delegates to
+   * DataLayerSearchIndexService; see that service for the DDL and
+   * the reasons behind non-concurrent builds.
+   */
+  async buildSearchIndexes(orgId: string): Promise<SearchIndexBuildResult> {
+    return this.searchIndexes.buildForOrg(orgId);
+  }
 
   private get staleItemDays(): number {
     return this.resolvePositive('HOUSEKEEPING_STALE_ITEM_DAYS', 90);
@@ -945,6 +965,265 @@ export class HousekeepingService {
         autoDisableAt: { not: null, lte: horizon },
       },
     });
+  }
+
+  // ---------------------------------------------------------------
+  // Orphaned MinIO uploads (reconciliation sweep)
+  // ---------------------------------------------------------------
+
+  /**
+   * Storage prefixes the orphan sweep manages. These are exactly
+   * the kinds whose objects are backed by a row (or an item.data
+   * field) that the upload flow writes AFTER the bytes land in
+   * MinIO, which is what makes an unreferenced object under them a
+   * leak rather than a design feature:
+   *
+   *   feature-attachment/  -> feature_attachment.storage_key
+   *   item-file/           -> item.data.storageKey / item.storage_ref
+   *   item-tile-layer/     -> item.data storageKey / cogStorageKey /
+   *                           pmtilesStorageKey
+   *   item-point-cloud/    -> item.data storageKey + sources[] keys
+   *                           (+ analysis_job params for merges)
+   *   map-icon/            -> map_icon_upload.storage_key
+   *
+   * Deliberately NOT swept: the public image prefixes (item-thumb,
+   * group-thumb, user-avatar, org-hero). Those are referenced only
+   * as loose URL strings scattered across item.thumbnailUrl,
+   * user.avatarUrl, group thumbnails, org landing config, and
+   * cloned web-app JSON; the objects are small (5 MB cap), so the
+   * downside of a false-positive delete (broken images all over
+   * the portal) dwarfs the bytes reclaimed. Backups and golden
+   * snapshots never live in this bucket at all (BackupService
+   * writes tar archives to BACKUP_DIR on disk; infra golden
+   * snapshots are host-side), so they cannot be touched here.
+   */
+  private static readonly ORPHAN_SWEEP_PREFIXES = [
+    'feature-attachment',
+    'item-file',
+    'item-tile-layer',
+    'item-point-cloud',
+    'map-icon',
+  ] as const;
+
+  /**
+   * Minimum object age before the sweep will even look at it.
+   * 48 hours default: presigned PUT windows are 60 to 600 seconds
+   * and every upload flow writes its referencing row immediately
+   * after the PUT, so anything unreferenced after two days is a
+   * crashed or abandoned flow, not one that is still in flight.
+   */
+  private get orphanMinAgeHours(): number {
+    return this.resolvePositive('HOUSEKEEPING_ORPHAN_UPLOAD_MIN_AGE_HOURS', 48);
+  }
+
+  /**
+   * Every storage key any row in the database still points at, for
+   * the managed prefixes. Sources, in one pass each:
+   *
+   *   - feature_attachment.storage_key (the authoritative
+   *     attachment registry, including AGO-import and form
+   *     submission attachments which register here too)
+   *   - map_icon_upload.storage_key
+   *   - item.storage_ref (file-shaped items persist the raw key
+   *     here as well as in data.storageKey; the private-read
+   *     controller honors both, so the sweep must too)
+   *   - regex extraction over the JSON text of item.data_json,
+   *     item_data_snapshot.data, analysis_job.params, and
+   *     form_submission.response. Text-level matching is the
+   *     conservative choice: it catches every shape a key can be
+   *     embedded in (bare key fields, api-mediated URLs, cloned
+   *     web-app config, point-cloud sources arrays, denormalized
+   *     storageUrl snapshots) without needing to enumerate them.
+   *     Soft-deleted items are INCLUDED on purpose: restoring from
+   *     trash must not resurrect a row whose bytes we deleted, and
+   *     the same goes for data snapshots an admin can revert to.
+   *
+   * A key that appears anywhere here is off-limits, whichever org
+   * owns it: the bucket is instance-global, so the reference scan
+   * must be too.
+   */
+  private async referencedStorageKeys(): Promise<Set<string>> {
+    const referenced = new Set<string>();
+
+    const [attachments, icons, storageRefs] = await Promise.all([
+      this.prisma.featureAttachment.findMany({
+        select: { storageKey: true },
+      }),
+      this.prisma.mapIconUpload.findMany({ select: { storageKey: true } }),
+      this.prisma.item.findMany({
+        where: { storageRef: { not: null } },
+        select: { storageRef: true },
+      }),
+    ]);
+    for (const a of attachments) referenced.add(a.storageKey);
+    for (const i of icons) referenced.add(i.storageKey);
+    for (const r of storageRefs) {
+      if (r.storageRef) referenced.add(r.storageRef);
+    }
+
+    // One statement for all four JSON surfaces. The pattern matches
+    // `<managed-prefix>/<uuid>` anywhere in the serialized JSON.
+    const pattern =
+      '((?:feature-attachment|item-file|item-tile-layer|item-point-cloud|map-icon)/[0-9a-fA-F-]{36})';
+    const rows = await this.prisma.$queryRaw<Array<{ k: string }>>`
+      SELECT DISTINCT k FROM (
+        SELECT (regexp_matches(i.data_json::text, ${pattern}, 'g'))[1] AS k
+          FROM "item" i
+        UNION ALL
+        SELECT (regexp_matches(s.data::text, ${pattern}, 'g'))[1]
+          FROM "item_data_snapshot" s
+        UNION ALL
+        SELECT (regexp_matches(a.params::text, ${pattern}, 'g'))[1]
+          FROM "analysis_job" a
+        UNION ALL
+        SELECT (regexp_matches(f.response::text, ${pattern}, 'g'))[1]
+          FROM "form_submission" f
+      ) u
+    `;
+    for (const r of rows) referenced.add(r.k);
+    return referenced;
+  }
+
+  /**
+   * Shared collection step for the report and the purge. Lists the
+   * managed prefixes, drops anything younger than the age floor or
+   * still referenced, and returns the rest. The purge recomputes
+   * this from scratch at purge time; the client never submits a
+   * key list, so a stale browser tab cannot delete something that
+   * got referenced since the report rendered.
+   */
+  private async collectOrphanedUploads(): Promise<{
+    unavailable: boolean;
+    perPrefix: Array<{
+      prefix: string;
+      objectCount: number;
+      orphanCount: number;
+      orphanBytes: number;
+    }>;
+    orphans: Array<{ key: string; sizeBytes: number; lastModified: string | null }>;
+  }> {
+    const cutoffMs = Date.now() - this.orphanMinAgeHours * 60 * 60 * 1000;
+    let referenced: Set<string>;
+    const perPrefix: Array<{
+      prefix: string;
+      objectCount: number;
+      orphanCount: number;
+      orphanBytes: number;
+    }> = [];
+    const orphans: Array<{
+      key: string;
+      sizeBytes: number;
+      lastModified: string | null;
+    }> = [];
+    try {
+      referenced = await this.referencedStorageKeys();
+      for (const prefix of HousekeepingService.ORPHAN_SWEEP_PREFIXES) {
+        const objects = await this.storage.listObjectsUnder(`${prefix}/`);
+        let orphanCount = 0;
+        let orphanBytes = 0;
+        for (const obj of objects) {
+          // Unknown age = treat as fresh. Never delete an object we
+          // cannot prove is past the age floor.
+          const age = obj.lastModified ? obj.lastModified.getTime() : Infinity;
+          if (age > cutoffMs) continue;
+          if (referenced.has(obj.key)) continue;
+          orphanCount += 1;
+          orphanBytes += obj.sizeBytes;
+          orphans.push({
+            key: obj.key,
+            sizeBytes: obj.sizeBytes,
+            lastModified: obj.lastModified?.toISOString() ?? null,
+          });
+        }
+        perPrefix.push({
+          prefix,
+          objectCount: objects.length,
+          orphanCount,
+          orphanBytes,
+        });
+      }
+    } catch (err) {
+      // MinIO down or the reference scan failed: report unavailable
+      // rather than an empty (or worse, partial) orphan list.
+      this.log.warn(
+        `Orphaned-upload scan unavailable: ${
+          err instanceof Error ? err.message : err
+        }`,
+      );
+      return { unavailable: true, perPrefix: [], orphans: [] };
+    }
+    return { unavailable: false, perPrefix, orphans };
+  }
+
+  /**
+   * Dry-run report for the admin page: counts and bytes only, plus
+   * a bounded key sample so the admin can eyeball what a delete
+   * would remove. Nothing is deleted here; the destructive step is
+   * a separate explicit POST (purgeOrphanedUploads).
+   */
+  async orphanedUploadsReport() {
+    const collected = await this.collectOrphanedUploads();
+    const totalBytes = collected.orphans.reduce(
+      (sum, o) => sum + o.sizeBytes,
+      0,
+    );
+    return {
+      unavailable: collected.unavailable,
+      minAgeHours: this.orphanMinAgeHours,
+      perPrefix: collected.perPrefix,
+      orphanCount: collected.orphans.length,
+      orphanBytes: totalBytes,
+      // Enough to sanity-check, small enough to render.
+      sample: collected.orphans.slice(0, 25),
+    };
+  }
+
+  /**
+   * Destructive half of the sweep. Recomputes the orphan set from
+   * scratch (see collectOrphanedUploads for why) and deletes each
+   * object, tallying honest per-object success. freedBytes counts
+   * only objects whose delete call succeeded.
+   */
+  async purgeOrphanedUploads(): Promise<{
+    unavailable: boolean;
+    minAgeHours: number;
+    deletedCount: number;
+    freedBytes: number;
+    failedCount: number;
+  }> {
+    const collected = await this.collectOrphanedUploads();
+    if (collected.unavailable) {
+      return {
+        unavailable: true,
+        minAgeHours: this.orphanMinAgeHours,
+        deletedCount: 0,
+        freedBytes: 0,
+        failedCount: 0,
+      };
+    }
+    let deletedCount = 0;
+    let freedBytes = 0;
+    let failedCount = 0;
+    for (const orphan of collected.orphans) {
+      const ok = await this.storage.deleteObject(orphan.key);
+      if (ok) {
+        deletedCount += 1;
+        freedBytes += orphan.sizeBytes;
+      } else {
+        failedCount += 1;
+      }
+    }
+    this.log.log(
+      `Orphaned-upload purge: deleted ${deletedCount} object(s), ` +
+        `${freedBytes} bytes freed, ${failedCount} failed.`,
+    );
+    return {
+      unavailable: false,
+      minAgeHours: this.orphanMinAgeHours,
+      deletedCount,
+      freedBytes,
+      failedCount,
+    };
   }
 
   /**
