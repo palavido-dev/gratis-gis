@@ -23,7 +23,9 @@ import {
   type Observation,
   type PrincipalRef,
   type SourceRef,
+  cellForGeometry,
   uuidv7,
+  validateObservation,
 } from '@gratis-gis/engine';
 
 import { EngineService } from './engine.service.js';
@@ -56,10 +58,15 @@ export interface CreateFeatureArgs extends WriteCommon {
    * Optional client-supplied entity id. When present, used as the
    * observation's `entity` instead of generating a fresh UUIDv7.
    * Editors and form runtimes pass this through so a retried POST
-   * after a network blip does not produce a duplicate feature; if
-   * the same `globalId` lands twice the second write fails the
-   * primary-key constraint on `observation.id` and the caller treats
-   * it as already-persisted.
+   * after a network blip can be recognised as the same feature.
+   *
+   * IMPORTANT: `globalId` alone does NOT make a write idempotent.
+   * Every observation row gets a fresh `id` (the table PK is
+   * `(id, tx_time)`), so a retried create with the same `globalId`
+   * appends a second `kind='create'` row for the same entity: no
+   * constraint fires. Callers that need retry-safe creates must go
+   * through `writeFeaturesCreateIdempotent`, which checks for an
+   * existing live entity under an advisory lock before inserting.
    *
    * Must be a valid UUID. Validation happens inside the engine.
    */
@@ -289,9 +296,28 @@ export function dataLayerScope(itemId: string, layerId: string): string {
  * for their own filters; embedding keeps the param numbering clean
  * for them. We still escape any single quotes defensively.
  *
- * Optional `extraConditions` are AND-joined after the scope filter
- * so each entry must already be a complete `column op value`
- * clause (e.g. `valid_from <= $1`, `geom && ST_MakeEnvelope(...)`).
+ * Conditions come in two buckets because the observation log is a
+ * version history, not a row-per-feature table, and applying a
+ * content predicate BEFORE the latest-per-entity collapse is the
+ * ghost-feature bug: an old version that matches the predicate
+ * "wins" the DISTINCT ON for an entity whose real latest version is
+ * deleted or no longer matches, resurrecting it.
+ *
+ *   - `collapseConditions` participate in latest-picking. Only
+ *     version-independent clauses belong here: bitemporal window
+ *     bounds (`valid_from <= $1`, `valid_to IS NULL`) and entity-id
+ *     restrictions (`entity = ANY($1)`). They narrow WHICH history
+ *     is visible, never which version of an entity is current.
+ *   - `contentConditions` are predicates on row content (geometry,
+ *     attrs). They are used twice: once to discover candidate
+ *     entities (any version matching keeps index pushdown), and
+ *     once re-applied to the collapsed latest row, which is the
+ *     semantically correct place for them.
+ *
+ * Each entry must already be a complete `column op value` clause.
+ * Positional `$n` placeholders may appear in either bucket;
+ * duplicating a `contentConditions` clause reuses the same `$n`
+ * parameters (PostgreSQL allows repeated references).
  *
  * Returns the SELECT body without surrounding parens or alias.
  * Callers wrap as appropriate:
@@ -301,18 +327,40 @@ export function dataLayerScope(itemId: string, layerId: string): string {
 export function dataLayerSourceSqlFragment(
   scope: string,
   opts: {
-    extraConditions?: string[];
+    collapseConditions?: string[];
+    contentConditions?: string[];
   } = {},
 ): string {
   const escapedScope = scope.replace(/'/g, "''");
-  const extras =
-    opts.extraConditions && opts.extraConditions.length > 0
-      ? ` AND ${opts.extraConditions.join(' AND ')}`
+  const collapse =
+    opts.collapseConditions && opts.collapseConditions.length > 0
+      ? ` AND ${opts.collapseConditions.join(' AND ')}`
       : '';
+  const content = opts.contentConditions ?? [];
+  // Stage 1 (only when content predicates exist): candidate entities
+  // are those with ANY observation matching the predicate. The inner
+  // select keeps the collapse window so partition-invisible rows
+  // cannot nominate candidates; that stays a superset of the correct
+  // result because the latest row itself is one of the rows probed.
+  const candidateSemiJoin =
+    content.length > 0
+      ? `
+        AND entity IN (
+          SELECT entity
+          FROM observation
+          WHERE scope = '${escapedScope}'${collapse}
+            AND ${content.join(' AND ')}
+        )`
+      : '';
+  // Stage 3: the same predicates re-checked against the collapsed
+  // latest row, next to the tombstone filter.
+  const latestRecheck =
+    content.length > 0 ? ` AND ${content.join(' AND ')}` : '';
   // DISTINCT ON entity + ORDER BY valid_from DESC, tx_time DESC
   // gives us the most recent observation per entity within the
-  // filter window. Outer WHERE drops entities whose latest is a
-  // tombstone (kind = 'delete'), so deleted features fall out.
+  // collapse window (stage 2; full content history per candidate).
+  // Outer WHERE drops entities whose latest is a tombstone
+  // (kind = 'delete'), so deleted features fall out.
   return `
     SELECT
       entity AS global_id,
@@ -322,10 +370,10 @@ export function dataLayerSourceSqlFragment(
       SELECT DISTINCT ON (entity)
         entity, geom, attrs, kind, valid_from, valid_to
       FROM observation
-      WHERE scope = '${escapedScope}'${extras}
+      WHERE scope = '${escapedScope}'${collapse}${candidateSemiJoin}
       ORDER BY entity, valid_from DESC, tx_time DESC
     ) latest
-    WHERE kind <> 'delete'
+    WHERE kind <> 'delete'${latestRecheck}
   `;
 }
 
@@ -400,6 +448,217 @@ export class DataLayerEngine {
       globalId: obs.entity,
       observationId: requireId(obs.id),
     }));
+  }
+
+  /**
+   * Retry-safe variant of `writeFeaturesCreate` for the online POST
+   * path. Inputs WITHOUT a `globalId` behave exactly like
+   * `writeFeaturesCreate` (fresh entity, plain batched insert: a
+   * caller who didn't supply an id has nothing to be idempotent
+   * against). Inputs WITH a `globalId` are treated as "create if no
+   * live entity with this id exists": when the layer already holds a
+   * live (latest observation not a tombstone) entity under that id,
+   * no row is written and the input is reported as `deduplicated` so
+   * the caller can return the existing feature instead of minting a
+   * duplicate. A deleted entity does NOT dedupe: re-creating under
+   * the same id after a delete is a legitimate new `create`
+   * observation (resurrection), matching how the read path treats
+   * the log.
+   *
+   * Concurrency: the observation log is append-only and deliberately
+   * has NO unique constraint we could ride with ON CONFLICT:
+   *   - uniqueness on (scope, entity, kind='create') would forbid
+   *     the legitimate re-create-after-delete case above, and
+   *   - the table is partitioned by tx_time, so any unique index
+   *     must include tx_time, which cannot express cross-partition
+   *     entity uniqueness at all.
+   * A bare INSERT ... WHERE NOT EXISTS is also insufficient on its
+   * own: under READ COMMITTED two concurrent retries each take a
+   * snapshot before the other commits, both pass the NOT EXISTS, and
+   * both insert. So we serialise per (scope, entity) with a
+   * transaction-scoped advisory lock: the second retry blocks on
+   * `pg_advisory_xact_lock` until the first commits, then its
+   * NOT EXISTS probe (a fresh statement snapshot) sees the committed
+   * row and skips the insert. The guarded INSERT is kept as well so
+   * the check-and-insert is atomic within one statement even if a
+   * future caller reaches this SQL without the lock. Lock keys are
+   * taken in sorted order inside one statement so two overlapping
+   * multi-row batches cannot deadlock.
+   *
+   * Everything (locks, probe, insert) runs inside one transaction;
+   * releasing the lock before the insert committed would reopen the
+   * race.
+   */
+  async writeFeaturesCreateIdempotent(
+    inputs: CreateFeatureArgs[],
+  ): Promise<
+    Array<{ globalId: string; observationId: string | null; deduplicated: boolean }>
+  > {
+    if (inputs.length === 0) return [];
+
+    // Split by dedupe eligibility, remembering original positions so
+    // the result array stays order-aligned with the input array.
+    const withId: Array<{ index: number; args: CreateFeatureArgs; entity: string }> = [];
+    const withoutId: Array<{ index: number; args: CreateFeatureArgs }> = [];
+    inputs.forEach((args, index) => {
+      if (args.globalId !== undefined) {
+        withId.push({ index, args, entity: args.globalId });
+      } else {
+        withoutId.push({ index, args });
+      }
+    });
+
+    const results = new Array<{
+      globalId: string;
+      observationId: string | null;
+      deduplicated: boolean;
+    }>(inputs.length);
+
+    if (withoutId.length > 0) {
+      const written = await this.writeFeaturesCreate(
+        withoutId.map((w) => w.args),
+      );
+      withoutId.forEach((w, i) => {
+        results[w.index] = { ...written[i]!, deduplicated: false };
+      });
+    }
+
+    if (withId.length > 0) {
+      // Duplicate globalIds inside ONE batch dedupe in JS: the SQL
+      // guard's NOT EXISTS probes a pre-statement snapshot, so two
+      // rows for the same entity in one INSERT would both pass it.
+      // First occurrence wins; later ones report deduplicated.
+      const firstByEntity = new Map<string, number>();
+      const uniqueRows: Array<{ args: CreateFeatureArgs; obs: Observation }> = [];
+      for (const w of withId) {
+        const scope = this.scope(w.args.itemId, w.args.layerId);
+        const key = `${scope}|${w.entity}`;
+        if (firstByEntity.has(key)) continue;
+        firstByEntity.set(key, uniqueRows.length);
+        // Fill bookkeeping and validate exactly like EngineService
+        // .write() would, so this path rejects the same malformed
+        // input the plain path rejects.
+        const obs: Observation = {
+          scope,
+          entity: w.entity,
+          kind: 'create',
+          validFrom: new Date(),
+          validTo: null,
+          attrs: w.args.properties ?? null,
+          geom: w.args.geometry ?? null,
+          author: w.args.principal,
+          source: w.args.source ?? DEFAULT_SOURCE,
+          parents: [],
+          id: uuidv7(),
+          txTime: new Date(),
+          cell: cellForGeometry(w.args.geometry ?? null),
+        };
+        validateObservation(obs);
+        uniqueRows.push({ args: w.args, obs });
+      }
+
+      // Sorted advisory-lock keys: global ordering prevents
+      // deadlocks between concurrent overlapping batches.
+      const lockKeys = uniqueRows
+        .map(({ obs }) => `${obs.scope}|${obs.entity}`)
+        .sort();
+
+      const ids = uniqueRows.map(({ obs }) => requireId(obs.id));
+      const txTimes = uniqueRows.map(({ obs }) => obs.txTime as Date);
+      const validFroms = uniqueRows.map(({ obs }) => obs.validFrom);
+      const scopes = uniqueRows.map(({ obs }) => obs.scope);
+      const entities = uniqueRows.map(({ obs }) => obs.entity);
+      const attrsJson = uniqueRows.map(({ obs }) =>
+        obs.attrs !== null ? JSON.stringify(obs.attrs) : null,
+      );
+      const geomJson = uniqueRows.map(({ obs }) =>
+        obs.geom !== null ? JSON.stringify(obs.geom) : null,
+      );
+      const cells = uniqueRows.map(({ obs }) => obs.cell ?? null);
+      const authors = uniqueRows.map(({ obs }) => obs.author.sub);
+      const sourceJson = uniqueRows.map(({ obs }) => JSON.stringify(obs.source));
+
+      const insertedKeys = await this.prisma.$transaction(async (tx) => {
+        // One statement takes every lock in sorted order. The ORDER
+        // BY subquery pins evaluation order; xact locks release at
+        // commit/rollback automatically.
+        await tx.$queryRaw`
+          SELECT pg_advisory_xact_lock(hashtextextended(k, 0))
+          FROM (SELECT k FROM unnest(${lockKeys}::text[]) AS k ORDER BY k) locks
+        `;
+        // Set-based guarded insert: one row per unnest element,
+        // skipped when the entity's latest observation is live.
+        // `parents` is the constant empty array on the create path
+        // (see writeFeaturesCreate), inlined because uuid[][] does
+        // not unnest per-row.
+        const rows = await tx.$queryRaw<
+          Array<{ scope: string; entity: string }>
+        >`
+          INSERT INTO observation (
+            id, tx_time, valid_from, valid_to, scope, entity, kind,
+            attrs, geom, cell, author_sub, source, parents
+          )
+          SELECT
+            t.id, t.tx_time, t.valid_from, NULL, t.scope, t.entity, 'create',
+            t.attrs::jsonb,
+            CASE WHEN t.geom_json IS NULL THEN NULL
+                 ELSE ST_GeomFromGeoJSON(t.geom_json) END,
+            t.cell, t.author_sub, t.source::jsonb, '{}'::uuid[]
+          FROM unnest(
+            ${ids}::uuid[],
+            ${txTimes}::timestamptz[],
+            ${validFroms}::timestamptz[],
+            ${scopes}::text[],
+            ${entities}::uuid[],
+            ${attrsJson}::text[],
+            ${geomJson}::text[],
+            ${cells}::text[],
+            ${authors}::text[],
+            ${sourceJson}::text[]
+          ) AS t(id, tx_time, valid_from, scope, entity, attrs,
+                 geom_json, cell, author_sub, source)
+          WHERE NOT EXISTS (
+            SELECT 1
+            FROM (
+              SELECT kind
+              FROM observation
+              WHERE scope = t.scope
+                AND entity = t.entity
+              ORDER BY valid_from DESC, tx_time DESC
+              LIMIT 1
+            ) latest
+            WHERE latest.kind <> 'delete'
+          )
+          RETURNING scope, entity
+        `;
+        // Keyed by scope AND entity: a batch may span scopes, and the
+        // same entity id deduping in one scope must not mask a real
+        // insert of that id in another.
+        return new Set(rows.map((r) => `${r.scope}|${r.entity}`));
+      });
+
+      for (const w of withId) {
+        const scope = this.scope(w.args.itemId, w.args.layerId);
+        const key = `${scope}|${w.entity}`;
+        const uniqueIndex = firstByEntity.get(key)!;
+        const row = uniqueRows[uniqueIndex]!;
+        const inserted =
+          insertedKeys.has(key) &&
+          // A same-batch duplicate is a dedupe even though its first
+          // occurrence inserted.
+          withId.find(
+            (x) =>
+              `${this.scope(x.args.itemId, x.args.layerId)}|${x.entity}` === key,
+          ) === w;
+        results[w.index] = {
+          globalId: w.entity,
+          observationId: inserted ? requireId(row.obs.id) : null,
+          deduplicated: !inserted,
+        };
+      }
+    }
+
+    return results;
   }
 
   /**
@@ -540,7 +799,8 @@ export class DataLayerEngine {
     const asOf = args.asOf ?? new Date();
     const limit = args.limit ?? 100000;
 
-    const { candidateFilters, currentFilters } = this.buildReadFilters(args);
+    const { candidateFilters, currentFilters, contentFilters } =
+      this.buildReadFilters(args);
 
     // Prisma.join() rejects an empty array, so collapse to Prisma.empty
     // when no extra filter fragments were collected. Each fragment
@@ -569,9 +829,7 @@ export class DataLayerEngine {
     //    useful -- every entity in scope has a `create`
     //    observation by construction (an entity exists iff it
     //    was created). Drop the candidate_entities CTE and the
-    //    IN check; let `currents` drive itself off the bbox/scope
-    //    GIST index. EXPLAIN ANALYZE on a 41k-row bbox subset
-    //    finishes in ~800ms this way vs >30s with the IN.
+    //    IN check.
     //
     //  - When candidate filters ARE present (ownRowsOnly,
     //    entity=), they semantically must be applied to the
@@ -587,7 +845,9 @@ export class DataLayerEngine {
     // the full DISTINCT ON otherwise.
     const usesCandidateCte = candidateFilters.length > 0;
     const canPushCandidateLimit =
-      usesCandidateCte && currentFilters.length === 0;
+      usesCandidateCte &&
+      currentFilters.length === 0 &&
+      contentFilters.length === 0;
     // Inner LIMIT must be >= the outer LIMIT to satisfy the user's
     // request, plus a small buffer so the kind='delete' filter in the
     // outer SELECT doesn't leave us short. The previous floor of 100
@@ -599,12 +859,20 @@ export class DataLayerEngine {
     // (10 extra rows) absorbs typical tombstone churn without
     // ballooning small probes.
     const innerLimit = limit + 10;
-    const candidateLimit = canPushCandidateLimit
-      ? Prisma.sql`ORDER BY entity LIMIT ${innerLimit}`
-      : Prisma.empty;
-    const currentsLimit = Prisma.sql`LIMIT ${innerLimit}`;
-    const candidateCte = usesCandidateCte
-      ? Prisma.sql`
+
+    let rows: FeatureRow[];
+    if (contentFilters.length === 0) {
+      // No content predicates: the DISTINCT ON collapse over the
+      // scope IS the correct read (the canonical unfiltered shape).
+      // This branch's SQL is unchanged from before the ghost-feature
+      // fix so the hot map-render path keeps its plan and its cache
+      // behaviour.
+      const candidateLimit = canPushCandidateLimit
+        ? Prisma.sql`ORDER BY entity LIMIT ${innerLimit}`
+        : Prisma.empty;
+      const currentsLimit = Prisma.sql`LIMIT ${innerLimit}`;
+      const candidateCte = usesCandidateCte
+        ? Prisma.sql`
         candidate_entities AS (
           SELECT entity
           FROM observation
@@ -613,11 +881,11 @@ export class DataLayerEngine {
             ${candidateExtras}
           ${candidateLimit}
         ),`
-      : Prisma.empty;
-    const currentsCandidateFilter = usesCandidateCte
-      ? Prisma.sql`AND entity IN (SELECT entity FROM candidate_entities)`
-      : Prisma.empty;
-    const rows = await this.prisma.$queryRaw<FeatureRow[]>`
+        : Prisma.empty;
+      const currentsCandidateFilter = usesCandidateCte
+        ? Prisma.sql`AND entity IN (SELECT entity FROM candidate_entities)`
+        : Prisma.empty;
+      rows = await this.prisma.$queryRaw<FeatureRow[]>`
       WITH ${candidateCte}
       currents AS (
         SELECT DISTINCT ON (entity)
@@ -660,6 +928,121 @@ export class DataLayerEngine {
       ORDER BY c.entity
       LIMIT ${limit}
     `;
+    } else {
+      // Content predicates present (bbox / geoLimit / boundaryClip /
+      // parentFk / timeFilter): candidate-then-collapse-then-filter.
+      //
+      // Applying these predicates to raw observation rows before the
+      // DISTINCT ON (the pre-fix shape) resurrected ghosts: an OLD
+      // version inside the bbox out-ranked nothing (the true latest
+      // was excluded by the very filter) and became "current" for an
+      // entity that was deleted or edited away.
+      //
+      //   Stage 1 (content_candidates): entities with ANY observation
+      //     matching the pushdown predicates. Keeps the GIST / GIN
+      //     index pushdown for discovery; over-matching is fine
+      //     because stage 3 re-checks.
+      //   Stage 2 (currents LATERAL): each candidate collapsed to its
+      //     true latest observation over its FULL history (same
+      //     ordering keys as the canonical DISTINCT ON above:
+      //     valid_from DESC, tx_time DESC within scope + asOf).
+      //     LATERAL ... LIMIT 1 rather than DISTINCT ON so each
+      //     candidate costs one descent of the (scope, entity,
+      //     valid_from DESC) index instead of sorting full histories.
+      //   Stage 3: tombstone + content predicates applied to the
+      //     latest row only, INSIDE currents, so the innerLimit below
+      //     it counts live matching features: a limit above the
+      //     filter would re-introduce the drop-live-rows bug.
+      //
+      // The candidate subquery is ordered so the innerLimit prefix is
+      // deterministic in entity order (OGC offset paging slices the
+      // result; an arbitrary subset would shuffle pages).
+      //
+      // No tx_time floor is added anywhere: these queries never
+      // constrained partitions before, so stage 2 seeing full history
+      // is not a pruning regression.
+      const contentExtras = Prisma.join(contentFilters, ' ');
+      const candidateCte = usesCandidateCte
+        ? Prisma.sql`
+        candidate_entities AS (
+          SELECT entity
+          FROM observation
+          WHERE scope = ${scope}
+            AND kind = 'create'
+            ${candidateExtras}
+        ),`
+        : Prisma.empty;
+      const contentCandidateFilter = usesCandidateCte
+        ? Prisma.sql`AND entity IN (SELECT entity FROM candidate_entities)`
+        : Prisma.empty;
+      rows = await this.prisma.$queryRaw<FeatureRow[]>`
+      WITH ${candidateCte}
+      content_candidates AS (
+        SELECT DISTINCT entity
+        FROM observation
+        WHERE scope = ${scope}
+          AND valid_from <= ${asOf}
+          ${contentCandidateFilter}
+          ${currentExtras}
+          ${contentExtras}
+      ),
+      currents AS (
+        SELECT
+          l.observation_id,
+          l.entity,
+          l.attrs,
+          l.geom_geojson,
+          l.kind,
+          l.edited_by,
+          l.edited_at
+        FROM (SELECT entity FROM content_candidates ORDER BY entity) cand
+        CROSS JOIN LATERAL (
+          SELECT
+            id AS observation_id,
+            entity,
+            attrs,
+            geom,
+            ST_AsGeoJSON(geom)::jsonb AS geom_geojson,
+            kind,
+            author_sub AS edited_by,
+            tx_time AS edited_at
+          FROM observation
+          WHERE scope = ${scope}
+            AND entity = cand.entity
+            AND valid_from <= ${asOf}
+          ORDER BY valid_from DESC, tx_time DESC
+          LIMIT 1
+        ) l
+        WHERE l.kind <> 'delete'
+          ${contentExtras}
+        ORDER BY l.entity
+        LIMIT ${innerLimit}
+      ),
+      creates AS (
+        SELECT entity,
+               author_sub AS created_by,
+               tx_time    AS created_at
+        FROM observation
+        WHERE scope = ${scope}
+          AND kind = 'create'
+          AND entity IN (SELECT entity FROM currents)
+      )
+      SELECT
+        c.entity,
+        c.observation_id,
+        c.attrs,
+        c.geom_geojson,
+        c.edited_by,
+        c.edited_at,
+        cr.created_by,
+        cr.created_at
+      FROM currents c
+      JOIN creates cr ON cr.entity = c.entity
+      WHERE c.kind <> 'delete'
+      ORDER BY c.entity
+      LIMIT ${limit}
+    `;
+    }
 
     const features: DataLayerFeature[] = rows.map(rowToFeature);
 
@@ -678,10 +1061,22 @@ export class DataLayerEngine {
    * exact same semantics; any new filter added here reaches both
    * paths automatically.
    *
-   * `candidateFilters` apply to the entity's `create` observation
-   * (ownRowsOnly must match the creator even after someone else
-   * edits the row); `currentFilters` apply to the current-state
-   * observation rows.
+   * Three buckets, because the observation log is a version history
+   * and WHERE placement decides which version a filter sees:
+   *
+   *   - `candidateFilters` apply to the entity's `create`
+   *     observation (ownRowsOnly must match the creator even after
+   *     someone else edits the row).
+   *   - `currentFilters` are version-INDEPENDENT restrictions
+   *     (entity ids never change across observations), safe to
+   *     apply to raw log rows before the latest-per-entity
+   *     collapse.
+   *   - `contentFilters` are predicates on row CONTENT (geometry,
+   *     attrs). Applying them before the collapse is the
+   *     ghost-feature bug (an old matching version resurrects a
+   *     deleted / edited-away feature), so the read paths use them
+   *     twice: candidate discovery over any version, then a
+   *     re-check against the collapsed latest row.
    */
   private buildReadFilters(
     args: Pick<
@@ -696,7 +1091,11 @@ export class DataLayerEngine {
       | 'parentFkFilter'
       | 'timeFilter'
     >,
-  ): { candidateFilters: Prisma.Sql[]; currentFilters: Prisma.Sql[] } {
+  ): {
+    candidateFilters: Prisma.Sql[];
+    currentFilters: Prisma.Sql[];
+    contentFilters: Prisma.Sql[];
+  } {
     // Bound user-supplied geometry size before it reaches PostGIS;
     // throws GeometryTooLargeError (BadRequest at the controller).
     validateGeoJson(args.geoLimit);
@@ -704,6 +1103,7 @@ export class DataLayerEngine {
 
     const candidateFilters: Prisma.Sql[] = [];
     const currentFilters: Prisma.Sql[] = [];
+    const contentFilters: Prisma.Sql[] = [];
 
     if (args.ownRowsOnly !== undefined) {
       candidateFilters.push(
@@ -732,21 +1132,24 @@ export class DataLayerEngine {
     }
 
     if (!args.isTable) {
+      // All three spatial filters are content predicates: geometry
+      // changes across versions, so they must never decide the
+      // latest-per-entity collapse.
       if (args.bbox !== undefined) {
         const [w, s, e, n] = args.bbox;
-        currentFilters.push(
+        contentFilters.push(
           Prisma.sql`AND geom && ST_MakeEnvelope(${w}, ${s}, ${e}, ${n}, 4326)`,
         );
       }
       if (args.geoLimit !== undefined) {
         const json = JSON.stringify(args.geoLimit);
-        currentFilters.push(
+        contentFilters.push(
           Prisma.sql`AND (geom IS NULL OR ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
         );
       }
       if (args.boundaryClip !== undefined) {
         const json = JSON.stringify(args.boundaryClip);
-        currentFilters.push(
+        contentFilters.push(
           Prisma.sql`AND geom IS NOT NULL AND ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326))`,
         );
       }
@@ -760,7 +1163,7 @@ export class DataLayerEngine {
       // inside the SQL string, not as a bound parameter (JSONB key
       // operators do not bind via $params).
       const col = sanitizeJsonbKey(args.parentFkFilter.column);
-      currentFilters.push(
+      contentFilters.push(
         Prisma.sql`AND attrs->>${col} = ${args.parentFkFilter.parentId}`,
       );
     }
@@ -781,18 +1184,18 @@ export class DataLayerEngine {
       const col = sanitizeJsonbKey(args.timeFilter.column);
       const dateRe = '^[0-9]{4}-[0-9]{2}-[0-9]{2}';
       if (args.timeFilter.from !== undefined) {
-        currentFilters.push(
+        contentFilters.push(
           Prisma.sql`AND (CASE WHEN attrs->>${col} ~ ${dateRe} THEN (attrs->>${col})::timestamptz END) >= ${args.timeFilter.from}::timestamptz`,
         );
       }
       if (args.timeFilter.to !== undefined) {
-        currentFilters.push(
+        contentFilters.push(
           Prisma.sql`AND (CASE WHEN attrs->>${col} ~ ${dateRe} THEN (attrs->>${col})::timestamptz END) <= ${args.timeFilter.to}::timestamptz`,
         );
       }
     }
 
-    return { candidateFilters, currentFilters };
+    return { candidateFilters, currentFilters, contentFilters };
   }
 
   /**
@@ -840,6 +1243,19 @@ export class DataLayerEngine {
    * current state) but skips its LIMIT push-down: a per-user create
    * set is small, and an unbounded candidate CTE keeps the cursor
    * logic obviously correct.
+   *
+   * Content filters (bbox / geoLimit / boundaryClip / parentFk /
+   * timeFilter) switch the page to candidate-then-collapse-then-
+   * filter, same reasoning as `listFeatures`: pages walk CANDIDATE
+   * entities (any version matched), each candidate is collapsed to
+   * its true latest observation, and the content predicate is
+   * evaluated against that latest row as a SQL boolean
+   * (`content_match`) rather than a WHERE clause. Emitting every
+   * candidate row keeps the cursor arithmetic sound: an entity whose
+   * latest no longer matches still occupies a page slot (the cursor
+   * must advance past it, and a short page must still mean
+   * end-of-data), it is just filtered from the yielded batch exactly
+   * like a tombstone.
    */
   async *iterateFeatures(
     args: IterateFeaturesArgs,
@@ -852,7 +1268,8 @@ export class DataLayerEngine {
       50_000,
     );
 
-    const { candidateFilters, currentFilters } = this.buildReadFilters(args);
+    const { candidateFilters, currentFilters, contentFilters } =
+      this.buildReadFilters(args);
     const candidateExtras =
       candidateFilters.length > 0
         ? Prisma.join(candidateFilters, ' ')
@@ -875,8 +1292,17 @@ export class DataLayerEngine {
     const currentsCandidateFilter = usesCandidateCte
       ? Prisma.sql`AND entity IN (SELECT entity FROM candidate_entities)`
       : Prisma.empty;
+    const usesContent = contentFilters.length > 0;
+    const contentExtras = usesContent
+      ? Prisma.join(contentFilters, ' ')
+      : Prisma.empty;
 
-    type IterRow = FeatureRow & { kind: string };
+    // `content_match` only exists on the filtered shape; absent
+    // means "no content predicate", which matches everything.
+    type IterRow = FeatureRow & {
+      kind: string;
+      content_match?: boolean | null;
+    };
 
     let cursor: string | null = null;
     for (;;) {
@@ -892,7 +1318,75 @@ export class DataLayerEngine {
         cursor === null
           ? Prisma.empty
           : Prisma.sql`AND entity > ${cursor}::uuid`;
-      const rows: IterRow[] = await this.prisma.$queryRaw<IterRow[]>`
+      const rows: IterRow[] = usesContent
+        ? await this.prisma.$queryRaw<IterRow[]>`
+        WITH ${candidateCte}
+        content_candidates AS (
+          SELECT DISTINCT entity
+          FROM observation
+          WHERE scope = ${scope}
+            AND valid_from <= ${asOf}
+            ${cursorFilter}
+            ${currentsCandidateFilter}
+            ${currentExtras}
+            ${contentExtras}
+          ORDER BY entity
+          LIMIT ${pageSize}
+        ),
+        currents AS (
+          SELECT
+            l.observation_id,
+            l.entity,
+            l.attrs,
+            l.geom_geojson,
+            l.kind,
+            l.edited_by,
+            l.edited_at,
+            (TRUE ${contentExtras}) AS content_match
+          FROM content_candidates cand
+          CROSS JOIN LATERAL (
+            SELECT
+              id AS observation_id,
+              entity,
+              attrs,
+              geom,
+              ST_AsGeoJSON(geom)::jsonb AS geom_geojson,
+              kind,
+              author_sub AS edited_by,
+              tx_time AS edited_at
+            FROM observation
+            WHERE scope = ${scope}
+              AND entity = cand.entity
+              AND valid_from <= ${asOf}
+            ORDER BY valid_from DESC, tx_time DESC
+            LIMIT 1
+          ) l
+        ),
+        creates AS (
+          SELECT entity,
+                 author_sub AS created_by,
+                 tx_time    AS created_at
+          FROM observation
+          WHERE scope = ${scope}
+            AND kind = 'create'
+            AND entity IN (SELECT entity FROM currents)
+        )
+        SELECT
+          c.entity,
+          c.observation_id,
+          c.attrs,
+          c.geom_geojson,
+          c.kind,
+          c.content_match,
+          c.edited_by,
+          c.edited_at,
+          cr.created_by,
+          cr.created_at
+        FROM currents c
+        JOIN creates cr ON cr.entity = c.entity
+        ORDER BY c.entity
+      `
+        : await this.prisma.$queryRaw<IterRow[]>`
         WITH ${candidateCte}
         currents AS (
           SELECT DISTINCT ON (entity)
@@ -936,10 +1430,20 @@ export class DataLayerEngine {
         ORDER BY c.entity
       `;
       if (rows.length === 0) return;
-      // Advance past every scanned entity, tombstones included; the
-      // rows are entity-ordered so the last one is the page maximum.
+      // Advance past every scanned entity, tombstones (and, on the
+      // filtered shape, latest-no-longer-matches candidates)
+      // included; the rows are entity-ordered so the last one is the
+      // page maximum.
       cursor = rows[rows.length - 1]!.entity;
-      const live = rows.filter((r) => r.kind !== 'delete').map(rowToFeature);
+      const live = rows
+        .filter(
+          (r) =>
+            r.kind !== 'delete' &&
+            // SQL booleans: TRUE matches, FALSE and NULL (e.g. a
+            // bbox test against a NULL latest geometry) do not.
+            (r.content_match === undefined || r.content_match === true),
+        )
+        .map(rowToFeature);
       if (live.length > 0) yield live;
       if (rows.length < pageSize) return;
     }
@@ -957,11 +1461,16 @@ export class DataLayerEngine {
    *   The map attribute table never needs geometry (the map
    *   itself already has it via MVT or otherwise). Sending the
    *   geometry over the wire on a 5000-row response inflates the
-   *   payload by 10-100x for polygon-heavy layers. We also don't
-   *   need the "current state via DISTINCT ON" CTE structure
-   *   because the table view is meant to be a quick slice -- a
-   *   simple "currents" pass with the same valid_to/kind filters
-   *   is enough.
+   *   payload by 10-100x for polygon-heavy layers. It also skips
+   *   the `creates` join (no `_created_*` columns in the table
+   *   card), so the read stays a single collapse pass.
+   *
+   *   The collapse itself is NOT optional though: bbox / search
+   *   predicates and the tombstone filter must only ever see the
+   *   latest observation per entity. The pre-fix shape filtered
+   *   raw log rows first, which resurrected deleted or
+   *   edited-away features whose OLD versions still matched
+   *   (ghost rows in the attribute table).
    *
    *   The LIMIT N+1 trick at the end lets us tell the caller
    *   whether the result set was capped without an extra COUNT
@@ -970,11 +1479,12 @@ export class DataLayerEngine {
    *   everything.
    *
    * Search (`q`): server-side ILIKE across every JSONB attribute
-   * value cast to text. Honest about cost: on a fully-unbounded
-   * (no bbox) big-layer query this is a seq scan + sort and will
-   * be slow. With a bbox filter (the default UX path) the scan is
-   * already bounded to the bbox hit-set; the search runs over
-   * that smaller set in sub-second.
+   * value cast to text, evaluated over any version for candidate
+   * discovery and re-checked on the latest row. Honest about cost:
+   * there is no index behind this predicate (see the searchFeatures
+   * note), so a fully-unbounded (no bbox) big-layer query scans the
+   * scope. With a bbox filter (the default UX path) the candidate
+   * scan is bounded by the GIST hit-set and runs sub-second.
    *
    * Sort: any attribute name or one of the synthetic columns
    * (_global_id, _created_at, _edited_at). Same honest-about-cost
@@ -1006,23 +1516,28 @@ export class DataLayerEngine {
     const limit = Math.min(Math.max(args.limit | 0, 1), 5000);
     const fetchN = limit + 1;
 
-    const filters: Prisma.Sql[] = [];
+    // Split the same way buildReadFilters splits: entity-id
+    // restrictions are version-independent and may sit inside the
+    // collapse; content predicates (geometry, attrs) must not, or
+    // old versions resurrect ghosts.
+    const collapseFilters: Prisma.Sql[] = [];
+    const contentFilters: Prisma.Sql[] = [];
     if (!args.isTable) {
       if (args.bbox !== undefined) {
         const [w, s, e, n] = args.bbox;
-        filters.push(
+        contentFilters.push(
           Prisma.sql`AND geom && ST_MakeEnvelope(${w}, ${s}, ${e}, ${n}, 4326)`,
         );
       }
       if (args.geoLimit !== undefined) {
         const json = JSON.stringify(args.geoLimit);
-        filters.push(
+        contentFilters.push(
           Prisma.sql`AND (geom IS NULL OR ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
         );
       }
       if (args.boundaryClip !== undefined) {
         const json = JSON.stringify(args.boundaryClip);
-        filters.push(
+        contentFilters.push(
           Prisma.sql`AND geom IS NOT NULL AND ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326))`,
         );
       }
@@ -1032,7 +1547,7 @@ export class DataLayerEngine {
       // through ::uuid in the IN clause so a non-uuid string can't
       // reach the planner.
       const ids = args.entityIds.slice(0, 1000);
-      filters.push(
+      collapseFilters.push(
         Prisma.sql`AND entity = ANY(ARRAY[${Prisma.join(
           ids.map((id) => Prisma.sql`${id}::uuid`),
         )}])`,
@@ -1053,17 +1568,27 @@ export class DataLayerEngine {
       // numbers/booleans (their text repr matches) which is
       // acceptable -- the user is doing a free-text search, they
       // expect "contains" semantics.
-      filters.push(Prisma.sql`AND attrs::text ILIKE ${pattern}`);
+      contentFilters.push(Prisma.sql`AND attrs::text ILIKE ${pattern}`);
     }
-    const filterExtras =
-      filters.length > 0 ? Prisma.join(filters, ' ') : Prisma.empty;
+    const collapseExtras =
+      collapseFilters.length > 0
+        ? Prisma.join(collapseFilters, ' ')
+        : Prisma.empty;
 
-    // Currency read: DISTINCT ON (entity) over current
-    // observations. The SQL-level ORDER BY is fixed (entity,
-    // valid_from DESC, tx_time DESC) because that's required for
-    // DISTINCT ON to pick the latest row per entity. The CALLER's
-    // sort is applied as a JS pass over the bounded result; with
-    // limit+1 capped at 5001 the JS sort cost is negligible.
+    // Currency read: latest observation per entity, THEN tombstone +
+    // content predicates. The pre-fix single-pass DISTINCT ON put
+    // `kind <> 'delete'` and the content filters into the raw-row
+    // WHERE, which silently redefined "latest" as "latest matching
+    // row" and resurrected deleted / edited-away features. The
+    // former `valid_to IS NULL` clause is gone for the same reason:
+    // data_layer writes never set valid_to, the canonical
+    // listFeatures collapse ignores it, and inside the collapse it
+    // would be another version-dependent filter waiting to
+    // resurrect rows if valid_to ever were maintained.
+    //
+    // The CALLER's sort is applied as a JS pass over the bounded
+    // result; with limit+1 capped at 5001 the JS sort cost is
+    // negligible.
     const sortCol = args.sort;
     const sortDirDesc = args.dir === 'desc';
 
@@ -1073,18 +1598,61 @@ export class DataLayerEngine {
       edited_by: string;
       edited_at: Date;
     }
-    const rows = await this.prisma.$queryRaw<Row[]>`
-      SELECT DISTINCT ON (entity)
-        entity,
-        attrs,
-        author_sub AS edited_by,
-        tx_time AS edited_at
-      FROM observation
-      WHERE scope = ${scope}
-        AND valid_to IS NULL
-        AND kind <> 'delete'
-        ${filterExtras}
-      ORDER BY entity, valid_from DESC, tx_time DESC
+    const rows =
+      contentFilters.length === 0
+        ? // No content predicate: collapse the scope (optionally
+          // narrowed to explicit entity ids) and drop tombstones
+          // after. The subquery form (not a CTE) lets the planner
+          // stream the DISTINCT ON off the (scope, entity,
+          // valid_from DESC) index and stop at fetchN live rows.
+          await this.prisma.$queryRaw<Row[]>`
+      SELECT entity, attrs, edited_by, edited_at
+      FROM (
+        SELECT DISTINCT ON (entity)
+          entity,
+          attrs,
+          kind,
+          author_sub AS edited_by,
+          tx_time AS edited_at
+        FROM observation
+        WHERE scope = ${scope}
+          ${collapseExtras}
+        ORDER BY entity, valid_from DESC, tx_time DESC
+      ) latest
+      WHERE kind <> 'delete'
+      LIMIT ${fetchN}
+    `
+        : // Content predicates: candidate-then-collapse-then-filter,
+          // same three stages as listFeatures. The candidate set is
+          // ordered so the fetchN prefix is deterministic, and the
+          // LATERAL collapse costs one index descent per candidate.
+          await this.prisma.$queryRaw<Row[]>`
+      WITH content_candidates AS (
+        SELECT DISTINCT entity
+        FROM observation
+        WHERE scope = ${scope}
+          ${collapseExtras}
+          ${Prisma.join(contentFilters, ' ')}
+      )
+      SELECT l.entity, l.attrs, l.edited_by, l.edited_at
+      FROM (SELECT entity FROM content_candidates ORDER BY entity) cand
+      CROSS JOIN LATERAL (
+        SELECT
+          entity,
+          attrs,
+          geom,
+          kind,
+          author_sub AS edited_by,
+          tx_time AS edited_at
+        FROM observation
+        WHERE scope = ${scope}
+          AND entity = cand.entity
+        ORDER BY valid_from DESC, tx_time DESC
+        LIMIT 1
+      ) l
+      WHERE l.kind <> 'delete'
+        ${Prisma.join(contentFilters, ' ')}
+      ORDER BY l.entity
       LIMIT ${fetchN}
     `;
     const sortKey: (r: Row) => string | number = (() => {
@@ -1139,19 +1707,40 @@ export class DataLayerEngine {
    * the same query so the caller needs no second round-trip.
    *
    * Matching is two-layered:
-   *   1. `attrs::text ILIKE '%q%'` is the heavy predicate. It is
-   *      backed by the partial GIN trigram index
-   *      `observation_attrs_trgm`, so it stays fast on a 1.4M-row
-   *      layer instead of sequentially scanning every current
-   *      observation in the scope. Without that index this is the
-   *      slow path the table's own search docs warn about.
+   *   1. `attrs::text ILIKE '%q%'` matches across every attribute.
+   *      No index backs this whole-blob predicate and none should:
+   *      the trigram index over the full attrs JSON that briefly
+   *      existed (`observation_attrs_trgm`) was dropped by migration
+   *      20260618120000 (multi-GB to build, overran prod disk and
+   *      statement_timeout); do not silently re-add it. Indexing
+   *      lives on the per-field arms instead, see 2.
    *   2. When the caller passes `fields` (the layer author's
-   *      configured searchable attributes) the broad match is
-   *      narrowed to `attrs->>'field' ILIKE '%q%'` over just those
-   *      fields, so a hit buried in an unrelated column (a legal
-   *      description, a note) doesn't surface. The trigram prefilter
-   *      already shrank the candidate set, so this refinement is
-   *      cheap.
+   *      configured searchable attributes) the match is narrowed to
+   *      `attrs->>'field' ILIKE '%q%'` over just those fields, so a
+   *      hit buried in an unrelated column (a legal description, a
+   *      note) doesn't surface. These arms are what
+   *      DataLayerSearchIndexService (data-layer/search-index.
+   *      service.ts) indexes: one partial trigram index per
+   *      searchable field, gin((attrs->>'<field>') gin_trgm_ops)
+   *      WHERE scope = '<scope>', built via the admin housekeeping
+   *      "Build search indexes" action. The planner serves the OR
+   *      as a BitmapOr of per-field index scans and re-checks the
+   *      whole-blob ILIKE on that small candidate set, so indexed
+   *      layers stop scanning the scope per keystroke. The index
+   *      expression mirrors this query's arms byte-for-byte; if
+   *      the SQL below changes shape, change the service's DDL in
+   *      lock-step or the indexes silently stop matching. Without
+   *      `fields` (or before an admin builds indexes) candidate
+   *      discovery scans the scope's rows: bearable on small
+   *      layers, slow on county scale.
+   *
+   * Ghost-safety: the predicates discover CANDIDATE entities over
+   * any version (that is where the per-field indexes plug in), the
+   * candidates collapse to their true latest observation, and the
+   * predicates are re-checked against that latest row. Filtering
+   * raw versions directly (the pre-fix shape) surfaced features
+   * whose old versions matched but whose latest was deleted or
+   * edited to no longer match.
    *
    * Geo-limit and boundary-clip are applied exactly as pageFeatures
    * applies them, so a user with a clipped view can't pull a feature
@@ -1226,30 +1815,45 @@ export class DataLayerEngine {
       maxx: number | null;
       maxy: number | null;
     }
-    // DISTINCT ON (entity) collapses the log to current truth per
-    // feature; the inner ORDER BY (entity, valid_from DESC, tx_time
-    // DESC) is what DISTINCT ON requires to pick the latest row.
-    // ST_PointOnSurface (not centroid) guarantees a point that lands
-    // inside the geometry even for concave parcels, which makes the
-    // dropped pin sit on the parcel rather than off in a notch. Table
-    // layers (geom NULL) yield null point + bbox and the client shows
-    // the hit without a fly-to.
+    // Candidate discovery over any version, LATERAL collapse to the
+    // latest observation per candidate (same ordering keys the
+    // canonical listFeatures collapse uses: valid_from DESC, tx_time
+    // DESC within the scope), then tombstone + predicates re-checked
+    // against that latest row. The point / bbox projections read the
+    // LATEST geometry, so a hit can't fly the map to a stale
+    // location. ST_PointOnSurface (not centroid) guarantees a point
+    // that lands inside the geometry even for concave parcels, which
+    // makes the dropped pin sit on the parcel rather than off in a
+    // notch. Table layers (geom NULL) yield null point + bbox and
+    // the client shows the hit without a fly-to.
     const rows = await this.prisma.$queryRaw<Row[]>`
-      SELECT DISTINCT ON (entity)
-        entity,
-        attrs,
+      WITH content_candidates AS (
+        SELECT DISTINCT entity
+        FROM observation
+        WHERE scope = ${scope}
+          ${filterExtras}
+      )
+      SELECT
+        l.entity,
+        l.attrs,
         CASE WHEN geom IS NOT NULL THEN ST_X(ST_PointOnSurface(geom)) END AS px,
         CASE WHEN geom IS NOT NULL THEN ST_Y(ST_PointOnSurface(geom)) END AS py,
         CASE WHEN geom IS NOT NULL THEN ST_XMin(geom) END AS minx,
         CASE WHEN geom IS NOT NULL THEN ST_YMin(geom) END AS miny,
         CASE WHEN geom IS NOT NULL THEN ST_XMax(geom) END AS maxx,
         CASE WHEN geom IS NOT NULL THEN ST_YMax(geom) END AS maxy
-      FROM observation
-      WHERE scope = ${scope}
-        AND valid_to IS NULL
-        AND kind <> 'delete'
+      FROM (SELECT entity FROM content_candidates ORDER BY entity) cand
+      CROSS JOIN LATERAL (
+        SELECT entity, attrs, geom, kind
+        FROM observation
+        WHERE scope = ${scope}
+          AND entity = cand.entity
+        ORDER BY valid_from DESC, tx_time DESC
+        LIMIT 1
+      ) l
+      WHERE l.kind <> 'delete'
         ${filterExtras}
-      ORDER BY entity, valid_from DESC, tx_time DESC
+      ORDER BY l.entity
       LIMIT ${fetchN}
     `;
 
@@ -1336,6 +1940,19 @@ export class DataLayerEngine {
     // SELECT uses ST_Extent which returns a `box2d`; we read its
     // bounds via ST_XMin/ST_YMin/ST_XMax/ST_YMax to get plain
     // numbers back to JS without a custom Prisma type.
+    //
+    // Only the entity-id restriction may live inside the collapse
+    // (ids are version-independent). The tombstone, null-geom, and
+    // geo-limit / boundary-clip checks apply to the collapsed
+    // LATEST row: putting them into the raw-row WHERE (the pre-fix
+    // shape) made a deleted or moved-away feature contribute its
+    // OLD geometry to the extent, so "Zoom to selected" flew to
+    // places the selection no longer occupies. The former
+    // `valid_to IS NULL` clause is dropped to match the canonical
+    // listFeatures collapse (data_layer writes never set valid_to;
+    // pre-collapse it is a latent resurrection filter). No
+    // candidate stage is needed: the id list (<= 1000) already
+    // bounds the collapse to cheap per-entity index descents.
     interface ExtentRow {
       xmin: number | null;
       ymin: number | null;
@@ -1345,16 +1962,12 @@ export class DataLayerEngine {
     const rows = await this.prisma.$queryRaw<ExtentRow[]>`
       WITH current AS (
         SELECT DISTINCT ON (entity)
-          entity, geom
+          entity, geom, kind
         FROM observation
         WHERE scope = ${scope}
-          AND valid_to IS NULL
-          AND kind <> 'delete'
-          AND geom IS NOT NULL
           AND entity = ANY(ARRAY[${Prisma.join(
             ids.map((id) => Prisma.sql`${id}::uuid`),
           )}])
-          ${filterExtras}
         ORDER BY entity, valid_from DESC, tx_time DESC
       )
       SELECT
@@ -1363,6 +1976,9 @@ export class DataLayerEngine {
         ST_XMax(ST_Extent(geom)) AS xmax,
         ST_YMax(ST_Extent(geom)) AS ymax
       FROM current
+      WHERE kind <> 'delete'
+        AND geom IS NOT NULL
+        ${filterExtras}
     `;
     const r = rows[0];
     if (
@@ -1469,6 +2085,10 @@ export class DataLayerEngine {
    * from mvtTile() so it can be invoked through TileCacheService
    * .getOrCompute() and share single-flight semantics with
    * concurrent callers asking for the same (scope, z, x, y).
+   *
+   * `maxFeaturesPerTile` exists so the integration spec can prove
+   * the limit-after-collapse behaviour with a tiny budget instead
+   * of seeding 5000+ rows; production callers never pass it.
    */
   private async computeMvtTileBytes(
     args: {
@@ -1478,6 +2098,7 @@ export class DataLayerEngine {
       geoLimit?: GeoJsonGeometry;
       boundaryClip?: GeoJsonGeometry;
       fields?: Array<{ name: string; type?: string }>;
+      maxFeaturesPerTile?: number;
     },
     scope: string,
   ): Promise<Buffer> {
@@ -1544,32 +2165,39 @@ export class DataLayerEngine {
     // (4096-unit grid, with the 64-unit buffer that MapLibre needs
     // to avoid seams at tile edges).
     //
-    // Two-stage query for fast low-zoom tiles on huge layers
-    // (e.g. WV Parcels: 1.4M polygons that all land in a single
-    // z=4 tile):
+    // Candidate-then-collapse-then-filter, same staging as
+    // listFeatures' filtered path:
     //
-    //   1. `bbox_obs` is a *separate* CTE that ONLY does the
-    //      bbox + scope filter, with a hard LIMIT (5000 here).
-    //      Splitting it out lets Postgres pick the GIST geom
-    //      index instead of the entity-ordered btree (which it
-    //      would otherwise choose to satisfy the DISTINCT ON
-    //      ORDER BY clause downstream). The LIMIT means low-zoom
-    //      tiles return a sampled 5000 features instead of
-    //      stalling for minutes on the full set; small viewports
-    //      that contain <=5000 features are unaffected.
+    //   1. `tile_candidates` finds ENTITIES with any observation
+    //      version touching the tile envelope. Keeping this a
+    //      separate CTE lets Postgres drive it off the GIST geom
+    //      index instead of the entity-ordered btree. The pre-fix
+    //      shape limited RAW ROWS here, which had two bugs: a
+    //      heavily-edited feature's superseded versions could eat
+    //      the whole tile budget and evict live neighbours
+    //      (limit-before-dedupe), and an old in-tile version
+    //      resurrected a feature whose latest was deleted or moved
+    //      out (filter-before-collapse). Grouping by entity fixes
+    //      both: fifty versions of one parcel cost one candidate
+    //      slot. The LIMIT here is entity-level sampling for
+    //      low-zoom tiles over huge layers (a z=4 tile over 1.4M
+    //      parcels); only entities whose latest fails stage 3
+    //      (real churn: deletes / move-outs) can waste a sampled
+    //      slot now.
     //
-    //   2. `currents` then deduplicates `bbox_obs` by entity
-    //      (DISTINCT ON keeping the latest observation). Cheap
-    //      because `bbox_obs` is already capped at 5000 rows.
+    //   2. `currents` collapses each candidate to its true latest
+    //      observation over its FULL history via LATERAL ... LIMIT 1
+    //      (one descent of the (scope, entity, valid_from DESC)
+    //      btree per candidate; same ordering keys as the canonical
+    //      listFeatures collapse). No `valid_to IS NULL` clause:
+    //      data_layer writes never set valid_to, the canonical
+    //      collapse ignores it, and pre-collapse it is a latent
+    //      resurrection filter. Stage 3 then re-checks tombstone +
+    //      envelope + sanity + geo filters against that latest row,
+    //      and the tile budget LIMIT is applied AFTER those checks,
+    //      so it counts live in-tile features only.
     //
-    //   3. `tile_features` runs ST_SimplifyPreserveTopology
-    //      *before* ST_Transform + ST_AsMVTGeom so the expensive
-    //      reprojection + clip happens on simpler geometries.
-    //      Tolerance = meters-per-pixel at this zoom; vertices
-    //      finer than that collapse, and ST_AsMVTGeom drops the
-    //      ones that quantize to a single point.
-    //
-    //   4. `visible_features` filters out null geoms (geometries
+    //   3. `visible_features` filters out null geoms (geometries
     //      that ST_AsMVTGeom couldn't represent at this zoom)
     //      so ST_AsMVT doesn't emit empty feature stubs.
     interface TileRow {
@@ -1582,8 +2210,8 @@ export class DataLayerEngine {
     // tolerance produced triangle artifacts on parcels (small
     // polygons collapsed to their three farthest-apart vertices,
     // making the layer look like a constellation of wedges).
-    // The bbox_obs LIMIT below is what actually caps work at low
-    // zoom; performance stayed sub-second on the 1.4M-row WV
+    // The tile_candidates LIMIT below is what actually caps work at
+    // low zoom; performance stayed sub-second on the 1.4M-row WV
     // Parcels layer at every zoom from 4 to 14 without
     // pre-simplification.
     // Cap features per tile. 5000 is a sweet spot: enough for a
@@ -1592,13 +2220,12 @@ export class DataLayerEngine {
     // 30s statement_timeout and downstream MVT serialization stays
     // bounded. Layers that are sparse enough to fit in fewer rows
     // are unaffected -- this is a worst-case ceiling, not a floor.
-    const MAX_FEATURES_PER_TILE = 5000;
+    const MAX_FEATURES_PER_TILE = args.maxFeaturesPerTile ?? 5000;
     const rows = await this.prisma.$queryRaw<TileRow[]>`
-      WITH bbox_obs AS (
-        SELECT entity, geom, kind, valid_from, tx_time${currentsAttrs}
+      WITH tile_candidates AS (
+        SELECT entity
         FROM observation
         WHERE scope = ${scope}
-          AND valid_to IS NULL
           AND geom IS NOT NULL
           AND geom && ST_Transform(ST_TileEnvelope(${args.z}::integer, ${args.x}::integer, ${args.y}::integer), 4326)
           -- Sanity-filter out geometries whose bbox spans more
@@ -1625,19 +2252,40 @@ export class DataLayerEngine {
           -- ST_NPoints is a cheap pure-geometry call, on the
           -- same order of magnitude as ST_XMax / ST_XMin, so
           -- this stays effectively free on the index-scan hot
-          -- path.
+          -- path. Applying it during candidate discovery is safe:
+          -- a latest row that passes stage 3 qualifies its own
+          -- entity here (any predicate re-checked on the latest
+          -- row may prefilter candidates without false negatives).
           AND (
             (ST_XMax(geom) - ST_XMin(geom)) < 1.0
             AND (ST_YMax(geom) - ST_YMin(geom)) < 1.0
             OR ST_NPoints(geom) > 50
           )
           ${filterExtras}
+        GROUP BY entity
         LIMIT ${MAX_FEATURES_PER_TILE}
       ),
       currents AS (
-        SELECT DISTINCT ON (entity) entity, geom, kind${currentsAttrs}
-        FROM bbox_obs
-        ORDER BY entity, valid_from DESC, tx_time DESC
+        SELECT l.entity, l.geom${currentsAttrs}
+        FROM tile_candidates cand
+        CROSS JOIN LATERAL (
+          SELECT entity, geom, kind${currentsAttrs}
+          FROM observation
+          WHERE scope = ${scope}
+            AND entity = cand.entity
+          ORDER BY valid_from DESC, tx_time DESC
+          LIMIT 1
+        ) l
+        WHERE l.kind <> 'delete'
+          AND l.geom IS NOT NULL
+          AND l.geom && ST_Transform(ST_TileEnvelope(${args.z}::integer, ${args.x}::integer, ${args.y}::integer), 4326)
+          AND (
+            (ST_XMax(l.geom) - ST_XMin(l.geom)) < 1.0
+            AND (ST_YMax(l.geom) - ST_YMin(l.geom)) < 1.0
+            OR ST_NPoints(l.geom) > 50
+          )
+          ${filterExtras}
+        LIMIT ${MAX_FEATURES_PER_TILE}
       ),
       tile_features AS (
         SELECT
@@ -1651,7 +2299,6 @@ export class DataLayerEngine {
           ) AS geom
           ${fieldProjection}
         FROM currents
-        WHERE kind <> 'delete'
       ),
       visible_features AS (
         SELECT * FROM tile_features WHERE geom IS NOT NULL

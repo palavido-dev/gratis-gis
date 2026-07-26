@@ -1006,6 +1006,23 @@ export class DataLayerFeaturesController {
     }
   }
 
+  /**
+   * Append features to a sublayer.
+   *
+   * Idempotency: a feature that carries a client-supplied `globalId`
+   * is created at most once. When a live entity with that id already
+   * exists in the layer, the row is NOT re-inserted; the response
+   * counts it under `deduplicated` and its id still appears in
+   * `globalIds`, so a client retrying after a network blip can treat
+   * the 201 as "my feature exists" either way. Enforced in SQL under
+   * an advisory lock (see writeFeaturesCreateIdempotent), not by
+   * convention. `inserted` counts rows actually written, which also
+   * gates the creation notifications below so a retry cannot
+   * double-notify.
+   *
+   * Response: { inserted, deduplicated, globalIds } with `globalIds`
+   * order-aligned to the request features.
+   */
   @Post('features')
   async append(
     @CurrentUser() user: AuthUser,

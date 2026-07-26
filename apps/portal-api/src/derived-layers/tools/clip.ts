@@ -106,7 +106,7 @@ export const clipGenerator: ToolGenerator<ClipParams> = {
     // view; no temporal / bbox filter applies because the
     // intersection operates on the layer as a whole footprint.
     const rightCte = dataLayerSourceSqlFragment(rightScope, {
-      extraConditions: ['valid_to IS NULL'],
+      collapseConditions: ['valid_to IS NULL'],
     });
     const sql = `
       WITH right_rows AS (${rightCte}),

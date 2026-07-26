@@ -200,10 +200,28 @@ export class DataLayerFeaturesService {
   }
 
   /** Bulk-insert features. Optional client-supplied `globalId` is
-   *  passed through as the entity id (idempotency for retried POSTs).
-   *  Routes the batch through `DataLayerEngine.writeFeaturesCreate`,
-   *  which fans out to `EngineService.writeMany` (500-row INSERT
-   *  chunks) so 100k+ row imports still land in a single API call.
+   *  passed through as the entity id and makes the create
+   *  IDEMPOTENT: when a live (not deleted) entity with that id
+   *  already exists in the layer, no duplicate is written and the
+   *  input resolves to the existing feature. This is what the
+   *  editor / form-runtime retry contract always claimed; before
+   *  this fix nothing enforced it and a retried POST after a
+   *  network blip appended a second `create` observation (double
+   *  rows in reads that join the create observation, double
+   *  notifications, phantom "new" features).
+   *
+   *  Routes through `DataLayerEngine.writeFeaturesCreateIdempotent`:
+   *  inputs without a globalId take the plain batched-INSERT path
+   *  (fresh entities have nothing to dedupe against), inputs with
+   *  one go through the advisory-lock + guarded-INSERT transaction
+   *  so two concurrent retries cannot both insert.
+   *
+   *  Response: `inserted` counts rows actually written (a fully
+   *  deduplicated retry reports 0, which also keeps the controller
+   *  from re-firing creation notifications), `deduplicated` counts
+   *  inputs resolved to an existing live feature, and `globalIds`
+   *  is order-aligned with the request so the caller can address
+   *  every feature (new or pre-existing) by id.
    *
    *  The `isTable` flag is accepted for signature parity with the
    *  pre-engine v3 service; it is no longer used because the engine
@@ -214,8 +232,10 @@ export class DataLayerFeaturesService {
     inputs: DataLayerFeatureInsert[],
     user: AuthUser,
     _opts: { isTable?: boolean } = {},
-  ): Promise<{ inserted: number }> {
-    if (inputs.length === 0) return { inserted: 0 };
+  ): Promise<{ inserted: number; deduplicated: number; globalIds: string[] }> {
+    if (inputs.length === 0) {
+      return { inserted: 0, deduplicated: 0, globalIds: [] };
+    }
 
     const principal = { sub: user.id, displayName: user.username ?? '' };
     const args: CreateFeatureArgs[] = inputs.map((f) => ({
@@ -229,23 +249,35 @@ export class DataLayerFeaturesService {
         : {}),
     }));
 
-    const written = await this.dataLayer.writeFeaturesCreate(args);
+    const written = await this.dataLayer.writeFeaturesCreateIdempotent(args);
+    const inserted = written.filter((w) => !w.deduplicated).length;
+    const deduplicated = written.length - inserted;
     this.log.log(
-      `Inserted ${written.length} features into data_layer:${itemId}:${layerId}`,
+      `Inserted ${inserted} features into data_layer:${itemId}:${layerId}` +
+        (deduplicated > 0
+          ? ` (${deduplicated} deduplicated by globalId)`
+          : ''),
     );
 
     // Lazy-grow buffer-by-field caches on any derived layer that
     // reads from this source. Best-effort: notifySourceWrite swallows
     // its own errors so an insert that goes through here is never
-    // rolled back by a downstream cache problem.
-    void this.cacheRefresh.notifySourceWrite(
-      itemId,
-      layerId,
-      inputs.map((f) => f.properties),
-    );
-    this.scheduleBboxRefresh(itemId);
+    // rolled back by a downstream cache problem. Skipped entirely on
+    // a fully-deduplicated retry: nothing changed.
+    if (inserted > 0) {
+      void this.cacheRefresh.notifySourceWrite(
+        itemId,
+        layerId,
+        inputs.map((f) => f.properties),
+      );
+      this.scheduleBboxRefresh(itemId);
+    }
 
-    return { inserted: written.length };
+    return {
+      inserted,
+      deduplicated,
+      globalIds: written.map((w) => w.globalId),
+    };
   }
 
   /**

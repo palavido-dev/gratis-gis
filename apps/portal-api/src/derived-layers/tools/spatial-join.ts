@@ -229,7 +229,7 @@ export const spatialJoinGenerator: ToolGenerator<SpatialJoinParams> = {
     // the LEFT side, and matching right features outside that bbox
     // are still valid join targets.
     const rightCte = dataLayerSourceSqlFragment(rightScope, {
-      extraConditions: ['valid_to IS NULL'],
+      collapseConditions: ['valid_to IS NULL'],
     });
 
     const prefix = params.attrPrefix ?? 'joined_';

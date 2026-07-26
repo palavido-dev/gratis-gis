@@ -565,21 +565,31 @@ export class DerivedLayersService {
       // with the request's bbox / temporal / boundary filters
       // applied as predicates.  Mirrors the historical single-source
       // code path exactly.
+      //
+      // The temporal window goes into the fragment's collapse
+      // conditions (it defines WHICH history is visible); the
+      // spatial predicates go into content conditions so the
+      // fragment evaluates them against the collapsed latest row.
+      // Passing spatial predicates as collapse conditions was the
+      // ghost bug: a feature edited out of the bbox (or deleted;
+      // tombstones carry NULL geom and never match a spatial
+      // clause) kept surfacing through its old in-bbox version.
       const sourceScope = layerData.source.layerKey
         ? dataLayerScope(layerData.source.itemId, layerData.source.layerKey)
         : dataLayerScope(layerData.source.itemId, 'default');
-      const sourceConditions: string[] = [];
+      const collapseConditions: string[] = [];
+      const contentConditions: string[] = [];
       if (opts.at) {
         const ts = new Date(opts.at);
         if (!isNaN(ts.getTime())) {
           params.push(ts.toISOString());
           const p = params.length;
-          sourceConditions.push(
+          collapseConditions.push(
             `valid_from <= $${p}::timestamptz AND (valid_to IS NULL OR valid_to > $${p}::timestamptz)`,
           );
         }
       } else {
-        sourceConditions.push('valid_to IS NULL');
+        collapseConditions.push('valid_to IS NULL');
       }
       if (opts.bbox) {
         // Pad by THIS layer's reach.  When this layer is an ancestor
@@ -595,7 +605,7 @@ export class DerivedLayersService {
           maxY + padding,
         );
         const b = params.length;
-        sourceConditions.push(
+        contentConditions.push(
           `geom IS NOT NULL AND ST_Intersects(geom, ST_MakeEnvelope($${b - 3}, $${b - 2}, $${b - 1}, $${b}, 4326))`,
         );
       }
@@ -612,7 +622,7 @@ export class DerivedLayersService {
         if (g && typeof g === 'object') {
           params.push(JSON.stringify(g));
           const p = params.length;
-          sourceConditions.push(
+          contentConditions.push(
             `geom IS NOT NULL AND ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON($${p}::text), 4326))`,
           );
         }
@@ -621,7 +631,8 @@ export class DerivedLayersService {
       sourceAlias = `${prefix}_source`;
       ctes = [
         `${sourceAlias} AS (${dataLayerSourceSqlFragment(sourceScope, {
-          extraConditions: sourceConditions,
+          collapseConditions,
+          contentConditions,
         })})`,
       ];
     }
@@ -821,16 +832,19 @@ export class DerivedLayersService {
       ? dataLayerScope(sourceItem.id, data.source.layerKey)
       : dataLayerScope(sourceItem.id, 'default');
     const queryParams: unknown[] = [];
-    const sourceConditions: string[] = [];
+    // Same split as composeReadCtes: temporal window collapses,
+    // spatial predicate re-checks against the collapsed latest row.
+    const collapseConditions: string[] = [];
+    const contentConditions: string[] = [];
 
     if (opts.at) {
       queryParams.push(opts.at);
       const p = queryParams.length;
-      sourceConditions.push(
+      collapseConditions.push(
         `valid_from <= $${p}::timestamptz AND (valid_to IS NULL OR valid_to > $${p}::timestamptz)`,
       );
     } else {
-      sourceConditions.push('valid_to IS NULL');
+      collapseConditions.push('valid_to IS NULL');
     }
 
     if (opts.bbox) {
@@ -843,14 +857,15 @@ export class DerivedLayersService {
         maxY + padding,
       );
       const b = queryParams.length;
-      sourceConditions.push(
+      contentConditions.push(
         `geom IS NOT NULL AND ST_Intersects(geom, ST_MakeEnvelope($${b - 3}, $${b - 2}, $${b - 1}, $${b}, 4326))`,
       );
     }
 
     const ctes: string[] = [
       `source AS (${dataLayerSourceSqlFragment(sourceScope, {
-        extraConditions: sourceConditions,
+        collapseConditions,
+        contentConditions,
       })})`,
     ];
     let inputAlias = 'source';

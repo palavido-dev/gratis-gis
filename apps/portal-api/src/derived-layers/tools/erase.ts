@@ -92,7 +92,7 @@ export const eraseGenerator: ToolGenerator<EraseParams> = {
       right.layerKey ?? 'default',
     );
     const rightCte = dataLayerSourceSqlFragment(rightScope, {
-      extraConditions: ['valid_to IS NULL'],
+      collapseConditions: ['valid_to IS NULL'],
     });
     // ST_Difference against a possibly-NULL right_union (the right
     // layer is empty after filtering) is undefined behavior; we

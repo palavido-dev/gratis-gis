@@ -49,12 +49,13 @@ import {
  *
  * Perf notes:
  *
- *   - Queries scan the latest-per-entity view of the source layer.
- *     For layers <~100K rows this is fast enough for autocomplete
- *     UX without a per-field GIN trigram index. Larger layers will
- *     want `CREATE INDEX ... USING gin ((attrs->>'field') gin_trgm_ops)`
- *     per searchField; that's a follow-up indexing pass tracked as
- *     a perf issue rather than v1 scope.
+ *   - Candidate discovery is backed by the per-searchField partial
+ *     GIN trigram indexes that `rebuildIndexes()` creates
+ *     (`idx_geo_<item>_<field>`, scoped to the source layer); the
+ *     `%>` prefilter in the query is shaped to use them. Without a
+ *     rebuild (author never clicked Save on the geocoder editor)
+ *     the same query still runs correctly, just as a scan: fine
+ *     under ~100K rows, slow above.
  *   - The bboxFilter narrows the candidate set before similarity
  *     scoring fires, which makes "geocoder covers WV only" queries
  *     fast even when the underlying layer is large.
@@ -173,12 +174,11 @@ export class GeocodingService {
     // own bbox is used as fallback for 'layer-bbox'.
     const queryBbox = this.resolveBbox(opts.bbox, config, source);
 
-    // Build the similarity-scoring SQL. We use similarity() with
-    // an OR across all fields rather than `%` because the
-    // per-field GIN trigram index is a follow-up optimization;
-    // similarity() works without an index, returns the score we
-    // need to rank by, and is correct regardless of dataset size
-    // (just slower than the indexed `%` path).
+    // Build the similarity-scoring SQL. Scoring uses explicit
+    // word_similarity()/similarity() calls (not the bare `%`
+    // operator) because we need the numeric score to rank by; the
+    // index-friendly `%>` prefilter below is what keeps the
+    // candidate set small on indexed layers.
     const fieldExpressions = validatedFields.map((f) => {
       const weight = Math.max(1, Math.min(10, f.weight ?? 1));
       // pg_trgm.word_similarity(query, target) measures how well
@@ -264,20 +264,46 @@ export class GeocodingService {
     // enough rows to rank.
     await this.prisma.$executeRaw`SELECT set_limit(0.1)`;
 
+    // Candidate-then-collapse-then-filter (the same staging the
+    // engine's read paths use):
+    //
+    //   candidates: entities with ANY observation version matching
+    //     the trigram prefilter + bbox. This is where the partial
+    //     GIN indexes plug in; matching any version over-selects,
+    //     never under-selects, because the current version is one
+    //     of the versions probed.
+    //   latest: each candidate collapsed to its true latest
+    //     observation over its FULL history (same DISTINCT ON
+    //     ordering the engine's canonical collapse uses).
+    //   live: tombstones dropped AND the prefilters re-checked
+    //     against the latest row. Without the re-check (the pre-fix
+    //     shape applied the filters inside the collapse) a parcel
+    //     whose owner attribute was edited away, or that was
+    //     deleted outright, kept geocoding under its OLD value: the
+    //     old version matched the prefilter and won the DISTINCT ON
+    //     because the true latest was filtered out of the window.
     const rows = await this.prisma.$queryRaw<CandidateRow[]>`
-      WITH latest AS (
-        SELECT DISTINCT ON (entity)
-          entity, attrs, geom, kind
+      WITH candidates AS (
+        SELECT DISTINCT entity
         FROM observation
         WHERE scope = ${scope}
         ${trgmFilterSql}
         ${filterSql}
+      ),
+      latest AS (
+        SELECT DISTINCT ON (entity)
+          entity, attrs, geom, kind
+        FROM observation
+        WHERE scope = ${scope}
+          AND entity IN (SELECT entity FROM candidates)
         ORDER BY entity, valid_from DESC, tx_time DESC
       ),
       live AS (
         SELECT entity, attrs, geom
         FROM latest
         WHERE kind <> 'delete'
+        ${trgmFilterSql}
+        ${filterSql}
       ),
       scored AS (
         SELECT

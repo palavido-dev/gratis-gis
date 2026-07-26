@@ -152,7 +152,7 @@ export const spatialFilterGenerator: ToolGenerator<SpatialFilterParams> = {
       );
       const baseConditions = ['valid_to IS NULL'];
       const baseFragment = dataLayerSourceSqlFragment(rightScope, {
-        extraConditions: baseConditions,
+        collapseConditions: baseConditions,
       });
       if (right.featureIds && right.featureIds.length > 0) {
         // Restrict to the caller's chosen subset.  Used when a
