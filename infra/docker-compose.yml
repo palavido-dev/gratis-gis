@@ -8,6 +8,27 @@ services:
     image: gratis-gis-postgres:local
     container_name: gratis-gis-postgres
     restart: unless-stopped
+    # pg_partman's own background worker schedules
+    # partman.run_maintenance() so future observation partitions
+    # keep getting created. Before this, NOTHING ran maintenance;
+    # the partition-cutover migration papered over that with
+    # premake=24 (two years of pre-created empty partitions, which
+    # every non-tx_time-pruned query then had to probe). The
+    # premake-tuning migration drops premake to 4, so this worker
+    # is now load-bearing: without it, inserts start landing in the
+    # DEFAULT partition once the premade months run out. Hourly
+    # interval is generous for MONTHLY partitions and costs one
+    # cheap catalog check per run.
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_partman_bgw
+      - -c
+      - pg_partman_bgw.interval=3600
+      - -c
+      - pg_partman_bgw.role=gratisgis
+      - -c
+      - pg_partman_bgw.dbname=gratisgis
     environment:
       POSTGRES_DB: gratisgis
       POSTGRES_USER: gratisgis

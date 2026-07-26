@@ -44,17 +44,17 @@ jobs:
       DATABASE_URL: postgresql://gratisgis:devpassword@localhost:5432/gratisgis_ci?schema=public
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Set up pnpm
         # No `version:` here -- pnpm/action-setup reads the version
         # from the `packageManager` field in root package.json
         # (pnpm@9.12.0). Specifying both triggers ERR_PNPM_BAD_PM_VERSION
         # and the runner dies before a single step can run.
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
 
       - name: Set up Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           # Keep in lockstep with .nvmrc (22.x LTS). The production
           # container images pin their own Node (see the app

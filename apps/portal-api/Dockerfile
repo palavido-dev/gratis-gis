@@ -54,18 +54,33 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Layer caching: copy lockfile-relevant files first so pnpm install
-# only re-runs when deps actually change.
-COPY pnpm-workspace.yaml pnpm-lock.yaml package.json turbo.json tsconfig.base.json ./
+# Layer caching, pnpm fetch pattern: populate the store from the
+# LOCKFILE ALONE before any manifest or source file enters the
+# image. `pnpm fetch` ignores package.json files entirely, so this
+# layer's cache key is just pnpm-lock.yaml (+ the workspace file
+# for store settings). The previous shape copied the whole apps/
+# tree before `pnpm install`, which meant every source edit busted
+# the install layer and re-resolved + re-downloaded all deps: on
+# the 4-core prod box that dominated deploy time.
+COPY pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm fetch
+
+# Manifests + sources come in only after the store is warm. pnpm's
+# --frozen-lockfile expects EVERY workspace package referenced in
+# the lockfile to exist in the tree. Copying the full apps/ subtree
+# is the simplest way to satisfy that without per-package COPY
+# juggling; the repo-root .dockerignore strips the heavy stuff
+# (node_modules, .next, dist), so the build context stays small.
+COPY package.json turbo.json tsconfig.base.json ./
 COPY packages ./packages
-# pnpm's --frozen-lockfile expects EVERY workspace package referenced
-# in the lockfile to exist in the tree. Copying the full apps/ subtree
-# is the simplest way to satisfy that without per-package COPY juggling.
-# .dockerignore on each app strips the heavy stuff (node_modules,
-# .next, dist), so the build context stays small.
 COPY apps ./apps
 
-RUN pnpm install --frozen-lockfile
+# --offline: link strictly from the store `pnpm fetch` just
+# populated. A miss fails the build loudly, which is what we want:
+# it would mean the fetch layer no longer matches the lockfile.
+# (Lifecycle scripts such as prisma's engine download still run
+# normally; --offline only constrains pnpm's own registry access.)
+RUN pnpm install --frozen-lockfile --offline
 
 # @gratis-gis/shared-types, @gratis-gis/engine, and
 # @gratis-gis/form-schema all declare "main": "./dist/index.js" so

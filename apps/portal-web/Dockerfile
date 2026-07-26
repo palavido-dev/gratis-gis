@@ -33,15 +33,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 build-essential ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pnpm-workspace.yaml pnpm-lock.yaml package.json turbo.json tsconfig.base.json ./
+# Layer caching, pnpm fetch pattern (same rationale as the
+# portal-api Dockerfile): populate the store from the lockfile
+# alone so source edits stop busting the dependency-download
+# layer. `pnpm fetch` ignores package.json files; this layer only
+# re-runs when pnpm-lock.yaml (or the workspace file) changes.
+COPY pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm fetch
+
+# Manifests + sources after the store is warm. pnpm's
+# --frozen-lockfile expects EVERY workspace package referenced in
+# the lockfile to exist in the tree. Copying the full apps/ subtree
+# is the simplest way to satisfy that without per-package COPY
+# juggling; the repo-root .dockerignore strips the heavy stuff
+# (node_modules, .next, dist), so the build context stays small.
+COPY package.json turbo.json tsconfig.base.json ./
 COPY packages ./packages
-# pnpm's --frozen-lockfile expects EVERY workspace package referenced
-# in the lockfile to exist in the tree. Copying the full apps/ subtree
-# is the simplest way to satisfy that without per-package COPY juggling.
-# .dockerignore on each app strips the heavy stuff (node_modules,
-# .next, dist), so the build context stays small.
 COPY apps ./apps
-RUN pnpm install --frozen-lockfile
+# --offline: link strictly from the fetched store; a miss fails the
+# build loudly instead of quietly re-downloading.
+RUN pnpm install --frozen-lockfile --offline
 
 # @gratis-gis/shared-types and @gratis-gis/form-schema declare
 # "main": "./dist/index.js" so they must be tsc-compiled before

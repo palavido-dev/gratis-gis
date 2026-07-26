@@ -45,6 +45,25 @@ services:
     # pages actually written; the cap is the headroom for one
     # tile-build to land on.
     shm_size: 1g
+    # pg_partman's background worker schedules
+    # partman.run_maintenance() so future observation partitions
+    # keep getting created. Load-bearing since the premake-tuning
+    # migration reduced premake from 24 to 4: without a scheduler,
+    # inserts would start falling into the DEFAULT partition about
+    # four months after the last maintenance. Hourly checks are
+    # plenty for monthly partitions. The worker connects as the app
+    # role to the app database (that role created the extension and
+    # owns the partman config).
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_partman_bgw
+      - -c
+      - pg_partman_bgw.interval=3600
+      - -c
+      - pg_partman_bgw.role=${POSTGRES_USER:-gratisgis}
+      - -c
+      - pg_partman_bgw.dbname=${POSTGRES_DB:-gratisgis}
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-gratisgis}
       POSTGRES_USER: ${POSTGRES_USER:-gratisgis}
