@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # One-shot deploy of the gratisgis.org production stack. Idempotent:
 # safe to re-run after every git pull. Run from the repo root on the
 # deploy host.
@@ -26,7 +27,14 @@ cd "$REPO_ROOT"
 # flock on a file in /var/lock; if another deploy is already
 # running, exit cleanly rather than racing.  Adjust the flock path
 # only if /var/lock is missing (some minimal images).
-LOCK_FILE="${DEPLOY_LOCK_FILE:-/var/lock/gratisgis-deploy.lock}"
+#
+# This is the SHARED stack-mutation lock: snapshot-golden.sh and
+# restore-golden.sh take the same flock, and the gg-reset-demo
+# systemd unit checks it via ExecCondition, so a deploy, a snapshot,
+# a restore, and the nightly reset can never run over each other.
+# Override with GRATISGIS_LOCK_FILE in every script together or not
+# at all; a per-script override would re-split the mutex.
+LOCK_FILE="${GRATISGIS_LOCK_FILE:-/var/lock/gratisgis-deploy.lock}"
 mkdir -p "$(dirname "$LOCK_FILE")"
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
@@ -81,6 +89,13 @@ export AUTH_URL="https://${AUTH_DOMAIN:-auth.gratisgis.org}"
 set +a
 envsubst < infra/keycloak/realm-gratis-gis.prod.json.tmpl \
   > infra/keycloak/import/realm-gratis-gis.json
+# The materialized file carries real secrets (client secrets, the
+# bootstrap admin password), so strip world read. Not 600: the
+# keycloak container runs as uid 1000 with gid 0 and reads this
+# through the bind mount, so the group-read bit for root's gid 0 is
+# what keeps --import-realm working on a fresh install while other
+# host users still get nothing.
+chmod 640 infra/keycloak/import/realm-gratis-gis.json
 # Sanity-check: the JSON should still parse after substitution.
 python3 -c "import json,sys; json.load(open('infra/keycloak/import/realm-gratis-gis.json'))" \
   || { echo "FATAL: realm import JSON is malformed after envsubst" >&2; exit 1; }
@@ -113,8 +128,12 @@ echo "=== Status ==="
 #   2. Every existing realm user holds the `offline_access` role,
 #      so the QGIS plugin's refresh-token flow doesn't 400 on its
 #      first sign-in.
+#   3. The portal-api-admin service account can authenticate against
+#      portal-api as an org admin (org / org_role protocol mappers on
+#      the client, org + org_role attributes on the service-account
+#      user). infra/cleanup-non-admin.mjs depends on this.
 #
-# Both steps are idempotent: re-running deploy.sh is a no-op when
+# All steps are idempotent: re-running deploy.sh is a no-op when
 # everything is already in the desired state. Any failure here is a
 # warning, not a hard exit, so a transient kcadm hiccup doesn't
 # undo a successful container deploy.
@@ -201,6 +220,77 @@ json.dump(client, sys.stdout)
           || echo "  = $username (already had role)"
       done
   echo "Offline-access reconciliation done."
+
+  # --- portal-api-admin: portal-admin identity for snapshot tooling ---
+  # infra/cleanup-non-admin.mjs (the pre-snapshot purge that
+  # snapshot-golden.sh runs) authenticates with a client_credentials
+  # token from the portal-api-admin service account, because every
+  # interactive client ships with directAccessGrantsEnabled=false and
+  # a password grant is therefore impossible on a fresh install.
+  # portal-api only accepts tokens that carry the org and org_role
+  # claims (auth-sync rejects anything else with a 401), and the realm
+  # template maps those claims only on the interactive clients. So:
+  # ensure org / org_role protocol mappers exist on portal-api-admin,
+  # and give the service-account user the org, org_role=admin
+  # attributes plus a first / last name (portal-api requires a
+  # non-empty name claim to create the local user row).
+  #
+  # This is not a privilege widening: KEYCLOAK_ADMIN_CLIENT_SECRET
+  # already grants manage-users on the realm, which includes
+  # password-resetting any user, a superset of portal admin.
+  echo "Ensuring portal-api-admin can act as a portal admin (snapshot tooling)..."
+  KCI() { docker exec -i "$KEYCLOAK_CONTAINER" /opt/keycloak/bin/kcadm.sh "$@"; }
+  GG_ADMIN_CID="$(KC get clients -r gratis-gis -q clientId=portal-api-admin --fields id 2>/dev/null \
+    | python3 -c 'import sys,json; arr=json.load(sys.stdin); print(arr[0]["id"] if arr else "")' 2>/dev/null || true)"
+  if [[ -z "$GG_ADMIN_CID" ]]; then
+    echo "WARN: portal-api-admin client not found in realm; skipping mapper reconcile." >&2
+  else
+    GG_EXISTING_MAPPERS="$(KC get "clients/$GG_ADMIN_CID/protocol-mappers/models" \
+      -r gratis-gis --fields name 2>/dev/null || true)"
+    for GG_CLAIM in org org_role; do
+      if printf '%s' "$GG_EXISTING_MAPPERS" | grep -q "\"name\" *: *\"$GG_CLAIM\""; then
+        echo "  mapper $GG_CLAIM already present."
+      else
+        if printf '{
+  "name": "%s",
+  "protocol": "openid-connect",
+  "protocolMapper": "oidc-usermodel-attribute-mapper",
+  "consentRequired": false,
+  "config": {
+    "userinfo.token.claim": "true",
+    "user.attribute": "%s",
+    "id.token.claim": "true",
+    "access.token.claim": "true",
+    "claim.name": "%s",
+    "jsonType.label": "String"
+  }
+}' "$GG_CLAIM" "$GG_CLAIM" "$GG_CLAIM" \
+            | KCI create "clients/$GG_ADMIN_CID/protocol-mappers/models" \
+                -r gratis-gis -f - >/dev/null 2>&1; then
+          echo "  + mapper $GG_CLAIM created."
+        else
+          echo "WARN: could not create $GG_CLAIM mapper on portal-api-admin." >&2
+        fi
+      fi
+    done
+    GG_SA_UID="$(KC get "clients/$GG_ADMIN_CID/service-account-user" -r gratis-gis 2>/dev/null \
+      | python3 -c 'import sys,json; print(json.load(sys.stdin).get("id",""))' 2>/dev/null || true)"
+    if [[ -z "$GG_SA_UID" ]]; then
+      echo "WARN: could not resolve portal-api-admin service-account user; skipping attribute reconcile." >&2
+    else
+      # One update call on purpose: Keycloak replaces the whole
+      # attributes map when the field is present, so setting org and
+      # org_role in separate calls would wipe whichever went first.
+      if KC update "users/$GG_SA_UID" -r gratis-gis \
+          -s 'firstName=Portal' -s 'lastName=Service Account' \
+          -s "attributes.org=[\"${DEFAULT_ORG_SLUG:-gratis-gis}\"]" \
+          -s 'attributes.org_role=["admin"]' >/dev/null 2>&1; then
+        echo "  service-account user attributes reconciled."
+      else
+        echo "WARN: could not update portal-api-admin service-account attributes." >&2
+      fi
+    fi
+  fi
 fi
 
 echo

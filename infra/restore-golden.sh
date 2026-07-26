@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Restore the GratisGIS prod stack to the captured golden state.
 # Used by the daily public-testing-mode reset cron (#138). Run
 # manually for testing; otherwise the systemd timer
@@ -54,13 +55,17 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
-# Mutex with snapshot-golden.sh. When the 04:00 UTC systemd timer
-# fires while an operator is part-way through a manual snapshot,
-# the restore reads the half-written postgres-app.dump, errors
-# after the DROP DATABASE, and leaves the live stack with an
-# empty `gratisgis` schema. Better to skip this run (the next
-# tick is 24h out; nobody dies) than to race.
-LOCK_FILE="${GOLDEN_LOCK_FILE:-/var/lock/gratisgis-golden-state.lock}"
+# Mutex with snapshot-golden.sh AND deploy.sh. When the 04:00 UTC
+# systemd timer fires while an operator is part-way through a manual
+# snapshot, the restore reads the half-written postgres-app.dump,
+# errors after the DROP DATABASE, and leaves the live stack with an
+# empty `gratisgis` schema; when it fires mid-deploy, the two fight
+# over stopping and starting the same containers. Better to skip
+# this run (the next tick is 24h out; nobody dies) than to race.
+# Same lock file deploy.sh holds for its whole run and the
+# gg-reset-demo systemd unit checks via ExecCondition; override
+# GRATISGIS_LOCK_FILE in every script together or not at all.
+LOCK_FILE="${GRATISGIS_LOCK_FILE:-/var/lock/gratisgis-deploy.lock}"
 mkdir -p "$(dirname "$LOCK_FILE")"
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
@@ -117,6 +122,32 @@ dc() {
 # server-level role, not a per-DB object. Same for the `gratisgis`
 # role.
 KEYCLOAK_DB_USER="${KEYCLOAK_DB_USER:-keycloak}"
+
+# Deep-verify every artifact BEFORE the first destructive statement.
+# The -s existence loop above catches a missing file; these catch a
+# truncated or corrupt one. pg_restore --list parses the custom-
+# format archive's table of contents end to end, and tar -tf walks
+# the whole tar. snapshot-golden.sh verifies the same way before it
+# publishes an artifact, so a failure here means on-disk corruption
+# after the fact, and wiping the live stack on top of that would be
+# unrecoverable. The stack is still fully up while this runs.
+echo "=== Verifying snapshot artifacts before touching the live stack ==="
+PG_CONTAINER="$(dc ps -q postgres | head -n 1)"
+if [[ -z "$PG_CONTAINER" ]]; then
+  echo "FATAL: postgres container not running; cannot verify or restore." >&2
+  exit 1
+fi
+# Plain docker exec with stdin from the file on purpose; compose's
+# exec wrapper hangs on stdio (see the pg_restore notes below).
+docker exec -i "$PG_CONTAINER" pg_restore --list \
+    < "$GOLDEN_DIR/postgres-app.dump" > /dev/null \
+  || { echo "FATAL: postgres-app.dump failed pg_restore --list verification; refusing to restore." >&2; exit 1; }
+docker exec -i "$PG_CONTAINER" pg_restore --list \
+    < "$GOLDEN_DIR/postgres-keycloak.dump" > /dev/null \
+  || { echo "FATAL: postgres-keycloak.dump failed pg_restore --list verification; refusing to restore." >&2; exit 1; }
+tar -tf "$GOLDEN_DIR/minio.tar" > /dev/null \
+  || { echo "FATAL: minio.tar failed tar -tf verification; refusing to restore." >&2; exit 1; }
+echo "All artifacts verified."
 
 drop_and_restore() {
   local db="$1"
@@ -179,7 +210,10 @@ drop_and_restore() {
 }
 
 echo "=== Stopping app services ==="
-dc stop portal-api portal-worker portal-web keycloak
+# pointcloud-worker writes postgres + minio mid-job and pg_tileserv
+# holds read connections; both must be down while the databases are
+# dropped and the volume is swapped (mirrors snapshot-golden.sh).
+dc stop portal-api portal-worker pointcloud-worker portal-web keycloak pg_tileserv
 
 echo "=== Restoring Postgres databases ==="
 drop_and_restore "$POSTGRES_DB_APP" "$POSTGRES_USER" "$GOLDEN_DIR/postgres-app.dump"
@@ -199,9 +233,9 @@ echo "=== Restarting app services ==="
 # Give minio + postgres a couple of seconds to settle before app
 # services start hitting them.
 sleep 3
-dc start keycloak
+dc start keycloak pg_tileserv
 sleep 5  # Keycloak boot is slower than postgres / minio.
-dc start portal-web portal-worker portal-api
+dc start portal-web portal-worker pointcloud-worker portal-api
 
 # -----------------------------------------------------------
 # Post-restore Keycloak reconciliation.
@@ -218,6 +252,9 @@ dc start portal-web portal-worker portal-api
 #   2. Every restored realm user holds offline_access, so the
 #      QGIS plugin's PKCE flow doesn't 400 with "Offline tokens
 #      not allowed for the user or client" on first sign-in.
+#   3. The portal-api-admin service account keeps its portal-admin
+#      identity (org / org_role mappers + attributes), which the
+#      pre-snapshot cleanup in snapshot-golden.sh depends on.
 #
 # Fail open: a kcadm hiccup logs WARN but doesn't abort restore.
 # -----------------------------------------------------------
@@ -295,6 +332,66 @@ json.dump(client, sys.stdout)
           && echo "  + $username" \
           || echo "  = $username (already had role)"
       done
+
+  # --- portal-api-admin: portal-admin identity for snapshot tooling ---
+  # Mirrors the same block in deploy.sh (see the rationale there).
+  # The golden snapshot normally already contains this state, but a
+  # restore from a pre-fix snapshot, or a realm re-import, would
+  # silently drop it and the next snapshot's cleanup pass would fail
+  # closed. Idempotent; converges in one pass.
+  echo "Ensuring portal-api-admin can act as a portal admin (snapshot tooling)..."
+  KCI() { docker exec -i "$KEYCLOAK_CONTAINER" /opt/keycloak/bin/kcadm.sh "$@"; }
+  GG_ADMIN_CID="$(KC get clients -r gratis-gis -q clientId=portal-api-admin --fields id 2>/dev/null \
+    | python3 -c 'import sys,json; arr=json.load(sys.stdin); print(arr[0]["id"] if arr else "")' 2>/dev/null || true)"
+  if [[ -z "$GG_ADMIN_CID" ]]; then
+    echo "WARN: portal-api-admin client not found in realm; skipping mapper reconcile." >&2
+  else
+    GG_EXISTING_MAPPERS="$(KC get "clients/$GG_ADMIN_CID/protocol-mappers/models" \
+      -r gratis-gis --fields name 2>/dev/null || true)"
+    for GG_CLAIM in org org_role; do
+      if printf '%s' "$GG_EXISTING_MAPPERS" | grep -q "\"name\" *: *\"$GG_CLAIM\""; then
+        echo "  mapper $GG_CLAIM already present."
+      else
+        if printf '{
+  "name": "%s",
+  "protocol": "openid-connect",
+  "protocolMapper": "oidc-usermodel-attribute-mapper",
+  "consentRequired": false,
+  "config": {
+    "userinfo.token.claim": "true",
+    "user.attribute": "%s",
+    "id.token.claim": "true",
+    "access.token.claim": "true",
+    "claim.name": "%s",
+    "jsonType.label": "String"
+  }
+}' "$GG_CLAIM" "$GG_CLAIM" "$GG_CLAIM" \
+            | KCI create "clients/$GG_ADMIN_CID/protocol-mappers/models" \
+                -r gratis-gis -f - >/dev/null 2>&1; then
+          echo "  + mapper $GG_CLAIM created."
+        else
+          echo "WARN: could not create $GG_CLAIM mapper on portal-api-admin." >&2
+        fi
+      fi
+    done
+    GG_SA_UID="$(KC get "clients/$GG_ADMIN_CID/service-account-user" -r gratis-gis 2>/dev/null \
+      | python3 -c 'import sys,json; print(json.load(sys.stdin).get("id",""))' 2>/dev/null || true)"
+    if [[ -z "$GG_SA_UID" ]]; then
+      echo "WARN: could not resolve portal-api-admin service-account user; skipping attribute reconcile." >&2
+    else
+      # One update call on purpose: Keycloak replaces the whole
+      # attributes map when the field is present, so setting org and
+      # org_role in separate calls would wipe whichever went first.
+      if KC update "users/$GG_SA_UID" -r gratis-gis \
+          -s 'firstName=Portal' -s 'lastName=Service Account' \
+          -s "attributes.org=[\"${DEFAULT_ORG_SLUG:-gratis-gis}\"]" \
+          -s 'attributes.org_role=["admin"]' >/dev/null 2>&1; then
+        echo "  service-account user attributes reconciled."
+      else
+        echo "WARN: could not update portal-api-admin service-account attributes." >&2
+      fi
+    fi
+  fi
 fi
 
 echo "=== Reset complete at $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="

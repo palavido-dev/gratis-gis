@@ -6,10 +6,27 @@
 //
 // Runs inside the portal-api container during snapshot-golden.sh
 // (so it can reach `keycloak` and `localhost:4000` over the compose
-// network). Discovers the admin user from the JWT subject claim
-// rather than hard-coding a UUID -- the bootstrap admin is whoever
-// the script can sign in as, which is the right semantic for "the
-// curator whose content makes up the demo."
+// network, and inherits the container's Keycloak service-account
+// credentials).
+//
+// Auth model: a client_credentials token from the portal-api-admin
+// service account. Every interactive realm client ships with
+// directAccessGrantsEnabled=false, so the old password grant as the
+// bootstrap admin can never succeed on a fresh install; the
+// confidential service account is the one credential that can mint
+// a token non-interactively. deploy.sh's Keycloak reconciliation
+// grants that service account a portal-admin identity (org /
+// org_role protocol mappers on the client, org + org_role=admin
+// attributes on the service-account user); without it portal-api
+// rejects the token and this script fails closed with a pointer to
+// re-run deploy.sh.
+//
+// "The admin" whose items survive is identified by USERNAME, not by
+// token subject: the token's sub is the service account, and local
+// user ids can legitimately differ from Keycloak subs for seeded
+// accounts (auth-sync upserts by username and never rewrites ids).
+// Username is the stable join key on both sides, which is the same
+// doctrine portal-api's own admin-users controller follows.
 //
 // For each non-admin item: soft-delete then purge via the portal-api
 // REST endpoints. That routes through ItemsService.purge ->
@@ -18,43 +35,51 @@
 // deletion would leave those as orphans, which then end up in the
 // MinIO tarball and bloat the snapshot.
 //
-// Required env:
-//   ADMIN_PWD       - the bootstrap admin's Keycloak password
-//                     (.env.prod INITIAL_USER_PASSWORD)
+// Required env (present in the portal-api container environment):
+//   KEYCLOAK_ADMIN_CLIENT_ID      - default 'portal-api-admin'
+//   KEYCLOAK_ADMIN_CLIENT_SECRET  - the service-account secret
 // Optional env:
-//   ADMIN_USERNAME  - default 'admin'
-//   API_URL         - default 'http://localhost:4000'
-//   KEYCLOAK_URL    - default 'http://keycloak:8080'
-//   REALM           - default 'gratis-gis'
-//   CLIENT_ID       - default 'portal-web'
+//   ADMIN_USERNAME         - default 'admin'; the bootstrap admin
+//                            whose items make up the demo content
+//   API_URL                - default 'http://localhost:4000'
+//   KEYCLOAK_INTERNAL_URL  - default 'http://keycloak:8080'; must be
+//                            the in-network base because the public
+//                            hostname blocks /admin/* at Caddy
+//   KEYCLOAK_REALM         - default 'gratis-gis'
 //
-// Exit code: 0 on full or partial success (logs are the source of
-// truth). 1 only when the admin token can't be obtained -- without
-// that we can't tell who NOT to purge, so failing closed protects
-// against accidentally wiping everything.
+// Exit code: 0 on full or partial purge success (logs are the source
+// of truth; a single stuck item shouldn't block the snapshot). 1 on
+// any auth, listing, or response-shape failure: if we can't reliably
+// tell what to keep, failing closed protects against both wiping the
+// demo content and silently snapshotting a polluted DB.
 
 const API = process.env.API_URL ?? 'http://localhost:4000';
-const KEYCLOAK = process.env.KEYCLOAK_URL ?? 'http://keycloak:8080';
-const REALM = process.env.REALM ?? 'gratis-gis';
-const CLIENT_ID = process.env.CLIENT_ID ?? 'portal-web';
-const USERNAME = process.env.ADMIN_USERNAME ?? 'admin';
+// KEYCLOAK_URL in this container is the PUBLIC hostname; the admin
+// REST surface is blocked at Caddy there, so the internal docker
+// network address is the one that works for every call we make.
+const KEYCLOAK = process.env.KEYCLOAK_INTERNAL_URL ?? 'http://keycloak:8080';
+const REALM = process.env.KEYCLOAK_REALM ?? 'gratis-gis';
+const CLIENT_ID = process.env.KEYCLOAK_ADMIN_CLIENT_ID ?? 'portal-api-admin';
+const CLIENT_SECRET = process.env.KEYCLOAK_ADMIN_CLIENT_SECRET;
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME ?? 'admin';
 
-if (!process.env.ADMIN_PWD) {
-  console.error('cleanup-non-admin: ADMIN_PWD is required');
+if (!CLIENT_SECRET) {
+  console.error(
+    'cleanup-non-admin: KEYCLOAK_ADMIN_CLIENT_SECRET is required (it is part of the portal-api container environment; run this script via docker exec into that container).',
+  );
   process.exit(1);
 }
 
-async function getAdminToken() {
+async function getServiceToken() {
   const r = await fetch(
     `${KEYCLOAK}/realms/${REALM}/protocol/openid-connect/token`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
-        grant_type: 'password',
+        grant_type: 'client_credentials',
         client_id: CLIENT_ID,
-        username: USERNAME,
-        password: process.env.ADMIN_PWD,
+        client_secret: CLIENT_SECRET,
       }),
     },
   );
@@ -65,43 +90,68 @@ async function getAdminToken() {
   if (!j.access_token) {
     throw new Error(`no access_token: ${JSON.stringify(j).slice(0, 200)}`);
   }
-  // Decode the sub claim so we know which user is "the admin"
-  // without trusting a CLI argument or hard-coded UUID. The signing
-  // step (passport-jwt strategy) is what gates trust on the API
-  // side; we just need to know which id to compare ownerIds against.
+  // Fail fast, with a diagnosis, if the token can't possibly pass
+  // portal-api's auth: the JWT strategy hard-requires the org claim
+  // and the admin endpoints require org_role=admin. Missing claims
+  // mean the deploy.sh Keycloak reconciliation (which installs the
+  // org / org_role mappers on this client and the attributes on its
+  // service-account user) has not run against this realm yet.
   const payload = JSON.parse(
     Buffer.from(j.access_token.split('.')[1], 'base64').toString(),
   );
-  return { token: j.access_token, adminId: payload.sub };
+  if (!payload.org || payload.org_role !== 'admin') {
+    throw new Error(
+      `service-account token is missing org/org_role=admin claims (org=${payload.org ?? 'unset'}, org_role=${payload.org_role ?? 'unset'}); run infra/deploy.sh once so its Keycloak reconciliation grants portal-api-admin a portal-admin identity, then retry`,
+    );
+  }
+  return j.access_token;
 }
 
 /**
  * Walk the items list and the admin trash list, dedupe by id, and
- * return every item the caller can see. The two endpoints partition
- * by deleted_at (live vs trashed) and don't overlap on a healthy
+ * return every item the service account can see (as an org admin,
+ * that is every item in the org). The two endpoints partition by
+ * deleted_at (live vs trashed) and don't overlap on a healthy
  * deployment, but dedupe is cheap defense if a future portal-api
  * version changes the contract.
+ *
+ * Fail-closed rules: any auth error (401/403) or a failure of the
+ * live list aborts the run, because an incomplete listing would
+ * either purge nothing (baking tester garbage into the golden
+ * state) or purge the wrong things. Only a 404 on /trash is
+ * tolerated, for older portal-api versions without that endpoint.
  */
 async function listAllItems(token) {
   const headers = { Authorization: `Bearer ${token}` };
   const byId = new Map();
-  async function pull(path) {
+  async function pull(path, { tolerate404 = false } = {}) {
     const r = await fetch(`${API}${path}`, { headers });
+    if (r.status === 404 && tolerate404) {
+      console.log(`list ${path} -> 404 (endpoint absent; skipping)`);
+      return;
+    }
     if (!r.ok) {
-      console.error(
+      throw new Error(
         `list ${path} -> ${r.status}: ${(await r.text()).slice(0, 200)}`,
       );
-      return;
     }
     const j = await r.json();
     const arr = Array.isArray(j) ? j : (j.items ?? j.data ?? []);
-    for (const it of arr) byId.set(it.id, it);
+    for (const it of arr) {
+      // Shape guard: the keep/purge decision keys on owner.username.
+      // If the API ever stops serializing the owner projection, every
+      // item would look non-admin and the purge would wipe the demo
+      // content, so a missing owner is a hard abort, not a skip.
+      if (typeof it?.owner?.username !== 'string') {
+        throw new Error(
+          `item ${it?.id ?? '(no id)'} from ${path} has no owner.username; response shape changed, refusing to guess what to purge`,
+        );
+      }
+      byId.set(it.id, it);
+    }
   }
   await pull('/api/items?pageSize=500');
-  // /api/items/trash is the admin trash view; tolerates 404 if a
-  // portal-api version doesn't expose it -- the live list alone
-  // still catches the loud case (active tester apps).
-  await pull('/api/items/trash?pageSize=500');
+  await pull('/api/items/trash?pageSize=500', { tolerate404: true });
   return [...byId.values()];
 }
 
@@ -136,11 +186,21 @@ async function purgeOne(token, item) {
 }
 
 (async () => {
-  const { token, adminId } = await getAdminToken();
-  console.log(`cleanup-non-admin: admin = ${adminId}`);
+  const token = await getServiceToken();
+  console.log(
+    `cleanup-non-admin: authenticated as ${CLIENT_ID} service account; keeping items owned by '${ADMIN_USERNAME}'`,
+  );
 
   const items = await listAllItems(token);
-  const toPurge = items.filter((i) => i.ownerId !== adminId);
+  // Keep the bootstrap admin's items. Anything the service account
+  // itself might own (it creates nothing today, but belt and
+  // suspenders) is also kept so the tooling can never eat its own
+  // account's rows.
+  const saUsername = `service-account-${CLIENT_ID}`;
+  const toPurge = items.filter(
+    (i) =>
+      i.owner.username !== ADMIN_USERNAME && i.owner.username !== saUsername,
+  );
   console.log(
     `cleanup-non-admin: ${items.length} items total, ${toPurge.length} non-admin to purge`,
   );
@@ -151,7 +211,7 @@ async function purgeOne(token, item) {
     const success = await purgeOne(token, it);
     if (success) {
       console.log(
-        `  ok ${it.type}\t${it.title} (${it.id}${it.deletedAt ? ', was trashed' : ''})`,
+        `  ok ${it.type}\t${it.title} (${it.id}${it.deletedAt ? ', was trashed' : ''}, owner=${it.owner.username})`,
       );
       ok += 1;
     } else {
@@ -164,8 +224,9 @@ async function purgeOne(token, item) {
   // sees them in the snapshot log.
 })().catch((e) => {
   console.error('cleanup-non-admin FATAL:', e instanceof Error ? e.message : e);
-  // Exit 1 here only if the admin token couldn't be obtained (thrown
-  // above). Anything else is logged + swallowed in purgeOne so the
-  // snapshot doesn't get blocked by one bad item.
+  // Reached on token, listing, or shape failures (thrown above).
+  // Per-item purge failures are logged + swallowed in purgeOne so
+  // one bad item doesn't block the snapshot; everything that
+  // undermines the keep/purge decision itself fails the run.
   process.exit(1);
 });

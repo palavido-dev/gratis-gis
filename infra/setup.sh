@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Guided first-run setup for a self-hosted GratisGIS (#147).
 #
 # Produces infra/.env.prod from infra/.env.prod.example by asking the

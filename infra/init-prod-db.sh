@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Runs once, on first postgres container boot in PRODUCTION. Creates a
 # `keycloak` role + database for the Keycloak service, with the
 # password sourced from KEYCLOAK_DB_PASSWORD in the container env (set

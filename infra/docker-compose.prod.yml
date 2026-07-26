@@ -135,6 +135,40 @@ services:
       # JSON here before bringing keycloak up. Keycloak picks up every
       # *.json on first start when --import-realm is passed.
       - ./keycloak/import:/opt/keycloak/data/import:ro
+    # Keycloak 26 serves /health/* on the management interface (port
+    # 9000, enabled by KC_HEALTH_ENABLED above), not on the main 8080
+    # listener. The image ships neither curl nor wget (and grep is
+    # not guaranteed on ubi-micro either), so the probe is bash
+    # builtins only, via /dev/tcp redirection (the approach
+    # Keycloak's own container guide documents): open a TCP fd to the
+    # management port, send a minimal HTTP/1.1 request, read the
+    # status line, and pass only on a 200. /health/ready includes the
+    # JDBC connection check, so dependents that wait on
+    # service_healthy don't boot until Keycloak can actually answer
+    # token requests. The $$ is compose interpolation escaping for a
+    # literal $.
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: 127.0.0.1:9000\r\nConnection: close\r\n\r\n' >&3 &&
+          read -r status <&3 &&
+          case "$$status" in *' 200 '*) exit 0;; *) exit 1;; esac
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      # First boot with --import-realm parses and imports the whole
+      # realm JSON; give it a generous grace window before failures
+      # start counting.
+      start_period: 120s
+    # JVM ceiling is -Xmx1024m above; the cgroup limit adds headroom
+    # for metaspace, thread stacks, and native buffers on top of the
+    # heap. See the memory-budget comment on portal-api below for the
+    # host-wide arithmetic.
+    mem_limit: 1536m
     networks:
       - gratis-net
 
@@ -179,6 +213,14 @@ services:
       - gratis-net
 
   pg_tileserv:
+    # TODO(pinning): `latest` is the only tag we have evidence for in
+    # this repo, and floating tags turn upstream releases into
+    # unreviewed deploys (see the node:25 note in the app
+    # Dockerfiles). At the next deploy, capture the digest the box is
+    # actually running with
+    #   docker inspect --format '{{index .RepoDigests 0}}' gratis-gis-prod-pg_tileserv
+    # and pin it here as pramsey/pg_tileserv@sha256:<digest>. Do not
+    # guess a version tag.
     image: pramsey/pg_tileserv:latest
     container_name: gratis-gis-prod-pg_tileserv
     restart: unless-stopped
@@ -237,11 +279,37 @@ services:
     restart: unless-stopped
     deploy:
       replicas: 2
+    # Memory budget for the 7.6 GiB (8 GB nominal) prod box. Two
+    # things are capped per service: the V8 old-space ceiling
+    # (NODE_OPTIONS) and the cgroup limit (mem_limit, heap plus
+    # native memory such as GDAL and buffers, set ~512 MiB above the
+    # heap cap).
+    #
+    #   heap ceilings:   api 2 x 2048 + worker 3072      = 7168 MiB
+    #   cgroup limits:   api 2 x 2560 + worker 3584
+    #                    + pointcloud 2560 + keycloak 1536
+    #                    + chromium 2 x 1024              = 13824 MiB
+    #
+    # The limits deliberately oversubscribe the box: they are
+    # runaway caps, not reservations. Steady-state usage is a small
+    # fraction of the caps, and the heavy consumers peak at
+    # different times (ingest in portal-worker, prints in the
+    # chromium sidecars). What the caps buy is that a runaway
+    # container gets OOM-killed inside its own cgroup (and
+    # `restart: unless-stopped` brings it back) instead of the
+    # kernel's global OOM killer shooting postgres. Postgres and the
+    # OS are left uncapped on purpose; they are the last things that
+    # should die. Operators on bigger boxes: raise NODE_OPTIONS and
+    # mem_limit together, keeping the ~512 MiB native headroom.
+    mem_limit: 2560m
     depends_on:
       postgres:
         condition: service_healthy
       keycloak:
-        condition: service_started
+        # Wait for /health/ready, not just process start: the api
+        # fetches the realm JWKS at boot, and racing a still-booting
+        # Keycloak turns into auth 500s until the retry.
+        condition: service_healthy
       minio:
         condition: service_started
       portal-migrate:
@@ -249,15 +317,16 @@ services:
     environment:
       NODE_ENV: production
       PORT: "4000"
-      # Bump Node's old-space heap from the default ~1.5 GB to 4 GB.
-      # GDAL ingest of a county-scale parcel layer (1.4M polygons +
-      # 19 attribute fields) loads the whole FeatureCollection into a
-      # JS array before insertFeatures runs; the default ceiling
-      # OOM-crashes the process mid-import (observed 2026-05-09).
-      # 4 GB unblocks datasets up to ~3M polygon features. The real
-      # fix is streaming ingest in batches (#103); until that lands,
-      # this is the band-aid that keeps Create-item from dying.
-      NODE_OPTIONS: --max-old-space-size=4096
+      # Old-space ceiling for request-scale work. The county-scale
+      # GDAL ingest path that once needed 4 GiB here (observed
+      # 2026-05-09) now runs in portal-worker, which carries the
+      # larger heap below; the api replicas only need room for
+      # request handling plus moderate synchronous imports. Two
+      # replicas at 4096 each plus the worker's 4096 added up to
+      # ~12 GiB of allowed heap on a 7.6 GiB box, which is how a
+      # busy day could OOM the host. Streaming ingest in batches
+      # (#103) remains the real fix for the memory shape.
+      NODE_OPTIONS: --max-old-space-size=2048
       # Migrations are owned by the portal-migrate one-shot. Skip on
       # every long-lived process so N replicas + the worker don't all
       # take the migration lock at boot.
@@ -368,18 +437,24 @@ services:
       context: ..
       dockerfile: apps/portal-api/Dockerfile
     restart: unless-stopped
+    # See the memory-budget comment on portal-api. The worker gets
+    # the biggest heap because the county-scale ingest path (whole
+    # FeatureCollection in memory before insertFeatures) runs here;
+    # 3 GiB covers roughly 2M polygon features. Streaming ingest in
+    # batches (#103) is the real fix.
+    mem_limit: 3584m
     depends_on:
       postgres:
         condition: service_healthy
       keycloak:
-        condition: service_started
+        condition: service_healthy
       minio:
         condition: service_started
       portal-migrate:
         condition: service_completed_successfully
     environment:
       NODE_ENV: production
-      NODE_OPTIONS: --max-old-space-size=4096
+      NODE_OPTIONS: --max-old-space-size=3072
       SKIP_MIGRATE: "true"
       STAGING_DIR: /var/lib/gg-staging
       # The worker never runs the cron leader-election lock because
@@ -437,6 +512,10 @@ services:
       context: ..
       dockerfile: tools/pointcloud-worker/Dockerfile
     restart: unless-stopped
+    # See the memory-budget comment on portal-api. PDAL and untwine
+    # allocate native memory (no V8 heap flag applies); the cgroup
+    # cap keeps a pathological point cloud from squeezing postgres.
+    mem_limit: 2560m
     depends_on:
       postgres:
         condition: service_healthy
@@ -523,6 +602,13 @@ services:
   # exposed to the public network. Each sidecar is capped at 1 GB
   # RSS so a runaway render can't take the host down.
   chromium-1:
+    # TODO(pinning): no version evidence exists in this repo for the
+    # browserless image. At the next deploy, capture the running
+    # digest with
+    #   docker inspect --format '{{index .RepoDigests 0}}' gratis-gis-prod-chromium-1
+    # and pin BOTH chromium services to
+    # ghcr.io/browserless/chromium@sha256:<digest> together. Do not
+    # guess a version tag.
     image: ghcr.io/browserless/chromium:latest
     container_name: gratis-gis-prod-chromium-1
     restart: unless-stopped
@@ -537,6 +623,8 @@ services:
       - SYS_ADMIN
 
   chromium-2:
+    # TODO(pinning): pin to the same digest as chromium-1; see the
+    # note there.
     image: ghcr.io/browserless/chromium:latest
     container_name: gratis-gis-prod-chromium-2
     restart: unless-stopped
@@ -551,14 +639,22 @@ services:
       - SYS_ADMIN
 
   caddy:
-    image: caddy:2-alpine
+    # Pinned to the exact minor rather than the floating 2-alpine
+    # tag, so a Caddy major/minor bump is a reviewed change instead
+    # of a surprise on the next pull (same rationale as the node
+    # pins in the app Dockerfiles). Patch releases within 2.10 still
+    # float; capture a digest here if that ever bites.
+    image: caddy:2.10-alpine
     container_name: gratis-gis-prod-caddy
     restart: unless-stopped
     depends_on:
       portal-web:
         condition: service_started
       keycloak:
-        condition: service_started
+        # Don't serve the auth vhost until Keycloak can actually
+        # answer; avoids a window of 502s on {$AUTH_DOMAIN} during
+        # cold boots.
+        condition: service_healthy
     ports:
       - "80:80"
       - "443:443"

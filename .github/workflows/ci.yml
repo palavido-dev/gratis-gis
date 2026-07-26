@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+# Least privilege: the verify job only reads the checkout. Without
+# an explicit block the workflow inherits the repository default,
+# which can be read-write.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -17,7 +23,12 @@ jobs:
 
     services:
       postgres:
-        image: postgis/postgis:16-3.4
+        # Match what prod actually runs: infra/postgres/Dockerfile is
+        # FROM postgis/postgis:17-3.5 (PG 17 + PostGIS 3.5), and the
+        # portal-api image ships postgresql-client-17 to pair with
+        # it. Testing migrations against 16-3.4 stopped representing
+        # reality when prod upgraded on 2026-05-25.
+        image: postgis/postgis:17-3.5
         env:
           POSTGRES_USER: gratisgis
           POSTGRES_PASSWORD: devpassword
@@ -45,7 +56,11 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v6
         with:
-          node-version: 20
+          # Keep in lockstep with .nvmrc (22.x LTS). The production
+          # container images pin their own Node (see the app
+          # Dockerfiles); this only has to match the developer
+          # toolchain.
+          node-version: 22
           cache: pnpm
 
       - name: Install

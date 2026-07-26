@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Provision the three documented test users on the public test
 # instance (#139). Pairs with PORTAL_LOCK_ADMIN_TIER + the master-
 # admin protection flag: testers can sign in as tester-admin and
@@ -16,10 +17,17 @@
 # in; that's the point.
 #
 # IMPORTANT: this script provisions the users into the LIVE prod
-# realm via the Keycloak admin REST API. After running it once,
-# capture the snapshot with `snapshot-golden.sh` so the daily reset
-# restores these accounts every day. Re-running this script is
-# idempotent: existing users are updated, not duplicated.
+# realm. After running it once, capture the snapshot with
+# `snapshot-golden.sh` so the daily reset restores these accounts
+# every day. Re-running this script is idempotent: existing users
+# are updated, not duplicated.
+#
+# Transport: everything goes through kcadm.sh via docker exec into
+# the keycloak container against localhost:8080, the same way
+# deploy.sh's realm reconciliation works. The public edge is not an
+# option: Caddy blocks both /admin/* and the entire master realm
+# (including its token endpoint) at the auth vhost, so this script
+# must run on the box that hosts the containers.
 #
 # Usage:
 #   sudo ./infra/seed-test-users.sh
@@ -35,46 +43,36 @@ set -a
 source "$ENV_FILE"
 set +a
 
-# Keycloak admin endpoints. KEYCLOAK_URL is the public-facing URL
-# (https://auth.gratisgis.org or similar); we hit /admin/realms/<r>/
-# under it. The script uses the realm's admin client to get a token
-# rather than the master realm so it works against the same client
-# that portal-api already authenticates as.
-KEYCLOAK_URL="${KEYCLOAK_URL:-https://auth.gratisgis.org}"
 REALM="${KEYCLOAK_REALM:-gratis-gis}"
-ADMIN_USER="${KEYCLOAK_BOOTSTRAP_ADMIN:-admin}"
+KEYCLOAK_CONTAINER="${KEYCLOAK_CONTAINER:-gratis-gis-prod-keycloak}"
+# KEYCLOAK_ADMIN / KEYCLOAK_ADMIN_PASSWORD are the .env.prod names
+# (the same ones deploy.sh uses); the BOOTSTRAP_* forms are kept as
+# fallbacks for operators who exported them for the old REST flow.
+ADMIN_USER="${KEYCLOAK_BOOTSTRAP_ADMIN:-${KEYCLOAK_ADMIN:-admin}}"
 ADMIN_PASS="${KEYCLOAK_BOOTSTRAP_PASSWORD:-${KEYCLOAK_ADMIN_PASSWORD:-}}"
 
 if [[ -z "${ADMIN_PASS:-}" ]]; then
-  echo "FATAL: need KEYCLOAK_BOOTSTRAP_PASSWORD or KEYCLOAK_ADMIN_PASSWORD in $ENV_FILE." >&2
-  echo "       This is the master-realm admin password used to mint admin API tokens." >&2
+  echo "FATAL: need KEYCLOAK_ADMIN_PASSWORD (or KEYCLOAK_BOOTSTRAP_PASSWORD) in $ENV_FILE." >&2
+  echo "       This is the master-realm admin password kcadm authenticates with." >&2
   exit 1
 fi
 
-echo "=== Acquiring admin token from $KEYCLOAK_URL/realms/master ==="
-TOKEN="$(curl -fsS -X POST \
-  "$KEYCLOAK_URL/realms/master/protocol/openid-connect/token" \
-  -d "grant_type=password" \
-  -d "client_id=admin-cli" \
-  -d "username=$ADMIN_USER" \
-  -d "password=$ADMIN_PASS" \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')"
+# kcadm wrappers matching deploy.sh: KC for plain calls, KCI when a
+# JSON body is piped through stdin (kcadm's `-f -` reads standard
+# input, and docker exec needs -i for the pipe to reach it).
+KC() { docker exec "$KEYCLOAK_CONTAINER" /opt/keycloak/bin/kcadm.sh "$@"; }
+KCI() { docker exec -i "$KEYCLOAK_CONTAINER" /opt/keycloak/bin/kcadm.sh "$@"; }
 
-if [[ -z "$TOKEN" ]]; then
-  echo "FATAL: failed to obtain admin token." >&2
+echo "=== Authenticating kcadm against the master realm (in-container) ==="
+if ! KC config credentials \
+    --server http://localhost:8080 \
+    --realm master \
+    --user "$ADMIN_USER" \
+    --password "$ADMIN_PASS" >/dev/null 2>&1; then
+  echo "FATAL: kcadm could not authenticate. Is the keycloak container ($KEYCLOAK_CONTAINER)" >&2
+  echo "       running, and is KEYCLOAK_ADMIN_PASSWORD current in $ENV_FILE?" >&2
   exit 1
 fi
-
-api() {
-  local method="$1"
-  local path="$2"
-  shift 2
-  curl -fsS -X "$method" \
-    "$KEYCLOAK_URL/admin/realms/$REALM$path" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    "$@"
-}
 
 # Lock down the realm's user-profile config so end users cannot
 # edit the email field through the Account Console.  Without this,
@@ -84,7 +82,7 @@ api() {
 # config in the same state.
 lock_email_profile() {
   echo "=== Locking realm user-profile: email is admin-edit only ==="
-  api GET "/users/profile" > /tmp/gg-profile.json
+  KC get users/profile -r "$REALM" > /tmp/gg-profile.json
   python3 << 'PY' > /tmp/gg-profile-new.json
 import json
 p = json.load(open('/tmp/gg-profile.json'))
@@ -94,7 +92,8 @@ for a in p.get('attributes', []):
         a.pop('required', None)
 print(json.dumps(p))
 PY
-  api PUT "/users/profile" -d @/tmp/gg-profile-new.json > /dev/null
+  KCI update users/profile -r "$REALM" -f - < /tmp/gg-profile-new.json
+  rm -f /tmp/gg-profile.json /tmp/gg-profile-new.json
   echo "  done"
 }
 
@@ -103,7 +102,7 @@ lock_email_profile
 # Resolve a username to its Keycloak user id, or "" if absent.
 user_id() {
   local username="$1"
-  api GET "/users?username=$username&exact=true" \
+  KC get users -r "$REALM" -q username="$username" -q exact=true --fields id \
     | python3 -c 'import json,sys; arr=json.load(sys.stdin); print(arr[0]["id"] if arr else "")'
 }
 
@@ -137,7 +136,7 @@ print(json.dumps({
   'emailVerified': False,
   'enabled': True,
   'attributes': {
-    'org': ['${PORTAL_ORG_SLUG:-gratis-gis}'],
+    'org': ['${PORTAL_ORG_SLUG:-${DEFAULT_ORG_SLUG:-gratis-gis}}'],
     'org_role': ['$org_role'],
   },
 }))
@@ -145,27 +144,23 @@ print(json.dumps({
 
   if [[ -n "$existing" ]]; then
     echo "  user already exists ($existing); updating profile + role"
-    api PUT "/users/$existing" -d "$body" > /dev/null
+    printf '%s' "$body" | KCI update "users/$existing" -r "$REALM" -f -
   else
     echo "  creating new user"
-    api POST "/users" -d "$body" > /dev/null
+    printf '%s' "$body" | KCI create users -r "$REALM" -f -
     existing="$(user_id "$username")"
+    if [[ -z "$existing" ]]; then
+      echo "FATAL: created $username but cannot resolve its id afterwards; check kcadm output." >&2
+      exit 1
+    fi
   fi
 
-  # Reset password to the documented value. password_credentials
-  # is the same endpoint Keycloak's admin UI uses; temporary=false
-  # means the user is NOT forced to change it on next login.
+  # Reset password to the documented value. kcadm set-password hits
+  # the same reset-password endpoint Keycloak's admin UI uses;
+  # without --temporary the user is NOT forced to change it on next
+  # login.
   echo "  setting password"
-  local pwd_body
-  pwd_body="$(python3 -c "
-import json
-print(json.dumps({
-  'type': 'password',
-  'value': '$password',
-  'temporary': False,
-}))
-")"
-  api PUT "/users/$existing/reset-password" -d "$pwd_body" > /dev/null
+  KC set-password -r "$REALM" --userid "$existing" --new-password "$password"
 
   echo "  done: $username"
 }

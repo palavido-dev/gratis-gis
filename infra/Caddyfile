@@ -176,20 +176,24 @@ www.{$PORTAL_DOMAIN} {
     encode gzip zstd
 
     # Lock the Keycloak admin surface to the LAN / SSH-tunnel side.
-    # Three groups of paths are blocked at the edge:
+    # Two groups of paths are blocked at the edge:
     #
-    # 1. Master-realm admin console + interactive login surfaces.
-    #    The master realm has root admin rights over every other
-    #    realm on this server.
+    # 1. The ENTIRE master realm at /realms/master/*. The master
+    #    realm has root admin rights over every other realm on this
+    #    server, and unlike the gratis-gis realm it ships with no
+    #    brute-force protection, so leaving even its token endpoint
+    #    internet-reachable hands attackers an unthrottled password
+    #    oracle for the most powerful account on the box. Nothing
+    #    legitimate needs it from outside: deploy.sh,
+    #    restore-golden.sh, and seed-test-users.sh all run kcadm.sh
+    #    inside the container against localhost:8080, and
+    #    cleanup-non-admin.mjs talks to keycloak:8080 over the
+    #    docker network. None of that traffic crosses Caddy.
     # 2. The whole Admin REST API at /admin/realms/* and related
     #    introspection endpoints (/admin/serverinfo, /metrics).
     #    portal-api speaks to Keycloak over the docker network as
     #    keycloak:8080, so nothing the application needs goes
     #    through Caddy to /admin/*.
-    # 3. The master-realm interactive login flow.  Our own scripts
-    #    (seed-test-users.sh, the email-lock helper) keep working
-    #    because they POST to /realms/master/protocol/openid-connect/token,
-    #    which is deliberately left through.
     #
     # The gratis-gis realm stays fully reachable for end-user auth
     # via /realms/gratis-gis/*.
@@ -199,15 +203,11 @@ www.{$PORTAL_DOMAIN} {
     #   ssh -L 8081:localhost:8081 gratis  # forward the host port
     #   open http://localhost:8081/admin/  # or run kcadm.sh inside the container
     @adminApi path /admin /admin/* /metrics
-    @masterLoginUi path /realms/master/account /realms/master/account/* \
-                        /realms/master/login-actions /realms/master/login-actions/* \
-                        /realms/master/protocol/openid-connect/auth \
-                        /realms/master/protocol/openid-connect/registrations \
-                        /realms/master/.well-known/openid-configuration
+    @masterRealm path /realms/master /realms/master/*
     handle @adminApi {
         respond 404
     }
-    handle @masterLoginUi {
+    handle @masterRealm {
         respond 404
     }
 

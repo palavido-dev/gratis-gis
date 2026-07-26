@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Capture a "golden state" snapshot of the running GratisGIS prod
 # stack. Used to seed the daily reset for the public test instance
 # (#138). Run this ONCE, after setting up the demo content the way
@@ -48,14 +49,18 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
-# Mutex with restore-golden.sh.  Both scripts stop services and
-# touch /var/lib/gratis-gis-golden; running them concurrently
-# (e.g. a manual snapshot during the 04:00 UTC reset window)
-# corrupts the dumps half-mid-write AND can leave the live
-# postgres database in a dropped + empty state because
-# restore-golden.sh's pg_restore reads the in-progress dump and
-# errors out after the DROP. Fail fast rather than racing.
-LOCK_FILE="${GOLDEN_LOCK_FILE:-/var/lock/gratisgis-golden-state.lock}"
+# Mutex with restore-golden.sh AND deploy.sh. All three mutate the
+# running stack; running any two concurrently (e.g. a manual
+# snapshot during the 04:00 UTC reset window, or a deploy rolling
+# containers mid-dump) corrupts the dumps half-mid-write AND can
+# leave the live postgres database in a dropped + empty state
+# because restore-golden.sh's pg_restore reads the in-progress dump
+# and errors out after the DROP. Fail fast rather than racing.
+# The lock file is the same one deploy.sh holds for its whole run
+# and the gg-reset-demo systemd unit checks via ExecCondition;
+# override GRATISGIS_LOCK_FILE in every script together or not at
+# all.
+LOCK_FILE="${GRATISGIS_LOCK_FILE:-/var/lock/gratisgis-deploy.lock}"
 mkdir -p "$(dirname "$LOCK_FILE")"
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
@@ -98,15 +103,21 @@ dc() {
 # tarball and bloat every future snapshot by 50-100MB of dead
 # bytes.
 #
-# Failure mode: if the admin token can't be obtained (Keycloak
-# down, INITIAL_USER_PASSWORD rotated without updating .env.prod)
-# the script fails closed and aborts the snapshot. Without the
-# admin id we can't tell who NOT to purge, and silently snapshotting
-# a polluted DB is worse than refusing to snapshot at all.
-if [[ -z "${INITIAL_USER_PASSWORD:-}" ]]; then
-  echo "FATAL: INITIAL_USER_PASSWORD missing from .env.prod -- can't sign in as bootstrap admin to run pre-snapshot cleanup." >&2
-  exit 1
-fi
+# Failure mode: if the service-account token can't be obtained
+# (Keycloak down, KEYCLOAK_ADMIN_CLIENT_SECRET rotated) or the
+# portal-api rejects it, the script fails closed and aborts the
+# snapshot. Without an authenticated item list we can't tell what
+# to purge, and silently snapshotting a polluted DB is worse than
+# refusing to snapshot at all.
+#
+# Auth: the script authenticates with a client_credentials token
+# from the portal-api-admin service account; the credentials are
+# already in the portal-api container's environment
+# (KEYCLOAK_ADMIN_CLIENT_ID / KEYCLOAK_ADMIN_CLIENT_SECRET), so
+# docker exec inherits them and nothing secret crosses the host
+# command line. deploy.sh's Keycloak reconciliation is what grants
+# that service account a portal-admin identity; if this step fails
+# with a claims error, run infra/deploy.sh once and retry.
 echo "=== Pre-snapshot purge of non-admin items ==="
 PORTAL_API_CONTAINER="$(dc ps -q portal-api 2>/dev/null | head -n 1)"
 if [[ -z "$PORTAL_API_CONTAINER" ]]; then
@@ -116,7 +127,6 @@ fi
 docker cp "$INFRA_DIR/cleanup-non-admin.mjs" \
   "${PORTAL_API_CONTAINER}:/tmp/cleanup-non-admin.mjs"
 docker exec \
-  -e ADMIN_PWD="$INITIAL_USER_PASSWORD" \
   -e ADMIN_USERNAME="$ADMIN_USERNAME" \
   "$PORTAL_API_CONTAINER" \
   node /tmp/cleanup-non-admin.mjs
@@ -129,23 +139,57 @@ docker exec \
 docker exec -u 0 "$PORTAL_API_CONTAINER" \
   rm -f /tmp/cleanup-non-admin.mjs || true
 
+# Every artifact is written to a .tmp path first, verified, and only
+# then moved over the previous generation. A crash or a truncated
+# write therefore can never replace a good golden set with a corrupt
+# one; the nightly restore keeps reading the last complete set. The
+# EXIT trap below removes leftover .tmp files and, if the script
+# dies after services were stopped, restarts them so a failed 2am
+# snapshot doesn't leave the demo down until morning.
+APP_DUMP_TMP="$GOLDEN_DIR/postgres-app.dump.tmp"
+KC_DUMP_TMP="$GOLDEN_DIR/postgres-keycloak.dump.tmp"
+MINIO_TAR_TMP="$GOLDEN_DIR/minio.tar.tmp"
+GG_SERVICES_STOPPED=0
+cleanup_on_exit() {
+  local rc=$?
+  rm -f "$APP_DUMP_TMP" "$KC_DUMP_TMP" "$MINIO_TAR_TMP"
+  if [[ $rc -ne 0 && "$GG_SERVICES_STOPPED" == 1 ]]; then
+    echo "WARN: snapshot failed (rc=$rc); restarting stopped services." >&2
+    dc start minio || true
+    sleep 3
+    dc start keycloak pg_tileserv portal-web portal-worker pointcloud-worker portal-api || true
+  fi
+  exit "$rc"
+}
+trap cleanup_on_exit EXIT
+
 echo "=== Stopping app services for consistent snapshot ==="
 # Stop in dependency order; postgres stays up so we can pg_dump.
-dc stop portal-api portal-worker portal-web keycloak
+# pointcloud-worker writes both postgres and minio mid-job, and
+# pg_tileserv holds read connections; stop both so the dumps and
+# the volume tar are one consistent point in time.
+GG_SERVICES_STOPPED=1
+dc stop portal-api portal-worker pointcloud-worker portal-web keycloak pg_tileserv
+
+PG_CONTAINER="$(dc ps -q postgres | head -n 1)"
+if [[ -z "$PG_CONTAINER" ]]; then
+  echo "FATAL: postgres container not running; cannot dump." >&2
+  exit 1
+fi
 
 echo "=== Dumping Postgres: $POSTGRES_DB_APP ==="
 dc exec -T postgres pg_dump \
   -U "$POSTGRES_USER" \
   -d "$POSTGRES_DB_APP" \
   -F c -Z 6 \
-  > "$GOLDEN_DIR/postgres-app.dump"
+  > "$APP_DUMP_TMP"
 
 echo "=== Dumping Postgres: $KEYCLOAK_DB_NAME ==="
 dc exec -T postgres pg_dump \
   -U "$POSTGRES_USER" \
   -d "$KEYCLOAK_DB_NAME" \
   -F c -Z 6 \
-  > "$GOLDEN_DIR/postgres-keycloak.dump"
+  > "$KC_DUMP_TMP"
 
 echo "=== Snapshotting MinIO volume ==="
 # Run a throwaway alpine container with both the minio volume and
@@ -170,13 +214,36 @@ docker run --rm \
   -v "${COMPOSE_PROJECT}_miniodata":/data:ro \
   -v "$GOLDEN_DIR":/out \
   alpine:3.20 \
-  tar cf /out/minio.tar -C /data .
+  tar cf /out/minio.tar.tmp -C /data .
+
+echo "=== Verifying snapshot artifacts ==="
+# pg_restore --list parses the archive's table of contents, which is
+# the real integrity check for a custom-format dump (a truncated or
+# garbage file fails it). It reads the archive from stdin; plain
+# docker exec on purpose, compose's exec wrapper hangs on stdio (see
+# restore-golden.sh for the war story).
+docker exec -i "$PG_CONTAINER" pg_restore --list < "$APP_DUMP_TMP" > /dev/null \
+  || { echo "FATAL: app dump failed pg_restore --list verification." >&2; exit 1; }
+docker exec -i "$PG_CONTAINER" pg_restore --list < "$KC_DUMP_TMP" > /dev/null \
+  || { echo "FATAL: keycloak dump failed pg_restore --list verification." >&2; exit 1; }
+# tar -tf walks the whole archive; a truncated tar fails partway.
+tar -tf "$MINIO_TAR_TMP" > /dev/null \
+  || { echo "FATAL: minio tar failed tar -tf verification." >&2; exit 1; }
+
+# All three verified: move them into place together so the golden
+# set is always same-generation. mv within one directory is atomic
+# on the filesystem level; the restore script can never observe a
+# half-written file.
+mv -f "$APP_DUMP_TMP" "$GOLDEN_DIR/postgres-app.dump"
+mv -f "$KC_DUMP_TMP" "$GOLDEN_DIR/postgres-keycloak.dump"
+mv -f "$MINIO_TAR_TMP" "$GOLDEN_DIR/minio.tar"
 
 echo "=== Restarting app services ==="
 dc start minio
 # Wait a beat for minio to be ready before app services start hitting it.
 sleep 3
-dc start keycloak portal-web portal-worker portal-api
+dc start keycloak pg_tileserv portal-web portal-worker pointcloud-worker portal-api
+GG_SERVICES_STOPPED=0
 
 echo "=== Snapshot complete ==="
 ls -lh "$GOLDEN_DIR"

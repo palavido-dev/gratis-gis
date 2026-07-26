@@ -1,0 +1,55 @@
+# Root .dockerignore for every image built from the repo-root context
+# (apps/portal-api, apps/portal-web, tools/pointcloud-worker). The
+# per-app .dockerignore files are inert for those builds: Docker only
+# reads the .dockerignore that sits next to the build context root,
+# and docker-compose.prod.yml sets `context: ..` (the repo root).
+#
+# Patterns here are context-root-relative. A pattern without a
+# leading **/ only matches at the repo root; keep it that way for the
+# scratch-file patterns below so legitimate source under apps/ and
+# packages/ (for example apps/portal-web/public/sw.js) is never
+# excluded. The Dockerfiles COPY: package.json, pnpm-lock.yaml,
+# pnpm-workspace.yaml, turbo.json, tsconfig.base.json, packages/,
+# apps/ (including apps/portal-web/content and public), and
+# tools/pointcloud-worker/runner.py. Nothing below touches those.
+
+# Heavy build state. All of it is regenerated inside the build.
+**/node_modules
+**/.next
+**/dist
+**/.turbo
+**/__pycache__
+**/coverage
+**/*.tsbuildinfo
+
+# Version control and editor state.
+.git
+.obsidian
+**/.DS_Store
+**/Thumbs.db
+
+# Secrets and materialized secret-bearing files. The builds never
+# COPY infra/, but keeping these out of the context is defense in
+# depth against a future COPY widening.
+infra/.env.prod*
+infra/keycloak/import
+
+# Logs anywhere in the tree (** matches zero or more directories, so
+# this covers root-level logs too).
+**/*.log
+
+# Local-only scratch directories.
+local_*
+
+# Repo-root scratch files (commit-message drafts, typecheck capture
+# files, PowerShell helpers, test uploads). Root-anchored on purpose:
+# these patterns must not reach into apps/ or packages/.
+*.cmd
+*.ps1
+*.txt
+*.js
+*.zip
+*.geojson
+
+# Backup archives if BACKUP_DIR was ever pointed inside the repo.
+backups

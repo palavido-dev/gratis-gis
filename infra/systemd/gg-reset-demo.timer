@@ -13,10 +13,11 @@ Documentation=https://github.com/palavido-dev/gratis-gis
 OnCalendar=*-*-* 04:00:00 UTC
 Persistent=true
 # Don't run while the deploy script is actively rolling images.
-# infra/deploy.sh writes /var/lib/gratis-gis-golden/deploy.lock
-# at start and removes it at end; the unit refuses to run if the
-# lock exists. (Implementation in deploy.sh; if the file is missing,
-# the unit runs as normal.)
+# deploy.sh, snapshot-golden.sh, and restore-golden.sh all take the
+# same flock on /var/lock/gratisgis-deploy.lock; the service unit's
+# ExecCondition probes it with `flock -n` and skips this firing
+# cleanly when it is held, and restore-golden.sh re-checks the same
+# lock itself as the authoritative guard.
 Unit=gg-reset-demo.service
 
 [Install]

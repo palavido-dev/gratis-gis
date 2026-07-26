@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # GratisGIS deployment doctor (#147). Read-only diagnostics: checks
 # dependencies, host resources, DNS, the env file, and (when the
 # stack is running) container health and the public endpoints, then
@@ -52,6 +53,76 @@ if [ "${DISK_AVAIL_GB:-0}" -lt 15 ]; then
   warn "free disk: ${DISK_AVAIL_GB} GB (image builds and the database want 20 GB or more; docker builder prune -af reclaims build cache)"
 else
   pass "free disk: ${DISK_AVAIL_GB} GB"
+fi
+
+section "Edge ports (80/443)"
+# Caddy is the only thing allowed to hold 80 and 443. A foreign
+# listener (host nginx, another compose project) means cert issuance
+# and every request will fail, so that is a hard FAIL. A listener
+# owned by a container that publishes the port is the stack's own
+# Caddy (or its docker-proxy) and is fine.
+if command -v ss >/dev/null 2>&1; then
+  for p in 80 443; do
+    LISTENER="$(ss -H -ltn "sport = :$p" 2>/dev/null || true)"
+    if [ -z "$LISTENER" ]; then
+      pass "port $p free (Caddy binds it on deploy)"
+    elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+      HOLDER="$(docker ps --filter "publish=$p" --format '{{.Names}}' 2>/dev/null | head -1 || true)"
+      if [ -n "$HOLDER" ]; then
+        pass "port $p held by compose container ${HOLDER}"
+      else
+        fail "port $p is taken by something outside the compose stack; Caddy cannot bind it (ss -ltnp as root shows the holder)"
+      fi
+    else
+      warn "port $p has a listener but docker is unreachable, cannot attribute it"
+    fi
+  done
+else
+  warn "ss not available; skipped the 80/443 listener check"
+fi
+
+section "Memory budget (compose heap ceilings vs MemTotal)"
+# Worst-case arithmetic from the values actually configured in
+# docker-compose.prod.yml: every Node old-space ceiling (portal-api
+# counted once per replica), the Keycloak -Xmx, plus a coarse
+# postgres allowance (its shm_size plus 512 MB for backends). Heap
+# flags are ceilings, not reservations, so an oversubscribed sum is
+# a WARN with the numbers spelled out, not a FAIL: the compose file
+# pairs each ceiling with a mem_limit precisely so a runaway
+# container gets OOM-killed in its own cgroup instead of squeezing
+# postgres. See the memory-budget comment in docker-compose.prod.yml.
+COMPOSE_PROD="${SCRIPT_DIR}/docker-compose.prod.yml"
+if [ ! -f "$COMPOSE_PROD" ]; then
+  warn "docker-compose.prod.yml not found; skipped"
+else
+  MEM_MB="$(awk '/MemTotal/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 0)"
+  # awk tracks the current top-level compose service (two-space
+  # indented key) so each heap flag is attributed to its service.
+  API_HEAP_MB="$(awk '/^  [A-Za-z0-9_-]+:/ {svc=$1; sub(":","",svc)} /max-old-space-size=/ {if (svc=="portal-api") {match($0,/max-old-space-size=[0-9]+/); print substr($0,RSTART+19,RLENGTH-19); exit}}' "$COMPOSE_PROD")"
+  WORKER_HEAP_MB="$(awk '/^  [A-Za-z0-9_-]+:/ {svc=$1; sub(":","",svc)} /max-old-space-size=/ {if (svc=="portal-worker") {match($0,/max-old-space-size=[0-9]+/); print substr($0,RSTART+19,RLENGTH-19); exit}}' "$COMPOSE_PROD")"
+  API_REPLICAS="$(awk '/^  [A-Za-z0-9_-]+:/ {svc=$1; sub(":","",svc)} /^ *replicas:/ {if (svc=="portal-api") {print $2; exit}}' "$COMPOSE_PROD")"
+  KC_XMX_MB="$(grep -o -- '-Xmx[0-9]*m' "$COMPOSE_PROD" 2>/dev/null | head -1 | tr -dc '0-9' || true)"
+  SHM_RAW="$(awk '/shm_size:/ {print $2; exit}' "$COMPOSE_PROD" 2>/dev/null || true)"
+  case "$SHM_RAW" in
+    *g|*G) SHM_MB=$(( ${SHM_RAW%[gG]} * 1024 )) ;;
+    *m|*M) SHM_MB=$(( ${SHM_RAW%[mM]} )) ;;
+    *) SHM_MB=0 ;;
+  esac
+  if [ -z "${API_HEAP_MB:-}" ] || [ -z "${WORKER_HEAP_MB:-}" ] || [ -z "${KC_XMX_MB:-}" ]; then
+    warn "could not parse heap flags out of docker-compose.prod.yml (api='${API_HEAP_MB:-}', worker='${WORKER_HEAP_MB:-}', keycloak='${KC_XMX_MB:-}'); the file layout changed, update this check"
+  elif [ "${MEM_MB:-0}" -eq 0 ]; then
+    warn "could not read MemTotal; skipped"
+  else
+    API_REPLICAS="${API_REPLICAS:-1}"
+    PG_BUDGET_MB=$(( SHM_MB + 512 ))
+    TOTAL_MB=$(( API_HEAP_MB * API_REPLICAS + WORKER_HEAP_MB + KC_XMX_MB + PG_BUDGET_MB ))
+    DETAIL="api ${API_HEAP_MB}x${API_REPLICAS} + worker ${WORKER_HEAP_MB} + keycloak ${KC_XMX_MB} + postgres ~${PG_BUDGET_MB} = ${TOTAL_MB} MB vs ${MEM_MB} MB MemTotal"
+    if [ $(( TOTAL_MB + 1024 )) -le "$MEM_MB" ]; then
+      pass "worst-case budget fits with 1 GB headroom: ${DETAIL}"
+    else
+      warn "worst-case budget oversubscribes RAM: ${DETAIL}. Ceilings are caps, not reservations, and mem_limits contain runaways, but if cgroup OOM kills show up in dmesg, lower the heap flags or add RAM"
+    fi
+  fi
 fi
 
 section "Environment file"

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Routine prod-host maintenance. Reclaims disk that accumulates as a
 # normal side-effect of `docker compose build` runs (the deploy
 # pipeline) and tidies log scratch. Idempotent and safe to run

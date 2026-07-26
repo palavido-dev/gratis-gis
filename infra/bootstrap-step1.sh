@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 #
 # GratisGIS server bootstrap - Step 1: harden the box and install Docker.
 # Idempotent; safe to re-run.

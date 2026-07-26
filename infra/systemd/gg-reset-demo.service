@@ -17,6 +17,18 @@ Type=oneshot
 # script.
 Environment=PORTAL_PUBLIC_TESTING=1
 WorkingDirectory=/opt/gratis-gis
+# Defer the reset while a deploy (or a manual snapshot/restore) is
+# in flight. /var/lock/gratisgis-deploy.lock is the shared flock
+# that deploy.sh holds for its whole run and the golden scripts
+# take around theirs; `flock -n <file> <cmd>` grabs it just long
+# enough to prove nobody holds it. ExecCondition (systemd 243+)
+# skips the unit cleanly, without marking it failed, when the probe
+# exits nonzero. This is only the polite fast path: even if the
+# probe races a deploy that starts a moment later,
+# restore-golden.sh itself takes the same flock non-blocking and
+# exits 0, so the reset can never run concurrently with a deploy
+# either way.
+ExecCondition=/usr/bin/flock -n /var/lock/gratisgis-deploy.lock /bin/true
 ExecStart=/opt/gratis-gis/infra/restore-golden.sh
 # A reset that hangs (docker exec stuck on a hung postgres backend,
 # tar wedged on a phantom file lock) shouldn't hold the timer hostage
