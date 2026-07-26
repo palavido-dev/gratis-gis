@@ -45,31 +45,36 @@ import {
 } from '@/lib/custom-basemap';
 import { getCachedUserName } from '@/lib/user-name-cache';
 
-// Register pmtiles:// and cog:// on THIS module's maplibregl instance,
-// at module load and again in the map's create effect. Registration
-// must run against the same maplibregl object `new maplibregl.Map`
-// uses: #209 was a run of raster/DEM sources failing with "URL scheme
-// pmtiles/cog is not supported" because the production bundler
-// (Turbopack) could split maplibre-gl into two runtime instances, so
-// addProtocol wrote one instance's registry while the map read the
-// other's. Production now builds with webpack (next build --webpack),
-// whose runtime keys every module by one id and cannot duplicate the
-// registry; registering inline here (instead of via a side effect in
-// another module) additionally keeps the timing correct no matter how
-// chunks load. The guard is a flag on the maplibregl object itself so
-// it is idempotent and an SSR pass (window undefined) cannot mark it
-// registered for the client.
+// Register pmtiles:// and cog:// so raster tile layers and DEM-draped
+// terrain can resolve their scheme. addProtocol writes a MODULE-GLOBAL
+// registry inside maplibre-gl, which means it is shared state that any
+// other surface in the SPA session can also write to or CLEAR.
+//
+// That sharing is what actually caused #209, after several wrong
+// guesses at the bundler: the tile-layer item page registered the same
+// two schemes on mount and called removeProtocol on unmount, so the
+// moment you opened a hillshade item and then clicked "Add to map",
+// the item page tore the schemes out from under the map on its way
+// out. Every registration path then skipped re-adding them because
+// each one guarded on its own "already registered" boolean, and those
+// booleans still said true while the registry was empty. The item
+// PREVIEW kept working (it registers on its own mount) which is why
+// the bug always looked like "preview fine, map broken".
+//
+// So: never trust a cached flag for state we do not exclusively own.
+// Re-assert on every call instead. Both calls are plain dictionary
+// writes, so re-asserting is effectively free; the PMTiles instance is
+// kept module-level so its archive header cache survives the repeats.
+let pmtilesProtocol: PMTilesProtocol | null = null;
 function registerMapProtocols(): void {
   if (typeof window === 'undefined') return;
-  const gl = maplibregl as unknown as { __ggRasterProtocols?: boolean };
-  if (gl.__ggRasterProtocols) return;
   try {
-    maplibregl.addProtocol('pmtiles', new PMTilesProtocol().tile);
+    if (!pmtilesProtocol) pmtilesProtocol = new PMTilesProtocol();
+    maplibregl.addProtocol('pmtiles', pmtilesProtocol.tile);
     maplibregl.addProtocol(
       'cog',
       cogProtocol as unknown as Parameters<typeof maplibregl.addProtocol>[1],
     );
-    gl.__ggRasterProtocols = true;
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('map raster protocol registration failed', err);
@@ -2826,6 +2831,10 @@ function syncOverlays(
     // so no {z}/{x}/{y} template is involved.
     if (layer.source.kind === 'tile') {
       const src = layer.source;
+      // Last line of defense: a layer can be added to an already-open
+      // map long after the create effect ran, so re-assert the schemes
+      // immediately before the source that needs them (#209).
+      registerMapProtocols();
       const rasterId = `gg:${layer.id}:raster`;
       if (m.getLayer(rasterId)) {
         // Survived the teardown (same tile URL): reposition to this

@@ -22,15 +22,14 @@ import type { BasemapData } from '@gratis-gis/shared-types';
 //               and stays valid even after the pyramid lands so
 //               an older saved view still resolves.
 //
-// The protocol is global state on the maplibregl singleton, so we
-// register each scheme once per page and guard with a global flag so
-// repeat calls (multiple maps on a page, HMR) are no-ops.
-declare global {
-  // eslint-disable-next-line no-var
-  var __ggPmtilesRegistered: boolean | undefined;
-  // eslint-disable-next-line no-var
-  var __ggCogRegistered: boolean | undefined;
-}
+// The protocol registry is global state on the maplibregl singleton,
+// shared with every other map surface, so this module cannot assume it
+// still holds whatever it wrote earlier. See the #209 note in
+// map-canvas: a cached "already registered" flag outlived the
+// registration itself and permanently hid the missing scheme. Re-assert
+// on every call instead of guarding; the PMTiles instance is kept
+// module-level so its archive header cache survives the repeats.
+let pmtilesProtocol: Protocol | null = null;
 
 /**
  * Register the pmtiles:// and cog:// protocols on the MapLibre
@@ -49,32 +48,27 @@ declare global {
  */
 export function ensureRasterProtocols(): void {
   // addProtocol touches the browser-only maplibregl singleton; skip
-  // during SSR so a server render never sets the guard for the client.
+  // during SSR, where there is no registry to write to.
   if (typeof window === 'undefined') return;
-  if (globalThis.__ggPmtilesRegistered === undefined) {
-    try {
-      const protocol = new Protocol();
-      maplibregl.addProtocol('pmtiles', protocol.tile);
-      globalThis.__ggPmtilesRegistered = true;
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('failed to register the pmtiles:// map protocol', err);
-    }
+  try {
+    if (!pmtilesProtocol) pmtilesProtocol = new Protocol();
+    maplibregl.addProtocol('pmtiles', pmtilesProtocol.tile);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('failed to register the pmtiles:// map protocol', err);
   }
-  if (globalThis.__ggCogRegistered === undefined) {
-    try {
-      // The @geomatico plugin exports the handler as the function
-      // itself. MapLibre's addProtocol() typings disagree on the
-      // handler shape across versions, hence the unknown cast.
-      maplibregl.addProtocol(
-        'cog',
-        cogProtocol as unknown as Parameters<typeof maplibregl.addProtocol>[1],
-      );
-      globalThis.__ggCogRegistered = true;
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('failed to register the cog:// map protocol', err);
-    }
+  try {
+    // The @geomatico plugin exports the handler as the function
+    // itself. MapLibre's addProtocol() typings disagree on the
+    // handler shape across versions, hence the unknown cast.
+    // Separate try/catch so one broken plugin cannot block the other.
+    maplibregl.addProtocol(
+      'cog',
+      cogProtocol as unknown as Parameters<typeof maplibregl.addProtocol>[1],
+    );
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('failed to register the cog:// map protocol', err);
   }
 }
 
