@@ -16,7 +16,8 @@ import {
   stat,
   writeFile,
 } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { createWriteStream, existsSync } from 'node:fs';
+import { pipeline } from 'node:stream/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -126,6 +127,62 @@ export class IngestStagingService implements OnModuleInit {
       filePath,
       originalName: input.originalName,
       sizeBytes: input.buffer.length,
+    };
+  }
+
+  /**
+   * Stream variant of stage() for callers whose source is already a
+   * Readable (the analysis bridge pulling a multi-hundred-MB contour
+   * GeoJSON artifact out of MinIO). stage() forces the whole payload
+   * through one Buffer, which held entire artifacts in worker-process
+   * memory; piping straight to disk keeps peak memory at pipe-buffer
+   * size regardless of artifact size. Same on-disk layout and meta
+   * contract as stage(), so getStaging() consumers cannot tell the
+   * difference.
+   */
+  async stageStream(input: {
+    stream: NodeJS.ReadableStream;
+    originalName: string;
+    ownerId: string;
+  }): Promise<{
+    stagingId: string;
+    filePath: string;
+    originalName: string;
+    sizeBytes: number;
+  }> {
+    const stagingId = randomUUID();
+    const dir = join(this.root, stagingId);
+    await mkdir(dir, { recursive: true });
+    const fileName = safeFilename(input.originalName);
+    const filePath = join(dir, fileName);
+    try {
+      await pipeline(input.stream, createWriteStream(filePath));
+    } catch (err) {
+      // A half-written staging must not survive: the id was never
+      // returned so nothing references it, and meta.json is written
+      // after the bytes on purpose so the cleanup cron's meta-less
+      // fallback would catch a crash between these two steps.
+      await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+      throw err;
+    }
+    // Size comes from the file itself; a stream has no trustworthy
+    // up-front length.
+    const sizeBytes = (await stat(filePath)).size;
+    const meta: StagingMeta = {
+      ownerId: input.ownerId,
+      originalName: input.originalName,
+      sizeBytes,
+      createdAt: new Date().toISOString(),
+    };
+    await writeFile(join(dir, 'meta.json'), JSON.stringify(meta));
+    this.log.log(
+      `Staged ${input.originalName} (${sizeBytes} B, streamed) as ${stagingId} for user ${input.ownerId}`,
+    );
+    return {
+      stagingId,
+      filePath,
+      originalName: input.originalName,
+      sizeBytes,
     };
   }
 

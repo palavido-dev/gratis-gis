@@ -1,5 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
@@ -79,5 +87,17 @@ export class AnalysisController {
   @Get('items/:itemId/analysis/jobs')
   listJobs(@CurrentUser() user: AuthUser, @Param('itemId') itemId: string) {
     return this.analysis.listJobsForItem(user, itemId);
+  }
+
+  /**
+   * Cancel a queued or running analysis job. POST-with-verb (not
+   * DELETE) to mirror the existing import-jobs cancel: the row is
+   * kept as history, only its state moves. Owner-or-org-admin and
+   * terminal-state idempotence are enforced in the service.
+   */
+  @Post('analysis-jobs/:jobId/cancel')
+  @HttpCode(200)
+  cancelJob(@CurrentUser() user: AuthUser, @Param('jobId') jobId: string) {
+    return this.analysis.cancelJob(user, jobId);
   }
 }

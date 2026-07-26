@@ -13,6 +13,7 @@ import {
   Mountain,
   Sun,
   Upload as UploadIcon,
+  X,
 } from 'lucide-react';
 import type { PointCloudData } from '@gratis-gis/shared-types';
 import { isPointCloudData } from '@gratis-gis/shared-types';
@@ -524,11 +525,34 @@ export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
 interface AnalysisJobRow {
   id: string;
   kind: string;
-  state: 'queued' | 'running' | 'done' | 'failed';
+  // Full lifecycle from the AnalysisJob model: ingest/importing are
+  // the contours bridge states (rare on this panel but the API can
+  // return them), cancel_requested is the stopping window between a
+  // cancel click and the worker confirming.
+  state:
+    | 'queued'
+    | 'running'
+    | 'ingest'
+    | 'importing'
+    | 'cancel_requested'
+    | 'done'
+    | 'failed'
+    | 'cancelled';
   progress: number;
   error: string | null;
   targetItemId: string | null;
   createdAt: string;
+}
+
+/** States where the job is still moving and worth fast polling. */
+function isActiveJobState(state: AnalysisJobRow['state']): boolean {
+  return (
+    state === 'queued' ||
+    state === 'running' ||
+    state === 'ingest' ||
+    state === 'importing' ||
+    state === 'cancel_requested'
+  );
 }
 
 /**
@@ -545,10 +569,12 @@ function HillshadeSection({ itemId }: { itemId: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [jobs, setJobs] = useState<AnalysisJobRow[]>([]);
+  // Guards double-fire on the row's Cancel button; the button also
+  // disappears optimistically, but a slow response should not queue
+  // a second POST.
+  const cancelInFlightRef = useRef<Set<string>>(new Set());
 
-  const active = jobs.some(
-    (j) => j.state === 'queued' || j.state === 'running',
-  );
+  const active = jobs.some((j) => isActiveJobState(j.state));
 
   useEffect(() => {
     let cancelled = false;
@@ -598,6 +624,33 @@ function HillshadeSection({ itemId }: { itemId: string }) {
 
   function submit() {
     return submitTo('hillshade', { mode, resolution: Number(resolution) });
+  }
+
+  async function cancelJob(job: AnalysisJobRow) {
+    if (cancelInFlightRef.current.has(job.id)) return;
+    cancelInFlightRef.current.add(job.id);
+    try {
+      await fetch(`/api/portal/analysis-jobs/${job.id}/cancel`, {
+        method: 'POST',
+      });
+      // Optimistic flip so the row reacts before the next poll:
+      // queued dies immediately server-side; running enters the
+      // stopping window until the worker confirms.
+      setJobs((prev) =>
+        prev.map((j) =>
+          j.id === job.id && isActiveJobState(j.state)
+            ? {
+                ...j,
+                state: j.state === 'queued' ? 'cancelled' : 'cancel_requested',
+              }
+            : j,
+        ),
+      );
+    } catch {
+      /* transient; the next poll reconciles */
+    } finally {
+      cancelInFlightRef.current.delete(job.id);
+    }
   }
 
   return (
@@ -711,14 +764,22 @@ function HillshadeSection({ itemId }: { itemId: string }) {
                 key={j.id}
                 className="flex items-center gap-2 rounded-md border border-border bg-surface-0 px-3 py-2 text-xs"
               >
-                {j.state === 'running' || j.state === 'queued' ? (
+                {isActiveJobState(j.state) ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
                 ) : j.state === 'done' ? (
                   <Check className="h-3.5 w-3.5 text-success" />
+                ) : j.state === 'cancelled' ? (
+                  // Deliberately muted, not danger-red: a cancel is
+                  // the user's own decision, not something broken.
+                  <X className="h-3.5 w-3.5 text-muted" />
                 ) : (
                   <span className="text-danger">!</span>
                 )}
-                <span className="text-ink-1">
+                <span
+                  className={
+                    j.state === 'cancelled' ? 'text-muted' : 'text-ink-1'
+                  }
+                >
                   {j.kind === 'elevation'
                     ? 'Elevation: '
                     : j.kind === 'heightmap'
@@ -726,12 +787,25 @@ function HillshadeSection({ itemId }: { itemId: string }) {
                       : 'Hillshade: '}
                   {j.state === 'queued'
                     ? 'Waiting to start...'
-                    : j.state === 'running'
-                      ? `Working... ${j.progress}%`
-                      : j.state === 'done'
-                        ? 'Done'
-                        : (j.error ?? 'Failed')}
+                    : j.state === 'cancel_requested'
+                      ? 'Stopping...'
+                      : j.state === 'cancelled'
+                        ? 'Cancelled'
+                        : isActiveJobState(j.state)
+                          ? `Working... ${j.progress}%`
+                          : j.state === 'done'
+                            ? 'Done'
+                            : (j.error ?? 'Failed')}
                 </span>
+                {j.state === 'queued' || j.state === 'running' ? (
+                  <button
+                    type="button"
+                    onClick={() => void cancelJob(j)}
+                    className="ml-auto shrink-0 rounded border border-border bg-surface-0 px-2 py-0.5 text-2xs text-ink-1 hover:bg-surface-2"
+                  >
+                    Cancel
+                  </button>
+                ) : null}
                 {j.state === 'done' && j.targetItemId ? (
                   <Link
                     href={`/items/${j.targetItemId}`}

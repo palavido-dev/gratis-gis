@@ -269,6 +269,14 @@ export function VisibilityTool({
             step: 'error',
             message: job.error || 'The visibility job failed.',
           });
+        } else if (job.state === 'cancelled') {
+          // Cancelled from the item page (or reclaimed after a
+          // worker died mid-cancel); without this branch the tool
+          // would poll a terminal job forever.
+          setPhase({
+            step: 'error',
+            message: 'The visibility job was cancelled.',
+          });
         } else if (job.state === 'done') {
           const { item, error } = await fetchHydratedItem({
             id: targetItemId,

@@ -18,6 +18,33 @@ safe. Every job gets its own scratch subdirectory, removed on all
 exit paths. Failures mark the job failed with a human-readable
 error; the portal UI surfaces it verbatim, so messages here are
 written for the user, not for logs.
+
+Job lifecycle (mirrored in the AnalysisJob docstring in
+prisma/schema.prisma; keep the two in sync):
+
+  queued            waiting for a worker. A user cancel flips it to
+                    'cancelled' in the API; this worker never sees it
+                    because claim_job only selects 'queued'.
+  running           claimed here. The worker beats heartbeat_at on
+                    claim, on every progress write, and every ~10s
+                    during long silent stretches (subprocess wait
+                    loops, S3 transfers), so a live worker can never
+                    look dead.
+  ingest/importing  vector kinds (contours) hand off to the API-side
+                    analysis bridge, which rides the import pipeline
+                    and settles the row.
+  cancel_requested  the user asked a running job to stop. Every beat
+                    piggybacks a state read (single UPDATE ...
+                    RETURNING); when it comes back cancel_requested
+                    the beat raises JobCancelled, the active child
+                    process is killed, scratch is cleaned by the
+                    normal finally blocks, and the row is marked
+                    'cancelled' (not failed).
+  cancelled/failed/done  terminal. 'failed' is also written by the
+                    reclaim sweep in the API-side bridge when
+                    heartbeat_at goes stale for over 10 minutes,
+                    because a SIGKILLed worker cannot flip its own
+                    rows ('worker stopped responding').
 """
 
 from __future__ import annotations
@@ -29,6 +56,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import traceback
 import uuid
@@ -83,6 +111,19 @@ ANALYSIS_TIMEOUT_SEC = int(os.environ.get("ANALYSIS_TIMEOUT_SEC", "14400"))
 GIB = 1024**3
 
 
+class JobCancelled(Exception):
+    """The user asked this job to stop. Raised out of a heartbeat,
+    handled by the main loop as a clean 'cancelled' exit, never as
+    a failure."""
+
+
+def is_cancel_requested(state: object) -> bool:
+    """Pure predicate for the piggybacked state read on each beat.
+    Kept as its own function so the cancel semantics are unit
+    testable without a database."""
+    return state == "cancel_requested"
+
+
 def log(msg: str) -> None:
     print(msg, flush=True)
 
@@ -103,15 +144,79 @@ def s3_client():
 BUCKET = os.environ.get("MINIO_BUCKET", "gratisgis")
 
 
-def run(cmd: list[str], cwd: Path) -> None:
-    """Run a tool, raising with its stderr tail on failure."""
+def kill_proc(proc) -> None:
+    """Kill a child and reap it. Children here are direct processes
+    (Popen without a new session or process group; PDAL, GDAL and
+    untwine do work in threads, not grandchild processes), so
+    proc.kill() reaches everything. The wait prevents zombies when
+    we unwind on cancel or timeout."""
+    try:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=30)
+    except Exception:
+        pass
+
+
+def run(
+    cmd: list[str],
+    cwd: Path,
+    conn=None,
+    job_id: str | None = None,
+    timeout: int = 3600,
+    capture_stdout: bool = False,
+) -> str | None:
+    """Run a tool to completion, raising with its output tail on
+    failure. Formerly a blocking subprocess.run; now a Popen + wait
+    loop so that, when conn/job_id are given, the job's heartbeat
+    stays fresh while the tool runs. Even the "short" GDAL steps
+    (gdalwarp to the web tiling scheme, COG translate) legitimately
+    run for many silent minutes on county-sized rasters, and without
+    beats the reclaim sweep would shoot a healthy job at the
+    10-minute mark. The beat also carries the cancel check, so a
+    user cancel kills the active tool within ~10s.
+
+    Output goes to temp files, not pipes, same rationale as
+    run_long: an undrained pipe deadlocks a chatty child. With
+    capture_stdout=True the child's stdout is read back and
+    returned (pdal info metadata, a few KB)."""
     log(f"  $ {' '.join(cmd)}")
-    proc = subprocess.run(
-        cmd, cwd=cwd, capture_output=True, text=True, timeout=3600
-    )
-    if proc.returncode != 0:
-        tail = (proc.stderr or proc.stdout or "").strip()[-800:]
-        raise RuntimeError(f"{cmd[0]} failed: {tail}")
+    with tempfile.TemporaryFile(dir=str(cwd)) as out_f, \
+            tempfile.TemporaryFile(dir=str(cwd)) as err_f:
+        proc = subprocess.Popen(cmd, cwd=str(cwd), stdout=out_f, stderr=err_f)
+        deadline = time.time() + timeout
+        try:
+            while True:
+                try:
+                    proc.wait(timeout=POLL_SECONDS)
+                    break
+                except subprocess.TimeoutExpired:
+                    pass
+                if conn is not None and job_id is not None:
+                    try:
+                        # Beat without touching progress; raises
+                        # JobCancelled on a user cancel and the
+                        # finally below kills the child.
+                        set_progress(conn, job_id, None)
+                    except JobCancelled:
+                        raise
+                    except Exception:
+                        pass  # liveness is best effort; a DB blip must not kill the tool
+                if time.time() > deadline:
+                    kill_proc(proc)
+                    raise RuntimeError(
+                        f"{cmd[0]} ran longer than {timeout // 60} minutes "
+                        "and was stopped."
+                    )
+        finally:
+            kill_proc(proc)
+        if proc.returncode != 0:
+            tail = output_tail(err_f) or output_tail(out_f)
+            raise RuntimeError(f"{cmd[0]} failed: {tail}")
+        if capture_stdout:
+            out_f.seek(0)
+            return out_f.read().decode("utf-8", errors="replace")
+        return None
 
 
 def free_bytes(path: Path) -> int:
@@ -171,7 +276,7 @@ def run_long(
         try:
             while True:
                 try:
-                    proc.wait(timeout=10)
+                    proc.wait(timeout=POLL_SECONDS)
                     break
                 except subprocess.TimeoutExpired:
                     pass
@@ -180,35 +285,49 @@ def run_long(
                 pct = min(
                     prog_from + int((prog_to - prog_from) * frac), prog_to - 1
                 )
-                if pct != last:
-                    try:
-                        set_progress(conn, job_id, pct)
-                    except Exception:
-                        pass  # progress is cosmetic; never fail the job over it
-                    last = pct
+                try:
+                    # Beat EVERY pass, not only when the percentage
+                    # moved: near the curve's asymptote pct can sit
+                    # still for many minutes, and heartbeat_at is
+                    # what keeps the reclaim sweep from shooting a
+                    # long, healthy grid. pct=None writes just the
+                    # beat. The beat also carries the cancel check.
+                    set_progress(conn, job_id, pct if pct != last else None)
+                except JobCancelled:
+                    raise  # finally kills the child on the way out
+                except Exception:
+                    pass  # progress/liveness is best effort; never fail the job over it
+                last = pct
                 if time.time() > deadline:
-                    proc.kill()
-                    proc.wait(timeout=30)
+                    kill_proc(proc)
                     raise RuntimeError(
                         f"The gridding step ran longer than {timeout // 3600} "
                         "hours and was stopped. Try a coarser resolution or a "
                         "smaller area."
                     )
         finally:
-            if proc.poll() is None:
-                proc.kill()
+            kill_proc(proc)
         if proc.returncode != 0:
             err = output_tail(err_f) or output_tail(out_f)
             raise RuntimeError(f"{cmd[0]} failed: {err}")
 
 
 def run_with_disk_watchdog(
-    cmd: list[str], cwd: Path, watch: Path, reserve: int, timeout: int = 3600
+    cmd: list[str],
+    cwd: Path,
+    watch: Path,
+    reserve: int,
+    timeout: int = 3600,
+    conn=None,
+    job_id: str | None = None,
 ) -> None:
     """Run a long tool while watching free space on `watch`. If free
     space falls below `reserve`, kill the process and raise rather
     than let it fill the disk (which, on a volume shared with MinIO,
-    would take down live storage). Same failure contract as run()."""
+    would take down live storage). With conn/job_id, the watch loop
+    also beats the job heartbeat (an untwine pass runs for hours
+    with no other DB writes) and honors a user cancel. Same failure
+    contract as run()."""
     log(
         f"  $ {' '.join(cmd)}  "
         f"(watchdog: keep >{reserve // GIB}GB free, <{timeout // 3600}h)"
@@ -221,6 +340,7 @@ def run_with_disk_watchdog(
             tempfile.TemporaryFile(dir=str(cwd)) as err_f:
         proc = subprocess.Popen(cmd, cwd=str(cwd), stdout=out_f, stderr=err_f)
         deadline = time.time() + timeout
+        last_beat = 0.0
         try:
             while True:
                 try:
@@ -229,37 +349,165 @@ def run_with_disk_watchdog(
                 except subprocess.TimeoutExpired:
                     pass
                 if free_bytes(watch) < reserve:
-                    proc.kill()
-                    proc.wait(timeout=30)
+                    kill_proc(proc)
                     raise RuntimeError(
                         "Stopped the merge to protect the disk: free working "
                         f"space dropped below {reserve // GIB}GB. This set of "
                         "tiles needs more scratch space than is available. "
                         "Use fewer tiles or a larger scratch disk."
                     )
+                now = time.monotonic()
+                if (
+                    conn is not None
+                    and job_id is not None
+                    and now - last_beat >= POLL_SECONDS
+                ):
+                    last_beat = now
+                    try:
+                        set_progress(conn, job_id, None)
+                    except JobCancelled:
+                        raise  # finally kills untwine on the way out
+                    except Exception:
+                        pass  # liveness is best effort
                 if time.time() > deadline:
-                    proc.kill()
-                    proc.wait(timeout=30)
+                    kill_proc(proc)
                     raise RuntimeError(
                         f"The merge ran longer than {timeout // 3600} hours "
                         "and was stopped. This area is very large; try fewer "
                         "tiles."
                     )
         finally:
-            if proc.poll() is None:
-                proc.kill()
+            kill_proc(proc)
         if proc.returncode != 0:
             err = output_tail(err_f) or output_tail(out_f)
             raise RuntimeError(f"{cmd[0]} failed: {err}")
 
 
-def set_progress(conn, job_id: str, pct: int) -> None:
+def set_progress(conn, job_id: str, pct: int | None) -> None:
+    """Progress write, liveness beat, and cancel check in ONE round
+    trip. heartbeat_at is how the API-side reclaim sweep tells a
+    slow-but-alive worker from a dead one, so every progress write
+    doubles as a beat; pct=None beats without touching progress
+    (long tool runs that have nothing new to report). RETURNING
+    state piggybacks the cancel check on the same UPDATE, so
+    honoring cancel costs no extra query: when the API flipped the
+    row to cancel_requested, raise JobCancelled and let the call
+    stack unwind (the subprocess wait loops kill their child on the
+    way out)."""
     with conn.cursor() as cur:
-        cur.execute(
-            "UPDATE analysis_job SET progress = %s WHERE id = %s",
-            (pct, job_id),
-        )
+        if pct is None:
+            cur.execute(
+                "UPDATE analysis_job SET heartbeat_at = now() "
+                "WHERE id = %s RETURNING state",
+                (job_id,),
+            )
+        else:
+            cur.execute(
+                "UPDATE analysis_job "
+                "SET progress = %s, heartbeat_at = now() "
+                "WHERE id = %s RETURNING state",
+                (pct, job_id),
+            )
+        row = cur.fetchone()
     conn.commit()
+    if row is not None and is_cancel_requested(row[0]):
+        raise JobCancelled()
+
+
+class TransferBeat:
+    """boto3 progress callback that keeps heartbeat_at fresh during
+    long S3 downloads/uploads. A 16GB COPC on a slow disk moves for
+    well over the 10-minute reclaim window with no other DB writes,
+    which would get a healthy job shot. Runs on s3transfer's worker
+    threads, so it uses its OWN connection (psycopg2 connections are
+    not thread safe) behind a lock (multipart transfers call back
+    from several threads at once), throttled to the normal beat
+    cadence.
+
+    A user cancel seen here raises JobCancelled inside the transfer
+    thread, which s3transfer surfaces by failing the transfer; the
+    handler's normal unwind takes over. Callers should re-raise
+    JobCancelled after a failed transfer when `cancelled` is set,
+    since boto3 may wrap the original exception.
+    """
+
+    def __init__(self, job_id: str):
+        self.job_id = job_id
+        self.lock = threading.Lock()
+        # The claim/last step just beat; wait a full interval.
+        self.last = time.monotonic()
+        self.conn = None
+        self.cancelled = False
+
+    def __call__(self, _bytes_amount: int) -> None:
+        with self.lock:
+            if self.cancelled:
+                raise JobCancelled()
+            now = time.monotonic()
+            if now - self.last < POLL_SECONDS:
+                return
+            self.last = now
+            try:
+                if self.conn is None or self.conn.closed:
+                    self.conn = db_connect()
+                with self.conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE analysis_job SET heartbeat_at = now() "
+                        "WHERE id = %s RETURNING state",
+                        (self.job_id,),
+                    )
+                    row = cur.fetchone()
+                self.conn.commit()
+                if row is not None and is_cancel_requested(row[0]):
+                    self.cancelled = True
+                    raise JobCancelled()
+            except JobCancelled:
+                raise
+            except Exception:
+                # Liveness is best effort here; a beat that cannot
+                # reach the DB must not kill a healthy transfer.
+                try:
+                    if self.conn is not None:
+                        self.conn.close()
+                except Exception:
+                    pass
+                self.conn = None
+
+    def close(self) -> None:
+        with self.lock:
+            if self.conn is not None:
+                try:
+                    self.conn.close()
+                except Exception:
+                    pass
+                self.conn = None
+
+
+def transfer_file(
+    s3, op: str, key: str, path: Path, job_id: str, beat=None, **kw
+) -> None:
+    """download_file / upload_file with a TransferBeat attached, and
+    the cancel signal re-raised as JobCancelled even when boto3
+    wraps the callback's exception. Pass a shared `beat` for
+    many-file loops (the merge downloads hundreds of tiles) so they
+    reuse one beat connection instead of opening one per file."""
+    owned = beat is None
+    if beat is None:
+        beat = TransferBeat(job_id)
+    try:
+        if op == "download":
+            s3.download_file(BUCKET, key, str(path), Callback=beat)
+        else:
+            s3.upload_file(str(path), BUCKET, key, Callback=beat, **kw)
+    except JobCancelled:
+        raise
+    except Exception:
+        if beat.cancelled:
+            raise JobCancelled()
+        raise
+    finally:
+        if owned:
+            beat.close()
 
 
 def claim_job(conn):
@@ -277,16 +525,36 @@ def claim_job(conn):
         if job is None:
             conn.commit()
             return None
+        # heartbeat_at starts at claim time so the reclaim window
+        # opens from the moment this worker owns the row, not from
+        # its first progress write.
         cur.execute(
             """
             UPDATE analysis_job
-            SET state = 'running', started_at = now(), progress = 1
+            SET state = 'running', started_at = now(),
+                heartbeat_at = now(), progress = 1
             WHERE id = %s
             """,
             (job["id"],),
         )
     conn.commit()
     return job
+
+
+def mark_cancelled(conn, job_id: str) -> None:
+    """Terminal stamp for a user cancel. Guarded on the states this
+    worker legitimately owns so a concurrent reclaim sweep (which
+    may already have settled the row) is never overwritten."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE analysis_job
+            SET state = 'cancelled', finished_at = now()
+            WHERE id = %s AND state IN ('running', 'cancel_requested')
+            """,
+            (job_id,),
+        )
+    conn.commit()
 
 
 def finish_job(conn, job_id: str, error: str | None) -> None:
@@ -442,7 +710,7 @@ def do_hillshade(conn, s3, job) -> None:
     try:
         src = work / "source.copc.laz"
         log(f"  downloading {storage_key}")
-        s3.download_file(BUCKET, storage_key, str(src))
+        transfer_file(s3, "download", storage_key, src, job["id"])
         set_progress(conn, job["id"], 15)
 
         # PDAL pipeline: COPC -> (ground-only for DTM) -> IDW grid.
@@ -489,6 +757,8 @@ def do_hillshade(conn, s3, job) -> None:
                 "-compute_edges",
             ],
             work,
+            conn,
+            job["id"],
         )
         set_progress(conn, job["id"], 75)
 
@@ -504,16 +774,16 @@ def do_hillshade(conn, s3, job) -> None:
                 "COMPRESS=DEFLATE",
             ],
             work,
+            conn,
+            job["id"],
         )
         set_progress(conn, job["id"], 85)
 
         key = f"item-tile-layer/{uuid.uuid4()}"
         size = cog.stat().st_size
         log(f"  uploading {size} bytes to {key}")
-        s3.upload_file(
-            str(cog),
-            BUCKET,
-            key,
+        transfer_file(
+            s3, "upload", key, cog, job["id"],
             ExtraArgs={"ContentType": "image/tiff"},
         )
         set_progress(conn, job["id"], 95)
@@ -596,7 +866,7 @@ def do_elevation(conn, s3, job) -> None:
     try:
         src = work / "source.copc.laz"
         log(f"  downloading {storage_key}")
-        s3.download_file(BUCKET, storage_key, str(src))
+        transfer_file(s3, "download", storage_key, src, job["id"])
         set_progress(conn, job["id"], 15)
 
         dem = work / "dem.tif"
@@ -650,16 +920,16 @@ def do_elevation(conn, s3, job) -> None:
                 "NaN",
             ],
             work,
+            conn,
+            job["id"],
         )
         set_progress(conn, job["id"], 85)
 
         key = f"item-tile-layer/{uuid.uuid4()}"
         size = cog.stat().st_size
         log(f"  uploading {size} bytes to {key}")
-        s3.upload_file(
-            str(cog),
-            BUCKET,
-            key,
+        transfer_file(
+            s3, "upload", key, cog, job["id"],
             ExtraArgs={"ContentType": "image/tiff"},
         )
         set_progress(conn, job["id"], 95)
@@ -741,7 +1011,7 @@ def do_viewshed(conn, s3, job) -> None:
     try:
         src = work / "elevation.tif"
         log(f"  downloading {storage_key}")
-        s3.download_file(BUCKET, storage_key, str(src))
+        transfer_file(s3, "download", storage_key, src, job["id"])
         set_progress(conn, job["id"], 15)
 
         from osgeo import gdal
@@ -792,6 +1062,8 @@ def do_viewshed(conn, s3, job) -> None:
                 "TILED=YES",
             ],
             work,
+            conn,
+            job["id"],
         )
         set_progress(conn, job["id"], 35)
 
@@ -813,6 +1085,8 @@ def do_viewshed(conn, s3, job) -> None:
                 str(vis),
             ],
             work,
+            conn,
+            job["id"],
         )
         set_progress(conn, job["id"], 70)
 
@@ -832,6 +1106,8 @@ def do_viewshed(conn, s3, job) -> None:
                 "-alpha",
             ],
             work,
+            conn,
+            job["id"],
         )
         set_progress(conn, job["id"], 80)
 
@@ -847,16 +1123,16 @@ def do_viewshed(conn, s3, job) -> None:
                 "COMPRESS=DEFLATE",
             ],
             work,
+            conn,
+            job["id"],
         )
         set_progress(conn, job["id"], 88)
 
         key = f"item-tile-layer/{uuid.uuid4()}"
         size = cog.stat().st_size
         log(f"  uploading {size} bytes to {key}")
-        s3.upload_file(
-            str(cog),
-            BUCKET,
-            key,
+        transfer_file(
+            s3, "upload", key, cog, job["id"],
             ExtraArgs={"ContentType": "image/tiff"},
         )
         set_progress(conn, job["id"], 95)
@@ -895,15 +1171,63 @@ def do_viewshed(conn, s3, job) -> None:
         shutil.rmtree(work, ignore_errors=True)
 
 
+def add_feet_field(feature: dict) -> dict:
+    """Add elevation_ft next to elevation_m on one feature's
+    properties, in place. Tolerates missing/odd properties (a null
+    elevation from a nodata edge) rather than failing a whole job
+    over one line."""
+    props = feature.setdefault("properties", {})
+    ele = props.get("elevation_m")
+    if isinstance(ele, (int, float)) and not isinstance(ele, bool):
+        props["elevation_ft"] = round(ele * 3.28084, 1)
+    return feature
+
+
+def stream_contours_with_feet(seq_path: Path, out_path: Path) -> int:
+    """GeoJSONSeq (one feature per line, as ogr2ogr -f GeoJSONSeq
+    writes it) -> spec-shaped GeoJSON FeatureCollection with the
+    feet field added, holding ONE feature in memory at a time.
+
+    This replaces a json.loads of the whole artifact: a county's
+    contour set is hundreds of MB of GeoJSON, and parsing it whole
+    ballooned to several GB of python objects on an 8GB box that is
+    usually also running a grid job. Line-delimited input makes the
+    lean path trivial (each line is a complete Feature document),
+    which is why the ogr2ogr step now emits GeoJSONSeq instead of a
+    FeatureCollection. Returns the feature count, which the bridge
+    passes to the import pipeline for its progress math.
+    """
+    count = 0
+    with seq_path.open("r", encoding="utf-8") as src, \
+            out_path.open("w", encoding="utf-8") as dst:
+        dst.write('{"type":"FeatureCollection","features":[\n')
+        for line in src:
+            # GDAL writes RS-delimited sequences (RFC 8142) when
+            # asked; tolerate the 0x1e prefix so a driver-default
+            # change cannot silently corrupt the first parse.
+            text = line.strip().lstrip("\x1e").strip()
+            if not text:
+                continue
+            feature = add_feet_field(json.loads(text))
+            if count:
+                dst.write(",\n")
+            dst.write(json.dumps(feature))
+            count += 1
+        dst.write("\n]}\n")
+    return count
+
+
 def do_contours(conn, s3, job):
     """Contour lines from an elevation COG: the GDAL half.
 
     gdal_contour draws the lines in the DEM's CRS; ogr2ogr
-    reprojects to WGS84 (proper GeoJSON); a post-pass adds a feet
-    field so popups read naturally for imperial users. The GeoJSON
-    then goes to MinIO and the job flips to the 'ingest' state,
-    where the API-side analysis bridge stages it into the EXISTING
-    async import pipeline (engine writes stay in TypeScript). This
+    reprojects to WGS84 and emits line-delimited GeoJSONSeq; a
+    streaming post-pass adds a feet field (so popups read naturally
+    for imperial users) while assembling the final spec-shaped
+    FeatureCollection one feature at a time. The GeoJSON then goes
+    to MinIO and the job flips to the 'ingest' state, where the
+    API-side analysis bridge stages it into the EXISTING async
+    import pipeline (engine writes stay in TypeScript). This
     handler therefore returns "handoff" so the main loop does not
     mark the job done.
     """
@@ -924,7 +1248,7 @@ def do_contours(conn, s3, job):
     try:
         src = work / "elevation.tif"
         log(f"  downloading {storage_key}")
-        s3.download_file(BUCKET, storage_key, str(src))
+        transfer_file(s3, "download", storage_key, src, job["id"])
         set_progress(conn, job["id"], 15)
 
         raw = work / "contours-raw.geojson"
@@ -943,51 +1267,54 @@ def do_contours(conn, s3, job):
                 str(raw),
             ],
             work,
+            conn,
+            job["id"],
         )
         set_progress(conn, job["id"], 55)
 
-        # Reproject to WGS84 so the GeoJSON is spec-shaped; the
-        # import pipeline would also handle it, but being explicit
-        # here means the artifact is valid on its own.
-        wgs = work / "contours.geojson"
+        # Reproject to WGS84 AND switch to line-delimited GeoJSONSeq
+        # in one pass: the feet post-pass below streams it line by
+        # line instead of json.loads-ing the whole document (see
+        # stream_contours_with_feet). The .geojsonl extension keeps
+        # GDAL's default newline (not RS) record separator.
+        seq = work / "contours-wgs84.geojsonl"
         run(
             [
                 "ogr2ogr",
                 "-f",
-                "GeoJSON",
+                "GeoJSONSeq",
                 "-t_srs",
                 "EPSG:4326",
-                str(wgs),
+                str(seq),
                 str(raw),
             ],
             work,
+            conn,
+            job["id"],
         )
+        # The native-CRS original is dead weight from here; drop it
+        # so a big contour set does not hold three copies on scratch.
+        raw.unlink(missing_ok=True)
         set_progress(conn, job["id"], 65)
 
-        # Feet field post-pass + feature count in one read.
-        doc = json.loads(wgs.read_text())
-        feats = doc.get("features", [])
-        if not feats:
+        # Streaming feet-field pass; the artifact the bridge ingests
+        # stays a plain spec-shaped FeatureCollection.
+        wgs = work / "contours.geojson"
+        count = stream_contours_with_feet(seq, wgs)
+        if count == 0:
             raise RuntimeError(
                 "No contour lines came out. The elevation layer may "
                 "be flat at this line spacing; try a smaller height "
                 "between lines."
             )
-        for f in feats:
-            props = f.setdefault("properties", {})
-            ele = props.get("elevation_m")
-            if isinstance(ele, (int, float)):
-                props["elevation_ft"] = round(ele * 3.28084, 1)
-        wgs.write_text(json.dumps(doc))
+        seq.unlink(missing_ok=True)
         set_progress(conn, job["id"], 72)
 
         key = f"analysis-artifact/{uuid.uuid4()}.geojson"
         size = wgs.stat().st_size
-        log(f"  uploading {size} bytes ({len(feats)} lines) to {key}")
-        s3.upload_file(
-            str(wgs),
-            BUCKET,
-            key,
+        log(f"  uploading {size} bytes ({count} lines) to {key}")
+        transfer_file(
+            s3, "upload", key, wgs, job["id"],
             ExtraArgs={"ContentType": "application/geo+json"},
         )
 
@@ -996,17 +1323,30 @@ def do_contours(conn, s3, job):
         # file, enqueues the import job, and closes this job out.
         new_params = dict(params)
         new_params["artifactKey"] = key
-        new_params["featureCount"] = len(feats)
+        new_params["featureCount"] = count
+        # Conditional on 'running' so a cancel that lands between
+        # our last beat and this handoff wins: without the guard the
+        # flip would overwrite cancel_requested and the import would
+        # run a job the user already stopped.
         with conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE analysis_job
                 SET state = 'ingest', params = %s, progress = 80
-                WHERE id = %s
+                WHERE id = %s AND state = 'running'
                 """,
                 (json.dumps(new_params), job["id"]),
             )
+            flipped = cur.rowcount
         conn.commit()
+        if flipped == 0:
+            # The artifact is orphaned now; drop it before unwinding
+            # as a cancel (best effort, artifacts are small).
+            try:
+                s3.delete_object(Bucket=BUCKET, Key=key)
+            except Exception:
+                pass
+            raise JobCancelled()
         return "handoff"
     finally:
         shutil.rmtree(work, ignore_errors=True)
@@ -1029,7 +1369,7 @@ def do_steepness(conn, s3, job) -> None:
     try:
         src = work / "elevation.tif"
         log(f"  downloading {storage_key}")
-        s3.download_file(BUCKET, storage_key, str(src))
+        transfer_file(s3, "download", storage_key, src, job["id"])
         set_progress(conn, job["id"], 15)
 
         from osgeo import gdal
@@ -1049,6 +1389,8 @@ def do_steepness(conn, s3, job) -> None:
                 "-compute_edges",
             ],
             work,
+            conn,
+            job["id"],
         )
         set_progress(conn, job["id"], 55)
 
@@ -1077,6 +1419,8 @@ def do_steepness(conn, s3, job) -> None:
                 "-alpha",
             ],
             work,
+            conn,
+            job["id"],
         )
         set_progress(conn, job["id"], 75)
 
@@ -1092,16 +1436,16 @@ def do_steepness(conn, s3, job) -> None:
                 "COMPRESS=DEFLATE",
             ],
             work,
+            conn,
+            job["id"],
         )
         set_progress(conn, job["id"], 85)
 
         key = f"item-tile-layer/{uuid.uuid4()}"
         size = cog.stat().st_size
         log(f"  uploading {size} bytes to {key}")
-        s3.upload_file(
-            str(cog),
-            BUCKET,
-            key,
+        transfer_file(
+            s3, "upload", key, cog, job["id"],
             ExtraArgs={"ContentType": "image/tiff"},
         )
         set_progress(conn, job["id"], 95)
@@ -1183,7 +1527,7 @@ def do_heightmap(conn, s3, job) -> None:
     try:
         src = work / "source.copc.laz"
         log(f"  downloading {storage_key}")
-        s3.download_file(BUCKET, storage_key, str(src))
+        transfer_file(s3, "download", storage_key, src, job["id"])
         set_progress(conn, job["id"], 10)
 
         def grid(
@@ -1250,6 +1594,8 @@ def do_heightmap(conn, s3, job) -> None:
                 "--quiet",
             ],
             work,
+            conn,
+            job["id"],
         )
         set_progress(conn, job["id"], 75)
 
@@ -1279,6 +1625,8 @@ def do_heightmap(conn, s3, job) -> None:
                 "-alpha",
             ],
             work,
+            conn,
+            job["id"],
         )
         set_progress(conn, job["id"], 82)
 
@@ -1294,16 +1642,16 @@ def do_heightmap(conn, s3, job) -> None:
                 "COMPRESS=DEFLATE",
             ],
             work,
+            conn,
+            job["id"],
         )
         set_progress(conn, job["id"], 88)
 
         key = f"item-tile-layer/{uuid.uuid4()}"
         size = cog.stat().st_size
         log(f"  uploading {size} bytes to {key}")
-        s3.upload_file(
-            str(cog),
-            BUCKET,
-            key,
+        transfer_file(
+            s3, "upload", key, cog, job["id"],
             ExtraArgs={"ContentType": "image/tiff"},
         )
         set_progress(conn, job["id"], 95)
@@ -1478,22 +1826,23 @@ def do_sam_embed(conn, s3, job) -> None:
     )
 
 
-def copc_header_meta(path: Path) -> dict:
+def copc_header_meta(path: Path, conn=None, job_id: str | None = None) -> dict:
     """Lift point count, bounds, LAS version, point format, RGB flag,
     and CRS WKT from a COPC/LAS file via `pdal info --metadata`.
     Mirrors what the TypeScript finalize path reads from a single
     upload, so a merged cloud (#200) carries the same metadata a
-    hand-uploaded one does."""
-    proc = subprocess.run(
+    hand-uploaded one does. Runs through run() so a slow header read
+    on a giant merged file (capped at 15 min, beyond the 10-min
+    reclaim window) keeps beating the job heartbeat."""
+    stdout = run(
         ["pdal", "info", "--metadata", str(path)],
-        capture_output=True,
-        text=True,
+        path.parent,
+        conn,
+        job_id,
         timeout=900,
+        capture_stdout=True,
     )
-    if proc.returncode != 0:
-        tail = (proc.stderr or proc.stdout or "").strip()[-800:]
-        raise RuntimeError(f"pdal info failed: {tail}")
-    m = (json.loads(proc.stdout) or {}).get("metadata", {}) or {}
+    m = (json.loads(stdout or "{}") or {}).get("metadata", {}) or {}
     # Some PDAL builds nest the header under the reader stage name;
     # normalize to whichever dict actually carries the point count.
     if "count" not in m:
@@ -1613,18 +1962,29 @@ def do_copc_build(conn, s3, job) -> None:
             )
 
         t_dl0 = time.time()
-        for i, key in enumerate(source_keys):
-            dest = srcdir / f"tile-{i:04d}.laz"
-            log(f"  downloading source {i + 1}/{len(source_keys)}: {key}")
-            s3.download_file(BUCKET, key, str(dest))
-            # Bail if the download itself is eating into the reserve
-            # (protects co-located MinIO from a runaway).
-            if free_bytes(SCRATCH) < SCRATCH_MIN_RESERVE_BYTES:
-                raise RuntimeError(
-                    "Stopped downloading tiles to protect the disk: free "
-                    f"space fell below {SCRATCH_MIN_RESERVE_BYTES // GIB}GB. "
-                    "Use fewer tiles or a larger scratch disk."
+        # One shared beat for the whole tile loop: it keeps the
+        # heartbeat fresh (and the cancel check live) across a
+        # multi-hour download without opening a connection per tile.
+        dl_beat = TransferBeat(job["id"])
+        try:
+            for i, key in enumerate(source_keys):
+                dest = srcdir / f"tile-{i:04d}.laz"
+                log(
+                    f"  downloading source {i + 1}/{len(source_keys)}: {key}"
                 )
+                transfer_file(
+                    s3, "download", key, dest, job["id"], beat=dl_beat
+                )
+                # Bail if the download itself is eating into the reserve
+                # (protects co-located MinIO from a runaway).
+                if free_bytes(SCRATCH) < SCRATCH_MIN_RESERVE_BYTES:
+                    raise RuntimeError(
+                        "Stopped downloading tiles to protect the disk: free "
+                        f"space fell below {SCRATCH_MIN_RESERVE_BYTES // GIB}GB. "
+                        "Use fewer tiles or a larger scratch disk."
+                    )
+        finally:
+            dl_beat.close()
         download_secs = int(time.time() - t_dl0)
         set_progress(conn, job["id"], 25)
 
@@ -1641,13 +2001,15 @@ def do_copc_build(conn, s3, job) -> None:
             SCRATCH,
             SCRATCH_MIN_RESERVE_BYTES,
             MERGE_TIMEOUT_SEC,
+            conn=conn,
+            job_id=job["id"],
         )
         untwine_secs = int(time.time() - t_untwine0)
         if not merged.exists():
             raise RuntimeError("The merge produced no output file.")
         set_progress(conn, job["id"], 75)
 
-        meta = copc_header_meta(merged)
+        meta = copc_header_meta(merged, conn, job["id"])
         set_progress(conn, job["id"], 82)
 
         key = f"item-point-cloud/{uuid.uuid4()}"
@@ -1664,7 +2026,7 @@ def do_copc_build(conn, s3, job) -> None:
             f"total_secs={total_secs}"
         )
         log(f"  uploading merged COPC ({size} bytes, {meta['count']} pts) to {key}")
-        s3.upload_file(str(merged), BUCKET, key)
+        transfer_file(s3, "upload", key, merged, job["id"])
         set_progress(conn, job["id"], 92)
 
         # Final stamp: patch only the keys this worker owns. Writing
@@ -1746,6 +2108,17 @@ def do_copc_build(conn, s3, job) -> None:
             kw in low
             for kw in ("working space", "protect the disk", "a source tile is missing", "produced no output")
         )
+        if isinstance(exc, JobCancelled):
+            # Not an error: the user stopped the merge. Say so on
+            # the item instead of the misleading "could not be
+            # merged" text; the retained sources make a re-run a
+            # one-click affair.
+            user_facing = True
+            msg = (
+                "You cancelled this merge before it finished. The "
+                "source tiles are kept, so you can run the merge "
+                "again anytime."
+            )
         # Roll back first: if `exc` was a database error, the open
         # transaction is aborted and the stamp below would be
         # rejected until it is cleared.
@@ -1825,6 +2198,24 @@ def main() -> None:
                 else:
                     finish_job(conn, job["id"], None)
                     log(f"job {job['id']}: done")
+            except JobCancelled:
+                # Before the generic handler on purpose (it IS an
+                # Exception): a user cancel is a clean stop, not a
+                # failure. The heartbeat that noticed the cancel
+                # already killed the active tool; the handler's
+                # finally already removed its scratch dir. Mark the
+                # row cancelled and leave the husk item a plain
+                # explanation instead of an eternal spinner
+                # (copc-build stamps its own tailored note in its
+                # handler, same as its failure path).
+                conn.rollback()
+                log(f"job {job['id']}: cancelled by user")
+                mark_cancelled(conn, job["id"])
+                stamp_target_failed(
+                    conn,
+                    job,
+                    "This analysis was cancelled before it finished.",
+                )
             except Exception as err:
                 conn.rollback()
                 log(f"job {job['id']}: FAILED\n{traceback.format_exc()}")

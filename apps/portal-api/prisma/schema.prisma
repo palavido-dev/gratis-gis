@@ -954,6 +954,28 @@ model SystemSetting {
 /// provenance (the target item is created up front in `queued`
 /// state so the UI has something to link immediately, and the
 /// dependency extractor sees the edge as soon as the job exists).
+///
+/// Lifecycle:
+///   queued            waiting for a worker; user cancel flips it
+///                     straight to cancelled (worker never sees it).
+///   running           claimed by the pointcloud worker, which beats
+///                     heartbeatAt on claim, on every progress write,
+///                     and every ~10s during long silent tool runs.
+///   ingest            (vector kinds, e.g. contours) GDAL half done;
+///                     artifact parked in MinIO for the API-side
+///                     analysis bridge.
+///   importing         bridge staged the artifact and is riding the
+///                     async import pipeline; terminal import states
+///                     are mirrored back onto this row.
+///   cancel_requested  user asked a running job to stop; the worker
+///                     notices at its next heartbeat, kills the
+///                     active tool, and marks the row cancelled.
+///   cancelled         terminal; stopped on purpose, not an error.
+///   failed            terminal; handler error, or the reclaim sweep
+///                     in the analysis bridge found heartbeatAt
+///                     stale (>10 min) and concluded the worker died
+///                     (error 'worker stopped responding').
+///   done              terminal success.
 model AnalysisJob {
   id           String    @id @default(uuid()) @db.Uuid
   orgId        String    @map("org_id") @db.Uuid
@@ -962,7 +984,8 @@ model AnalysisJob {
   params       Json      @default("{}")
   sourceItemId String    @map("source_item_id") @db.Uuid
   targetItemId String?   @map("target_item_id") @db.Uuid
-  /// queued -> running -> done | failed
+  /// queued | running | ingest | importing | cancel_requested |
+  /// cancelled | failed | done. See the lifecycle note above.
   state        String    @default("queued")
   /// 0..100 while running; workers update it best-effort.
   progress     Int       @default(0)
@@ -970,6 +993,13 @@ model AnalysisJob {
   createdAt    DateTime  @default(now()) @map("created_at")
   startedAt    DateTime? @map("started_at")
   finishedAt   DateTime? @map("finished_at")
+  /// Worker liveness beat while running / cancel_requested. Written
+  /// together with every progress update (one UPDATE, no extra
+  /// round trip) so a live worker can never look dead; the reclaim
+  /// sweep fails rows whose beat goes stale, because a SIGKILLed
+  /// worker cannot flip its own rows and the UI would otherwise
+  /// spin forever.
+  heartbeatAt  DateTime? @map("heartbeat_at") @db.Timestamptz(6)
 
   @@index([state, createdAt])
   @@index([sourceItemId])

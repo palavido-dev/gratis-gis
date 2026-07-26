@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -15,6 +16,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { ItemsService } from '../items/items.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { hasCapability } from '../auth/capabilities.js';
+import { stampAnalysisTargetFailed } from './analysis-target-stamp.js';
 
 /**
  * Server-side analysis jobs (#184, workbench foundation). v1 ships
@@ -539,6 +541,60 @@ export class AnalysisService {
       orderBy: { createdAt: 'desc' },
       take: 20,
     });
+  }
+
+  /**
+   * Cancel one analysis job. Mirrors the import-jobs cancel
+   * semantics: only the creator or an org admin, idempotent on
+   * terminal states. Deliberately NOT gated on the server-heavy
+   * tier: a job that exists must be stoppable even after the
+   * operator turns the tier off.
+   *
+   * queued -> cancelled right here; the worker never sees the row
+   * (its claim only selects state='queued') and the pre-created
+   * target item gets the plain-language failed stamp so it does
+   * not linger as a blank husk.
+   * running -> cancel_requested; the pointcloud worker checks the
+   * state on every heartbeat, kills its active tool, and marks the
+   * row cancelled itself. It owns the terminal flip because it
+   * also owns scratch cleanup and the target-item stamp for a
+   * mid-run stop.
+   * Bridge-owned states (ingest / importing) and terminal states
+   * are left alone; the conditional updates make the two flips
+   * race-safe against a worker claiming or finishing concurrently.
+   */
+  async cancelJob(user: AuthUser, jobId: string) {
+    const job = await this.prisma.analysisJob.findUnique({
+      where: { id: jobId },
+    });
+    if (!job) {
+      throw new NotFoundException(`Analysis job ${jobId} not found.`);
+    }
+    if (job.orgId !== user.orgId) {
+      throw new ForbiddenException('Job not in your organization.');
+    }
+    if (job.userId !== user.id && user.orgRole !== 'admin') {
+      throw new ForbiddenException(
+        'Only the job creator or an org admin can cancel.',
+      );
+    }
+    const queuedFlip = await this.prisma.analysisJob.updateMany({
+      where: { id: jobId, state: 'queued' },
+      data: { state: 'cancelled', finishedAt: new Date() },
+    });
+    if (queuedFlip.count > 0) {
+      await stampAnalysisTargetFailed(
+        this.prisma,
+        job,
+        'This analysis was cancelled before it started.',
+      );
+    } else {
+      await this.prisma.analysisJob.updateMany({
+        where: { id: jobId, state: 'running' },
+        data: { state: 'cancel_requested' },
+      });
+    }
+    return this.prisma.analysisJob.findUnique({ where: { id: jobId } });
   }
 }
 

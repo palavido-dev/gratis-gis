@@ -5,10 +5,11 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { IngestStagingService } from '../ingest/ingest-staging.service.js';
 import { ImportJobsService } from '../import-jobs/import-jobs.service.js';
+import { stampAnalysisTargetFailed } from './analysis-target-stamp.js';
 
 /**
  * Analysis-to-import bridge (contours and future vector analysis
- * outputs).
+ * outputs), plus the analysis-job reclaim sweep.
  *
  * The GDAL analysis worker cannot write features: engine writes
  * live in TypeScript on purpose (scoping, indexing, bbox stamping,
@@ -22,14 +23,31 @@ import { ImportJobsService } from '../import-jobs/import-jobs.service.js';
  * analysis job. Every feature therefore lands through the same
  * proven COPY pipeline user uploads use.
  *
+ * The reclaim sweep rides the same tick because this is the one
+ * always-deployed process that already owns analysis_job settling
+ * (the python worker is the thing whose death we are detecting, so
+ * it cannot police itself, and the api process has no poll loop).
+ *
  * Claims are optimistic single-row UPDATEs on the state column, so
  * running several portal-worker replicas stays safe.
  */
+
+/** A running job whose last worker beat is older than this is
+ *  considered abandoned. The worker beats at least every ~10s while
+ *  alive (progress writes, subprocess wait loops, S3 transfer
+ *  callbacks), so ten minutes of silence means the process is gone,
+ *  not slow. */
+const RECLAIM_AFTER_MINUTES = 10;
+/** The bridge ticks every 5s for ingest handoffs; the reclaim scan
+ *  only needs minute-ish latency on a 10-minute threshold, so it is
+ *  throttled to keep the steady-state query load at zero-ish. */
+const RECLAIM_SWEEP_MS = 60_000;
 @Injectable()
 export class AnalysisBridgeWorker implements OnModuleInit {
   private readonly log = new Logger(AnalysisBridgeWorker.name);
   private timer: NodeJS.Timeout | null = null;
   private running = false;
+  private lastReclaimAt = 0;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -55,6 +73,7 @@ export class AnalysisBridgeWorker implements OnModuleInit {
     if (this.running) return; // no overlapping ticks
     this.running = true;
     try {
+      await this.reclaimStaleJobs();
       await this.claimIngestJobs();
       await this.settleImportingJobs();
     } catch (err) {
@@ -63,6 +82,73 @@ export class AnalysisBridgeWorker implements OnModuleInit {
       );
     } finally {
       this.running = false;
+    }
+  }
+
+  /**
+   * Reclaim sweep: terminal-ize jobs whose worker died mid-run.
+   * The python worker beats heartbeat_at on claim, on every
+   * progress write, and every ~10s during long silent stretches; a
+   * running row whose beat is stale therefore has no living worker
+   * behind it (SIGKILL, OOM, node poweroff) and nothing else will
+   * ever move it, which left the UI spinning forever.
+   *
+   * running -> failed with the plain 'worker stopped responding';
+   * cancel_requested -> cancelled (the user asked for the stop and
+   * the stop happened, just unconfirmed). The COALESCE covers rows
+   * claimed before heartbeat_at existed; during a mixed-version
+   * deploy an old worker's healthy long job could be swept 10
+   * minutes in, accepted because worker and bridge ship together.
+   *
+   * Default (not private) visibility so the lifecycle spec can
+   * drive it directly without poking through `any`.
+   */
+  async reclaimStaleJobs(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastReclaimAt < RECLAIM_SWEEP_MS) return;
+    this.lastReclaimAt = now;
+    // Single conditional UPDATE keeps the sweep idempotent across
+    // bridge replicas: whichever replica gets there first moves the
+    // row, the others match nothing.
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        id: string;
+        kind: string;
+        state: string;
+        target_item_id: string | null;
+        source_item_id: string;
+      }>
+    >`
+      UPDATE analysis_job
+      SET state = CASE WHEN state = 'cancel_requested'
+                       THEN 'cancelled' ELSE 'failed' END,
+          error = CASE WHEN state = 'cancel_requested'
+                       THEN error ELSE 'worker stopped responding' END,
+          finished_at = now()
+      WHERE state IN ('running', 'cancel_requested')
+        AND COALESCE(heartbeat_at, started_at, created_at)
+            < now() - make_interval(mins => ${RECLAIM_AFTER_MINUTES})
+      RETURNING id, kind, state, target_item_id, source_item_id
+    `;
+    for (const row of rows) {
+      this.log.warn(
+        `analysis ${row.id} (${row.kind}): reclaimed as ${row.state}; worker heartbeat went stale`,
+      );
+      // Same husk stamp the worker's own failure path writes; see
+      // analysis-target-stamp.ts for the kind coverage rationale.
+      await stampAnalysisTargetFailed(
+        this.prisma,
+        {
+          kind: row.kind,
+          targetItemId: row.target_item_id,
+          sourceItemId: row.source_item_id,
+        },
+        row.state === 'cancelled'
+          ? 'This analysis was cancelled before it finished.'
+          : row.kind === 'copc-build'
+            ? 'The analysis worker stopped responding during the merge. The source tiles are kept; run the merge again.'
+            : 'The analysis worker stopped responding, so this layer could not be created. Try running the analysis again.',
+      );
     }
   }
 
@@ -91,17 +177,14 @@ export class AnalysisBridgeWorker implements OnModuleInit {
           );
         }
         // Pull the artifact out of MinIO and into the staging area
-        // the import worker reads from (shared volume).
+        // the import worker reads from (shared volume). Piped, not
+        // buffered: a large contour set is hundreds of MB, and the
+        // old collect-into-one-Buffer approach held all of it in
+        // this process's heap for no benefit (the import worker
+        // reads the staged FILE, never the bytes in memory).
         const obj = await this.storage.streamObject(params.artifactKey);
-        const chunks: Buffer[] = [];
-        for await (const chunk of obj.body) {
-          chunks.push(
-            Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string),
-          );
-        }
-        const buffer = Buffer.concat(chunks);
-        const staged = await this.staging.stage({
-          buffer,
+        const staged = await this.staging.stageStream({
+          stream: obj.body,
           originalName: 'contours.geojson',
           ownerId: job.userId,
         });
@@ -134,7 +217,7 @@ export class AnalysisBridgeWorker implements OnModuleInit {
           /* orphaned artifacts are harmless and tiny */
         }
         this.log.log(
-          `analysis ${job.id}: staged ${buffer.length} B, import ${importJob.id} queued`,
+          `analysis ${job.id}: staged ${staged.sizeBytes} B, import ${importJob.id} queued`,
         );
       } catch (err) {
         const msg =
