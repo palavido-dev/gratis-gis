@@ -35,7 +35,15 @@ export class PortalInfoController {
   async info(@Req() req: Request): Promise<PortalInfo> {
     return {
       name: await this.resolveName(),
-      version: process.env.npm_package_version ?? '0.0.0',
+      // GG_VERSION is stamped by deploy.sh/install.sh from
+      // `git describe --tags --always` and reaches the container via
+      // compose, so it is the truthful deployed ref. The npm fallback
+      // only fires under `pnpm dev` (the Docker runtime starts node
+      // directly, where npm_package_version does not exist).
+      version:
+        process.env.GG_VERSION ??
+        process.env.npm_package_version ??
+        '0.0.0',
       api: {
         baseUrl: this.resolveApiBase(req),
       },

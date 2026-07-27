@@ -111,6 +111,15 @@ git reset --hard "$GG_DEPLOY_COMMIT"
 echo "Deploying ref ${GG_DEPLOY_REF} at commit:"
 git log --oneline -1
 
+# Stamp the deployed version for the UI badge and /api/portal-info.
+# `git describe` reads "v0.9.1" on a release tag and
+# "v0.9.1-3-gabc1234" between releases, which is honest about exactly
+# what is running. Exported so compose interpolates it into the
+# portal-web build arg and the api runtime env below.
+GG_VERSION="$(git describe --tags --always 2>/dev/null || echo "")"
+export GG_VERSION
+echo "Version stamp: ${GG_VERSION:-'(none)'}"
+
 # All the GENERATE placeholders have to be replaced before deploy or
 # Keycloak / Postgres / NextAuth will refuse to start.
 if grep -q '^[A-Z_]*=GENERATE$' infra/.env.prod; then

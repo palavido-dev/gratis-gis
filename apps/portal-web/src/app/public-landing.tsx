@@ -18,6 +18,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { BrandMark } from '@/components/brand-mark';
+import { GG_VERSION, versionReleaseUrl } from '@/lib/version';
 import type { ItemType } from '@gratis-gis/shared-types';
 import {
   getItemHref,
@@ -231,7 +232,22 @@ export function PublicLanding({
       )}
 
       <footer className="border-t border-border bg-surface-1 py-6 text-center text-xs text-muted">
-        Powered by GratisGIS &middot;{' '}
+        {/* Bare version string on purpose (locale-neutral, stays out
+            of the i18n catalogs). Release builds link to their notes;
+            between-releases builds render as plain text. */}
+        {versionReleaseUrl() ? (
+          <a
+            href={versionReleaseUrl()!}
+            target="_blank"
+            rel="noreferrer"
+            className="underline hover:text-ink-0"
+          >
+            GratisGIS {GG_VERSION}
+          </a>
+        ) : (
+          <span>GratisGIS {GG_VERSION}</span>
+        )}{' '}
+        &middot;{' '}
         <Link href="/why" className="underline hover:text-ink-0">
           Why GratisGIS
         </Link>{' '}

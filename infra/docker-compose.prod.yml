@@ -430,6 +430,9 @@ services:
       # queueing jobs nothing will run. The install doctor reports
       # whether the hardware honestly supports each tier.
       ANALYSIS_TIERS: server-heavy
+      # Deployed ref for /api/portal-info (QGIS plugin discovery and
+      # support conversations). Stamped by deploy.sh from git describe.
+      GG_VERSION: ${GG_VERSION:-}
     volumes:
       - portal-api-backups:/app/backups
       - gg-staging:/var/lib/gg-staging
@@ -577,6 +580,11 @@ services:
         # systemd unit on the host.  Defaults to "" so a per-tenant
         # fork doesn't accidentally advertise demo accounts.
         NEXT_PUBLIC_PUBLIC_TESTING: ${PUBLIC_TESTING:-}
+        # Version badge (landing footer + user menu). deploy.sh and
+        # install.sh export GG_VERSION from git describe; a manual
+        # compose build without it renders "dev" in the UI, which is
+        # honest for an unscripted build.
+        NEXT_PUBLIC_GG_VERSION: ${GG_VERSION:-}
     restart: unless-stopped
     depends_on:
       portal-api:

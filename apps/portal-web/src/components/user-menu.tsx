@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { signOut } from 'next-auth/react';
 import { LogOut, UserCircle } from 'lucide-react';
 import { EntityBadge } from '@gratis-gis/ui';
+import { GG_VERSION, versionReleaseUrl } from '@/lib/version';
 
 import { useT } from '@/lib/i18n/locale-context';
 import { LocaleSwitcher } from './locale-switcher';
@@ -216,6 +217,25 @@ export function UserMenu({ seed, displayName, orgName, avatarUrl }: Props) {
               <LogOut className="h-4 w-4" />
               {t('nav.signOut')}
             </button>
+            {/* Which build this deployment runs. Bare version string
+                on purpose: "v0.9.1" reads the same in every locale,
+                so it stays out of the i18n catalogs. Testers quoting
+                it in bug reports is the whole point (the demo resets
+                nightly and redeploys often). */}
+            <div className="border-t border-border px-3 py-1.5 text-[11px] text-muted">
+              {versionReleaseUrl() ? (
+                <a
+                  href={versionReleaseUrl()!}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="hover:text-ink-1 hover:underline"
+                >
+                  GratisGIS {GG_VERSION}
+                </a>
+              ) : (
+                <span>GratisGIS {GG_VERSION}</span>
+              )}
+            </div>
           </div>
         </div>
       ) : null}

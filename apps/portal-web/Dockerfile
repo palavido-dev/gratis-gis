@@ -84,6 +84,12 @@ ENV NEXT_PUBLIC_GITHUB_REPO=$NEXT_PUBLIC_GITHUB_REPO
 # per-tenant forks don't accidentally advertise tester accounts.
 ARG NEXT_PUBLIC_PUBLIC_TESTING=
 ENV NEXT_PUBLIC_PUBLIC_TESTING=$NEXT_PUBLIC_PUBLIC_TESTING
+# The version badge (landing footer + user menu). deploy.sh and
+# install.sh pass `git describe --tags --always`, so release builds
+# show "v0.9.1" and between-releases builds show the describe string.
+# Empty means a local or unscripted build; the UI renders "dev".
+ARG NEXT_PUBLIC_GG_VERSION=
+ENV NEXT_PUBLIC_GG_VERSION=$NEXT_PUBLIC_GG_VERSION
 
 # Self-host the DuckDB-WASM spatial extension (#175 unit 2). The
 # browser Analyze panel loads spatial via
