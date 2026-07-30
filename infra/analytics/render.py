@@ -40,6 +40,23 @@ HUMAN = (
     "is_bot = 0 AND page_views >= 1 AND (hits - page_views - api_calls) > 0"
 )
 
+# The three views the filter pills switch between, each a session
+# predicate. Human is first because it is the default: the question
+# the dashboard exists to answer is "did anyone come by", and bot
+# traffic drowns that out. Everything else is still one click away
+# rather than silently discarded, which is the point of showing all
+# three counts on the pills themselves.
+#
+# "All" is deliberately not "human + bots": a session with no page
+# view and no bot verdict (an asset fetch, a health probe, a
+# connection that hung up) belongs to neither, and hiding it from
+# every view would make the totals lie.
+AUDIENCES: list[tuple[str, str, str]] = [
+    ("human", "Human", HUMAN),
+    ("bot", "Bots", "is_bot = 1"),
+    ("all", "All", "1=1"),
+]
+
 # Maintainer accounts. Their sign-ins are not visitor traffic, and
 # counting them makes a quiet week look busier than it was. Every
 # address that has ever authenticated as one of these is treated as a
@@ -214,62 +231,57 @@ def bar_chart(rows: list[tuple[str, int, str]], unit: str = "") -> str:
 # ------------------------------------------------------------------ page
 
 
-def build(conn: sqlite3.Connection) -> str:
-    now = datetime.now(TZ)
+def panel(conn, key: str, label: str, where: str, owner_ips: list[str],
+          now: datetime, geo_note: str) -> str:
+    """Every stat on the page, computed for one audience.
+
+    `where` is the session predicate that defines the audience, so the
+    hero figure, the tiles, both charts, the visit table and the
+    sign-in table all describe the same population. The page renders
+    this three times and the pills swap which one is visible: the
+    numbers can never drift out of step with the filter because there
+    is only one code path producing them.
+    """
     since = (now - timedelta(days=WINDOW_DAYS)).timestamp()
     since_7 = (now - timedelta(days=7)).timestamp()
-
-    # Maintainer traffic is excluded from every number on the page.
-    owner_ips = owner_addresses(conn)
     NOT_OWNER = not_owner(owner_ips)
     NOT_OWNER_S = not_owner(owner_ips, "s.ip")
     NOT_OWNER_L = not_owner(owner_ips, "l.ip")
-    hidden_logins = q(
-        conn,
-        f"SELECT COUNT(*) c FROM login WHERE ts >= ? AND NOT ({NOT_OWNER})",
-        since,
-    )[0]["c"]
-    hidden_visits = q(
-        conn,
-        f"SELECT COUNT(*) c FROM session WHERE {HUMAN} AND started >= ?"
-        f" AND NOT ({NOT_OWNER})",
-        since,
-    )[0]["c"]
+    # Sign-ins belong to whoever was browsing from that address, so the
+    # audience filter reaches them through the sessions they came with.
+    # ("All" skips the subquery entirely rather than paying for it.)
+    login_scope = (
+        "1=1" if key == "all"
+        else f"l.ip IN (SELECT ip FROM session WHERE {where})"
+    )
 
     visitors = q(
-        conn, f"SELECT COUNT(DISTINCT ip) c FROM session WHERE {HUMAN} AND started >= ?"
-        f" AND {NOT_OWNER}",
-        since,
+        conn, f"SELECT COUNT(DISTINCT ip) c FROM session WHERE {where} AND started >= ?"
+        f" AND {NOT_OWNER}", since,
     )[0]["c"]
     visitors_7 = q(
-        conn, f"SELECT COUNT(DISTINCT ip) c FROM session WHERE {HUMAN} AND started >= ?"
-        f" AND {NOT_OWNER}",
-        since_7,
+        conn, f"SELECT COUNT(DISTINCT ip) c FROM session WHERE {where} AND started >= ?"
+        f" AND {NOT_OWNER}", since_7,
     )[0]["c"]
     visits = q(
-        conn, f"SELECT COUNT(*) c FROM session WHERE {HUMAN} AND started >= ?"
-        f" AND {NOT_OWNER}", since
-    )[0]["c"]
-    bot_visits = q(
-        conn, f"SELECT COUNT(*) c FROM session WHERE is_bot = 1 AND started >= ?"
-        f" AND {NOT_OWNER}", since
+        conn, f"SELECT COUNT(*) c FROM session WHERE {where} AND started >= ?"
+        f" AND {NOT_OWNER}", since,
     )[0]["c"]
     logins = q(
-        conn, f"SELECT COUNT(*) c FROM login WHERE type = 'LOGIN' AND ts >= ?"
-        f" AND {NOT_OWNER}", since
+        conn, f"SELECT COUNT(*) c FROM login l WHERE l.type = 'LOGIN' AND l.ts >= ?"
+        f" AND {NOT_OWNER_L} AND {login_scope}", since,
     )[0]["c"]
     login_users = q(
         conn,
-        f"SELECT COUNT(DISTINCT username) c FROM login WHERE type='LOGIN'"
-        f" AND ts >= ? AND {NOT_OWNER}",
-        since,
+        f"SELECT COUNT(DISTINCT l.username) c FROM login l WHERE l.type='LOGIN'"
+        f" AND l.ts >= ? AND {NOT_OWNER_L} AND {login_scope}", since,
     )[0]["c"]
 
     durations = [
         r["duration"]
         for r in q(
             conn,
-            f"SELECT duration FROM session WHERE {HUMAN} AND started >= ? AND hits > 1"
+            f"SELECT duration FROM session WHERE {where} AND started >= ? AND hits > 1"
             f" AND {NOT_OWNER}",
             since,
         )
@@ -281,12 +293,12 @@ def build(conn: sqlite3.Connection) -> str:
     buckets: dict[str, list] = {}
     for r in q(
         conn,
-        f"SELECT started, ip FROM session WHERE {HUMAN} AND started >= ?"
+        f"SELECT started, ip FROM session WHERE {where} AND started >= ?"
         f" AND {NOT_OWNER}",
         since,
     ):
-        key = local(r["started"]).strftime("%Y-%m-%d")
-        entry = buckets.setdefault(key, [0, set()])
+        bucket_key = local(r["started"]).strftime("%Y-%m-%d")
+        entry = buckets.setdefault(bucket_key, [0, set()])
         entry[0] += 1
         entry[1].add(r["ip"])
     days = []
@@ -301,7 +313,7 @@ def build(conn: sqlite3.Connection) -> str:
         f"SELECT COALESCE(g.city || ', ' || g.country, g.country, 'Unknown') place,"
         f" COUNT(*) n, COUNT(DISTINCT s.ip) u FROM session s"
         f" LEFT JOIN ip_geo g ON g.ip = s.ip"
-        f" WHERE {HUMAN} AND s.started >= ? AND {NOT_OWNER_S}"
+        f" WHERE {where} AND s.started >= ? AND {NOT_OWNER_S}"
         f" GROUP BY place ORDER BY n DESC LIMIT 12",
         since,
     )
@@ -312,14 +324,14 @@ def build(conn: sqlite3.Connection) -> str:
     countries = q(
         conn,
         f"SELECT COUNT(DISTINCT g.country) c FROM session s JOIN ip_geo g ON g.ip = s.ip"
-        f" WHERE {HUMAN} AND s.started >= ? AND {NOT_OWNER_S} AND g.country IS NOT NULL",
+        f" WHERE {where} AND s.started >= ? AND {NOT_OWNER_S} AND g.country IS NOT NULL",
         since,
     )[0]["c"]
 
     # Activities: a visit counts once per feature it touched.
     tally: Counter[str] = Counter()
     for r in q(
-        conn, f"SELECT activities FROM session WHERE {HUMAN} AND started >= ?"
+        conn, f"SELECT activities FROM session WHERE {where} AND started >= ?"
         f" AND {NOT_OWNER}", since
     ):
         for tag in set(json.loads(r["activities"] or "[]")):
@@ -329,22 +341,22 @@ def build(conn: sqlite3.Connection) -> str:
         (tag, n, f"{n} visit(s) touched {tag}") for tag, n in tally.most_common(12)
     ]
 
-    # Recent visits.
     recent = q(
         conn,
         f"SELECT s.*, g.city, g.country FROM session s LEFT JOIN ip_geo g ON g.ip = s.ip"
-        f" WHERE {HUMAN} AND {NOT_OWNER_S} ORDER BY s.started DESC LIMIT 30",
+        f" WHERE {where} AND {NOT_OWNER_S} ORDER BY s.started DESC LIMIT 30",
     )
     recent_logins = q(
         conn,
         "SELECT l.*, g.city, g.country FROM login l LEFT JOIN ip_geo g ON g.ip = l.ip"
-        f" WHERE l.type IN ('LOGIN','LOGIN_ERROR') AND {NOT_OWNER_L}"
+        f" WHERE l.type IN ('LOGIN','LOGIN_ERROR') AND {NOT_OWNER_L} AND {login_scope}"
         f" ORDER BY l.ts DESC LIMIT 25",
     )
 
-    geo_missing = q(conn, "SELECT COUNT(*) c FROM ip_geo WHERE country IS NULL")[0]["c"]
-    geo_total = q(conn, "SELECT COUNT(*) c FROM ip_geo")[0]["c"]
-    first_seen = q(conn, "SELECT MIN(ts) t FROM login")[0]["t"]
+    # The "why" column only earns its width where bots can appear.
+    show_why = key != "human"
+    why_head = "<th>Why flagged</th>" if show_why else ""
+    span = 7 if show_why else 6
 
     def visit_rows() -> str:
         out = []
@@ -352,6 +364,10 @@ def build(conn: sqlite3.Connection) -> str:
             place = ", ".join(x for x in (r["city"], r["country"]) if x) or "Unknown"
             tags = ", ".join(json.loads(r["activities"] or "[]")[:4]) or "-"
             when = local(r["started"])
+            why = ""
+            if show_why:
+                reason = (r["bot_reason"] if "bot_reason" in r.keys() else None) or ""
+                why = f'<td class="muted-cell">{html.escape(reason) or "-"}</td>'
             out.append(
                 "<tr>"
                 f"<td>{when:%b %d %H:%M}</td>"
@@ -360,9 +376,12 @@ def build(conn: sqlite3.Connection) -> str:
                 f'<td class="num">{r["page_views"]}</td>'
                 f"<td>{html.escape(tags)}</td>"
                 f'<td class="ip">{html.escape(r["ip"])}</td>'
+                f"{why}"
                 "</tr>"
             )
-        return "".join(out) or '<tr><td colspan="6" class="empty">No visits yet.</td></tr>'
+        return "".join(out) or (
+            f'<tr><td colspan="{span}" class="empty">No visits in this view.</td></tr>'
+        )
 
     def login_rows() -> str:
         out = []
@@ -380,7 +399,120 @@ def build(conn: sqlite3.Connection) -> str:
                 f'<td class="ip">{html.escape(r["ip"] or "-")}</td>'
                 "</tr>"
             )
-        return "".join(out) or '<tr><td colspan="5" class="empty">No logins yet.</td></tr>'
+        return "".join(out) or '<tr><td colspan="5" class="empty">No sign-ins in this view.</td></tr>'
+
+    noun = {"human": "visitors", "bot": "bot addresses", "all": "addresses"}[key]
+    blurb = {
+        "human": "Visits that loaded the application and asked for at least one page.",
+        "bot": "Visits ruled machinery, with the rule that decided it.",
+        "all": "Everything recorded, people and machinery together.",
+    }[key]
+
+    return f"""
+<div class="audience" data-audience="{key}" {'hidden' if key != 'human' else ''}>
+<div class="card hero">
+  <div>
+    <div class="figure">{compact(visitors)}</div>
+    <div class="label">unique {noun}, last {WINDOW_DAYS} days</div>
+  </div>
+  <div>
+    <div class="label">{visitors_7} in the last 7 days &middot;
+      {compact(visits)} visits total</div>
+    <div class="label muted">{blurb}</div>
+  </div>
+</div>
+
+<div class="tiles">
+  <div class="card tile"><div class="label">Visits</div>
+    <div class="value">{compact(visits)}</div>
+    <div class="foot">{label.lower()} sessions in the window</div></div>
+  <div class="card tile"><div class="label">Median visit length</div>
+    <div class="value">{fmt_duration(median)}</div>
+    <div class="foot">longest {fmt_duration(longest)}</div></div>
+  <div class="card tile"><div class="label">Sign-ins</div>
+    <div class="value">{logins:,}</div>
+    <div class="foot">{login_users} distinct account(s)</div></div>
+  <div class="card tile"><div class="label">Countries</div>
+    <div class="value">{countries}</div>
+    <div class="foot">resolved from visitor IPs</div></div>
+</div>
+
+<div class="card">
+  <h2>Visits per day</h2>
+  <p class="sub">{blurb} Hover a column for the count.</p>
+  {column_chart(days)}
+</div>
+
+<div class="cols">
+  <div class="card">
+    <h2>Where they are</h2>
+    <p class="sub">Visits by resolved location.</p>
+    {geo_note}
+    {bar_chart(locations)}
+  </div>
+  <div class="card">
+    <h2>What they did</h2>
+    <p class="sub">Visits that touched each area at least once.</p>
+    {bar_chart(activities)}
+  </div>
+</div>
+
+<div class="card">
+  <h2>Recent visits</h2>
+  <p class="sub">Most recent 30 {label.lower()} sessions.</p>
+  <table><thead><tr><th>When</th><th>Location</th><th>Length</th>
+    <th>Pages</th><th>Areas visited</th><th>IP</th>{why_head}</tr></thead>
+  <tbody>{visit_rows()}</tbody></table>
+</div>
+
+<div class="card">
+  <h2>Recent sign-ins</h2>
+  <p class="sub">Keycloak authentication events from addresses in this view.</p>
+  <table><thead><tr><th>When</th><th>Account</th><th>Result</th>
+    <th>Location</th><th>IP</th></tr></thead>
+  <tbody>{login_rows()}</tbody></table>
+</div>
+</div>
+"""
+
+
+def build(conn: sqlite3.Connection) -> str:
+    now = datetime.now(TZ)
+    since = (now - timedelta(days=WINDOW_DAYS)).timestamp()
+
+    # Maintainer traffic is excluded from every number on the page.
+    owner_ips = owner_addresses(conn)
+    NOT_OWNER = not_owner(owner_ips)
+    hidden_logins = q(
+        conn,
+        f"SELECT COUNT(*) c FROM login WHERE ts >= ? AND NOT ({NOT_OWNER})",
+        since,
+    )[0]["c"]
+    hidden_visits = q(
+        conn,
+        f"SELECT COUNT(*) c FROM session WHERE {HUMAN} AND started >= ?"
+        f" AND NOT ({NOT_OWNER})",
+        since,
+    )[0]["c"]
+
+    counts = {
+        key: q(
+            conn,
+            f"SELECT COUNT(*) c FROM session WHERE {where} AND started >= ?"
+            f" AND {NOT_OWNER}",
+            since,
+        )[0]["c"]
+        for key, _, where in AUDIENCES
+    }
+
+    countries = q(
+        conn,
+        f"SELECT COUNT(DISTINCT g.country) c FROM session s JOIN ip_geo g ON g.ip = s.ip"
+        f" WHERE {HUMAN} AND s.started >= ? AND {not_owner(owner_ips, 's.ip')}"
+        f" AND g.country IS NOT NULL",
+        since,
+    )[0]["c"]
+    first_seen = q(conn, "SELECT MIN(ts) t FROM login")[0]["t"]
 
     history_note = (
         f"History starts {local(first_seen):%Y-%m-%d}."
@@ -411,6 +543,23 @@ def build(conn: sqlite3.Connection) -> str:
             "installed yet. Run <code>infra/analytics/geoip-update.sh</code> with a "
             "MaxMind licence key and locations fill in on the next collection.</p>"
         )
+
+    def pill(key: str, label: str) -> str:
+        # Built with concatenation rather than one f-string: the
+        # attribute needs escaped quotes, and an f-string expression
+        # cannot contain a backslash before Python 3.12. Prod is 3.11.
+        current = ' aria-current="true"' if key == "human" else ""
+        return (
+            '<button type="button" class="filter" data-filter="' + key + '"'
+            + current + ">" + label
+            + ' <span class="count">' + f"{counts[key]:,}" + "</span></button>"
+        )
+
+    pills = "".join(pill(key, label) for key, label, _ in AUDIENCES)
+    panels = "".join(
+        panel(conn, key, label, where, owner_ips, now, geo_note)
+        for key, label, where in AUDIENCES
+    )
 
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -474,6 +623,17 @@ def build(conn: sqlite3.Connection) -> str:
   .pill.ok {{ background: color-mix(in srgb, var(--good) 15%, transparent); color: var(--good); }}
   .pill.failed {{ background: color-mix(in srgb, var(--critical) 15%, transparent);
     color: var(--critical); }}
+  .filters {{ display: flex; gap: 8px; margin: 0 0 16px; flex-wrap: wrap; }}
+  .filter {{ font: inherit; font-size: 12.5px; color: var(--text-secondary);
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 999px; padding: 5px 13px; cursor: pointer; }}
+  .filter:hover {{ border-color: var(--axis); }}
+  .filter[aria-current="true"] {{ background: var(--text-primary);
+    border-color: var(--text-primary); color: var(--surface-1); }}
+  .filter .count {{ font-variant-numeric: tabular-nums; opacity: .65;
+    margin-left: 4px; }}
+  .hero .label.muted, td.muted-cell {{ color: var(--muted); }}
+  .hero .label.muted {{ font-size: 12px; margin-top: 4px; }}
   .empty, .note {{ color: var(--muted); font-size: 12.5px; }}
   .note code {{ font-size: 11.5px; }}
   .cols {{ display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }}
@@ -486,71 +646,43 @@ def build(conn: sqlite3.Connection) -> str:
 
 <h1>GratisGIS demo traffic</h1>
 <p class="sub">gratisgis.org &middot; generated {now:%Y-%m-%d %H:%M} &middot;
-  window: last {WINDOW_DAYS} days &middot; times in {tz_label}{owner_note}</p>
+  window: last {WINDOW_DAYS} days &middot; times in {tz_label}{owner_note}
+  &middot; {history_note}</p>
 
-<div class="card hero">
-  <div>
-    <div class="figure">{compact(visitors)}</div>
-    <div class="label">unique visitors, last {WINDOW_DAYS} days</div>
-  </div>
-  <div>
-    <div class="label">{visitors_7} in the last 7 days &middot;
-      {compact(visits)} visits total &middot; {bot_visits:,} bot visits filtered out</div>
-  </div>
+<div class="filters" role="group" aria-label="Which traffic to show">
+  {pills}
 </div>
 
-<div class="tiles">
-  <div class="card tile"><div class="label">Visits</div>
-    <div class="value">{compact(visits)}</div>
-    <div class="foot">sessions with at least one page view</div></div>
-  <div class="card tile"><div class="label">Median visit length</div>
-    <div class="value">{fmt_duration(median)}</div>
-    <div class="foot">longest {fmt_duration(longest)}</div></div>
-  <div class="card tile"><div class="label">Sign-ins</div>
-    <div class="value">{logins:,}</div>
-    <div class="foot">{login_users} distinct account(s)</div></div>
-  <div class="card tile"><div class="label">Countries</div>
-    <div class="value">{countries}</div>
-    <div class="foot">resolved from visitor IPs</div></div>
-</div>
-
-<div class="card">
-  <h2>Visits per day</h2>
-  <p class="sub">Human sessions, bots excluded. Hover a column for the count.</p>
-  {column_chart(days)}
-</div>
-
-<div class="cols">
-  <div class="card">
-    <h2>Where visitors are</h2>
-    <p class="sub">Visits by resolved location.</p>
-    {geo_note}
-    {bar_chart(locations)}
-  </div>
-  <div class="card">
-    <h2>What they did</h2>
-    <p class="sub">Visits that touched each area at least once.</p>
-    {bar_chart(activities)}
-  </div>
-</div>
-
-<div class="card">
-  <h2>Recent visits</h2>
-  <p class="sub">Most recent 30 human sessions.</p>
-  <table><thead><tr><th>When</th><th>Location</th><th>Length</th>
-    <th>Pages</th><th>Areas visited</th><th>IP</th></tr></thead>
-  <tbody>{visit_rows()}</tbody></table>
-</div>
-
-<div class="card">
-  <h2>Recent sign-ins</h2>
-  <p class="sub">From Keycloak authentication events. {history_note}</p>
-  <table><thead><tr><th>When</th><th>Account</th><th>Result</th>
-    <th>Location</th><th>IP</th></tr></thead>
-  <tbody>{login_rows()}</tbody></table>
-</div>
+{panels}
 
 </div><div id="tip"></div>
+<script>
+  // Audience filter. Each view is rendered server-side and the pills
+  // just swap which one is shown, so every number on the page comes
+  // from the same query the pill describes. The choice survives a
+  // reload because the page regenerates every 15 minutes and losing
+  // your filter on each refresh would be maddening.
+  const KEY = 'gg-traffic-audience';
+  function applyFilter(name) {{
+    document.querySelectorAll('.audience').forEach(el => {{
+      el.hidden = el.dataset.audience !== name;
+    }});
+    document.querySelectorAll('.filter').forEach(el => {{
+      if (el.dataset.filter === name) el.setAttribute('aria-current', 'true');
+      else el.removeAttribute('aria-current');
+    }});
+    try {{ localStorage.setItem(KEY, name); }} catch (e) {{ /* private mode */ }}
+  }}
+  document.querySelectorAll('.filter').forEach(el => {{
+    el.addEventListener('click', () => applyFilter(el.dataset.filter));
+  }});
+  try {{
+    const saved = localStorage.getItem(KEY);
+    if (saved && document.querySelector('.audience[data-audience="' + saved + '"]')) {{
+      applyFilter(saved);
+    }}
+  }} catch (e) {{ /* private mode */ }}
+</script>
 <script>
   // Hover layer. Every mark carries data-tip; the tooltip follows the
   // pointer and never blocks the mark under it.

@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS session (
   api_calls   INTEGER NOT NULL,
   activities  TEXT,                    -- JSON array of feature tags, most used first
   is_bot      INTEGER NOT NULL DEFAULT 0,
+  bot_reason  TEXT,                    -- which rule fired, NULL for humans
   UNIQUE (ip, ua_hash, started)
 );
 CREATE INDEX IF NOT EXISTS session_started_idx ON session (started);
@@ -77,6 +78,17 @@ CREATE TABLE IF NOT EXISTS login (
   error    TEXT
 );
 CREATE INDEX IF NOT EXISTS login_ts_idx ON login (ts);
+
+-- Cached GeoLite2 ASN lookups. Separate from ip_geo because the ASN
+-- database is a separate download that a deployment may not have; an
+-- empty table here just means the network-based bot rule sits out.
+CREATE TABLE IF NOT EXISTS ip_asn (
+  ip        TEXT PRIMARY KEY,
+  asn       INTEGER,
+  org       TEXT,
+  is_hosting INTEGER NOT NULL DEFAULT 0,
+  looked_up TEXT NOT NULL
+);
 
 -- Cached GeoLite2 lookups, one row per address. Cached rather than
 -- resolved on read so the dashboard stays fast and so a later
