@@ -582,7 +582,17 @@ export class DataLayerEngine {
         // One statement takes every lock in sorted order. The ORDER
         // BY subquery pins evaluation order; xact locks release at
         // commit/rollback automatically.
-        await tx.$queryRaw`
+        //
+        // $executeRaw, not $queryRaw: pg_advisory_xact_lock() returns
+        // `void`, and the Prisma pg driver adapter cannot deserialize
+        // a void result column: it throws UnsupportedNativeDataType
+        // / "Failed to deserialize column of type 'void'" and takes
+        // the whole transaction with it. That
+        // broke every feature-insert path (form submissions, ingest,
+        // OSM save-as-layer, AGO import, sample seeding) on Prisma 7.8.
+        // We discard the result anyway, so ask for a row count instead
+        // of rows. Do not "simplify" this back to $queryRaw.
+        await tx.$executeRaw`
           SELECT pg_advisory_xact_lock(hashtextextended(k, 0))
           FROM (SELECT k FROM unnest(${lockKeys}::text[]) AS k ORDER BY k) locks
         `;
