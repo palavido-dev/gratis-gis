@@ -135,15 +135,19 @@ fi
 # the import directory is ready when the container starts.
 echo "=== Materializing Keycloak realm import ==="
 mkdir -p infra/keycloak/import
-# shellcheck disable=SC1091
-set -a
-. infra/.env.prod
+# Parsed, not sourced. `. infra/.env.prod` lets bash expand the
+# values: a bcrypt hash like STATS_HASH turns its $$ into the deploy
+# shell's PID, Caddy then rejects the basic-auth config, and the site
+# stays down until someone reads the container log. See
+# infra/lib-env.sh.
+# shellcheck source=infra/lib-env.sh
+. infra/lib-env.sh
+gg_load_env_file infra/.env.prod
 # Derived AUTH_URL the realm template uses for the realm-level
 # frontendUrl. Keep this separate from PUBLIC_URL: the realm has to
 # advertise itself as the AUTH subdomain (otherwise discovery
 # returns the wrong issuer and OAuth breaks).
 export AUTH_URL="https://${AUTH_DOMAIN:-auth.gratisgis.org}"
-set +a
 envsubst < infra/keycloak/realm-gratis-gis.prod.json.tmpl \
   > infra/keycloak/import/realm-gratis-gis.json
 # The materialized file carries real secrets (client secrets, the

@@ -75,10 +75,11 @@ if ! flock -n 9; then
 fi
 # Lock auto-releases on fd 9 close (process exit).
 
-set -a
-# shellcheck disable=SC1090
-source "$ENV_FILE"
-set +a
+# Parsed, not sourced: bash expands values on the way in, which is
+# how a bcrypt STATS_HASH once became a PID and took Caddy down.
+# shellcheck source=infra/lib-env.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib-env.sh"
+gg_load_env_file "$ENV_FILE"
 
 # Safety gate. The check is intentionally permissive (any truthy
 # string) so an operator can pass it ad hoc on the command line

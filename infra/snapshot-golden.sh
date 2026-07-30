@@ -71,10 +71,11 @@ if ! flock -n 9; then
 fi
 # The lock auto-releases when fd 9 closes (process exit).
 
-set -a
-# shellcheck disable=SC1090
-source "$ENV_FILE"
-set +a
+# Parsed, not sourced: bash expands values on the way in, which is
+# how a bcrypt STATS_HASH once became a PID and took Caddy down.
+# shellcheck source=infra/lib-env.sh
+source "$INFRA_DIR/lib-env.sh"
+gg_load_env_file "$ENV_FILE"
 
 POSTGRES_USER="${POSTGRES_USER:-gratisgis}"
 POSTGRES_DB_APP="${POSTGRES_DB:-gratisgis}"
