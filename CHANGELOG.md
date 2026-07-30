@@ -5,6 +5,52 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.3] - 2026-07-30
+
+A safe upgrade from 0.9.2. Nothing here requires a configuration
+change: the additions are demo and operator tooling that stays off
+unless you turn it on.
+
+### Fixed
+
+- Saving features works again. The advisory lock the write path takes
+  asked PostgreSQL for rows from a function that returns nothing, and
+  the database driver could not deserialize that, so the transaction
+  rolled back. Every insert path was affected: form submissions,
+  imports, OpenStreetMap saves, and sample data seeding.
+- A portal whose sign-in has expired no longer presents itself as
+  signed in. The header showed a name and avatar while the API had
+  already downgraded the same session to anonymous, so private items
+  quietly disappeared with no explanation. The header now offers Sign
+  in, matching the banner that was already there.
+- `infra/deploy.sh` parses `.env.prod` instead of sourcing it through
+  bash. Sourcing expanded the values, so anything containing a dollar
+  sign (a bcrypt hash, for one) silently became something else, and a
+  secrets file was arbitrary code in a root deploy. Parsing follows
+  the same rules `docker compose --env-file` uses, so the scripts and
+  compose always agree. The golden snapshot and restore scripts use
+  the same loader.
+
+### Security
+
+- The bundled `pmtiles` binary is built against golang.org/x/text
+  0.39.0, past CVE-2026-56852. Upstream still pins the vulnerable
+  version, so the image build upgrades the dependency itself and
+  asserts the result.
+
+### Added
+
+- Optional traffic analytics for a public demo deployment: Caddy
+  access logs and Keycloak login events collected into a SQLite store
+  outside the nightly reset, rendered as a static dashboard at
+  `/_stats` behind basic auth. Off by default. `STATS_USER`,
+  `STATS_HASH`, `CADDY_LOG_DIR` and `ANALYTICS_DIR` are documented in
+  `infra/.env.prod.example`; the default credentials cannot
+  authenticate, so an untouched deployment exposes nothing.
+- A demo sign-in theme that lists the shared tester accounts, and
+  seeding that gives those testers an owned and shared workspace after
+  each nightly reset. Both are demo-instance tooling.
+
 ## [0.9.2] - 2026-07-26
 
 ### Added

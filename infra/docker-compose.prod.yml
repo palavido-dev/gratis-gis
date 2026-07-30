@@ -693,13 +693,18 @@ services:
       AUTH_DOMAIN: ${AUTH_DOMAIN:-auth.gratisgis.org}
       STORAGE_DOMAIN: ${STORAGE_DOMAIN:-storage.gratisgis.org}
       ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL must be set in .env.prod}
-      # Basic auth for the /_stats dashboard. No default hash on
-      # purpose: a committed one would be a published password for
-      # every deployment that never overrode it. Generate with
-      # `docker run --rm caddy caddy hash-password --plaintext '...'`
-      # and put the result in .env.prod with each $ doubled to $$.
+      # Basic auth for the /_stats analytics dashboard. The default
+      # hash is deliberately unusable: it was generated from 33 random
+      # bytes that were never written down, so nobody can sign in with
+      # it and a deployment that ignores /_stats is closed rather than
+      # carrying a published password. A default is still required,
+      # because Caddy refuses to start on an undecodable one and it
+      # takes the whole site with it. To use the dashboard, set both
+      # values in .env.prod:
+      #   docker run --rm caddy caddy hash-password --plaintext '...'
+      # and single-quote the hash there so nothing expands the $ signs.
       STATS_USER: ${STATS_USER:-stats}
-      STATS_HASH: ${STATS_HASH:?STATS_HASH must be set in .env.prod}
+      STATS_HASH: ${STATS_HASH:-$$2a$$14$$h.JUdPIZywlDk54gHFpKa..58uz7UVWNW/NvgJw4kC8ziYgQwGC4K}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data

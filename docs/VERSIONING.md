@@ -13,8 +13,10 @@ between releases.
 - A minor bump (0.9 to 0.10) may include breaking changes to the
   public surface below. Every breaking change is called out in the
   release's changelog section with a line starting `Breaking:`.
-- A patch bump (0.9.0 to 0.9.1) contains fixes only and is always a
-  safe upgrade.
+- A patch bump (0.9.0 to 0.9.1) contains fixes, plus additions that
+  are off by default and change nothing for a deployment that ignores
+  them. It is always a safe upgrade: no configuration change, no
+  behavior change you did not ask for.
 
 ## From v1.0.0 onward
 
