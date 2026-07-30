@@ -116,12 +116,27 @@ RUN pnpm deploy --filter=@gratis-gis/portal-api /out
 # uses so a bump propagates atomically.
 FROM golang:1.26-bookworm AS pmtiles-build
 ARG PMTILES_VERSION=1.30.3
+# CVE-2026-56852, HIGH: go-pmtiles pins golang.org/x/text v0.35.0 and
+# still does at v1.31.2, so bumping PMTILES_VERSION does not clear it.
+# Fixed upstream in x/text 0.39.0.
+ARG PMTILES_XTEXT_VERSION=0.39.0
 # GOTOOLCHAIN=auto (the default) lets Go honour go-pmtiles' go.mod
 # directive and pull the matching toolchain if the image's Go is
 # older than declared. CGO=0 produces a static binary that runs on
 # any glibc; no need for the runtime image to carry libgo.
 ENV CGO_ENABLED=0
-RUN go install "github.com/protomaps/go-pmtiles@v${PMTILES_VERSION}"
+# Built through a throwaway wrapper module rather than `go install`.
+# go install resolves dependencies from the target module's own
+# go.mod and cannot be told to upgrade one, whereas building the same
+# main package from inside a module we control picks up our upgraded
+# x/text. Keep the two `go get` lines in this order: the second one
+# only sticks once go-pmtiles is in the graph.
+RUN mkdir -p /pmtiles-build && cd /pmtiles-build \
+    && go mod init pmtiles-build \
+    && go get "github.com/protomaps/go-pmtiles@v${PMTILES_VERSION}" \
+    && go get "golang.org/x/text@v${PMTILES_XTEXT_VERSION}" \
+    && go build -o /go/bin/go-pmtiles github.com/protomaps/go-pmtiles \
+    && go version -m /go/bin/go-pmtiles | grep -q "golang.org/x/text[[:space:]]*v${PMTILES_XTEXT_VERSION}"
 
 FROM base AS runtime
 WORKDIR /app
@@ -179,7 +194,8 @@ RUN rm -rf /pnpm /usr/local/lib/node_modules/pnpm \
 # pmtiles' CLI usage, but Trivy can't see that from the binary alone.
 # Rebuilding against the current `golang:1.26-bookworm` toolchain
 # embeds a patched stdlib version into the binary so the alerts
-# resolve at the source rather than via .trivyignore.
+# resolve at the source rather than via .trivyignore. The same stage
+# upgrades golang.org/x/text past CVE-2026-56852 for the same reason.
 ARG PMTILES_VERSION=1.30.3
 COPY --from=pmtiles-build /go/bin/go-pmtiles /usr/local/bin/pmtiles
 RUN /usr/local/bin/pmtiles version
