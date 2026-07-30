@@ -21,6 +21,10 @@ __pycache__/
 .env.*.local
 .env.prod
 .env.staging
+# Timestamped copies an operator makes before editing the real file.
+# Same secrets, same rule.
+.env.prod.bak*
+.env.staging.bak*
 !.env.example
 !.env.prod.example
 
