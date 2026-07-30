@@ -118,6 +118,29 @@ dc() {
 # command line. deploy.sh's Keycloak reconciliation is what grants
 # that service account a portal-admin identity; if this step fails
 # with a claims error, run infra/deploy.sh once and retry.
+# Hand the demo tester workspace back before the purge runs. The
+# nightly reset gives the sample set to tester-admin and
+# tester-contributor so a tester sees owned content on first sign-in
+# (infra/seed-demo-workspace.sh); the purge below deletes every item
+# not owned by the bootstrap admin. Snapshotting without this revert
+# does not capture a tester-owned workspace, it captures no sample
+# workspace at all, because the purge hard-deletes all seventeen
+# items along with their feature tables and MinIO blobs. That has
+# happened once; the revert is what stops it happening again.
+#
+# Ordering matters: revert (SQL, postgres is still up) -> purge ->
+# stop services -> dump. restore-golden.sh re-applies the split at
+# the end of every reset.
+echo "=== Reverting demo tester workspace before purge ==="
+GG_SNAP_PG="$(dc ps -q postgres 2>/dev/null | head -n 1)"
+if [[ -z "$GG_SNAP_PG" ]]; then
+  echo "FATAL: postgres container not running; cannot revert the tester workspace." >&2
+  exit 1
+fi
+PG_CONTAINER="$GG_SNAP_PG" PG_USER="$POSTGRES_USER" PG_DB="$POSTGRES_DB_APP" \
+  ADMIN_USERNAME="$ADMIN_USERNAME" \
+  "$INFRA_DIR/seed-demo-workspace.sh" --revert
+
 echo "=== Pre-snapshot purge of non-admin items ==="
 PORTAL_API_CONTAINER="$(dc ps -q portal-api 2>/dev/null | head -n 1)"
 if [[ -z "$PORTAL_API_CONTAINER" ]]; then

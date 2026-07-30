@@ -111,6 +111,8 @@ done
 POSTGRES_USER="${POSTGRES_USER:-gratisgis}"
 POSTGRES_DB_APP="${POSTGRES_DB:-gratisgis}"
 KEYCLOAK_DB_NAME="${KEYCLOAK_DB_NAME:-keycloak}"
+ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
+INFRA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 dc() {
   docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"
@@ -392,6 +394,33 @@ json.dump(client, sys.stdout)
       fi
     fi
   fi
+fi
+
+# Hand the sample workspace to the tester accounts. This runs after
+# the restore, not before the snapshot, and that asymmetry is
+# deliberate: snapshot-golden.sh purges every item not owned by the
+# bootstrap admin, so the golden dump is and must stay 100%
+# admin-owned. Applying the split here means a tester still lands on
+# owned and shared content, and the purge keeps working as the guard
+# against visitor pollution.
+#
+# Non-fatal on purpose. A reset that restored cleanly but could not
+# reassign ownership has left a working demo with buried content,
+# which is worth a warning rather than a failed unit.
+echo "=== Seeding demo tester workspace ==="
+# Re-resolve the container id rather than reusing the one captured
+# before the restore: the restore path stops and starts services, and
+# a recreated postgres container would leave the old id stale.
+GG_SEED_PG="$(dc ps -q postgres 2>/dev/null | head -n 1)"
+if [[ -z "$GG_SEED_PG" ]]; then
+  echo "WARN: postgres container not resolvable; skipping tester workspace seeding." >&2
+elif [[ -x "$INFRA_DIR/seed-demo-workspace.sh" ]]; then
+  PG_CONTAINER="$GG_SEED_PG" PG_USER="$POSTGRES_USER" PG_DB="$POSTGRES_DB_APP" \
+    ADMIN_USERNAME="$ADMIN_USERNAME" \
+    "$INFRA_DIR/seed-demo-workspace.sh" \
+    || echo "WARN: tester workspace seeding failed; demo content stays admin-owned." >&2
+else
+  echo "WARN: $INFRA_DIR/seed-demo-workspace.sh not found or not executable; skipping." >&2
 fi
 
 echo "=== Reset complete at $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
