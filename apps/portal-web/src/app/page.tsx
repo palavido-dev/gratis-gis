@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import type { ItemType } from '@gratis-gis/shared-types';
 import { authOptions } from '@/lib/auth';
 import { getPortalUrl } from '@/lib/portal-url';
+import { isSessionStale } from '@/lib/session-state';
 import { loadWhatsNewEntries } from '@/lib/whats-new';
 import { PublicLanding } from './public-landing';
 
@@ -102,6 +103,7 @@ export default async function HomePage(
         whatsNew={whatsNew}
         forceProjectSection={previewProject}
         isAuthenticated={!!session}
+        sessionStale={isSessionStale(session)}
       />
     </>
   );

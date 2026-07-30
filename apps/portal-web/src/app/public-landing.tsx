@@ -98,6 +98,14 @@ interface Props {
    */
   isAuthenticated?: boolean;
   /**
+   * Session cookie present but its Keycloak tokens are dead (#195).
+   * The shell keeps rendering (so the TopBar stays suppressed and we
+   * don't stack two headers), but the hero CTA has to say Sign in:
+   * "Open my items" leads to an items page the API will answer as
+   * anonymous.
+   */
+  sessionStale?: boolean;
+  /**
    * Recent user-visible updates parsed from
    * docs/changelog/user-visible.md.  Empty or omitted to suppress
    * the "What's new" card (e.g. on first deploy before any entries
@@ -110,6 +118,7 @@ export function PublicLanding({
   data,
   forceProjectSection,
   isAuthenticated,
+  sessionStale,
   whatsNew,
 }: Props) {
   const { org, items: rawItems } = data;
@@ -127,8 +136,9 @@ export function PublicLanding({
   const items = rawItems.filter((it) =>
     hasRuntime(it as Parameters<typeof hasRuntime>[0]),
   );
-  const ctaHref = isAuthenticated ? '/items' : '/signin';
-  const ctaLabel = isAuthenticated ? 'Open my items' : 'Sign in';
+  const usableSession = isAuthenticated && !sessionStale;
+  const ctaHref = usableSession ? '/items' : '/signin';
+  const ctaLabel = usableSession ? 'Open my items' : 'Sign in';
 
   return (
     <div className="flex min-h-screen flex-col">

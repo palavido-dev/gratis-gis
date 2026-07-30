@@ -11,6 +11,7 @@ import { getServerSession } from 'next-auth';
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { authOptions, type SessionWithToken } from '@/lib/auth';
+import { isSessionStale } from '@/lib/session-state';
 
 const API_BASE = process.env.PORTAL_API_URL ?? 'http://localhost:4000';
 
@@ -321,7 +322,7 @@ async function forward(req: NextRequest, pathSegments: string[]) {
   // signed out instead: GETs fall through the same public allowlist
   // an anonymous visitor uses, and everything else gets an explicit
   // session-expired 401 the client can surface.
-  const sessionStale = Boolean(session?.error);
+  const sessionStale = isSessionStale(session);
   const accessToken = sessionStale ? undefined : session?.accessToken;
   if (sessionStale) warnStaleSession(req.method, suffix);
 

@@ -23,7 +23,10 @@ import {
   X as CloseIcon,
 } from 'lucide-react';
 
+import { signIn, useSession } from 'next-auth/react';
+
 import { useT } from '@/lib/i18n/locale-context';
+import { isSessionStale } from '@/lib/session-state';
 
 import { TopBarSearch } from './top-bar-search';
 import { HelpButton } from './help-button';
@@ -66,18 +69,29 @@ export interface AppShellMe {
 export function AppShellChrome({
   me,
   signedIn,
+  sessionStale,
   fallbackName,
   fallbackEmail,
   children,
 }: {
   me: AppShellMe | null;
   signedIn: boolean;
+  /** Session cookie present, Keycloak tokens dead (#195). */
+  sessionStale: boolean;
   fallbackName: string | null;
   fallbackEmail: string | null;
   children: ReactNode;
 }) {
   const pathname = usePathname() ?? '';
   const t = useT();
+  // The server render decides the first paint so there is no flash of
+  // a signed-in header. After that the client session takes over,
+  // which means the header heals itself on the same window-focus
+  // refetch that unmounts the expired-session banner: `data` is
+  // undefined only while that first fetch is in flight.
+  const { data: clientSession } = useSession();
+  const stale =
+    clientSession === undefined ? sessionStale : isSessionStale(clientSession);
 
   // Field-runtime path: render bare. Same predicate as the
   // server-side check used to use; kept here so a future widening
@@ -174,15 +188,28 @@ export function AppShellChrome({
             >
               <Bell className="h-4 w-4" />
             </button>
-            {/* signedIn is guaranteed true here; the unauthenticated
-                case returned early above without rendering the chrome,
-                so the unsigned Sign-in button would be dead JSX. */}
-            <UserMenu
-              seed={me?.id ?? fallbackEmail ?? 'you'}
-              displayName={me?.fullName ?? fallbackName ?? 'You'}
-              orgName={me?.orgName ?? null}
-              avatarUrl={me?.avatarUrl ?? null}
-            />
+            {/* A stale session is a signed-out session as far as the
+                API is concerned, so the header must not keep showing
+                the person's name and avatar next to a banner telling
+                them their sign-in expired. Same action as the banner,
+                kept here because the header is where people look for
+                who they are signed in as. */}
+            {stale ? (
+              <button
+                type="button"
+                onClick={() => void signIn('keycloak')}
+                className="inline-flex h-9 items-center rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground shadow-card hover:opacity-90"
+              >
+                {t('nav.signIn')}
+              </button>
+            ) : (
+              <UserMenu
+                seed={me?.id ?? fallbackEmail ?? 'you'}
+                displayName={me?.fullName ?? fallbackName ?? 'You'}
+                orgName={me?.orgName ?? null}
+                avatarUrl={me?.avatarUrl ?? null}
+              />
+            )}
           </div>
         </header>
 

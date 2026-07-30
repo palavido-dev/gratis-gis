@@ -4,6 +4,7 @@
 import { signIn, useSession } from 'next-auth/react';
 
 import { useT } from '@/lib/i18n/locale-context';
+import { isSessionStale } from '@/lib/session-state';
 
 /**
  * Global banner for the silently-dead-session state (#195).
@@ -25,8 +26,9 @@ import { useT } from '@/lib/i18n/locale-context';
 export function SessionExpiredNotice() {
   const { data: session } = useSession();
   const t = useT();
-  const error = (session as { error?: string } | null)?.error;
-  if (error !== 'RefreshAccessTokenError') return null;
+  // Same predicate the app shell uses to swap the header identity for
+  // a Sign in button, so the two can never disagree.
+  if (!isSessionStale(session)) return null;
   return (
     <div
       role="alert"

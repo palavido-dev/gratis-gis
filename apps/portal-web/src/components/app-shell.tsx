@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { apiFetch } from '@/lib/api';
+import { isSessionStale } from '@/lib/session-state';
 import { AppShellChrome, type AppShellMe } from './app-shell-chrome';
 
 /**
@@ -22,9 +23,15 @@ import { AppShellChrome, type AppShellMe } from './app-shell-chrome';
  */
 export async function AppShell({ children }: { children: ReactNode }) {
   const session = await getServerSession(authOptions);
+  // #195 follow-up: a session whose Keycloak tokens are dead still
+  // has a cookie and a name on it. The BFF already strips its access
+  // token, so /api/users/me would 401; skip the round-trip and tell
+  // the chrome to render the signed-out identity slot instead of
+  // showing a profile the user no longer has.
+  const stale = isSessionStale(session);
 
   let me: AppShellMe | null = null;
-  if (session) {
+  if (session && !stale) {
     try {
       me = await apiFetch<AppShellMe>('/api/users/me');
     } catch {
@@ -36,6 +43,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
     <AppShellChrome
       me={me}
       signedIn={!!session}
+      sessionStale={stale}
       fallbackName={session?.user?.name ?? null}
       fallbackEmail={session?.user?.email ?? null}
     >
