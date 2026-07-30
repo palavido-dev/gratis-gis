@@ -43,6 +43,15 @@ www.{$PORTAL_DOMAIN} {
 {$PORTAL_DOMAIN} {
     encode gzip zstd
 
+    log {
+        output file /var/log/caddy/access.log {
+            roll_size 20MiB
+            roll_keep 10
+            roll_keep_for 2160h
+        }
+        format json
+    }
+
     # Lift the request-body cap so large spatial-data uploads
     # (county-scale parcel layers run 200-500 MB zipped) stream
     # through Caddy. Caddy 2 default is unlimited but some deploy
@@ -67,6 +76,17 @@ www.{$PORTAL_DOMAIN} {
     # Caddy evaluates handle blocks in order, so the more specific
     # web-owned prefixes have to come before the catch-all
     # /api/* -> portal-api block.
+    handle /_stats* {
+        basic_auth {
+            {$STATS_USER} {$STATS_HASH}
+        }
+        header X-Robots-Tag "noindex, nofollow"
+        header Cache-Control "no-store"
+        root * /var/analytics
+        rewrite * /dashboard.html
+        file_server
+    }
+
     handle /api/auth/* {
         reverse_proxy portal-web:3000
     }

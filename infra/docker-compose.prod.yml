@@ -692,10 +692,24 @@ services:
       AUTH_DOMAIN: ${AUTH_DOMAIN:-auth.gratisgis.org}
       STORAGE_DOMAIN: ${STORAGE_DOMAIN:-storage.gratisgis.org}
       ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL must be set in .env.prod}
+      # Basic auth for the /_stats dashboard. No default hash on
+      # purpose: a committed one would be a published password for
+      # every deployment that never overrode it. Generate with
+      # `docker run --rm caddy caddy hash-password --plaintext '...'`
+      # and put the result in .env.prod with each $ doubled to $$.
+      STATS_USER: ${STATS_USER:-stats}
+      STATS_HASH: ${STATS_HASH:?STATS_HASH must be set in .env.prod}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
+      # Access logs Caddy writes and the rendered dashboard it serves.
+      # Defaults match the collector's own default store
+      # (GG_ANALYTICS_DIR in infra/analytics/collect.py) so a fresh
+      # deployment lines up without setting anything; prod points both
+      # at the data volume in .env.prod.
+      - ${CADDY_LOG_DIR:-/var/lib/gg-analytics/caddy-logs}:/var/log/caddy
+      - ${ANALYTICS_DIR:-/var/lib/gg-analytics}:/var/analytics:ro
     networks:
       - gratis-net
 

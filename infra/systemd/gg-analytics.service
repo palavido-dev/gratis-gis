@@ -1,0 +1,32 @@
+[Unit]
+Description=GratisGIS demo traffic collector
+Documentation=https://github.com/palavido-dev/gratis-gis
+# Needs docker for the `docker exec ... psql` hop into the keycloak
+# database. The Caddy log half would work without it, but failing
+# fast here keeps the journal honest about why a run did nothing.
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/gratis-gis
+# The store lives on the data volume, not the root disk, and well
+# outside anything gg-reset-demo touches. Overriding these in a
+# drop-in is the supported way to relocate it.
+Environment=GG_ANALYTICS_DIR=/mnt/HC_Volume_106454023/analytics
+Environment=GG_PG_CONTAINER=gratis-gis-prod-postgres
+Environment=GG_PG_USER=gratisgis
+Environment=GG_TZ=America/Los_Angeles
+ExecStart=/usr/bin/python3 /opt/gratis-gis/infra/analytics/collect.py
+ExecStart=/usr/bin/python3 /opt/gratis-gis/infra/analytics/render.py
+# A wedged run must not stack up behind the next firing. The work is
+# a few seconds of SQLite; a minute is already generous.
+TimeoutStartSec=300
+# Analytics are not load-bearing. A failed run leaves the bookmarks
+# untouched, so the next firing simply picks up the same backlog.
+Restart=no
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

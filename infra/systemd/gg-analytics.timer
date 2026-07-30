@@ -1,0 +1,17 @@
+[Unit]
+Description=Collect GratisGIS demo traffic every 15 minutes
+Documentation=https://github.com/palavido-dev/gratis-gis
+
+[Timer]
+# Every 15 minutes. Frequent enough that the dashboard is never
+# meaningfully stale and that an in-progress visit gets its duration
+# corrected quickly, cheap enough that it is invisible on the box:
+# the collector reads only the bytes appended since the last run.
+OnBootSec=5min
+OnUnitActiveSec=15min
+# Catch up after a reboot rather than waiting a full interval.
+Persistent=true
+Unit=gg-analytics.service
+
+[Install]
+WantedBy=timers.target
