@@ -243,3 +243,30 @@ label {
   border-color: #fecaca;
   color: var(--portal-danger);
 }
+
+/* Input-group control buttons, which on the login form means the
+   show/hide-password toggle beside the password field.
+ *
+ * PatternFly resolves .pf-m-control's background from
+ * --pf-v5-global--BackgroundColor--400, which is #36373a: one of its
+ * dark-surface tokens. The remapping at the top of this file covers
+ * BackgroundColor 100 and 200 but not 400, so the toggle rendered as
+ * a near-black square against the white card with the eye glyph
+ * invisible inside it.
+ *
+ * Pinning the component's own tokens rather than remapping the global
+ * one, because --400 is a dark-surface value by design and anything
+ * else that legitimately wants a dark surface should keep getting it.
+ */
+.pf-v5-c-button.pf-m-control {
+  --pf-v5-c-button--m-control--BackgroundColor: var(--portal-surface-0);
+  --pf-v5-c-button--m-control--Color: var(--portal-ink-1);
+  --pf-v5-c-button--m-control--hover--BackgroundColor: var(--portal-border);
+  --pf-v5-c-button--m-control--focus--BackgroundColor: var(--portal-border);
+  --pf-v5-c-button--m-control--active--BackgroundColor: var(--portal-border);
+  --pf-v5-c-button--m-control--m-expanded--BackgroundColor: var(--portal-border);
+  --pf-v5-c-button--m-control--after--BorderTopColor: var(--portal-border);
+  --pf-v5-c-button--m-control--after--BorderRightColor: var(--portal-border);
+  --pf-v5-c-button--m-control--after--BorderBottomColor: var(--portal-border);
+  --pf-v5-c-button--m-control--after--BorderLeftColor: var(--portal-border);
+}

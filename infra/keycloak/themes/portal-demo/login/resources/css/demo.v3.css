@@ -1,0 +1,32 @@
+/*
+ * Tester-credential panel for the public demo login screen.
+ * Injected by js/demo-credentials.js; styled as a secondary surface
+ * under the sign-in card rather than competing with the form.
+ */
+/* Sits inside the login card, below the form, so it inherits the
+   card's width and padding context. Separated by a rule rather than
+   boxed in a second border: a bordered panel inside a bordered card
+   reads as a mistake. */
+.gg-demo {
+  margin: 22px 0 0;
+  padding: 16px 0 4px;
+  border-top: 1px solid var(--portal-border, #e2ded3);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--portal-ink-1, #33322d);
+}
+
+/* Fallback position only. When the panel lands in .__main-body it
+   inherits the card's padding; when it has to fall back to .__main it
+   does not, so give it the same inset by hand there. */
+.pf-v5-c-login__main > .gg-demo {
+  padding-left: 2rem;
+  padding-right: 2rem;
+}
+.gg-demo h2 { margin: 0 0 2px; font-size: 13px; font-weight: 600; color: var(--portal-ink-0, #262521); }
+.gg-demo p { margin: 0 0 10px; font-size: 12px; line-height: 1.45; color: var(--portal-muted, #78756d); }
+.gg-demo-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--portal-border, #e2ded3); }
+.gg-demo-role { flex: 0 0 84px; font-size: 12px; font-weight: 600; }
+.gg-demo-cred { flex: 1; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; color: var(--portal-muted, #78756d); overflow-wrap: anywhere; }
+.gg-demo-fill { flex: 0 0 auto; border: 1px solid var(--portal-accent, #59695a); background: transparent; color: var(--portal-accent, #59695a); border-radius: 6px; padding: 4px 12px; font: inherit; font-size: 12px; cursor: pointer; }
+.gg-demo-fill:hover { background: var(--portal-accent, #59695a); color: var(--portal-accent-foreground, #fff); }
+.gg-demo-fill[data-filled="1"] { border-color: var(--portal-muted, #78756d); color: var(--portal-muted, #78756d); }

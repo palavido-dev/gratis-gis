@@ -150,6 +150,7 @@ services:
         -Dquarkus.datasource.jdbc.max-lifetime=30M
     volumes:
       - ./keycloak/themes/portal:/opt/keycloak/themes/portal:ro
+      - ./keycloak/themes/portal-demo:/opt/keycloak/themes/portal-demo:ro
       # Realm-import directory. deploy.sh writes the substituted realm
       # JSON here before bringing keycloak up. Keycloak picks up every
       # *.json on first start when --import-realm is passed.
