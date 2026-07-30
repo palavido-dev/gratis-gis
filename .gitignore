@@ -9,6 +9,12 @@ build/
 .turbo/
 *.tsbuildinfo
 
+# Python bytecode. The analytics collector and the pointcloud worker
+# both get run in place on the server, so their caches land in the
+# checkout and otherwise show up as a dirty tree there.
+__pycache__/
+*.pyc
+
 # Env
 .env
 .env.local
