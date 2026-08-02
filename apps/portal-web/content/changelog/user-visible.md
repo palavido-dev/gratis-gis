@@ -12,6 +12,15 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-08-02 - Big lidar uploads got dependable
+Uploading hundreds of lidar tiles no longer rides on every single
+round-trip succeeding: tiles go up a few at a time, transient
+failures retry themselves, and if a tile still fails you can retry
+just that one or start the merge with what made it. Merges also
+tell you up front roughly how long they'll take, and a batch too
+big to finish is refused immediately with advice, not hours later
+at a timeout.
+
 ## 2026-07-26 - The portal tells you what build it's running
 The version now shows in the landing page footer and at the bottom
 of the user menu, linking to that release's notes. Handy when

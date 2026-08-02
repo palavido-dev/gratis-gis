@@ -5,6 +5,46 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.4] - 2026-08-02
+
+A safe upgrade from 0.9.3. Lidar ingest hardening, honest test
+coverage, and small trust fixes.
+
+### Fixed
+
+- Multi-tile lidar uploads no longer lose everything to one bad
+  round-trip. Tiles upload three at a time with automatic retry on
+  transient failures; a tile that still fails is reported by name,
+  and you can retry just the failures or start the merge with what
+  made it and add the rest later.
+- A point-cloud worker restart no longer leaves an interrupted
+  merge's partial downloads on the scratch disk. The worker sweeps
+  abandoned job directories at startup, keyed on the job table's own
+  liveness, so a crash loop cannot ratchet the volume toward full.
+- The portal now ships a favicon and Apple touch icons, so browsers
+  and link previews stop receiving 404s for them.
+
+### Added
+
+- Merges are estimated before they start. The upload panel shows
+  "N tiles, M GB, roughly H hours" before you commit gigabytes, a
+  merge that cannot finish inside the server's time budget is
+  refused up front with advice instead of dying at the timeout
+  hours later, and the building state shows the estimate. The rates
+  are operator-tunable and re-derivable from each completed merge's
+  logged stats.
+- The install doctor reports point-cloud scratch capacity against
+  the merge sizing rule, and the deployment guide documents how to
+  size the disk.
+
+### Internal
+
+- The PostGIS-backed engine and search-index test suites now run in
+  CI against a real database through the production driver adapter,
+  with a guard that fails the build if they would silently skip.
+  Reverting the v0.9.3 feature-insert fix now turns CI red, which is
+  the property that was missing when it shipped broken.
+
 ## [0.9.3] - 2026-07-30
 
 A safe upgrade from 0.9.2. Nothing here requires a configuration
