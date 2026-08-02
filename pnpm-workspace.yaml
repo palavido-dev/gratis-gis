@@ -1,3 +1,7 @@
 packages:
   - "apps/*"
   - "packages/*"
+  # End-to-end smoke tests. A separate workspace rather than a
+  # portal-web devDependency so the Playwright toolchain never
+  # enters the web app's dependency tree or its Docker build.
+  - "e2e"

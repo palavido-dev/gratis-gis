@@ -1,0 +1,56 @@
+name: Prod smoke
+
+# Playwright's anonymous smoke suite against the deployed demo.
+#
+# Scheduled rather than push-triggered on purpose: a push tests a
+# commit, but this tests THE DEPLOYMENT, which only changes when
+# deploy.sh runs on the box. Daily at 06:00 UTC (two hours after the
+# nightly golden reset, so a reset in progress can never masquerade
+# as an outage) plus on demand from the Actions tab after a deploy.
+#
+# Only the anonymous specs run here. The signed-in flow mutates demo
+# state and skips itself unless E2E_SIGNIN=1; run that locally.
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Anonymous smoke against gratisgis.org
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile --filter @gratis-gis/e2e
+
+      - name: Install Playwright chromium
+        run: pnpm -C e2e exec playwright install --with-deps chromium
+
+      - name: Run smoke suite
+        run: pnpm -C e2e e2e
+        env:
+          E2E_BASE_URL: https://gratisgis.org
+
+      - name: Upload traces on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-report
+          path: e2e/test-results/
+          retention-days: 7

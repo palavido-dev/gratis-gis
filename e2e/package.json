@@ -1,0 +1,13 @@
+{
+  "name": "@gratis-gis/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Playwright end-to-end smoke tests for the portal.",
+  "scripts": {
+    "e2e": "playwright test",
+    "e2e:headed": "playwright test --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1"
+  }
+}
