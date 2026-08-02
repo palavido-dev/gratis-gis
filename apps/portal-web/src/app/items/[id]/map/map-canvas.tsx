@@ -2664,40 +2664,84 @@ function hideTerrainChip(m: maplibregl.Map): void {
 }
 
 /**
- * Apply or clear 3D terrain (#186). Idempotent; also called from
- * the basemap-swap path because setStyle wipes sources and terrain.
+ * Apply or clear 3D terrain (#186, #211). Idempotent; also called
+ * from the basemap-swap path because setStyle wipes sources and
+ * terrain.
+ *
+ * #211: the terrain setting is an ordered elevation stack. A single
+ * entry keeps the original client-side path (the cog protocol's
+ * #dem mode turns the elevation COG into terrain tiles in the
+ * browser, costing the server nothing). Two or more entries switch
+ * the source to the server's elevation-mosaic endpoint, which
+ * composes the stack per pixel (first entry wins, nodata falls
+ * through) into terrarium tiles; one mesh per map is a MapLibre
+ * constraint, the mosaic is how several DEMs share it. The stack
+ * ids ride in the tile URL, so any stack edit changes the URL and
+ * busts both MapLibre's and the browser's tile caches naturally.
  */
 function applyTerrain(
   m: maplibregl.Map,
   terrain: MapData['terrain'] | undefined,
 ): void {
   try {
-    if (terrain?.tileUrl) {
-      // The cog protocol's #dem mode turns the single-band
-      // elevation COG into terrain tiles on the fly.
-      const demUrl = `${terrain.tileUrl}#dem`;
+    // Legacy single-source maps behave as a stack of one; the
+    // settings UI keeps itemId/tileUrl mirrored to stack[0].
+    const stack =
+      terrain?.stack && terrain.stack.length > 0
+        ? terrain.stack
+        : terrain?.tileUrl
+          ? [{ itemId: terrain.itemId, tileUrl: terrain.tileUrl }]
+          : [];
+    if (stack.length > 0) {
+      let signature: string;
+      let desired: maplibregl.SourceSpecification;
+      if (stack.length === 1) {
+        const demUrl = `${stack[0]!.tileUrl}#dem`;
+        signature = demUrl;
+        desired = { type: 'raster-dem', url: demUrl, tileSize: 256 };
+      } else {
+        const ids = stack.map((e) => e.itemId).join(',');
+        const tileUrl = `/api/portal/elevation-mosaic/{z}/{x}/{y}.png?stack=${ids}`;
+        signature = tileUrl;
+        // Beyond the finest stamped native zoom MapLibre upscales
+        // parent tiles itself instead of asking the server to
+        // upsample; entries without a stamped maxZoom leave the
+        // source unclamped.
+        const known = stack
+          .map((e) => ('maxZoom' in e ? e.maxZoom : undefined))
+          .filter((v): v is number => typeof v === 'number');
+        desired = {
+          type: 'raster-dem',
+          tiles: [tileUrl],
+          encoding: 'terrarium',
+          tileSize: 256,
+          ...(known.length === stack.length && known.length > 0
+            ? { maxzoom: Math.max(...known) }
+            : {}),
+        };
+      }
       const existing = m.getSource(TERRAIN_SOURCE_ID) as
         | maplibregl.RasterDEMTileSource
         | undefined;
-      // A different DEM pick must rebuild the source: keeping the
-      // old source and only updating exaggeration leaves MapLibre
-      // silently rendering the previous DEM's tiles. The source's
-      // own url is the ground truth for what is currently applied.
-      if (existing && existing.url !== demUrl) {
+      // A different stack must rebuild the source: keeping the old
+      // source and only updating exaggeration leaves MapLibre
+      // silently rendering the previous stack's tiles. The source's
+      // own url / tile template is the ground truth for what is
+      // currently applied.
+      const existingSignature = existing
+        ? (existing.url ?? existing.tiles?.[0])
+        : undefined;
+      if (existing && existingSignature !== signature) {
         m.setTerrain(null);
         m.removeSource(TERRAIN_SOURCE_ID);
       }
       const fresh = !m.getSource(TERRAIN_SOURCE_ID);
       if (fresh) {
-        m.addSource(TERRAIN_SOURCE_ID, {
-          type: 'raster-dem',
-          url: demUrl,
-          tileSize: 256,
-        });
+        m.addSource(TERRAIN_SOURCE_ID, desired);
       }
       m.setTerrain({
         source: TERRAIN_SOURCE_ID,
-        exaggeration: terrain.exaggeration ?? 1,
+        exaggeration: terrain?.exaggeration ?? 1,
       });
       if (fresh) showTerrainChip(m);
     } else {

@@ -22,11 +22,68 @@ export interface DemRef {
   title?: string;
 }
 
-export async function resolveDemForBbox(
-  terrain: { itemId: string; tileUrl: string } | undefined | null,
+/**
+ * #211: with a multi-entry terrain stack, the entry that owns the
+ * ground under the queried bbox is the first one (priority order)
+ * whose stamped footprint touches it, mirroring the mosaic's
+ * first-wins rule. An entry whose bbox we can't learn counts as
+ * covering (same "terrain is the ground you're looking at"
+ * assumption the single-source path always made).
+ */
+async function resolveFromStack(
+  stack: Array<{ itemId: string; tileUrl: string }>,
   bbox: [number, number, number, number],
 ): Promise<DemRef | null> {
-  if (terrain?.tileUrl) {
+  const [w, s, e, n] = bbox;
+  for (const entry of stack) {
+    let title: string | undefined;
+    let itemBbox: [number, number, number, number] | undefined;
+    try {
+      const res = await fetch(`/api/portal/items/${entry.itemId}`);
+      if (res.ok) {
+        const item = (await res.json()) as {
+          title?: string;
+          data?: { bbox?: [number, number, number, number] } | null;
+        };
+        title = item.title;
+        if (Array.isArray(item.data?.bbox) && item.data.bbox.length === 4) {
+          itemBbox = item.data.bbox;
+        }
+      }
+    } catch {
+      /* metadata is best-effort; the entry still counts as covering */
+    }
+    if (itemBbox) {
+      const [bw, bs, be, bn] = itemBbox;
+      if (!(bw <= e && be >= w && bs <= n && bn >= s)) continue;
+    }
+    return {
+      itemId: entry.itemId,
+      url: entry.tileUrl.replace(/^cog:\/\//, ''),
+      ...(title ? { title } : {}),
+    };
+  }
+  return null;
+}
+
+export async function resolveDemForBbox(
+  terrain:
+    | {
+        itemId: string;
+        tileUrl: string;
+        stack?: Array<{ itemId: string; tileUrl: string }>;
+      }
+    | undefined
+    | null,
+  bbox: [number, number, number, number],
+): Promise<DemRef | null> {
+  if (terrain?.stack && terrain.stack.length > 1) {
+    const fromStack = await resolveFromStack(terrain.stack, bbox);
+    if (fromStack) return fromStack;
+    // No stack entry touches the bbox; fall through to the org-wide
+    // lookup below so a profile outside the stack's coverage can
+    // still find ground.
+  } else if (terrain?.tileUrl) {
     let title: string | undefined;
     try {
       const res = await fetch(`/api/portal/items/${terrain.itemId}`);
