@@ -12,6 +12,15 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-08-02 - One map, many elevation surfaces
+3D terrain used to mean picking exactly one elevation layer, so a
+map spanning two lidar surveys could only extrude one of them.
+Terrain is now a stack: add every elevation layer the map needs,
+move the best one to the top, and the ground composes itself, even
+for areas covered by different surveys. Layers made from a survey also
+remember their elevation layer and offer to bring it along when
+they join a map.
+
 ## 2026-08-02 - Big lidar uploads got dependable
 Uploading hundreds of lidar tiles no longer rides on every single
 round-trip succeeding: tiles go up a few at a time, transient

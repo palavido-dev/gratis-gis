@@ -5,6 +5,43 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.5] - 2026-08-02
+
+A safe upgrade from 0.9.4. Maps can now compose several elevation
+layers into one terrain surface.
+
+### Added
+
+- Elevation mosaic (#211). A map's 3D terrain is now an ordered
+  STACK of elevation layers instead of a single pick. The server
+  composes terrain tiles per pixel across the stack, so two lidar
+  surveys that cover different areas both extrude in the same map,
+  and where surveys overlap the one nearer the top of the list
+  wins. A single-entry stack keeps the existing in-browser path and
+  costs the server nothing. Works in saved maps and scratch maps,
+  signed in and anonymous.
+- Layers remember their ground truth (#211). Derived layers
+  (hillshade, steepness, visibility) and point clouds carry a
+  reference to their matching elevation layer. Adding one to a map
+  offers to bring that terrain along, and a layer's menu gains
+  "Use this layer's elevation", which adds its elevation layer to
+  the map's terrain stack.
+- The elevation profile tool follows the terrain stack, sampling
+  the same surface the map is standing on.
+
+### Changed
+
+- The point cloud page's derive section is now called "Elevation
+  and shading" and groups its actions more clearly (#212).
+
+### Internal
+
+- First Playwright end-to-end suite: an e2e workspace with 11
+  anonymous-path specs, plus a daily production smoke workflow.
+- Terrain tiles ride the shared tile cache with the same overload
+  backoff as vector tiles; the COG reads go through GDAL's /vsis3
+  directly against MinIO.
+
 ## [0.9.4] - 2026-08-02
 
 A safe upgrade from 0.9.3. Lidar ingest hardening, honest test
