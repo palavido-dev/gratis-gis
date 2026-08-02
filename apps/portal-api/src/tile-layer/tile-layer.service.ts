@@ -419,33 +419,7 @@ export class TileLayerService {
     itemId: string,
     format?: 'pmtiles' | 'cog',
   ): Promise<string> {
-    // #185: `user` is null for anonymous requests, which resolve
-    // only when the item is shared publicly (the public-mirror
-    // rule). This is what lets a public map with a tile overlay
-    // layer render for signed-out visitors, same dual path as the
-    // point-cloud serve endpoint.
-    let data: unknown;
-    if (user) {
-      const item = await this.items.get(user, itemId);
-      if (item.type !== 'tile_layer') {
-        throw new BadRequestException(`Item ${itemId} is not a tile_layer.`);
-      }
-      data = item.data;
-    } else {
-      const item = await this.prisma.item.findFirst({
-        where: {
-          id: itemId,
-          type: 'tile_layer',
-          access: 'public',
-          deletedAt: null,
-        },
-        select: { data: true },
-      });
-      if (!item) {
-        throw new NotFoundException('Tile layer not found.');
-      }
-      data = item.data;
-    }
+    const data = await this.readTileLayerDataDualAcl(user, itemId);
     if (!isTileLayerData(data)) {
       throw new NotFoundException(
         'Tile layer has not been uploaded yet (or the upload finalize step did not run).',
@@ -491,6 +465,77 @@ export class TileLayerService {
       throw new NotFoundException('Tile layer storage key is missing.');
     }
     return key;
+  }
+
+  /**
+   * #185 / #211: the shared dual-ACL read behind every serve-time
+   * resolver. `user` is null for anonymous requests, which resolve
+   * only when the item is shared publicly (the public-mirror rule).
+   */
+  private async readTileLayerDataDualAcl(
+    user: AuthUser | null,
+    itemId: string,
+  ): Promise<unknown> {
+    if (user) {
+      const item = await this.items.get(user, itemId);
+      if (item.type !== 'tile_layer') {
+        throw new BadRequestException(`Item ${itemId} is not a tile_layer.`);
+      }
+      return item.data;
+    }
+    const item = await this.prisma.item.findFirst({
+      where: {
+        id: itemId,
+        type: 'tile_layer',
+        access: 'public',
+        deletedAt: null,
+      },
+      select: { data: true },
+    });
+    if (!item) {
+      throw new NotFoundException('Tile layer not found.');
+    }
+    return item.data;
+  }
+
+  /**
+   * #211: resolve one elevation-mosaic stack entry. Same dual ACL
+   * and serve-time prefix pin as resolveStorageKey, plus the `dem`
+   * flag gate: only elevation-flagged layers may be composed, so
+   * the mosaic endpoint can't be pointed at arbitrary rasters. The
+   * WGS84 bbox rides along so the composer can skip sources that
+   * don't touch a tile without opening them.
+   */
+  async resolveDemSource(
+    user: AuthUser | null,
+    itemId: string,
+  ): Promise<{
+    storageKey: string;
+    bbox?: [number, number, number, number];
+  }> {
+    const data = await this.readTileLayerDataDualAcl(user, itemId);
+    if (!isTileLayerData(data)) {
+      throw new NotFoundException(
+        'Tile layer has not been uploaded yet (or the upload finalize step did not run).',
+      );
+    }
+    const d = data as unknown as Record<string, unknown>;
+    if (d.dem !== true) {
+      throw new NotFoundException('Not an elevation layer.');
+    }
+    const tileKey = (v: unknown): string | null =>
+      typeof v === 'string' && v.startsWith(TILE_LAYER_KEY_PREFIX) ? v : null;
+    const storageKey = tileKey(d.cogStorageKey) ?? tileKey(d.storageKey);
+    if (!storageKey) {
+      throw new NotFoundException('This layer has no elevation file.');
+    }
+    const bbox =
+      Array.isArray(d.bbox) &&
+      d.bbox.length === 4 &&
+      d.bbox.every((n) => typeof n === 'number' && Number.isFinite(n))
+        ? ([...d.bbox] as [number, number, number, number])
+        : undefined;
+    return { storageKey, ...(bbox ? { bbox } : {}) };
   }
 
   /**

@@ -111,12 +111,39 @@ export class StorageService implements OnModuleInit {
   private readonly client: S3Client;
   private readonly bucket: string;
   private readonly publicBase: string;
+  private readonly s3Endpoint: string;
+  private readonly s3AccessKeyId: string;
+  private readonly s3SecretAccessKey: string;
+
+  /**
+   * #211: connection material for GDAL's /vsis3/ virtual filesystem,
+   * so the elevation-mosaic composer can range-read COGs straight
+   * from MinIO (same credentials this SDK client uses) instead of
+   * downloading whole files. Stays inside the process; never
+   * serialize this into a response.
+   */
+  vsis3Config(): {
+    bucket: string;
+    endpoint: string;
+    accessKeyId: string;
+    secretAccessKey: string;
+  } {
+    return {
+      bucket: this.bucket,
+      endpoint: this.s3Endpoint,
+      accessKeyId: this.s3AccessKeyId,
+      secretAccessKey: this.s3SecretAccessKey,
+    };
+  }
 
   constructor(private readonly cfg: ConfigService) {
     const endpoint = cfg.get<string>('MINIO_ENDPOINT', 'http://localhost:9000');
     const accessKeyId = cfg.get<string>('MINIO_ACCESS_KEY', 'gratisgis');
     const secretAccessKey = cfg.get<string>('MINIO_SECRET_KEY', 'devpassword');
     this.bucket = cfg.get<string>('MINIO_BUCKET', 'gratisgis');
+    this.s3Endpoint = endpoint;
+    this.s3AccessKeyId = accessKeyId;
+    this.s3SecretAccessKey = secretAccessKey;
 
     // Browsers hit MinIO directly for both upload (presigned PUT) and
     // read (public bucket), so the public base URL has to be something

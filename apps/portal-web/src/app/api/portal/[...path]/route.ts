@@ -222,6 +222,14 @@ function publicRewriteForAnonymousGet(suffix: string): string | null {
   if (/^tile-layer\/[^/]+\/file(\.pmtiles|\.cog)?$/.test(suffix)) {
     return suffix;
   }
+  // #211 elevation mosaic tiles. A public map whose terrain stack
+  // has 2+ DEMs fetches composed raster-dem tiles here; portal-api's
+  // route is @Public() and authorizes each ?stack= entry through
+  // the same dual ACL as the tile-layer file proxy above, so
+  // passthrough again.
+  if (/^elevation-mosaic\/\d+\/\d+\/\d+\.png$/.test(suffix)) {
+    return suffix;
+  }
   return null;
 }
 
