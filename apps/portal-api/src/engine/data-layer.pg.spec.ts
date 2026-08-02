@@ -28,8 +28,9 @@
 //     because later migrations (20260510180000, 20260618120000)
 //     dropped them; the live index set is what prod has.
 
-import { Pool, type PoolClient } from 'pg';
-import { Prisma } from '@prisma/client';
+import { Pool } from 'pg';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient } from '@prisma/client';
 import type { Item } from '@prisma/client';
 import { uuidv7 } from '@gratis-gis/engine';
 
@@ -46,50 +47,45 @@ import type { AuthUser } from '../auth/auth-sync.service.js';
 const TEST_URL = process.env.TEST_DATABASE_URL;
 const d = TEST_URL ? describe : describe.skip;
 
+// CI sets REQUIRE_PG_SPECS=1 so this suite can never silently skip
+// there. A describe.skip looks identical to a pass in the job
+// summary, which is exactly how the void-column regression (#215)
+// shipped: the suite that would have caught it "passed" by not
+// running. Failing the module load makes the absence of a database
+// loud.
+if (process.env.REQUIRE_PG_SPECS === '1' && !TEST_URL) {
+  throw new Error(
+    'REQUIRE_PG_SPECS=1 but TEST_DATABASE_URL is unset; the pg-backed '
+    + 'engine suite would silently skip. Point TEST_DATABASE_URL at a '
+    + 'throwaway PostGIS or unset REQUIRE_PG_SPECS.',
+  );
+}
+
 jest.setTimeout(180_000);
 
 /**
- * Bridge a pg Pool / PoolClient behind the PrismaService surface the
- * engine code calls. Prisma.Sql renders the exact text + $n params
- * the driver adapter would send, so the SQL under test is the SQL
- * that runs in prod, not a re-implementation.
+ * The engine talks to the database through the REAL PrismaClient with
+ * the same @prisma/adapter-pg driver adapter prod runs, not through a
+ * hand-rolled pg bridge. This is the point of the suite (#215): a
+ * bridge that maps $queryRaw onto pg's own query() faithfully renders
+ * the SQL but not the adapter's deserialization, and node-postgres
+ * happily tolerates result shapes the adapter rejects. The concrete
+ * case: pg_advisory_xact_lock() returns void, the adapter throws
+ * UnsupportedNativeDataType on a void result column, and the old
+ * bridge masked exactly that, so the engine's $queryRaw-on-void bug
+ * shipped with this suite green. Same client, same adapter, same
+ * failure surface as production.
  */
-function prismaBridge(q: Pool | PoolClient): PrismaService {
-  const bridge = {
-    async $queryRaw(strings: TemplateStringsArray, ...values: unknown[]) {
-      const s = Prisma.sql(strings, ...values);
-      const res = await q.query({ text: s.text, values: s.values });
-      return res.rows;
-    },
-    async $executeRaw(strings: TemplateStringsArray, ...values: unknown[]) {
-      const s = Prisma.sql(strings, ...values);
-      const res = await q.query({ text: s.text, values: s.values });
-      return res.rowCount ?? 0;
-    },
-    async $queryRawUnsafe(text: string, ...values: unknown[]) {
-      const res = await q.query({ text, values });
-      return res.rows;
-    },
-    async $executeRawUnsafe(text: string, ...values: unknown[]) {
-      const res = await q.query({ text, values });
-      return res.rowCount ?? 0;
-    },
-    async $transaction(fn: (tx: PrismaService) => Promise<unknown>) {
-      const client = await (q as Pool).connect();
-      try {
-        await client.query('BEGIN');
-        const result = await fn(prismaBridge(client));
-        await client.query('COMMIT');
-        return result;
-      } catch (err) {
-        await client.query('ROLLBACK');
-        throw err;
-      } finally {
-        client.release();
-      }
-    },
-  };
-  return bridge as unknown as PrismaService;
+function adapterClient(url: string): {
+  client: PrismaClient;
+  prisma: PrismaService;
+} {
+  const client = new PrismaClient({
+    adapter: new PrismaPg({ connectionString: url, max: 8 }),
+  });
+  // The engine types its handle as the Nest PrismaService, which is
+  // PrismaClient plus lifecycle hooks the engine never calls.
+  return { client, prisma: client as unknown as PrismaService };
 }
 
 const lensPolicyPassthrough = {
@@ -108,15 +104,20 @@ function tileFor(z: number, lng: number, lat: number): { x: number; y: number } 
 }
 
 /** UUIDs land verbatim in the MVT string table, so raw byte search is
- *  a dependency-free way to assert feature presence in a tile. */
-function tileContains(mvt: Buffer, entityId: string): boolean {
-  return mvt.toString('latin1').includes(entityId);
+ *  a dependency-free way to assert feature presence in a tile. The
+ *  driver adapter returns bytea as Uint8Array rather than Buffer
+ *  (the Prisma 7 bytea change), so normalize before searching:
+ *  Uint8Array's own toString ignores encodings and would silently
+ *  match nothing. */
+function tileContains(mvt: Buffer | Uint8Array, entityId: string): boolean {
+  return Buffer.from(mvt).toString('latin1').includes(entityId);
 }
 
 const PRINCIPAL = { sub: 'itest-user', displayName: 'ITest' };
 
 d('observation-log read paths against real PostGIS', () => {
   let pool: Pool;
+  let client: PrismaClient;
   let prisma: PrismaService;
   let engineSvc: EngineService;
 
@@ -161,8 +162,10 @@ d('observation-log read paths against real PostGIS', () => {
   }
 
   beforeAll(async () => {
+    // The pool is for test-side DDL and raw assertions only; the code
+    // under test goes through the real driver adapter.
     pool = new Pool({ connectionString: TEST_URL, max: 8 });
-    prisma = prismaBridge(pool);
+    ({ client, prisma } = adapterClient(TEST_URL!));
     engineSvc = new EngineService(prisma);
     await pool.query(`CREATE EXTENSION IF NOT EXISTS postgis`);
     await pool.query(`CREATE EXTENSION IF NOT EXISTS pg_trgm`);
@@ -208,6 +211,7 @@ d('observation-log read paths against real PostGIS', () => {
   });
 
   afterAll(async () => {
+    await client.$disconnect();
     await pool.end();
   });
 

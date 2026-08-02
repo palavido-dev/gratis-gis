@@ -75,8 +75,26 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # The pg-backed suites (engine observation-log, search-index)
+      # get their own database on the same PostGIS service so their
+      # DDL (DROP TABLE observation CASCADE, scratch databases) can
+      # never collide with anything using DATABASE_URL. The role in
+      # the service container is the bootstrap superuser, so it can
+      # CREATE DATABASE and the search-index suite can make its own
+      # per-run scratch database from this one.
+      - name: Create engine test database
+        run: |
+          PGPASSWORD=devpassword psql -h localhost -U gratisgis -d gratisgis_ci \
+            -c 'CREATE DATABASE gg_engine_ci'
+
       - name: Test
         run: pnpm test
+        env:
+          TEST_DATABASE_URL: postgresql://gratisgis:devpassword@localhost:5432/gg_engine_ci
+          # Fail the job if the pg suites would skip. describe.skip
+          # reads as green in the summary; that is how the void-column
+          # engine bug shipped (#215).
+          REQUIRE_PG_SPECS: '1'
 
       - name: Build
         run: pnpm build

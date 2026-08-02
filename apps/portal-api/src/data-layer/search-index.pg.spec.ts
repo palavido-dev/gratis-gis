@@ -51,6 +51,16 @@ import type { DataLayerLayerShape } from './tables.service.js';
 const TEST_URL = process.env.TEST_DATABASE_URL;
 const d = TEST_URL ? describe : describe.skip;
 
+// Same guard as data-layer.pg.spec.ts: in CI (REQUIRE_PG_SPECS=1) a
+// missing database must fail the job, not skip the suite. A skipped
+// suite reads as green, which is how the #215 class of bug ships.
+if (process.env.REQUIRE_PG_SPECS === '1' && !TEST_URL) {
+  throw new Error(
+    'REQUIRE_PG_SPECS=1 but TEST_DATABASE_URL is unset; the pg-backed '
+    + 'search-index suite would silently skip.',
+  );
+}
+
 jest.setTimeout(180_000);
 
 const DB_NAME = 'gg_search_idx_test';
