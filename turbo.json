@@ -24,7 +24,14 @@
     },
     "test": {
       "dependsOn": ["^build"],
-      "outputs": ["coverage/**"]
+      "outputs": ["coverage/**"],
+      // Turbo strips env vars it does not know about, and it also has
+      // to know these affect the outcome so a cached green run from an
+      // env without a database cannot be replayed as a green run WITH
+      // one. The first CI run after wiring the pg suites proved the
+      // failure mode: TEST_DATABASE_URL was set on the step, turbo
+      // filtered it, jest saw nothing, both suites skipped, job green.
+      "env": ["TEST_DATABASE_URL", "REQUIRE_PG_SPECS"]
     },
     "typecheck": {
       "dependsOn": ["^build"]
