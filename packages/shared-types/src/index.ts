@@ -44,3 +44,4 @@ export * from './point-cloud';
 export * from './thumbnail';
 export * from './expression';
 export * from './portal-info';
+export * from './merge-cost';

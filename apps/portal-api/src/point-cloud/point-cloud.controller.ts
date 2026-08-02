@@ -19,6 +19,7 @@ import { Public } from '../auth/public.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { PointCloudService } from './point-cloud.service.js';
+import { mergeCostModel } from './merge-estimate.js';
 
 /**
  * HTTP surface for point_cloud items (#179).
@@ -63,10 +64,23 @@ export class PointCloudController {
   }
 
   /**
+   * The merge cost model + ceiling (#205), so the panel can show
+   * "N tiles, M GB, roughly H hours" and refuse an oversized batch
+   * BEFORE the user uploads gigabytes. Enforcement stays server-side
+   * in enqueueBuild; this is the courtesy copy of the same numbers.
+   * Not item-scoped: the model is deployment-wide.
+   */
+  @Get('point-cloud/merge-limits')
+  mergeLimits() {
+    return mergeCostModel();
+  }
+
+  /**
    * Merge several uploaded lidar tiles into this point cloud's COPC
    * (#200). The browser presigned-PUTs each tile, then posts the
    * list here; the worker merges them with untwine. Returns the
-   * build job id so the panel can poll the item for 'ready'.
+   * build job id so the panel can poll the item for 'ready', plus
+   * the up-front time estimate (#205) for the building state.
    */
   @Post('items/:itemId/point-cloud/build')
   async build(

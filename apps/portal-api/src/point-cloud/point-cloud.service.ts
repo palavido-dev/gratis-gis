@@ -27,6 +27,7 @@ import {
   parseCopcHeader,
 } from './copc-header.js';
 import { boundsToWgs84 } from './bbox-wgs84.js';
+import { estimateMerge } from './merge-estimate.js';
 
 /**
  * Service for the point_cloud item type (#179, 3D-as-layers
@@ -143,7 +144,7 @@ export class PointCloudService {
     body: {
       sources: Array<{ storageKey: string; fileName: string; sizeBytes: number }>;
     },
-  ): Promise<{ jobId: string; itemId: string }> {
+  ): Promise<{ jobId: string; itemId: string; estimatedSec: number; humanEstimate: string }> {
     this.assertServerTier();
     const item = await this.items.get(user, itemId);
     if (item.type !== 'point_cloud') {
@@ -170,7 +171,7 @@ export class PointCloudService {
     body: {
       sources: Array<{ storageKey: string; fileName: string; sizeBytes: number }>;
     },
-  ): Promise<{ jobId: string; itemId: string }> {
+  ): Promise<{ jobId: string; itemId: string; estimatedSec: number; humanEstimate: string }> {
     this.assertServerTier();
     const item = await this.items.get(user, itemId);
     if (item.type !== 'point_cloud') {
@@ -222,7 +223,23 @@ export class PointCloudService {
     user: AuthUser,
     item: { id: string; data: unknown },
     sources: PointCloudSource[],
-  ): Promise<{ jobId: string; itemId: string }> {
+  ): Promise<{ jobId: string; itemId: string; estimatedSec: number; humanEstimate: string }> {
+    // #205: refuse a merge that cannot finish inside the worker's
+    // wall BEFORE queueing it, so nobody waits hours for a timeout.
+    // The client shows the same model's numbers pre-upload; this is
+    // the enforcement point, since sizes here are validated.
+    const totalBytes = sources.reduce((n, s) => n + s.sizeBytes, 0);
+    const estimate = estimateMerge(totalBytes, sources.length);
+    if (estimate.overCeiling) {
+      throw new BadRequestException(
+        `This area is very large: ${sources.length} tiles, ` +
+          `${(totalBytes / 1024 ** 3).toFixed(1)} GB. Merging it would take ` +
+          `${estimate.humanEstimate}, beyond what this server allows in one ` +
+          'job. Split the upload into smaller areas and merge them ' +
+          'separately, or raise MERGE_TIME_CEILING_SEC if this server can ' +
+          'genuinely afford longer builds.',
+      );
+    }
     const prev = isPointCloudData(item.data) ? item.data : null;
     const data: PointCloudData = {
       // Preserve the currently-served file + metadata during a
@@ -258,9 +275,15 @@ export class PointCloudService {
       },
     });
     this.log.log(
-      `point_cloud ${item.id}: queued copc-build over ${sources.length} tile(s) (job ${job.id})`,
+      `point_cloud ${item.id}: queued copc-build over ${sources.length} ` +
+        `tile(s), estimated ${estimate.estimatedSec}s (job ${job.id})`,
     );
-    return { jobId: job.id, itemId: item.id };
+    return {
+      jobId: job.id,
+      itemId: item.id,
+      estimatedSec: estimate.estimatedSec,
+      humanEstimate: estimate.humanEstimate,
+    };
   }
 
   async finalizeUpload(

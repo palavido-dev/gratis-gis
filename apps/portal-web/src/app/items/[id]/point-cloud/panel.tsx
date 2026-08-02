@@ -15,8 +15,21 @@ import {
   Upload as UploadIcon,
   X,
 } from 'lucide-react';
-import type { PointCloudData } from '@gratis-gis/shared-types';
-import { isPointCloudData } from '@gratis-gis/shared-types';
+import type {
+  MergeCostCoefficients,
+  PointCloudData,
+} from '@gratis-gis/shared-types';
+import {
+  estimateMergeSeconds,
+  formatRoughDuration,
+  isPointCloudData,
+} from '@gratis-gis/shared-types';
+
+import {
+  fileKey,
+  uploadBatch,
+  UploadError,
+} from '@/lib/batch-upload';
 
 // The 3D viewer carries the deck.gl + copc.js + laz-perf + proj4
 // tree (via maplibre-gl-lidar), so it loads as its own chunk only
@@ -50,6 +63,14 @@ interface Props {
   canEdit: boolean;
 }
 
+/** What a finished tile upload knows about itself. */
+interface SourceDescriptor {
+  storageKey: string;
+  publicUrl: string;
+  fileName: string;
+  sizeBytes: number;
+}
+
 export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
   const [data, setData] = useState<PointCloudData>(initial);
   const [error, setError] = useState<string | null>(null);
@@ -59,11 +80,30 @@ export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
   const [progressLabel, setProgressLabel] = useState('');
   const [progressPct, setProgressPct] = useState(0);
   const [copied, setCopied] = useState(false);
+  // #205: "roughly 2.5 hours" from the build response, shown while
+  // the merge runs so a long build is a known wait, not a mystery.
+  const [buildEta, setBuildEta] = useState<string | null>(null);
+  // #202: a batch with failed tiles waits here so the user can retry
+  // just the failures, or start the merge with what made it.
+  const [pendingRetry, setPendingRetry] = useState<{
+    files: File[];
+    endpoint: 'build' | 'add-sources';
+    uploadedCount: number;
+  } | null>(null);
 
   // Separate pickers for "new / replace" and "add tiles" so each
   // change handler knows the user's intent without guessing.
   const newInputRef = useRef<HTMLInputElement | null>(null);
   const addInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Descriptors of tiles uploaded THIS SESSION, keyed by fileKey, so
+  // a retry after a partial failure re-sends only what is missing
+  // (#202). Cleared when a merge actually starts.
+  const uploadedRef = useRef<Map<string, SourceDescriptor>>(new Map());
+  // Live per-file byte counts for the aggregate progress bar.
+  const bytesRef = useRef<Map<string, number>>(new Map());
+  // The merge cost model, fetched once per mount (#205).
+  const limitsRef = useRef<MergeCostCoefficients | null>(null);
 
   const building = data.processingState === 'building';
   const buildFailed = data.processingState === 'failed';
@@ -98,14 +138,13 @@ export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
     };
   }, [building, itemId]);
 
-  /** Presign + PUT one file. Returns its source descriptor, or null
-   *  after setting an error (caller aborts the batch). */
-  async function uploadOne(file: File): Promise<{
-    storageKey: string;
-    publicUrl: string;
-    fileName: string;
-    sizeBytes: number;
-  } | null> {
+  /** Presign + PUT one file. Throws UploadError on failure; the
+   *  retryable flag separates a transient blip (5xx, 429, network)
+   *  from something a retry can never fix (too large, 4xx). */
+  async function uploadOne(
+    file: File,
+    onBytes?: (loaded: number) => void,
+  ): Promise<SourceDescriptor> {
     const presignRes = await fetch('/api/portal/storage/presign-upload', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -115,8 +154,10 @@ export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
       }),
     });
     if (!presignRes.ok) {
-      setError(await errorMessage(presignRes, 'Could not start upload'));
-      return null;
+      throw new UploadError(
+        await errorMessage(presignRes, 'Could not start upload'),
+        presignRes.status >= 500 || presignRes.status === 429,
+      );
     }
     const presign = (await presignRes.json()) as {
       uploadUrl: string;
@@ -125,23 +166,28 @@ export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
       maxBytes: number;
     };
     if (file.size > presign.maxBytes) {
-      setError(
+      throw new UploadError(
         `${file.name} is ${(file.size / 1024 / 1024).toFixed(1)} MB but the per-file limit is ${(presign.maxBytes / 1024 / 1024 / 1024).toFixed(1)} GB.`,
+        false,
       );
-      return null;
     }
     await new Promise<void>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) {
-          setProgressPct(Math.round((e.loaded / e.total) * 100));
-        }
+        if (e.lengthComputable) onBytes?.(e.loaded);
       };
       xhr.onload = () => {
         if (xhr.status >= 200 && xhr.status < 300) resolve();
-        else reject(new Error(`Upload failed (HTTP ${xhr.status})`));
+        else
+          reject(
+            new UploadError(
+              `Upload failed (HTTP ${xhr.status})`,
+              xhr.status >= 500 || xhr.status === 429 || xhr.status === 0,
+            ),
+          );
       };
-      xhr.onerror = () => reject(new Error('Upload network error'));
+      xhr.onerror = () =>
+        reject(new UploadError('Upload network error', true));
       xhr.open('PUT', presign.uploadUrl);
       xhr.setRequestHeader('Content-Type', 'application/octet-stream');
       xhr.send(file);
@@ -216,8 +262,9 @@ export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
     setProgressPct(0);
     setProgressLabel('Uploading');
     try {
-      const up = await uploadOne(file);
-      if (!up) return;
+      const up = await uploadOne(file, (loaded) =>
+        setProgressPct(Math.round((loaded / file.size) * 100)),
+      );
       setPhase('submitting');
       setProgressLabel('Checking the file');
       const res = await fetch(
@@ -247,49 +294,203 @@ export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
     }
   }
 
-  /** Several tiles (or add-more): upload each, then kick off the
-   *  server merge. The item flips to 'building'; the poll takes over. */
+  /** The merge cost model, fetched lazily and kept for the mount.
+   *  Absence is not fatal: the server still enforces at build time,
+   *  this only loses the pre-upload courtesy check. */
+  async function mergeLimits(): Promise<MergeCostCoefficients | null> {
+    if (limitsRef.current) return limitsRef.current;
+    try {
+      const res = await fetch('/api/portal/point-cloud/merge-limits');
+      if (!res.ok) return null;
+      limitsRef.current = (await res.json()) as MergeCostCoefficients;
+      return limitsRef.current;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Bytes + tile count the WORKER will chew for this request. For
+   *  add-sources that includes the tiles already on the item (the
+   *  rebuild re-merges the full set), plus the original single file
+   *  when it is the implicit first source. */
+  function mergeWorkload(files: File[], endpoint: 'build' | 'add-sources') {
+    let bytes = files.reduce((n, f) => n + f.size, 0);
+    let tiles = files.length;
+    if (endpoint === 'add-sources') {
+      const existing = data.sources ?? [];
+      bytes += existing.reduce((n, s) => n + (s.sizeBytes || 0), 0);
+      tiles += existing.length;
+      if (existing.length === 0 && data.storageKey) {
+        bytes += data.sizeBytes || 0;
+        tiles += 1;
+      }
+    }
+    return { bytes, tiles };
+  }
+
+  function submitError(err: unknown): void {
+    setError(err instanceof Error ? err.message : 'Upload failed.');
+  }
+
+  /** POST the merge request and adopt the response. */
+  async function startMerge(
+    sources: SourceDescriptor[],
+    endpoint: 'build' | 'add-sources',
+  ): Promise<void> {
+    setPhase('submitting');
+    setProgressLabel(
+      endpoint === 'add-sources' ? 'Starting rebuild' : 'Starting merge',
+    );
+    const res = await fetch(
+      `/api/portal/items/${itemId}/point-cloud/${endpoint}`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          sources: sources.map((s) => ({
+            storageKey: s.storageKey,
+            fileName: s.fileName,
+            sizeBytes: s.sizeBytes,
+          })),
+        }),
+      },
+    );
+    if (!res.ok) {
+      setError(await errorMessage(res, 'Could not start the merge'));
+      return;
+    }
+    const body = (await res.json()) as { humanEstimate?: string };
+    setBuildEta(body.humanEstimate ?? null);
+    // The batch is consumed; a future picker selection is a new one.
+    uploadedRef.current.clear();
+    setPendingRetry(null);
+    // The server flipped the item to 'building'; pick that up so the
+    // poll effect starts and the UI shows progress.
+    await refresh();
+  }
+
+  /** Several tiles (or add-more): upload the batch resiliently
+   *  (#202), then kick off the server merge. Re-entrant on purpose:
+   *  "Retry failed tiles" calls this again with the same list and
+   *  the session's uploadedRef skips everything already done. */
   async function runBuild(files: File[], endpoint: 'build' | 'add-sources') {
     setPhase('uploading');
     setProgressPct(0);
+    setPendingRetry(null);
     try {
-      const sources: Array<{
-        storageKey: string;
-        fileName: string;
-        sizeBytes: number;
-      }> = [];
-      for (let i = 0; i < files.length; i += 1) {
-        setProgressLabel(`Uploading tile ${i + 1} of ${files.length}`);
-        setProgressPct(0);
-        const up = await uploadOne(files[i]!);
-        if (!up) return; // error already surfaced
-        sources.push({
-          storageKey: up.storageKey,
-          fileName: up.fileName,
-          sizeBytes: up.sizeBytes,
-        });
+      // #205: the courtesy estimate BEFORE gigabytes move. The same
+      // math the server enforces with, via the same shared function.
+      const limits = await mergeLimits();
+      const { bytes, tiles } = mergeWorkload(files, endpoint);
+      const gb = (bytes / 1024 ** 3).toFixed(1);
+      let etaNote = '';
+      if (limits) {
+        const sec = estimateMergeSeconds(bytes, tiles, limits);
+        if (sec > limits.ceilingSec) {
+          setError(
+            `This area is very large: ${tiles} tiles, ${gb} GB. Merging it ` +
+              `would take ${formatRoughDuration(sec)}, beyond what this ` +
+              'server allows in one job. Split the upload into smaller ' +
+              'areas and merge them separately.',
+          );
+          return;
+        }
+        etaNote = ` Build after upload: ${formatRoughDuration(sec)}.`;
       }
-      setPhase('submitting');
-      setProgressLabel(
-        endpoint === 'add-sources' ? 'Starting rebuild' : 'Starting merge',
-      );
-      const res = await fetch(
-        `/api/portal/items/${itemId}/point-cloud/${endpoint}`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ sources }),
+
+      bytesRef.current = new Map();
+      const totalNew = files
+        .filter((f) => !uploadedRef.current.has(fileKey(f)))
+        .reduce((n, f) => n + f.size, 0);
+      const label =
+        files.length === 1
+          ? `Uploading ${files[0]!.name}`
+          : `Uploading ${files.length} tiles (${gb} GB).${etaNote}`;
+      setProgressLabel(label);
+
+      const repaint = () => {
+        if (totalNew === 0) return setProgressPct(100);
+        let loaded = 0;
+        for (const v of bytesRef.current.values()) loaded += v;
+        setProgressPct(
+          Math.min(100, Math.round((loaded / totalNew) * 100)),
+        );
+      };
+
+      const outcome = await uploadBatch(files, {
+        uploadOne: (file) =>
+          uploadOne(file, (loaded) => {
+            bytesRef.current.set(fileKey(file), loaded);
+            repaint();
+          }),
+        alreadyDone: uploadedRef.current,
+        concurrency: 3,
+        retries: 3,
+        onFileDone: (done, total) => {
+          if (total > 1) {
+            setProgressLabel(
+              `Uploaded ${done} of ${total} tiles (${gb} GB total).${etaNote}`,
+            );
+          }
         },
-      );
-      if (!res.ok) {
-        setError(await errorMessage(res, 'Could not start the merge'));
+      });
+      for (const s of outcome.succeeded) {
+        uploadedRef.current.set(fileKey(s.file), s.descriptor);
+        bytesRef.current.set(fileKey(s.file), s.file.size);
+      }
+      repaint();
+
+      if (outcome.failed.length > 0) {
+        const names = outcome.failed
+          .slice(0, 3)
+          .map((f) => f.file.name)
+          .join(', ');
+        const more =
+          outcome.failed.length > 3
+            ? ` and ${outcome.failed.length - 3} more`
+            : '';
+        setError(
+          `${outcome.failed.length} of ${files.length} tiles did not upload ` +
+            `(${names}${more}). Last error: ${outcome.failed[outcome.failed.length - 1]!.error} ` +
+            `The ${outcome.succeeded.length} uploaded ${outcome.succeeded.length === 1 ? 'tile is' : 'tiles are'} kept for this session.`,
+        );
+        setPendingRetry({
+          files,
+          endpoint,
+          uploadedCount: outcome.succeeded.length,
+        });
         return;
       }
-      // The server flipped the item to 'building'; pick that up so the
-      // poll effect starts and the UI shows progress.
-      await refresh();
+
+      // Order the sources by the picked file order, not completion
+      // order: tile numbering in fileName is meaningful to people
+      // reading the source list later.
+      const sources = files
+        .map((f) => uploadedRef.current.get(fileKey(f)))
+        .filter((s): s is SourceDescriptor => s !== undefined);
+      await startMerge(sources, endpoint);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed.');
+      submitError(err);
+    } finally {
+      setPhase('idle');
+      setProgressPct(0);
+    }
+  }
+
+  /** "Start the merge with what made it": the escape hatch after a
+   *  partial upload. Add-tiles-later can top up the missing ones. */
+  async function buildWithUploaded() {
+    if (!pendingRetry) return;
+    const sources = pendingRetry.files
+      .map((f) => uploadedRef.current.get(fileKey(f)))
+      .filter((s): s is SourceDescriptor => s !== undefined);
+    if (sources.length === 0) return;
+    setError(null);
+    setPhase('submitting');
+    try {
+      await startMerge(sources, pendingRetry.endpoint);
+    } catch (err) {
+      submitError(err);
     } finally {
       setPhase('idle');
       setProgressPct(0);
@@ -369,6 +570,7 @@ export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
                 {sourceCount > 0
                   ? `Merging ${sourceCount} ${sourceCount === 1 ? 'tile' : 'tiles'} into one point cloud...`
                   : 'Building your point cloud...'}
+                {buildEta ? ` Estimated: ${buildEta}.` : ''}
                 {hasFile ? ' The current version stays available until it finishes.' : ''}
               </span>
             </div>
@@ -387,6 +589,29 @@ export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
           {error ? (
             <div className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger">
               {error}
+              {pendingRetry && !busy ? (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setError(null);
+                      void runBuild(pendingRetry.files, pendingRetry.endpoint);
+                    }}
+                    className="rounded-md bg-accent px-3 py-1 text-xs font-medium text-white hover:bg-accent/90"
+                  >
+                    Retry the failed tiles
+                  </button>
+                  {pendingRetry.uploadedCount > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => void buildWithUploaded()}
+                      className="rounded-md border border-border bg-surface-1 px-3 py-1 text-xs font-medium text-ink-1 hover:bg-surface-2"
+                    >
+                      {`Start the merge with the ${pendingRetry.uploadedCount} uploaded`}
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ) : null}
 
