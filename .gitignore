@@ -25,6 +25,10 @@ __pycache__/
 # Same secrets, same rule.
 .env.prod.bak*
 .env.staging.bak*
+
+# MaxMind account credentials for the analytics GeoLite2 download
+# (see infra/analytics/geoip-update.sh). Never commit a license key.
+GeoIP.conf
 !.env.example
 !.env.prod.example
 
