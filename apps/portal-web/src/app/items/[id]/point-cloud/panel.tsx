@@ -880,33 +880,32 @@ function HillshadeSection({ itemId }: { itemId: string }) {
 
   return (
     <section className="overflow-hidden rounded-lg border border-border bg-surface-1 shadow-card">
+      {/* #212: umbrella heading. This section hosts three peer tools
+          (shaded relief, elevation layer, height above ground), so
+          the old "Derive hillshade" title undersold two of them and
+          made them read like afterthoughts. "Elevation and shading"
+          covers all three without colliding with the Terrain/Surface
+          choice inside the first tool. */}
       <div className="flex items-center gap-2 border-b border-border bg-surface-2 px-4 py-3">
-        <Sun className="h-4 w-4 text-accent" aria-hidden="true" />
-        <h2 className="text-sm font-medium text-ink-0">Derive hillshade</h2>
+        <Mountain className="h-4 w-4 text-accent" aria-hidden="true" />
+        <h2 className="text-sm font-medium text-ink-0">
+          Elevation and shading
+        </h2>
       </div>
-      <div className="space-y-3 p-4">
-        <p className="text-xs leading-relaxed text-muted">
-          Builds an elevation model from the points on the server and
-          shades it into a map-ready raster layer. Terrain uses ground
-          returns only; surface includes vegetation and structures.
-        </p>
-        <div className="flex flex-wrap items-end gap-3">
+      <div className="space-y-4 p-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <p className="max-w-md text-xs leading-relaxed text-muted">
+            Three map layers this point cloud can build on the server.
+            Each result lands as a regular layer you can style, share,
+            and add to any map.
+          </p>
+          {/* One resolution for all three tools, on purpose: the
+              value is shared state, and repeating the select per tool
+              would invite three slightly different answers to the
+              same question. */}
           <label className="block">
             <span className="mb-1 block text-2xs uppercase tracking-wide text-muted">
-              Elevation model
-            </span>
-            <select
-              value={mode}
-              onChange={(e) => setMode(e.target.value as 'dtm' | 'dsm')}
-              className="rounded border border-border bg-surface-0 px-2 py-1.5 text-xs text-ink-0"
-            >
-              <option value="dtm">Terrain (bare earth)</option>
-              <option value="dsm">Surface (with canopy)</option>
-            </select>
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-2xs uppercase tracking-wide text-muted">
-              Resolution
+              Resolution (all tools)
             </span>
             <select
               value={resolution}
@@ -918,26 +917,53 @@ function HillshadeSection({ itemId }: { itemId: string }) {
               <option value="5">5 meters</option>
             </select>
           </label>
-          <button
-            type="button"
-            onClick={() => void submit()}
-            disabled={submitting || active}
-            className="inline-flex items-center gap-2 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {submitting ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Sun className="h-3.5 w-3.5" />
-            )}
-            Run
-          </button>
         </div>
-        <div className="border-t border-border pt-3">
-          <p className="text-xs leading-relaxed text-muted">
-            You can also save the ground surface itself as an elevation
-            layer. Maps can use it to show everything in 3D: the
-            basemap, imagery, and boundary lines all follow the real
-            hills and valleys.
+
+        <div className="rounded-md border border-border bg-surface-0 p-3">
+          <h3 className="text-xs font-medium text-ink-0">Shaded relief</h3>
+          <p className="mt-1 text-xs leading-relaxed text-muted">
+            Shades the elevation into a map-ready picture of the
+            landforms. Terrain uses ground returns only; surface
+            includes vegetation and structures.
+          </p>
+          <div className="mt-2 flex flex-wrap items-end gap-3">
+            <label className="block">
+              <span className="mb-1 block text-2xs uppercase tracking-wide text-muted">
+                Elevation model
+              </span>
+              <select
+                value={mode}
+                onChange={(e) => setMode(e.target.value as 'dtm' | 'dsm')}
+                className="rounded border border-border bg-surface-0 px-2 py-1.5 text-xs text-ink-0"
+              >
+                <option value="dtm">Terrain (bare earth)</option>
+                <option value="dsm">Surface (with canopy)</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={() => void submit()}
+              disabled={submitting || active}
+              className="inline-flex items-center gap-2 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {submitting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sun className="h-3.5 w-3.5" />
+              )}
+              Create shaded relief
+            </button>
+          </div>
+        </div>
+
+        <div className="rounded-md border border-border bg-surface-0 p-3">
+          <h3 className="text-xs font-medium text-ink-0">
+            Elevation layer for 3D maps
+          </h3>
+          <p className="mt-1 text-xs leading-relaxed text-muted">
+            Saves the ground surface itself as an elevation layer. Maps
+            can use it to show everything in 3D: the basemap, imagery,
+            and boundary lines all follow the real hills and valleys.
           </p>
           <button
             type="button"
@@ -945,21 +971,25 @@ function HillshadeSection({ itemId }: { itemId: string }) {
               void submitTo('elevation', { resolution: Number(resolution) })
             }
             disabled={submitting || active}
-            className="mt-2 inline-flex items-center gap-2 rounded-md border border-border bg-surface-0 px-3 py-1.5 text-xs font-medium text-ink-0 transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-60"
+            className="mt-2 inline-flex items-center gap-2 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-xs font-medium text-ink-0 transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submitting ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
               <Mountain className="h-3.5 w-3.5" />
             )}
-            Create elevation layer (for 3D)
+            Create elevation layer
           </button>
         </div>
-        <div className="border-t border-border pt-3">
-          <p className="text-xs leading-relaxed text-muted">
-            Or measure how tall everything is: the height of trees,
-            buildings, and anything else above the bare ground, as a
-            colored layer for maps.
+
+        <div className="rounded-md border border-border bg-surface-0 p-3">
+          <h3 className="text-xs font-medium text-ink-0">
+            Height above ground
+          </h3>
+          <p className="mt-1 text-xs leading-relaxed text-muted">
+            Measures how tall everything is: trees, buildings, and
+            anything else standing above the bare ground, as a colored
+            layer for maps.
           </p>
           <button
             type="button"
@@ -967,14 +997,14 @@ function HillshadeSection({ itemId }: { itemId: string }) {
               void submitTo('heightmap', { resolution: Number(resolution) })
             }
             disabled={submitting || active}
-            className="mt-2 inline-flex items-center gap-2 rounded-md border border-border bg-surface-0 px-3 py-1.5 text-xs font-medium text-ink-0 transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-60"
+            className="mt-2 inline-flex items-center gap-2 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-xs font-medium text-ink-0 transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submitting ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
               <Leaf className="h-3.5 w-3.5" />
             )}
-            Create height-above-ground map
+            Create height map
           </button>
         </div>
         {error ? (
@@ -1006,10 +1036,10 @@ function HillshadeSection({ itemId }: { itemId: string }) {
                   }
                 >
                   {j.kind === 'elevation'
-                    ? 'Elevation: '
+                    ? 'Elevation layer: '
                     : j.kind === 'heightmap'
                       ? 'Height above ground: '
-                      : 'Hillshade: '}
+                      : 'Shaded relief: '}
                   {j.state === 'queued'
                     ? 'Waiting to start...'
                     : j.state === 'cancel_requested'
