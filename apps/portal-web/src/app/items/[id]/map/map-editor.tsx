@@ -840,7 +840,44 @@ export function MapEditor({
    */
   const autoTerrainTried = useRef(false);
   async function maybeAutoTerrain(added: MapLayer[]) {
-    if (!canEdit || autoTerrainTried.current || map.terrain) return;
+    if (!canEdit) return;
+    // #211: a layer that carries its own DEM reference is a stronger
+    // signal than the bbox heuristic below, and it also applies when
+    // the map ALREADY has terrain (the added layer's ground may not
+    // be in the stack yet). No-terrain: switch it on directly, same
+    // UX as the heuristic. Existing terrain: offer via a toast
+    // action, never override the author's stack unprompted.
+    const carrier = added.find(
+      (l) =>
+        (l.source.kind === 'tile' || l.source.kind === 'point-cloud') &&
+        l.source.preferredElevationItemId,
+    );
+    if (
+      carrier &&
+      (carrier.source.kind === 'tile' ||
+        carrier.source.kind === 'point-cloud') &&
+      carrier.source.preferredElevationItemId
+    ) {
+      const preferredId = carrier.source.preferredElevationItemId;
+      const stack = effectiveTerrainStack(mapRefForProfile.current);
+      if (stack.some((e) => e.itemId === preferredId)) return;
+      if (stack.length === 0) {
+        await ensureElevationInStack(preferredId);
+      } else {
+        toast(`"${carrier.title}" comes with its own elevation layer.`, {
+          description:
+            "Add it to this map's terrain so that area gets real ground height.",
+          action: {
+            label: 'Add to terrain',
+            onClick: () => {
+              void ensureElevationInStack(preferredId);
+            },
+          },
+        });
+      }
+      return;
+    }
+    if (autoTerrainTried.current || map.terrain) return;
     const withBox = added.find(
       (l) =>
         (l.source.kind === 'tile' || l.source.kind === 'point-cloud') &&
@@ -891,6 +928,77 @@ export function MapEditor({
     } catch {
       /* enhancement only; never block the add */
     }
+  }
+
+  /**
+   * #211: fetch a DEM item and make sure it's in the terrain stack:
+   * top when the map had none, appended below the author's existing
+   * choices otherwise (first entry wins in the mosaic, so joining
+   * never silently re-ranks the ground). Shared by the layer
+   * kebab's "Use this layer's elevation" and the add-layer offer.
+   */
+  async function ensureElevationInStack(demItemId: string) {
+    try {
+      const res = await fetch(`/api/portal/items/${demItemId}`);
+      if (!res.ok) {
+        toast.error('That elevation layer is not available.');
+        return;
+      }
+      const item = (await res.json()) as {
+        title?: string;
+        data?: { dem?: boolean; tileUrl?: string; maxZoom?: number } | null;
+      };
+      if (!item.data?.dem || !item.data.tileUrl) {
+        toast.error('That elevation layer is not ready yet.');
+        return;
+      }
+      const title = item.title ?? 'Elevation layer';
+      const current = effectiveTerrainStack(mapRefForProfile.current);
+      if (current.some((e) => e.itemId === demItemId)) {
+        toast(`"${title}" is already part of this map's terrain.`);
+        return;
+      }
+      const hadTerrain = current.length > 0;
+      addTerrainEntry({
+        itemId: demItemId,
+        tileUrl: item.data.tileUrl,
+        ...(typeof item.data.maxZoom === 'number'
+          ? { maxZoom: item.data.maxZoom }
+          : {}),
+      });
+      toast(
+        hadTerrain
+          ? `Added "${title}" to this map's terrain.`
+          : `3D terrain is on, using "${title}".`,
+        {
+          description: hadTerrain
+            ? 'Where elevation layers overlap, the one nearer the top of the terrain list wins. Reorder under the basemap button.'
+            : 'Tilt the map (right-drag) to see it. Manage terrain under the basemap button.',
+        },
+      );
+    } catch {
+      toast.error('Could not add that elevation layer.');
+    }
+  }
+
+  /**
+   * #211: layer-kebab entry point. Honest about the renderer
+   * constraint: one terrain mesh per map, so "use this layer's
+   * elevation" means "make sure its DEM is in the map's stack".
+   */
+  function useLayerElevation(layerId: string) {
+    const layer = mapRefForProfile.current.layers.find(
+      (l) => l.id === layerId,
+    );
+    const src = layer?.source;
+    if (
+      !src ||
+      (src.kind !== 'tile' && src.kind !== 'point-cloud') ||
+      !src.preferredElevationItemId
+    ) {
+      return;
+    }
+    void ensureElevationInStack(src.preferredElevationItemId);
   }
 
   // Ref-shadow of the map state so the stable profile resolver
@@ -1588,6 +1696,7 @@ export function MapEditor({
         setTableFocusLayerId(layerId ?? null);
         setTableOpen(true);
       }}
+      onUseLayerElevation={useLayerElevation}
       onZoomToLayer={(layerId) => {
         // Zoom-to-extent is a deliberate authoring action, so it
         // marks the map dirty: Save's camera capture only helps if

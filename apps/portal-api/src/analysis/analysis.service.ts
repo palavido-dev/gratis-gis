@@ -122,6 +122,11 @@ export class AnalysisService {
         fileName: '',
         sizeBytes: 0,
         uploadedAt: new Date(0).toISOString(),
+        // #211: when the source cloud already has a derived DEM,
+        // the hillshade inherits it as its ground truth.
+        ...(typeof data.preferredElevationItemId === 'string'
+          ? { preferredElevationItemId: data.preferredElevationItemId }
+          : {}),
       } as Prisma.InputJsonValue,
     });
 
@@ -299,6 +304,8 @@ export class AnalysisService {
         fileName: '',
         sizeBytes: 0,
         uploadedAt: new Date(0).toISOString(),
+        // #211: the source DEM is this overlay's ground truth.
+        preferredElevationItemId: sourceItemId,
       } as Prisma.InputJsonValue,
     });
 
@@ -441,6 +448,8 @@ export class AnalysisService {
         fileName: '',
         sizeBytes: 0,
         uploadedAt: new Date(0).toISOString(),
+        // #211: the source DEM is this overlay's ground truth.
+        preferredElevationItemId: sourceItemId,
       } as Prisma.InputJsonValue,
     });
 

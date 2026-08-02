@@ -208,6 +208,7 @@ export function buildPointCloudLayer(
     bboxWgs84?: [number, number, number, number];
     pointCount?: number;
     hasRgb?: boolean;
+    preferredElevationItemId?: string;
   } | null;
   if (!data?.dataUrl) {
     return {
@@ -220,6 +221,9 @@ export function buildPointCloudLayer(
       itemId: item.id,
       dataUrl: data.dataUrl,
       ...(data.bboxWgs84 ? { bboxWgs84: data.bboxWgs84 } : {}),
+      ...(typeof data.preferredElevationItemId === 'string'
+        ? { preferredElevationItemId: data.preferredElevationItemId }
+        : {}),
       ...(typeof data.pointCount === 'number'
         ? { pointCount: data.pointCount }
         : {}),
@@ -240,6 +244,7 @@ export function buildTileLayer(
     dem?: boolean;
     bbox?: [number, number, number, number];
     attribution?: string;
+    preferredElevationItemId?: string;
   } | null;
   if (!data?.tileUrl) {
     return {
@@ -270,6 +275,9 @@ export function buildTileLayer(
       itemId: item.id,
       tileUrl: pinnedUrl,
       ...(data.bbox ? { bboxWgs84: data.bbox } : {}),
+      ...(typeof data.preferredElevationItemId === 'string'
+        ? { preferredElevationItemId: data.preferredElevationItemId }
+        : {}),
       ...(data.attribution ? { attribution: data.attribution } : {}),
     }),
   };

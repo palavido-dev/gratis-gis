@@ -1035,6 +1035,15 @@ def do_elevation(conn, s3, job) -> None:
         # anything the API added to the item while the job ran
         # survives the merge (see merge_item_data).
         merge_item_data(conn, job["target_item_id"], data)
+        # #211: the source cloud now has a matching DEM; record it
+        # so maps offer this terrain when the cloud (or anything
+        # derived from it) joins a map. A newer elevation job just
+        # re-stamps, freshest ground truth wins.
+        merge_item_data(
+            conn,
+            job["source_item_id"],
+            {"preferredElevationItemId": job["target_item_id"]},
+        )
     finally:
         shutil.rmtree(work, ignore_errors=True)
 

@@ -140,6 +140,14 @@ export interface TileLayerData {
    * elevation values); the COG serves directly via /file.cog.
    */
   dem?: boolean;
+  /**
+   * #211: item id of the elevation layer (a `dem: true` tile_layer)
+   * that is this layer's ground truth, e.g. the DEM a hillshade or
+   * steepness overlay was derived from. Stamped by the analysis
+   * pipeline; the map builder uses it to offer "bring this layer's
+   * elevation along" when the layer joins a map.
+   */
+  preferredElevationItemId?: string;
   /** MinIO object key of the CURRENTLY-served file (matches
    *  `format`).  For COG-state items this points at the COG; once
    *  the pyramid job lands, storageKey is updated to point at the

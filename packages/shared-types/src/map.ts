@@ -641,6 +641,10 @@ export type MapLayerSource =
       dataUrl: string;
       /** WGS84 [w,s,e,n] from the item, for zoom-to-layer. */
       bboxWgs84?: [number, number, number, number];
+      /** #211: the item's preferred elevation layer, stamped at add
+       *  time so the builder can offer matching terrain without an
+       *  item fetch. */
+      preferredElevationItemId?: string;
       /** Total points, drives the size-aware streaming budget. */
       pointCount?: number;
       /** Whether the cloud carries RGB (drives default coloring). */
@@ -683,6 +687,10 @@ export type MapLayerSource =
       tileUrl: string;
       /** WGS84 [w, s, e, n] from the item, for zoom-to-layer. */
       bboxWgs84?: [number, number, number, number];
+      /** #211: the item's preferred elevation layer, stamped at add
+       *  time so the builder can offer matching terrain without an
+       *  item fetch. */
+      preferredElevationItemId?: string;
       attribution?: string;
     }
   | { kind: 'group' };

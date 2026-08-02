@@ -83,6 +83,12 @@ interface Props {
    *  bounding box is computed in the LayerPanel from cached
    *  metadata, then handed to MapCanvas via this callback. */
   onZoomToLayer: (layerId: string) => void;
+  /** #211: make sure the layer's preferred elevation layer is in
+   *  the map's terrain stack. Only offered on rows whose source
+   *  carries a stamped `preferredElevationItemId`; the handler
+   *  lives in map-editor next to the rest of the terrain-stack
+   *  mutators. Absent in runtimes that can't edit terrain. */
+  onUseLayerElevation?: (layerId: string) => void;
   onChange: (next: MapLayer[]) => void;
   /**
    * Whether to render the "Add layer" / "Add group" split button at
@@ -117,6 +123,7 @@ export function LayerPanel({
   onAddGroup,
   onOpenAttributeTable,
   onZoomToLayer,
+  onUseLayerElevation,
   onChange,
   showAddLayer = true,
 }: Props) {
@@ -577,6 +584,12 @@ export function LayerPanel({
                         onOpenAttributeTable(layer.id)
                       }
                       onZoomToExtent={() => onZoomToLayer(layer.id)}
+                      {...(onUseLayerElevation
+                        ? {
+                            onUseLayerElevation: () =>
+                              onUseLayerElevation(layer.id),
+                          }
+                        : {})}
                       groupOptions={groupOptionsFor(layer)}
                       onMoveToGroup={(gid) =>
                         moveLayerToGroup(layer.id, gid)
@@ -624,6 +637,9 @@ interface RowProps {
   onOpenAttributeTable: () => void;
   /** Fly the camera to this layer's feature extent (#72). */
   onZoomToExtent: () => void;
+  /** #211: put this layer's preferred elevation into the terrain
+   *  stack (see Props.onUseLayerElevation). */
+  onUseLayerElevation?: () => void;
   /** Existing groups this layer can validly move into. The list
    *  is pre-filtered against MAX_GROUP_DEPTH and cycle rules so
    *  the kebab submenu only shows landing pads that will actually
@@ -663,6 +679,7 @@ function LayerRow({
   onPatch,
   onOpenAttributeTable,
   onZoomToExtent,
+  onUseLayerElevation,
   groupOptions,
   onMoveToGroup,
   onMoveToNewGroup,
@@ -981,21 +998,43 @@ function LayerRow({
                 /* Point clouds and tile layers zoom via their
                    stamped WGS84 coverage box instead of walking
                    features. */
-                <MenuItem
-                  Icon={Focus}
-                  label="Zoom to layer extent"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onZoomToExtent();
-                  }}
-                  disabled={
-                    !(
-                      (layer.source.kind === 'point-cloud' ||
-                        layer.source.kind === 'tile') &&
-                      layer.source.bboxWgs84
-                    )
-                  }
-                />
+                <>
+                  <MenuItem
+                    Icon={Focus}
+                    label="Zoom to layer extent"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onZoomToExtent();
+                    }}
+                    disabled={
+                      !(
+                        (layer.source.kind === 'point-cloud' ||
+                          layer.source.kind === 'tile') &&
+                        layer.source.bboxWgs84
+                      )
+                    }
+                  />
+                  {/* #211: only offered when the item stamped a
+                      preferred elevation layer at add time. The
+                      wording is honest about what happens: one
+                      terrain mesh per map, so this ensures the
+                      layer's DEM is in the map's elevation stack
+                      rather than pretending at per-layer terrain. */}
+                  {canEdit &&
+                  onUseLayerElevation &&
+                  (layer.source.kind === 'point-cloud' ||
+                    layer.source.kind === 'tile') &&
+                  layer.source.preferredElevationItemId ? (
+                    <MenuItem
+                      Icon={Mountain}
+                      label="Use this layer's elevation"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        onUseLayerElevation();
+                      }}
+                    />
+                  ) : null}
+                </>
               ) : null}
               {/* Author-only actions: rename, move-to-group, remove.
                   Hidden for viewers since they can't persist

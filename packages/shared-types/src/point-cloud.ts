@@ -94,6 +94,15 @@ export interface PointCloudData {
   /** Attribution surfaced wherever the layer renders. */
   attribution?: string;
 
+  /**
+   * #211: item id of the elevation layer derived FROM this cloud
+   * (the elevation job's output DEM). Stamped by the worker when
+   * that job completes; a newer elevation job re-stamps it. The
+   * map builder uses it to offer the matching terrain when this
+   * cloud joins a map.
+   */
+  preferredElevationItemId?: string;
+
   // ----------------------------- runtime URL -----------------------------
 
   /**
