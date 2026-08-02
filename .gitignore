@@ -29,6 +29,10 @@ __pycache__/
 # MaxMind account credentials for the analytics GeoLite2 download
 # (see infra/analytics/geoip-update.sh). Never commit a license key.
 GeoIP.conf
+
+# Playwright run artifacts (traces, screenshots, reports).
+e2e/test-results/
+e2e/playwright-report/
 !.env.example
 !.env.prod.example
 
