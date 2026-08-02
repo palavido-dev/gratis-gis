@@ -4,6 +4,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
+  ChevronDown,
+  ChevronUp,
   Eye,
   List,
   Loader2,
@@ -11,6 +13,7 @@ import {
   Save,
   ShieldCheck,
   Table,
+  X,
 } from 'lucide-react';
 import type {
   Group,
@@ -20,6 +23,7 @@ import type {
   MapFilterOp,
   MapLayer,
   MapLayerAccess,
+  TerrainStackEntry,
 } from '@gratis-gis/shared-types';
 import { layersForPortalItem } from './portal-item-layers';
 import { toast } from '@/lib/toast';
@@ -747,24 +751,82 @@ export function MapEditor({
   }
 
   /**
-   * #186: 3D terrain. `null` turns terrain off (key dropped from
-   * MapData so the payload stays clean). The tileUrl is stamped at
-   * set time, same no-runtime-item-fetch rule as layers.
+   * #186 / #211: 3D terrain, now an ordered elevation stack. The
+   * stack is the source of truth; the legacy `itemId` / `tileUrl`
+   * pair is kept as a mirror of stack[0] so old runtimes and the
+   * single-entry cog:// fast path keep working. An empty stack
+   * drops the terrain key entirely so the payload stays clean.
+   * Entry tileUrl / maxZoom are stamped at set time, same
+   * no-runtime-item-fetch rule as layers.
    */
-  function setTerrainLayer(
-    choice: { itemId: string; tileUrl: string } | null,
-  ) {
+  function writeTerrainStack(m: MapData, stack: TerrainStackEntry[]): MapData {
+    if (stack.length === 0) {
+      const next = { ...m };
+      delete next.terrain;
+      return next;
+    }
+    const first = stack[0]!;
+    return {
+      ...m,
+      terrain: {
+        ...(m.terrain?.exaggeration !== undefined
+          ? { exaggeration: m.terrain.exaggeration }
+          : {}),
+        itemId: first.itemId,
+        tileUrl: first.tileUrl,
+        stack,
+      },
+    };
+  }
+
+  /**
+   * The stack a given MapData effectively has: `stack` when present,
+   * else the legacy single source as a stack of one (#211 no-migration
+   * rule), else empty.
+   */
+  function effectiveTerrainStack(m: MapData): TerrainStackEntry[] {
+    if (m.terrain?.stack?.length) return m.terrain.stack;
+    if (m.terrain?.tileUrl) {
+      return [{ itemId: m.terrain.itemId, tileUrl: m.terrain.tileUrl }];
+    }
+    return [];
+  }
+
+  function addTerrainEntry(entry: TerrainStackEntry) {
     setMap((m) => {
-      if (!choice) {
-        const next = { ...m };
-        delete next.terrain;
-        return next;
-      }
-      return {
-        ...m,
-        terrain: { itemId: choice.itemId, tileUrl: choice.tileUrl },
-      };
+      const stack = effectiveTerrainStack(m);
+      if (stack.some((e) => e.itemId === entry.itemId)) return m;
+      return writeTerrainStack(m, [...stack, entry]);
     });
+    markDirty();
+  }
+
+  function removeTerrainEntry(itemId: string) {
+    setMap((m) =>
+      writeTerrainStack(
+        m,
+        effectiveTerrainStack(m).filter((e) => e.itemId !== itemId),
+      ),
+    );
+    markDirty();
+  }
+
+  /** Move a stack entry one position up (-1) or down (+1). */
+  function moveTerrainEntry(itemId: string, delta: -1 | 1) {
+    setMap((m) => {
+      const stack = [...effectiveTerrainStack(m)];
+      const from = stack.findIndex((e) => e.itemId === itemId);
+      const to = from + delta;
+      if (from < 0 || to < 0 || to >= stack.length) return m;
+      const [entry] = stack.splice(from, 1);
+      stack.splice(to, 0, entry!);
+      return writeTerrainStack(m, stack);
+    });
+    markDirty();
+  }
+
+  function clearTerrain() {
+    setMap((m) => writeTerrainStack(m, []));
     markDirty();
   }
 
@@ -804,6 +866,7 @@ export function MapEditor({
           dem?: boolean;
           tileUrl?: string;
           bbox?: [number, number, number, number];
+          maxZoom?: number;
         } | null;
       }>;
       const match = items.find((i) => {
@@ -812,14 +875,14 @@ export function MapEditor({
         return bw < e && be > w && bs < n && bn > s;
       });
       if (!match) return;
-      setMap((m) =>
-        m.terrain
-          ? m
-          : {
-              ...m,
-              terrain: { itemId: match.id, tileUrl: match.data!.tileUrl! },
-            },
-      );
+      const entry: TerrainStackEntry = {
+        itemId: match.id,
+        tileUrl: match.data!.tileUrl!,
+        ...(typeof match.data!.maxZoom === 'number'
+          ? { maxZoom: match.data!.maxZoom }
+          : {}),
+      };
+      setMap((m) => (m.terrain ? m : writeTerrainStack(m, [entry])));
       markDirty();
       toast(`3D terrain is on, using "${match.title}".`, {
         description:
@@ -852,7 +915,12 @@ export function MapEditor({
   // menu opens; the list is tiny (analysis outputs), so the non-lite
   // payload is fine and we need `data` for the dem flag + tileUrl.
   const [demLayers, setDemLayers] = useState<
-    Array<{ id: string; title: string; tileUrl: string }> | null
+    Array<{
+      id: string;
+      title: string;
+      tileUrl: string;
+      maxZoom?: number;
+    }> | null
   >(null);
   useEffect(() => {
     if (!basemapMenuOpen || demLayers !== null) return;
@@ -864,7 +932,7 @@ export function MapEditor({
         const items = (await res.json()) as Array<{
           id: string;
           title: string;
-          data?: { dem?: boolean; tileUrl?: string } | null;
+          data?: { dem?: boolean; tileUrl?: string; maxZoom?: number } | null;
         }>;
         if (cancelled) return;
         setDemLayers(
@@ -874,6 +942,9 @@ export function MapEditor({
               id: i.id,
               title: i.title,
               tileUrl: i.data!.tileUrl!,
+              ...(typeof i.data!.maxZoom === 'number'
+                ? { maxZoom: i.data!.maxZoom }
+                : {}),
             })),
         );
       } catch {
@@ -1216,7 +1287,9 @@ export function MapEditor({
               )}
               {/* #186: 3D terrain lives with the basemap choice --
                   both are map-wide ground settings. Only shown when
-                  the org has at least one elevation layer. */}
+                  the org has at least one elevation layer. #211:
+                  the single picker became an ordered elevation
+                  stack; the menu stays open while building it. */}
               {demLayers && demLayers.length > 0 ? (
                 <>
                   <div className="border-t border-border bg-surface-2 px-3 py-1.5 text-2xs font-semibold uppercase tracking-wide text-muted">
@@ -1228,7 +1301,7 @@ export function MapEditor({
                         type="button"
                         role="menuitem"
                         onClick={() => {
-                          setTerrainLayer(null);
+                          clearTerrain();
                           setBasemapMenuOpen(false);
                         }}
                         className={`flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-2 ${
@@ -1245,37 +1318,112 @@ export function MapEditor({
                         ) : null}
                       </button>
                     </li>
-                    {demLayers.map((d) => {
-                      const active = map.terrain?.itemId === d.id;
-                      return (
-                        <li key={d.id}>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            onClick={() => {
-                              setTerrainLayer({
-                                itemId: d.id,
-                                tileUrl: d.tileUrl,
-                              });
-                              setBasemapMenuOpen(false);
-                            }}
-                            className={`flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-2 ${
-                              active
-                                ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300'
-                                : 'text-ink-1'
-                            }`}
-                          >
-                            <span className="truncate">{d.title}</span>
-                            {active ? (
-                              <span className="ml-auto text-2xs uppercase tracking-wide">
-                                active
-                              </span>
-                            ) : null}
-                          </button>
-                        </li>
-                      );
-                    })}
                   </ul>
+                  {(() => {
+                    const stack = effectiveTerrainStack(map);
+                    const inStack = new Set(stack.map((e) => e.itemId));
+                    const available = demLayers.filter(
+                      (d) => !inStack.has(d.id),
+                    );
+                    return (
+                      <>
+                        {stack.length > 0 ? (
+                          <ul className="border-t border-border py-1">
+                            {stack.map((entry, i) => {
+                              const title =
+                                demLayers.find((d) => d.id === entry.itemId)
+                                  ?.title ?? 'Elevation layer';
+                              return (
+                                <li
+                                  key={entry.itemId}
+                                  className="flex items-center gap-1 px-3 py-1 text-ink-1"
+                                >
+                                  <span className="min-w-0 flex-1 truncate">
+                                    {title}
+                                  </span>
+                                  {i === 0 && stack.length > 1 ? (
+                                    <span className="shrink-0 text-2xs uppercase tracking-wide text-muted">
+                                      on top
+                                    </span>
+                                  ) : null}
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      moveTerrainEntry(entry.itemId, -1)
+                                    }
+                                    disabled={i === 0}
+                                    className="shrink-0 rounded p-0.5 text-muted enabled:hover:bg-surface-2 enabled:hover:text-ink-1 disabled:opacity-30"
+                                    aria-label={`Move ${title} up`}
+                                    title="Move up (higher priority)"
+                                  >
+                                    <ChevronUp className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      moveTerrainEntry(entry.itemId, 1)
+                                    }
+                                    disabled={i === stack.length - 1}
+                                    className="shrink-0 rounded p-0.5 text-muted enabled:hover:bg-surface-2 enabled:hover:text-ink-1 disabled:opacity-30"
+                                    aria-label={`Move ${title} down`}
+                                    title="Move down (lower priority)"
+                                  >
+                                    <ChevronDown className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      removeTerrainEntry(entry.itemId)
+                                    }
+                                    className="shrink-0 rounded p-0.5 text-muted hover:bg-surface-2 hover:text-ink-1"
+                                    aria-label={`Remove ${title} from terrain`}
+                                    title="Remove"
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </button>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        ) : null}
+                        {stack.length > 1 ? (
+                          <p className="px-3 pb-1 text-2xs leading-snug text-muted">
+                            Where elevation layers overlap, the one
+                            nearer the top of this list wins.
+                          </p>
+                        ) : null}
+                        {available.length > 0 ? (
+                          <ul className="border-t border-border py-1">
+                            {stack.length > 0 ? (
+                              <li className="px-3 py-0.5 text-2xs uppercase tracking-wide text-muted">
+                                Add elevation
+                              </li>
+                            ) : null}
+                            {available.map((d) => (
+                              <li key={d.id}>
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={() =>
+                                    addTerrainEntry({
+                                      itemId: d.id,
+                                      tileUrl: d.tileUrl,
+                                      ...(typeof d.maxZoom === 'number'
+                                        ? { maxZoom: d.maxZoom }
+                                        : {}),
+                                    })
+                                  }
+                                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-ink-1 hover:bg-surface-2"
+                                >
+                                  <span className="truncate">{d.title}</span>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </>
+                    );
+                  })()}
                   {map.terrain ? (
                     <div className="border-t border-border px-3 py-2">
                       <label className="flex items-center justify-between text-2xs text-muted">

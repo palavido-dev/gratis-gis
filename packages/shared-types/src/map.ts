@@ -90,6 +90,20 @@ export const BUILTIN_BASEMAP_SEEDS: BuiltinBasemapSeed[] = [
   },
 ];
 
+/**
+ * #211: one entry in a map's elevation mosaic stack. `itemId`
+ * references a tile_layer with `dem: true`; `tileUrl` / `maxZoom`
+ * are stamped from the item at set time so runtimes can render a
+ * single-entry stack (the client-side cog:// path) and pick a
+ * sensible source maxzoom without fetching items.
+ */
+export interface TerrainStackEntry {
+  itemId: string;
+  tileUrl: string;
+  /** Native max web-mercator zoom of the DEM, when known. */
+  maxZoom?: number;
+}
+
 export interface MapData {
   version: 1;
   /**
@@ -121,12 +135,29 @@ export interface MapData {
    * ground surface. tileUrl is stamped at set time (cog:// URL,
    * WITHOUT the #dem fragment; consumers append it) so runtimes
    * never need an item fetch to render, same rule as layers.
+   *
+   * #211: `stack` is the elevation mosaic. MapLibre only supports
+   * one terrain mesh per map, so instead of one DEM item the map
+   * carries an ORDERED list of them: index 0 has the highest
+   * priority, and the server-side mosaic endpoint composes tiles
+   * per pixel (first entry with data wins, nodata falls through to
+   * the next entry down). Runtime rule: `stack` wins when present;
+   * the legacy `itemId` / `tileUrl` pair stays populated as a
+   * mirror of stack[0] so old runtimes, exports, and the
+   * single-entry fast path keep working with no migration. A map
+   * with only the legacy pair behaves as a stack of one. Entries
+   * stamp `tileUrl` / `maxZoom` at set time (same
+   * no-runtime-item-fetch rule as above); the mosaic endpoint
+   * re-resolves everything server-side from `itemId` and never
+   * trusts the stamped URL.
    */
   terrain?: {
     itemId: string;
     tileUrl: string;
     /** Vertical exaggeration, 1 = true scale. Default 1. */
     exaggeration?: number;
+    /** #211: ordered elevation mosaic; stack[0] wins per pixel. */
+    stack?: TerrainStackEntry[];
   };
   /**
    * #79: optional reference to a geo_boundary item that scopes the
