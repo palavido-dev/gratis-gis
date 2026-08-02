@@ -510,6 +510,71 @@ def transfer_file(
             beat.close()
 
 
+def reclaim_abandoned_scratch(conn) -> int:
+    """Remove job scratch dirs whose job is no longer alive (#206).
+
+    Every handler works under SCRATCH/job-<id> (or copc-<id> for the
+    merge) and removes its own dir in a finally, but a SIGKILL, an
+    OOM, or a redeploy mid-job skips finally, and the partial
+    downloads sit on the scratch volume forever. On a 300-tile merge
+    that is real gigabytes on the same volume the disk guards (#203)
+    are trying to protect.
+
+    Keyed on the database rather than on "we just started, nothing
+    can be running": that shortcut is only true for a single worker,
+    and two workers already run against this table elsewhere in the
+    stack. A dir survives only when its job row is genuinely in
+    flight ('running' / 'cancel_requested') AND its heartbeat is
+    fresh, the same liveness test the API-side reclaim sweep applies
+    to the row itself. Unparseable dir names are left alone; scratch
+    is shared machinery and this function only claims to understand
+    its own naming.
+    """
+    removed = 0
+    prefixes = ("job-", "copc-")
+    try:
+        entries = [
+            p for p in SCRATCH.iterdir()
+            if p.is_dir() and p.name.startswith(prefixes)
+        ]
+    except OSError as err:
+        log(f"scratch reclaim: cannot list {SCRATCH}: {err}")
+        return 0
+    for path in entries:
+        job_id = path.name.split("-", 1)[1]
+        if not job_id:
+            continue
+        alive = False
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT 1 FROM analysis_job
+                    WHERE id = %s
+                      AND state IN ('running', 'cancel_requested')
+                      AND COALESCE(heartbeat_at, started_at, created_at)
+                          > now() - interval '10 minutes'
+                    """,
+                    (job_id,),
+                )
+                alive = cur.fetchone() is not None
+            conn.commit()
+        except psycopg2.Error:
+            conn.rollback()
+            # Includes a non-UUID dir name failing the id cast: not
+            # ours to judge, leave it.
+            continue
+        if alive:
+            continue
+        try:
+            shutil.rmtree(path)
+            removed += 1
+            log(f"scratch reclaim: removed abandoned {path.name}")
+        except OSError as err:
+            log(f"scratch reclaim: could not remove {path.name}: {err}")
+    return removed
+
+
 def claim_job(conn):
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
@@ -2171,6 +2236,12 @@ def main() -> None:
         except Exception as err:
             log(f"db not ready: {err}; retrying")
             time.sleep(5)
+    # A restart mid-job skipped every handler's finally; sweep the
+    # leftovers before taking new work so a crash loop can never
+    # ratchet the scratch volume toward full (#206).
+    reclaimed = reclaim_abandoned_scratch(conn)
+    if reclaimed:
+        log(f"scratch reclaim: {reclaimed} abandoned dir(s) removed")
     s3 = s3_client()
     while True:
         try:

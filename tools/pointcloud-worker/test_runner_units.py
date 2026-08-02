@@ -89,9 +89,57 @@ def test_stream_contours_empty_input():
         assert doc == {"type": "FeatureCollection", "features": []}
 
 
+def test_reclaim_abandoned_scratch():
+    """#206: a dir whose job is dead goes, an alive job's dir and a
+    dir the worker does not recognize both stay."""
+    # The except in the function needs a real exception type on the
+    # psycopg2 stub.
+    sys.modules["psycopg2"].Error = RuntimeError
+
+    class Cur:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def execute(self, _q, params):
+            self.last = params[0]
+
+        def fetchone(self):
+            return (1,) if self.last == "alive" else None
+
+    class Conn:
+        def cursor(self):
+            return Cur()
+
+        def commit(self):
+            pass
+
+        def rollback(self):
+            pass
+
+    with tempfile.TemporaryDirectory() as td:
+        scratch = Path(td)
+        old = runner.SCRATCH
+        runner.SCRATCH = scratch
+        try:
+            (scratch / "job-alive").mkdir()
+            (scratch / "job-dead").mkdir()
+            (scratch / "copc-dead2").mkdir()
+            (scratch / "unrelated").mkdir()
+            removed = runner.reclaim_abandoned_scratch(Conn())
+            left = sorted(p.name for p in scratch.iterdir())
+            assert removed == 2, removed
+            assert left == ["job-alive", "unrelated"], left
+        finally:
+            runner.SCRATCH = old
+
+
 if __name__ == "__main__":
     test_is_cancel_requested()
     test_add_feet_field()
     test_stream_contours_with_feet()
     test_stream_contours_empty_input()
+    test_reclaim_abandoned_scratch()
     print("test_runner_units: all assertions passed")
