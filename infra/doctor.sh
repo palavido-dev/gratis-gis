@@ -222,6 +222,26 @@ else
   warn "gpu tier: no GPU detected; keep GPU-dependent tools disabled"
 fi
 
+# Point-cloud merge scratch (#203). A lidar merge needs SEVERAL times
+# the total tile size in free scratch: LAZ decompresses roughly 10x
+# and untwine's out-of-core temp runs well past 2x the compressed
+# input (the worker requires MERGE_SCRATCH_FACTOR x, default 5, and
+# keeps a MERGE_MIN_FREE_GB reserve, default 10). County-scale
+# merges want scratch on its own disk, never sharing a volume with
+# object storage.
+scratch_mount="$(docker volume inspect --format '{{.Mountpoint}}' \
+  "$(docker volume ls -q --filter name=pointcloud-scratch | head -1)" 2>/dev/null || true)"
+if [ -n "$scratch_mount" ] && [ -d "$scratch_mount" ]; then
+  scratch_free_gb=$(( $(df -Pk "$scratch_mount" 2>/dev/null | awk 'NR==2 {print $4}' || echo 0) / 1024 / 1024 ))
+  if [ "$scratch_free_gb" -ge 50 ]; then
+    pass "pointcloud scratch: ${scratch_free_gb}GB free (a merge needs ~5x its total tile size)"
+  else
+    warn "pointcloud scratch: only ${scratch_free_gb}GB free; a merge needs ~5x its total tile size, so large lidar batches will be refused"
+  fi
+else
+  warn "pointcloud scratch: volume not found (stack not up yet?); merges need ~5x their total tile size in free scratch"
+fi
+
 printf '\n'
 if [ "$FAILS" -gt 0 ]; then
   printf '%d check(s) FAILED.\n' "$FAILS"

@@ -67,6 +67,34 @@ which analysis capability tiers the hardware honestly supports
 machine; heavier server tiers get a recommendation based on cores,
 memory, and GPU presence). Exit code 0 means no failures.
 
+## Sizing the point-cloud scratch disk
+
+A lidar merge is the hungriest thing this stack does. LAZ decompresses
+roughly 10x, and untwine's out-of-core temp runs well past 2x the
+compressed input on top of the downloaded tiles themselves, so the
+working set for an 18 GB batch was observed north of 46 GB and still
+growing. The worker therefore refuses a merge up front unless free
+scratch is at least `MERGE_SCRATCH_FACTOR` (default 5) times the total
+tile size, and aborts mid-run if free space ever falls below
+`MERGE_MIN_FREE_GB` (default 10).
+
+Rules of thumb:
+
+- Give the `pointcloud-scratch` volume several times your largest
+  planned batch. County-scale lidar wants its own disk.
+- Never share the scratch volume with object storage or backups; an
+  overrunning merge must not be able to threaten live data. The
+  guards protect against it, but placement is the real fix.
+- Merge time is estimated up front from `MERGE_DOWNLOAD_MIB_PER_SEC`,
+  `MERGE_UNTWINE_SEC_PER_GIB`, and `MERGE_PER_TILE_OVERHEAD_SEC`, and
+  a job whose estimate exceeds `MERGE_TIME_CEILING_SEC` (default 90%
+  of the worker's `MERGE_TIMEOUT_SEC`) is refused before it queues.
+  The defaults are deliberately conservative. Each completed merge
+  logs a `MERGE_STATS` line in the pointcloud-worker output; use it
+  to re-derive the rates for your hardware:
+  `MERGE_UNTWINE_SEC_PER_GIB = untwine_secs / (in_bytes / GiB)` and
+  `MERGE_DOWNLOAD_MIB_PER_SEC = in_bytes / MiB / download_secs`.
+
 ## What runs
 
 Docker Compose starts: the portal API (two replicas) and web UI, a
