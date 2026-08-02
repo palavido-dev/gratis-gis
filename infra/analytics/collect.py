@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -217,6 +218,37 @@ def set_state(conn: sqlite3.Connection, source: str, position: str) -> None:
 # ---------------------------------------------------------------- caddy
 
 
+def client_address(req: dict) -> str | None:
+    """The visitor's address from a Caddy request object, or None for
+    traffic that should not be recorded (internal, or unparseable).
+
+    The previous version did `.split(":")[0]`, which reads a bare IPv6
+    address as its first hextet ("2a02:1210::1" became "2a02"), and
+    filtered private ranges with string prefixes, which threw away
+    every public address starting "172." (172.16/12 is private;
+    172.217.x.x is Google, 172.58.x.x is T-Mobile). Real visitors were
+    silently dropped at ingest. Parse properly instead and let the
+    ipaddress module decide what is private.
+    """
+    raw = (req.get("client_ip") or req.get("remote_ip") or "").strip()
+    if not raw:
+        return None
+    if raw.startswith("["):  # "[v6]:port"
+        raw = raw[1:].split("]", 1)[0]
+    elif raw.count(":") == 1 and "." in raw.partition(":")[0]:  # "v4:port"
+        raw = raw.partition(":")[0]
+    # Bare v4 and bare v6 fall through untouched: a bare v6 has more
+    # than one colon (or none it could be confused with) and no
+    # bracket, and must not be split.
+    try:
+        addr = ipaddress.ip_address(raw)
+    except ValueError:
+        return None
+    if addr.is_private or addr.is_loopback or addr.is_link_local:
+        return None  # container-internal traffic and health checks
+    return addr.compressed
+
+
 def ingest_caddy(conn: sqlite3.Connection) -> int:
     """Read new lines from every access log file.
 
@@ -261,9 +293,9 @@ def ingest_caddy(conn: sqlite3.Connection) -> int:
                 if "request" not in rec or "status" not in rec:
                     continue
                 req = rec["request"]
-                ip = (req.get("client_ip") or req.get("remote_ip") or "").split(":")[0]
-                if not ip or ip.startswith(("172.", "10.", "192.168.", "127.")):
-                    continue  # container-internal traffic and health checks
+                ip = client_address(req)
+                if not ip:
+                    continue
                 headers = req.get("headers") or {}
                 ua = (headers.get("User-Agent") or [""])[0]
                 referer = (headers.get("Referer") or [""])[0]
@@ -307,7 +339,12 @@ def ingest_keycloak(conn: sqlite3.Connection) -> int:
         " coalesce(u.username, coalesce(e.user_id,'')), e.type,"
         " coalesce(e.client_id,''), coalesce(e.error,'')"
         " FROM event_entity e LEFT JOIN user_entity u ON u.id = e.user_id"
-        f" WHERE e.event_time > {last} ORDER BY e.event_time"
+        # >= rather than >: two events can share a millisecond across a
+        # run boundary, and strictly-greater would skip the later one
+        # forever. Re-reading the boundary event is free because the
+        # insert is OR IGNORE on the event id. `last` is int()-cast on
+        # read, so inlining it is not an injection surface.
+        f" WHERE e.event_time >= {last} ORDER BY e.event_time"
     )
     try:
         out = subprocess.run(
@@ -330,13 +367,15 @@ def ingest_keycloak(conn: sqlite3.Connection) -> int:
         event_id, event_time, ip, username, etype, client, error = parts
         ms = int(event_time)
         high_water = max(high_water, ms)
-        conn.execute(
+        cur = conn.execute(
             "INSERT OR IGNORE INTO login (event_id, ts, ip, username, type, client, error)"
             " VALUES (?,?,?,?,?,?,?)",
             (event_id, ms / 1000.0, ip or None, username or None, etype,
              client or None, error or None),
         )
-        count += 1
+        # Boundary re-reads are ignored by the PK; only count real rows
+        # so the log line stays honest.
+        count += max(cur.rowcount, 0)
     if high_water > last:
         set_state(conn, "keycloak", str(high_water))
     conn.commit()

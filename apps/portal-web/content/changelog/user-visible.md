@@ -3,7 +3,7 @@
 User-visible changes shipped to GratisGIS. Plain-English summaries
 only; one entry per notable feature. Add new entries at the top.
 
-Format: `## YYYY-MM-DD — Short feature name` on one line, then one
+Format: `## YYYY-MM-DD - Short feature name` on one line, then one
 short paragraph of plain-English description on the next line.
 
 This file is loaded by the public landing page at runtime, so
@@ -11,6 +11,19 @@ keep entries short and accessible. Anything that reads like a
 release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
+
+## 2026-07-26 - The portal tells you what build it's running
+The version now shows in the landing page footer and at the bottom
+of the user menu, linking to that release's notes. Handy when
+reporting a bug: quote the version and we know exactly what you
+were looking at.
+
+## 2026-07-23 - Combine lidar tiles into one point cloud
+Lidar usually arrives as a grid of tiles. Upload several .laz files
+together and GratisGIS merges them into a single seamless point
+cloud, with progress as it works. Got more tiles later? Add them to
+the existing point cloud from its page and it re-merges, so county
+scale coverage can grow as you collect it.
 
 ## 2026-07-21 - How tall is everything?
 Point clouds can now produce a height-above-ground map: the height
@@ -171,7 +184,7 @@ fly-to-and-highlight on pick. Works for signed-in users and on
 public maps for anonymous visitors, wherever a layer's fields are
 marked searchable.
 
-## 2026-06-01 — Spanish, Portuguese, French, German seed translations
+## 2026-06-01 - Spanish, Portuguese, French, German seed translations
 The four non-English catalogs are now seeded across every
 already-wired UI key, so the menu items, dialogs, and other
 strings the portal currently translates render in your chosen
@@ -180,7 +193,7 @@ picker tags it "(MT)" so you know to expect rough edges; native
 speakers, please open a pull request fixing anything that
 sounds wrong (the picker now links to the contributor guide).
 
-## 2026-06-01 — Pick your portal language
+## 2026-06-01 - Pick your portal language
 A language picker now lives in the user menu in the top-right.
 Five languages are available: English, Spanish, Portuguese
 (Brazil), French, and German. Your pick is remembered across
@@ -190,7 +203,7 @@ renders in English for now; the navigation menu and Print this
 map dialog are translated as a start, and contributions extend
 the rest as the catalogs fill in.
 
-## 2026-06-01 — Live PostgreSQL: any projection, no raw SQL filtering
+## 2026-06-01 - Live PostgreSQL: any projection, no raw SQL filtering
 Two upgrades to live PostgreSQL + PostGIS layers. First, tables in
 any spatial reference system PostGIS knows about now render
 without needing to be in WGS84: the portal reprojects on the
@@ -200,7 +213,7 @@ filter you already use on any other map layer (column / operator
 PostgreSQL side, so the database only sends back the rows that
 match. The raw SQL escape hatch is still there for power users.
 
-## 2026-06-01 — Clip and erase by another layer
+## 2026-06-01 - Clip and erase by another layer
 Two new analysis steps. Clip cookie-cutters your features by
 another layer so only the parts inside survive (handy for "this
 dataset, but only inside this district"). Erase is the inverse,
@@ -209,7 +222,7 @@ this exclusion zone"). Attributes pass through unchanged on
 both. Add either from the toolbox in the derived-layer
 builder under "Compare with another layer."
 
-## 2026-06-01 — Print PDFs match the map you're looking at
+## 2026-06-01 - Print PDFs match the map you're looking at
 The printed PDF now paints layers with the same colors and labels
 as the on-screen map: unique-value renderers, class-breaks, time-
 bins, and text labels all carry through, not just the simple
@@ -218,7 +231,7 @@ PDF too (raster, PMTiles, and Cloud-Optimized GeoTIFF), instead
 of vanilla OpenStreetMap. When the print Map element has a fixed
 scale set, the PDF honors that scale.
 
-## 2026-05-31 — Print scalebar + north arrow read the actual map
+## 2026-05-31 - Print scalebar + north arrow read the actual map
 The scalebar on a print layout now computes its bar length from
 the bound map's center latitude and zoom and labels itself with
 a real distance (m / km / ft / mi) rather than a placeholder.
@@ -226,7 +239,7 @@ The north arrow rotates to keep north up regardless of how the
 map is oriented. ArcGIS REST and live PostGIS data layers now
 paint into the print PDF too, alongside data-layer sources.
 
-## 2026-05-31 — Sharper print maps + real layer-bound legend
+## 2026-05-31 - Sharper print maps + real layer-bound legend
 The print pipeline now renders maps inline rather than via an
 embedded frame, so vector layer data paints as path primitives
 in the PDF instead of an embedded raster. Layer-bound legend
@@ -235,7 +248,7 @@ swatch per layer that matches the layer's style. Private maps
 and private templates render too (previously the preview only
 worked for publicly-shared items).
 
-## 2026-05-31 — Print PDFs render the real layout
+## 2026-05-31 - Print PDFs render the real layout
 The server-side print path now reads the print template's actual
 layout: title text and parameter bindings, image elements, lines
 and rectangles, scalebars and north arrows all render at the
@@ -243,7 +256,7 @@ right paper size, with the right fonts and colors, in the right
 positions. Map frames embed the calling map; the layer-bound
 legend lands next.
 
-## 2026-05-31 — Better-quality print PDFs
+## 2026-05-31 - Better-quality print PDFs
 The print pipeline now has a server-side render path. Instead of
 relying on the browser's print dialog, the portal renders the
 layout in a headless browser running on the server and returns a
@@ -251,7 +264,7 @@ vector-fidelity PDF. Text stays selectable, lines stay vector,
 multi-page layouts come out clean. Phase 2.1 finishes wiring the
 existing print designer's layout elements into the new pipeline.
 
-## 2026-05-31 — Multi-language foundation in place
+## 2026-05-31 - Multi-language foundation in place
 The plumbing for translating the portal into other languages
 just landed. Five locales are on the supported list (English,
 Spanish, Portuguese for Brazil, French, German); for now the
@@ -260,7 +273,7 @@ the runtime, the Accept-Language negotiator, and the
 contributor guide are ready. Help us translate at
 CONTRIBUTING-TRANSLATIONS.md.
 
-## 2026-05-31 — Point a map at a live PostgreSQL + PostGIS database
+## 2026-05-31 - Point a map at a live PostgreSQL + PostGIS database
 A new connection type lets you register a live PostGIS database
 and render its tables on maps without copying the rows in. Every
 viewport move issues a bounding-box SELECT directly against your
@@ -268,45 +281,45 @@ database; the GiST index does the spatial work. The password is
 stored encrypted and never reaches the browser. Bring your own
 warehouse, no data migration needed.
 
-## 2026-05-31 — Print this map, one click away
+## 2026-05-31 - Print this map, one click away
 A Print button in the map editor opens a chooser: create a new
 print layout pre-bound to this map, or pick an existing layout
 to print with. The Map, Legend, Scalebar, and North arrow auto-
 bind to the calling map so you skip the manual wiring. Higher-
 fidelity PDF rendering lands next.
 
-## 2026-05-31 — Workflows: analysis as a connected graph
+## 2026-05-31 - Workflows: analysis as a connected graph
 The analysis engine now understands a workflow as a graph of
 connected steps, not just a straight line. One result can flow
 into multiple downstream steps, and multiple results can
 converge. Existing tools keep running unchanged; new node
 kinds and the visual graph editor land in the next phase.
 
-## 2026-05-30 — Plug your portal into AI assistants
+## 2026-05-30 - Plug your portal into AI assistants
 A small MCP server ships with the project so MCP-compatible
 desktop AI tools can read your items and layer features
 directly. List items, fetch metadata, read features as
 GeoJSON, all gated by your normal portal permissions.
 
-## 2026-05-30 — Smart CSV uploads
+## 2026-05-30 - Smart CSV uploads
 Drop a CSV with latitude and longitude columns and get a
 mapped layer in one step. Sloppy column names like "LAT" or
 "x_coord" are auto-detected. Tab and semicolon delimiters,
 UTF-8 BOM, and European decimal commas all just work.
 
-## 2026-05-30 — See who else is on the map
+## 2026-05-30 - See who else is on the map
 Avatar chips at the top of the map canvas show every viewer
 who currently has the map open. Each person's cursor renders
 as a colored arrow with their name so a teammate over a video
 call can point at something without giving you coordinates.
 
-## 2026-05-30 — Conversations on a map
+## 2026-05-30 - Conversations on a map
 Threaded comments scoped to a map. Open a thread, reply,
 resolve when answered. Anyone who can view the map can join
 the conversation. Comment authors can edit their own posts
 for 15 minutes; map editors can clean up at any time.
 
-## 2026-05-30 — Map markup and redlining
+## 2026-05-30 - Map markup and redlining
 Anyone who can view a shared map can drop colored pins on it
 to flag issues, without needing edit permission. Each
 reviewer's markup gets its own distinct color so multiple
@@ -314,34 +327,34 @@ people's notes don't blur together. The classic "manager
 opens the map, flags three parcels, ships the URL back to
 the team" workflow.
 
-## 2026-05-24 — Query OpenStreetMap from your tools
+## 2026-05-24 - Query OpenStreetMap from your tools
 Build tools that ask OpenStreetMap for things in the real world.
 Pick "Gas stations" or "Restaurants" (or any of ~1,600 other
 categories), draw an area on the map, optionally add a filter
 like "brand = Citgo", and matching features show up on top of
 your map with proper attribution. No coding required.
 
-## 2026-05-24 — Custom tools for web apps
+## 2026-05-24 - Custom tools for web apps
 Build your own buttons inside a web app that run on-demand actions on
 the map. A "Select By Location" starter is ready to drop in: click it,
 draw an area, pick a relationship, and the matching features light up.
 
-## 2026-05-24 — Better map symbols
+## 2026-05-24 - Better map symbols
 Choose from 150+ professional point symbols (or upload your own SVG).
 Line and outline styles now support dashes, dots, and rounded corners
 to match the look of paid GIS tools.
 
-## 2026-05-22 — Smoother imports from ArcGIS Online
+## 2026-05-22 - Smoother imports from ArcGIS Online
 Pull layers, maps, and files over from AGO with live progress
 feedback and a cancel button. Large org migrations no longer time
 out silently.
 
-## 2026-05-13 — Designer-driven thumbnails
+## 2026-05-13 - Designer-driven thumbnails
 Item thumbnails are built from a small visual designer you can
 re-open and tweak any time. Renaming or changing colors regenerates
 the thumbnail automatically.
 
-## 2026-05-08 — Save and load Web Map JSON
+## 2026-05-08 - Save and load Web Map JSON
 Export a map's full setup (layers, styling, viewport) as a standard
 JSON file. Import the same file later or share it with someone else
 to reproduce the map exactly.

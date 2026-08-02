@@ -1,7 +1,7 @@
 /*
  * Tester-credential panel for the public demo login screen.
- * Injected by js/demo-credentials.js; styled as a secondary surface
- * under the sign-in card rather than competing with the form.
+ * Injected by js/demo-credentials.v3.js; styled as a secondary
+ * surface under the sign-in card rather than competing with the form.
  */
 /* Sits inside the login card, below the form, so it inherits the
    card's width and padding context. Separated by a rule rather than

@@ -19,8 +19,9 @@ Environment=GG_PG_USER=gratisgis
 Environment=GG_TZ=America/Los_Angeles
 ExecStart=/usr/bin/python3 /opt/gratis-gis/infra/analytics/collect.py
 ExecStart=/usr/bin/python3 /opt/gratis-gis/infra/analytics/render.py
-# A wedged run must not stack up behind the next firing. The work is
-# a few seconds of SQLite; a minute is already generous.
+# A wedged run must not stack up behind the next firing. Normal work
+# is a few seconds of SQLite; 300s leaves room for the fat backlog a
+# first run or a long timer outage has to chew through.
 TimeoutStartSec=300
 # Analytics are not load-bearing. A failed run leaves the bookmarks
 # untouched, so the next firing simply picks up the same backlog.

@@ -71,8 +71,11 @@ async function getServiceToken() {
   // JWT strategy hard-requires the org claim, and seeding needs
   // can_publish_items, which org_role=admin carries. Missing claims
   // mean deploy.sh's Keycloak reconciliation hasn't run on this realm.
+  // base64url, not base64: JWT segments use the URL-safe alphabet.
+  // Node's 'base64' decoder happens to tolerate it, but relying on
+  // that is the kind of thing that breaks silently on a runtime bump.
   const payload = JSON.parse(
-    Buffer.from(j.access_token.split('.')[1], 'base64').toString(),
+    Buffer.from(j.access_token.split('.')[1], 'base64url').toString(),
   );
   if (!payload.org || payload.org_role !== 'admin') {
     throw new Error(
