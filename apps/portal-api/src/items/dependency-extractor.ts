@@ -93,14 +93,29 @@ export function extractDependencies(
     if (typeof clipRef === 'string' && clipRef.length > 0) {
       itemIds.add(clipRef);
     }
-    // #186: 3D terrain references an elevation tile_layer.
-    const terrainRef = (data as { terrain?: { itemId?: unknown } }).terrain;
+    // #186: 3D terrain references an elevation tile_layer. #211:
+    // terrain became an ordered STACK of them; the legacy itemId
+    // mirrors stack[0] but both are walked so maps saved by either
+    // vintage of client produce complete edges.
+    const terrainRef = (
+      data as {
+        terrain?: { itemId?: unknown; stack?: unknown };
+      }
+    ).terrain;
     if (
       terrainRef &&
       typeof terrainRef.itemId === 'string' &&
       terrainRef.itemId.length > 0
     ) {
       itemIds.add(terrainRef.itemId);
+    }
+    if (terrainRef && Array.isArray(terrainRef.stack)) {
+      for (const entry of terrainRef.stack as Array<
+        Record<string, unknown>
+      >) {
+        const id = entry?.itemId;
+        if (typeof id === 'string' && id.length > 0) itemIds.add(id);
+      }
     }
 
     const layers = Array.isArray((data as { layers?: unknown }).layers)
@@ -380,6 +395,19 @@ export function extractDependencies(
     }
   }
 
+  if (item.type === 'tile_layer' || item.type === 'point_cloud') {
+    // #211: derived layers and point clouds carry a reference to
+    // their matching elevation layer (preferredElevationItemId).
+    // Tracking it means purging a DEM warns about the hillshades /
+    // clouds that would lose their ground truth, and the DEM's
+    // "Used by" panel shows them.
+    const preferred = (data as { preferredElevationItemId?: unknown })
+      .preferredElevationItemId;
+    if (typeof preferred === 'string' && preferred.length > 0) {
+      itemIds.add(preferred);
+    }
+  }
+
   // Hook points for other types: extend as those item types come online.
 
   return { itemIds: Array.from(itemIds), urls: Array.from(urls) };
@@ -567,4 +595,7 @@ export const REFERENCER_TYPES: ItemType[] = [
   'web_app',
   'form',
   'data_collection',
+  // #211: preferredElevationItemId refs.
+  'tile_layer',
+  'point_cloud',
 ];

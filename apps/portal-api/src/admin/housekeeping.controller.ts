@@ -73,6 +73,16 @@ export class HousekeepingController {
     return this.housekeeping.staleItems(user.orgId);
   }
 
+  /**
+   * #217 companion: live items referencing item ids that no longer
+   * resolve (a map whose layer's item was purged renders silently
+   * broken). Per-referrer rows split into hard-missing vs trashed.
+   */
+  @Get('dangling-references')
+  danglingReferences(@CurrentUser() user: AuthUser) {
+    return this.housekeeping.danglingReferences(user.orgId);
+  }
+
   @Get('stale-users')
   staleUsers(@CurrentUser() user: AuthUser) {
     return this.housekeeping.staleUsers(user.orgId);

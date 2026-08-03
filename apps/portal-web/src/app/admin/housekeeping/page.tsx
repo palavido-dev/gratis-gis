@@ -16,6 +16,10 @@ import {
   OrphanedUploadsCard,
   type OrphanedUploadsReport,
 } from './orphaned-uploads-card';
+import {
+  DanglingReferencesCard,
+  type DanglingReferencesReport,
+} from './dangling-references-card';
 
 interface StarterStatusResponse {
   starters: Array<{
@@ -112,6 +116,16 @@ export default async function AdminHousekeepingPage() {
         </div>
       </Suspense>
 
+      {/* Broken references (#217 companion): items pointing at item
+          ids that no longer resolve. One org-wide dependency walk +
+          one id lookup; fast, but keeps its own boundary like the
+          rest. */}
+      <Suspense fallback={<SkeletonCard />}>
+        <div className="mb-6">
+          <DanglingReferencesSection />
+        </div>
+      </Suspense>
+
       {/* Orphaned uploads: walks the MinIO prefixes + a reference
           scan, so it can take a few seconds on a big bucket. Own
           boundary keeps it off the critical path. Read-only fetch;
@@ -169,6 +183,17 @@ async function StarterThemesSection() {
     return <StarterThemesCard initial={resp.starters} />;
   } catch (err) {
     return <SectionError label="themes" err={err} />;
+  }
+}
+
+async function DanglingReferencesSection() {
+  try {
+    const report = await apiFetch<DanglingReferencesReport>(
+      '/api/admin/housekeeping/dangling-references',
+    );
+    return <DanglingReferencesCard initial={report} />;
+  } catch (err) {
+    return <SectionError label="broken references" err={err} />;
   }
 }
 

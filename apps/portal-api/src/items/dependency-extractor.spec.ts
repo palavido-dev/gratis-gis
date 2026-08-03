@@ -80,6 +80,50 @@ describe('extractDependencies for map layer sources', () => {
   });
 });
 
+describe('extractDependencies for terrain (#186 / #211)', () => {
+  it('emits every terrain stack entry plus the legacy mirror', () => {
+    const result = extractDependencies({
+      type: 'map' as const,
+      data: {
+        version: 1,
+        basemap: '',
+        layers: [],
+        terrain: {
+          itemId: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
+          tileUrl: 'cog:///api/portal/tile-layer/x/file.cog',
+          stack: [
+            { itemId: 'dddddddd-dddd-dddd-dddd-dddddddddddd', tileUrl: 'u1' },
+            { itemId: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', tileUrl: 'u2' },
+          ],
+        },
+      },
+    });
+    expect(result.itemIds).toContain(
+      'dddddddd-dddd-dddd-dddd-dddddddddddd',
+    );
+    expect(result.itemIds).toContain(
+      'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+    );
+  });
+});
+
+describe('extractDependencies for preferredElevationItemId (#211)', () => {
+  it('emits the DEM ref from tile_layer and point_cloud items', () => {
+    for (const type of ['tile_layer', 'point_cloud'] as const) {
+      const result = extractDependencies({
+        type,
+        data: {
+          version: 1,
+          preferredElevationItemId: 'ffffffff-ffff-ffff-ffff-ffffffffffff',
+        },
+      });
+      expect(result.itemIds).toEqual([
+        'ffffffff-ffff-ffff-ffff-ffffffffffff',
+      ]);
+    }
+  });
+});
+
 describe('extractDependencies for custom web_app', () => {
   // Custom Web App items live as type='web_app' with
   // data.template='custom'. The dep walk must reach the app-level

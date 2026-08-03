@@ -24,6 +24,7 @@ import {
   extractDependencies,
   normalizeArcgisUrl,
 } from '../items/dependency-extractor.js';
+import { groupDanglingRefs } from './dangling-refs.js';
 import { StorageService } from '../storage/storage.service.js';
 
 /**
@@ -102,7 +103,7 @@ export class HousekeepingService {
   private static readonly DEFAULT_EXPIRY_WINDOW_DAYS = 30;
 
   async summary(orgId: string) {
-    const [stale, users, totalItems, totalUsers, expShares, expUsers] =
+    const [stale, users, totalItems, totalUsers, expShares, expUsers, dangling] =
       await Promise.all([
         this.countStaleItems(orgId),
         this.countStaleUsers(orgId),
@@ -110,6 +111,7 @@ export class HousekeepingService {
         this.prisma.user.count({ where: { orgId } }),
         this.countExpiringShares(orgId, HousekeepingService.DEFAULT_EXPIRY_WINDOW_DAYS),
         this.countExpiringUsers(orgId, HousekeepingService.DEFAULT_EXPIRY_WINDOW_DAYS),
+        this.danglingReferences(orgId),
       ]);
     return {
       staleItemDays: this.staleItemDays,
@@ -125,7 +127,65 @@ export class HousekeepingService {
       expiryWindowDays: HousekeepingService.DEFAULT_EXPIRY_WINDOW_DAYS,
       expiringShareCount: expShares,
       expiringUserCount: expUsers,
+      // #217 companion: live items referencing item ids that no
+      // longer resolve (the silent-broken-layer class).
+      danglingReferenceCount: dangling.referrers.length,
     };
+  }
+
+  /**
+   * #217 companion: live items whose data references item ids that
+   * no longer resolve. This is the parcels-incident class: a purged
+   * + reseeded item left three maps silently missing their parcels
+   * layer, with no error surfaced anywhere. Runs the same
+   * extractDependencies walk the dependency panels use (so coverage
+   * grows with the extractor), resolves every referenced id in one
+   * query, and reports per-referrer rows split into hard-missing
+   * (target row gone; repoint or remove the reference) and trashed
+   * (recoverable by restoring the target).
+   *
+   * URL references (arcgis-rest layers pointing at external
+   * services) are intentionally out of scope: an external URL has
+   * no portal row whose absence would mean breakage.
+   */
+  async danglingReferences(orgId: string) {
+    const rows = await this.prisma.item.findMany({
+      where: { orgId, deletedAt: null },
+      select: {
+        id: true,
+        type: true,
+        title: true,
+        data: true,
+        publicGeoBoundaryId: true,
+        orgGeoBoundaryId: true,
+      },
+    });
+    const referrers = rows
+      .map((r) => ({
+        id: r.id,
+        type: r.type as string,
+        title: r.title,
+        refs: extractDependencies(r).itemIds,
+      }))
+      .filter((r) => r.refs.length > 0);
+    const allRefs = [...new Set(referrers.flatMap((r) => r.refs))];
+    if (allRefs.length === 0) {
+      return { referrers: [] };
+    }
+    // Deliberately no org filter: a cross-org ref that resolves is
+    // not dangling (public items can cross org lines in shared
+    // deployments), and a dangling one reports the same either way.
+    const found = await this.prisma.item.findMany({
+      where: { id: { in: allRefs } },
+      select: { id: true, deletedAt: true },
+    });
+    const liveIds = new Set(
+      found.filter((f) => f.deletedAt === null).map((f) => f.id),
+    );
+    const trashedIds = new Set(
+      found.filter((f) => f.deletedAt !== null).map((f) => f.id),
+    );
+    return { referrers: groupDanglingRefs(referrers, liveIds, trashedIds) };
   }
 
   /**
