@@ -113,6 +113,9 @@ interface Props {
   terrain?: {
     /** Effective stack, first entry wins. */
     stack: TerrainStackEntry[];
+    /** 3D rendering on/off; the stack survives either way (user
+     *  feedback: peeking at 2D must not wipe the ordering). */
+    enabled: boolean;
     exaggeration?: number;
     /** Elevation layers available to add; null = not fetched
      *  yet (the section triggers onLoad lazily). */
@@ -126,7 +129,7 @@ interface Props {
     onAdd: (entry: TerrainStackEntry) => void;
     onRemove: (itemId: string) => void;
     onMove: (itemId: string, delta: -1 | 1) => void;
-    onClear: () => void;
+    onToggle: () => void;
     onExaggeration: (v: number) => void;
   };
 }
@@ -663,13 +666,14 @@ function TerrainSection({
 }) {
   const {
     stack,
+    enabled,
     exaggeration,
     demLayers,
     onLoad,
     onAdd,
     onRemove,
     onMove,
-    onClear,
+    onToggle,
     onExaggeration,
   } = terrain;
   const [expanded, setExpanded] = useState(stack.length > 0);
@@ -706,15 +710,20 @@ function TerrainSection({
         <Mountain className="h-3.5 w-3.5" />
         <span>3D terrain</span>
         <span className="ml-auto text-2xs font-normal normal-case tracking-normal">
-          {stack.length > 0
-            ? `${stack.length} surface${stack.length > 1 ? 's' : ''}`
-            : 'off'}
+          {stack.length === 0
+            ? 'off'
+            : enabled
+              ? `${stack.length} surface${stack.length > 1 ? 's' : ''}`
+              : `${stack.length} surface${stack.length > 1 ? 's' : ''}, off`}
         </span>
       </button>
       {expanded ? (
         <div className="space-y-2 px-3 pb-3">
           {stack.length > 0 ? (
-            <ul className="space-y-0.5">
+            /* Dormant styling while 3D is off: the list stays fully
+               editable (build the stack in 2D, then flip it on) but
+               reads as inactive. */
+            <ul className={`space-y-0.5 ${enabled ? '' : 'opacity-60'}`}>
               {stack.map((entry, i) => {
                 const title = titleOf(entry.itemId);
                 return (
@@ -803,35 +812,44 @@ function TerrainSection({
           ) : null}
           {stack.length > 0 ? (
             <>
-              <div>
-                <label className="flex items-center justify-between text-2xs text-muted">
-                  <span>Height boost</span>
-                  <span className="font-medium text-ink-1">
-                    {(exaggeration ?? 1).toFixed(2).replace(/\.?0+$/, '')}x
-                  </span>
-                </label>
-                <input
-                  type="range"
-                  min={0.5}
-                  max={3}
-                  step={0.25}
-                  value={exaggeration ?? 1}
-                  onChange={(e) => onExaggeration(Number(e.target.value))}
-                  className="mt-1 w-full accent-accent"
-                  aria-label="Terrain height boost"
-                />
-                <p className="mt-0.5 text-2xs leading-snug text-muted">
-                  1x is true height. Boost it to make gentle hills
-                  easier to read. Tilt the map (right-drag) to see
-                  the 3D.
+              {enabled ? (
+                <div>
+                  <label className="flex items-center justify-between text-2xs text-muted">
+                    <span>Height boost</span>
+                    <span className="font-medium text-ink-1">
+                      {(exaggeration ?? 1).toFixed(2).replace(/\.?0+$/, '')}x
+                    </span>
+                  </label>
+                  <input
+                    type="range"
+                    min={0.5}
+                    max={3}
+                    step={0.25}
+                    value={exaggeration ?? 1}
+                    onChange={(e) => onExaggeration(Number(e.target.value))}
+                    className="mt-1 w-full accent-accent"
+                    aria-label="Terrain height boost"
+                  />
+                  <p className="mt-0.5 text-2xs leading-snug text-muted">
+                    1x is true height. Boost it to make gentle hills
+                    easier to read. Tilt the map (right-drag) to see
+                    the 3D.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-2xs leading-snug text-muted">
+                  3D is off; the map renders flat. Your surfaces and
+                  their order are kept for when you turn it back on.
                 </p>
-              </div>
+              )}
+              {/* On/off toggle, NOT a clear (user feedback): peeking
+                  at the map in 2D must never cost the stack. */}
               <button
                 type="button"
-                onClick={onClear}
+                onClick={onToggle}
                 className="rounded border border-border px-2 py-1 text-2xs font-medium text-ink-1 hover:bg-surface-2"
               >
-                Turn off 3D
+                {enabled ? 'Turn off 3D' : 'Turn on 3D'}
               </button>
             </>
           ) : null}

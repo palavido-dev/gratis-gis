@@ -67,16 +67,22 @@ async function resolveFromStack(
 }
 
 export async function resolveDemForBbox(
-  terrain:
+  rawTerrain:
     | {
         itemId: string;
         tileUrl: string;
         stack?: Array<{ itemId: string; tileUrl: string }>;
+        enabled?: boolean;
       }
     | undefined
     | null,
   bbox: [number, number, number, number],
 ): Promise<DemRef | null> {
+  // Terrain toggled off is not "the ground you're looking at"
+  // (#211 follow-up): fall through to the org-wide lookup, same as
+  // a map that never turned 3D on. Centralized here so every
+  // profile surface agrees.
+  const terrain = rawTerrain && rawTerrain.enabled !== false ? rawTerrain : null;
   if (terrain?.stack && terrain.stack.length > 1) {
     const fromStack = await resolveFromStack(terrain.stack, bbox);
     if (fromStack) return fromStack;

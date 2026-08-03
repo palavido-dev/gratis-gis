@@ -2686,12 +2686,17 @@ function applyTerrain(
   try {
     // Legacy single-source maps behave as a stack of one; the
     // settings UI keeps itemId/tileUrl mirrored to stack[0].
+    // `enabled: false` renders flat while PRESERVING the stack
+    // (user feedback: peeking at 2D must not wipe the ordering);
+    // absent means on.
     const stack =
-      terrain?.stack && terrain.stack.length > 0
-        ? terrain.stack
-        : terrain?.tileUrl
-          ? [{ itemId: terrain.itemId, tileUrl: terrain.tileUrl }]
-          : [];
+      terrain?.enabled === false
+        ? []
+        : terrain?.stack && terrain.stack.length > 0
+          ? terrain.stack
+          : terrain?.tileUrl
+            ? [{ itemId: terrain.itemId, tileUrl: terrain.tileUrl }]
+            : [];
     if (stack.length > 0) {
       let signature: string;
       let desired: maplibregl.SourceSpecification;

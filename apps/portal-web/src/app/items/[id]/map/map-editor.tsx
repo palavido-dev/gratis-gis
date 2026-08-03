@@ -769,11 +769,33 @@ export function MapEditor({
         ...(m.terrain?.exaggeration !== undefined
           ? { exaggeration: m.terrain.exaggeration }
           : {}),
+        // Stack edits never flip the on/off switch: building the
+        // list while peeking at 2D stays off until toggled.
+        ...(m.terrain?.enabled !== undefined
+          ? { enabled: m.terrain.enabled }
+          : {}),
         itemId: first.itemId,
         tileUrl: first.tileUrl,
         stack,
       },
     };
+  }
+
+  /**
+   * #211 follow-up (user feedback): flip 3D on/off WITHOUT touching
+   * the stack. Deleting the terrain key wiped a carefully ordered
+   * list just to peek at 2D; the flag round-trips instead. `true`
+   * is stored as key-absent to keep old payloads byte-identical.
+   */
+  function toggleTerrainEnabled() {
+    setMap((m) => {
+      if (!m.terrain) return m;
+      const next = { ...m.terrain };
+      if (next.enabled === false) delete next.enabled;
+      else next.enabled = false;
+      return { ...m, terrain: next };
+    });
+    markDirty();
   }
 
   /**
@@ -822,10 +844,6 @@ export function MapEditor({
     markDirty();
   }
 
-  function clearTerrain() {
-    setMap((m) => writeTerrainStack(m, []));
-    markDirty();
-  }
 
   /**
    * #186 follow-up (user feedback: "why isn't the hillshade coming
@@ -1011,6 +1029,7 @@ export function MapEditor({
    */
   const resolveProfileDem = useCallback(
     (bbox: [number, number, number, number]) =>
+      // The resolver itself treats disabled terrain as absent.
       resolveDemForBbox(mapRefForProfile.current.terrain ?? null, bbox),
     [],
   );
@@ -1542,7 +1561,8 @@ export function MapEditor({
               onAdd: addTerrainEntry,
               onRemove: removeTerrainEntry,
               onMove: moveTerrainEntry,
-              onClear: clearTerrain,
+              enabled: map.terrain?.enabled !== false,
+              onToggle: toggleTerrainEnabled,
               onExaggeration: setTerrainExaggeration,
             },
           }

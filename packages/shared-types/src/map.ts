@@ -158,6 +158,15 @@ export interface MapData {
     exaggeration?: number;
     /** #211: ordered elevation mosaic; stack[0] wins per pixel. */
     stack?: TerrainStackEntry[];
+    /**
+     * #211 follow-up (user feedback): 3D on/off WITHOUT losing the
+     * stack. Turning 3D off used to delete the terrain key, which
+     * wiped a carefully ordered stack; now it just flips this flag
+     * so 2D peeking round-trips. ABSENT MEANS ON: every map saved
+     * before this field exists has terrain configured because the
+     * author wanted it rendered.
+     */
+    enabled?: boolean;
   };
   /**
    * #79: optional reference to a geo_boundary item that scopes the
