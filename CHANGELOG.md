@@ -5,6 +5,39 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.6] - 2026-08-03
+
+A safe upgrade from 0.9.5. Multi-image imagery mosaics, and a
+seeder fix that keeps sample-content references stable.
+
+### Added
+
+- Imagery mosaic (#199). Pick several aerial images in one upload
+  (or "Add more images" on an existing imagery layer) and the
+  portal combines them server-side into one seamless layer. Where
+  images overlap, the most recently added wins. The source images
+  are kept, so coverage can grow later without re-uploading
+  anything; adding images re-composes over the full set. Builds
+  are estimated before a byte uploads and refused when they cannot
+  finish inside the server's job window (operator-tunable MOSAIC_*
+  settings); a failed or partial upload can be retried without
+  re-transferring what already made it.
+
+### Changed
+
+- The 3D terrain stack moved out of the basemap menu into its own
+  collapsible section at the bottom of the map's layers panel.
+  Terrain affects every layer, not just the basemap, and its
+  top-wins ordering now reads exactly like the layer list above
+  it. The basemap menu is basemaps only again.
+
+### Fixed
+
+- Sample-content items now get the same id every time they are
+  seeded (#217). Previously a purged sample item came back under a
+  new id, and any hand-built map referencing it silently lost that
+  layer. Existing items keep their current ids.
+
 ## [0.9.5] - 2026-08-02
 
 A safe upgrade from 0.9.4. Maps can now compose several elevation

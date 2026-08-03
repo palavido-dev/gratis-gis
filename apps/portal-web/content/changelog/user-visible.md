@@ -12,6 +12,13 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-08-03 - Many images in, one imagery layer out
+Aerial imagery usually arrives as a pile of tiles. Pick them all
+in one upload and GratisGIS stitches them into a single seamless
+layer, with a time estimate up front and the ability to add more
+images later without re-uploading what's already there. Where
+images overlap, the newest one wins.
+
 ## 2026-08-02 - One map, many elevation surfaces
 3D terrain used to mean picking exactly one elevation layer, so a
 map spanning two lidar surveys could only extrude one of them.
