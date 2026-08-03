@@ -23,7 +23,7 @@ import {
   X as CloseIcon,
 } from 'lucide-react';
 
-import { signIn, useSession } from 'next-auth/react';
+import { useSession } from 'next-auth/react';
 
 import { useT } from '@/lib/i18n/locale-context';
 import { isSessionStale } from '@/lib/session-state';
@@ -143,8 +143,15 @@ export function AppShellChrome({
   }
 
   // Unauthenticated: still no chrome. The page below renders its
-  // own header (e.g. PublicLanding's TopBar).
-  if (!signedIn) {
+  // own header (e.g. PublicLanding's TopBar). A STALE session gets
+  // the same treatment (#195 family, user report: signed-out
+  // landing still showed the portal sidebar): the API treats a
+  // dead session as signed out, so every nav entry in the chrome
+  // would just downgrade or 401. The session-state predicate is
+  // the single signed-in truth; a cookie's mere existence is not.
+  // The expired banner lives in providers.tsx, so it still shows
+  // over the bare render, with sign-in as the way back.
+  if (!signedIn || stale) {
     return (
       <div className="min-h-screen bg-surface-0 text-ink-0">{children}</div>
     );
@@ -188,28 +195,16 @@ export function AppShellChrome({
             >
               <Bell className="h-4 w-4" />
             </button>
-            {/* A stale session is a signed-out session as far as the
-                API is concerned, so the header must not keep showing
-                the person's name and avatar next to a banner telling
-                them their sign-in expired. Same action as the banner,
-                kept here because the header is where people look for
-                who they are signed in as. */}
-            {stale ? (
-              <button
-                type="button"
-                onClick={() => void signIn('keycloak')}
-                className="inline-flex h-9 items-center rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground shadow-card hover:opacity-90"
-              >
-                {t('nav.signIn')}
-              </button>
-            ) : (
-              <UserMenu
-                seed={me?.id ?? fallbackEmail ?? 'you'}
-                displayName={me?.fullName ?? fallbackName ?? 'You'}
-                orgName={me?.orgName ?? null}
-                avatarUrl={me?.avatarUrl ?? null}
-              />
-            )}
+            {/* Stale sessions never reach this branch anymore: the
+                bare-render gate above treats them as signed out, so
+                the chrome (and this identity slot) only exists for a
+                live session. */}
+            <UserMenu
+              seed={me?.id ?? fallbackEmail ?? 'you'}
+              displayName={me?.fullName ?? fallbackName ?? 'You'}
+              orgName={me?.orgName ?? null}
+              avatarUrl={me?.avatarUrl ?? null}
+            />
           </div>
         </header>
 
