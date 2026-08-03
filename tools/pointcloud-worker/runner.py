@@ -108,6 +108,15 @@ MERGE_TIMEOUT_SEC = int(os.environ.get("MERGE_TIMEOUT_SEC", "14400"))
 # structural fix that bounds this; this just stops the wall from
 # killing a working grid meanwhile.
 ANALYSIS_TIMEOUT_SEC = int(os.environ.get("ANALYSIS_TIMEOUT_SEC", "14400"))
+# Imagery mosaic (#199): same shape as the merge budget. The GDAL
+# half (per-source warp + COG translate) runs long on county-scale
+# imagery; the API's MOSAIC_* cost model estimates against this wall
+# and refuses up front what cannot finish inside it.
+MOSAIC_TIMEOUT_SEC = int(os.environ.get("MOSAIC_TIMEOUT_SEC", "14400"))
+# Scratch need relative to summed source bytes: sources + warped
+# copies + the COG output + VRT overhead. Imagery has no untwine
+# out-of-core blowup, so the factor sits below the lidar one.
+MOSAIC_SCRATCH_FACTOR = float(os.environ.get("MOSAIC_SCRATCH_FACTOR", "4"))
 GIB = 1024**3
 
 
@@ -531,7 +540,7 @@ def reclaim_abandoned_scratch(conn) -> int:
     its own naming.
     """
     removed = 0
-    prefixes = ("job-", "copc-")
+    prefixes = ("job-", "copc-", "mosaic-")
     try:
         entries = [
             p for p in SCRATCH.iterdir()
@@ -2224,6 +2233,368 @@ def do_copc_build(conn, s3, job) -> None:
         shutil.rmtree(work, ignore_errors=True)
 
 
+def raster_probe(path: Path) -> dict:
+    """CRS + band structure of one source raster, via the bindings.
+
+    Raises with a plain-language reason when the source is unusable:
+    a mosaic silently missing one input is wrong output, not a
+    degraded one, so unreadable sources fail the whole build.
+    """
+    from osgeo import gdal, osr
+
+    gdal.UseExceptions()
+    try:
+        ds = gdal.Open(str(path))
+    except Exception as err:
+        raise RuntimeError(
+            f"One of the images could not be read as a raster ({err})."
+        )
+    wkt = ds.GetProjection()
+    if not wkt:
+        raise RuntimeError(
+            "One of the images has no map coordinates (no CRS). "
+            "Export it as a georeferenced GeoTIFF and try again."
+        )
+    srs = osr.SpatialReference()
+    srs.ImportFromWkt(wkt)
+    web = osr.SpatialReference()
+    web.ImportFromEPSG(3857)
+    is_3857 = bool(srs.IsSame(web)) or srs.GetAuthorityCode(None) == "3857"
+    has_alpha = False
+    has_nodata = False
+    for i in range(1, ds.RasterCount + 1):
+        band = ds.GetRasterBand(i)
+        if band.GetColorInterpretation() == gdal.GCI_AlphaBand:
+            has_alpha = True
+        if band.GetNoDataValue() is not None:
+            has_nodata = True
+    return {
+        "is3857": is_3857,
+        "bands": ds.RasterCount,
+        "hasAlpha": has_alpha,
+        "hasNodata": has_nodata,
+    }
+
+
+def do_imagery_mosaic(conn, s3, job) -> None:
+    """Compose several source rasters into one seamless COG (#199).
+
+    Downloads the retained sources named in params.sourceKeys, warps
+    each to web mercator where needed, builds a VRT over the set
+    (later sources paint over earlier ones where images overlap, so
+    the newest addition wins), bakes a single overview-carrying COG,
+    and stamps the tile_layer item 'cog-ready'. From there the
+    pyramid worker takes over exactly as if the mosaic had been
+    uploaded as one file (photo COGs serve directly, everything else
+    gets the PMTiles pyramid). Re-runnable by design: adding images
+    later re-enqueues this over the full source set, and the item
+    swaps to the fresh mosaic with no gap in what the viewer serves.
+    """
+    params = job["params"] or {}
+    source_keys = params.get("sourceKeys") or []
+    if not source_keys:
+        raise RuntimeError("No source images to mosaic.")
+    item_id = job["target_item_id"] or job["source_item_id"]
+    # Existence check only; the final stamp re-reads current state
+    # under its own row lock, same reasoning as copc-build.
+    item_data(conn, item_id)
+
+    work = SCRATCH / f"mosaic-{job['id']}"
+    srcdir = work / "src"
+    warpdir = work / "warp"
+    srcdir.mkdir(parents=True, exist_ok=True)
+    warpdir.mkdir(parents=True, exist_ok=True)
+    try:
+        # Pre-flight disk check (#203 rule): refuse up front rather
+        # than fill the disk under a co-located MinIO.
+        total_src = 0
+        t_start = time.time()
+        for key in source_keys:
+            try:
+                total_src += int(
+                    s3.head_object(Bucket=BUCKET, Key=key)["ContentLength"]
+                )
+            except Exception as err:
+                raise RuntimeError(f"A source image is missing: {key} ({err})")
+        needed = int(total_src * MOSAIC_SCRATCH_FACTOR)
+        avail = free_bytes(SCRATCH)
+        log(
+            f"  {len(source_keys)} images, {total_src // GIB}GB; "
+            f"need ~{needed // GIB}GB scratch, {avail // GIB}GB free"
+        )
+        if avail < needed:
+            raise RuntimeError(
+                f"This mosaic of {len(source_keys)} images needs about "
+                f"{needed // GIB}GB of free working space but only "
+                f"{avail // GIB}GB is available. Use fewer images, or give "
+                "the worker a larger scratch disk."
+            )
+
+        t_dl0 = time.time()
+        downloaded: list[Path] = []
+        dl_beat = TransferBeat(job["id"])
+        try:
+            for i, key in enumerate(source_keys):
+                dest = srcdir / f"src-{i:04d}"
+                log(
+                    f"  downloading source {i + 1}/{len(source_keys)}: {key}"
+                )
+                transfer_file(
+                    s3, "download", key, dest, job["id"], beat=dl_beat
+                )
+                downloaded.append(dest)
+                if free_bytes(SCRATCH) < SCRATCH_MIN_RESERVE_BYTES:
+                    raise RuntimeError(
+                        "Stopped downloading images to protect the disk: free "
+                        f"space fell below {SCRATCH_MIN_RESERVE_BYTES // GIB}GB. "
+                        "Use fewer images or a larger scratch disk."
+                    )
+        finally:
+            dl_beat.close()
+        download_secs = int(time.time() - t_dl0)
+        set_progress(conn, job["id"], 20)
+
+        # Normalize every source onto web mercator. Sources already
+        # in 3857 join the VRT as-is; the rest are warped. The
+        # photo test mirrors the pyramid worker's: exactly 3 bands,
+        # no alpha, no nodata, across EVERY source. Photos bake to a
+        # JPEG COG (the proven county-ortho serving shape); anything
+        # else keeps DEFLATE so alpha / nodata / extra bands survive.
+        t_gdal0 = time.time()
+        vrt_inputs: list[Path] = []
+        photo = True
+        for i, src in enumerate(downloaded):
+            probe = raster_probe(src)
+            if probe["bands"] != 3 or probe["hasAlpha"] or probe["hasNodata"]:
+                photo = False
+            if probe["is3857"]:
+                vrt_inputs.append(src)
+                continue
+            warped = warpdir / f"w-{i:04d}.tif"
+            run_with_disk_watchdog(
+                [
+                    "gdalwarp",
+                    "-t_srs", "EPSG:3857",
+                    "-r", "bilinear",
+                    "-of", "GTiff",
+                    "-co", "TILED=YES",
+                    "-co", "COMPRESS=DEFLATE",
+                    "-co", "BIGTIFF=IF_SAFER",
+                    str(src),
+                    str(warped),
+                ],
+                work,
+                SCRATCH,
+                SCRATCH_MIN_RESERVE_BYTES,
+                MOSAIC_TIMEOUT_SEC,
+                conn=conn,
+                job_id=job["id"],
+            )
+            vrt_inputs.append(warped)
+        set_progress(conn, job["id"], 55)
+
+        # VRT over the set. Input order is sourceKeys order and
+        # gdalbuildvrt gives priority to files LATER in the list, so
+        # where images overlap the newest addition wins; -resolution
+        # highest keeps the finest source's detail in mixed-res sets.
+        vrt = work / "mosaic.vrt"
+        run(
+            ["gdalbuildvrt", "-resolution", "highest", str(vrt)]
+            + [str(p) for p in vrt_inputs],
+            work,
+            conn=conn,
+            job_id=job["id"],
+            timeout=MOSAIC_TIMEOUT_SEC,
+        )
+        set_progress(conn, job["id"], 60)
+
+        cog = work / "mosaic.tif"
+        compression = (
+            ["-co", "COMPRESS=JPEG", "-co", "QUALITY=85"]
+            if photo
+            else ["-co", "COMPRESS=DEFLATE", "-co", "PREDICTOR=2"]
+        )
+        run_with_disk_watchdog(
+            [
+                "gdal_translate",
+                "-of", "COG",
+                *compression,
+                "-co", "BLOCKSIZE=512",
+                "-co", "BIGTIFF=IF_SAFER",
+                "-co", "RESAMPLING=BILINEAR",
+                str(vrt),
+                str(cog),
+            ],
+            work,
+            SCRATCH,
+            SCRATCH_MIN_RESERVE_BYTES,
+            MOSAIC_TIMEOUT_SEC,
+            conn=conn,
+            job_id=job["id"],
+        )
+        gdal_secs = int(time.time() - t_gdal0)
+        if not cog.exists():
+            raise RuntimeError("The mosaic produced no output file.")
+        set_progress(conn, job["id"], 85)
+
+        # Output metadata, mirroring the single-file finalize path.
+        bbox = wgs84_bbox(cog)
+        max_zoom = None
+        try:
+            from osgeo import gdal as _gdal
+
+            _gdal.UseExceptions()
+            ds = _gdal.Open(str(cog))
+            res = abs(ds.GetGeoTransform()[1])
+            if res > 0:
+                max_zoom = max(
+                    0, min(22, math.ceil(math.log2(156543.03392804062 / res)))
+                )
+        except Exception:
+            max_zoom = None  # metadata only; never fail the job over it
+
+        key = f"item-tile-layer/{uuid.uuid4()}"
+        size = cog.stat().st_size
+        total_secs = int(time.time() - t_start)
+        # Baseline timing (#205 rule): one structured line per build
+        # so operators can re-fit the MOSAIC_* cost coefficients.
+        log(
+            "MOSAIC_STATS "
+            f"tiles={len(source_keys)} in_bytes={total_src} "
+            f"out_bytes={size} photo={int(photo)} "
+            f"download_secs={download_secs} gdal_secs={gdal_secs} "
+            f"total_secs={total_secs}"
+        )
+        log(f"  uploading mosaic COG ({size} bytes) to {key}")
+        transfer_file(s3, "upload", key, cog, job["id"])
+        set_progress(conn, job["id"], 92)
+
+        patch = {
+            "version": 1,
+            "format": "cog",
+            "kind": "raster",
+            "originalFormat": "geotiff",
+            "storageKey": key,
+            "storageUrl": f"/api/portal/storage/private/{key}",
+            "sizeBytes": size,
+            "uploadedAt": time.strftime(
+                "%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()
+            ),
+            "cogStorageKey": key,
+            "cogStorageUrl": f"/api/portal/storage/private/{key}",
+            "cogSizeBytes": size,
+            "processingState": "cog-ready",
+            "tileType": "png",
+            "tileUrl": f"cog:///api/portal/tile-layer/{item_id}/file",
+        }
+        if bbox:
+            patch["bbox"] = bbox
+            patch["centerLng"] = (bbox[0] + bbox[2]) / 2
+            patch["centerLat"] = (bbox[1] + bbox[3]) / 2
+        if max_zoom is not None:
+            patch["maxZoom"] = max_zoom
+            patch["minZoom"] = 0
+            patch["centerZoom"] = max(0, max_zoom - 1)
+
+        # Final stamp: patch only worker-owned keys, current state
+        # re-read under the row lock (same clobber lesson as
+        # copc-build). The pyramid fields are REMOVED, not patched:
+        # a stale pmtilesStorageKey would keep serving the old
+        # imagery from the bare endpoint until the new pyramid
+        # lands, which is exactly the wrong bytes under a stamped
+        # URL. Removing them puts the item in the plain cog-bridge
+        # state the pyramid worker already knows how to pick up.
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT data_json FROM item WHERE id = %s FOR UPDATE",
+                (item_id,),
+            )
+            row = cur.fetchone()
+            current = (
+                row[0] if row is not None and isinstance(row[0], dict) else {}
+            )
+            stale_keys = [
+                current.get("pmtilesStorageKey"),
+                current.get("cogStorageKey"),
+                current.get("storageKey"),
+            ]
+            if not current.get("fileName"):
+                patch["fileName"] = f"mosaic-{len(source_keys)}-images.tif"
+            cur.execute(
+                """
+                UPDATE item
+                SET data_json = (data_json
+                        - 'processingError' - 'pmtilesStorageKey'
+                        - 'pmtilesStorageUrl' - 'pmtilesSizeBytes'
+                        - 'tilingError' - 'tilingProgress'
+                        - 'tilingStartedAt' - 'tilingCompletedAt'
+                        - 'tilingAttempts') || %s::jsonb,
+                    updated_at = now()
+                WHERE id = %s
+                """,
+                (json.dumps(patch), item_id),
+            )
+        conn.commit()
+
+        # Superseded files: the old baked mosaic / single-file COG
+        # and its pyramid. Never delete a retained source or the
+        # file just written.
+        keep = set(source_keys) | {key}
+        for stale in stale_keys:
+            if stale and stale not in keep:
+                try:
+                    s3.delete_object(Bucket=BUCKET, Key=stale)
+                except Exception as err:
+                    log(f"  warn: could not delete superseded {stale}: {err}")
+    except Exception as exc:
+        msg = str(exc)
+        low = msg.lower()
+        user_facing = any(
+            kw in low
+            for kw in (
+                "working space",
+                "protect the disk",
+                "a source image is missing",
+                "produced no output",
+                "could not be read as a raster",
+                "no map coordinates",
+            )
+        )
+        if isinstance(exc, JobCancelled):
+            user_facing = True
+            msg = (
+                "You cancelled this mosaic before it finished. The "
+                "source images are kept, so you can run the build "
+                "again anytime."
+            )
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        try:
+            merge_item_data(
+                conn,
+                item_id,
+                {
+                    "processingState": "failed",
+                    "processingError": (
+                        msg[:400]
+                        if user_facing
+                        else (
+                            "The images could not be combined. Check that "
+                            "they are georeferenced rasters (GeoTIFF / JP2) "
+                            "with valid coordinate systems."
+                        )
+                    ),
+                },
+            )
+        except Exception:
+            conn.rollback()
+        raise
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 HANDLERS = {
     "hillshade": do_hillshade,
     "elevation": do_elevation,
@@ -2233,6 +2604,7 @@ HANDLERS = {
     "heightmap": do_heightmap,
     "sam-embed": do_sam_embed,
     "copc-build": do_copc_build,
+    "imagery-mosaic": do_imagery_mosaic,
 }
 
 
