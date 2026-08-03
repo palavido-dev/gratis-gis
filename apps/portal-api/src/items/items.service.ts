@@ -60,6 +60,15 @@ import { StorageService } from '../storage/storage.service.js';
 // (which leave unset keys present-as-undefined) can satisfy these types
 // under `exactOptionalPropertyTypes: true`.
 export interface CreateItemInput {
+  /**
+   * #217: explicit item id, used by the sample seeder to mint
+   * DETERMINISTIC ids (uuidv5 of org + seedKind) so a purge +
+   * reseed lands on the same id and hand-built maps referencing
+   * seeded items never dangle. Internal callers only; the public
+   * create endpoint's DTO does not carry this field, so it is
+   * stripped before reaching here (same containment as seedKind).
+   */
+  id?: string | undefined;
   type: ItemType;
   title: string;
   description?: string | undefined;
@@ -1083,6 +1092,7 @@ export class ItemsService {
         input.thumbnailDesign ?? defaultThumbnailDesign(input.type);
       row = await this.prisma.item.create({
         data: {
+          ...(input.id ? { id: input.id } : {}),
           orgId: user.orgId,
           ownerId: user.id,
           type: input.type,

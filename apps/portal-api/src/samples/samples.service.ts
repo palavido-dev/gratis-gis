@@ -246,6 +246,16 @@ export class SamplesService {
       }
       const spec = build();
       const row = await this.items.create(user, {
+        // #217: deterministic id, so a purge + reseed lands on the
+        // SAME id and hand-built maps referencing seeded items never
+        // dangle (the parcels incident: reseeded under a random id,
+        // three maps silently stopped drawing the layer). The
+        // `item:` prefix keeps this name domain disjoint from the
+        // per-feature ids hashed elsewhere in this service. Items
+        // seeded before this change keep their historical random ids
+        // through the id-reuse path above; determinism applies from
+        // the first post-purge reseed onward.
+        id: deterministicSampleUuid(`item:${user.orgId}:${slug}`),
         type: spec.type,
         title: spec.title,
         description: spec.description,

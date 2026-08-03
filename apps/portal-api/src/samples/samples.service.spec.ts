@@ -262,10 +262,22 @@ describe('SamplesService.seedSampleData', () => {
 
     const [, createInput] = deps.items.create.mock.calls[0] as [
       AuthUser,
-      { type: string; seedKind: string; data: { childItemIds: string[] } },
+      {
+        id: string;
+        type: string;
+        seedKind: string;
+        data: { childItemIds: string[] };
+      },
     ];
     expect(createInput.type).toBe('folder');
     expect(createInput.seedKind).toBe(SAMPLE_KINDS.folder);
+    // #217: seeded items get DETERMINISTIC ids so a purge + reseed
+    // lands on the same id and nothing referencing it dangles.
+    expect(createInput.id).toBe(
+      deterministicSampleUuid(
+        `item:${makeUser().orgId}:${SAMPLE_KINDS.folder}`,
+      ),
+    );
     // Manifest order, minus the skipped PDF guide, using the ids of
     // the ALREADY EXISTING items (the id-reuse requirement).
     expect(createInput.data.childItemIds).toEqual([
