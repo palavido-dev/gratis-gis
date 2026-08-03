@@ -97,12 +97,39 @@ export type TileLayerProcessingState =
   | 'tiling-failed'
   /** #186: terminal state for layers that serve their COG as-is
    *  with no pyramid step (elevation/DEM layers). */
-  | 'ready';
+  | 'ready'
+  /** #199: the imagery-mosaic worker is composing this item's
+   *  sources into one COG. The currently-served file (if any)
+   *  stays live until the swap. Also the state analysis jobs use
+   *  while deriving into a fresh target item. */
+  | 'building'
+  /** #199: a build/derive failed; `processingError` carries the
+   *  plain-language reason. The previously-served file (if any)
+   *  keeps serving. Distinct from 'tiling-failed', which is
+   *  specifically the background pyramid step. */
+  | 'failed';
 
 /** Raster vs vector tile content. Lifted from the PMTiles header
  *  at upload time; consumers read this to decide whether to
  *  treat the source as a `raster` or `vector` MapLibre source. */
 export type TileLayerKind = 'raster' | 'vector';
+
+/**
+ * #199: one retained source raster of an imagery mosaic. The
+ * uploaded object is kept in MinIO after the mosaic bakes so
+ * "add more images later" re-composes over the full set instead
+ * of resampling the baked output. Mirrors PointCloudSource.
+ */
+export interface TileLayerSource {
+  /** MinIO object key under item-tile-layer/. */
+  storageKey: string;
+  /** Original filename, for the sources list on the detail page. */
+  fileName: string;
+  /** Uploaded size in bytes. */
+  sizeBytes: number;
+  /** When this source joined the mosaic. */
+  addedAt: ISODateString;
+}
 
 export type TileLayerDataVersion = 1;
 
@@ -218,6 +245,21 @@ export interface TileLayerData {
   /** When the most recent successful pyramid build completed.
    *  Set together with `processingState = 'pmtiles-ready'`. */
   tilingCompletedAt?: ISODateString;
+  /** Plain-language reason when `processingState === 'failed'`
+   *  (#199 mosaic builds; also stamped by failed analysis derives,
+   *  which predate this field being typed). */
+  processingError?: string;
+
+  // ---------------------- imagery mosaic (#199) ----------------------
+
+  /**
+   * Retained source rasters when this layer is a mosaic built from
+   * several images. Kept so more images can be added later and the
+   * mosaic rebuilt over the full set (the VRT re-composition is
+   * cheap; only overview/COG encoding pays by extent). Absent for
+   * single-file uploads. Mirrors PointCloudSource (#200).
+   */
+  sources?: TileLayerSource[];
 
   // -------------------- metadata from the PMTiles header --------------------
 

@@ -5,9 +5,10 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+
+import { assertServerHeavyTier } from '../analysis/analysis-tiers.js';
 import type { Prisma } from '@prisma/client';
 import type {
   PointCloudData,
@@ -69,15 +70,7 @@ export class PointCloudService {
    * Same gate the analysis jobs use.
    */
   private assertServerTier(): void {
-    const tiers = (this.cfg.get<string>('ANALYSIS_TIERS') ?? '')
-      .split(',')
-      .map((t) => t.trim())
-      .filter(Boolean);
-    if (!tiers.includes('server-heavy')) {
-      throw new ServiceUnavailableException(
-        'Merging lidar tiles is not enabled on this portal. The administrator can enable it by deploying the analysis worker (see infra docs).',
-      );
-    }
+    assertServerHeavyTier(this.cfg, 'Merging lidar tiles');
   }
 
   /**

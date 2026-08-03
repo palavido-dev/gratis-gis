@@ -6,7 +6,6 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
-  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Prisma } from '@prisma/client';
@@ -16,6 +15,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { ItemsService } from '../items/items.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { hasCapability } from '../auth/capabilities.js';
+import { assertServerHeavyTier } from './analysis-tiers.js';
 import { stampAnalysisTargetFailed } from './analysis-target-stamp.js';
 
 /**
@@ -49,15 +49,7 @@ export class AnalysisService {
   ) {}
 
   private assertServerTier(): void {
-    const tiers = (this.cfg.get<string>('ANALYSIS_TIERS') ?? '')
-      .split(',')
-      .map((t) => t.trim())
-      .filter(Boolean);
-    if (!tiers.includes('server-heavy')) {
-      throw new ServiceUnavailableException(
-        'Server-side analysis is not enabled on this portal. The administrator can enable it by deploying the analysis worker (see infra docs).',
-      );
-    }
+    assertServerHeavyTier(this.cfg, 'Server-side analysis');
   }
 
   async createHillshadeJob(

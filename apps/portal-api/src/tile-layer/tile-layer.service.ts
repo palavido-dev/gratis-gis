@@ -8,9 +8,15 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PMTiles, Source, RangeResponse, Header } from 'pmtiles';
 import { Prisma } from '@prisma/client';
-import type { TileLayerData, ISODateString } from '@gratis-gis/shared-types';
+import type {
+  TileLayerData,
+  TileLayerSource,
+  ISODateString,
+  MergeCostCoefficients,
+} from '@gratis-gis/shared-types';
 import { isTileLayerData } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -18,6 +24,12 @@ import { ItemsService } from '../items/items.service.js';
 import { SharingService } from '../items/sharing.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { assertServerHeavyTier } from '../analysis/analysis-tiers.js';
+import {
+  estimateMosaic,
+  mosaicCostModel,
+  validateMosaicSources,
+} from './mosaic-sources.js';
 import {
   cleanupConversion,
   convertUpload,
@@ -94,6 +106,7 @@ export class TileLayerService {
     private readonly sharing: SharingService,
     private readonly storage: StorageService,
     private readonly prisma: PrismaService,
+    private readonly cfg: ConfigService,
   ) {}
 
   /**
@@ -536,6 +549,195 @@ export class TileLayerService {
         ? ([...d.bbox] as [number, number, number, number])
         : undefined;
     return { storageKey, ...(bbox ? { bbox } : {}) };
+  }
+
+  // ---------------------- imagery mosaic (#199) ----------------------
+
+  /** Deployment-wide mosaic cost model, for the client's pre-upload
+   *  estimate. Same contract as the point-cloud merge-limits. */
+  mosaicLimits(): MergeCostCoefficients {
+    return mosaicCostModel();
+  }
+
+  /**
+   * Queue a mosaic build over the given source images (#199).
+   * Records the sources on the item, flips it to 'building', and
+   * enqueues an imagery-mosaic job the worker runs with
+   * gdalbuildvrt + a COG translate. The item's currently-served
+   * file (if any) stays in place so a rebuild never blanks a live
+   * layer. Mirrors the point-cloud buildFromSources contract.
+   */
+  async mosaicBuild(
+    user: AuthUser,
+    itemId: string,
+    body: {
+      sources: Array<{ storageKey: string; fileName: string; sizeBytes: number }>;
+    },
+  ): Promise<{ jobId: string; itemId: string; estimatedSec: number; humanEstimate: string }> {
+    const item = await this.assertMosaicTarget(user, itemId, 'build');
+    const sources = validateMosaicSources(body.sources);
+    return this.enqueueMosaic(user, item, sources);
+  }
+
+  /**
+   * Append more source images to an existing mosaic and rebuild
+   * over the full set (#199). The VRT re-composition is cheap; the
+   * COG encode pays by total extent, which is exactly what the
+   * estimate models.
+   */
+  async mosaicAddSources(
+    user: AuthUser,
+    itemId: string,
+    body: {
+      sources: Array<{ storageKey: string; fileName: string; sizeBytes: number }>;
+    },
+  ): Promise<{ jobId: string; itemId: string; estimatedSec: number; humanEstimate: string }> {
+    const item = await this.assertMosaicTarget(user, itemId, 'add');
+    const added = validateMosaicSources(body.sources);
+    const prev = isTileLayerData(item.data) ? item.data : null;
+    const existingSources = [...(prev?.sources ?? [])];
+    // Adding images to a layer that was a single-file upload: fold
+    // the original raster in as the first source. The archival COG
+    // is the master (the raw upload is deleted after conversion);
+    // a pre-tiled package (PMTiles with no COG) has no raster to
+    // fold in, so extending it is refused with guidance.
+    if (existingSources.length === 0 && prev?.storageKey) {
+      const originalKey =
+        typeof prev.cogStorageKey === 'string' &&
+        prev.cogStorageKey.startsWith(TILE_LAYER_KEY_PREFIX)
+          ? prev.cogStorageKey
+          : prev.storageKey.startsWith(TILE_LAYER_KEY_PREFIX) &&
+              prev.format === 'cog'
+            ? prev.storageKey
+            : null;
+      if (!originalKey) {
+        throw new BadRequestException(
+          'This layer was uploaded as a pre-tiled package, which cannot ' +
+            'be extended with more images. Create a new imagery layer ' +
+            'from the source images instead.',
+        );
+      }
+      existingSources.push({
+        storageKey: originalKey,
+        fileName: prev.fileName || 'original.tif',
+        sizeBytes: prev.cogSizeBytes ?? prev.sizeBytes ?? 0,
+        addedAt: prev.uploadedAt ?? (new Date().toISOString() as ISODateString),
+      });
+    }
+    const existingKeys = new Set(existingSources.map((s) => s.storageKey));
+    for (const s of added) {
+      if (existingKeys.has(s.storageKey)) {
+        throw new BadRequestException(
+          'One of those images is already part of this mosaic.',
+        );
+      }
+    }
+    return this.enqueueMosaic(user, item, [...existingSources, ...added]);
+  }
+
+  /** Shared guards for both mosaic entry points. */
+  private async assertMosaicTarget(
+    user: AuthUser,
+    itemId: string,
+    verb: 'build' | 'add',
+  ): Promise<{ id: string; data: unknown }> {
+    assertServerHeavyTier(this.cfg, 'Building imagery mosaics');
+    const item = await this.items.get(user, itemId);
+    if (item.type !== 'tile_layer') {
+      throw new BadRequestException(`Item ${itemId} is not a tile_layer.`);
+    }
+    if (!this.sharing.canAdmin(user, item)) {
+      throw new ForbiddenException(
+        verb === 'build'
+          ? 'Only the owner or an org admin can build this mosaic.'
+          : 'Only the owner or an org admin can add images to this mosaic.',
+      );
+    }
+    const data = isTileLayerData(item.data) ? item.data : null;
+    if (data?.kind === 'vector') {
+      throw new BadRequestException(
+        'This layer holds street-map style vector tiles; mosaics are for imagery.',
+      );
+    }
+    if (data?.dem) {
+      throw new BadRequestException(
+        'This is an elevation layer. Elevation is composed per map ' +
+          "through the terrain stack, not by rebuilding the layer's file.",
+      );
+    }
+    return item;
+  }
+
+  /**
+   * Shared tail of build + add: refuse what cannot finish inside
+   * the worker's wall (#205 rule), write the source list and
+   * 'building' state onto the item, then create the imagery-mosaic
+   * job. The served file and metadata stay untouched so the layer
+   * stays live until the worker swaps in the fresh mosaic.
+   */
+  private async enqueueMosaic(
+    user: AuthUser,
+    item: { id: string; data: unknown },
+    sources: TileLayerSource[],
+  ): Promise<{ jobId: string; itemId: string; estimatedSec: number; humanEstimate: string }> {
+    const totalBytes = sources.reduce((n, s) => n + s.sizeBytes, 0);
+    const estimate = estimateMosaic(totalBytes, sources.length);
+    if (estimate.overCeiling) {
+      throw new BadRequestException(
+        `This mosaic is very large: ${sources.length} images, ` +
+          `${(totalBytes / 1024 ** 3).toFixed(1)} GB. Building it would take ` +
+          `${estimate.humanEstimate}, beyond what this server allows in one ` +
+          'job. Split it into smaller mosaics, or raise ' +
+          'MOSAIC_TIME_CEILING_SEC if this server can genuinely afford ' +
+          'longer builds.',
+      );
+    }
+    const prev = isTileLayerData(item.data) ? item.data : null;
+    const data: TileLayerData = {
+      // Preserve the currently-served file + metadata during a
+      // rebuild; a fresh build starts from an empty served file in
+      // the cog-bridge shape the worker will fill in.
+      ...(prev ?? {
+        version: 1,
+        format: 'cog',
+        kind: 'raster',
+        storageKey: '',
+        storageUrl: '',
+        fileName: '',
+        sizeBytes: 0,
+        uploadedAt: new Date(0).toISOString() as ISODateString,
+      }),
+      version: 1,
+      sources,
+      processingState: 'building',
+    };
+    delete data.processingError;
+
+    await this.items.update(user, item.id, {
+      data: data as unknown as Prisma.JsonObject,
+    });
+
+    const job = await this.prisma.analysisJob.create({
+      data: {
+        orgId: user.orgId,
+        userId: user.id,
+        kind: 'imagery-mosaic',
+        params: { sourceKeys: sources.map((s) => s.storageKey) },
+        sourceItemId: item.id,
+        targetItemId: item.id,
+      },
+    });
+    this.log.log(
+      `tile_layer ${item.id}: queued imagery-mosaic over ` +
+        `${sources.length} image(s), estimated ${estimate.estimatedSec}s ` +
+        `(job ${job.id})`,
+    );
+    return {
+      jobId: job.id,
+      itemId: item.id,
+      estimatedSec: estimate.estimatedSec,
+      humanEstimate: estimate.humanEstimate,
+    };
   }
 
   /**

@@ -117,6 +117,50 @@ export class TileLayerController {
   }
 
   /**
+   * #199: deployment-wide mosaic cost coefficients, so the client
+   * can estimate (and refuse) a build BEFORE uploading gigabytes.
+   * Same contract as point-cloud/merge-limits.
+   */
+  @Get('tile-layer/mosaic-limits')
+  async mosaicLimits(@CurrentUser() _user: AuthUser) {
+    return this.tileLayer.mosaicLimits();
+  }
+
+  /**
+   * #199: build one seamless imagery mosaic from N uploaded source
+   * rasters. Sources were already PUT to MinIO via presigned
+   * uploads; this records them on the item and queues the worker
+   * build. Returns the job id + human time estimate.
+   */
+  @Post('items/:itemId/tile-layer/mosaic-build')
+  async mosaicBuild(
+    @CurrentUser() user: AuthUser,
+    @Param('itemId') itemId: string,
+    @Body()
+    body: {
+      sources: Array<{ storageKey: string; fileName: string; sizeBytes: number }>;
+    },
+  ) {
+    return this.tileLayer.mosaicBuild(user, itemId, body);
+  }
+
+  /**
+   * #199: append more images to an existing mosaic and rebuild
+   * over the full retained set.
+   */
+  @Post('items/:itemId/tile-layer/mosaic-add-sources')
+  async mosaicAddSources(
+    @CurrentUser() user: AuthUser,
+    @Param('itemId') itemId: string,
+    @Body()
+    body: {
+      sources: Array<{ storageKey: string; fileName: string; sizeBytes: number }>;
+    },
+  ) {
+    return this.tileLayer.mosaicAddSources(user, itemId, body);
+  }
+
+  /**
    * Range-request proxy. MapLibre's pmtiles plugin issues many
    * range requests as the user pans / zooms; this endpoint
    * forwards each one to the underlying MinIO public URL. We
