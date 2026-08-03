@@ -69,10 +69,26 @@ import psycopg2.extras
 POLL_SECONDS = 10
 SCRATCH = Path(os.environ.get("SCRATCH_DIR", "/scratch"))
 
-# Guard rails for the demo-class box (4 cores / 8 GB). The API
-# validates these too; the worker re-checks because jobs could be
-# inserted by future paths that forget.
-MAX_RASTER_CELLS = 12000 * 12000
+# Guard rails for the demo-class box (4 cores / 8 GB).
+# #208: the old MAX_RASTER_CELLS single-raster refusal is gone;
+# gridding is CHUNKED instead, so extent no longer bounds memory.
+# GRID_CHUNK_CELLS is the per-chunk cell budget (memory truth:
+# writers.gdal's accumulator buffers scale with cells; 64M cells is
+# roughly 1.5 GB peak, comfortable on the demo box). The API
+# refuses over-TIME jobs up front via the #205-style estimate;
+# GRID_MAX_CHUNKS is the worker's defensive backstop for jobs
+# inserted by paths that forget to estimate.
+GRID_CHUNK_CELLS = int(os.environ.get("GRID_CHUNK_CELLS", str(64_000_000)))
+# Overlap ring so chunk-edge cells interpolate with the same
+# neighborhood as the unchunked grid (writers.gdal window_size 3
+# needs a few cells of context; 8 is ample and cheap).
+GRID_CHUNK_BUFFER_CELLS = int(os.environ.get("GRID_CHUNK_BUFFER_CELLS", "8"))
+GRID_MAX_CHUNKS = int(os.environ.get("GRID_MAX_CHUNKS", "512"))
+# Viewshed stays a single-raster op (gdal_viewshed holds the whole
+# window), so it keeps the old single-raster cap. The API validates
+# too; the worker re-checks because jobs could be inserted by
+# future paths that forget.
+VIEWSHED_MAX_CELLS = 12000 * 12000
 
 # Disk safety for the point cloud merge (#203). A merge downloads
 # every source tile into scratch AND untwine builds a large out-of-
@@ -756,6 +772,233 @@ def wgs84_bbox(tif: Path) -> list[float] | None:
         return None
 
 
+def pdal_bounds_str(minx: float, miny: float, maxx: float, maxy: float) -> str:
+    """PDAL 2D bounds syntax: ([minx, maxx], [miny, maxy])."""
+    return f"([{minx}, {maxx}], [{miny}, {maxy}])"
+
+
+def plan_grid_chunks(
+    minx: float,
+    miny: float,
+    maxx: float,
+    maxy: float,
+    resolution: float,
+    cell_budget: int,
+    buffer_cells: int,
+) -> list[dict]:
+    """Split an extent into gridding chunks (#208), pure math.
+
+    Returns a list of {core: (minx, miny, maxx, maxy), buffered: (...)}
+    where the cores TILE the extent exactly (no gaps, no overlap) and
+    each buffered box is the core grown by `buffer_cells` * resolution
+    on every side (clamped to the extent) so edge cells interpolate
+    with the same neighborhood the unchunked grid would have used.
+
+    Alignment invariant: every core edge sits at
+    minx + k * resolution (resp. miny), so per-chunk rasters gridded
+    to these bounds share one global pixel lattice and a VRT over
+    the buffer-cropped tiles is an exact, seamless mosaic.
+
+    A single chunk (extent within budget) is returned un-buffered so
+    the small case degenerates to exactly the pre-#208 behavior.
+    """
+    cells_x = max(1, math.ceil((maxx - minx) / resolution))
+    cells_y = max(1, math.ceil((maxy - miny) / resolution))
+    if cells_x * cells_y <= cell_budget:
+        box = (minx, miny, maxx, maxy)
+        return [{"core": box, "buffered": box}]
+    # Chunk edge in cells such that the BUFFERED tile stays inside
+    # the budget: (edge + 2 * buffer)^2 <= budget.
+    edge = int(math.isqrt(cell_budget)) - 2 * buffer_cells
+    if edge < 256:
+        raise RuntimeError(
+            "The per-chunk cell budget is too small to grid anything; "
+            "raise GRID_CHUNK_CELLS."
+        )
+    nx = math.ceil(cells_x / edge)
+    ny = math.ceil(cells_y / edge)
+    buf = buffer_cells * resolution
+    chunks: list[dict] = []
+    for iy in range(ny):
+        for ix in range(nx):
+            cx0 = minx + ix * edge * resolution
+            cy0 = miny + iy * edge * resolution
+            cx1 = min(maxx, minx + (ix + 1) * edge * resolution)
+            cy1 = min(maxy, miny + (iy + 1) * edge * resolution)
+            if cx1 <= cx0 or cy1 <= cy0:
+                continue
+            chunks.append(
+                {
+                    "core": (cx0, cy0, cx1, cy1),
+                    "buffered": (
+                        max(minx, cx0 - buf),
+                        max(miny, cy0 - buf),
+                        min(maxx, cx1 + buf),
+                        min(maxy, cy1 + buf),
+                    ),
+                }
+            )
+    return chunks
+
+
+# Per-chunk PDAL failure messages that mean "this bbox holds no
+# usable points" (irregular flight footprints leave empty corners in
+# a rectangular chunk plan). These skip the chunk, which renders as
+# nodata, exactly what no data means. Anything else re-raises.
+_EMPTY_CHUNK_MARKERS = (
+    "no points",
+    "without points",
+    "0 points",
+    "grid width out of range",
+    "couldn't get valid grid bounds",
+)
+
+
+def grid_chunked(
+    src: Path,
+    work: Path,
+    name: str,
+    resolution: float,
+    bounds: list[float],
+    ground_only: bool,
+    output_type: str,
+    conn,
+    job_id: str,
+    prog_from: int,
+    prog_to: int,
+    nodata: float | None = None,
+) -> Path:
+    """Grid a COPC into one seamless surface, chunking as needed (#208).
+
+    Chunks the extent per plan_grid_chunks, grids each chunk with a
+    PDAL pipeline that reads ONLY that bbox from the spatially
+    indexed COPC (readers.copc bounds), crops the interpolation
+    buffer off, and mosaics the tiles with gdalbuildvrt. Returns a
+    GTiff for the single-chunk case or a VRT otherwise; every
+    downstream consumer (gdaldem, gdalwarp, gdal_translate,
+    gdal_calc) reads either transparently, and running the
+    neighbor-dependent op on the VRT rather than per tile is what
+    keeps the combined result seamless.
+
+    Bounds are always explicit (from the cloud's header) so multiple
+    grids over the same cloud (heightmap's DSM + DTM) share one
+    pixel lattice regardless of which points each filter keeps.
+    """
+    minx, miny = float(bounds[0]), float(bounds[1])
+    maxx, maxy = float(bounds[3]), float(bounds[4])
+    chunks = plan_grid_chunks(
+        minx, miny, maxx, maxy, resolution,
+        GRID_CHUNK_CELLS, GRID_CHUNK_BUFFER_CELLS,
+    )
+    if len(chunks) > GRID_MAX_CHUNKS:
+        raise RuntimeError(
+            f"This build would need {len(chunks)} gridding passes, over "
+            f"this server's limit of {GRID_MAX_CHUNKS}. Pick a coarser "
+            "resolution or raise GRID_MAX_CHUNKS."
+        )
+    if len(chunks) > 1:
+        log(f"  gridding {name} in {len(chunks)} chunks (#208)")
+
+    t_grid0 = time.time()
+    tiles: list[Path] = []
+    span = max(1, prog_to - prog_from)
+    for i, ch in enumerate(chunks):
+        lo = prog_from + (span * i) // len(chunks)
+        hi = prog_from + (span * (i + 1)) // len(chunks)
+        bminx, bminy, bmaxx, bmaxy = ch["buffered"]
+        raw = work / f"{name}-chunk-{i:04d}-raw.tif"
+        stages: list[dict] = [
+            {
+                "type": "readers.copc",
+                "filename": str(src),
+                "bounds": pdal_bounds_str(bminx, bmaxx, bminy, bmaxy),
+            }
+        ]
+        if ground_only:
+            stages.append(
+                {"type": "filters.range", "limits": "Classification[2:2]"}
+            )
+        writer: dict = {
+            "type": "writers.gdal",
+            "filename": str(raw),
+            "resolution": resolution,
+            "output_type": output_type,
+            "window_size": 3,
+            "bounds": pdal_bounds_str(bminx, bmaxx, bminy, bmaxy),
+            "gdaldriver": "GTiff",
+            "gdalopts": "COMPRESS=DEFLATE,TILED=YES,BIGTIFF=IF_SAFER",
+        }
+        if nodata is not None:
+            writer["nodata"] = nodata
+        stages.append(writer)
+        pipeline = work / f"{name}-chunk-{i:04d}.json"
+        pipeline.write_text(json.dumps({"pipeline": stages}))
+        try:
+            run_long(
+                ["pdal", "pipeline", str(pipeline)], work,
+                conn, job_id, ANALYSIS_TIMEOUT_SEC, lo, hi,
+            )
+        except JobCancelled:
+            raise
+        except RuntimeError as err:
+            low = str(err).lower()
+            if len(chunks) > 1 and any(
+                marker in low for marker in _EMPTY_CHUNK_MARKERS
+            ):
+                # No usable points in this bbox: the area IS nodata.
+                log(f"  chunk {i + 1}/{len(chunks)} empty, skipped")
+                continue
+            raise
+        if ch["buffered"] == ch["core"]:
+            tiles.append(raw)
+        else:
+            # Crop the interpolation buffer so tiles abut exactly.
+            cx0, cy0, cx1, cy1 = ch["core"]
+            tile = work / f"{name}-chunk-{i:04d}.tif"
+            run(
+                [
+                    "gdal_translate",
+                    "-projwin",
+                    str(cx0), str(cy1), str(cx1), str(cy0),
+                    "-co", "COMPRESS=DEFLATE",
+                    "-co", "TILED=YES",
+                    str(raw),
+                    str(tile),
+                ],
+                work,
+                conn,
+                job_id,
+            )
+            raw.unlink(missing_ok=True)
+            tiles.append(tile)
+
+    if len(tiles) == 0:
+        raise RuntimeError(
+            "Gridding produced no output: no chunk contained usable "
+            "points."
+        )
+    # Baseline timing (#205 rule): one structured line per gridding
+    # pass so operators can re-fit the GRID_* cost coefficients.
+    cells = math.ceil((maxx - minx) / resolution) * math.ceil(
+        (maxy - miny) / resolution
+    )
+    log(
+        "GRID_STATS "
+        f"name={name} cells={cells} chunks={len(chunks)} "
+        f"tiles={len(tiles)} grid_secs={int(time.time() - t_grid0)}"
+    )
+    if len(tiles) == 1 and len(chunks) == 1:
+        return tiles[0]
+    vrt = work / f"{name}.vrt"
+    run(
+        ["gdalbuildvrt", str(vrt)] + [str(t) for t in tiles],
+        work,
+        conn,
+        job_id,
+    )
+    return vrt
+
+
 def do_hillshade(conn, s3, job) -> None:
     params = job["params"] or {}
     mode = params.get("mode", "dtm")
@@ -769,15 +1012,6 @@ def do_hillshade(conn, s3, job) -> None:
     storage_key = source.get("storageKey")
     if not storage_key:
         raise RuntimeError("Source point cloud has no uploaded file.")
-    bounds = source.get("bounds")
-    if bounds:
-        cells_x = (float(bounds[3]) - float(bounds[0])) / resolution
-        cells_y = (float(bounds[4]) - float(bounds[1])) / resolution
-        if cells_x * cells_y > MAX_RASTER_CELLS:
-            raise RuntimeError(
-                "That resolution would produce a raster larger than this "
-                "server allows. Pick a coarser resolution."
-            )
 
     work = SCRATCH / f"job-{job['id']}"
     work.mkdir(parents=True, exist_ok=True)
@@ -787,33 +1021,21 @@ def do_hillshade(conn, s3, job) -> None:
         transfer_file(s3, "download", storage_key, src, job["id"])
         set_progress(conn, job["id"], 15)
 
-        # PDAL pipeline: COPC -> (ground-only for DTM) -> IDW grid.
-        # All stages are streamable, so memory stays bounded by the
-        # raster, not the 200M+ points.
-        dem = work / "dem.tif"
-        stages: list[dict] = [
-            {"type": "readers.copc", "filename": str(src)}
-        ]
-        if mode == "dtm":
-            stages.append(
-                {"type": "filters.range", "limits": "Classification[2:2]"}
-            )
-        stages.append(
-            {
-                "type": "writers.gdal",
-                "filename": str(dem),
-                "resolution": resolution,
-                "output_type": "idw",
-                "window_size": 3,
-                "gdaldriver": "GTiff",
-                "gdalopts": "COMPRESS=DEFLATE,TILED=YES,BIGTIFF=IF_SAFER",
-            }
-        )
-        pipeline = work / "pipeline.json"
-        pipeline.write_text(json.dumps({"pipeline": stages}))
-        run_long(
-            ["pdal", "pipeline", str(pipeline)], work,
-            conn, job["id"], ANALYSIS_TIMEOUT_SEC, 15, 60,
+        # #208: chunked gridding replaced the single-raster cell cap,
+        # so any extent builds at full resolution with bounded
+        # memory; the API refuses over-TIME jobs up front via the
+        # grid estimate. Legacy items without stamped bounds get
+        # them from the COPC header (header-only read, no point
+        # pass). The hillshade itself runs on the combined surface
+        # (VRT), never per chunk: shading stitched per-tile
+        # hillshades would leave seams at every tile edge.
+        bounds = source.get("bounds") or copc_header_meta(
+            src, conn, job["id"]
+        )["bounds"]
+        dem = grid_chunked(
+            src, work, "dem", resolution, bounds,
+            ground_only=(mode == "dtm"), output_type="idw",
+            conn=conn, job_id=job["id"], prog_from=15, prog_to=60,
         )
         set_progress(conn, job["id"], 60)
 
@@ -925,15 +1147,6 @@ def do_elevation(conn, s3, job) -> None:
     storage_key = source.get("storageKey")
     if not storage_key:
         raise RuntimeError("Source point cloud has no uploaded file.")
-    bounds = source.get("bounds")
-    if bounds:
-        cells_x = (float(bounds[3]) - float(bounds[0])) / resolution
-        cells_y = (float(bounds[4]) - float(bounds[1])) / resolution
-        if cells_x * cells_y > MAX_RASTER_CELLS:
-            raise RuntimeError(
-                "That resolution would produce a raster larger than this "
-                "server allows. Pick a coarser resolution."
-            )
 
     work = SCRATCH / f"job-{job['id']}"
     work.mkdir(parents=True, exist_ok=True)
@@ -943,25 +1156,16 @@ def do_elevation(conn, s3, job) -> None:
         transfer_file(s3, "download", storage_key, src, job["id"])
         set_progress(conn, job["id"], 15)
 
-        dem = work / "dem.tif"
-        stages: list[dict] = [
-            {"type": "readers.copc", "filename": str(src)},
-            {"type": "filters.range", "limits": "Classification[2:2]"},
-            {
-                "type": "writers.gdal",
-                "filename": str(dem),
-                "resolution": resolution,
-                "output_type": "idw",
-                "window_size": 3,
-                "gdaldriver": "GTiff",
-                "gdalopts": "COMPRESS=DEFLATE,TILED=YES,BIGTIFF=IF_SAFER",
-            },
-        ]
-        pipeline = work / "pipeline.json"
-        pipeline.write_text(json.dumps({"pipeline": stages}))
-        run_long(
-            ["pdal", "pipeline", str(pipeline)], work,
-            conn, job["id"], ANALYSIS_TIMEOUT_SEC, 15, 60,
+        # #208: chunked gridding; see do_hillshade for the rationale.
+        # The gdalwarp COG step below reads the VRT block-by-block,
+        # so the full-extent DEM never materializes uncompressed.
+        bounds = source.get("bounds") or copc_header_meta(
+            src, conn, job["id"]
+        )["bounds"]
+        dem = grid_chunked(
+            src, work, "dem", resolution, bounds,
+            ground_only=True, output_type="idw",
+            conn=conn, job_id=job["id"], prog_from=15, prog_to=60,
         )
         set_progress(conn, job["id"], 60)
 
@@ -1111,7 +1315,7 @@ def do_viewshed(conn, s3, job) -> None:
         ds = None
 
         radius_px = max_dist / res
-        if (2 * radius_px) ** 2 > MAX_RASTER_CELLS:
+        if (2 * radius_px) ** 2 > VIEWSHED_MAX_CELLS:
             raise RuntimeError(
                 "That distance is too far for this server at this "
                 "layer's detail. Try a shorter distance."
@@ -1587,23 +1791,6 @@ def do_heightmap(conn, s3, job) -> None:
     storage_key = source.get("storageKey")
     if not storage_key:
         raise RuntimeError("Source point cloud has no uploaded file.")
-    bounds = source.get("bounds")
-    if not bounds:
-        raise RuntimeError(
-            "This point cloud is missing its extent information."
-        )
-    cells_x = (float(bounds[3]) - float(bounds[0])) / resolution
-    cells_y = (float(bounds[4]) - float(bounds[1])) / resolution
-    if cells_x * cells_y > MAX_RASTER_CELLS:
-        raise RuntimeError(
-            "That resolution would produce a raster larger than this "
-            "server allows. Pick a coarser resolution."
-        )
-    # PDAL writers.gdal bounds syntax: ([minx, maxx], [miny, maxy]).
-    pdal_bounds = (
-        f"([{float(bounds[0])}, {float(bounds[3])}], "
-        f"[{float(bounds[1])}, {float(bounds[4])}])"
-    )
 
     work = SCRATCH / f"job-{job['id']}"
     work.mkdir(parents=True, exist_ok=True)
@@ -1613,48 +1800,26 @@ def do_heightmap(conn, s3, job) -> None:
         transfer_file(s3, "download", storage_key, src, job["id"])
         set_progress(conn, job["id"], 10)
 
-        def grid(
-            out: Path,
-            ground_only: bool,
-            output_type: str,
-            prog_from: int,
-            prog_to: int,
-        ) -> None:
-            stages: list[dict] = [
-                {"type": "readers.copc", "filename": str(src)}
-            ]
-            if ground_only:
-                stages.append(
-                    {
-                        "type": "filters.range",
-                        "limits": "Classification[2:2]",
-                    }
-                )
-            stages.append(
-                {
-                    "type": "writers.gdal",
-                    "filename": str(out),
-                    "resolution": resolution,
-                    "output_type": output_type,
-                    "window_size": 3,
-                    "bounds": pdal_bounds,
-                    "nodata": -9999,
-                    "gdaldriver": "GTiff",
-                    "gdalopts": "COMPRESS=DEFLATE,TILED=YES,BIGTIFF=IF_SAFER",
-                }
-            )
-            pipeline = work / f"pipeline-{out.stem}.json"
-            pipeline.write_text(json.dumps({"pipeline": stages}))
-            run_long(
-                ["pdal", "pipeline", str(pipeline)], work,
-                conn, job["id"], ANALYSIS_TIMEOUT_SEC, prog_from, prog_to,
-            )
-
-        dsm = work / "dsm.tif"
-        grid(dsm, ground_only=False, output_type="max", prog_from=10, prog_to=40)
+        # #208: both surfaces grid chunked over the SAME explicit
+        # bounds (grid_chunked always pins the lattice to them), so
+        # DSM and DTM stay cell-aligned for the subtraction no
+        # matter how the ground subset's extent differs.
+        bounds = source.get("bounds") or copc_header_meta(
+            src, conn, job["id"]
+        )["bounds"]
+        dsm = grid_chunked(
+            src, work, "dsm", resolution, bounds,
+            ground_only=False, output_type="max",
+            conn=conn, job_id=job["id"], prog_from=10, prog_to=40,
+            nodata=-9999,
+        )
         set_progress(conn, job["id"], 40)
-        dtm = work / "dtm.tif"
-        grid(dtm, ground_only=True, output_type="idw", prog_from=40, prog_to=65)
+        dtm = grid_chunked(
+            src, work, "dtm", resolution, bounds,
+            ground_only=True, output_type="idw",
+            conn=conn, job_id=job["id"], prog_from=40, prog_to=65,
+            nodata=-9999,
+        )
         set_progress(conn, job["id"], 65)
 
         height = work / "height.tif"

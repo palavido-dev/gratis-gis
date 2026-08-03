@@ -137,10 +137,81 @@ def test_reclaim_abandoned_scratch():
             runner.SCRATCH = old
 
 
+def test_plan_grid_chunks_single_when_under_budget():
+    """A small extent returns one un-buffered chunk, i.e. exactly
+    the pre-#208 behavior."""
+    chunks = runner.plan_grid_chunks(0, 0, 100, 100, 1.0, 64_000_000, 8)
+    assert len(chunks) == 1, chunks
+    assert chunks[0]["core"] == chunks[0]["buffered"] == (0, 0, 100, 100)
+
+
+def test_plan_grid_chunks_tiles_exactly():
+    """#208: cores tile the extent with no gaps, no overlaps, all
+    edges on the resolution lattice, and every buffered tile inside
+    the cell budget."""
+    minx, miny, maxx, maxy = 100.0, 200.0, 100.0 + 3000, 200.0 + 2500
+    res = 1.0
+    budget = 1_000_000  # forces chunking: 3000x2500 = 7.5M cells
+    buffer_cells = 8
+    chunks = runner.plan_grid_chunks(
+        minx, miny, maxx, maxy, res, budget, buffer_cells
+    )
+    assert len(chunks) > 1
+    area = 0.0
+    for ch in chunks:
+        cx0, cy0, cx1, cy1 = ch["core"]
+        bx0, by0, bx1, by1 = ch["buffered"]
+        # Alignment: core edges sit on the lattice anchored at
+        # (minx, miny), so chunk rasters share one global grid.
+        assert abs(((cx0 - minx) / res) - round((cx0 - minx) / res)) < 1e-9
+        assert abs(((cy0 - miny) / res) - round((cy0 - miny) / res)) < 1e-9
+        # Buffer contains the core and stays inside the extent.
+        assert bx0 <= cx0 and by0 <= cy0 and bx1 >= cx1 and by1 >= cy1
+        assert bx0 >= minx and by0 >= miny and bx1 <= maxx and by1 <= maxy
+        # Buffered tile respects the cell budget.
+        cells = ((bx1 - bx0) / res) * ((by1 - by0) / res)
+        assert cells <= budget, cells
+        area += (cx1 - cx0) * (cy1 - cy0)
+    # Cores cover the extent exactly (area equality + pairwise
+    # disjointness follows from the regular grid construction).
+    assert abs(area - (maxx - minx) * (maxy - miny)) < 1e-6, area
+    # No two cores overlap.
+    cores = [c["core"] for c in chunks]
+    for i in range(len(cores)):
+        for j in range(i + 1, len(cores)):
+            a, b = cores[i], cores[j]
+            assert not (
+                a[0] < b[2] and a[2] > b[0] and a[1] < b[3] and a[3] > b[1]
+            ), (a, b)
+
+
+def test_plan_grid_chunks_elkins_shape():
+    """The motivating case: ~30.7km x 13.5km at 1m is ~414M cells,
+    2.9x over the old cap; it must plan to a sane chunk count with
+    full coverage."""
+    chunks = runner.plan_grid_chunks(
+        0, 0, 30_700, 13_500, 1.0, 64_000_000, 8
+    )
+    assert 1 < len(chunks) <= 24, len(chunks)
+    area = sum(
+        (c["core"][2] - c["core"][0]) * (c["core"][3] - c["core"][1])
+        for c in chunks
+    )
+    assert abs(area - 30_700 * 13_500) < 1e-3
+
+
+def test_pdal_bounds_str():
+    assert runner.pdal_bounds_str(1, 2, 3, 4) == "([1, 3], [2, 4])"
+
+
 if __name__ == "__main__":
     test_is_cancel_requested()
     test_add_feet_field()
     test_stream_contours_with_feet()
     test_stream_contours_empty_input()
     test_reclaim_abandoned_scratch()
+    test_plan_grid_chunks_single_when_under_budget()
+    test_plan_grid_chunks_tiles_exactly()
+    test_plan_grid_chunks_elkins_shape()
+    test_pdal_bounds_str()
     print("test_runner_units: all assertions passed")
