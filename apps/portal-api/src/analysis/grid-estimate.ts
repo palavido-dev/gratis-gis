@@ -42,7 +42,9 @@ export function gridCostModel(): GridCostCoefficients {
     secPerMillionPoints: envNum('GRID_SEC_PER_MILLION_POINTS', 4),
     secPerMillionCells: envNum('GRID_SEC_PER_MILLION_CELLS', 0.5),
     perChunkOverheadSec: envNum('GRID_PER_CHUNK_OVERHEAD_SEC', 5),
-    chunkCells: envNum('GRID_CHUNK_CELLS', 64_000_000),
+    // Mirror of the worker's default; see the runner.py comment for
+    // the 2.5 GiB-cap memory math behind 24M.
+    chunkCells: envNum('GRID_CHUNK_CELLS', 24_000_000),
     // A TOTAL job budget, deliberately NOT derived from the
     // worker's ANALYSIS_TIMEOUT_SEC: that wall is per chunk now,
     // and a chunked job legitimately runs many chunks. 3.6h keeps

@@ -69,21 +69,39 @@ import psycopg2.extras
 POLL_SECONDS = 10
 SCRATCH = Path(os.environ.get("SCRATCH_DIR", "/scratch"))
 
+
+def _env_num(name: str, fallback: float) -> float:
+    """Positive-finite env number with a fallback, the same junk-
+    tolerant contract as the api's envNum: compose passes the tuning
+    knobs through as empty strings when unset in .env.prod, and an
+    empty or garbage value must fall back rather than crash the
+    worker at import."""
+    try:
+        v = float(os.environ.get(name, ""))
+        return v if v > 0 and v == v else fallback
+    except ValueError:
+        return fallback
+
+
 # Guard rails for the demo-class box (4 cores / 8 GB).
 # #208: the old MAX_RASTER_CELLS single-raster refusal is gone;
 # gridding is CHUNKED instead, so extent no longer bounds memory.
-# GRID_CHUNK_CELLS is the per-chunk cell budget (memory truth:
-# writers.gdal's accumulator buffers scale with cells; 64M cells is
-# roughly 1.5 GB peak, comfortable on the demo box). The API
-# refuses over-TIME jobs up front via the #205-style estimate;
-# GRID_MAX_CHUNKS is the worker's defensive backstop for jobs
-# inserted by paths that forget to estimate.
-GRID_CHUNK_CELLS = int(os.environ.get("GRID_CHUNK_CELLS", str(64_000_000)))
+# GRID_CHUNK_CELLS is the per-chunk cell budget. Memory truth,
+# measured on the reference box during #208 verification: the
+# worker container is capped at 2.5 GiB (compose mem_limit), IDW
+# accumulators run ~24 bytes/cell, and readers.copc adds >1 GiB of
+# node buffering on a dense chunk; 64M cells got the first Elkins
+# chunk OOM-killed by the cgroup. 24M cells (~576 MB accumulators)
+# leaves the reader its headroom. The API refuses over-TIME jobs up
+# front via the #205-style estimate; GRID_MAX_CHUNKS is the
+# worker's defensive backstop for jobs inserted by paths that
+# forget to estimate.
+GRID_CHUNK_CELLS = int(_env_num("GRID_CHUNK_CELLS", 24_000_000))
 # Overlap ring so chunk-edge cells interpolate with the same
 # neighborhood as the unchunked grid (writers.gdal window_size 3
 # needs a few cells of context; 8 is ample and cheap).
-GRID_CHUNK_BUFFER_CELLS = int(os.environ.get("GRID_CHUNK_BUFFER_CELLS", "8"))
-GRID_MAX_CHUNKS = int(os.environ.get("GRID_MAX_CHUNKS", "512"))
+GRID_CHUNK_BUFFER_CELLS = int(_env_num("GRID_CHUNK_BUFFER_CELLS", 8))
+GRID_MAX_CHUNKS = int(_env_num("GRID_MAX_CHUNKS", 512))
 # Viewshed stays a single-raster op (gdal_viewshed holds the whole
 # window), so it keeps the old single-raster cap. The API validates
 # too; the worker re-checks because jobs could be inserted by
@@ -104,17 +122,15 @@ VIEWSHED_MAX_CELLS = 12000 * 12000
 #     untwine, which kills the merge rather than fill the disk.
 # Both are env-tunable so an operator with a big dedicated scratch
 # disk can loosen them.
-SCRATCH_SAFETY_FACTOR = float(os.environ.get("MERGE_SCRATCH_FACTOR", "5"))
-SCRATCH_MIN_RESERVE_BYTES = int(
-    os.environ.get("MERGE_MIN_FREE_GB", "10")
-) * 1024**3
+SCRATCH_SAFETY_FACTOR = _env_num("MERGE_SCRATCH_FACTOR", 5)
+SCRATCH_MIN_RESERVE_BYTES = int(_env_num("MERGE_MIN_FREE_GB", 10)) * 1024**3
 # Wall-clock ceiling for a single merge's untwine pass. The small
 # analysis jobs use a 1h subprocess timeout; a large point cloud
 # merge legitimately runs much longer (303 tiles / 16GB was still
 # building past an hour), so copc-build gets its own generous,
 # tunable budget. #205 will estimate the real time up front and
 # reject a merge that would blow this, instead of dying at the wall.
-MERGE_TIMEOUT_SEC = int(os.environ.get("MERGE_TIMEOUT_SEC", "14400"))
+MERGE_TIMEOUT_SEC = int(_env_num("MERGE_TIMEOUT_SEC", 14400))
 # Point-cloud gridding (PDAL writers.gdal) for hillshade / elevation /
 # height maps reads every point in a single pass; on a large cloud it
 # legitimately runs past the small analysis jobs' 1h subprocess
@@ -123,16 +139,16 @@ MERGE_TIMEOUT_SEC = int(os.environ.get("MERGE_TIMEOUT_SEC", "14400"))
 # same shape as the merge budget. #208 (chunked gridding) is the
 # structural fix that bounds this; this just stops the wall from
 # killing a working grid meanwhile.
-ANALYSIS_TIMEOUT_SEC = int(os.environ.get("ANALYSIS_TIMEOUT_SEC", "14400"))
+ANALYSIS_TIMEOUT_SEC = int(_env_num("ANALYSIS_TIMEOUT_SEC", 14400))
 # Imagery mosaic (#199): same shape as the merge budget. The GDAL
 # half (per-source warp + COG translate) runs long on county-scale
 # imagery; the API's MOSAIC_* cost model estimates against this wall
 # and refuses up front what cannot finish inside it.
-MOSAIC_TIMEOUT_SEC = int(os.environ.get("MOSAIC_TIMEOUT_SEC", "14400"))
+MOSAIC_TIMEOUT_SEC = int(_env_num("MOSAIC_TIMEOUT_SEC", 14400))
 # Scratch need relative to summed source bytes: sources + warped
 # copies + the COG output + VRT overhead. Imagery has no untwine
 # out-of-core blowup, so the factor sits below the lidar one.
-MOSAIC_SCRATCH_FACTOR = float(os.environ.get("MOSAIC_SCRATCH_FACTOR", "4"))
+MOSAIC_SCRATCH_FACTOR = _env_num("MOSAIC_SCRATCH_FACTOR", 4)
 GIB = 1024**3
 
 

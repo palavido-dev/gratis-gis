@@ -431,6 +431,27 @@ services:
       # queueing jobs nothing will run. The install doctor reports
       # whether the hardware honestly supports each tier.
       ANALYSIS_TIERS: server-heavy
+      # Operator tuning knobs for the up-front cost models (#205
+      # merge, #199 mosaic, #208 grid). Same discovery as on the
+      # worker: documented as env-tunable but never passed through
+      # compose, so only code defaults ever applied. Empty values
+      # fall back to the code defaults (envNum tolerates junk).
+      MERGE_TIMEOUT_SEC: ${MERGE_TIMEOUT_SEC:-}
+      MERGE_DOWNLOAD_MIB_PER_SEC: ${MERGE_DOWNLOAD_MIB_PER_SEC:-}
+      MERGE_UNTWINE_SEC_PER_GIB: ${MERGE_UNTWINE_SEC_PER_GIB:-}
+      MERGE_PER_TILE_OVERHEAD_SEC: ${MERGE_PER_TILE_OVERHEAD_SEC:-}
+      MERGE_TIME_CEILING_SEC: ${MERGE_TIME_CEILING_SEC:-}
+      MOSAIC_TIMEOUT_SEC: ${MOSAIC_TIMEOUT_SEC:-}
+      MOSAIC_DOWNLOAD_MIB_PER_SEC: ${MOSAIC_DOWNLOAD_MIB_PER_SEC:-}
+      MOSAIC_GDAL_SEC_PER_GIB: ${MOSAIC_GDAL_SEC_PER_GIB:-}
+      MOSAIC_PER_TILE_OVERHEAD_SEC: ${MOSAIC_PER_TILE_OVERHEAD_SEC:-}
+      MOSAIC_TIME_CEILING_SEC: ${MOSAIC_TIME_CEILING_SEC:-}
+      GRID_DOWNLOAD_MIB_PER_SEC: ${GRID_DOWNLOAD_MIB_PER_SEC:-}
+      GRID_SEC_PER_MILLION_POINTS: ${GRID_SEC_PER_MILLION_POINTS:-}
+      GRID_SEC_PER_MILLION_CELLS: ${GRID_SEC_PER_MILLION_CELLS:-}
+      GRID_PER_CHUNK_OVERHEAD_SEC: ${GRID_PER_CHUNK_OVERHEAD_SEC:-}
+      GRID_CHUNK_CELLS: ${GRID_CHUNK_CELLS:-}
+      GRID_TIME_CEILING_SEC: ${GRID_TIME_CEILING_SEC:-}
       # Deployed ref for /api/portal-info (QGIS plugin discovery and
       # support conversations). Stamped by deploy.sh from git describe.
       GG_VERSION: ${GG_VERSION:-}
@@ -553,6 +574,21 @@ services:
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       MINIO_BUCKET: ${S3_BUCKET:-gratisgis}
       SCRATCH_DIR: /scratch
+      # Operator tuning knobs (#205 / #199 / #208). These were
+      # documented as env-tunable but never passed through compose,
+      # so only the code defaults ever applied; discovered when the
+      # first chunked Elkins build needed a smaller GRID_CHUNK_CELLS
+      # than the default and the .env.prod override silently did
+      # nothing. Empty values fall back to the code defaults.
+      ANALYSIS_TIMEOUT_SEC: ${ANALYSIS_TIMEOUT_SEC:-}
+      MERGE_TIMEOUT_SEC: ${MERGE_TIMEOUT_SEC:-}
+      MERGE_SCRATCH_FACTOR: ${MERGE_SCRATCH_FACTOR:-}
+      MERGE_MIN_FREE_GB: ${MERGE_MIN_FREE_GB:-}
+      MOSAIC_TIMEOUT_SEC: ${MOSAIC_TIMEOUT_SEC:-}
+      MOSAIC_SCRATCH_FACTOR: ${MOSAIC_SCRATCH_FACTOR:-}
+      GRID_CHUNK_CELLS: ${GRID_CHUNK_CELLS:-}
+      GRID_CHUNK_BUFFER_CELLS: ${GRID_CHUNK_BUFFER_CELLS:-}
+      GRID_MAX_CHUNKS: ${GRID_MAX_CHUNKS:-}
     volumes:
       - pointcloud-scratch:/scratch
     networks:
