@@ -201,7 +201,14 @@ def test_plan_grid_chunks_elkins_shape():
 
 
 def test_pdal_bounds_str():
-    assert runner.pdal_bounds_str(1, 2, 3, 4) == "([1, 3], [2, 4])"
+    """Takes a (minx, miny, maxx, maxy) BOX and interleaves it into
+    PDAL's ([xmin, xmax], [ymin, ymax]) shape; the box-not-args
+    signature exists because an arg swap here cost a prod run."""
+    assert runner.pdal_bounds_str((1, 2, 3, 4)) == "([1, 3], [2, 4])"
+    chunk = runner.plan_grid_chunks(0, 0, 100, 100, 1.0, 64_000_000, 8)[0]
+    assert runner.pdal_bounds_str(chunk["buffered"]) == (
+        "([0, 100], [0, 100])"
+    )
 
 
 if __name__ == "__main__":

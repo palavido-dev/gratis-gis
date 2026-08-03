@@ -788,8 +788,17 @@ def wgs84_bbox(tif: Path) -> list[float] | None:
         return None
 
 
-def pdal_bounds_str(minx: float, miny: float, maxx: float, maxy: float) -> str:
-    """PDAL 2D bounds syntax: ([minx, maxx], [miny, maxy])."""
+def pdal_bounds_str(box: tuple[float, float, float, float]) -> str:
+    """PDAL 2D bounds syntax from a (minx, miny, maxx, maxy) box.
+
+    Takes the box as ONE tuple on purpose: the first Elkins run on
+    prod failed with a positional-argument swap at the call site
+    (min/max interleaved into PDAL's ([xmin, xmax], [ymin, ymax])
+    shape), which silently selected a garbage half-cloud region and
+    OOM-killed the chunk. A single box argument makes that mistake
+    unrepresentable.
+    """
+    minx, miny, maxx, maxy = box
     return f"([{minx}, {maxx}], [{miny}, {maxy}])"
 
 
@@ -921,13 +930,12 @@ def grid_chunked(
     for i, ch in enumerate(chunks):
         lo = prog_from + (span * i) // len(chunks)
         hi = prog_from + (span * (i + 1)) // len(chunks)
-        bminx, bminy, bmaxx, bmaxy = ch["buffered"]
         raw = work / f"{name}-chunk-{i:04d}-raw.tif"
         stages: list[dict] = [
             {
                 "type": "readers.copc",
                 "filename": str(src),
-                "bounds": pdal_bounds_str(bminx, bmaxx, bminy, bmaxy),
+                "bounds": pdal_bounds_str(ch["buffered"]),
             }
         ]
         if ground_only:
@@ -940,7 +948,7 @@ def grid_chunked(
             "resolution": resolution,
             "output_type": output_type,
             "window_size": 3,
-            "bounds": pdal_bounds_str(bminx, bmaxx, bminy, bmaxy),
+            "bounds": pdal_bounds_str(ch["buffered"]),
             "gdaldriver": "GTiff",
             "gdalopts": "COMPRESS=DEFLATE,TILED=YES,BIGTIFF=IF_SAFER",
         }
@@ -950,8 +958,14 @@ def grid_chunked(
         pipeline = work / f"{name}-chunk-{i:04d}.json"
         pipeline.write_text(json.dumps({"pipeline": stages}))
         try:
+            # --stream is load-bearing: `pdal pipeline` does NOT
+            # auto-stream, and standard mode materializes the whole
+            # chunk's point view (measured on prod: a dense chunk
+            # OOMs the 2.5 GiB worker cgroup, while the identical
+            # pipeline streams at ~635 MB). Every stage here is
+            # streamable because writers.gdal has explicit bounds.
             run_long(
-                ["pdal", "pipeline", str(pipeline)], work,
+                ["pdal", "pipeline", "--stream", str(pipeline)], work,
                 conn, job_id, ANALYSIS_TIMEOUT_SEC, lo, hi,
             )
         except JobCancelled:
