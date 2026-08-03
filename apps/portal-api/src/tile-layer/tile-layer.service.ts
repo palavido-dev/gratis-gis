@@ -576,6 +576,17 @@ export class TileLayerService {
   ): Promise<{ jobId: string; itemId: string; estimatedSec: number; humanEstimate: string }> {
     const item = await this.assertMosaicTarget(user, itemId, 'build');
     const sources = validateMosaicSources(body.sources);
+    // A rebuild over already-registered sources (the failed-build
+    // retry path) keeps each source's original addedAt instead of
+    // restamping history.
+    const prev = isTileLayerData(item.data) ? item.data : null;
+    const prevAdded = new Map(
+      (prev?.sources ?? []).map((s) => [s.storageKey, s.addedAt]),
+    );
+    for (const s of sources) {
+      const kept = prevAdded.get(s.storageKey);
+      if (kept) s.addedAt = kept;
+    }
     return this.enqueueMosaic(user, item, sources);
   }
 

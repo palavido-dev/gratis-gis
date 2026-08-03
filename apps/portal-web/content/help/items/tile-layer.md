@@ -89,6 +89,23 @@ You can see the current state on the tile layer's detail page;
 a status block above the metadata card shows queued / building /
 ready / failed with timestamps.
 
+## Combining several images into one mosaic
+
+Aerial imagery usually arrives as a grid of tiles. Pick several
+raster files at once in the upload dialog (or use **Add more
+images** on an existing imagery layer) and the portal combines
+them server-side into one seamless mosaic, then feeds it through
+the same COG-then-PMTiles bridge as a single upload. Where images
+overlap, the one added last wins. The source images are kept, so
+coverage can grow later without re-uploading what's already
+there: adding images re-composes over the full set.
+
+Before anything uploads, the portal estimates the build time from
+the batch size and refuses a batch that cannot finish inside the
+server's job window (the operator can tune the `MOSAIC_*`
+settings). Mosaicking applies to plain imagery formats only; tile
+packages (`.pmtiles` / `.mbtiles` / `.zip`) upload one at a time.
+
 ## TPK / TPKX / ECW / MrSID
 
 Esri's TPK and TPKX bundles aren't accepted at upload today. They

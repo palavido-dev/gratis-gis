@@ -14,12 +14,40 @@ import {
   Upload as UploadIcon,
 } from 'lucide-react';
 import type {
+  MergeCostCoefficients,
   TileLayerData,
   TileLayerOriginalFormat,
 } from '@gratis-gis/shared-types';
-import { isTileLayerData } from '@gratis-gis/shared-types';
+import {
+  estimateMergeSeconds,
+  formatRoughDuration,
+  isTileLayerData,
+} from '@gratis-gis/shared-types';
 import { formatBytes } from '@/lib/format-bytes';
+import { UploadError, fileKey, uploadBatch } from '@/lib/batch-upload';
 import { DemAnalysisSection } from './dem-analysis';
+
+/** What one presigned-PUT source upload produces (#199); the shape
+ *  mosaic-build / mosaic-add-sources take per source. */
+interface SourceDescriptor {
+  storageKey: string;
+  fileName: string;
+  sizeBytes: number;
+}
+
+/** Raster-only extensions eligible for mosaicking. Pre-tiled
+ *  packages (.pmtiles / .mbtiles / .zip) stay single-file: there
+ *  is no raster to compose. */
+function isMosaicSource(name: string): boolean {
+  const lower = name.toLowerCase();
+  return (
+    lower.endsWith('.tif') ||
+    lower.endsWith('.tiff') ||
+    lower.endsWith('.geotiff') ||
+    lower.endsWith('.cog') ||
+    lower.endsWith('.jp2')
+  );
+}
 
 /**
  * Detail-page editor for tile_layer items (#179). Three states:
@@ -56,19 +84,37 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [progressLabel, setProgressLabel] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const addInputRef = useRef<HTMLInputElement | null>(null);
   const [copied, setCopied] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  // #199 mosaic state: worker ETA for the running build, resumable
+  // uploads (keyed by name|size|mtime), and the partial-failure
+  // recovery offer. Mirrors the point-cloud panel.
+  const [buildEta, setBuildEta] = useState<string | null>(null);
+  const uploadedRef = useRef(new Map<string, SourceDescriptor>());
+  const limitsRef = useRef<MergeCostCoefficients | null>(null);
+  const [pendingRetry, setPendingRetry] = useState<{
+    files: File[];
+    endpoint: 'mosaic-build' | 'mosaic-add-sources';
+    uploadedCount: number;
+  } | null>(null);
+
+  const building = data.processingState === 'building';
+  const buildFailed = data.processingState === 'failed';
 
   // Poll the item while the pyramid build is in flight.  States
   // that should trigger refresh: 'cog-ready' (waiting for the
-  // worker to pick it up) and 'tiling' (job is running).
-  // Terminal states ('pmtiles-ready', 'tiling-failed') don't
-  // trigger polling.  Polling stops when the component unmounts
-  // OR when the state advances out of a transient value.
+  // worker to pick it up), 'tiling' (job is running), and #199
+  // 'building' (the mosaic worker is composing sources).
+  // Terminal states ('pmtiles-ready', 'tiling-failed', 'failed')
+  // don't trigger polling.  Polling stops when the component
+  // unmounts OR when the state advances out of a transient value.
   const transientState =
     data.processingState === 'cog-ready' ||
-    data.processingState === 'tiling';
+    data.processingState === 'tiling' ||
+    data.processingState === 'building';
   useEffect(() => {
     if (!transientState) return;
     let cancelled = false;
@@ -143,11 +189,18 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
   }
 
   async function onFileChange(ev: React.ChangeEvent<HTMLInputElement>) {
-    const file = ev.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(ev.target.files ?? []);
     // Reset the input so the same file can be selected twice (a
     // re-upload of the same name shouldn't be silently ignored).
     ev.target.value = '';
+    if (files.length === 0) return;
+    // #199: several files picked at once become one mosaic. One
+    // file keeps the original single-upload path untouched.
+    if (files.length > 1) {
+      await runMosaic(files, 'mosaic-build');
+      return;
+    }
+    const file = files[0]!;
     const lower = file.name.toLowerCase();
     // Supported: pre-tiled containers + raw raster inputs that
     // the api converts to COG at ingest (then a background
@@ -312,6 +365,256 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
     }
   }
 
+  // ---------------------- imagery mosaic (#199) ----------------------
+
+  function onAddImages(ev: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(ev.target.files ?? []);
+    ev.target.value = '';
+    if (files.length === 0) return;
+    void runMosaic(files, 'mosaic-add-sources');
+  }
+
+  /** Deployment-wide cost coefficients, fetched once per mount.
+   *  Failure is non-fatal: the server re-checks at enqueue. */
+  async function mosaicLimits(): Promise<MergeCostCoefficients | null> {
+    if (limitsRef.current) return limitsRef.current;
+    try {
+      const res = await fetch('/api/portal/tile-layer/mosaic-limits');
+      if (!res.ok) return null;
+      limitsRef.current = (await res.json()) as MergeCostCoefficients;
+      return limitsRef.current;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Total bytes + image count the build will actually process:
+   *  adding to an existing mosaic re-composes over the FULL set,
+   *  and a single-file layer's original counts as one source. */
+  function mosaicWorkload(
+    files: File[],
+    endpoint: 'mosaic-build' | 'mosaic-add-sources',
+  ): { bytes: number; tiles: number } {
+    let bytes = files.reduce((n, f) => n + f.size, 0);
+    let tiles = files.length;
+    if (endpoint === 'mosaic-add-sources') {
+      const existing = data.sources ?? [];
+      if (existing.length > 0) {
+        bytes += existing.reduce((n, s) => n + s.sizeBytes, 0);
+        tiles += existing.length;
+      } else if (data.cogStorageKey || data.storageKey) {
+        bytes += data.cogSizeBytes ?? data.sizeBytes ?? 0;
+        tiles += 1;
+      }
+    }
+    return { bytes, tiles };
+  }
+
+  /** One presigned PUT, mirroring the single-file path but with
+   *  batch-friendly error semantics: terminal refusals are
+   *  non-retryable UploadErrors, network blips retry. */
+  async function mosaicUploadOne(file: File): Promise<SourceDescriptor> {
+    const presignRes = await fetch('/api/portal/storage/presign-upload', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        kind: 'item-tile-layer',
+        contentType: 'application/octet-stream',
+      }),
+    });
+    if (!presignRes.ok) {
+      throw new UploadError(
+        `Could not start the upload (HTTP ${presignRes.status}).`,
+        presignRes.status >= 500,
+      );
+    }
+    const presign = (await presignRes.json()) as {
+      uploadUrl: string;
+      key: string;
+      maxBytes: number;
+    };
+    if (file.size > presign.maxBytes) {
+      throw new UploadError(
+        `"${file.name}" is ${formatBytes(file.size)}, over the ` +
+          `${formatBytes(presign.maxBytes)} per-file limit.`,
+        false,
+      );
+    }
+    await new Promise<void>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) resolve();
+        else reject(new Error(`Upload failed (HTTP ${xhr.status})`));
+      };
+      xhr.onerror = () => reject(new Error('Upload network error'));
+      xhr.open('PUT', presign.uploadUrl);
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+      xhr.send(file);
+    });
+    return { storageKey: presign.key, fileName: file.name, sizeBytes: file.size };
+  }
+
+  /** Upload N images (resumable, continue-on-failure) and queue the
+   *  mosaic build. Mirrors the point-cloud panel's runBuild. */
+  async function runMosaic(
+    files: File[],
+    endpoint: 'mosaic-build' | 'mosaic-add-sources',
+  ) {
+    setUploadError(null);
+    setPendingRetry(null);
+    const bad = files.find((f) => !isMosaicSource(f.name));
+    if (bad) {
+      setUploadError(
+        `"${bad.name}" can't join a mosaic. Combining works with plain ` +
+          'imagery (.tif / .tiff / .geotiff / .cog / .jp2); tile packages ' +
+          'upload one at a time.',
+      );
+      return;
+    }
+    // #205 rule: refuse an impossible build BEFORE uploading
+    // gigabytes. The server enforces the same model at enqueue.
+    const limits = await mosaicLimits();
+    if (limits) {
+      const { bytes, tiles } = mosaicWorkload(files, endpoint);
+      const sec = estimateMergeSeconds(bytes, tiles, limits);
+      if (sec > limits.ceilingSec) {
+        setUploadError(
+          `That is ${tiles} images totalling ${formatBytes(bytes)}. ` +
+            `Building the mosaic would take ${formatRoughDuration(sec)}, ` +
+            'beyond what this server allows in one job. Split it into ' +
+            'smaller mosaics.',
+        );
+        return;
+      }
+    }
+    setUploading(true);
+    setProgressLabel(`Uploading ${files.length} images...`);
+    try {
+      const outcome = await uploadBatch(files, {
+        uploadOne: mosaicUploadOne,
+        alreadyDone: uploadedRef.current,
+        concurrency: 3,
+        retries: 3,
+        onFileDone: (done, total) =>
+          setProgressLabel(`Uploaded ${done} of ${total} images...`),
+      });
+      for (const s of outcome.succeeded) {
+        uploadedRef.current.set(fileKey(s.file), s.descriptor);
+      }
+      if (outcome.failed.length > 0) {
+        const names = outcome.failed
+          .slice(0, 3)
+          .map((f) => `"${f.file.name}"`)
+          .join(', ');
+        setUploadError(
+          `${outcome.failed.length} of ${files.length} images did not ` +
+            `upload (${names}${outcome.failed.length > 3 ? ', ...' : ''}). ` +
+            outcome.failed[0]!.error,
+        );
+        setPendingRetry({
+          files,
+          endpoint,
+          uploadedCount: outcome.succeeded.length,
+        });
+        return;
+      }
+      // Descriptors in picked-file order: where images overlap, the
+      // LAST one wins in the composed mosaic.
+      const sources = files
+        .map((f) => uploadedRef.current.get(fileKey(f)))
+        .filter((s): s is SourceDescriptor => Boolean(s));
+      await startMosaic(sources, endpoint);
+    } finally {
+      setUploading(false);
+      setProgressLabel(null);
+    }
+  }
+
+  async function startMosaic(
+    sources: SourceDescriptor[],
+    endpoint: 'mosaic-build' | 'mosaic-add-sources',
+  ) {
+    const res = await fetch(
+      `/api/portal/items/${itemId}/tile-layer/${endpoint}`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sources }),
+      },
+    );
+    if (!res.ok) {
+      let msg = `Could not start the mosaic build (HTTP ${res.status}).`;
+      try {
+        const body = (await res.json()) as { message?: unknown };
+        if (typeof body.message === 'string') msg = body.message;
+      } catch {
+        /* keep fallback */
+      }
+      setUploadError(msg);
+      return;
+    }
+    const body = (await res.json()) as { humanEstimate?: unknown };
+    setBuildEta(
+      typeof body.humanEstimate === 'string' ? body.humanEstimate : null,
+    );
+    uploadedRef.current.clear();
+    setPendingRetry(null);
+    await refreshItem();
+  }
+
+  /** Re-run the whole batch; already-uploaded files resume via the
+   *  uploadedRef cache, so only the failures transfer again. */
+  async function retryFailedUploads() {
+    const p = pendingRetry;
+    if (!p) return;
+    await runMosaic(p.files, p.endpoint);
+  }
+
+  /** Start the build with just the images that made it. */
+  async function buildWithUploaded() {
+    const p = pendingRetry;
+    if (!p) return;
+    const sources = p.files
+      .map((f) => uploadedRef.current.get(fileKey(f)))
+      .filter((s): s is SourceDescriptor => Boolean(s));
+    if (sources.length === 0) return;
+    setUploadError(null);
+    setPendingRetry(null);
+    await startMosaic(sources, p.endpoint);
+  }
+
+  /** Failed-build retry over the retained sources; addedAt is
+   *  preserved server-side for already-registered keys. */
+  async function retryMosaicBuild() {
+    const sources = (data.sources ?? []).map((s) => ({
+      storageKey: s.storageKey,
+      fileName: s.fileName,
+      sizeBytes: s.sizeBytes,
+    }));
+    if (sources.length === 0) return;
+    setRetrying(true);
+    try {
+      await startMosaic(sources, 'mosaic-build');
+    } finally {
+      setRetrying(false);
+    }
+  }
+
+  async function refreshItem() {
+    try {
+      const res = await fetch(`/api/portal/items/${itemId}`, {
+        credentials: 'include',
+      });
+      if (!res.ok) return;
+      const body = (await res.json()) as { item?: { data?: unknown } };
+      if (body.item?.data && isTileLayerData(body.item.data)) {
+        setData(body.item.data);
+      }
+    } catch {
+      /* the poll will catch up */
+    }
+  }
+
   async function copyTileUrl() {
     if (!data.tileUrl) return;
     try {
@@ -338,9 +641,10 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
             map tiles, or plain imagery as <strong>.tif</strong> /{' '}
             <strong>.tiff</strong> / <strong>.geotiff</strong>,{' '}
             <strong>.cog</strong>, <strong>.jp2</strong>.
-            Everything is prepared automatically so maps can
-            display it quickly. TPK / TPKX, ECW, and MrSID
-            aren&rsquo;t supported.
+            Pick several images at once and they become one
+            seamless mosaic. Everything is prepared automatically
+            so maps can display it quickly. TPK / TPKX, ECW, and
+            MrSID aren&rsquo;t supported.
           </p>
         </div>
         <div className="space-y-3 p-4 text-sm">
@@ -352,6 +656,12 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
                   {formatBytes(data.sizeBytes)}
                 </span>
               </div>
+              {(data.sources?.length ?? 0) > 0 ? (
+                <p className="text-xs text-muted">
+                  Built by combining {data.sources!.length} images.
+                  The originals are kept, so more can be added.
+                </p>
+              ) : null}
               {data.name || data.description ? (
                 <p className="text-xs text-muted">
                   {data.name ? <strong>{data.name}</strong> : null}
@@ -360,11 +670,54 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
                 </p>
               ) : null}
             </div>
-          ) : (
+          ) : building ? null : (
             <p className="text-xs text-muted">
               No tile file uploaded yet.
             </p>
           )}
+          {/* #199: mosaic build lifecycle. Lives here rather than
+              in the pyramid card because a FRESH mosaic has no
+              served file yet (ready is false) and the pyramid card
+              only exists after one. */}
+          {building ? (
+            <div className="flex items-start gap-2 rounded-md border border-info/30 bg-info/10 px-3 py-2 text-xs text-ink-1">
+              <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-info" />
+              <span className="text-info/80">
+                <span className="font-medium text-info">
+                  Combining {data.sources?.length ?? ''} images into
+                  one mosaic...
+                </span>{' '}
+                {buildEta ? `Estimated: ${buildEta}. ` : ''}
+                {ready
+                  ? 'The current version stays available until it finishes.'
+                  : 'This page updates by itself when it finishes.'}
+              </span>
+            </div>
+          ) : null}
+          {buildFailed ? (
+            <div className="space-y-2">
+              <div className="flex items-start gap-2 rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-ink-1">
+                <span className="font-medium text-warn">
+                  The mosaic build failed.
+                </span>
+                <span className="text-warn/80">
+                  {data.processingError ??
+                    'Something went wrong while combining the images.'}{' '}
+                  Your uploaded images were kept.
+                </span>
+              </div>
+              {canEdit && (data.sources?.length ?? 0) > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => void retryMosaicBuild()}
+                  disabled={retrying || uploading}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-40"
+                >
+                  {retrying ? 'Starting...' : 'Try the build again'}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           {ready ? (
             /* Download for desktop GIS (QGIS, others): the same
                bytes maps stream, served as a named file. Raster
@@ -396,7 +749,7 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
               <button
                 type="button"
                 onClick={() => void pickFile()}
-                disabled={uploading}
+                disabled={uploading || building}
                 className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground hover:opacity-90 disabled:opacity-50"
               >
                 {uploading ? (
@@ -407,16 +760,43 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
                   <UploadIcon className="h-4 w-4" />
                 )}
                 {uploading
-                  ? `Uploading ${uploadProgress}%...`
+                  ? (progressLabel ?? `Uploading ${uploadProgress}%...`)
                   : ready
                     ? 'Replace file'
                     : 'Upload file'}
               </button>
+              {/* #199: extend an existing raster layer with more
+                  images. Hidden for vector packages (nothing to
+                  compose) and elevation layers (terrain composes
+                  per map through the elevation stack instead). */}
+              {ready &&
+              !data.dem &&
+              data.kind !== 'vector' &&
+              (data.cogStorageKey || (data.sources?.length ?? 0) > 0) ? (
+                <button
+                  type="button"
+                  onClick={() => addInputRef.current?.click()}
+                  disabled={uploading || building}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 shadow-card hover:bg-surface-2 disabled:opacity-50"
+                >
+                  <UploadIcon className="h-4 w-4" />
+                  Add more images
+                </button>
+              ) : null}
               <input
                 ref={fileInputRef}
                 type="file"
+                multiple
                 accept=".pmtiles,.mbtiles,.zip,.tif,.tiff,.geotiff,.cog,.jp2"
                 onChange={(e) => void onFileChange(e)}
+                className="hidden"
+              />
+              <input
+                ref={addInputRef}
+                type="file"
+                multiple
+                accept=".tif,.tiff,.geotiff,.cog,.jp2"
+                onChange={onAddImages}
                 className="hidden"
               />
             </div>
@@ -425,6 +805,28 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
             <p className="text-xs text-danger" role="alert">
               {uploadError}
             </p>
+          ) : null}
+          {pendingRetry ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void retryFailedUploads()}
+                disabled={uploading}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-40"
+              >
+                Retry the failed images
+              </button>
+              {pendingRetry.uploadedCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => void buildWithUploaded()}
+                  disabled={uploading}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-40"
+                >
+                  Start with the {pendingRetry.uploadedCount} uploaded
+                </button>
+              ) : null}
+            </div>
           ) : null}
         </div>
       </section>
