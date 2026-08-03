@@ -258,7 +258,7 @@ export function buildTileLayer(
   }
   if (data.dem) {
     return {
-      error: `${item.title} is an elevation layer. To use it, open the basemap menu in a map's toolbar and pick it under "3D terrain".`,
+      error: `${item.title} is an elevation layer. To use it, add it in the "3D terrain" section at the bottom of a map's layers panel.`,
     };
   }
   // Pin the format with a suffixed URL: the bare /file endpoint

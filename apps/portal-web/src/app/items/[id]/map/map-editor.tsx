@@ -4,8 +4,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
-  ChevronDown,
-  ChevronUp,
   Eye,
   List,
   Loader2,
@@ -13,7 +11,6 @@ import {
   Save,
   ShieldCheck,
   Table,
-  X,
 } from 'lucide-react';
 import type {
   Group,
@@ -923,7 +920,7 @@ export function MapEditor({
       markDirty();
       toast(`3D terrain is on, using "${match.title}".`, {
         description:
-          'Tilt the map (right-drag) to see it. Turn it off under the basemap button.',
+          'Tilt the map (right-drag) to see it. Manage it in the 3D terrain section of the layers panel.',
       });
     } catch {
       /* enhancement only; never block the add */
@@ -972,8 +969,8 @@ export function MapEditor({
           : `3D terrain is on, using "${title}".`,
         {
           description: hadTerrain
-            ? 'Where elevation layers overlap, the one nearer the top of the terrain list wins. Reorder under the basemap button.'
-            : 'Tilt the map (right-drag) to see it. Manage terrain under the basemap button.',
+            ? 'Where elevation layers overlap, the one nearer the top wins. Reorder in the 3D terrain section of the layers panel.'
+            : 'Tilt the map (right-drag) to see it. Manage it in the 3D terrain section of the layers panel.',
         },
       );
     } catch {
@@ -1018,10 +1015,11 @@ export function MapEditor({
     [],
   );
 
-  // Elevation layers available for 3D terrain (#186): tile_layer
-  // items flagged dem. Fetched lazily the first time the basemap
-  // menu opens; the list is tiny (analysis outputs), so the non-lite
-  // payload is fine and we need `data` for the dem flag + tileUrl.
+  // Elevation layers available for 3D terrain (#186 / #211):
+  // tile_layer items flagged dem. Fetched lazily when the layers
+  // panel's terrain section first opens; the list is tiny
+  // (analysis outputs), so the non-lite payload is fine and we
+  // need `data` for the dem flag + tileUrl + maxZoom.
   const [demLayers, setDemLayers] = useState<
     Array<{
       id: string;
@@ -1030,19 +1028,22 @@ export function MapEditor({
       maxZoom?: number;
     }> | null
   >(null);
-  useEffect(() => {
-    if (!basemapMenuOpen || demLayers !== null) return;
-    let cancelled = false;
+  const demLayersLoading = useRef(false);
+  const loadDemLayers = useCallback(() => {
+    if (demLayers !== null || demLayersLoading.current) return;
+    demLayersLoading.current = true;
     void (async () => {
       try {
         const res = await fetch('/api/portal/items?type=tile_layer&full=1');
-        if (!res.ok || cancelled) return;
+        if (!res.ok) {
+          setDemLayers([]);
+          return;
+        }
         const items = (await res.json()) as Array<{
           id: string;
           title: string;
           data?: { dem?: boolean; tileUrl?: string; maxZoom?: number } | null;
         }>;
-        if (cancelled) return;
         setDemLayers(
           items
             .filter((i) => i.data?.dem && i.data?.tileUrl)
@@ -1056,13 +1057,21 @@ export function MapEditor({
             })),
         );
       } catch {
-        if (!cancelled) setDemLayers([]);
+        setDemLayers([]);
+      } finally {
+        demLayersLoading.current = false;
       }
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [basemapMenuOpen, demLayers]);
+  }, [demLayers]);
+
+  /** #211: height boost, now driven from the layers panel's
+   *  terrain section. */
+  function setTerrainExaggeration(v: number) {
+    setMap((m) =>
+      m.terrain ? { ...m, terrain: { ...m.terrain, exaggeration: v } } : m,
+    );
+    markDirty();
+  }
 
   /**
    * #74: set the map's geocoding source. Pass `null` (or empty
@@ -1393,186 +1402,10 @@ export function MapEditor({
                   })}
                 </ul>
               )}
-              {/* #186: 3D terrain lives with the basemap choice --
-                  both are map-wide ground settings. Only shown when
-                  the org has at least one elevation layer. #211:
-                  the single picker became an ordered elevation
-                  stack; the menu stays open while building it. */}
-              {demLayers && demLayers.length > 0 ? (
-                <>
-                  <div className="border-t border-border bg-surface-2 px-3 py-1.5 text-2xs font-semibold uppercase tracking-wide text-muted">
-                    3D terrain
-                  </div>
-                  <ul className="py-1">
-                    <li>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          clearTerrain();
-                          setBasemapMenuOpen(false);
-                        }}
-                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-2 ${
-                          !map.terrain
-                            ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300'
-                            : 'text-ink-1'
-                        }`}
-                      >
-                        <span>Flat (off)</span>
-                        {!map.terrain ? (
-                          <span className="ml-auto text-2xs uppercase tracking-wide">
-                            active
-                          </span>
-                        ) : null}
-                      </button>
-                    </li>
-                  </ul>
-                  {(() => {
-                    const stack = effectiveTerrainStack(map);
-                    const inStack = new Set(stack.map((e) => e.itemId));
-                    const available = demLayers.filter(
-                      (d) => !inStack.has(d.id),
-                    );
-                    return (
-                      <>
-                        {stack.length > 0 ? (
-                          <ul className="border-t border-border py-1">
-                            {stack.map((entry, i) => {
-                              const title =
-                                demLayers.find((d) => d.id === entry.itemId)
-                                  ?.title ?? 'Elevation layer';
-                              return (
-                                <li
-                                  key={entry.itemId}
-                                  className="flex items-center gap-1 px-3 py-1 text-ink-1"
-                                >
-                                  <span className="min-w-0 flex-1 truncate">
-                                    {title}
-                                  </span>
-                                  {i === 0 && stack.length > 1 ? (
-                                    <span className="shrink-0 text-2xs uppercase tracking-wide text-muted">
-                                      on top
-                                    </span>
-                                  ) : null}
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      moveTerrainEntry(entry.itemId, -1)
-                                    }
-                                    disabled={i === 0}
-                                    className="shrink-0 rounded p-0.5 text-muted enabled:hover:bg-surface-2 enabled:hover:text-ink-1 disabled:opacity-30"
-                                    aria-label={`Move ${title} up`}
-                                    title="Move up (higher priority)"
-                                  >
-                                    <ChevronUp className="h-3.5 w-3.5" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      moveTerrainEntry(entry.itemId, 1)
-                                    }
-                                    disabled={i === stack.length - 1}
-                                    className="shrink-0 rounded p-0.5 text-muted enabled:hover:bg-surface-2 enabled:hover:text-ink-1 disabled:opacity-30"
-                                    aria-label={`Move ${title} down`}
-                                    title="Move down (lower priority)"
-                                  >
-                                    <ChevronDown className="h-3.5 w-3.5" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      removeTerrainEntry(entry.itemId)
-                                    }
-                                    className="shrink-0 rounded p-0.5 text-muted hover:bg-surface-2 hover:text-ink-1"
-                                    aria-label={`Remove ${title} from terrain`}
-                                    title="Remove"
-                                  >
-                                    <X className="h-3.5 w-3.5" />
-                                  </button>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        ) : null}
-                        {stack.length > 1 ? (
-                          <p className="px-3 pb-1 text-2xs leading-snug text-muted">
-                            Where elevation layers overlap, the one
-                            nearer the top of this list wins.
-                          </p>
-                        ) : null}
-                        {available.length > 0 ? (
-                          <ul className="border-t border-border py-1">
-                            {stack.length > 0 ? (
-                              <li className="px-3 py-0.5 text-2xs uppercase tracking-wide text-muted">
-                                Add elevation
-                              </li>
-                            ) : null}
-                            {available.map((d) => (
-                              <li key={d.id}>
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  onClick={() =>
-                                    addTerrainEntry({
-                                      itemId: d.id,
-                                      tileUrl: d.tileUrl,
-                                      ...(typeof d.maxZoom === 'number'
-                                        ? { maxZoom: d.maxZoom }
-                                        : {}),
-                                    })
-                                  }
-                                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-ink-1 hover:bg-surface-2"
-                                >
-                                  <span className="truncate">{d.title}</span>
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : null}
-                      </>
-                    );
-                  })()}
-                  {map.terrain ? (
-                    <div className="border-t border-border px-3 py-2">
-                      <label className="flex items-center justify-between text-2xs text-muted">
-                        <span>Height boost</span>
-                        <span className="font-medium text-ink-1">
-                          {(map.terrain.exaggeration ?? 1).toFixed(2).replace(/\.?0+$/, '')}x
-                        </span>
-                      </label>
-                      <input
-                        type="range"
-                        min={0.5}
-                        max={3}
-                        step={0.25}
-                        value={map.terrain.exaggeration ?? 1}
-                        onChange={(e) => {
-                          const v = Number(e.target.value);
-                          setMap((m) =>
-                            m.terrain
-                              ? {
-                                  ...m,
-                                  terrain: { ...m.terrain, exaggeration: v },
-                                }
-                              : m,
-                          );
-                          markDirty();
-                        }}
-                        className="mt-1 w-full accent-accent"
-                        aria-label="Terrain height boost"
-                      />
-                      <p className="mt-0.5 text-2xs leading-snug text-muted">
-                        1x is true height. Boost it to make gentle
-                        hills easier to read.
-                      </p>
-                    </div>
-                  ) : null}
-                  <p className="border-t border-border px-3 py-2 text-2xs leading-relaxed text-muted">
-                    With terrain on, tilt the map (right-drag) to see
-                    hills and valleys in 3D.
-                  </p>
-                </>
-              ) : null}
+              {/* #211 terrain relocation (user feedback): the 3D
+                  terrain stack moved to the layers panel, where
+                  its top-wins ordering reads like the layer list
+                  it affects. This menu is basemaps only again. */}
             </div>
           ) : null}
         </div>
@@ -1697,6 +1530,23 @@ export function MapEditor({
         setTableOpen(true);
       }}
       onUseLayerElevation={useLayerElevation}
+      {...(canEdit
+        ? {
+            terrain: {
+              stack: effectiveTerrainStack(map),
+              ...(map.terrain?.exaggeration !== undefined
+                ? { exaggeration: map.terrain.exaggeration }
+                : {}),
+              demLayers,
+              onLoad: loadDemLayers,
+              onAdd: addTerrainEntry,
+              onRemove: removeTerrainEntry,
+              onMove: moveTerrainEntry,
+              onClear: clearTerrain,
+              onExaggeration: setTerrainExaggeration,
+            },
+          }
+        : {})}
       onZoomToLayer={(layerId) => {
         // Zoom-to-extent is a deliberate authoring action, so it
         // marks the map dirty: Save's camera capture only helps if

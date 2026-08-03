@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   Eye,
   EyeOff,
   Filter,
@@ -32,6 +33,7 @@ import type {
   MapLayer,
   MapLayerScale,
   MapLayerSearch,
+  TerrainStackEntry,
 } from '@gratis-gis/shared-types';
 import {
   DEFAULT_LAYER_SCALE,
@@ -99,6 +101,34 @@ interface Props {
    * authoring affordance entirely.
    */
   showAddLayer?: boolean;
+  /**
+   * #211 (relocated per user feedback): the 3D terrain stack
+   * editor, a collapsible section pinned under the layer list.
+   * The stack affects how EVERY layer drapes, not just the
+   * basemap, and its priority ordering shares the layer list's
+   * top-wins mental model, so it lives with the layers rather
+   * than in the basemap menu. Absent = section hidden (viewer
+   * runtimes and read-only panels).
+   */
+  terrain?: {
+    /** Effective stack, first entry wins. */
+    stack: TerrainStackEntry[];
+    exaggeration?: number;
+    /** Elevation layers available to add; null = not fetched
+     *  yet (the section triggers onLoad lazily). */
+    demLayers: Array<{
+      id: string;
+      title: string;
+      tileUrl: string;
+      maxZoom?: number;
+    }> | null;
+    onLoad: () => void;
+    onAdd: (entry: TerrainStackEntry) => void;
+    onRemove: (itemId: string) => void;
+    onMove: (itemId: string, delta: -1 | 1) => void;
+    onClear: () => void;
+    onExaggeration: (v: number) => void;
+  };
 }
 
 const DRAG_MIME = 'application/x-gg-layer';
@@ -126,6 +156,7 @@ export function LayerPanel({
   onUseLayerElevation,
   onChange,
   showAddLayer = true,
+  terrain,
 }: Props) {
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
@@ -613,6 +644,199 @@ export function LayerPanel({
           })()}
         </ul>
       )}
+      {terrain ? <TerrainSection terrain={terrain} /> : null}
+    </div>
+  );
+}
+
+/**
+ * #211 (relocated per user feedback): the map's 3D terrain stack,
+ * pinned under the layer list. The ground sits beneath the layers
+ * it lifts, and the stack's priority ordering reads exactly like
+ * the layer list above it: nearer the top wins where elevation
+ * layers overlap.
+ */
+function TerrainSection({
+  terrain,
+}: {
+  terrain: NonNullable<Props['terrain']>;
+}) {
+  const {
+    stack,
+    exaggeration,
+    demLayers,
+    onLoad,
+    onAdd,
+    onRemove,
+    onMove,
+    onClear,
+    onExaggeration,
+  } = terrain;
+  const [expanded, setExpanded] = useState(stack.length > 0);
+  // Resolve stack-entry titles (and the add list) lazily: on first
+  // expand, or immediately when the map already has terrain so the
+  // rows never render as placeholders.
+  useEffect(() => {
+    if (expanded || stack.length > 0) onLoad();
+  }, [expanded, stack.length, onLoad]);
+
+  // Nothing to offer and nothing applied: hide the section rather
+  // than render a dead end (matches the old basemap-menu gating).
+  if (demLayers !== null && demLayers.length === 0 && stack.length === 0) {
+    return null;
+  }
+  const inStack = new Set(stack.map((e) => e.itemId));
+  const available = (demLayers ?? []).filter((d) => !inStack.has(d.id));
+  const titleOf = (itemId: string) =>
+    (demLayers ?? []).find((d) => d.id === itemId)?.title ?? 'Elevation layer';
+
+  return (
+    <div className="border-t border-border">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted hover:bg-surface-2"
+        aria-expanded={expanded}
+      >
+        {expanded ? (
+          <ChevronDown className="h-3.5 w-3.5" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5" />
+        )}
+        <Mountain className="h-3.5 w-3.5" />
+        <span>3D terrain</span>
+        <span className="ml-auto text-2xs font-normal normal-case tracking-normal">
+          {stack.length > 0
+            ? `${stack.length} surface${stack.length > 1 ? 's' : ''}`
+            : 'off'}
+        </span>
+      </button>
+      {expanded ? (
+        <div className="space-y-2 px-3 pb-3">
+          {stack.length > 0 ? (
+            <ul className="space-y-0.5">
+              {stack.map((entry, i) => {
+                const title = titleOf(entry.itemId);
+                return (
+                  <li
+                    key={entry.itemId}
+                    className="flex items-center gap-1 rounded px-1 py-0.5 text-xs text-ink-1"
+                  >
+                    <span className="min-w-0 flex-1 truncate">{title}</span>
+                    {i === 0 && stack.length > 1 ? (
+                      <span className="shrink-0 text-2xs uppercase tracking-wide text-muted">
+                        on top
+                      </span>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => onMove(entry.itemId, -1)}
+                      disabled={i === 0}
+                      className="shrink-0 rounded p-0.5 text-muted enabled:hover:bg-surface-2 enabled:hover:text-ink-1 disabled:opacity-30"
+                      aria-label={`Move ${title} up`}
+                      title="Move up (wins where surfaces overlap)"
+                    >
+                      <ChevronUp className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onMove(entry.itemId, 1)}
+                      disabled={i === stack.length - 1}
+                      className="shrink-0 rounded p-0.5 text-muted enabled:hover:bg-surface-2 enabled:hover:text-ink-1 disabled:opacity-30"
+                      aria-label={`Move ${title} down`}
+                      title="Move down"
+                    >
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onRemove(entry.itemId)}
+                      className="shrink-0 rounded p-0.5 text-muted hover:bg-surface-2 hover:text-ink-1"
+                      aria-label={`Remove ${title} from terrain`}
+                      title="Remove"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+          {stack.length > 1 ? (
+            <p className="text-2xs leading-snug text-muted">
+              Where elevation layers overlap, the one nearer the top
+              of this list wins, same as the layers above.
+            </p>
+          ) : null}
+          {demLayers === null ? (
+            <p className="text-2xs text-muted">
+              Looking for elevation layers...
+            </p>
+          ) : available.length > 0 ? (
+            <div>
+              <p className="px-1 py-0.5 text-2xs uppercase tracking-wide text-muted">
+                {stack.length > 0 ? 'Add elevation' : 'Turn on 3D with'}
+              </p>
+              <ul>
+                {available.map((d) => (
+                  <li key={d.id}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onAdd({
+                          itemId: d.id,
+                          tileUrl: d.tileUrl,
+                          ...(typeof d.maxZoom === 'number'
+                            ? { maxZoom: d.maxZoom }
+                            : {}),
+                        })
+                      }
+                      className="flex w-full items-center gap-1.5 rounded px-1 py-1 text-left text-xs text-ink-1 hover:bg-surface-2"
+                    >
+                      <Plus className="h-3 w-3 shrink-0 text-muted" />
+                      <span className="truncate">{d.title}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {stack.length > 0 ? (
+            <>
+              <div>
+                <label className="flex items-center justify-between text-2xs text-muted">
+                  <span>Height boost</span>
+                  <span className="font-medium text-ink-1">
+                    {(exaggeration ?? 1).toFixed(2).replace(/\.?0+$/, '')}x
+                  </span>
+                </label>
+                <input
+                  type="range"
+                  min={0.5}
+                  max={3}
+                  step={0.25}
+                  value={exaggeration ?? 1}
+                  onChange={(e) => onExaggeration(Number(e.target.value))}
+                  className="mt-1 w-full accent-accent"
+                  aria-label="Terrain height boost"
+                />
+                <p className="mt-0.5 text-2xs leading-snug text-muted">
+                  1x is true height. Boost it to make gentle hills
+                  easier to read. Tilt the map (right-drag) to see
+                  the 3D.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onClear}
+                className="rounded border border-border px-2 py-1 text-2xs font-medium text-ink-1 hover:bg-surface-2"
+              >
+                Turn off 3D
+              </button>
+            </>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

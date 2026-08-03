@@ -852,7 +852,7 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
                 <span className="font-medium text-success">Ready.</span>
                 <span className="text-success/80">
                   {data.dem
-                    ? 'This elevation layer is ready. Pick it under the basemap button in a map to turn on 3D terrain.'
+                    ? "This elevation layer is ready. Add it in the 3D terrain section of a map's layers panel to turn on 3D."
                     : 'This layer is ready to use on maps.'}
                 </span>
               </div>
