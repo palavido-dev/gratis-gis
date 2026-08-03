@@ -269,6 +269,21 @@ sleep 3
 dc start keycloak pg_tileserv portal-web portal-worker pointcloud-worker portal-api
 GG_SERVICES_STOPPED=0
 
+# Re-apply the demo tester workspace on the LIVE db now that the
+# dump is done. Without this, a manual snapshot leaves the demo
+# de-stratified (everything Site Admin, testers owning nothing)
+# until the next nightly reset re-applies it, which reads as data
+# loss to anyone who looks in that window. The golden artifacts on
+# disk stay admin-owned either way; this only restores what
+# visitors see between now and the next reset. Best effort: a
+# failure here means "demo looks bare until 04:00", not a bad
+# snapshot.
+echo "=== Re-applying demo tester workspace (live db) ==="
+PG_CONTAINER="$GG_SNAP_PG" PG_USER="$POSTGRES_USER" PG_DB="$POSTGRES_DB_APP" \
+  ADMIN_USERNAME="$ADMIN_USERNAME" \
+  "$INFRA_DIR/seed-demo-workspace.sh" \
+  || echo "WARN: tester workspace re-apply failed; demo stays admin-owned until the nightly reset." >&2
+
 echo "=== Snapshot complete ==="
 ls -lh "$GOLDEN_DIR"
 echo ""
