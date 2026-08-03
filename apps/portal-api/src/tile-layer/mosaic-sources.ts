@@ -28,6 +28,8 @@ import {
   type TileLayerSource,
 } from '@gratis-gis/shared-types';
 
+import { envNum } from '../util/env-num.js';
+
 /** Same batch cap as the point-cloud merge; beyond this the right
  *  answer is separate mosaics, not one heroic job. */
 export const MOSAIC_MAX_SOURCES = 500;
@@ -36,11 +38,6 @@ export const MOSAIC_MAX_SOURCES = 500;
  *  (the body is client-supplied; an unpinned key would let the
  *  worker read arbitrary MinIO objects with its credentials). */
 export const MOSAIC_SOURCE_PREFIX = 'item-tile-layer/';
-
-function envNum(name: string, fallback: number): number {
-  const raw = Number(process.env[name]);
-  return Number.isFinite(raw) && raw > 0 ? raw : fallback;
-}
 
 export function mosaicCostModel(): MergeCostCoefficients {
   // Mirror the worker's MOSAIC_TIMEOUT_SEC default (4h); ceiling at

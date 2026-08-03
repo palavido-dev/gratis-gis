@@ -16,6 +16,7 @@ import { ItemsService } from '../items/items.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { hasCapability } from '../auth/capabilities.js';
 import { assertServerHeavyTier } from './analysis-tiers.js';
+import { assertGridBudget } from './grid-estimate.js';
 import { stampAnalysisTargetFailed } from './analysis-target-stamp.js';
 
 /**
@@ -37,7 +38,13 @@ export interface HillshadeParams {
   altitude?: number;
 }
 
-/** Raster-size guard for the demo-class box; the worker re-checks. */
+/**
+ * Raster-size guard for the demo-class box; the worker re-checks.
+ * #208: only VIEWSHED still uses this (gdal_viewshed holds its
+ * whole window in memory). Gridded derives (hillshade, elevation,
+ * height-above-ground) chunk instead and gate on the
+ * grid-estimate's TIME budget.
+ */
 const MAX_RASTER_CELLS = 12000 * 12000;
 
 @Injectable()
@@ -85,15 +92,8 @@ export class AnalysisService {
     }
     const azimuth = clampNumber(params.azimuth, 0, 360, 315);
     const altitude = clampNumber(params.altitude, 1, 90, 45);
-    if (data.bounds) {
-      const cellsX = (data.bounds[3] - data.bounds[0]) / resolution;
-      const cellsY = (data.bounds[4] - data.bounds[1]) / resolution;
-      if (cellsX * cellsY > MAX_RASTER_CELLS) {
-        throw new BadRequestException(
-          'That resolution would produce a raster larger than this server allows. Pick a coarser resolution.',
-        );
-      }
-    }
+    // #208: time-budget refusal replaced the single-raster cap.
+    const estimate = assertGridBudget(data, resolution, 1);
 
     // Target item first, so the job row can reference it and the
     // dependency graph sees the provenance edge immediately. It
@@ -132,7 +132,16 @@ export class AnalysisService {
         targetItemId: target.id,
       },
     });
-    return { job, targetItemId: target.id };
+    return {
+      job,
+      targetItemId: target.id,
+      ...(estimate
+        ? {
+            estimatedSec: estimate.estimatedSec,
+            humanEstimate: estimate.humanEstimate,
+          }
+        : {}),
+    };
   }
 
   /**
@@ -170,15 +179,10 @@ export class AnalysisService {
         'resolution must be between 0.25 and 50 meters',
       );
     }
-    if (data.bounds) {
-      const cellsX = (data.bounds[3] - data.bounds[0]) / resolution;
-      const cellsY = (data.bounds[4] - data.bounds[1]) / resolution;
-      if (cellsX * cellsY > MAX_RASTER_CELLS) {
-        throw new BadRequestException(
-          'That resolution would produce a raster larger than this server allows. Pick a coarser resolution.',
-        );
-      }
-    }
+    // #208: chunked gridding removed the single-raster cell cap;
+    // the honest limit is time. Refuses over-budget builds with
+    // the number attached, and the estimate rides the response.
+    const estimate = assertGridBudget(data, resolution, 1);
 
     const target = await this.items.create(user, {
       type: 'tile_layer',
@@ -208,7 +212,16 @@ export class AnalysisService {
         targetItemId: target.id,
       },
     });
-    return { job, targetItemId: target.id };
+    return {
+      job,
+      targetItemId: target.id,
+      ...(estimate
+        ? {
+            estimatedSec: estimate.estimatedSec,
+            humanEstimate: estimate.humanEstimate,
+          }
+        : {}),
+    };
   }
 
   /**
@@ -493,15 +506,9 @@ export class AnalysisService {
         'resolution must be between 0.25 and 50 meters',
       );
     }
-    if (data.bounds) {
-      const cellsX = (data.bounds[3] - data.bounds[0]) / resolution;
-      const cellsY = (data.bounds[4] - data.bounds[1]) / resolution;
-      if (cellsX * cellsY > MAX_RASTER_CELLS) {
-        throw new BadRequestException(
-          'That resolution would produce a raster larger than this server allows. Pick a coarser resolution.',
-        );
-      }
-    }
+    // #208: time-budget refusal replaced the single-raster cap;
+    // two gridding passes (DSM + DTM) count double.
+    const estimate = assertGridBudget(data, resolution, 2);
 
     const target = await this.items.create(user, {
       type: 'tile_layer',
@@ -530,7 +537,16 @@ export class AnalysisService {
         targetItemId: target.id,
       },
     });
-    return { job, targetItemId: target.id };
+    return {
+      job,
+      targetItemId: target.id,
+      ...(estimate
+        ? {
+            estimatedSec: estimate.estimatedSec,
+            humanEstimate: estimate.humanEstimate,
+          }
+        : {}),
+    };
   }
 
   /** Jobs for one source item, newest first; drives the panel. */

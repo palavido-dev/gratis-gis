@@ -30,10 +30,7 @@ import {
   type MergeCostCoefficients,
 } from '@gratis-gis/shared-types';
 
-function envNum(name: string, fallback: number): number {
-  const raw = Number(process.env[name]);
-  return Number.isFinite(raw) && raw > 0 ? raw : fallback;
-}
+import { envNum } from '../util/env-num.js';
 
 export function mergeCostModel(): MergeCostCoefficients {
   // Mirror the worker's MERGE_TIMEOUT_SEC default (4h). The ceiling
