@@ -12,6 +12,14 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-08-03 - Terrain at full detail, however big the area
+Elevation, hillshade, and height maps used to cap out on large
+areas, forcing a coarser resolution. The portal now builds them in
+pieces behind the scenes and joins them seamlessly, so a whole
+county renders at full detail. And 3D is now a proper on/off
+switch: flip to a flat view to check something, flip back, and
+your elevation setup is exactly as you left it.
+
 ## 2026-08-03 - Many images in, one imagery layer out
 Aerial imagery usually arrives as a pile of tiles. Pick them all
 in one upload and GratisGIS stitches them into a single seamless

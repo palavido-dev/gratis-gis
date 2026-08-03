@@ -5,6 +5,37 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.7] - 2026-08-03
+
+A safe upgrade from 0.9.6. Full-resolution terrain derives at any
+extent, a terrain on/off toggle, and two visibility fixes.
+
+### Added
+
+- Chunked elevation processing (#208). Hillshade, elevation, and
+  height-above-ground layers no longer hit the fixed size cap: any
+  area builds at full resolution in bounded-memory chunks that
+  combine into one seamless surface. Builds that cannot finish
+  inside the server's time budget are refused up front with an
+  estimate (operator-tunable GRID_* settings), and the building
+  state reports real chunk progress.
+- 3D on and off is now a toggle that keeps your elevation stack.
+  Turning 3D off just flattens the view; the surfaces and their
+  ordering are exactly as you left them when you turn it back on.
+- The admin housekeeping page gains a "Broken references" card
+  (#217): items pointing at other items that no longer exist (or
+  sit in the trash) are listed with links, instead of rendering as
+  silent holes in maps.
+
+### Fixed
+
+- An expired sign-in no longer shows the signed-in navigation. The
+  portal chrome now follows the same session truth as the header
+  and banner, so a dead session sees the public page with a sign-in
+  prompt rather than a sidebar full of links that would not work.
+- A manual golden snapshot no longer leaves the demo's tester
+  workspace unassigned until the next nightly reset.
+
 ## [0.9.6] - 2026-08-03
 
 A safe upgrade from 0.9.5. Multi-image imagery mosaics, and a
