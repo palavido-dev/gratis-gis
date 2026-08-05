@@ -99,14 +99,24 @@ Claude Desktop and Cursor. Authenticates against portal-api with a
 bearer token; sharing and geographic limits are enforced server-side
 like any other client. See `apps/portal-mcp/README.md`.
 
-### External data access (read-only API)
+### External data access (API keys)
 
-Each data layer exposes a read-only REST API gated by personal
-access tokens. External clients (VS Code, RStudio, command-line
-tools) authenticate with a PAT, request feature data, and let
-the server enforce geographic share limits before responding. No
-hosted execution environment ships with v1; external tools run
-wherever the user runs them.
+External clients (VS Code, RStudio, notebooks, cron jobs, CI)
+authenticate with a personal API key sent as a normal bearer token
+straight to portal-api, which Caddy routes without passing through
+the web tier. A key resolves to exactly the same identity its owner
+gets from a browser session, so sharing and geographic limits are
+enforced by the same code paths; there is no second authorization
+model to keep in sync.
+
+Two restrictions are specific to keys, both enforced in the auth
+layer: a key is refused on `/admin/*` outright, and a key marked
+read-only is refused on any unsafe HTTP method. Tokens are stored as
+a one-way hash, so a database dump yields nothing usable.
+
+No hosted execution environment ships with v1; external tools run
+wherever the user runs them. Server-side scheduled execution is
+tracked separately.
 
 ### tool-builder + tool-runner (future)
 

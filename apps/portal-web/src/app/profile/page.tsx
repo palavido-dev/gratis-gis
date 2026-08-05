@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import Link from 'next/link';
-import { Bell, LogOut } from 'lucide-react';
+import { Bell, Key, LogOut } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { SignOutButton } from '@/components/user-menu';
 import { AvatarEditor } from './avatar-editor';
@@ -78,6 +78,13 @@ export default async function ProfilePage() {
         >
           <Bell className="h-4 w-4" />
           Notification preferences
+        </Link>
+        <Link
+          href="/settings/api-keys"
+          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 shadow-card hover:bg-surface-2"
+        >
+          <Key className="h-4 w-4" />
+          API keys
         </Link>
         {/* Sign out must run the client-side flow (NextAuth
             signOut() first, then the Keycloak end-session hop).

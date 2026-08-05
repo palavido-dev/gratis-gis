@@ -209,10 +209,16 @@ in pre-v1.
 
 ## Phase 7: (removed)
 
-Reserved for a future phase. The original Phase 7 was dropped from
-scope; the "tool" item type covers reusable computation inside the
-portal. External clients access the engine read-only data API via
-personal access tokens.
+Reserved for a future phase. The original Phase 7 (hosted notebooks)
+was dropped from scope; the "tool" item type covers reusable
+computation inside the portal, and external clients reach the data
+API with a personal API key (Profile -> API keys) from whatever
+environment they already run.
+
+That leaves server-side SCHEDULED execution as the one capability
+hosted notebooks would have provided and nothing else does. It is
+tracked as its own issue rather than a phase, and deliberately does
+not bring a browser IDE with it.
 
 ## Phase 8.5: OGC API breadth 🟩 largely landed
 

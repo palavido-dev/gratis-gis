@@ -60,6 +60,34 @@ type AuthUser = {
 Access decisions are delegated to `sharing.service.canRead(user, item)` etc.,
 implementing the algorithm in `data-model.md`.
 
+## API keys (machine-to-machine)
+
+A 5 minute access token is unusable for a script, so unattended
+clients (cron, notebooks, CI, the MCP server) authenticate with a
+personal API key instead. Users mint keys at Profile -> API keys;
+they are sent as an ordinary `Authorization: Bearer <token>` to
+portal-api, which Caddy routes without passing through the web tier.
+
+- Format `ggk_<43 chars base64url>`: a scheme marker plus 32 bytes of
+  entropy. The marker lets the auth guard route the credential, lets
+  secret scanners match a fixed prefix, and tells a human what they
+  are holding.
+- Stored as SHA-256, never encrypted and never recoverable. The token
+  is shown once at creation. A database dump yields no usable keys.
+  This is deliberately unlike `item_credential`, whose secrets must
+  be decrypted to forward upstream.
+- A key resolves to the same AuthUser its owner gets from a JWT, so
+  sharing, geo limits, and capabilities run through one code path.
+- Two key-only restrictions, enforced in the auth layer:
+  `/admin/*` is refused for any key (AdminGuard checks role, so an
+  admin's leaked key would otherwise carry user management and
+  backup/restore), and a `read_only` key is refused on any unsafe
+  HTTP method. Keys also cannot mint or revoke keys, since minting a
+  credential from a credential is an escalation path.
+- Unlike the JWT path, key resolution checks `deleted_at` and
+  `auto_disable_at` itself: a long-lived key never revisits Keycloak,
+  so it would otherwise outlive the account that owns it.
+
 ## Session Security
 
 - Access token TTL: 5 minutes
@@ -79,5 +107,4 @@ come online to refresh.
 ## Future
 
 - SAML realm aliases for enterprise SSO
-- API keys for machine-to-machine access (separate table, scoped to org)
 - Audit log for admin actions

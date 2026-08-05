@@ -96,10 +96,12 @@ third party's cloud.
 6. **Tool & Widget Builder**: visual, node-graph authoring of custom
    geospatial tools and web-app widgets, friendly to non-developers
 
-External clients (VS Code, RStudio, custom scripts) can connect to the
-read-only portal data API with a personal access token. Share-level
-geographic limits are still enforced server-side, so external clients
-only see data the user has access to in-portal.
+External clients (VS Code, RStudio, notebooks, scheduled scripts) can
+connect to the portal API with a personal API key, created from
+Profile -> API keys. A key acts as the user who created it, so
+share-level and geographic limits are enforced server-side exactly as
+they are in the browser; keys can additionally be marked read-only and
+are never accepted on admin endpoints.
 
 Underneath the pillars is the **observation-log engine**: a single
 append-only feature substrate that gives the platform bitemporal time-travel

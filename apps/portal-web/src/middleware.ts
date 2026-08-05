@@ -122,5 +122,10 @@ export const config = {
     '/recently-deleted/:path*',
     '/profile/:path*',
     '/field/:path*',
+    // /settings/* is user-scoped and must redirect to sign-in rather
+    // than render an error boundary when the session is gone. It was
+    // missing here while /settings/notifications was the only page,
+    // which worked only because apiFetch's redirect is a backstop.
+    '/settings/:path*',
   ],
 };

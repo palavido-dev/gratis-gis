@@ -200,7 +200,6 @@ const KNOWN_ITEM_TYPES: Set<string> = new Set([
   'dashboard',
   'report_template',
   'tool',
-  'notebook',
   'arcgis_service',
   'basemap',
   'geo_boundary',
