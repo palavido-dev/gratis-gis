@@ -67,26 +67,25 @@ checks any other client gets.
 4. Restart the MCP client. The three tools should appear in
    its tool palette under the server name you configured.
 
-## Getting a bearer token (Phase 1)
+## Getting a token
 
-Phase 1 uses a long-lived bearer token. You can get one from
-your browser's developer tools while signed into the portal:
+Use an API key. Open **Profile**, then **API keys**, and create
+one named for this client, for example `claude desktop`. Copy
+it into the `GRATIS_GIS_TOKEN` environment variable in your MCP
+client config.
 
-1. Open the portal in a logged-in browser.
-2. Open DevTools → Application → Cookies.
-3. Copy the access token from the session cookie.
-4. Paste into the `GRATIS_GIS_TOKEN` environment variable in
-   your MCP client config.
+Because the MCP server only reads, tick **Read only** when you
+create the key. Then no prompt, however creatively worded, can
+change your data through this connection.
 
-The token expires when your portal session expires (minutes
-to hours, depending on your deployment's Keycloak settings).
-When it does, the MCP server will start returning errors;
-sign back in and refresh the env var.
+The key acts as the account that created it and keeps working
+until it expires or you revoke it, so there is no mid-session
+expiry to chase. See [API keys](/help/reference/api-keys) for
+the details.
 
-This is rough by design. Phase 1.5 will add a dedicated
-portal API-key page so you can generate a long-lived token
-that doesn't expire mid-session and that you can rotate from
-the portal UI without touching cookies.
+Earlier versions of this page told you to copy a session token
+out of DevTools. That token expired within minutes and is no
+longer the right approach.
 
 ## What an AI client can actually do with this
 

@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gratisgis"
+version = "0.1.0"
+description = "Python client for a GratisGIS portal"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "AGPL-3.0-or-later"
+authors = [{ name = "GratisGIS contributors" }]
+keywords = ["gis", "geospatial", "gratisgis", "postgis", "ogc"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: GIS",
+]
+
+# httpx only. GeoPandas, Shapely and friends belong to the caller's
+# environment, not to a portal client: a notebook user already has
+# the stack they want, and a cron job should not drag a compiled
+# geometry library in to POST some JSON.
+dependencies = ["httpx>=0.24"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "pytest-cov", "respx>=0.20"]
+
+[project.urls]
+Homepage = "https://github.com/palavido-dev/gratis-gis"
+Issues = "https://github.com/palavido-dev/gratis-gis/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gratisgis"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
