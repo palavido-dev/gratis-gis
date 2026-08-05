@@ -213,6 +213,36 @@ export type IterateFeaturesArgs = Omit<
   pageSize?: number;
 };
 
+/**
+ * Argument bag for `readFeaturePage`: one page of `iterateFeatures`,
+ * for callers that resume a walk from the outside (the HTTP feature
+ * read with `?cursor=`) instead of holding a generator open.
+ */
+export type ReadFeaturePageArgs = IterateFeaturesArgs & {
+  /**
+   * Keyset cursor: return entities strictly greater than this one.
+   * Null or absent starts at the beginning. This is an entity id, not
+   * an offset, so concurrent writes cannot shift rows between pages.
+   */
+  after?: string | null;
+};
+
+export interface FeaturePage {
+  features: DataLayerFeature[];
+  /**
+   * Pass as `after` to get the next page. Null means end of data, and
+   * ONLY that: see the note on `readFeaturePage` about why an empty
+   * `features` array does not imply the walk is finished.
+   */
+  nextCursor: string | null;
+  /**
+   * The instant this page was read at, resolved from `asOf` or
+   * defaulted to now. A caller paging across separate requests must
+   * send it back on every subsequent page to keep snapshot semantics.
+   */
+  asOf: Date;
+}
+
 export interface DataLayerFeature {
   type: 'Feature';
   /** Stable entity id. Identical to v3's `global_id`. */
@@ -1270,9 +1300,49 @@ export class DataLayerEngine {
   async *iterateFeatures(
     args: IterateFeaturesArgs,
   ): AsyncGenerator<DataLayerFeature[], void, undefined> {
-    const scope = this.scope(args.itemId, args.layerId);
-    // Pinned once; every page reads the same valid-time snapshot.
+    // Pinned once here rather than per page: `readFeaturePage`
+    // defaults `asOf` to now when it is not given, so letting each
+    // page default independently would walk a moving snapshot. That
+    // does not duplicate (the cursor still advances strictly) but it
+    // can DROP: an entity created between two pages whose id sorts
+    // below the cursor falls into a range already passed.
     const asOf = args.asOf ?? new Date();
+    let after: string | null = null;
+    for (;;) {
+      const page = await this.readFeaturePage({ ...args, asOf, after });
+      if (page.features.length > 0) yield page.features;
+      if (page.nextCursor === null) return;
+      after = page.nextCursor;
+    }
+  }
+
+  /**
+   * One keyset page of the walk above.
+   *
+   * Exposed separately because a caller that cannot hold a generator
+   * open across the read (an HTTP handler serving `?cursor=`) would
+   * otherwise need a second pagination implementation, and would have
+   * to rediscover the tombstone and short-page subtleties documented
+   * on `iterateFeatures`. `iterateFeatures` is implemented in terms of
+   * this method precisely so the two cannot drift.
+   *
+   * `nextCursor` is null ONLY at true end of data, and is deliberately
+   * NOT derived from `features.length`. A page can come back with zero
+   * live features and still have data behind it: a run of tombstones,
+   * or (on the filtered shape) candidates whose latest version no
+   * longer matches. A caller that stopped on an empty batch would
+   * truncate the read silently, which is the exact failure this whole
+   * path exists to avoid.
+   *
+   * `asOf` is echoed back because snapshot semantics belong to the
+   * walk, not to one page: an HTTP caller must send the same instant
+   * with the cursor on every subsequent request or it inherits the
+   * drop described on `iterateFeatures`.
+   */
+  async readFeaturePage(args: ReadFeaturePageArgs): Promise<FeaturePage> {
+    const scope = this.scope(args.itemId, args.layerId);
+    const asOf = args.asOf ?? new Date();
+    const cursor: string | null = args.after ?? null;
     const pageSize = Math.min(
       Math.max(Math.floor(args.pageSize ?? 10_000), 1),
       50_000,
@@ -1314,21 +1384,14 @@ export class DataLayerEngine {
       content_match?: boolean | null;
     };
 
-    let cursor: string | null = null;
-    for (;;) {
-      // ::uuid cast so the comparison uses uuid btree ordering, the
-      // same ordering ORDER BY entity produces; a text comparison
-      // would disagree with it and corrupt the pagination.
-      //
-      // Explicit annotations on cursorFilter / rows: the loop wires
-      // cursor -> cursorFilter -> rows -> cursor, and tsc refuses
-      // to infer through that cycle (TS7022) even though each hop
-      // is individually well-typed.
-      const cursorFilter: Prisma.Sql =
-        cursor === null
-          ? Prisma.empty
-          : Prisma.sql`AND entity > ${cursor}::uuid`;
-      const rows: IterRow[] = usesContent
+    // ::uuid cast so the comparison uses uuid btree ordering, the
+    // same ordering ORDER BY entity produces; a text comparison
+    // would disagree with it and corrupt the pagination.
+    const cursorFilter: Prisma.Sql =
+      cursor === null
+        ? Prisma.empty
+        : Prisma.sql`AND entity > ${cursor}::uuid`;
+    const rows: IterRow[] = usesContent
         ? await this.prisma.$queryRaw<IterRow[]>`
         WITH ${candidateCte}
         content_candidates AS (
@@ -1439,24 +1502,28 @@ export class DataLayerEngine {
         JOIN creates cr ON cr.entity = c.entity
         ORDER BY c.entity
       `;
-      if (rows.length === 0) return;
-      // Advance past every scanned entity, tombstones (and, on the
-      // filtered shape, latest-no-longer-matches candidates)
-      // included; the rows are entity-ordered so the last one is the
-      // page maximum.
-      cursor = rows[rows.length - 1]!.entity;
-      const live = rows
-        .filter(
-          (r) =>
-            r.kind !== 'delete' &&
-            // SQL booleans: TRUE matches, FALSE and NULL (e.g. a
-            // bbox test against a NULL latest geometry) do not.
-            (r.content_match === undefined || r.content_match === true),
-        )
-        .map(rowToFeature);
-      if (live.length > 0) yield live;
-      if (rows.length < pageSize) return;
-    }
+    if (rows.length === 0) return { features: [], nextCursor: null, asOf };
+    const live = rows
+      .filter(
+        (r) =>
+          r.kind !== 'delete' &&
+          // SQL booleans: TRUE matches, FALSE and NULL (e.g. a
+          // bbox test against a NULL latest geometry) do not.
+          (r.content_match === undefined || r.content_match === true),
+      )
+      .map(rowToFeature);
+    return {
+      features: live,
+      // A short page means no matching entities remain above the
+      // cursor. Otherwise advance past every SCANNED entity,
+      // tombstones (and, on the filtered shape, latest-no-longer-
+      // matches candidates) included; rows are entity-ordered so the
+      // last one is the page maximum. Advancing by the last LIVE row
+      // instead would re-scan any trailing tombstones forever.
+      nextCursor:
+        rows.length < pageSize ? null : rows[rows.length - 1]!.entity,
+      asOf,
+    };
   }
 
   /**

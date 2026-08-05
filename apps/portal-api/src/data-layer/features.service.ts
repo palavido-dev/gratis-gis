@@ -199,6 +199,57 @@ export class DataLayerFeaturesService {
     });
   }
 
+  /** One page of the walk above, for callers that cannot hold a
+   *  generator open across the read. This is what the HTTP feature
+   *  endpoints serve `?cursor=` from, so an external script paging a
+   *  1.4M-row layer gets the same no-drop / no-duplicate guarantees
+   *  the in-process GeoParquet export gets rather than a second,
+   *  weaker pagination. See `DataLayerEngine.readFeaturePage`. */
+  async readFeaturePage(
+    itemId: string,
+    layerId: string,
+    opts: {
+      bbox?: [number, number, number, number];
+      at?: string;
+      geoLimit?: unknown;
+      boundaryClip?: unknown;
+      ownRowsOnly?: { userId: string };
+      isTable?: boolean;
+      parentFkFilter?: { column: string; parentId: string };
+      timeFilter?: { column: string; from?: string; to?: string };
+    } = {},
+    page: { after?: string | null; pageSize?: number } = {},
+  ): Promise<{
+    features: DataLayerFeatureOut[];
+    nextCursor: string | null;
+    asOf: Date;
+  }> {
+    return this.dataLayer.readFeaturePage({
+      itemId,
+      layerId,
+      ...(opts.at !== undefined ? { asOf: new Date(opts.at) } : {}),
+      ...(opts.bbox !== undefined ? { bbox: opts.bbox } : {}),
+      ...(opts.geoLimit !== undefined
+        ? { geoLimit: opts.geoLimit as GeoJsonGeometry }
+        : {}),
+      ...(opts.boundaryClip !== undefined
+        ? { boundaryClip: opts.boundaryClip as GeoJsonGeometry }
+        : {}),
+      ...(opts.ownRowsOnly !== undefined
+        ? { ownRowsOnly: opts.ownRowsOnly }
+        : {}),
+      ...(opts.parentFkFilter !== undefined
+        ? { parentFkFilter: opts.parentFkFilter }
+        : {}),
+      ...(opts.timeFilter !== undefined
+        ? { timeFilter: opts.timeFilter }
+        : {}),
+      ...(opts.isTable === true ? { isTable: true } : {}),
+      ...(page.after != null ? { after: page.after } : {}),
+      ...(page.pageSize !== undefined ? { pageSize: page.pageSize } : {}),
+    });
+  }
+
   /** Bulk-insert features. Optional client-supplied `globalId` is
    *  passed through as the entity id and makes the create
    *  IDEMPOTENT: when a live (not deleted) entity with that id

@@ -551,6 +551,140 @@ d('observation-log read paths against real PostGIS', () => {
     });
   });
 
+  // The HTTP feature read resumes a walk from outside the generator
+  // (`?cursor=`), so `readFeaturePage` is the contract an external
+  // script actually pages on. The trap it has to survive: a page can
+  // legitimately contain zero live features and still have data behind
+  // it. A client that stopped on an empty page would silently truncate,
+  // which is the exact class of bug the un-paged endpoint had.
+  describe('scenario 6: readFeaturePage across tombstones', () => {
+    const itemId = uuidv7();
+    const layerId = 'layer-1';
+    const scope = dataLayerScope(itemId, layerId);
+    // Sorted explicitly rather than trusting generation order: uuidv7
+    // is time-ordered at millisecond resolution, and these five are
+    // minted in the same millisecond, so their relative order comes
+    // from the random tail. The keyset walks entity order, so the test
+    // has to know it rather than assume it.
+    const ids = [uuidv7(), uuidv7(), uuidv7(), uuidv7(), uuidv7()].sort();
+    const [first, gone1, gone2, mid, last] = ids as [
+      string,
+      string,
+      string,
+      string,
+      string,
+    ];
+
+    beforeAll(async () => {
+      for (const id of ids) {
+        await seed(scope, id, 'create', { NAME: id.slice(0, 8) }, HERE);
+      }
+      // A CONTIGUOUS run of tombstones in the middle: with pageSize 1
+      // this guarantees at least one page whose live set is empty but
+      // which is not the end of the data.
+      await seed(scope, gone1, 'delete', null, null);
+      await seed(scope, gone2, 'delete', null, null);
+    });
+
+    it('walks every live feature exactly once at pageSize 1', async () => {
+      const engine = makeEngine();
+      const seen: string[] = [];
+      let after: string | null = null;
+      let pages = 0;
+      for (;;) {
+        const page = await engine.readFeaturePage({
+          itemId,
+          layerId,
+          pageSize: 1,
+          after,
+        });
+        pages += 1;
+        seen.push(...page.features.map((f) => f.id));
+        if (page.nextCursor === null) break;
+        after = page.nextCursor;
+        // Guard against a cursor that fails to advance.
+        expect(pages).toBeLessThan(20);
+      }
+      expect(seen).toEqual([first, mid, last]);
+    });
+
+    it('reports more data behind a page that yielded nothing', async () => {
+      const engine = makeEngine();
+      // Land exactly on the first tombstone: page size 1 starting just
+      // below it.
+      const page = await engine.readFeaturePage({
+        itemId,
+        layerId,
+        pageSize: 1,
+        after: first,
+      });
+      expect(page.features).toEqual([]);
+      // The whole point: empty page, more to come.
+      expect(page.nextCursor).toBe(gone1);
+    });
+
+    it('agrees with iterateFeatures, which is built on it', async () => {
+      const engine = makeEngine();
+      const streamed: string[] = [];
+      for await (const batch of engine.iterateFeatures({
+        itemId,
+        layerId,
+        pageSize: 1,
+      })) {
+        streamed.push(...batch.map((f) => f.id));
+      }
+      expect(streamed).toEqual([first, mid, last]);
+    });
+
+    it('pins the snapshot: asOf is echoed and honoured', async () => {
+      const engine = makeEngine();
+      // Pinned on the suite's fake clock, not wall time: `seed` stamps
+      // valid_from from that clock (2026-07-01 + a second per write),
+      // so a real `new Date()` pin would sit far in ITS future and
+      // every later write would still be visible. Taking a tick here
+      // puts the pin strictly between the setup writes and the one
+      // below.
+      const pin = nextTs();
+      const firstPage = await engine.readFeaturePage({
+        itemId,
+        layerId,
+        pageSize: 2,
+        asOf: pin,
+      });
+      expect(firstPage.asOf).toEqual(pin);
+
+      // A feature created AFTER the pinned instant must not appear in
+      // a later page of the same walk.
+      const late = uuidv7();
+      await seed(scope, late, 'create', { NAME: 'late' }, HERE);
+
+      const seen: string[] = [];
+      let after: string | null = null;
+      for (;;) {
+        const page = await engine.readFeaturePage({
+          itemId,
+          layerId,
+          pageSize: 2,
+          asOf: firstPage.asOf,
+          after,
+        });
+        seen.push(...page.features.map((f) => f.id));
+        if (page.nextCursor === null) break;
+        after = page.nextCursor;
+      }
+      expect(seen).not.toContain(late);
+
+      // Without the pin, the same walk sees it. This is why the HTTP
+      // layer echoes asOf back to the caller.
+      const unpinned = await engine.readFeaturePage({
+        itemId,
+        layerId,
+        pageSize: 100,
+      });
+      expect(unpinned.features.map((f) => f.id)).toContain(late);
+    });
+  });
+
   describe('geocoder: internal search reads latest truth only', () => {
     const itemId = uuidv7();
     const geocoderId = uuidv7();

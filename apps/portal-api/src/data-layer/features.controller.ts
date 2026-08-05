@@ -57,6 +57,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { DataLayerFeaturesService } from './features.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { featuresToCsv } from './csv-export.js';
+import { parsePagingParams } from './feature-paging.js';
 import { writeGeoParquetExport } from './geoparquet-export.js';
 import { DuckDbUnavailableError } from '../ingest/parquet-reader.js';
 
@@ -113,6 +114,7 @@ function assertFeatureIdShape(featureId: string): void {
   }
 }
 
+
 /**
  * Per-layer feature CRUD for v3 data_layer items.
  *
@@ -166,15 +168,67 @@ export class DataLayerFeaturesController {
     @Query('timeField') timeField?: string,
     @Query('timeFrom') timeFrom?: string,
     @Query('timeTo') timeTo?: string,
+    // Keyset pagination (#220). Both absent keeps the historical
+    // whole-collection response byte for byte, which is what the map
+    // renderer and every existing client depend on.
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
   ) {
-    const { opts } = await this.buildScopedReadOpts(user, itemId, layerId, {
+    return this.readFeatures(user, itemId, layerId, {
       bbox,
+      at,
       clip,
       parentFk,
       parentId,
+      entity,
       timeField,
       timeFrom,
       timeTo,
+      limit,
+      cursor,
+    });
+  }
+
+  /**
+   * The shared body of `/features` and `/geojson`.
+   *
+   * Named arguments on purpose: the two routes differ only in which
+   * query params they accept, and threading a dozen positional
+   * optionals from one handler to the other is how a caller silently
+   * ends up passing `bbox` where `entity` was expected the next time
+   * a parameter is inserted in the middle.
+   */
+  private async readFeatures(
+    user: AuthUser,
+    itemId: string,
+    layerId: string,
+    // `| undefined` rather than `?`: under exactOptionalPropertyTypes
+    // these come straight off @Query decorators as possibly-undefined
+    // values, and an absent param and an explicit undefined mean the
+    // same thing here.
+    q: {
+      bbox: string | undefined;
+      at: string | undefined;
+      clip: string | undefined;
+      parentFk: string | undefined;
+      parentId: string | undefined;
+      entity?: string | undefined;
+      timeField?: string | undefined;
+      timeFrom?: string | undefined;
+      timeTo?: string | undefined;
+      limit: string | undefined;
+      cursor: string | undefined;
+    },
+  ) {
+    const { at, entity, limit, cursor } = q;
+    const { opts } = await this.buildScopedReadOpts(user, itemId, layerId, {
+      bbox: q.bbox,
+      clip: q.clip,
+      parentFk: q.parentFk,
+      parentId: q.parentId,
+      timeField: q.timeField,
+      timeFrom: q.timeFrom,
+      timeTo: q.timeTo,
     });
     const fullOpts: {
       bbox?: [number, number, number, number];
@@ -189,7 +243,60 @@ export class DataLayerFeaturesController {
     } = { ...opts };
     if (at) fullOpts.at = at;
     if (entity) fullOpts.entity = entity;
+
+    const paging = parsePagingParams(limit, cursor);
+    if (paging !== null) {
+      // `entity` is a single-feature lookup; paging it is meaningless
+      // and quietly ignoring one of the two would surprise the caller.
+      if (entity) {
+        throw new BadRequestException(
+          'Use either a single feature lookup or paging, not both.',
+        );
+      }
+      return this.pagedFeatures(fullOpts, itemId, layerId, paging);
+    }
     return this.v3.listFeatures(itemId, layerId, fullOpts);
+  }
+
+  /**
+   * Serve one keyset page and tell the caller how to ask for the next.
+   *
+   * `asOf` is echoed into the response and expected back on the
+   * following request (as `at`) because the snapshot has to be pinned
+   * across the whole walk, not per request: an entity created between
+   * two pages whose id sorts below the cursor would otherwise fall in
+   * a range already passed and never be returned. The engine's
+   * generator pins it internally; over HTTP only the client can.
+   */
+  private async pagedFeatures(
+    fullOpts: {
+      at?: string;
+      bbox?: [number, number, number, number];
+      geoLimit?: unknown;
+      boundaryClip?: unknown;
+      ownRowsOnly?: { userId: string };
+      isTable?: boolean;
+      parentFkFilter?: { column: string; parentId: string };
+      timeFilter?: { column: string; from?: string; to?: string };
+    },
+    itemId: string,
+    layerId: string,
+    paging: { pageSize: number; after: string | null },
+  ) {
+    const page = await this.v3.readFeaturePage(itemId, layerId, fullOpts, {
+      pageSize: paging.pageSize,
+      after: paging.after,
+    });
+    return {
+      type: 'FeatureCollection' as const,
+      features: page.features,
+      // Foreign members on a FeatureCollection are legal GeoJSON
+      // (RFC 7946 section 6.1) and keep a paged response readable by
+      // any plain GeoJSON consumer, which a bespoke envelope would
+      // not be.
+      nextCursor: page.nextCursor,
+      asOf: page.asOf.toISOString(),
+    };
   }
 
   /**
@@ -686,17 +793,18 @@ export class DataLayerFeaturesController {
     @Query('clip') clip?: string,
     @Query('parentFk') parentFk?: string,
     @Query('parentId') parentId?: string,
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
   ) {
-    return this.listFeatures(
-      user,
-      itemId,
-      layerId,
+    return this.readFeatures(user, itemId, layerId, {
       bbox,
       at,
       clip,
       parentFk,
       parentId,
-    );
+      limit,
+      cursor,
+    });
   }
 
   /**

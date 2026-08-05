@@ -255,18 +255,32 @@ class GratisGIS:
         *,
         limit: Optional[int] = None,
         bbox: Optional[Iterable[float]] = None,
+        cursor: Optional[str] = None,
+        at: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """A GeoJSON FeatureCollection for one layer of a data layer.
+        """One GeoJSON FeatureCollection for a layer of a data layer.
 
         Server-side sharing and geographic limits apply, so this can
         return fewer features than the layer holds. That is the same
         view the user would get in the browser.
+
+        With ``limit`` or ``cursor``, the portal returns one page plus
+        two extra members: ``nextCursor`` (pass it back as ``cursor``,
+        or None at the end) and ``asOf`` (pass it back as ``at`` to
+        keep every page on one snapshot). With neither, it returns the
+        whole collection, which on a large layer is a lot of memory and
+        one very slow request. Prefer :meth:`iter_features`, which
+        handles all of that.
         """
         params: Dict[str, Any] = {}
         if limit is not None:
             params["limit"] = limit
         if bbox is not None:
             params["bbox"] = ",".join(str(v) for v in bbox)
+        if cursor is not None:
+            params["cursor"] = cursor
+        if at is not None:
+            params["at"] = at
         return self._request(
             "GET", f"/items/{item_id}/layers/{layer}/geojson", params=params
         )
@@ -274,16 +288,42 @@ class GratisGIS:
     def iter_features(
         self, item_id: str, layer: str, *, page_size: int = 1000, **kwargs: Any
     ) -> Iterator[Dict[str, Any]]:
-        """Yield features one at a time.
+        """Yield every matching feature, one at a time, in pages.
 
-        Convenience over ``read_features`` for the common loop. The
-        portal's geojson endpoint is not itself paginated, so this
-        fetches once and iterates; the signature leaves room to become
-        a real pager without changing callers.
+        This is the read to reach for on anything but a small layer:
+        memory stays proportional to ``page_size`` rather than to the
+        layer, and nothing is silently capped.
+
+        Paging is keyset-based on the portal side (a cursor over stable
+        feature ids, never an offset), so concurrent edits cannot shift
+        a feature between pages and cause a duplicate or a miss. The
+        snapshot instant is pinned from the first page and sent back on
+        every subsequent one, so a feature created while you iterate
+        does not appear halfway through the walk.
         """
-        fc = self.read_features(item_id, layer, limit=page_size, **kwargs)
-        for feature in fc.get("features", []):
-            yield feature
+        cursor: Optional[str] = None
+        at: Optional[str] = kwargs.pop("at", None)
+        while True:
+            page = self.read_features(
+                item_id,
+                layer,
+                limit=page_size,
+                cursor=cursor,
+                at=at,
+                **kwargs,
+            )
+            for feature in page.get("features", []):
+                yield feature
+            cursor = page.get("nextCursor")
+            # Stop only on an explicit end-of-data signal. A page can
+            # come back with no features and still have more behind it
+            # (deleted rows occupy page slots), so breaking on an empty
+            # page would truncate the read silently.
+            if cursor is None:
+                return
+            # Pin the snapshot from the first page onward.
+            if at is None:
+                at = page.get("asOf")
 
     def add_features(
         self,

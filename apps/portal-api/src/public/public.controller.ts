@@ -15,6 +15,7 @@ import type { Request, Response } from 'express';
 import { Public } from '../auth/public.decorator.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { DataLayerFeaturesService } from '../data-layer/features.service.js';
+import { parsePagingParams } from '../data-layer/feature-paging.js';
 import { loadOsmPresetCatalog } from '../osm/preset-catalog.js';
 import {
   TileCacheOverloadError,
@@ -338,6 +339,12 @@ export class PublicController {
     // anonymous popup click stalled on a Loading… spinner for
     // 20-30s while the server materialised every parcel.
     @Query('entity') entity?: string,
+    // Keyset pagination, mirroring the auth'd controller (#220). An
+    // anonymous script reading a public layer needs a bounded read for
+    // the same reason an authenticated one does, and leaving it off
+    // here would mean the public surface is the unbounded one.
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
   ) {
     if (!isUuidShape(itemId)) throw new NotFoundException('Item not found');
     const item = await this.prisma.item.findFirst({
@@ -364,6 +371,26 @@ export class PublicController {
     }
     if (at) opts.at = at;
     if (entity) opts.entity = entity;
+
+    const paging = parsePagingParams(limit, cursor);
+    if (paging !== null) {
+      if (entity) {
+        throw new BadRequestException(
+          'Use either a single feature lookup or paging, not both.',
+        );
+      }
+      const { entity: _ignored, ...pageOpts } = opts;
+      const page = await this.v3.readFeaturePage(itemId, layerId, pageOpts, {
+        pageSize: paging.pageSize,
+        after: paging.after,
+      });
+      return {
+        type: 'FeatureCollection' as const,
+        features: page.features,
+        nextCursor: page.nextCursor,
+        asOf: page.asOf.toISOString(),
+      };
+    }
     return this.v3.listFeatures(itemId, layerId, opts);
   }
 
@@ -378,8 +405,10 @@ export class PublicController {
     @Query('bbox') bbox?: string,
     @Query('at') at?: string,
     @Query('entity') entity?: string,
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
   ) {
-    return this.layerFeatures(itemId, layerId, bbox, at, entity);
+    return this.layerFeatures(itemId, layerId, bbox, at, entity, limit, cursor);
   }
 
   /**
