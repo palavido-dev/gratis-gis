@@ -36,6 +36,12 @@ from .errors import (
 
 __all__ = ["GratisGIS"]
 
+# Declared here rather than in __init__, which imports this module:
+# the default User-Agent below needs it, and a second literal would
+# drift from the package version the first time one of them is bumped
+# alone.
+__version__ = "0.2.0"
+
 # The portal caps a single append at 5000 features (AppendFeaturesBodyDto).
 # Batch below it so a caller handing us a million rows just works.
 MAX_APPEND_BATCH = 1000
@@ -57,7 +63,7 @@ class GratisGIS:
         api_key: str,
         timeout: float = 60.0,
         verify_tls: bool = True,
-        user_agent: str = "gratisgis-python/0.1.0",
+        user_agent: str = f"gratisgis-python/{__version__}",
         client: Optional[httpx.Client] = None,
     ) -> None:
         if not api_key:

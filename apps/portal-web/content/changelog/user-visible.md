@@ -12,6 +12,14 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-08-05 - Reading a big layer from a script
+Pulling a large layer into a script used to fetch the whole thing at
+once, and past a certain size it quietly stopped short, so you could
+end up working with only part of your data without being told. Reads
+now come back a page at a time, and the Python package handles the
+paging for you. Editing the layer while a script reads it no longer
+risks skipping or repeating a feature.
+
 ## 2026-08-05 - Use your portal from Python
 You can now reach the portal from outside a browser. Create an API key
 under Profile, then read and write your layers from a notebook, a

@@ -8,7 +8,7 @@
         ...
 """
 
-from .client import GratisGIS
+from .client import GratisGIS, __version__
 from .errors import (
     AuthError,
     ConflictError,
@@ -17,8 +17,6 @@ from .errors import (
     RateLimitError,
     ValidationError,
 )
-
-__version__ = "0.1.0"
 
 __all__ = [
     "GratisGIS",

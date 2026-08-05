@@ -5,6 +5,30 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.9] - 2026-08-05
+
+A follow-up to 0.9.8 that makes reading a large layer from a script
+actually work. Safe upgrade, no database changes.
+
+### Added
+
+- **Paging on layer reads.** `/features` and `/geojson` now accept
+  `limit` and `cursor` and report where the next page starts. Reads
+  page over stable feature ids rather than an offset, so edits made
+  while you are reading cannot cause a feature to be skipped or
+  returned twice. Public layers support the same, so anonymous reads
+  can be bounded too. Requests without either parameter behave exactly
+  as before.
+
+### Fixed
+
+- The Python client's `iter_features()` did not page. It asked the
+  portal for one page, the portal had no way to give it one, and the
+  whole layer came back in a single response. On a big enough layer
+  the read was also silently capped, so a script could quietly process
+  only part of its data. It now pages properly and holds one page in
+  memory at a time.
+
 ## [0.9.8] - 2026-08-05
 
 A safe upgrade from 0.9.7, and the first release with a way to reach
