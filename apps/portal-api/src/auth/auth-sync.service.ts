@@ -41,6 +41,20 @@ export interface AuthUser {
    * does the lookup.
    */
   capabilities: ReadonlySet<CapabilityKey>;
+  /**
+   * How this request authenticated. Absent means a Keycloak JWT (the
+   * default for every interactive request and every synthesized
+   * AuthUser in the workers), so existing code and test factories
+   * need no change.
+   *
+   * `api_key` carries two restrictions that a browser session does
+   * not, both enforced in the auth layer rather than in services:
+   * keys are refused on /admin/* by AdminGuard, and a read-only key
+   * is refused on unsafe HTTP methods by JwtAuthGuard. See #219.
+   */
+  authKind?: 'jwt' | 'api_key';
+  /** Set only when `authKind === 'api_key'`; drives the method gate. */
+  apiKeyReadOnly?: boolean;
 }
 
 /**

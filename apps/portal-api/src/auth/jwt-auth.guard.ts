@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
   ExecutionContext,
+  ForbiddenException,
   HttpException,
   Injectable,
   Logger,
@@ -9,6 +10,8 @@ import {
 import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 import { IS_PUBLIC_KEY } from './public.decorator.js';
+import { isReadOnlySafeMethod, looksLikeApiKey } from './api-key-token.js';
+import { ApiKeyService } from './api-key.service.js';
 
 /**
  * JWT auth guard with proper @Public() semantics.
@@ -33,7 +36,10 @@ import { IS_PUBLIC_KEY } from './public.decorator.js';
 export class JwtAuthGuard extends AuthGuard('jwt') {
   private readonly logger = new Logger(JwtAuthGuard.name);
 
-  constructor(private readonly reflector: Reflector) {
+  constructor(
+    private readonly reflector: Reflector,
+    private readonly apiKeys: ApiKeyService,
+  ) {
     super();
   }
 
@@ -42,6 +48,29 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       ctx.getHandler(),
       ctx.getClass(),
     ]);
+
+    // #219: a personal API key arrives in the same Authorization
+    // header as a JWT, so branch on the token's own scheme marker
+    // before handing anything to passport (which would reject a
+    // non-JWT outright). This runs ahead of the @Public shortcut so a
+    // key-authenticated caller gets its real identity on public
+    // routes too, matching what a Bearer JWT does there.
+    const bearer = readBearer(ctx);
+    if (bearer !== null && looksLikeApiKey(bearer)) {
+      const user = await this.apiKeys.resolve(bearer);
+      if (user.apiKeyReadOnly === true) {
+        const req = ctx.switchToHttp().getRequest<{ method?: string }>();
+        if (!isReadOnlySafeMethod(req.method ?? 'GET')) {
+          throw new ForbiddenException(
+            'This API key is read-only. Create a key without the read-only option to make changes.',
+          );
+        }
+      }
+      const req = ctx.switchToHttp().getRequest<{ user?: unknown }>();
+      req.user = user;
+      return true;
+    }
+
     // Skip the strategy entirely for @Public routes with no Bearer
     // token. Avoids paying the JWKS fetch + DB upsert cost on every
     // anonymous hit to a public surface (e.g. landing-page items,
@@ -122,4 +151,20 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     }
     return user;
   }
+}
+
+/**
+ * The raw credential from an `Authorization: Bearer <x>` header, or
+ * null when the header is absent or not a bearer. Case-insensitive on
+ * the scheme, matching the check the @Public shortcut already does.
+ */
+function readBearer(ctx: ExecutionContext): string | null {
+  const req = ctx.switchToHttp().getRequest<{
+    headers?: { authorization?: string };
+  }>();
+  const raw = req.headers?.authorization;
+  if (typeof raw !== 'string') return null;
+  if (!raw.toLowerCase().startsWith('bearer ')) return null;
+  const value = raw.slice('bearer '.length).trim();
+  return value.length > 0 ? value : null;
 }

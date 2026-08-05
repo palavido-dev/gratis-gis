@@ -288,6 +288,7 @@ model User {
   groupMembers  GroupMember[]
   ownedItems    Item[]        @relation("ItemOwner")
   capabilityOverrides UserCapabilityOverride[]
+  apiKeys             ApiKey[]
   notifications  Notification[]
   notificationPrefs NotificationPreference[]
   fieldQueueManifests FieldQueueManifest[]
@@ -328,6 +329,54 @@ model UserCapabilityOverride {
   @@unique([userId, capability])
   @@index([userId])
   @@map("user_capability_override")
+}
+
+/// Personal API key for machine-to-machine access (#219): cron jobs,
+/// notebooks, CI, the MCP server, and any script that cannot complete
+/// an interactive browser sign-in. Presented as a normal
+/// `Authorization: Bearer <token>` straight to portal-api, which Caddy
+/// routes without passing through the web tier.
+///
+/// The token itself is NEVER stored. `tokenHash` is a SHA-256 of the
+/// 32-byte random token and is the lookup key; `prefix` is the handful
+/// of leading characters kept in the clear so a user can tell two keys
+/// apart in a list. A database dump therefore yields no usable key.
+/// This is deliberately not the `item_credential` cipher pattern:
+/// those secrets must be recoverable to forward upstream, an API key
+/// only ever needs verifying.
+///
+/// A key resolves to exactly the same AuthUser its owner would get
+/// from a JWT (same org, role, groups, capability overrides), with two
+/// deliberate restrictions enforced in the auth layer rather than
+/// here: keys cannot reach /admin/* at all, and a `readOnly` key is
+/// refused on any unsafe HTTP method. See auth/api-key.service.ts.
+model ApiKey {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  /// User-supplied label, e.g. "nightly parcel refresh".
+  name      String
+  /// SHA-256 hex of the issued token. Unique so verification is a
+  /// single indexed lookup rather than a scan.
+  tokenHash String    @unique @map("token_hash")
+  /// Non-secret leading characters of the token, for display only.
+  prefix    String
+  /// When true, the key is refused on POST / PATCH / PUT / DELETE.
+  readOnly  Boolean   @default(false) @map("read_only")
+  /// Optional expiry. Null means the key is valid until revoked.
+  expiresAt DateTime? @map("expires_at")
+  /// Set when the user revokes the key. Revoked rows are kept rather
+  /// than deleted so a leaked key stays permanently burned and the
+  /// audit trail survives.
+  revokedAt DateTime? @map("revoked_at")
+  /// Coarse last-use timestamp, written at most once a minute per key
+  /// so a busy script does not turn every read into a write.
+  lastUsedAt DateTime? @map("last_used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("api_key")
 }
 
 model Group {
