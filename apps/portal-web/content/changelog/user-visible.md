@@ -12,6 +12,14 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-08-05 - Use your portal from Python
+You can now reach the portal from outside a browser. Create an API key
+under Profile, then read and write your layers from a notebook, a
+script, or a scheduled job on your own machine. A key acts as you, so
+it sees exactly what you see, and you can make it read-only in one
+click. There is a small Python package to go with it, so pulling a
+layer into your own analysis is a couple of lines.
+
 ## 2026-08-03 - Terrain at full detail, however big the area
 Elevation, hillshade, and height maps used to cap out on large
 areas, forcing a coarser resolution. The portal now builds them in

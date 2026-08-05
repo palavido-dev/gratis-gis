@@ -5,6 +5,37 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.8] - 2026-08-05
+
+A safe upgrade from 0.9.7, and the first release with a way to reach
+the portal from outside a browser.
+
+**Upgrade note:** this release adds a database table (`api_key`).
+Migrations run automatically on API boot as usual, but if you keep a
+golden snapshot for demo resets, refresh it after upgrading.
+
+### Added
+
+- **API keys** (#219). Create a key at Profile -> API keys and use it
+  as a bearer token from scripts, notebooks, scheduled jobs, or CI.
+  A key acts as the person who created it, so sharing rules and
+  geographic limits apply exactly as they do in the browser. Keys can
+  be marked read-only, can be given an expiry, and are never accepted
+  on admin endpoints or for managing other keys. Tokens are stored as
+  a one-way hash and shown only once.
+- **A Python client** (#220), in `clients/python`. Connect with an API
+  key, read a layer as GeoJSON, and write features back, with
+  automatic batching under the portal's per-request limit. One
+  dependency.
+
+### Fixed
+
+- The MCP server no longer asks you to copy a session token out of
+  browser developer tools. Use a read-only API key instead, which does
+  not expire mid-session.
+- Documentation described personal access tokens that had never been
+  implemented. It now describes what actually ships.
+
 ## [0.9.7] - 2026-08-03
 
 A safe upgrade from 0.9.6. Full-resolution terrain derives at any
