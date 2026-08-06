@@ -340,13 +340,17 @@ function formatChangelogDate(iso: string): string {
  * NEXT_PUBLIC_PROJECT_LANDING=1) so visitors who hit the apex
  * domain see "what is GratisGIS" before "what's in this tenant".
  *
- * Three columns of value props, a row of CTAs (GitHub repo, file
- * an issue, view the docs), and a feedback affordance that
- * pre-fills a GitHub issue. The pre-fill keeps the surface zero-
- * backend: GitHub does the auth + the routing; we just hand them
- * a link with title + body params. If/when we want a smoother
- * unauthenticated-feedback flow, swap the link for a backend
- * bridge endpoint (NEXT_PUBLIC_FEEDBACK_ENDPOINT or similar).
+ * Three columns of value props and a row of CTAs (GitHub repo, the
+ * feedback form, the docs).
+ *
+ * This used to describe a feedback affordance that pre-filled a
+ * GitHub issue, on the reasoning that GitHub could do the auth and
+ * the routing for free. That trade turned out to be the wrong one:
+ * the people whose feedback is most worth having on a public demo
+ * are the ones who do not have a GitHub account and are not going to
+ * make one to tell you a layer did not draw. The in-portal form is
+ * the primary route now, and the issue link is the escape hatch for
+ * people who prefer it.
  */
 function ProjectAboutSection() {
   // GitHub coordinates. Pulled from env so a fork can swap them
@@ -532,8 +536,8 @@ function TestingBanner() {
               Viewer123!
             </code>
             . Items, users, and edits you create vanish at the next
-            reset. Feedback is welcome via the GitHub Issues link
-            below.
+            reset. Found a problem? Use the Feedback button in the
+            corner of any page. No account needed.
           </p>
           <p className="mt-1 leading-relaxed">
             New here? Open the{' '}

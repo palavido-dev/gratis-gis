@@ -10,6 +10,9 @@
 #     /var/lib/gratis-gis-golden/postgres-app.dump).
 #   - `keycloak` Postgres database  (same, from
 #     /var/lib/gratis-gis-golden/postgres-keycloak.dump).
+#   - Feedback (#146) is carried ACROSS the restore rather than
+#     wiped with everything else: it is written by visitors we cannot
+#     contact again and is the reason the public demo exists.
 #   - `miniodata` Docker volume contents  (wipe + untar from
 #     /var/lib/gratis-gis-golden/minio.tar; uncompressed on purpose,
 #     see snapshot-golden.sh for why).
@@ -218,18 +221,117 @@ echo "=== Stopping app services ==="
 # dropped and the volume is swapped (mirrors snapshot-golden.sh).
 dc stop portal-api portal-worker pointcloud-worker portal-web keycloak pg_tileserv
 
+# Feedback (#146) is the one table on the demo that must SURVIVE a
+# reset. Everything else here is disposable by design: items, users,
+# and edits made by visitors are exactly what the nightly wipe exists
+# to clear. Feedback is the opposite. It is the reason the public demo
+# exists, it is written by people we cannot contact again, and losing
+# a night of it because a timer fired at 04:00 UTC would quietly
+# destroy the only copy of the thing we most wanted.
+#
+# So: dump the table to a file before the destructive restore, and
+# re-insert it after. Done with COPY rather than a table-level
+# pg_restore because the golden dump also contains a `feedback` table
+# (empty, or holding whatever existed at bake time) and the restore
+# would otherwise clobber it.
+#
+# Every step is non-fatal. A reset that cannot preserve feedback is
+# still better than a demo that does not reset, and the failure is
+# loud in the unit log either way.
+# Plain `docker exec -i` rather than `dc exec`, matching the
+# pg_restore calls above: compose's exec wrapper hangs when stdio is
+# redirected, which is exactly what \copy needs.
+FEEDBACK_CARRY="/tmp/gg-feedback-carry-$$.tsv"
+echo "=== Preserving feedback across the reset ==="
+if docker exec -i -e PGPASSWORD="$POSTGRES_PASSWORD" "$PG_CONTAINER" \
+     psql -U gratisgis -d "$POSTGRES_DB_APP" -Atc \
+     "SELECT to_regclass('public.feedback') IS NOT NULL" 2>/dev/null \
+     | grep -qx t; then
+  if docker exec -i -e PGPASSWORD="$POSTGRES_PASSWORD" "$PG_CONTAINER" \
+       psql -U gratisgis -d "$POSTGRES_DB_APP" -v ON_ERROR_STOP=1 \
+       -c "\\copy feedback TO STDOUT" > "$FEEDBACK_CARRY" 2>/dev/null; then
+    echo "Carried $(wc -l < "$FEEDBACK_CARRY") feedback row(s) across the reset."
+  else
+    echo "WARN: could not read the feedback table; this reset will lose it." >&2
+    rm -f "$FEEDBACK_CARRY"
+    FEEDBACK_CARRY=""
+  fi
+else
+  echo "No feedback table yet (portal predates #146 persistence); nothing to carry."
+  FEEDBACK_CARRY=""
+fi
+
 echo "=== Restoring Postgres databases ==="
 drop_and_restore "$POSTGRES_DB_APP" "$POSTGRES_USER" "$GOLDEN_DIR/postgres-app.dump"
 drop_and_restore "$KEYCLOAK_DB_NAME" "$KEYCLOAK_DB_USER" "$GOLDEN_DIR/postgres-keycloak.dump"
 
+if [[ -s "$FEEDBACK_CARRY" ]]; then
+  echo "=== Restoring carried feedback ==="
+  # TRUNCATE first so rows baked into golden do not collide with the
+  # carried set on the primary key. The carried set is authoritative:
+  # it is a superset, having been read from the live table moments ago.
+  #
+  # user_id / handled_by_id reference the `user` table, which the
+  # restore just replaced. A reporter whose account no longer exists
+  # in golden would break the FK, so those columns are nulled for any
+  # id that did not survive. The report itself is what matters; the
+  # attribution is a nicety, and the schema already models it as
+  # optional for exactly this reason.
+  # Container id is re-resolved: drop_and_restore stops and starts
+  # services, so the id captured before the restore can be stale.
+  GG_FB_PG="$(dc ps -q postgres 2>/dev/null | head -n 1)"
+  if [[ -n "$GG_FB_PG" ]] && docker exec -i -e PGPASSWORD="$POSTGRES_PASSWORD" "$GG_FB_PG" \
+       psql -U gratisgis -d "$POSTGRES_DB_APP" -v ON_ERROR_STOP=1 \
+       -c "TRUNCATE feedback" \
+       -c "\\copy feedback FROM STDIN" \
+       -c "UPDATE feedback SET user_id = NULL WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM \"user\")" \
+       -c "UPDATE feedback SET handled_by_id = NULL WHERE handled_by_id IS NOT NULL AND handled_by_id NOT IN (SELECT id FROM \"user\")" \
+       < "$FEEDBACK_CARRY"; then
+    echo "Feedback restored."
+  else
+    echo "WARN: could not restore carried feedback; the dump is at $FEEDBACK_CARRY on the host." >&2
+    # Deliberately NOT deleted on failure: it is the only copy.
+    FEEDBACK_CARRY=""
+  fi
+fi
+# Plain `if` rather than `[[ ... ]] && rm`: under `set -e` the latter
+# exits the whole script with status 1 whenever the test is false,
+# which here is the ordinary "nothing to clean up" path.
+if [[ -n "$FEEDBACK_CARRY" ]]; then
+  rm -f "$FEEDBACK_CARRY"
+fi
+
 echo "=== Restoring MinIO volume ==="
 # Stop minio so nothing writes the volume while we swap its contents.
 dc stop minio
+# Feedback screenshots ride along with the rows carried above. Without
+# this, a preserved submission would point at an object the wipe just
+# deleted, and the triage view would offer a "View screenshot" link
+# that 404s. Copied out to a host directory, then back in after the
+# untar, because the whole volume is emptied in between.
+#
+# The bucket layout is <bucket>/feedback-screenshot/<uuid>, and the
+# bucket name is configurable, so the copy globs one level down rather
+# than assuming a name.
+FEEDBACK_SHOTS="$(mktemp -d /tmp/gg-feedback-shots-XXXXXX)"
+docker run --rm \
+  -v "${COMPOSE_PROJECT}_miniodata":/data:ro \
+  -v "$FEEDBACK_SHOTS":/out \
+  alpine:3.20 \
+  sh -c 'for d in /data/*/feedback-screenshot; do [ -d "$d" ] || continue; b=$(basename "$(dirname "$d")"); mkdir -p "/out/$b" && cp -a "$d" "/out/$b/"; done' \
+  || echo "WARN: could not copy feedback screenshots out; carried rows may lose their images." >&2
 docker run --rm \
   -v "${COMPOSE_PROJECT}_miniodata":/data \
   -v "$GOLDEN_DIR":/in:ro \
   alpine:3.20 \
   sh -c 'rm -rf /data/..?* /data/.[!.]* /data/* && tar xf /in/minio.tar -C /data'
+docker run --rm \
+  -v "${COMPOSE_PROJECT}_miniodata":/data \
+  -v "$FEEDBACK_SHOTS":/in:ro \
+  alpine:3.20 \
+  sh -c 'for b in /in/*; do [ -d "$b" ] || continue; mkdir -p "/data/$(basename "$b")" && cp -a "$b"/. "/data/$(basename "$b")/"; done' \
+  || echo "WARN: could not copy feedback screenshots back in." >&2
+rm -rf "$FEEDBACK_SHOTS"
 dc start minio
 
 echo "=== Restarting app services ==="

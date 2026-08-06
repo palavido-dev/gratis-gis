@@ -14,6 +14,7 @@ import {
   LayoutGrid,
   Map as MapIcon,
   Menu as MenuIcon,
+  MessageSquarePlus,
   Paintbrush,
   Rocket,
   Shield,
@@ -326,6 +327,16 @@ function NavList({
             onNavigate={cb}
           >
             {t('nav.notifications')}
+          </NavLink>
+          {/* Not gated on the feedback flag: an operator who turned
+              the form off still needs to read what came in while it
+              was on. */}
+          <NavLink
+            href="/admin/feedback"
+            icon={<MessageSquarePlus className="h-4 w-4" />}
+            onNavigate={cb}
+          >
+            Feedback
           </NavLink>
           <NavLink
             href="/admin/field-queues"
