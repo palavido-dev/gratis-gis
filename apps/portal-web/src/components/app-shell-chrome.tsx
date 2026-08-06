@@ -30,6 +30,7 @@ import { isSessionStale } from '@/lib/session-state';
 
 import { TopBarSearch } from './top-bar-search';
 import { HelpButton } from './help-button';
+import { FeedbackWidget } from './feedback-widget';
 import { UserMenu } from './user-menu';
 import { BrandWordmark } from './brand-mark';
 
@@ -72,6 +73,8 @@ export function AppShellChrome({
   sessionStale,
   fallbackName,
   fallbackEmail,
+  feedbackEnabled,
+  appVersion,
   children,
 }: {
   me: AppShellMe | null;
@@ -80,6 +83,9 @@ export function AppShellChrome({
   sessionStale: boolean;
   fallbackName: string | null;
   fallbackEmail: string | null;
+  /** portal-info features.feedback, resolved server-side (#146). */
+  feedbackEnabled: boolean;
+  appVersion: string | null;
   children: ReactNode;
 }) {
   const pathname = usePathname() ?? '';
@@ -151,9 +157,16 @@ export function AppShellChrome({
   // the single signed-in truth; a cookie's mere existence is not.
   // The expired banner lives in providers.tsx, so it still shows
   // over the bare render, with sign-in as the way back.
+  // Signed out still gets the feedback tab. That is the whole point:
+  // the people this exists for are anonymous demo visitors who will
+  // not open a GitHub issue, and gating it on a session would hide it
+  // from all of them.
   if (!signedIn || stale) {
     return (
-      <div className="min-h-screen bg-surface-0 text-ink-0">{children}</div>
+      <div className="min-h-screen bg-surface-0 text-ink-0">
+        {children}
+        <FeedbackWidget enabled={feedbackEnabled} appVersion={appVersion} />
+      </div>
     );
   }
 
@@ -210,6 +223,12 @@ export function AppShellChrome({
 
         <main className="flex-1 animate-fade-in">{children}</main>
       </div>
+      <FeedbackWidget
+        enabled={feedbackEnabled}
+        appVersion={appVersion}
+        defaultName={me?.fullName ?? fallbackName}
+        defaultEmail={fallbackEmail}
+      />
     </div>
   );
 }

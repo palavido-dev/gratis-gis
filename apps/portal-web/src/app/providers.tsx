@@ -15,12 +15,17 @@ import type { SupportedLocale } from '@/lib/i18n/locales';
 export function Providers({
   children,
   locale,
+  feedbackEnabled = false,
 }: {
   children: ReactNode;
   /** #162 Phase 1.1 negotiated locale from the server. Plumbed
    *  in through the root layout so client components can read it
    *  via useLocale / useT. */
   locale: SupportedLocale;
+  /** #146: portal-info features.feedback. The help drawer sits
+   *  ABOVE the app shell in this tree, so it cannot read the flag
+   *  from the shell and has to be handed it from the root layout. */
+  feedbackEnabled?: boolean;
 }) {
   return (
     <SessionProvider>
@@ -30,7 +35,7 @@ export function Providers({
       <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
         <LocaleProvider locale={locale}>
           <DialogProvider>
-            <HelpDrawerProvider>
+            <HelpDrawerProvider feedbackEnabled={feedbackEnabled}>
               {/* #195: must sit inside SessionProvider (reads
                   useSession) and LocaleProvider (reads useT); above
                   the app shell so the banner spans every page,

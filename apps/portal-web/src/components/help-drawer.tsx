@@ -33,7 +33,13 @@ import {
   type ReactNode,
 } from 'react';
 import Link from 'next/link';
-import { HelpCircle, Search, Target, X } from 'lucide-react';
+import {
+  HelpCircle,
+  MessageSquarePlus,
+  Search,
+  Target,
+  X,
+} from 'lucide-react';
 
 interface HelpIndexEntry {
   id: string;
@@ -70,7 +76,16 @@ export function useHelpDrawer(): HelpDrawerContextValue {
   return ctx;
 }
 
-export function HelpDrawerProvider({ children }: { children: ReactNode }) {
+export function HelpDrawerProvider({
+  children,
+  feedbackEnabled = false,
+}: {
+  children: ReactNode;
+  /** #146: show the "Send feedback" entry. Handed down from the root
+   *  layout because this provider sits above the app shell, which is
+   *  where the flag is otherwise read. */
+  feedbackEnabled?: boolean;
+}) {
   const [state, setState] = useState<DrawerState>({
     open: false,
     slug: null,
@@ -249,6 +264,7 @@ export function HelpDrawerProvider({ children }: { children: ReactNode }) {
           togglePicking={() =>
             setState((s) => ({ ...s, picking: !s.picking, slug: null }))
           }
+          feedbackEnabled={feedbackEnabled}
         />
       ) : null}
     </HelpDrawerContext.Provider>
@@ -267,6 +283,7 @@ function DrawerUI({
   back,
   close,
   togglePicking,
+  feedbackEnabled,
 }: {
   state: DrawerState;
   query: string;
@@ -284,6 +301,7 @@ function DrawerUI({
   back: () => void;
   close: () => void;
   togglePicking: () => void;
+  feedbackEnabled: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   // Focus the search box when the drawer opens in search mode.
@@ -326,6 +344,21 @@ function DrawerUI({
         >
           Open full
         </Link>
+        {/* Someone who opens Help because something is broken is one
+            of the likeliest people to have something worth telling
+            us, so the report route lives right here rather than only
+            on the floating tab. */}
+        {feedbackEnabled ? (
+          <Link
+            href="/feedback"
+            onClick={close}
+            className="inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-1.5 text-2xs font-medium text-ink-1 hover:bg-surface-2"
+            title="Report a problem or send feedback"
+          >
+            <MessageSquarePlus className="h-3 w-3" />
+            Feedback
+          </Link>
+        ) : null}
         <button
           type="button"
           onClick={close}

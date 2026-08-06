@@ -6,6 +6,7 @@ import { AppShell } from '@/components/app-shell';
 import { SwRegistrar } from '@/components/sw-registrar';
 import { getPortalUrl } from '@/lib/portal-url';
 import { getServerLocale } from '@/lib/i18n/server';
+import { getPortalFeatures } from '@/lib/portal-features';
 import { Providers } from './providers';
 import './globals.css';
 
@@ -98,6 +99,8 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   // <html lang> also picks up the locale so screen readers and
   // browser auto-translation respect the user's choice.
   const locale = await getServerLocale();
+  // Same cached read AppShell does; one round-trip serves both.
+  const features = await getPortalFeatures();
   return (
     // suppressHydrationWarning: next-themes mutates <html> class/style
     // before hydration to avoid a light-flash; React would otherwise
@@ -108,7 +111,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       suppressHydrationWarning
     >
       <body className="font-sans antialiased">
-        <Providers locale={locale}>
+        <Providers locale={locale} feedbackEnabled={features.feedback}>
           <AppShell>{children}</AppShell>
         </Providers>
         <SwRegistrar />

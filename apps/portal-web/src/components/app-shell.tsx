@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { apiFetch } from '@/lib/api';
+import { getPortalFeatures } from '@/lib/portal-features';
 import { isSessionStale } from '@/lib/session-state';
 import { AppShellChrome, type AppShellMe } from './app-shell-chrome';
 
@@ -39,6 +40,10 @@ export async function AppShell({ children }: { children: ReactNode }) {
     }
   }
 
+  // Shared with the root layout via React cache, so the two callers
+  // cost one round-trip per render rather than two.
+  const features = await getPortalFeatures();
+
   return (
     <AppShellChrome
       me={me}
@@ -46,6 +51,8 @@ export async function AppShell({ children }: { children: ReactNode }) {
       sessionStale={stale}
       fallbackName={session?.user?.name ?? null}
       fallbackEmail={session?.user?.email ?? null}
+      feedbackEnabled={features.feedback}
+      appVersion={features.version}
     >
       {children}
     </AppShellChrome>
