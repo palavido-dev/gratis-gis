@@ -211,11 +211,17 @@ function renderBody(
     ['Browser', input.userAgent ?? '(not provided)'],
     ['Viewport', input.viewport ?? '(not provided)'],
     ['Signed in', input.userId ? 'yes' : 'no'],
-    ['Screenshot', hasScreenshot ? 'attached, see the portal' : 'none'],
+    ['Screenshot', hasScreenshot ? 'yes (link below)' : 'none'],
   ];
   // The raw IP is deliberately absent: it is not stored (only a keyed
   // hash is) so echoing it into an inbox would recreate exactly the
   // record the hashing exists to avoid.
+  // A real link, not a breadcrumb. The first version of this email
+  // said "attached, see the portal" and "Admin -> Feedback", which
+  // told the reader a screenshot existed without telling them how to
+  // reach it. If the notification is worth sending it is worth making
+  // actionable in one click.
+  const triageUrl = `${portalBaseUrl()}/admin/feedback`;
   const text = [
     ...rows.map(([k, v]) => `${k}: ${v}`),
     '',
@@ -225,7 +231,11 @@ function renderBody(
     '',
     '----',
     '',
-    `Triage: Admin -> Feedback (id ${id})`,
+    hasScreenshot
+      ? `A screenshot is attached to this submission. View it here:`
+      : `Open in the portal:`,
+    triageUrl,
+    `(submission id ${id})`,
   ].join('\n');
   const html =
     `<p>${rows
@@ -234,8 +244,27 @@ function renderBody(
     `<pre style="white-space: pre-wrap; font-family: -apple-system, system-ui, sans-serif;">${escape(
       input.message,
     )}</pre>` +
-    `<hr><p style="color:#666">Triage: Admin -&gt; Feedback (id ${escape(id)})</p>`;
+    `<hr><p><a href="${escape(triageUrl)}">${
+      hasScreenshot
+        ? 'View the screenshot and triage this feedback'
+        : 'Open this feedback in the portal'
+    }</a></p>` +
+    `<p style="color:#666;font-size:12px">Submission id ${escape(id)}</p>`;
   return { text, html };
+}
+
+/**
+ * Public origin of the portal, for links in outbound mail. Same env
+ * var the notification templates use, so an operator configures the
+ * portal's address once. Trailing slash trimmed so callers can append
+ * a path without doubling it.
+ */
+function portalBaseUrl(): string {
+  const raw = process.env.PORTAL_BASE_URL?.trim();
+  return (raw && raw.length > 0 ? raw : 'http://localhost:3000').replace(
+    /\/+$/,
+    '',
+  );
 }
 
 function escape(s: string): string {

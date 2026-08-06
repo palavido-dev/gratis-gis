@@ -455,6 +455,13 @@ services:
       # Deployed ref for /api/portal-info (QGIS plugin discovery and
       # support conversations). Stamped by deploy.sh from git describe.
       GG_VERSION: ${GG_VERSION:-}
+      # Public origin, used to build links in outbound email. This was
+      # never passed through, and the code defaults to
+      # http://localhost:3000, so every notification email this portal
+      # has sent carried a link pointing at the recipient's own
+      # machine. Derived from PORTAL_DOMAIN so there is one place to
+      # set the portal's address.
+      PORTAL_BASE_URL: ${PORTAL_BASE_URL:-https://${PORTAL_DOMAIN:-gratisgis.org}}
       # In-portal feedback (#146). Off unless set: enabling it opens a
       # public, unauthenticated POST endpoint and shows a feedback
       # button to every visitor, which is right for the demo and wrong
@@ -534,6 +541,10 @@ services:
       MINIO_BUCKET: ${S3_BUCKET:-gratisgis}
       MINIO_PUBLIC_BASE: https://${STORAGE_DOMAIN:-storage.gratisgis.org}
       PUBLIC_URL: ${PUBLIC_URL:-https://gratisgis.org}
+      # Same image as portal-api, so it carries the same email-link
+      # code path. Set here too rather than relying on the worker never
+      # sending mail, which is true today and easy to break.
+      PORTAL_BASE_URL: ${PORTAL_BASE_URL:-https://${PORTAL_DOMAIN:-gratisgis.org}}
     volumes:
       - gg-staging:/var/lib/gg-staging
     # Override CMD: same image but boot the worker entry point instead
