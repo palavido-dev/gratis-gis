@@ -44,7 +44,13 @@ export type AssetKind =
   // public bucket key so the renderer can resolve
   // `upload:<key>` icon references without proxying through the
   // api. Small (low-KB) so no streaming required.
-  | 'map-icon';
+  | 'map-icon'
+  // #146: optional screenshot attached to a feedback submission.
+  // Private: uploaded through a public, unauthenticated endpoint and
+  // readable only by an admin through the triage view, so it must
+  // never appear in the bucket policy's public-read prefixes. Small
+  // (a screen capture), sniffed as a real image before it is stored.
+  | 'feedback-screenshot';
 
 const ALLOWED_CONTENT_TYPES = new Set([
   'image/png',
@@ -454,6 +460,7 @@ export class StorageService implements OnModuleInit {
     'item-file',
     'item-tile-layer',
     'item-point-cloud',
+    'feedback-screenshot',
   ]);
 
   /**

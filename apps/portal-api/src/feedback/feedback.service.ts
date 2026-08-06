@@ -2,6 +2,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { EmailTransport } from '../notifications/email-transport.js';
+import { PrismaService } from '../prisma/prisma.service.js';
+import { StorageService } from '../storage/storage.service.js';
+import {
+  LONG_LIMIT,
+  LONG_WINDOW_MS,
+  SHORT_LIMIT,
+  SHORT_WINDOW_MS,
+  resolveFeedbackRecipient,
+} from './feedback-config.js';
+import { hashIp } from './ip-hash.js';
 
 export interface FeedbackInput {
   /** Optional sender name. Free-form; not validated against any user table. */
@@ -10,117 +20,177 @@ export interface FeedbackInput {
   email?: string;
   /** Required body of the feedback. */
   message: string;
-  /** Optional page URL the user was on when they opened the form. */
+  /** Page the reporter was on when they opened the form. */
   pageUrl?: string;
-  /** Optional user-agent string. */
+  /** Portal version the reporter was running. */
+  appVersion?: string;
+  /** Browser user-agent string. */
   userAgent?: string;
-  /** IP address of the caller, captured server-side. */
+  /** Viewport as "WxH", e.g. "1512x945". */
+  viewport?: string;
+  /** Set when a signed-in user submitted. */
+  userId?: string;
+  orgId?: string;
+  /** Raw client IP, captured server-side. Hashed before storage. */
   ip: string;
+  /** Optional screenshot bytes, already validated as a real image. */
+  screenshot?: { body: Buffer; contentType: string };
 }
 
 /**
- * Anonymous feedback intake (#146). The whole point is that a tester
- * who does not have (and does not want) a GitHub account can still
- * leave a comment on the public test instance. The service:
+ * In-portal feedback intake (#146).
  *
- *   - Validates message presence (controller-level DTO catches it
- *     too, this is defense in depth).
- *   - Routes the message to the maintainer inbox via the existing
- *     EmailTransport. The recipient is read from
- *     FEEDBACK_RECIPIENT_EMAIL with a sensible fallback so a
- *     fresh deploy with no env setup still has somewhere to land.
- *   - Falls back to a structured logger.warn() when SMTP is not
- *     configured. The submission still succeeds from the user's
- *     point of view; the maintainer can scrape the log later.
- *     This keeps the form usable even on a deploy that hasn't
- *     configured SMTP yet (the common "I just stood up the portal"
- *     case).
- *   - Never echoes the submission back to the client beyond a
- *     plain `{ ok: true }`. No id, no email-status leak.
+ * The point is that a tester who does not have, and does not want, a
+ * GitHub account can still report something. Originally this was
+ * fire-and-forget email. It is now database-first, for one reason:
+ * on a public demo the feedback IS the product signal, and email is
+ * the least reliable link in the chain. A dropped SMTP connection, an
+ * over-eager spam filter, or a misconfigured recipient all used to
+ * destroy the only copy.
+ *
+ * Order of operations, and why:
+ *
+ *   1. Rate-limit against persisted rows, so both API replicas share
+ *      one view of a source and a deploy does not reset the window.
+ *   2. Store the screenshot, if any. Before the row, so a storage
+ *      failure cannot orphan a row that references a missing object.
+ *   3. Write the row. This is the durable record and the point of no
+ *      return: once it succeeds the submission is safe.
+ *   4. Email as a best-effort NOTIFICATION.
+ *
+ * Step 4 no longer throws. That is a deliberate change from the
+ * email-only design, where a send failure had to surface so the user
+ * knew to retry. Now a send failure means the maintainer's nudge was
+ * lost, not the feedback, and reporting it as an error would invite a
+ * duplicate submission of something already safely stored.
  */
 @Injectable()
 export class FeedbackService {
   private readonly log = new Logger(FeedbackService.name);
 
-  constructor(private readonly mail: EmailTransport) {}
+  constructor(
+    private readonly mail: EmailTransport,
+    private readonly prisma: PrismaService,
+    private readonly storage: StorageService,
+  ) {}
 
-  async submit(input: FeedbackInput): Promise<void> {
-    const recipient = resolveRecipient();
-    const subject = renderSubject(input);
-    const { text, html } = renderBody(input);
+  /**
+   * True when this source has spent its budget. Counts rows rather
+   * than in-process timestamps: the old in-memory limiter claimed
+   * 3-per-5-minutes but delivered 6 across two replicas, and forgot
+   * everything on every deploy.
+   */
+  async isRateLimited(ip: string, now: Date = new Date()): Promise<boolean> {
+    const ipHash = hashIp(ip);
+    const [shortCount, longCount] = await Promise.all([
+      this.prisma.feedback.count({
+        where: {
+          ipHash,
+          createdAt: { gte: new Date(now.getTime() - SHORT_WINDOW_MS) },
+        },
+      }),
+      this.prisma.feedback.count({
+        where: {
+          ipHash,
+          createdAt: { gte: new Date(now.getTime() - LONG_WINDOW_MS) },
+        },
+      }),
+    ]);
+    return shortCount >= SHORT_LIMIT || longCount >= LONG_LIMIT;
+  }
 
-    // Always log so the maintainer has a backup record even when
-    // SMTP delivery succeeds (and especially when it doesn't).
-    // PII-light: we log the email + IP because they are how the
-    // maintainer would chase down a bad-faith submission, but we
-    // do NOT log the message body (it might contain whatever the
-    // user just typed). The body lives only in the outbound email.
+  async submit(input: FeedbackInput): Promise<{ id: string }> {
+    let screenshotKey: string | null = null;
+    if (input.screenshot) {
+      try {
+        const { key } = await this.storage.uploadBuffer(
+          'feedback-screenshot',
+          input.screenshot.body,
+          input.screenshot.contentType,
+        );
+        screenshotKey = key;
+      } catch (err) {
+        // An image we could not store must not cost us the words.
+        // Losing the attachment is a degraded report; losing the
+        // report is a lost bug.
+        this.log.warn(
+          `feedback screenshot upload failed, saving text only: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+
+    const row = await this.prisma.feedback.create({
+      data: {
+        message: input.message,
+        ...(input.name ? { name: input.name } : {}),
+        ...(input.email ? { email: input.email } : {}),
+        ...(input.pageUrl ? { pageUrl: input.pageUrl } : {}),
+        ...(input.appVersion ? { appVersion: input.appVersion } : {}),
+        ...(input.userAgent ? { userAgent: input.userAgent } : {}),
+        ...(input.viewport ? { viewport: input.viewport } : {}),
+        ...(input.userId ? { userId: input.userId } : {}),
+        ...(input.orgId ? { orgId: input.orgId } : {}),
+        ipHash: hashIp(input.ip),
+        ...(screenshotKey ? { screenshotKey } : {}),
+      },
+      select: { id: true },
+    });
+
+    // PII-light: the body is in the database and the email, not in
+    // the logs, which are shipped and retained differently.
     this.log.log(
-      `feedback received from=${input.email ?? '(no email)'} ip=${input.ip} ua="${truncate(
-        input.userAgent ?? '',
-        80,
-      )}" page="${truncate(input.pageUrl ?? '', 80)}" len=${input.message.length}`,
+      `feedback stored id=${row.id} from=${input.email ?? '(anonymous)'} ` +
+        `page="${truncate(input.pageUrl ?? '', 80)}" len=${input.message.length}` +
+        `${screenshotKey ? ' +screenshot' : ''}`,
     );
 
-    if (!(await this.mail.isAvailable())) {
-      // SMTP not configured. We deliberately do not surface this to
-      // the client; from their point of view the submission "went
-      // through" (their words landed somewhere durable, which is
-      // the log). Log the full body here so the maintainer can
-      // recover it after configuring SMTP.
+    await this.notify(input, row.id, screenshotKey !== null);
+    return { id: row.id };
+  }
+
+  /**
+   * Best-effort email notification. Every failure path here is
+   * logged and swallowed: by this point the submission is already
+   * durable, so nothing the operator does about mail can lose it.
+   */
+  private async notify(
+    input: FeedbackInput,
+    id: string,
+    hasScreenshot: boolean,
+  ): Promise<void> {
+    const recipient = resolveFeedbackRecipient();
+    if (!recipient) {
       this.log.warn(
-        `SMTP not configured; feedback body logged below.\n---\nFrom: ${
-          input.email ?? '(no email)'
-        }\nName: ${input.name ?? '(no name)'}\nPage: ${input.pageUrl ?? ''}\n---\n${
-          input.message
-        }\n---`,
+        `feedback ${id} stored but not emailed: no FEEDBACK_RECIPIENT_EMAIL ` +
+          'configured. Read it in the portal under Admin -> Feedback.',
       );
       return;
     }
-
+    if (!(await this.mail.isAvailable())) {
+      this.log.warn(
+        `feedback ${id} stored but not emailed: SMTP is not configured. ` +
+          'Read it in the portal under Admin -> Feedback.',
+      );
+      return;
+    }
     try {
+      const { text, html } = renderBody(input, id, hasScreenshot);
       await this.mail.send({
         to: recipient,
-        subject,
+        subject: renderSubject(input),
         text,
         html,
       });
     } catch (err) {
-      // Mail delivery failed. Log the body so it is recoverable,
-      // and throw so the controller can return a 502 to the user
-      // (they can retry; they shouldn't see "success" when the
-      // mail did NOT go out).
       this.log.error(
-        `feedback delivery failed: ${
+        `feedback ${id} stored, but the notification email failed: ${
           err instanceof Error ? err.message : String(err)
-        }`,
+        }. The submission is safe; read it under Admin -> Feedback.`,
       );
-      this.log.warn(
-        `Lost-to-SMTP feedback body recovered below.\n---\nFrom: ${
-          input.email ?? '(no email)'
-        }\nName: ${input.name ?? '(no name)'}\nPage: ${input.pageUrl ?? ''}\n---\n${
-          input.message
-        }\n---`,
-      );
-      throw err;
     }
   }
-}
-
-/**
- * Where the feedback email lands. Configurable via env so a fork or
- * a per-org deploy can route to its own inbox. Defaults to ACME_EMAIL
- * (the Let's Encrypt registration email) because that's already a
- * "real inbox the operator reads" they had to fill in to obtain
- * TLS. Last-ditch fallback is the upstream maintainer's address so
- * the form never silently swallows in a misconfigured deploy.
- */
-function resolveRecipient(): string {
-  const explicit = process.env.FEEDBACK_RECIPIENT_EMAIL?.trim();
-  if (explicit) return explicit;
-  const acme = process.env.ACME_EMAIL?.trim();
-  if (acme && acme !== 'you@example.com') return acme;
-  return 'matthew.palavido@gmail.com';
 }
 
 function renderSubject(input: FeedbackInput): string {
@@ -128,29 +198,43 @@ function renderSubject(input: FeedbackInput): string {
   return `[GratisGIS feedback] ${truncate(input.message, 60)} (from ${who})`;
 }
 
-function renderBody(input: FeedbackInput): { text: string; html: string } {
-  const lines = [
-    `From: ${input.email ?? '(not provided)'}`,
-    `Name: ${input.name ?? '(not provided)'}`,
-    `Page: ${input.pageUrl ?? '(not provided)'}`,
-    `User-Agent: ${input.userAgent ?? '(not provided)'}`,
-    `IP: ${input.ip}`,
+function renderBody(
+  input: FeedbackInput,
+  id: string,
+  hasScreenshot: boolean,
+): { text: string; html: string } {
+  const rows: Array<[string, string]> = [
+    ['From', input.email ?? '(not provided)'],
+    ['Name', input.name ?? '(not provided)'],
+    ['Page', input.pageUrl ?? '(not provided)'],
+    ['Version', input.appVersion ?? '(not provided)'],
+    ['Browser', input.userAgent ?? '(not provided)'],
+    ['Viewport', input.viewport ?? '(not provided)'],
+    ['Signed in', input.userId ? 'yes' : 'no'],
+    ['Screenshot', hasScreenshot ? 'attached, see the portal' : 'none'],
+  ];
+  // The raw IP is deliberately absent: it is not stored (only a keyed
+  // hash is) so echoing it into an inbox would recreate exactly the
+  // record the hashing exists to avoid.
+  const text = [
+    ...rows.map(([k, v]) => `${k}: ${v}`),
     '',
     '----',
     '',
     input.message,
-  ];
-  const text = lines.join('\n');
+    '',
+    '----',
+    '',
+    `Triage: Admin -> Feedback (id ${id})`,
+  ].join('\n');
   const html =
-    `<p><strong>From:</strong> ${escape(input.email ?? '(not provided)')}<br>` +
-    `<strong>Name:</strong> ${escape(input.name ?? '(not provided)')}<br>` +
-    `<strong>Page:</strong> ${escape(input.pageUrl ?? '(not provided)')}<br>` +
-    `<strong>User-Agent:</strong> ${escape(input.userAgent ?? '(not provided)')}<br>` +
-    `<strong>IP:</strong> ${escape(input.ip)}</p>` +
-    `<hr>` +
+    `<p>${rows
+      .map(([k, v]) => `<strong>${escape(k)}:</strong> ${escape(v)}`)
+      .join('<br>')}</p><hr>` +
     `<pre style="white-space: pre-wrap; font-family: -apple-system, system-ui, sans-serif;">${escape(
       input.message,
-    )}</pre>`;
+    )}</pre>` +
+    `<hr><p style="color:#666">Triage: Admin -&gt; Feedback (id ${escape(id)})</p>`;
   return { text, html };
 }
 

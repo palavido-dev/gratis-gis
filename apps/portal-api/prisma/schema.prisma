@@ -72,27 +72,27 @@ enum ShareRowScope {
 enum NotificationType {
   /// A user or group share row was just created on an item the
   /// recipient can now see. Phase 1 trigger.
-  share_created            @map("share-created")
+  share_created                   @map("share-created")
   /// A share's expiresAt is within the warning window and the
   /// recipient still needs the access. Phase 2 trigger.
-  share_expiring           @map("share-expiring")
+  share_expiring                  @map("share-expiring")
   /// A share has expired and the recipient lost access. Phase 2
   /// trigger.
-  share_expired            @map("share-expired")
+  share_expired                   @map("share-expired")
   /// A user is approaching auto-disable for inactivity. Phase 2
   /// trigger.
-  user_auto_disable_warning @map("user-auto-disable-warning")
+  user_auto_disable_warning       @map("user-auto-disable-warning")
   /// A user was just auto-disabled. Phase 2 trigger.
-  user_disabled            @map("user-disabled")
+  user_disabled                   @map("user-disabled")
   /// An editor target had a feature added. Phase 2 trigger
   /// (replaces the original Survey123-gap ask).
-  editor_feature_created   @map("editor-feature-created")
+  editor_feature_created          @map("editor-feature-created")
   /// An admin has invited a new user to the org. Sent to the
   /// invitee with the realm-managed invite link. Replaces the
   /// hand-rolled invite email body that used to live in the
   /// admin-invite path so all transactional email goes through one
   /// renderer.
-  user_invited             @map("user-invited")
+  user_invited                    @map("user-invited")
   /// A field deployment ('data_collection' item) had a feature
   /// added through the field runtime. Mirrors editor_feature_created
   /// but covers the field-deployment write path, which doesn't
@@ -104,7 +104,7 @@ enum NotificationType {
   /// from editor / data_collection because the write lands in
   /// form_submission rather than a feature table; recipient gets
   /// the rendered receipt + a deep link to the submission.
-  form_submission_received @map("form-submission-received")
+  form_submission_received        @map("form-submission-received")
   /// A data_layer schema change just landed that will break
   /// in-flight offline copies (#230). Fires on layer drop or
   /// geometryType swap; recipients are deployment owners of
@@ -112,7 +112,7 @@ enum NotificationType {
   /// changed data_layer. Phase A only sends post-save; Phase B
   /// surfaces a pre-save admin warning + Phase C builds the
   /// field-runtime "rebuild offline area" badge.
-  data_collection_schema_break @map("data-collection-schema-break")
+  data_collection_schema_break    @map("data-collection-schema-break")
 }
 
 /// Channel a notification is delivered through. Phase 1 ships email
@@ -240,21 +240,21 @@ model Organization {
 }
 
 model User {
-  id        String   @id @db.Uuid // matches Keycloak sub
-  orgId     String   @map("org_id") @db.Uuid
-  username  String   @unique
-  email     String
-  fullName  String   @map("full_name")
-  orgRole   OrgRole  @default(viewer) @map("org_role")
+  id            String    @id @db.Uuid // matches Keycloak sub
+  orgId         String    @map("org_id") @db.Uuid
+  username      String    @unique
+  email         String
+  fullName      String    @map("full_name")
+  orgRole       OrgRole   @default(viewer) @map("org_role")
   /// Absolute URL to the user's avatar image (served from MinIO).
   /// Null falls back to the auto-generated initial badge.
-  avatarUrl String?  @map("avatar_url")
-  createdAt DateTime @default(now()) @map("created_at")
+  avatarUrl     String?   @map("avatar_url")
+  createdAt     DateTime  @default(now()) @map("created_at")
   /// Last time we saw this user hit the API (populated via AuthSync
   /// on every request). Null = never-seen (seeded or imported user
   /// who hasn't signed in yet). Drives the housekeeping stale-user
   /// detection on /admin/housekeeping.
-  lastSeenAt DateTime? @map("last_seen_at")
+  lastSeenAt    DateTime? @map("last_seen_at")
   /// Optional auto-disable timestamp (#85). When non-null and in
   /// the past, auth-sync flips the user's Keycloak `enabled` flag
   /// to false on the next request and the housekeeping cron sweep
@@ -281,17 +281,19 @@ model User {
   /// over the master admin. Pairs with the env flag
   /// PORTAL_LOCK_ADMIN_TIER which separately forbids the creation
   /// of NEW admin accounts during testing mode.
-  isProtected   Boolean  @default(false) @map("is_protected")
+  isProtected   Boolean   @default(false) @map("is_protected")
 
-  org           Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  ownedGroups   Group[]       @relation("GroupOwner")
-  groupMembers  GroupMember[]
-  ownedItems    Item[]        @relation("ItemOwner")
+  org                 Organization             @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  ownedGroups         Group[]                  @relation("GroupOwner")
+  groupMembers        GroupMember[]
+  ownedItems          Item[]                   @relation("ItemOwner")
   capabilityOverrides UserCapabilityOverride[]
   apiKeys             ApiKey[]
-  notifications  Notification[]
-  notificationPrefs NotificationPreference[]
+  notifications       Notification[]
+  notificationPrefs   NotificationPreference[]
   fieldQueueManifests FieldQueueManifest[]
+  feedbackSubmitted   Feedback[]               @relation("FeedbackReporter")
+  feedbackHandled     Feedback[]               @relation("FeedbackHandler")
 
   @@index([orgId])
   @@index([deletedAt])
@@ -351,27 +353,27 @@ model UserCapabilityOverride {
 /// here: keys cannot reach /admin/* at all, and a `readOnly` key is
 /// refused on any unsafe HTTP method. See auth/api-key.service.ts.
 model ApiKey {
-  id        String    @id @default(uuid()) @db.Uuid
-  userId    String    @map("user_id") @db.Uuid
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
   /// User-supplied label, e.g. "nightly parcel refresh".
-  name      String
+  name       String
   /// SHA-256 hex of the issued token. Unique so verification is a
   /// single indexed lookup rather than a scan.
-  tokenHash String    @unique @map("token_hash")
+  tokenHash  String    @unique @map("token_hash")
   /// Non-secret leading characters of the token, for display only.
-  prefix    String
+  prefix     String
   /// When true, the key is refused on POST / PATCH / PUT / DELETE.
-  readOnly  Boolean   @default(false) @map("read_only")
+  readOnly   Boolean   @default(false) @map("read_only")
   /// Optional expiry. Null means the key is valid until revoked.
-  expiresAt DateTime? @map("expires_at")
+  expiresAt  DateTime? @map("expires_at")
   /// Set when the user revokes the key. Revoked rows are kept rather
   /// than deleted so a leaked key stays permanently burned and the
   /// audit trail survives.
-  revokedAt DateTime? @map("revoked_at")
+  revokedAt  DateTime? @map("revoked_at")
   /// Coarse last-use timestamp, written at most once a minute per key
   /// so a busy script does not turn every read into a write.
   lastUsedAt DateTime? @map("last_used_at")
-  createdAt DateTime  @default(now()) @map("created_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -393,11 +395,11 @@ model Group {
   // Soft-delete. When set, the group is in the trash and filtered out of
   // normal queries. A scheduled job permanently removes rows whose
   // deletedAt is older than the retention window (see docs/soft-delete.md).
-  deletedAt   DateTime?   @map("deleted_at")
+  deletedAt    DateTime?   @map("deleted_at")
 
-  org        Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  owner      User          @relation("GroupOwner", fields: [ownerId], references: [id])
-  members    GroupMember[]
+  org     Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  owner   User          @relation("GroupOwner", fields: [ownerId], references: [id])
+  members GroupMember[]
 
   @@index([orgId])
   @@index([deletedAt])
@@ -419,14 +421,14 @@ model GroupMember {
 }
 
 model Item {
-  id           String     @id @default(uuid()) @db.Uuid
-  orgId        String     @map("org_id") @db.Uuid
-  ownerId      String     @map("owner_id") @db.Uuid
-  type         ItemType
-  title        String
-  description  String     @default("")
-  tags         String[]   @default([])
-  thumbnailUrl String?    @map("thumbnail_url")
+  id                  String     @id @default(uuid()) @db.Uuid
+  orgId               String     @map("org_id") @db.Uuid
+  ownerId             String     @map("owner_id") @db.Uuid
+  type                ItemType
+  title               String
+  description         String     @default("")
+  tags                String[]   @default([])
+  thumbnailUrl        String?    @map("thumbnail_url")
   /// Auto-thumbnail design (#66).  Every item gets a generated
   /// thumbnail composed of a sidebar with the type label and a
   /// title overlay with the item's name.  This blob captures the
@@ -437,25 +439,25 @@ model Item {
   /// the renderer and ThumbnailDesign shape.  Null is tolerated
   /// for back-compat; the backend falls back to the type-default
   /// design when present.
-  thumbnailDesign Json?  @map("thumbnail_design")
+  thumbnailDesign     Json?      @map("thumbnail_design")
   /// Open-data licensing for this item. Free-form so a deployment
   /// can pick any license; the UI offers a curated preset list
   /// (CC-BY, CC0, OGL, proprietary…) plus a custom URL. Surfaces
   /// on the /public/catalog.json DCAT feed so downstream data
   /// consumers can respect the license. Null = no license recorded;
   /// treat as "rights reserved" by default.
-  license      String?    @map("license")
+  license             String?    @map("license")
   /// Type-specific content payload. The underlying column is
   /// `data_json` so existing migrations are undisturbed; exposing the
   /// TS property as `data` keeps the API response shape aligned with
   /// the client-side `Item` type in shared-types.
-  data         Json       @map("data_json")
-  storageRef   String?    @map("storage_ref")
-  access       ItemAccess @default(private)
-  createdAt    DateTime   @default(now()) @map("created_at")
-  updatedAt    DateTime   @updatedAt @map("updated_at")
+  data                Json       @map("data_json")
+  storageRef          String?    @map("storage_ref")
+  access              ItemAccess @default(private)
+  createdAt           DateTime   @default(now()) @map("created_at")
+  updatedAt           DateTime   @updatedAt @map("updated_at")
   // Soft-delete. See Group.deletedAt for rationale.
-  deletedAt    DateTime?  @map("deleted_at")
+  deletedAt           DateTime?  @map("deleted_at")
   /// Folder-cascade cohort id (#7-followup, #156). When a folder is
   /// trashed with cascade=true, every subfolder soft-deleted in the
   /// same operation is stamped with the same UUID here. On restore,
@@ -463,7 +465,7 @@ model Item {
   /// cohort together, so a brought-back folder doesn't return with
   /// childItemIds pointing at still-trashed subfolders. Null on rows
   /// trashed individually; absent for live (non-trashed) rows.
-  deletedCohortId String? @map("deleted_cohort_id") @db.Uuid
+  deletedCohortId     String?    @map("deleted_cohort_id") @db.Uuid
   /// Cached spatial extent in EPSG:4326 as [west, south, east, north].
   /// Recomputed by ItemsService on every create/update from the
   /// item's data_json content (see itemBbox()). Null when the item
@@ -471,8 +473,8 @@ model Item {
   /// (no features, no geometry yet, etc.). Drives the geographic
   /// search filter (#24) without crawling each item's PostGIS
   /// feature tables on every list query.
-  bbox         Float[]    @default([])
-  bboxSrs      String?    @default("EPSG:4326") @map("bbox_srs")
+  bbox                Float[]    @default([])
+  bboxSrs             String?    @default("EPSG:4326") @map("bbox_srs")
   /// #80: tier-level geo limits. When the access tier is 'public'
   /// (publicGeoBoundaryId) or 'org' (orgGeoBoundaryId), the read
   /// path resolves the referenced geo_boundary item and intersects
@@ -484,8 +486,8 @@ model Item {
   /// FK because `item` is polymorphic; the read path treats a
   /// missing / wrong-typed target as "no clip" so a broken ref
   /// cannot silently widen access.
-  publicGeoBoundaryId String? @map("public_geo_boundary_id") @db.Uuid
-  orgGeoBoundaryId    String? @map("org_geo_boundary_id") @db.Uuid
+  publicGeoBoundaryId String?    @map("public_geo_boundary_id") @db.Uuid
+  orgGeoBoundaryId    String?    @map("org_geo_boundary_id") @db.Uuid
   /// Most recent user-initiated request through the item proxy
   /// (#96). Stamped by ItemProxyController on every successful
   /// fetch (with a 60s in-process throttle so we don't write on
@@ -495,7 +497,7 @@ model Item {
   /// stale-item heuristic alongside item.updatedAt and underlying
   /// feature activity: an arcgis_service that's being actively
   /// rendered stays fresh even if nobody edits its item card.
-  lastUsageAt  DateTime?  @map("last_usage_at")
+  lastUsageAt         DateTime?  @map("last_usage_at")
   /// #22: stable identifier for items seeded from a built-in
   /// starter. Set when org-bootstrap (or admin restore) stamps a
   /// fresh starter as an app_template item; null on any user-
@@ -503,14 +505,14 @@ model Item {
   /// templates" flow so we can answer "does this org already have
   /// the sidebar-explorer starter?" cheaply, and lets admins edit
   /// the seeded items freely without losing the origin marker.
-  seedKind     String?    @map("seed_kind")
+  seedKind            String?    @map("seed_kind")
 
-  org         Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  owner       User                @relation("ItemOwner", fields: [ownerId], references: [id])
-  shares      ItemShare[]
-  attachments FeatureAttachment[]
-  snapshots   ItemDataSnapshot[]
-  credential  ItemCredential?
+  org            Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  owner          User                @relation("ItemOwner", fields: [ownerId], references: [id])
+  shares         ItemShare[]
+  attachments    FeatureAttachment[]
+  snapshots      ItemDataSnapshot[]
+  credential     ItemCredential?
   /// #155: threaded comments scoped to this item. Cascade-deletes
   /// every thread + reply when the item is permanently deleted.
   commentThreads CommentThread[]
@@ -682,7 +684,7 @@ model BackupRun {
   /// run is in progress; set atomically at finish. Kept opaque so
   /// operators can move the file to cold storage and just update the
   /// row if they need to.
-  filename String?
+  filename  String?
   /// Bytes on disk after compression. Null if the run failed before
   /// the archive was sealed.
   sizeBytes BigInt? @map("size_bytes")
@@ -720,15 +722,15 @@ model BackupRun {
 model HousekeepingConfig {
   id String @id @default(uuid()) @db.Uuid
 
-  autoTrashEnabled    Boolean @default(false) @map("auto_trash_enabled")
+  autoTrashEnabled Boolean @default(false) @map("auto_trash_enabled")
   /// Days of inactivity before an item is auto-trashed. Null falls
   /// back to HOUSEKEEPING_STALE_ITEM_DAYS env (default 90).
-  autoTrashDays       Int?    @map("auto_trash_days")
+  autoTrashDays    Int?    @map("auto_trash_days")
 
-  autoDisableEnabled  Boolean @default(false) @map("auto_disable_enabled")
+  autoDisableEnabled Boolean @default(false) @map("auto_disable_enabled")
   /// Days of inactivity before a user is auto-disabled. Null falls
   /// back to HOUSEKEEPING_STALE_USER_DAYS env (default 180).
-  autoDisableDays     Int?    @map("auto_disable_days")
+  autoDisableDays    Int?    @map("auto_disable_days")
 
   /// Whether the periodic housekeeping pass should also recompute
   /// every spatial item's bbox (#93). Cheap relative to the trash
@@ -760,11 +762,11 @@ model HousekeepingConfig {
   /// 'off' | 'daily' | 'weekly'. Matches BackupConfig structure but
   /// without the monthly / custom modes (housekeeping cadence is
   /// never high-frequency in practice).
-  scheduleMode  String @default("off") @map("schedule_mode")
-  scheduleHour  Int    @default(3)     @map("schedule_hour")
-  scheduleMinute Int   @default(0)     @map("schedule_minute")
+  scheduleMode      String @default("off") @map("schedule_mode")
+  scheduleHour      Int    @default(3) @map("schedule_hour")
+  scheduleMinute    Int    @default(0) @map("schedule_minute")
   /// Used when mode=weekly. 0 (Sunday) through 6 (Saturday).
-  scheduleDayOfWeek Int? @map("schedule_day_of_week")
+  scheduleDayOfWeek Int?   @map("schedule_day_of_week")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -818,7 +820,7 @@ model ItemShare {
   /// Null = no geographic restriction (full share grant). Mutually
   /// exclusive with `geoBoundaryId` at the API layer; only one of
   /// the two ever holds a value.
-  geoLimit Json? @map("geo_limit")
+  geoLimit      Json?   @map("geo_limit")
   /// Optional reference to a geo_boundary item whose geometry
   /// supplies the clip. Lets one curated boundary serve many
   /// shares without copying coordinates. The sharing service
@@ -984,12 +986,12 @@ model Notification {
 /// a composite primary key. For now there's a single row per key
 /// platform-wide.
 model SystemSetting {
-  key                String   @id
-  value              Json     @default("{}")
-  encryptedSecret    String?  @map("encrypted_secret")
-  encryptedSecretIv  String?  @map("encrypted_secret_iv")
-  updatedAt          DateTime @updatedAt @map("updated_at")
-  updatedBy          String?  @map("updated_by") @db.Uuid
+  key               String   @id
+  value             Json     @default("{}")
+  encryptedSecret   String?  @map("encrypted_secret")
+  encryptedSecretIv String?  @map("encrypted_secret_iv")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  updatedBy         String?  @map("updated_by") @db.Uuid
 
   @@map("system_setting")
 }
@@ -1140,7 +1142,7 @@ model NotificationTypeDefault {
   type      NotificationType
   channel   NotificationChannel
   enabled   Boolean
-  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedAt DateTime            @updatedAt @map("updated_at")
 
   @@id([type, channel])
   @@map("notification_type_default")
@@ -1212,51 +1214,51 @@ enum ImportJobStatus {
 /// one portal-api today). Future scale-out can swap in PG NOTIFY
 /// or a real queue without touching this row's shape.
 model ImportJob {
-  id              String          @id @default(uuid()) @db.Uuid
+  id                String          @id @default(uuid()) @db.Uuid
   /// Item the import targets. data_layer items only today.
-  itemId          String          @map("item_id") @db.Uuid
+  itemId            String          @map("item_id") @db.Uuid
   /// v3 layer id within item.data.layers.
-  layerId         String          @map("layer_id")
+  layerId           String          @map("layer_id")
   /// References /tmp/gg-staging/<id>/ where the staged file lives.
   /// The IngestStagingService cleanup cron evicts stagings older
   /// than 1h; a job that does not start within that window will
   /// fail at run time and the user can re-upload.
-  stagingId       String          @map("staging_id")
+  stagingId         String          @map("staging_id")
   /// Source filename the user uploaded. Cosmetic; carried for the
   /// detail-page banner ("Importing parcels.gdb.zip...").
-  sourceFileName  String          @map("source_file_name")
+  sourceFileName    String          @map("source_file_name")
   /// GDAL source-layer name within the staged archive.
-  sourceLayerName String          @map("source_layer_name")
+  sourceLayerName   String          @map("source_layer_name")
   /// Replace truncates the target layer before insert; append adds.
   /// Wizard always creates jobs with mode='replace'; direct API
   /// callers can pass either.
-  mode            String
+  mode              String
   /// User who fired the job. Owner of the resulting observations
   /// (auth.author_sub on each row).
-  createdBy       String          @map("created_by") @db.Uuid
+  createdBy         String          @map("created_by") @db.Uuid
   /// Org scoping for /import-jobs/active filtering. Denormalized
   /// from item.orgId so the worker doesn't need a join to enforce
   /// per-org visibility.
-  orgId           String          @map("org_id") @db.Uuid
-  status          ImportJobStatus @default(queued)
+  orgId             String          @map("org_id") @db.Uuid
+  status            ImportJobStatus @default(queued)
   /// GDAL-reported feature count from the probe. Lets the banner
   /// render percent-done without waiting for the first batch.
-  totalFeatures   Int?            @map("total_features")
+  totalFeatures     Int?            @map("total_features")
   /// Live counter the worker bumps after each batch flush.
-  processedFeatures Int           @default(0) @map("processed_features")
+  processedFeatures Int             @default(0) @map("processed_features")
   /// Total rows landed in observation. Equals processedFeatures
   /// minus any geometryless rows the worker skipped on a spatial
   /// layer.
-  insertedFeatures Int            @default(0) @map("inserted_features")
+  insertedFeatures  Int             @default(0) @map("inserted_features")
   /// Filled when status flips to failed.
-  errorMessage    String?         @map("error_message")
-  createdAt       DateTime        @default(now()) @map("created_at")
-  startedAt       DateTime?       @map("started_at")
-  finishedAt      DateTime?       @map("finished_at")
+  errorMessage      String?         @map("error_message")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  startedAt         DateTime?       @map("started_at")
+  finishedAt        DateTime?       @map("finished_at")
   /// Heartbeat the worker bumps every batch so the UI can show
   /// "still alive" vs "stuck" and a future scale-out can detect
   /// abandoned jobs (worker crashed mid-run).
-  lastHeartbeatAt DateTime?       @map("last_heartbeat_at")
+  lastHeartbeatAt   DateTime?       @map("last_heartbeat_at")
 
   @@index([orgId, itemId, status], map: "import_job_org_item_status_idx")
   @@index([status, createdAt], map: "import_job_status_created_idx")
@@ -1331,41 +1333,41 @@ enum AgoImportJobStatus {
 /// because the row carries everything needed to render the
 /// current state.
 model AgoImportJob {
-  id              String              @id @default(uuid()) @db.Uuid
+  id             String             @id @default(uuid()) @db.Uuid
   /// User who started the job. Owner of the resulting items.
-  createdBy       String              @map("created_by") @db.Uuid
+  createdBy      String             @map("created_by") @db.Uuid
   /// Org scoping for visibility checks. Denormalized so the
   /// polling endpoint doesn't need a join through user.
-  orgId           String              @map("org_id") @db.Uuid
-  status          AgoImportJobStatus  @default(queued)
+  orgId          String             @map("org_id") @db.Uuid
+  status         AgoImportJobStatus @default(queued)
   /// AGO sharing-rest base the job is pulling from. Stored so the
   /// detail-page banner can name the source org.
-  portalUrl       String              @map("portal_url")
+  portalUrl      String             @map("portal_url")
   /// Number of items the dry-run report flagged as willImport. The
   /// progress bar denominator.
-  total           Int                 @default(0)
+  total          Int                @default(0)
   /// Live counter the runner bumps after each item finishes (any
   /// status -- created / failed / skipped).
-  done            Int                 @default(0)
+  done           Int                @default(0)
   /// Short human description of the in-flight AGO item, e.g.
   /// "Importing 'Parcels' (Feature Service)". Lets the banner show
   /// something more interesting than a percentage.
-  currentItem     String?             @map("current_item")
+  currentItem    String?            @map("current_item")
   /// The dry-run report the user signed off on, persisted so the
   /// background runner has a self-contained input set and the job
   /// detail page can show "what was queued". Includes any
   /// excludedAgoIds the operator deselected in the preview.
-  requestPayload  Json                @map("request_payload")
+  requestPayload Json               @map("request_payload")
   /// The final ImportReport produced by AgoImportService.run.
   /// Populated when status flips to succeeded or failed; null
   /// while queued / running.
-  report          Json?
+  report         Json?
   /// Filled when status flips to failed (covers the runner crash
   /// case where AgoImportService threw before producing a report).
-  errorMessage    String?             @map("error_message")
-  createdAt       DateTime            @default(now()) @map("created_at")
-  startedAt       DateTime?           @map("started_at")
-  finishedAt      DateTime?           @map("finished_at")
+  errorMessage   String?            @map("error_message")
+  createdAt      DateTime           @default(now()) @map("created_at")
+  startedAt      DateTime?          @map("started_at")
+  finishedAt     DateTime?          @map("finished_at")
 
   @@index([createdBy, createdAt], map: "ago_import_job_user_created_idx")
   @@index([orgId, status], map: "ago_import_job_org_status_idx")
@@ -1385,32 +1387,32 @@ model AgoImportJob {
 /// icon. Soft-delete is not modeled today; uploads stay until
 /// the row is explicitly removed (rare in practice).
 model MapIconUpload {
-  id          String   @id @default(uuid()) @db.Uuid
+  id         String   @id @default(uuid()) @db.Uuid
   /// Object key inside the MinIO bucket
   /// (e.g. `map-icon/abc...uuid`). Same shape as every other
   /// `kind/<uuid>` storage key the StorageService emits.
-  storageKey  String   @map("storage_key")
+  storageKey String   @map("storage_key")
   /// Browser-facing URL the renderer fetches. Resolved through
   /// the BFF passthrough for private kinds; we keep it on the
   /// row so the picker doesn't have to recompute on every list.
-  storageUrl  String   @map("storage_url")
+  storageUrl String   @map("storage_url")
   /// Operator-supplied label shown in the picker. Defaults to
   /// the uploaded filename minus the extension; the upload UI
   /// lets the user override before saving.
-  label       String
+  label      String
   /// Original filename. Carried for diagnostics and as the
   /// fallback label when the operator doesn't set one.
-  fileName    String   @map("file_name")
+  fileName   String   @map("file_name")
   /// Compressed SVG body, in bytes, for "this is suspiciously
   /// large" detection in the picker. Source of truth is MinIO;
   /// this column is purely informational.
-  sizeBytes   Int      @map("size_bytes")
+  sizeBytes  Int      @map("size_bytes")
   /// Owning org. Indexed so the picker's per-org list query is
   /// a single index scan.
-  orgId       String   @map("org_id") @db.Uuid
+  orgId      String   @map("org_id") @db.Uuid
   /// User who uploaded the icon. Informational today.
-  createdBy   String   @map("created_by") @db.Uuid
-  createdAt   DateTime @default(now()) @map("created_at")
+  createdBy  String   @map("created_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
 
   @@index([orgId, createdAt(sort: Desc)], map: "map_icon_upload_org_created_idx")
   @@index([createdBy, createdAt(sort: Desc)], map: "map_icon_upload_user_created_idx")
@@ -1531,4 +1533,83 @@ model Comment {
 
   @@index([threadId, createdAt])
   @@map("comment")
+}
+
+/// Triage state for a feedback submission.
+///   new      - nobody has looked at it yet
+///   handled  - read and dealt with (fixed, filed, replied, or noted)
+///   spam     - junk; kept rather than deleted so the honeypot and
+///              rate limiter can be judged against real traffic
+enum FeedbackStatus {
+  new
+  handled
+  spam
+}
+
+/// In-portal feedback from someone who does not have, and does not
+/// want, a GitHub account (#146, persistence added later).
+///
+/// Originally this was fire-and-forget email: the submission was sent
+/// to the maintainer and otherwise existed only as a log line. That is
+/// a bad trade for a public demo, where the feedback IS the product
+/// signal. A dropped SMTP connection or an over-eager spam filter lost
+/// the only copy. Rows here are the durable record; email is now just
+/// the notification that a row landed.
+///
+/// Deliberately NOT tied to a user: the whole point is that anonymous
+/// visitors can report things. `userId` is populated only when a
+/// signed-in user submits, and is nulled rather than cascade-deleted
+/// if that account goes away, because the report stays useful after
+/// the reporter is gone.
+model Feedback {
+  id      String         @id @default(uuid()) @db.Uuid
+  message String
+  status  FeedbackStatus @default(new)
+
+  /// Reporter-supplied, both optional and neither verified. A signed-in
+  /// submission prefills them from the session, but the reporter can
+  /// edit them, so treat these as claims rather than identity.
+  name  String?
+  email String?
+
+  /// Context captured automatically so a report is reproducible
+  /// without a back-and-forth. Page the reporter was on, the portal
+  /// version they were running, their browser, and their viewport
+  /// (the last one earns its keep on layout bugs, which is most of
+  /// what a demo surfaces).
+  pageUrl    String? @map("page_url")
+  appVersion String? @map("app_version")
+  userAgent  String? @map("user_agent")
+  viewport   String?
+
+  /// Set only when a signed-in user submitted. SetNull rather than
+  /// Cascade: losing the reporter must not lose the report.
+  userId String? @map("user_id") @db.Uuid
+  orgId  String? @map("org_id") @db.Uuid
+
+  /// SHA-256 of the client IP plus a server-side salt, never the raw
+  /// address. Enough to rate-limit and to spot one source flooding
+  /// the form, without retaining an identifier for everyone who ever
+  /// sent a polite note. Salt rotation intentionally invalidates old
+  /// hashes; that only costs a rate-limit window.
+  ipHash String? @map("ip_hash")
+
+  /// Object-storage key of an optional screenshot, under the private
+  /// `feedback-screenshot/` prefix. Never anonymously readable: the
+  /// bucket policy allowlists public prefixes and this is not one of
+  /// them. Served to admins only, through the API.
+  screenshotKey String? @map("screenshot_key")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  handledAt   DateTime? @map("handled_at")
+  handledById String?   @map("handled_by_id") @db.Uuid
+
+  user      User? @relation("FeedbackReporter", fields: [userId], references: [id], onDelete: SetNull)
+  handledBy User? @relation("FeedbackHandler", fields: [handledById], references: [id], onDelete: SetNull)
+
+  /// The triage view's default query: newest first, filtered by status.
+  @@index([status, createdAt])
+  /// Rate limiting counts recent rows for one hashed IP.
+  @@index([ipHash, createdAt])
+  @@map("feedback")
 }

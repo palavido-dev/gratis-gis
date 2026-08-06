@@ -6,6 +6,7 @@ import type { Request } from 'express';
 import type { PortalInfo } from '@gratis-gis/shared-types';
 
 import { Public } from './auth/public.decorator.js';
+import { isFeedbackEnabled } from './feedback/feedback-config.js';
 import { PrismaService } from './prisma/prisma.service.js';
 
 /**
@@ -50,6 +51,9 @@ export class PortalInfoController {
       auth: {
         type: 'oidc',
         issuer: this.resolveIssuer(),
+      },
+      features: {
+        feedback: isFeedbackEnabled(),
       },
     };
   }

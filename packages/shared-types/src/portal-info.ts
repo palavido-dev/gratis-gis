@@ -59,4 +59,26 @@ export interface PortalInfo {
      */
     issuer: string;
   };
+
+  /**
+   * Optional capabilities this portal has switched on. Absent members
+   * mean "off", so a client reading a portal that predates a given
+   * feature behaves the same as one reading a portal that has it
+   * disabled, without needing a version comparison.
+   *
+   * This is the single source of truth for the web app too: the
+   * alternative was a matching NEXT_PUBLIC_ variable on the frontend,
+   * which is two settings an operator has to keep in agreement and
+   * one they can get wrong in a way that shows a button leading to a
+   * disabled endpoint.
+   */
+  features?: {
+    /**
+     * In-portal feedback form (PORTAL_FEEDBACK_ENABLED). Off by
+     * default: enabling it opens a public, unauthenticated write
+     * endpoint, which should be a deliberate choice rather than
+     * something an upgrade turns on.
+     */
+    feedback?: boolean;
+  };
 }
