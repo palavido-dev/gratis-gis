@@ -455,6 +455,20 @@ services:
       # Deployed ref for /api/portal-info (QGIS plugin discovery and
       # support conversations). Stamped by deploy.sh from git describe.
       GG_VERSION: ${GG_VERSION:-}
+      # In-portal feedback (#146). Off unless set: enabling it opens a
+      # public, unauthenticated POST endpoint and shows a feedback
+      # button to every visitor, which is right for the demo and wrong
+      # for a private deployment.
+      PORTAL_FEEDBACK_ENABLED: ${PORTAL_FEEDBACK_ENABLED:-}
+      # Notification address. Submissions persist regardless; this only
+      # decides whether an email goes out. Note this was never passed
+      # through before, which is why the old code path silently fell
+      # back to the upstream maintainer's inbox.
+      FEEDBACK_RECIPIENT_EMAIL: ${FEEDBACK_RECIPIENT_EMAIL:-${ACME_EMAIL:-}}
+      # Salt for the one-way hash of reporter IPs, which is all that is
+      # stored. Unset means a per-process random salt, so the rate
+      # limit resets on restart and the two replicas count separately.
+      FEEDBACK_IP_SALT: ${FEEDBACK_IP_SALT:-}
     volumes:
       - portal-api-backups:/app/backups
       - gg-staging:/var/lib/gg-staging
