@@ -265,41 +265,13 @@ echo "=== Restoring Postgres databases ==="
 drop_and_restore "$POSTGRES_DB_APP" "$POSTGRES_USER" "$GOLDEN_DIR/postgres-app.dump"
 drop_and_restore "$KEYCLOAK_DB_NAME" "$KEYCLOAK_DB_USER" "$GOLDEN_DIR/postgres-keycloak.dump"
 
-if [[ -s "$FEEDBACK_CARRY" ]]; then
-  echo "=== Restoring carried feedback ==="
-  # TRUNCATE first so rows baked into golden do not collide with the
-  # carried set on the primary key. The carried set is authoritative:
-  # it is a superset, having been read from the live table moments ago.
-  #
-  # user_id / handled_by_id reference the `user` table, which the
-  # restore just replaced. A reporter whose account no longer exists
-  # in golden would break the FK, so those columns are nulled for any
-  # id that did not survive. The report itself is what matters; the
-  # attribution is a nicety, and the schema already models it as
-  # optional for exactly this reason.
-  # Container id is re-resolved: drop_and_restore stops and starts
-  # services, so the id captured before the restore can be stale.
-  GG_FB_PG="$(dc ps -q postgres 2>/dev/null | head -n 1)"
-  if [[ -n "$GG_FB_PG" ]] && docker exec -i -e PGPASSWORD="$POSTGRES_PASSWORD" "$GG_FB_PG" \
-       psql -U gratisgis -d "$POSTGRES_DB_APP" -v ON_ERROR_STOP=1 \
-       -c "TRUNCATE feedback" \
-       -c "\\copy feedback FROM STDIN" \
-       -c "UPDATE feedback SET user_id = NULL WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM \"user\")" \
-       -c "UPDATE feedback SET handled_by_id = NULL WHERE handled_by_id IS NOT NULL AND handled_by_id NOT IN (SELECT id FROM \"user\")" \
-       < "$FEEDBACK_CARRY"; then
-    echo "Feedback restored."
-  else
-    echo "WARN: could not restore carried feedback; the dump is at $FEEDBACK_CARRY on the host." >&2
-    # Deliberately NOT deleted on failure: it is the only copy.
-    FEEDBACK_CARRY=""
-  fi
-fi
-# Plain `if` rather than `[[ ... ]] && rm`: under `set -e` the latter
-# exits the whole script with status 1 whenever the test is false,
-# which here is the ordinary "nothing to clean up" path.
-if [[ -n "$FEEDBACK_CARRY" ]]; then
-  rm -f "$FEEDBACK_CARRY"
-fi
+# NB: the carried rows are re-inserted much further down, AFTER the
+# app services restart. They cannot go here. The golden dump predates
+# the feedback table whenever the snapshot was baked before #146
+# persistence, so immediately after the restore the table does not
+# exist yet: it is created by `prisma migrate deploy`, which runs when
+# portal-api boots. Inserting here fails with
+# `relation "feedback" does not exist`.
 
 echo "=== Restoring MinIO volume ==="
 # Stop minio so nothing writes the volume while we swap its contents.
@@ -510,6 +482,57 @@ fi
 # Non-fatal on purpose. A reset that restored cleanly but could not
 # reassign ownership has left a working demo with buried content,
 # which is worth a warning rather than a failed unit.
+# Re-insert the feedback carried from before the restore. This has to
+# happen HERE, not next to the dump: portal-api creates the `feedback`
+# table via `prisma migrate deploy` on boot, and boot is the step just
+# above. Attempting it right after the database restore fails with
+# `relation "feedback" does not exist` on any portal whose golden
+# snapshot predates #146 persistence.
+if [[ -n "$FEEDBACK_CARRY" && -s "$FEEDBACK_CARRY" ]]; then
+  echo "=== Restoring carried feedback ==="
+  # Wait for migrations to land the table. portal-api was started
+  # seconds ago and migrate runs before it serves traffic, so this is
+  # normally a couple of iterations.
+  GG_FB_PG="$(dc ps -q postgres 2>/dev/null | head -n 1)"
+  FB_READY=""
+  for _ in $(seq 1 30); do
+    if [[ -n "$GG_FB_PG" ]] && docker exec -i -e PGPASSWORD="$POSTGRES_PASSWORD" "$GG_FB_PG" \
+         psql -U gratisgis -d "$POSTGRES_DB_APP" -Atc \
+         "SELECT to_regclass('public.feedback') IS NOT NULL" 2>/dev/null \
+         | grep -qx t; then
+      FB_READY=1
+      break
+    fi
+    sleep 2
+  done
+
+  if [[ -z "$FB_READY" ]]; then
+    echo "WARN: feedback table never appeared; carried rows left at $FEEDBACK_CARRY on the host." >&2
+  # TRUNCATE first so rows baked into golden do not collide with the
+  # carried set on the primary key. The carried set is authoritative:
+  # it was read from the live table, so it is a superset of golden's.
+  #
+  # user_id / handled_by_id reference the `user` table, which the
+  # restore just replaced. A reporter whose account no longer exists
+  # in golden would break the FK, so those columns are nulled for any
+  # id that did not survive. The report is what matters; attribution
+  # is a nicety, and the schema already models it as optional for
+  # exactly this reason.
+  elif docker exec -i -e PGPASSWORD="$POSTGRES_PASSWORD" "$GG_FB_PG" \
+       psql -U gratisgis -d "$POSTGRES_DB_APP" -v ON_ERROR_STOP=1 \
+       -c "TRUNCATE feedback" \
+       -c "\\copy feedback FROM STDIN" \
+       -c "UPDATE feedback SET user_id = NULL WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM \"user\")" \
+       -c "UPDATE feedback SET handled_by_id = NULL WHERE handled_by_id IS NOT NULL AND handled_by_id NOT IN (SELECT id FROM \"user\")" \
+       < "$FEEDBACK_CARRY"; then
+    echo "Feedback restored ($(wc -l < "$FEEDBACK_CARRY") row(s))."
+    rm -f "$FEEDBACK_CARRY"
+  else
+    # Deliberately NOT deleted: at this moment it is the only copy.
+    echo "WARN: could not restore carried feedback; the dump is at $FEEDBACK_CARRY on the host." >&2
+  fi
+fi
+
 echo "=== Seeding demo tester workspace ==="
 # Re-resolve the container id rather than reusing the one captured
 # before the restore: the restore path stops and starts services, and
