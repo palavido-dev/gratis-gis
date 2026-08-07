@@ -95,6 +95,12 @@ jobs:
           # reads as green in the summary; that is how the void-column
           # engine bug shipped (#215).
           REQUIRE_PG_SPECS: '1'
+          # Same reasoning for the script-runner integration suite
+          # (#221): it skips without an interpreter, and on the runner
+          # there is always one. A skip here would quietly stop
+          # checking that a spawned script cannot read the worker's
+          # secrets, which is the security boundary of that feature.
+          REQUIRE_PYTHON_SPECS: '1'
 
       - name: Build
         run: pnpm build

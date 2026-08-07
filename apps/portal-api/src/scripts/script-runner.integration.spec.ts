@@ -20,11 +20,35 @@ import { ScriptRunnerWorker } from './script-runner.worker.js';
  * passing; CI has one.
  */
 function findPython(): string | null {
-  for (const candidate of ['python3', 'python']) {
+  // SCRIPT_PYTHON first: the runner image sets it to the venv
+  // interpreter, and it is the only safe way to name one on Windows.
+  const explicit = process.env.SCRIPT_PYTHON?.trim();
+  const candidates = explicit ? [explicit] : [];
+
+  // On Windows, do NOT probe bare `python` / `python3`. Both are App
+  // Execution Aliases, and running one when no interpreter is
+  // installed hands control to the Python Manager, which downloads and
+  // installs a full runtime into the CURRENT WORKING DIRECTORY. An
+  // earlier version of this file did exactly that and deposited 174 MB
+  // of CPython into apps/portal-api. A test must not install software,
+  // least of all into the repo it is testing.
+  //
+  // So on Windows this suite runs only when SCRIPT_PYTHON points at a
+  // real interpreter, and skips otherwise. CI is Linux, where the
+  // probe is just a probe.
+  if (process.platform !== 'win32') {
+    candidates.push('python3', 'python');
+  }
+
+  for (const candidate of candidates) {
     const probe = spawnSync(candidate, ['-c', 'print(1)'], {
       encoding: 'utf8',
+      // Never inherit a shell that could resolve an alias, and keep
+      // the probe cheap.
+      shell: false,
+      timeout: 10_000,
     });
-    if (probe.status === 0) return candidate;
+    if (probe.status === 0 && probe.stdout.trim() === '1') return candidate;
   }
   return null;
 }
