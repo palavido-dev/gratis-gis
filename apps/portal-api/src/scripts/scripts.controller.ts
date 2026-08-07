@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Get,
   HttpCode,
+  NotFoundException,
   Param,
   Post,
   Query,
@@ -15,6 +16,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { ScriptsService } from './scripts.service.js';
+import { isScriptsEnabled } from './scripts-config.js';
 
 /**
  * Run and inspect `script` items (#221).
@@ -34,6 +36,7 @@ export class ScriptsController {
   @Post(':id/run')
   @HttpCode(202)
   async run(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    assertScriptsEnabled();
     assertNotApiKey(user);
     return this.scripts.enqueue(user, id);
   }
@@ -65,6 +68,29 @@ export class ScriptsController {
   ) {
     assertNotApiKey(user);
     return this.scripts.cancelRun(user, runId);
+  }
+}
+
+/**
+ * Refuse to START execution unless the operator turned scripts on.
+ *
+ * This was missing, and the gap was not theoretical: the runner and
+ * the web app both checked the flag, so the feature looked disabled,
+ * while POST /scripts/:id/run happily queued work. On a portal where
+ * untrusted people can create items that is arbitrary code execution
+ * behind a switch the operator believes is off.
+ *
+ * 404 rather than 403, matching the feedback endpoint: a portal that
+ * has not enabled scripts has no such endpoint, which is more honest
+ * than implying the caller merely lacks permission.
+ *
+ * Deliberately NOT applied to the read endpoints. History has to stay
+ * readable after an operator switches the feature off, or turning it
+ * off strands the logs of whatever ran while it was on.
+ */
+function assertScriptsEnabled(): void {
+  if (!isScriptsEnabled()) {
+    throw new NotFoundException('Cannot POST /scripts');
   }
 }
 

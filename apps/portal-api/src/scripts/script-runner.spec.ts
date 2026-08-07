@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { ApiKeyService } from '../auth/api-key.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ScriptRunnerWorker } from './script-runner.worker.js';
@@ -36,7 +39,52 @@ describe('script child environment', () => {
 
   it('points the client at the portal, not at localhost by accident', () => {
     process.env.PORTAL_BASE_URL = 'https://gratisgis.org';
-    expect(childEnv('t').GRATISGIS_PORTAL_URL).toBe('https://gratisgis.org');
+    expect(childEnv('t').GRATISGIS_URL).toBe('https://gratisgis.org');
+  });
+
+  // The runner shipped injecting GRATISGIS_PORTAL_URL while the client
+  // reads GRATISGIS_URL. Both sides were wrong in the same way, so the
+  // unit test agreed with the bug and the first real run died on
+  // "Missing environment variable(s): GRATISGIS_URL".
+  //
+  // Asserting the literal here would just re-encode the same guess, so
+  // this reads the names out of the client's own from_env and checks
+  // the runner satisfies them. If the client renames a variable, this
+  // fails, which is the point: those two names are a contract shared
+  // with every person who exports them on their laptop.
+  it('supplies exactly the variables the python client reads', () => {
+    const clientSource = readFileSync(
+      join(
+        __dirname,
+        '..',
+        '..',
+        '..',
+        '..',
+        'clients',
+        'python',
+        'src',
+        'gratisgis',
+        'client.py',
+      ),
+      'utf8',
+    );
+    const fromEnv = clientSource.slice(clientSource.indexOf('def from_env'));
+    const required = [
+      ...new Set(
+        [...fromEnv.slice(0, 900).matchAll(/os\.environ\.get\("([A-Z_]+)"\)/g)]
+          .map((m) => m[1] as string),
+      ),
+    ];
+    // Sanity: if the parse found nothing, the assertion below would
+    // pass vacuously and this test would be decoration.
+    expect(required.length).toBeGreaterThan(0);
+    expect(required).toContain('GRATISGIS_URL');
+
+    const env = childEnv('ggk_token');
+    for (const name of required) {
+      expect(Object.keys(env)).toContain(name);
+      expect(env[name]).toBeTruthy();
+    }
   });
 
   // The heart of it. These are real variables the worker container
@@ -75,7 +123,7 @@ describe('script child environment', () => {
     expect(keys).toEqual(
       expect.arrayContaining([
         'GRATISGIS_API_KEY',
-        'GRATISGIS_PORTAL_URL',
+        'GRATISGIS_URL',
         'HOME',
         'LANG',
         'LC_ALL',
@@ -87,7 +135,7 @@ describe('script child environment', () => {
     for (const k of keys) {
       expect([
         'GRATISGIS_API_KEY',
-        'GRATISGIS_PORTAL_URL',
+        'GRATISGIS_URL',
         'HOME',
         'LANG',
         'LC_ALL',

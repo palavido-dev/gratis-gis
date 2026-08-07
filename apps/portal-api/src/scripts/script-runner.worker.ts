@@ -334,9 +334,13 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
    */
   private childEnv(apiKeyToken: string): NodeJS.ProcessEnv {
     return {
-      // What the gratisgis client reads, and the only credential here.
-      GRATISGIS_PORTAL_URL:
-        process.env.PORTAL_BASE_URL ?? 'http://localhost:3000',
+      // Exactly the two names `GratisGIS.from_env()` reads. Getting
+      // this wrong is invisible to a unit test that asserts the same
+      // wrong name, and shows up as a ValueError on the first real
+      // run; it did. The client's contract is the authority here, not
+      // this file, because the same two variables are what a person
+      // exports on their laptop.
+      GRATISGIS_URL: process.env.PORTAL_BASE_URL ?? 'http://localhost:3000',
       GRATISGIS_API_KEY: apiKeyToken,
       // Enough of a system for python to start and for TLS to verify.
       PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
