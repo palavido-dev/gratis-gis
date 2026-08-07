@@ -547,6 +547,7 @@ services:
       PORTAL_BASE_URL: ${PORTAL_BASE_URL:-https://${PORTAL_DOMAIN:-gratisgis.org}}
     volumes:
       - gg-staging:/var/lib/gg-staging
+
     # Override CMD: same image but boot the worker entry point instead
     # of the http server.
     command: ["node", "dist/worker.main.js"]
@@ -559,6 +560,62 @@ services:
     # suspenders.)
     healthcheck:
       test: ["CMD-SHELL", "grep -q worker.main.js /proc/1/cmdline"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - gratis-net
+
+  # #221: executes user-authored `script` items.
+  #
+  # Behind the `scripts` profile, so it is NOT started by a plain
+  # `docker compose up`. This is the only container that runs code the
+  # portal did not write, and an operator should turn that on
+  # deliberately rather than inherit it from an upgrade. Start it with
+  # `--profile scripts`, and set PORTAL_SCRIPTS_ENABLED=1 so the API
+  # offers the run endpoints.
+  #
+  # Its own image (portal-api plus a Python venv) and its own process,
+  # so a runaway script cannot OOM the import queue, and so the
+  # environment nearest the user code holds as few secrets as possible.
+  script-runner:
+    image: gratis-gis/script-runner:latest
+    container_name: gratis-gis-prod-script-runner
+    profiles: ["scripts"]
+    build:
+      context: ..
+      dockerfile: infra/script-runner/Dockerfile
+      args:
+        PORTAL_API_IMAGE: gratis-gis/portal-api:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      portal-migrate:
+        condition: service_completed_successfully
+    # Deliberately modest. A maintenance script that needs more than
+    # this is doing something the analysis tier should be doing.
+    mem_limit: 1024m
+    environment:
+      NODE_ENV: production
+      # Never migrate from here: portal-migrate owns that, and a
+      # third writer racing it is how half-applied migrations happen.
+      SKIP_MIGRATE: "true"
+      ENABLE_CRONS: "false"
+      DATABASE_URL: postgresql://${POSTGRES_USER:-gratisgis}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gratisgis}
+      # Where a script's own API calls go. Internal DNS rather than the
+      # public hostname so a run does not leave the host, hairpin
+      # through Caddy, and pay TLS to talk to a container beside it.
+      PORTAL_BASE_URL: http://portal-api:4000
+      # NOTE the absence of MINIO_*, KEYCLOAK_ADMIN_*, and
+      # CREDENTIAL_ENCRYPTION_KEY. This process has no use for them,
+      # and the runner scrubs the child environment anyway; not having
+      # them here at all means there is nothing to scrub.
+      SCRIPT_TIMEOUT_SECONDS: ${SCRIPT_TIMEOUT_SECONDS:-300}
+      SCRIPT_POLL_MS: ${SCRIPT_POLL_MS:-3000}
+      SCRIPT_MAX_LOG_BYTES: ${SCRIPT_MAX_LOG_BYTES:-262144}
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q script-worker.main.js /proc/1/cmdline"]
       interval: 30s
       timeout: 5s
       retries: 3

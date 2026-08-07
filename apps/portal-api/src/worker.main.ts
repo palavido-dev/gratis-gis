@@ -8,6 +8,8 @@ import { ImportJobsWorkerModule } from './import-jobs/import-jobs-worker.module.
 import { LeaderElectionModule } from './cron/leader-election.module.js';
 import { TileLayerWorkerModule } from './tile-layer/tile-layer-worker.module.js';
 import { AnalysisBridgeModule } from './analysis/analysis-bridge.module.js';
+import { ScriptsModule } from './scripts/scripts.module.js';
+import { ScriptRunnerWorker } from './scripts/script-runner.worker.js';
 
 /**
  * portal-worker entry point (#115 P8).
@@ -54,6 +56,12 @@ import { AnalysisBridgeModule } from './analysis/analysis-bridge.module.js';
     // Analysis-to-import bridge: stages vector analysis outputs
     // (contours) from MinIO into the async import pipeline above.
     AnalysisBridgeModule,
+    // #221: executes queued `script` runs. Imported here and nowhere
+    // else that matters: the module is also in AppModule so the API
+    // can serve the run endpoints, but the runner's polling loop is
+    // started explicitly below, so an API replica never spends its
+    // CPU executing user code.
+    ScriptsModule,
   ],
 })
 class WorkerAppModule {}
@@ -69,11 +77,30 @@ async function bootstrap() {
   // transaction would be left dangling when docker stops the
   // container.
   app.enableShutdownHooks();
+
+  // #221: start the script runner here rather than in the module, so
+  // that importing ScriptsModule into AppModule (which the API needs
+  // for the run endpoints) never turns an API replica into an
+  // execution host for user code.
+  //
+  // Opt-in, and off by default: a portal that has not decided it wants
+  // to run user-authored Python on its own machine should not start
+  // doing so because it upgraded.
+  if (isTruthy(process.env.PORTAL_SCRIPTS_ENABLED)) {
+    app.get(ScriptRunnerWorker).start();
+    log.log('script runner enabled');
+  }
+
   log.log('portal-worker ready');
 
   // The ImportJobsWorker's polling loop keeps the event loop
   // busy; nothing else here. We do not call app.close() because
   // the process should run forever (until killed).
+}
+
+function isTruthy(raw: string | undefined): boolean {
+  const v = raw?.trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on';
 }
 
 void bootstrap();
