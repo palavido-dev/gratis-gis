@@ -169,6 +169,12 @@ enum ItemType {
   /// uploads; consumable as a basemap source via the API's
   /// pmtiles:// proxy URL.
   tile_layer                 @map("tile-layer")
+  /// #221: user-authored Python, stored as an item and executed
+  /// server-side. Deliberately NOT a hosted notebook environment:
+  /// authoring stays in the user's own editor. The body lives on
+  /// data_json so it versions through item_data_snapshot like every
+  /// other item's content.
+  script
   /// #22: reusable Custom Web App blueprint. Stores a CustomAppData
   /// payload that the new-item wizard can clone into a fresh
   /// web_app. Built-in starters are seeded per-org as items of
@@ -1533,6 +1539,74 @@ model Comment {
 
   @@index([threadId, createdAt])
   @@map("comment")
+}
+
+/// One execution of a `script` item (#221).
+///
+/// Modelled on AnalysisJob's lifecycle rather than reusing that table:
+/// the columns that matter there (sourceItemId NOT NULL, targetItemId,
+/// numeric progress) do not describe a script run, and overloading a
+/// queue with two unrelated shapes is how `kind` columns turn into
+/// nullable-everything. What IS reused is the proven mechanism: claim
+/// with FOR UPDATE SKIP LOCKED, beat a heartbeat while running, let a
+/// sweep reclaim rows whose worker died, and support cooperative
+/// cancel.
+///
+/// The API key a run authenticates with is minted per run and revoked
+/// when the run ends, so no long-lived credential is stored beside the
+/// code. `apiKeyId` is kept only so a leaked-key investigation can tie
+/// a key back to the run that used it; the token itself is never here.
+model ScriptRun {
+  id       String @id @default(uuid()) @db.Uuid
+  scriptId String @map("script_id") @db.Uuid
+  orgId    String @map("org_id") @db.Uuid
+
+  /// Whose authority the run carries. The run's API key is minted for
+  /// this user, so the script can never reach anything they could not.
+  userId String @map("user_id") @db.Uuid
+
+  /// queued | running | cancel_requested | cancelled | failed | done
+  state String @default("queued")
+
+  /// How the run started. 'manual' is a Run button; 'schedule' is the
+  /// timer, which lands in the follow-up slice. Recorded from the
+  /// first release so run history does not need a backfill later.
+  trigger String @default("manual")
+
+  /// Captured stdout and stderr, interleaved as the process emitted
+  /// them. Truncated at the worker with an explicit marker rather than
+  /// silently, because a script whose log stops mid-sentence reads as
+  /// a crash.
+  log String?
+
+  /// Process exit code. Null while running, and null when the run was
+  /// killed by timeout or cancel rather than exiting on its own.
+  exitCode Int? @map("exit_code")
+
+  /// Set when the run failed, in plain language for the run list.
+  error String?
+
+  /// Snapshot of the code that actually ran. Without it, opening a
+  /// month-old failed run shows the CURRENT source, which is the one
+  /// thing guaranteed not to explain the failure.
+  sourceSnapshot String? @map("source_snapshot")
+
+  apiKeyId String? @map("api_key_id") @db.Uuid
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  startedAt   DateTime? @map("started_at")
+  finishedAt  DateTime? @map("finished_at")
+  /// Worker liveness beat, same contract as AnalysisJob.heartbeatAt: a
+  /// SIGKILLed worker cannot flip its own row, so the reclaim sweep
+  /// fails rows whose beat goes stale instead of leaving the UI to
+  /// spin forever.
+  heartbeatAt DateTime? @map("heartbeat_at") @db.Timestamptz(6)
+
+  /// Worker poll: oldest queued row first.
+  @@index([state, createdAt])
+  /// Run history for one script, newest first.
+  @@index([scriptId, createdAt])
+  @@map("script_run")
 }
 
 /// Triage state for a feedback submission.

@@ -182,6 +182,62 @@ export class ApiKeyService {
   }
 
   /**
+   * Mint a short-lived key for one server-side script run (#221).
+   *
+   * Separate from `create` for two reasons. The public path takes an
+   * AuthUser and a TTL in days, neither of which fits a run: the
+   * caller here is the runner acting on a stored user id, and the
+   * lifetime is measured against a wall-clock timeout in seconds.
+   * Expressing that as a fraction of a day would work and would be
+   * unreadable.
+   *
+   * The key is expected to be revoked the moment the run ends. The
+   * expiry is the backstop for the case that matters: the worker
+   * being SIGKILLed between minting and revoking, which would
+   * otherwise leave a live credential with nobody left to clean it up.
+   * Belt and braces on purpose, because the failure mode is a
+   * long-lived key nobody knows exists.
+   */
+  async mintForRun(
+    userId: string,
+    input: { label: string; ttlSeconds: number },
+  ): Promise<{ id: string; token: string }> {
+    const minted = mintApiKey();
+    const row = await this.prisma.apiKey.create({
+      data: {
+        userId,
+        name: input.label,
+        tokenHash: minted.tokenHash,
+        prefix: minted.prefix,
+        // Not read-only: the whole point of a scheduled script is that
+        // it can refresh a layer. Its authority is still bounded by
+        // the owning user's own permissions, which is the actual
+        // control; read-only would just make the feature useless.
+        readOnly: false,
+        expiresAt: new Date(Date.now() + Math.max(input.ttlSeconds, 1) * 1000),
+      },
+      select: { id: true },
+    });
+    return { id: row.id, token: minted.token };
+  }
+
+  /**
+   * Revoke a key the system minted, by id alone.
+   *
+   * The user-facing `revoke` scopes by userId so one person cannot
+   * revoke another's key. That check is meaningless here: the caller
+   * is the runner cleaning up a key it minted seconds ago, and it must
+   * succeed even if the owning user was deleted mid-run. Never reachable
+   * from a request.
+   */
+  async revokeSystemKey(keyId: string): Promise<void> {
+    await this.prisma.apiKey.updateMany({
+      where: { id: keyId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
+
+  /**
    * Revoke by id, scoped to the owner so one user can never revoke
    * another's key by guessing an id. Idempotent: revoking an already
    * revoked key keeps the original timestamp.

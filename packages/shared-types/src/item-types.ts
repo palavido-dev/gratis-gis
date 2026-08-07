@@ -81,6 +81,12 @@ export const ITEM_TYPES = [
   // file range-served from MinIO; viewers stream octree nodes by
   // viewport. data_json shape is PointCloudData.
   'point_cloud',
+  // #221: user-authored Python, stored as an item and executed
+  // server-side on demand (and later, on a schedule). Explicitly NOT
+  // a hosted notebook: authoring stays in the user's own editor,
+  // because every operator running GratisGIS already has one. The
+  // body lives on data_json as ScriptData.
+  'script',
 ] as const;
 
 export type ItemType = (typeof ITEM_TYPES)[number];
@@ -126,6 +132,7 @@ export const ITEM_TYPE_LABELS: Record<ItemType, string> = {
   theme: 'Theme',
   print_template: 'Print template',
   point_cloud: 'Point cloud',
+  script: 'Script',
 };
 
 export function getItemTypeLabel(t: ItemType): string {

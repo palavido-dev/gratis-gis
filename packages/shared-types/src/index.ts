@@ -41,6 +41,7 @@ export * from './service';
 export * from './geocoding-service';
 export * from './tile-layer';
 export * from './point-cloud';
+export * from './script';
 export * from './thumbnail';
 export * from './expression';
 export * from './portal-info';

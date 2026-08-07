@@ -38,6 +38,7 @@ import { PolicyModule } from './policy/policy.module.js';
 import { ToolsModule } from './tools/tools.module.js';
 import { OsmModule } from './osm/osm.module.js';
 import { SamplesModule } from './samples/samples.module.js';
+import { ScriptsModule } from './scripts/scripts.module.js';
 import { LeaderElectionModule } from './cron/leader-election.module.js';
 import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
 
@@ -90,6 +91,7 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
     ToolsModule,
     OsmModule,
     SamplesModule,
+    ScriptsModule,
     RealtimeModule,
     PostgisLiveModule,
     PrintRenderModule,
