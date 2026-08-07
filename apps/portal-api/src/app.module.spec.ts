@@ -30,9 +30,24 @@
 // election starts polling. That is the line this test rides: full DI
 // resolution, no I/O. Do not call `init()` here.
 
+// This originally compiled only AppModule, and that turned out to be
+// half the job. There are THREE bootable module graphs in this
+// codebase (the API, portal-worker, and the script runner), and the
+// script runner crash-looped on its first deploy with the same class
+// of error this file exists to catch: ScriptsModule reaches
+// NotificationsModule, whose worker needs LeaderElectionService, and
+// nothing in that graph provided it.
+//
+// A test that covers one of three entry points is a test that will
+// keep being surprised. All three are compiled below, and their module
+// graphs were moved out of the *.main.ts entry points into importable
+// *.module.ts files specifically so this could happen: an entry point
+// calls bootstrap() at module scope and cannot be imported by a spec.
 import { Test } from '@nestjs/testing';
 
 import { AppModule } from './app.module.js';
+import { WorkerAppModule } from './worker.module.js';
+import { ScriptWorkerAppModule } from './script-worker.module.js';
 
 // The real module reads configuration at construction time. These are
 // syntactically valid throwaways: nothing here connects anywhere,
@@ -65,6 +80,21 @@ describe('AppModule dependency graph', () => {
       else process.env[k] = v;
     }
   });
+
+  it.each([
+    ['portal-worker', WorkerAppModule],
+    ['script-runner', ScriptWorkerAppModule],
+  ])('resolves every provider in the %s graph too', async (_name, mod) => {
+    // Each of these is a real container CMD. A graph that does not
+    // resolve here is a container that crash-loops on deploy, and the
+    // API being fine says nothing about them: they import different
+    // subsets and get different providers in scope.
+    const moduleRef = await Test.createTestingModule({
+      imports: [mod],
+    }).compile();
+    expect(moduleRef).toBeDefined();
+    await moduleRef.close();
+  }, 120_000);
 
   it('resolves every provider, so the app can actually boot', async () => {
     // A failure here reads exactly like the production crash loop:

@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { NestFactory } from '@nestjs/core';
-import { Logger, Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { Logger } from '@nestjs/common';
 
-import { ScriptsModule } from './scripts/scripts.module.js';
+import { ScriptWorkerAppModule } from './script-worker.module.js';
 import { ScriptRunnerWorker } from './scripts/script-runner.worker.js';
 
 /**
@@ -24,14 +23,9 @@ import { ScriptRunnerWorker } from './scripts/script-runner.worker.js';
  *     secrets in the environment nearest the user code, the shorter
  *     the argument about what could leak.
  *
- * It loads ScriptsModule and nothing else, so it never claims rows
- * from the import, tile, or analysis queues that portal-worker owns.
+ * The module graph lives in script-worker.module.ts so the boot-time
+ * DI spec can compile it; this file only starts things.
  */
-@Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }), ScriptsModule],
-})
-class ScriptWorkerAppModule {}
-
 async function bootstrap() {
   const log = new Logger('ScriptRunner');
   const app = await NestFactory.createApplicationContext(

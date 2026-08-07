@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Module } from '@nestjs/common';
 
+import { AuthModule } from '../auth/auth.module.js';
 import { ItemsModule } from '../items/items.module.js';
 import { ScriptRunnerWorker } from './script-runner.worker.js';
 import { ScriptsController } from './scripts.controller.js';
@@ -15,7 +16,15 @@ import { ScriptsService } from './scripts.service.js';
  * answering requests.
  */
 @Module({
-  imports: [ItemsModule],
+  // AuthModule explicitly, even though it is @Global(). Global means
+  // "exports are visible everywhere ONCE this module is in the graph",
+  // not "imported automatically". AppModule imports it, so the API was
+  // fine; the two worker graphs do not, so ScriptRunnerWorker could
+  // not resolve ApiKeyService and portal-worker crash-looped on
+  // deploy. A module that uses a provider should declare where it
+  // comes from rather than rely on some other module having pulled it
+  // in, which is the same fragility that took the API down in #219.
+  imports: [AuthModule, ItemsModule],
   controllers: [ScriptsController],
   providers: [ScriptsService, ScriptRunnerWorker],
   exports: [ScriptRunnerWorker],

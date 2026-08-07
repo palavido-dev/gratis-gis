@@ -1,14 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
-import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
 
-import { ImportJobsWorkerModule } from './import-jobs/import-jobs-worker.module.js';
-import { LeaderElectionModule } from './cron/leader-election.module.js';
-import { TileLayerWorkerModule } from './tile-layer/tile-layer-worker.module.js';
-import { AnalysisBridgeModule } from './analysis/analysis-bridge.module.js';
-import { ScriptsModule } from './scripts/scripts.module.js';
+import { WorkerAppModule } from './worker.module.js';
 import { ScriptRunnerWorker } from './scripts/script-runner.worker.js';
 import { isScriptsEnabled } from './scripts/scripts-config.js';
 
@@ -36,37 +30,10 @@ import { isScriptsEnabled } from './scripts/scripts-config.js';
  * Co-deployed with portal-api: same docker image, different
  * CMD. The container shares the staging volume with the api so
  * files uploaded via POST /ingest/stage are readable here.
+ *
+ * The module graph lives in worker.module.ts so the boot-time DI spec
+ * can compile it; this file only starts things.
  */
-@Module({
-  imports: [
-    // Global ConfigService is needed because transitive deps reach
-    // NotificationsService (via ItemsModule -> share notifications)
-    // and IngestStagingService, both of which DI ConfigService for
-    // env-driven knobs. Without `isGlobal: true` here, the worker
-    // crashes at boot with "Nest can't resolve dependencies of the
-    // NotificationsService" because no module in scope re-exports
-    // it.
-    ConfigModule.forRoot({ isGlobal: true }),
-    LeaderElectionModule,
-    ImportJobsWorkerModule,
-    // Tile-layer pyramid worker (raster-upload follow-up).
-    // Polls cog-ready tile_layer items and builds a PMTiles
-    // raster pyramid from the COG via gdal2tiles.py + pmtiles
-    // convert.  See pyramid.worker.ts for the state machine.
-    TileLayerWorkerModule,
-    // Analysis-to-import bridge: stages vector analysis outputs
-    // (contours) from MinIO into the async import pipeline above.
-    AnalysisBridgeModule,
-    // #221: executes queued `script` runs. Imported here and nowhere
-    // else that matters: the module is also in AppModule so the API
-    // can serve the run endpoints, but the runner's polling loop is
-    // started explicitly below, so an API replica never spends its
-    // CPU executing user code.
-    ScriptsModule,
-  ],
-})
-class WorkerAppModule {}
-
 async function bootstrap() {
   const log = new Logger('Worker');
   const app = await NestFactory.createApplicationContext(WorkerAppModule, {
@@ -80,13 +47,14 @@ async function bootstrap() {
   app.enableShutdownHooks();
 
   // #221: start the script runner here rather than in the module, so
-  // that importing ScriptsModule into AppModule (which the API needs
-  // for the run endpoints) never turns an API replica into an
-  // execution host for user code.
+  // that importing ScriptsModule (which the API also needs, for the
+  // run endpoints) never turns a process into an execution host for
+  // user code by accident.
   //
-  // Opt-in, and off by default: a portal that has not decided it wants
-  // to run user-authored Python on its own machine should not start
-  // doing so because it upgraded.
+  // In the shipped topology the dedicated script-runner container does
+  // this work, and this branch stays off. It exists for a single-host
+  // deployment that would rather not run a fourth container, and it is
+  // opt-in either way.
   if (isScriptsEnabled()) {
     app.get(ScriptRunnerWorker).start();
     log.log('script runner enabled');
