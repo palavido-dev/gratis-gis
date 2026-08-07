@@ -21,6 +21,7 @@ import {
   Palette,
   Printer,
   Sparkles,
+  TerminalSquare,
   Wand2,
   Wrench,
   type LucideIcon,
@@ -71,6 +72,10 @@ const ITEM_TYPE_ICONS: Record<ItemType, LucideIcon> = {
   theme: Palette,
   print_template: Printer,
   point_cloud: Mountain,
+  // #221. A terminal prompt rather than a code glyph: what
+  // distinguishes a script item from any other code in the portal is
+  // that it RUNS, unattended, on the server.
+  script: TerminalSquare,
 };
 
 /**
@@ -122,6 +127,7 @@ const ITEM_TYPE_ACCENT: Record<ItemType, string> = {
   theme: 'text-[#94606b] dark:text-[#c7a0aa]',
   print_template: 'text-[#565049] dark:text-[#a9a59d]',
   point_cloud: 'text-[#5a6a72] dark:text-[#a2b4bd]',
+  script: 'text-[#6b6f52] dark:text-[#b3b795]',
 };
 
 /** Tailwind class combos for the tile background used in compact
@@ -156,6 +162,7 @@ const ITEM_TYPE_TILE: Record<ItemType, string> = {
   theme: 'bg-[#94606b]/95 text-[#f8f6f0]',
   print_template: 'bg-[#565049]/95 text-[#f8f6f0]',
   point_cloud: 'bg-[#5a6a72]/95 text-[#f8f6f0]',
+  script: 'bg-[#6b6f52]/95 text-[#f8f6f0]',
 };
 
 export function getItemTypeIcon(type: ItemType): LucideIcon {
