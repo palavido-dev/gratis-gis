@@ -31,6 +31,7 @@ import {
   Printer,
   Search,
   Sparkles,
+  TerminalSquare,
   Wand2,
   type LucideIcon,
 } from 'lucide-react';
@@ -351,6 +352,15 @@ const TYPE_GROUPS: TypeGroup[] = [
         desc: 'A layer computed live from another, with tools like buffer.',
         Icon: FlaskConical,
       },
+      {
+        // #221. Filtered out below unless the portal has scripts
+        // switched on, because on a portal without a script runner
+        // this would create an item nothing can execute.
+        value: 'script',
+        label: 'Script',
+        desc: 'Your own Python, run on the server. Write it in your usual editor, paste it here, and the portal runs it with your permissions - useful for the maintenance jobs a laptop cannot do because it is closed at 3am.',
+        Icon: TerminalSquare,
+      },
     ],
   },
   {
@@ -413,8 +423,13 @@ export interface AppTemplateSummary {
 
 export function NewItemWizard({
   appTemplates = [],
+  scriptsEnabled = false,
 }: {
   appTemplates?: AppTemplateSummary[];
+  /** #221: portal-info features.feedback's sibling. Offering "Script"
+   *  on a portal with no runner would create an item that can never
+   *  execute, which is worse than not offering it. */
+  scriptsEnabled?: boolean;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1634,9 +1649,18 @@ export function NewItemWizard({
   }
 
   if (step === 'pick') {
+    // Drop any type the portal cannot actually service, and any group
+    // left empty as a result, so a disabled feature leaves no heading
+    // hanging over nothing.
+    const visibleGroups = TYPE_GROUPS.map((g) => ({
+      ...g,
+      options: g.options.filter(
+        (o) => o.value !== 'script' || scriptsEnabled,
+      ),
+    })).filter((g) => g.options.length > 0);
     return (
       <div className="space-y-8">
-        {TYPE_GROUPS.map((group) => (
+        {visibleGroups.map((group) => (
           <section key={group.label}>
             {/* Group header inherits the group color via a small
                 bullet swatch + the icon-tile class for the chip

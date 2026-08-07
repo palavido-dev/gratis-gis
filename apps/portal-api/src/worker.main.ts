@@ -10,6 +10,7 @@ import { TileLayerWorkerModule } from './tile-layer/tile-layer-worker.module.js'
 import { AnalysisBridgeModule } from './analysis/analysis-bridge.module.js';
 import { ScriptsModule } from './scripts/scripts.module.js';
 import { ScriptRunnerWorker } from './scripts/script-runner.worker.js';
+import { isScriptsEnabled } from './scripts/scripts-config.js';
 
 /**
  * portal-worker entry point (#115 P8).
@@ -86,7 +87,7 @@ async function bootstrap() {
   // Opt-in, and off by default: a portal that has not decided it wants
   // to run user-authored Python on its own machine should not start
   // doing so because it upgraded.
-  if (isTruthy(process.env.PORTAL_SCRIPTS_ENABLED)) {
+  if (isScriptsEnabled()) {
     app.get(ScriptRunnerWorker).start();
     log.log('script runner enabled');
   }
@@ -96,11 +97,6 @@ async function bootstrap() {
   // The ImportJobsWorker's polling loop keeps the event loop
   // busy; nothing else here. We do not call app.close() because
   // the process should run forever (until killed).
-}
-
-function isTruthy(raw: string | undefined): boolean {
-  const v = raw?.trim().toLowerCase();
-  return v === '1' || v === 'true' || v === 'yes' || v === 'on';
 }
 
 void bootstrap();

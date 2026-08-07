@@ -8,6 +8,7 @@ import type { PortalInfo } from '@gratis-gis/shared-types';
 import { Public } from './auth/public.decorator.js';
 import { isFeedbackEnabled } from './feedback/feedback-config.js';
 import { PrismaService } from './prisma/prisma.service.js';
+import { isScriptsEnabled } from './scripts/scripts-config.js';
 
 /**
  * Portal discovery endpoint. Returns the minimum a fresh client
@@ -54,6 +55,7 @@ export class PortalInfoController {
       },
       features: {
         feedback: isFeedbackEnabled(),
+        scripts: isScriptsEnabled(),
       },
     };
   }

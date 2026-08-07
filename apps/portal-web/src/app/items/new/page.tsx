@@ -7,12 +7,15 @@ import {
   type AppTemplateSummary,
 } from './wizard';
 import { getServerLocale } from '@/lib/i18n/server';
+import { getPortalFeatures } from '@/lib/portal-features';
 import { t } from '@/lib/i18n';
 
 export const metadata = { title: 'New item' };
 
 export default async function NewItemPage() {
   const locale = await getServerLocale();
+  // #221: the picker only offers Script when the portal can run one.
+  const features = await getPortalFeatures();
   // #22: load all app_template items the user can read so the
   // Custom Web App gallery can show built-in starters AND any
   // user-saved templates side-by-side.  Failure here drops to an
@@ -62,7 +65,10 @@ export default async function NewItemPage() {
         </p>
       </header>
 
-      <NewItemWizard appTemplates={appTemplates} />
+      <NewItemWizard
+        appTemplates={appTemplates}
+        scriptsEnabled={features.scripts}
+      />
     </div>
   );
 }

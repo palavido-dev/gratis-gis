@@ -80,5 +80,12 @@ export interface PortalInfo {
      * something an upgrade turns on.
      */
     feedback?: boolean;
+
+    /**
+     * Server-side scripts (PORTAL_SCRIPTS_ENABLED, #221). Off by
+     * default: this is the one feature that executes code the portal
+     * did not write, so it is turned on deliberately or not at all.
+     */
+    scripts?: boolean;
   };
 }

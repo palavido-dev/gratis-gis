@@ -18,6 +18,7 @@ import { publicApiFetch } from './api';
  */
 export interface PortalFeatures {
   feedback: boolean;
+  scripts: boolean;
   version: string | null;
 }
 
@@ -25,16 +26,17 @@ export const getPortalFeatures = cache(async (): Promise<PortalFeatures> => {
   try {
     const info = await publicApiFetch<{
       version?: string;
-      features?: { feedback?: boolean };
+      features?: { feedback?: boolean; scripts?: boolean };
     }>('/api/portal-info');
     return {
       feedback: info.features?.feedback === true,
+      scripts: info.features?.scripts === true,
       version: info.version ?? null,
     };
   } catch {
     // A portal-info failure is not worth failing a page render over.
     // Everything stays off, which is the same outcome as the flag
     // being unset and is the safe default either way.
-    return { feedback: false, version: null };
+    return { feedback: false, scripts: false, version: null };
   }
 });

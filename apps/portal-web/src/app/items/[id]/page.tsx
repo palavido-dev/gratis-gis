@@ -30,6 +30,7 @@ import type {
   EditorData,
   GeoBoundaryData,
   PickListData,
+  ScriptData,
   MapData,
   ServiceData,
   CustomAppData,
@@ -149,6 +150,7 @@ import { BasemapEditor } from './basemap/editor';
 import { GeocodingServiceEditor } from './geocoding/editor';
 import { TileLayerEditor } from './tile-layer/editor';
 import { PointCloudPanel } from './point-cloud/panel';
+import { ScriptPanel } from './script/panel';
 import { AppTemplateDetail } from './app-template/app-template-detail';
 import { AppThemeDetail } from './theme/theme-detail';
 import { PrintTemplateDetail } from './print-template/print-template-detail';
@@ -1074,6 +1076,22 @@ export default async function ItemDetailPage(props: Props) {
                     sizeBytes: 0,
                     uploadedAt: new Date(0).toISOString(),
                   }) as import('@gratis-gis/shared-types').PointCloudData
+            }
+            canEdit={canManage}
+          />
+        </section>
+      ) : item.type === 'script' ? (
+        <section className="mb-6">
+          {/* #221: user-authored Python, run server-side. A textarea
+              rather than a code editor on purpose: authoring belongs
+              in the author's own editor, and this surface exists to
+              paste, save, run, and read what happened. */}
+          <ScriptPanel
+            itemId={item.id}
+            initial={
+              (item.data && typeof item.data === 'object'
+                ? item.data
+                : { version: 1, source: '' }) as ScriptData
             }
             canEdit={canManage}
           />
