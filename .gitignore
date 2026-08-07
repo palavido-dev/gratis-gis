@@ -95,7 +95,13 @@ _tmp_*
 # copy) and the scripts/ folder (load-test rigs, one-off text-cleanup
 # utilities) are Matt's local workflow, not the published codebase.
 docs/marketing/
-scripts/
+# Leading slash matters: this is meant to hide the REPO-ROOT scripts/
+# folder only. Unanchored, gitignore matches a directory of that name
+# at any depth, which silently swallowed apps/portal-api/src/scripts
+# when the script-item module (#221) landed there. The failure is
+# quiet and nasty: `git add` refuses, `git commit` succeeds without
+# the files, and the build breaks for everyone else.
+/scripts/
 
 # Internal security review documents.  These contain exploitable
 # vulnerability details and MUST NOT be committed.  The committable
