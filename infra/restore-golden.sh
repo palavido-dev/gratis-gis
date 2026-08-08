@@ -432,22 +432,25 @@ dc start minio
 echo "=== Applying migrations to the restored database ==="
 # The golden dump is a point-in-time snapshot, so its schema is
 # whatever the box was running when the snapshot was baked. Every
-# migration merged since is missing from it, and until now nothing in
-# this script put them back.
+# migration merged since has to be applied on top of it.
 #
-# The comment this replaces claimed portal-api runs `prisma migrate
-# deploy` on boot. It does not: portal-api runs with SKIP_MIGRATE=true
-# and logs "assuming portal-migrate ran first" on every start.
-# Migrations are the portal-migrate one-shot's job, portal-api reaches
-# it through `depends_on: service_completed_successfully`, and
-# `docker compose start` (unlike `up`) does not honour depends_on. So
-# the restore path skipped migrations entirely while deploy.sh, which
-# uses `up`, did not, which is why this never showed up in a deploy.
+# This step is belt and braces, not a bug fix, and the distinction is
+# worth writing down because the first version of this comment got it
+# wrong. The claim was that nothing migrated the restored database.
+# Measured on the box: it does. `docker compose start portal-api`
+# resolves depends_on, including
+# `portal-migrate: service_completed_successfully`, so the one-shot
+# runs and `prisma migrate deploy` applies whatever the snapshot
+# lacked. The old comment nearby was still wrong about the mechanism
+# (it credited portal-api, which runs with SKIP_MIGRATE=true and says
+# so in its own boot log), but the outcome was fine.
 #
-# The failure was quiet, which is the bad kind. The api boots fine on
-# a stale schema and only breaks later, on the first query touching a
-# table the snapshot predates. That is exactly how the feedback table
-# came back missing after a reset.
+# Doing it explicitly anyway, for two reasons. It puts the migration
+# before the app services rather than tangled up in their startup, so
+# the feedback re-insert further down has an ordering it can rely on.
+# And when migrations fail, this prints the migrate logs and stops,
+# instead of surfacing as a confusing `dc start` failure with the
+# reason buried in a container nobody thought to look at.
 #
 # --force-recreate because a no-op `up` on an already-exited one-shot
 # would leave the old container in place and `docker wait` would hand
