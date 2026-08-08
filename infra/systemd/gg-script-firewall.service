@@ -8,7 +8,16 @@ Requires=docker.service
 
 [Service]
 Type=oneshot
-RemainAfterExit=yes
+# Deliberately NOT RemainAfterExit=yes.
+#
+# That is the obvious setting for a oneshot that installs state, and it
+# silently disables the timer. systemd will not activate a unit that is
+# already active, and RemainAfterExit leaves this one active(exited)
+# forever, so OnUnitActiveSec never comes round again. Caught by looking
+# at `systemctl list-timers`, which showed NEXT as "-" after the first
+# run: the rules would have been installed once and then never
+# re-asserted, which is precisely the failure the timer exists to
+# prevent.
 ExecStart=/opt/gratis-gis/infra/script-net-firewall.sh
 # Do not fail the boot over this. The unit is re-run by its timer every
 # few minutes, so a transient failure here (docker not answering yet)
