@@ -9,16 +9,22 @@ import {
   ChevronDown,
   ChevronRight,
   Clock,
+  Download,
   Loader2,
+  NotebookPen,
   Play,
   Save,
   SkipForward,
+  Upload,
   XCircle,
 } from 'lucide-react';
+import { NotebookView } from './notebook-view';
 import {
   SCRIPT_DEFAULT_TIMEOUT_SECONDS,
   SCRIPT_MAX_TIMEOUT_SECONDS,
+  looksLikeNotebook,
   normalizeScriptSchedule,
+  stripNotebookOutputs,
   summarizeScriptSchedule,
   type ScriptData,
   type ScriptRunDetail,
@@ -66,6 +72,22 @@ export function ScriptPanel({
 
   const dirty = source !== savedSource;
   const live = runs.some((r) => LIVE_STATES.has(r.state));
+  const isNotebook = looksLikeNotebook(source);
+
+  async function loadFile(file: File | undefined) {
+    if (!file) return;
+    setError(null);
+    try {
+      const text = await file.text();
+      // No validation beyond reading it. A file that is not a notebook
+      // simply runs as Python, and one that is malformed fails on its
+      // first run with a real error, which is more informative than
+      // this dialog refusing it for reasons it can only guess at.
+      setSource(text);
+    } catch {
+      setError('Could not read that file.');
+    }
+  }
 
   const loadRuns = useCallback(async () => {
     try {
@@ -120,9 +142,15 @@ export function ScriptPanel({
     setSaving(true);
     setError(null);
     try {
+      // Strip outputs before saving a notebook. Pasting one you have
+      // already run would otherwise store its plots on the item, where
+      // every version snapshot keeps them forever and the diff becomes
+      // unreadable. The outputs that matter live on the run.
+      const isNotebook = looksLikeNotebook(source);
       const body: ScriptData = {
         version: 1,
-        source,
+        source: isNotebook ? stripNotebookOutputs(source) : source,
+        format: isNotebook ? 'notebook' : 'python',
         timeoutSeconds: timeout,
         ...(notes.trim() ? { notes: notes.trim() } : {}),
         schedule,
@@ -230,6 +258,16 @@ export function ScriptPanel({
         </header>
 
         <div className="p-4">
+          {isNotebook ? (
+            <div className="mb-3 flex items-center gap-2 rounded-md border border-accent/30 bg-accent/5 px-3 py-2 text-xs text-ink-1">
+              <NotebookPen className="h-4 w-4 shrink-0 text-accent" />
+              <span>
+                This is a notebook. It runs cell by cell, and each run keeps
+                the executed copy with its output.
+              </span>
+            </div>
+          ) : null}
+
           <textarea
             value={source}
             onChange={(e) => setSource(e.target.value)}
@@ -239,6 +277,25 @@ export function ScriptPanel({
             className="w-full rounded-md border border-border bg-surface-0 p-3 font-mono text-xs leading-relaxed text-ink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             placeholder={PLACEHOLDER}
           />
+
+          {canEdit ? (
+            <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted">
+              <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-2 py-1 text-ink-1 hover:bg-surface-2">
+                <Upload className="h-3.5 w-3.5" />
+                Upload a .py or .ipynb
+                <input
+                  type="file"
+                  accept=".py,.ipynb,text/x-python,application/x-ipynb+json"
+                  className="hidden"
+                  onChange={(e) => void loadFile(e.target.files?.[0])}
+                />
+              </label>
+              <span>
+                Write in your own editor. Jupyter notebooks and plain Python
+                both run.
+              </span>
+            </div>
+          ) : null}
 
           {canEdit ? (
             <div className="mt-3 grid gap-3 sm:grid-cols-[10rem_1fr]">
@@ -525,6 +582,26 @@ export function ScriptPanel({
                       <p className="text-xs text-muted">Loading…</p>
                     ) : (
                       <>
+                        {detail.notebook ? (
+                          <>
+                            <div className="mb-3 flex items-center justify-between gap-3">
+                              <span className="text-2xs font-medium uppercase tracking-wide text-muted">
+                                Executed notebook
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  downloadNotebook(detail.notebook!, r.id)
+                                }
+                                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-2xs text-ink-1 hover:bg-surface-2"
+                              >
+                                <Download className="h-3 w-3" />
+                                Download .ipynb
+                              </button>
+                            </div>
+                            <NotebookView source={detail.notebook} />
+                          </>
+                        ) : null}
                         <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded border border-border bg-surface-1 p-3 font-mono text-2xs leading-relaxed text-ink-1">
                           {detail.log && detail.log.length > 0
                             ? detail.log
@@ -596,6 +673,19 @@ function RunState({ state }: { state: string }) {
       {s.label}
     </span>
   );
+}
+
+/** Hand the executed notebook back as a file, so it opens in Jupyter or
+ *  VS Code with its outputs intact. The in-portal view is deliberately
+ *  a narrow, safe subset; this is the unabridged artifact. */
+function downloadNotebook(source: string, runId: string) {
+  const blob = new Blob([source], { type: 'application/x-ipynb+json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `run-${runId.slice(0, 8)}.ipynb`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 const DAYS = [

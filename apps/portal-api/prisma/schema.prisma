@@ -1591,6 +1591,19 @@ model ScriptRun {
   /// thing guaranteed not to explain the failure.
   sourceSnapshot String? @map("source_snapshot")
 
+  /// For a notebook run, the EXECUTED notebook: the same cells with
+  /// their outputs filled in, written by papermill.
+  ///
+  /// Text rather than object storage, deliberately for now. It keeps
+  /// the artifact in the same transaction and the same backup as the
+  /// run it belongs to, and the executor has no storage credentials by
+  /// design, so routing it through MinIO would mean handing them to
+  /// something or adding a second hop. Capped at 4 MB by the executor;
+  /// past that the run keeps its log and this stays null. If people
+  /// start producing big notebooks routinely, this becomes an object
+  /// and the cap becomes the reason why.
+  notebook String?
+
   apiKeyId String? @map("api_key_id") @db.Uuid
 
   createdAt   DateTime  @default(now()) @map("created_at")

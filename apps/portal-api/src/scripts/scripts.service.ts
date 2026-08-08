@@ -8,7 +8,9 @@ import {
 import {
   SCRIPT_MAX_SOURCE_BYTES,
   clampScriptTimeout,
+  looksLikeNotebook,
   normalizeScriptSchedule,
+  type ScriptFormat,
   type ScriptData,
   type ScriptRunDetail,
   type ScriptRunSummary,
@@ -65,9 +67,17 @@ export class ScriptsService {
   static readData(item: { data: unknown }): ScriptData {
     const data = (item.data ?? {}) as Partial<ScriptData>;
     const schedule = normalizeScriptSchedule(data.schedule);
+    const source = typeof data.source === 'string' ? data.source : '';
+    // Trust the content over the declared format. They can only
+    // disagree if something wrote the item without going through the
+    // editor, and the content is the thing that has to execute.
+    const format: ScriptFormat = looksLikeNotebook(source)
+      ? 'notebook'
+      : 'python';
     return {
       version: 1,
-      source: typeof data.source === 'string' ? data.source : '',
+      format,
+      source,
       ...(typeof data.timeoutSeconds === 'number'
         ? { timeoutSeconds: data.timeoutSeconds }
         : {}),
@@ -252,6 +262,7 @@ export class ScriptsService {
       ...toSummary(row),
       log: row.log,
       sourceSnapshot: row.sourceSnapshot,
+      notebook: row.notebook,
     };
   }
 
@@ -293,6 +304,7 @@ function toSummary(row: {
   scriptId: string;
   state: string;
   trigger: string;
+  notebook?: string | null;
   exitCode: number | null;
   error: string | null;
   createdAt: Date;

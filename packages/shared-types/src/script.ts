@@ -23,8 +23,25 @@ export interface ScriptData {
    * The Python source. Stored on the item rather than in object
    * storage so it versions through item_data_snapshot like any other
    * item's content, and so a run can snapshot exactly what it ran.
+   *
+   * When `format` is `notebook` this holds the .ipynb JSON, as text,
+   * for the same reason: one field, one snapshot, one thing to
+   * version.
    */
   source: string;
+
+  /**
+   * How to run the source. Absent means `python`, so every script
+   * written before notebooks existed keeps working untouched.
+   *
+   * `notebook` is executed head-lessly with papermill. There is no
+   * browser kernel and there is not going to be one: a live kernel per
+   * user is a container per session, websockets, and idle-timeout
+   * bookkeeping, which is the expensive half of what hosted notebook
+   * products sell. Running a notebook is one process, exactly the
+   * shape everything else here already is.
+   */
+  format?: ScriptFormat;
 
   /**
    * Hard wall-clock limit for one run, in seconds. The worker kills
@@ -187,6 +204,65 @@ export function summarizeScriptSchedule(
   }
 }
 
+/** What the source is, and therefore how it runs. */
+export type ScriptFormat = 'python' | 'notebook';
+
+/**
+ * Remove every cell output from a notebook, returning the JSON text.
+ *
+ * Called before a notebook is saved onto an item. Without it, pasting a
+ * notebook you have already run stores its outputs on `data_json`,
+ * every version snapshot carries the embedded PNGs forever, and the
+ * item's diff becomes unreadable. The outputs a run produces are kept
+ * on the RUN, which is where they describe something.
+ *
+ * Tolerant on purpose: anything that does not parse as a notebook is
+ * handed back unchanged rather than throwing, because the save path
+ * should not be the thing that tells you your file is malformed. The
+ * run will say so, with a real error.
+ */
+export function stripNotebookOutputs(source: string): string {
+  try {
+    const nb = JSON.parse(source) as {
+      cells?: Array<Record<string, unknown>>;
+    };
+    if (!Array.isArray(nb.cells)) return source;
+    for (const cell of nb.cells) {
+      if (cell.cell_type === 'code') {
+        cell.outputs = [];
+        cell.execution_count = null;
+      }
+    }
+    return JSON.stringify(nb, null, 1);
+  } catch {
+    return source;
+  }
+}
+
+/**
+ * Does this look like a notebook rather than a script?
+ *
+ * A fallback for sources stored before `format` existed, and a guard
+ * against someone pasting .ipynb JSON into the Python box and getting a
+ * syntax error they cannot interpret. Checks the shape rather than the
+ * file extension, because there is no filename here.
+ */
+export function looksLikeNotebook(source: string): boolean {
+  const trimmed = source.trimStart();
+  if (!trimmed.startsWith('{')) return false;
+  try {
+    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    return Array.isArray(parsed.cells) && typeof parsed.nbformat === 'number';
+  } catch {
+    return false;
+  }
+}
+
+/** Largest executed notebook we keep on a run. Plots are base64 PNGs
+ *  and add up fast; past this the run keeps its log and says the
+ *  notebook was too big rather than storing megabytes per run. */
+export const SCRIPT_MAX_NOTEBOOK_BYTES = 4 * 1024 * 1024;
+
 /** Lifecycle of one execution. Mirrors the analysis-job vocabulary so
  *  the two queues read the same way in logs and UI. */
 export type ScriptRunState =
@@ -230,6 +306,16 @@ export interface ScriptRunDetail extends ScriptRunSummary {
   /** The source as it was when this run started, so a month-old
    *  failure is readable against the code that actually failed. */
   sourceSnapshot: string | null;
+  /**
+   * For a notebook run, the EXECUTED notebook: the same cells with
+   * their outputs filled in. Null for a python run, and null for a
+   * notebook that produced one too large to keep.
+   *
+   * This is the artifact worth having. A log tells you what a run
+   * printed; an executed notebook tells you what it printed next to
+   * the code that printed it and the prose explaining why.
+   */
+  notebook: string | null;
 }
 
 /** Default and ceiling for a run's wall clock. A script that hangs on

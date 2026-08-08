@@ -62,6 +62,36 @@ RUN "$SCRIPT_VENV/bin/pip" install --no-cache-dir \
       "pyproj>=3.6,<4" \
       "python-dateutil>=2.9,<3"
 
+# Notebooks, executed head-lessly.
+#
+# papermill runs a .ipynb start to finish and writes an output notebook
+# with the results embedded. That is the whole of the notebook feature:
+# there is no kernel gateway, no session manager, no websocket, and no
+# container per user. One process, the same one everything else here
+# already is.
+#
+# matplotlib is here rather than in the list above because it is what
+# makes the output notebook worth keeping. A run whose artifact is a
+# chart next to the code that drew it and the prose explaining why is
+# the reason to support notebooks at all. It costs about 40 MB.
+RUN "$SCRIPT_VENV/bin/pip" install --no-cache-dir \
+      "papermill>=2.6,<3" \
+      "ipykernel>=6.29,<7" \
+      "matplotlib>=3.8,<4"
+
+# Register the kernel INSIDE the venv (--sys-prefix), not in the user's
+# home or /usr/local/share.
+#
+# papermill resolves a kernel by the name in the notebook's metadata,
+# almost always "python3". Without a discoverable kernelspec it fails
+# with "No such kernel named python3", which reads like a broken
+# notebook rather than a missing image layer. --sys-prefix keeps it with
+# the interpreter that has the libraries, so the kernel a cell runs in
+# is the one that can import shapely.
+RUN "$SCRIPT_VENV/bin/python" -m ipykernel install \
+      --sys-prefix --name python3 --display-name "Python 3"
+ENV SCRIPT_PAPERMILL=/opt/script-venv/bin/papermill
+
 # The runner spawns this interpreter, not the system one.
 ENV SCRIPT_PYTHON=/opt/script-venv/bin/python3
 # Scripts get a writable HOME they do not share with the app user's,

@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { clampScriptTimeout } from '@gratis-gis/shared-types';
+import {
+  SCRIPT_MAX_NOTEBOOK_BYTES,
+  clampScriptTimeout,
+  looksLikeNotebook,
+  type ScriptFormat,
+} from '@gratis-gis/shared-types';
 
 import { ApiKeyService } from '../auth/api-key.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -118,6 +123,7 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
     id: string;
     userId: string;
     source: string;
+    format: ScriptFormat;
   } | null> {
     const rows = await this.prisma.$queryRaw<
       Array<{ id: string; user_id: string; source_snapshot: string | null }>
@@ -143,13 +149,24 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
       });
       return null;
     }
-    return { id: row.id, userId: row.user_id, source: row.source_snapshot };
+    // Decided from the snapshot rather than read off the item, for the
+    // same reason the source is snapshotted: an edit landing between
+    // enqueue and claim must not change how the queued thing runs. A
+    // notebook is unmistakable from its content, so there is no need to
+    // carry a second column that could disagree with the first.
+    return {
+      id: row.id,
+      userId: row.user_id,
+      source: row.source_snapshot,
+      format: looksLikeNotebook(row.source_snapshot) ? 'notebook' : 'python',
+    };
   }
 
   private async dispatch(job: {
     id: string;
     userId: string;
     source: string;
+    format: ScriptFormat;
   }): Promise<void> {
     const timeoutSeconds = clampScriptTimeout(
       Number(process.env.SCRIPT_TIMEOUT_SECONDS ?? NaN),
@@ -204,6 +221,10 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
           apiKeyToken: key.token,
           timeoutSeconds,
           maxLogBytes: Number(process.env.SCRIPT_MAX_LOG_BYTES ?? 262_144),
+          format: job.format,
+          maxNotebookBytes: Number(
+            process.env.SCRIPT_MAX_NOTEBOOK_BYTES ?? SCRIPT_MAX_NOTEBOOK_BYTES,
+          ),
         }),
         signal: ac.signal,
       });
@@ -223,14 +244,21 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
         exitCode: number | null;
         log: string;
         killedBy: 'timeout' | 'cancel' | null;
+        notebook?: string | null;
       };
       const seconds = ((Date.now() - started) / 1000).toFixed(1);
+      // Kept on failure as well as success. papermill writes the
+      // notebook as it executes, so a failed run's artifact carries the
+      // traceback in the cell that raised it, which is more use than
+      // the log alone.
+      const notebook = out.notebook ?? null;
 
       if (out.killedBy === 'timeout') {
         await this.finish(job.id, {
           state: 'failed',
           error: `Stopped after ${timeoutSeconds}s, the time limit for a script run.`,
           log: out.log,
+          notebook,
           apiKeyId: key.id,
         });
       } else if (out.killedBy === 'cancel') {
@@ -238,6 +266,7 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
           state: 'cancelled',
           error: 'Cancelled.',
           log: out.log,
+          notebook,
           apiKeyId: key.id,
         });
       } else if (out.exitCode === 0) {
@@ -245,6 +274,7 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
           state: 'done',
           exitCode: 0,
           log: out.log,
+          notebook,
           apiKeyId: key.id,
         });
         this.log.log(`script run ${job.id}: done in ${seconds}s`);
@@ -254,6 +284,7 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
           exitCode: out.exitCode,
           error: `The script exited with code ${out.exitCode}.`,
           log: out.log,
+          notebook,
           apiKeyId: key.id,
         });
       }
@@ -284,6 +315,7 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
       exitCode?: number | null;
       error?: string;
       log?: string;
+      notebook?: string | null;
       apiKeyId: string | null;
     },
   ): Promise<void> {
@@ -295,6 +327,7 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
         ...(input.exitCode !== undefined ? { exitCode: input.exitCode } : {}),
         ...(input.error !== undefined ? { error: input.error } : {}),
         ...(input.log !== undefined ? { log: input.log } : {}),
+        ...(input.notebook !== undefined ? { notebook: input.notebook } : {}),
       },
     });
     if (input.apiKeyId) {

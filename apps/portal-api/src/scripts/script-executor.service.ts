@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { spawn } from 'node:child_process';
-import { chmod, chown, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, chown, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Injectable, Logger } from '@nestjs/common';
+import {
+  SCRIPT_MAX_NOTEBOOK_BYTES,
+  type ScriptFormat,
+} from '@gratis-gis/shared-types';
 
 export interface ExecuteRequest {
   source: string;
@@ -11,12 +15,19 @@ export interface ExecuteRequest {
   apiKeyToken: string;
   timeoutSeconds: number;
   maxLogBytes: number;
+  /** `python` (default) or `notebook`. */
+  format?: ScriptFormat;
+  /** Largest executed notebook to hand back. */
+  maxNotebookBytes?: number;
 }
 
 export interface ExecuteResult {
   exitCode: number | null;
   log: string;
   killedBy: 'timeout' | 'cancel' | null;
+  /** The executed .ipynb, for a notebook run that produced one small
+   *  enough to keep. Null otherwise. */
+  notebook?: string | null;
 }
 
 /**
@@ -48,7 +59,12 @@ export class ScriptExecutorService {
     // /tmp, so one run cannot plant a file another one picks up.
     const base = process.env.SCRIPT_TMPDIR ?? tmpdir();
     const dir = await mkdtemp(join(base, 'gg-script-'));
-    const file = join(dir, 'main.py');
+    const isNotebook = req.format === 'notebook';
+    const file = join(dir, isNotebook ? 'main.ipynb' : 'main.py');
+    // Where papermill writes the executed copy. Inside the run
+    // directory, so the same teardown removes it and one run cannot
+    // read another's outputs.
+    const outFile = join(dir, 'executed.ipynb');
     await writeFile(file, req.source, 'utf8');
     // The child runs as a different user, so it must be able to read
     // its own source and write into its own scratch directory.
@@ -86,17 +102,32 @@ export class ScriptExecutorService {
     let truncated = false;
 
     try {
-      return await new Promise<ExecuteResult>((resolve) => {
-        const child = spawn(
-          process.env.SCRIPT_PYTHON ?? 'python3',
-          // -I isolates: ignores PYTHON* env vars and the user site
+      // A notebook goes through papermill rather than the interpreter.
+      // Same one process, same uid, same limits, same kill: the only
+      // difference is what reads the file.
+      //
+      // --log-output echoes each cell's stdout as it runs, so the plain
+      // text log stays useful and a run that dies halfway shows how far
+      // it got. Without it the output only exists inside a notebook
+      // that a killed run never finishes writing.
+      const command = isNotebook
+        ? (process.env.SCRIPT_PAPERMILL ?? 'papermill')
+        : (process.env.SCRIPT_PYTHON ?? 'python3');
+      const args = isNotebook
+        ? [file, outFile, '--log-output', '--no-progress-bar', '--cwd', dir]
+        : // -I isolates: ignores PYTHON* env vars and the user site
           // directory, so the run cannot be steered by leftovers in
           // the image. -u keeps output unbuffered, because a killed
           // process must not lose the last thing it printed.
-          ['-I', '-u', file],
+          ['-I', '-u', file];
+
+      return await new Promise<ExecuteResult>((resolve) => {
+        const child = spawn(
+          command,
+          args,
           {
             cwd: dir,
-            env: this.childEnv(req.apiKeyToken),
+            env: this.childEnv(req.apiKeyToken, dir),
             stdio: ['ignore', 'pipe', 'pipe'],
             // Drop to the dedicated script identity. Without this the
             // child shares the executor's UID and can read
@@ -166,7 +197,21 @@ export class ScriptExecutorService {
           settled = true;
           clearTimeout(timer);
           signal?.removeEventListener('abort', onAbort);
-          resolve({ exitCode: code, log: out, killedBy });
+          if (!isNotebook) {
+            resolve({ exitCode: code, log: out, killedBy, notebook: null });
+            return;
+          }
+          // Read the executed notebook before the finally block wipes
+          // the directory. Deliberately after a failure too: papermill
+          // writes the notebook as it goes, so a cell that raised is
+          // preserved with its traceback in place, which is the most
+          // useful artifact a failed run can leave.
+          void this.readNotebook(
+            outFile,
+            req.maxNotebookBytes ?? SCRIPT_MAX_NOTEBOOK_BYTES,
+          ).then((notebook) => {
+            resolve({ exitCode: code, log: out, killedBy, notebook });
+          });
         };
         child.on('error', (err) => {
           out += `\nCould not start the script: ${err.message}\n`;
@@ -196,7 +241,35 @@ export class ScriptExecutorService {
    * everyone who exports them on their own machine, so the spec
    * checks them against the client's source rather than a literal.
    */
-  childEnv(apiKeyToken: string): NodeJS.ProcessEnv {
+  /**
+   * The executed notebook, or null if there is nothing usable.
+   *
+   * Size-checked before reading rather than after: a notebook full of
+   * plots is base64 PNG all the way down, and the point of a cap is not
+   * to pull 200 MB into memory in order to decide it is too big.
+   */
+  private async readNotebook(
+    path: string,
+    maxBytes: number,
+  ): Promise<string | null> {
+    try {
+      const info = await stat(path);
+      if (info.size > maxBytes) {
+        this.log.warn(
+          `Executed notebook is ${info.size} bytes, over the ${maxBytes} limit; keeping the log only.`,
+        );
+        return null;
+      }
+      return await readFile(path, 'utf8');
+    } catch {
+      // No notebook: the run was killed before papermill wrote one, or
+      // the source was not a notebook at all. The log still stands on
+      // its own, so this is not worth failing the run over.
+      return null;
+    }
+  }
+
+  childEnv(apiKeyToken: string, runDir?: string): NodeJS.ProcessEnv {
     return {
       GRATISGIS_URL: process.env.PORTAL_BASE_URL ?? 'http://localhost:3000',
       GRATISGIS_API_KEY: apiKeyToken,
@@ -210,6 +283,21 @@ export class ScriptExecutorService {
         : {}),
       ...(process.env.SSL_CERT_DIR
         ? { SSL_CERT_DIR: process.env.SSL_CERT_DIR }
+        : {}),
+      // Jupyter writes connection files, a runtime directory, and an
+      // IPython profile the first time a kernel starts. Left to
+      // themselves they land under HOME, which persists between runs
+      // and would be a channel from one run to the next. Pointing them
+      // at the run directory keeps a kernel's litter inside the thing
+      // that gets deleted when the run ends.
+      ...(runDir
+        ? {
+            JUPYTER_RUNTIME_DIR: join(runDir, '.jupyter-runtime'),
+            JUPYTER_DATA_DIR: join(runDir, '.jupyter-data'),
+            IPYTHONDIR: join(runDir, '.ipython'),
+            // matplotlib does the same thing with its font cache.
+            MPLCONFIGDIR: join(runDir, '.matplotlib'),
+          }
         : {}),
     };
   }
