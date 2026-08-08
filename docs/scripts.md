@@ -7,10 +7,22 @@ a nightly job. API keys and the Python client already let you write and
 run whatever you like against the portal from your own machine. What
 the portal uniquely offers is a machine that is awake at 3am.
 
-**This is not a hosted notebook.** There is no browser IDE, and adding
-one is not planned. Authoring belongs in the editor you already use.
-The item page is a text area for pasting the result, a Run button, and
-a log.
+**Notebooks run. A hosted notebook IDE does not exist and is not
+planned.** Those are two different things, and conflating them (which
+this document did until 2026-08-08) makes the second sound like a
+rejection of the first.
+
+What is rejected is the browser kernel: a live session per user means a
+container per session, websockets, and idle-timeout bookkeeping, which
+is the expensive half of what hosted notebook products sell and the
+half that has nothing to do with running a job at 3am.
+
+What is supported is executing a `.ipynb` head-lessly with papermill and
+keeping the executed copy. Authoring belongs in the editor you already
+have. The item page is somewhere to paste or upload the result, a Run
+button, a schedule, and the output.
+
+See "Notebooks" below.
 
 ## How a script talks to the portal
 
@@ -264,6 +276,63 @@ the item type. The second starts the pair of containers. Both are
 needed; either alone does nothing useful, which is intentional,
 because turning on the endpoints with nothing consuming the queue
 would just accumulate work.
+
+## Notebooks
+
+A script whose source is `.ipynb` JSON is executed with papermill
+instead of the interpreter. Same one process, same uid, same limits,
+same kill. The format is detected from the content, not a filename or a
+declared field, because there is no filename and the content is what has
+to execute.
+
+The run keeps the **executed** notebook, cells and outputs together.
+That artifact is the reason to bother: a log tells you what a run
+printed, an executed notebook tells you what it printed next to the code
+that printed it and the prose explaining why. Kept on failure too,
+because papermill writes as it goes, so a failed run carries the
+traceback in the cell that raised it.
+
+Measured in the built image, as uid 10001 with the executor's scrubbed
+environment: four cells, `matplotlib_inline.backend_inline` selected on
+its own, `plt.show()` producing a 25 KB `image/png`, `2 + 40` producing
+a `text/plain` execute_result, shapely and the `gratisgis` client both
+importable, exit 0.
+
+Outputs are stripped when a notebook is **saved** to the item. Without
+that, pasting one you have already run stores its plots on `data_json`,
+where every version snapshot keeps them forever.
+
+Jupyter's runtime and data directories, the IPython profile, and the
+matplotlib cache are all redirected into the run directory. Left alone
+they land under `HOME`, which persists between runs and would be a
+channel from one run to the next.
+
+### Rendering, and why it is hand-rolled
+
+Notebook outputs are MIME bundles, and Jupyter defines `text/html` and
+`application/javascript` among the types. A notebook is content one
+person writes and another opens in their own session, so rendering
+those, or handing the bundle to a general-purpose notebook renderer that
+does, is stored XSS with extra steps.
+
+`notebook-view.tsx` is therefore an allowlist: `text/plain`, `image/png`,
+`image/jpeg`, stream output, and tracebacks with ANSI stripped. Markdown
+goes through a small formatter that returns React nodes rather than an
+HTML string, so it cannot emit a tag by construction, and link hrefs are
+restricted to http(s) so `javascript:` cannot sneak in.
+`dangerouslySetInnerHTML` does not appear in the file and should not be
+added. Anything unrenderable says which type it was, and the unabridged
+notebook is one download away.
+
+### Limits
+
+The executed notebook is capped at 4 MB. Past that the run keeps its log
+and records that the notebook was too large. It is stored as text on the
+run row rather than in object storage, which keeps the artifact in the
+same transaction and the same backup as the run it belongs to, and
+avoids giving the executor storage credentials it deliberately does not
+have. If people start producing large notebooks routinely, that cap is
+the signal to move it.
 
 ## Dependencies
 

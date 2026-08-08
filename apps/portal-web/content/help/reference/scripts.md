@@ -49,6 +49,40 @@ environment. That key is created when the run starts, carries the
 permissions of whoever the run acts as, and is revoked the moment the
 run ends.
 
+## Notebooks
+
+Jupyter notebooks run too. Upload a `.ipynb`, or paste its JSON, and the
+portal executes it cell by cell and keeps the executed copy: your prose,
+your code, and the output it produced, in one place.
+
+That is usually the better format for anything somebody else will read.
+A script that refreshes a layer every month is easier to trust when the
+reasoning sits next to the code, and the run history then shows what it
+actually did rather than a wall of print statements.
+
+Charts work. `matplotlib` is installed, and a plot appears inline in the
+run exactly as it would in Jupyter.
+
+Author wherever you already do. There is no editor in the browser and
+there is not going to be one; a live kernel per person is a large amount
+of machinery in service of the part you already have on your laptop.
+
+A few practical notes:
+
+- Outputs are cleared when you save. The item stores the notebook, the
+  runs store the results.
+- A failed run still keeps its notebook, with the error shown in the
+  cell that raised it.
+- Very large notebooks (over 4 MB, which usually means a lot of images)
+  keep their log but not the notebook.
+- Every run offers the executed `.ipynb` as a download, which opens in
+  Jupyter or VS Code with everything intact.
+
+Prefer plain Python? Nothing changes. A `.py` file runs exactly as
+before, and if you like cells without the JSON you can write a
+`# %%`-delimited file, which VS Code and Jupyter both open as a notebook
+and the portal runs as an ordinary script.
+
 ## Scheduling
 
 Set **Run this script** to hourly, daily, weekly, or monthly, pick a
