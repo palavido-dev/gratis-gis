@@ -90,19 +90,28 @@ It had no credentials for any of them, but "needs a password" is a
 weaker property than "cannot open the socket", and only one of the two
 survives a protocol-level CVE in one of those services.
 
-The same probe after the split:
+The same probe after the split, deliberately **by raw IP address**
+rather than by name:
 
 ```
-blocked    postgres:5432  (gaierror)
-blocked    minio:9000     (gaierror)
-blocked    keycloak:8080  (gaierror)
-REACHABLE  portal-api:4000
+postgres    172.18.0.3:5432  -> TimeoutError
+minio       172.18.0.2:9000  -> TimeoutError
+cloudflare  1.1.1.1:443      -> OPEN
+portal-api                   -> resolves, answers, authenticates
 ```
 
-`gaierror` rather than a refused connection: those names do not
-resolve for that container at all. The portal API still answers, the
-client still authenticates and reads features, and outbound internet
-still works.
+By IP on purpose. The obvious version of this test uses hostnames and
+reports a name-resolution error, which looks like a pass and is not
+evidence of anything: a stopped container produces exactly the same
+error as an unreachable one. That distinction is not academic. During
+one round of this work the whole app tier happened to be down, every
+name failed to resolve, and the isolation result looked perfect while
+proving nothing. Addressing the container directly removes DNS from
+the answer: the packets go out and nothing comes back.
+
+The portal API still answers, the client still authenticates and reads
+features (23,915 on the parcels layer, through the pager), and
+outbound internet still works.
 
 So the two responsibilities are two containers:
 
@@ -133,12 +142,35 @@ for is refreshing a layer from a county REST endpoint, so an
 
 ### Still worth knowing
 
-A script runs as the same OS user as the executor process and shares
-that container's filesystem and CPU. Two scripts do not run
-concurrently (one in-flight run per script, and one executor), but a
-script can read the executor image's contents. There is nothing
-sensitive there by construction, and the container holds no
-credentials, but it is not a per-run sandbox.
+A script runs as its own OS user (uid 10001), separate from the
+executor process that supervises it. That separation is not cosmetic:
+while the two shared a user, a script could read `/proc/1/environ` and
+recover the executor's entire environment, including the token the
+claimer authenticates with. Measured, then closed. A different uid
+means the kernel refuses that read, and it also means a script cannot
+signal or trace the process supervising it.
+
+Each run gets a scratch directory of its own, reachable only by that
+user, and the container caps what a runaway can take: 2 CPUs, 1 GB of
+memory, 256 processes. Before those caps, a `while True: pass` had
+every core on the box and a fork bomb reached roughly 9,000 processes.
+
+What is still true, and worth being clear about:
+
+- A script can read the executor image's contents. There is nothing
+  sensitive there by construction (no database URL, no object-storage
+  keys, no realm credentials), but it is a shared image, not a
+  per-run sandbox.
+- A script has full outbound internet access. That is the point of the
+  feature, and it also means a script is a way to make requests from
+  your server's IP address.
+- Runs are serialised, one at a time, so a script that uses its whole
+  time limit delays the next one.
+- The credential a script holds is a short-lived key minted for that
+  run, carrying the permissions of the person the script belongs to.
+  A script can therefore do anything through the API that its owner
+  could do by hand. Who may create a script item is the control that
+  matters, and it is the contributor role, not a separate one.
 
 ## Turning it on
 
