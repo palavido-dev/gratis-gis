@@ -104,3 +104,38 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  python-client:
+    name: Python client
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # The floor declared in pyproject. Testing on the newest
+          # interpreter only would let a 3.9-incompatible annotation
+          # through and break exactly the users who are on an old
+          # distro python, which is most of the ones running a script
+          # on a server.
+          python-version: '3.9'
+
+      - name: Install
+        working-directory: clients/python
+        run: pip install -e '.[dev]'
+
+      - name: Test
+        working-directory: clients/python
+        run: python -m pytest -q
+
+      - name: Build the distributions
+        working-directory: clients/python
+        # Proves the package is publishable on every commit rather than
+        # discovering it is not at tag time, and checks that the version
+        # is still readable from src/gratisgis/client.py, which is where
+        # hatch now reads it from.
+        run: |
+          pip install build twine
+          python -m build
+          twine check dist/*

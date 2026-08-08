@@ -1,0 +1,91 @@
+name: Publish Python client
+
+# The `gratisgis` package on PyPI. Two documents already told people to
+# run `pip install gratisgis` before anything published it, so the
+# instruction was false in every copy of the docs that shipped.
+#
+# Fires on a python-client tag rather than the portal's own version
+# tags. The client and the portal move at different speeds: a portal
+# release rarely changes the client, and a client fix should not have
+# to wait for one.
+#
+#   git tag python-v0.3.0 && git push origin python-v0.3.0
+on:
+  push:
+    tags: ['python-v*']
+  # Manual runs go to TestPyPI only, so the release path can be
+  # exercised without burning a version number on the real index. PyPI
+  # refuses a re-upload of a version that already exists, so there is no
+  # undo.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build
+        working-directory: clients/python
+        run: |
+          pip install build twine
+          python -m build
+          twine check dist/*
+
+      - name: Refuse a tag that disagrees with the package
+        if: startsWith(github.ref, 'refs/tags/')
+        working-directory: clients/python
+        # A tag saying 0.3.1 that builds 0.3.0 publishes the wrong thing
+        # under the right name, and PyPI will not let it be replaced.
+        # Cheaper to fail here.
+        run: |
+          TAG="${GITHUB_REF_NAME#python-v}"
+          BUILT="$(ls dist/*.tar.gz | sed -E 's/.*gratisgis-(.+)\.tar\.gz/\1/')"
+          if [ "$TAG" != "$BUILT" ]; then
+            echo "Tag says $TAG, package builds $BUILT." >&2
+            echo "Fix __version__ in clients/python/src/gratisgis/client.py." >&2
+            exit 1
+          fi
+          echo "Tag and package agree on $BUILT."
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: clients/python/dist/
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Trusted publishing: PyPI verifies this workflow's OIDC identity,
+    # so there is no API token in repository secrets to leak or rotate.
+    # Requires a one-time setup on PyPI (Publishing -> add a pending
+    # publisher for owner palavido-dev, repo gratis-gis, workflow
+    # publish-python.yml, environment pypi).
+    environment:
+      name: pypi
+      url: https://pypi.org/p/gratisgis
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Publish to TestPyPI
+        if: github.event_name == 'workflow_dispatch'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+      - name: Publish to PyPI
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: pypa/gh-action-pypi-publish@release/v1

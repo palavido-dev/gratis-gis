@@ -8,7 +8,15 @@
         ...
 """
 
-from .client import GratisGIS, __version__
+from .client import (
+    EXPORT_FORMATS,
+    FIELD_TYPES,
+    GEOMETRY_TYPES,
+    GratisGIS,
+    __version__,
+    field,
+    layer,
+)
 from .errors import (
     AuthError,
     ConflictError,
@@ -20,6 +28,11 @@ from .errors import (
 
 __all__ = [
     "GratisGIS",
+    "field",
+    "layer",
+    "FIELD_TYPES",
+    "GEOMETRY_TYPES",
+    "EXPORT_FORMATS",
     "PortalError",
     "AuthError",
     "NotFoundError",

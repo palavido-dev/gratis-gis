@@ -4,7 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gratisgis"
-version = "0.2.0"
+# Single-sourced from the package. There were two literals here and in
+# client.py, kept in step by hand with a comment acknowledging the drift
+# risk, which is not a plan.
+dynamic = ["version"]
 description = "Python client for a GratisGIS portal"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -29,7 +32,12 @@ dev = ["pytest>=7", "pytest-cov", "respx>=0.20"]
 
 [project.urls]
 Homepage = "https://github.com/palavido-dev/gratis-gis"
+Documentation = "https://gratisgis.org/help/reference/python-client"
 Issues = "https://github.com/palavido-dev/gratis-gis/issues"
+Source = "https://github.com/palavido-dev/gratis-gis/tree/main/clients/python"
+
+[tool.hatch.version]
+path = "src/gratisgis/client.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gratisgis"]

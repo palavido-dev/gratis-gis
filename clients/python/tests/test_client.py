@@ -91,7 +91,8 @@ class TestItems:
         )
         assert seen["path"] == "/api/items"
         assert seen["params"]["type"] == "data_layer"
-        assert seen["params"]["query"] == "parcels"
+        # Sent as `q`: the portal ignores `query` (see TestFindItemsQueryParam).
+        assert seen["params"]["q"] == "parcels"
         assert seen["params"]["limit"] == "5"
         assert seen["params"]["full"] == "1"
         assert items == [{"id": "i1"}]
@@ -123,7 +124,9 @@ class TestFeatures:
         make_client(handler).read_features(
             "item-1", "parcels", limit=10, bbox=[-80.1, 38.7, -80.0, 38.8]
         )
-        assert seen["path"] == "/api/items/item-1/layers/parcels/geojson"
+        # /features, not /geojson: identical body, and the only one of
+        # the two that accepts the attribute filters.
+        assert seen["path"] == "/api/items/item-1/layers/parcels/features"
         assert seen["params"]["limit"] == "10"
         assert seen["params"]["bbox"] == "-80.1,38.7,-80.0,38.8"
 
@@ -359,3 +362,236 @@ def test_context_manager_closes_an_owned_client():
     with GratisGIS("https://portal.example", api_key="ggk_x") as gg:
         assert gg.portal_url == "https://portal.example"
     assert gg._client.is_closed
+
+
+# ---------------------------------------------------------------------
+# 0.3.0: filtering, search, export, layer creation
+# ---------------------------------------------------------------------
+
+SCHEMA_ITEM = {
+    "id": "itm",
+    "type": "data_layer",
+    "data": {
+        "version": 3,
+        "storageType": "postgis",
+        "layers": [
+            {
+                "id": "parcels",
+                "label": "Parcels",
+                "name": "parcels",
+                "geometryType": "polygon",
+                "fields": [
+                    {"name": "owner", "type": "string", "label": "Owner"},
+                    {"name": "surveyed", "type": "date", "label": "Surveyed"},
+                ],
+            }
+        ],
+    },
+}
+
+
+def schema_handler(extra=None):
+    """Serve the item schema, then hand anything else to `extra`."""
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path == "/api/items/itm":
+            return httpx.Response(200, json=SCHEMA_ITEM)
+        if extra is not None:
+            return extra(request)
+        return httpx.Response(200, json={"type": "FeatureCollection", "features": []})
+
+    handler.seen = seen
+    return handler
+
+
+class TestFindItemsQueryParam:
+    def test_search_text_is_sent_as_q(self):
+        # It was sent as `query` until 0.3.0. The portal reads `q` and
+        # ignored the other, so every search silently returned an
+        # unfiltered list and looked like it had worked.
+        captured = {}
+
+        def handler(request):
+            captured.update(dict(request.url.params))
+            return httpx.Response(200, json=[])
+
+        make_client(handler).find_items(query="parcels", type="data_layer")
+        assert captured["q"] == "parcels"
+        assert "query" not in captured
+
+
+class TestReadFilters:
+    def test_uses_the_features_route_not_geojson(self):
+        # /features is the same body plus the filters; /geojson has none.
+        handler = schema_handler()
+        make_client(handler).read_features("itm", "parcels", limit=5)
+        assert handler.seen[-1].url.path == "/api/items/itm/layers/parcels/features"
+
+    def test_parent_filter_is_sent(self):
+        handler = schema_handler()
+        make_client(handler).read_features(
+            "itm", "parcels", parent_fk="owner", parent_id="Smith"
+        )
+        params = dict(handler.seen[-1].url.params)
+        assert params["parentFk"] == "owner"
+        assert params["parentId"] == "Smith"
+
+    def test_unknown_filter_field_is_refused_before_the_request(self):
+        # The portal DROPS an unrecognised filter field and returns the
+        # whole layer, so a typo would otherwise look like a successful
+        # query with a surprising number of rows.
+        handler = schema_handler()
+        with pytest.raises(ValueError, match="no field 'ownr'"):
+            make_client(handler).read_features(
+                "itm", "parcels", parent_fk="ownr", parent_id="Smith"
+            )
+        assert not any(
+            r.url.path.endswith("/features") for r in handler.seen
+        )
+
+    def test_half_a_parent_filter_is_refused(self):
+        handler = schema_handler()
+        with pytest.raises(ValueError, match="go together"):
+            make_client(handler).read_features("itm", "parcels", parent_fk="owner")
+
+    def test_time_filter_needs_a_bound(self):
+        handler = schema_handler()
+        with pytest.raises(ValueError, match="at least one"):
+            make_client(handler).read_features("itm", "parcels", time_field="surveyed")
+
+    def test_time_bounds_need_a_field(self):
+        handler = schema_handler()
+        with pytest.raises(ValueError, match="need a time_field"):
+            make_client(handler).read_features("itm", "parcels", time_from="2026-01-01")
+
+    def test_time_filter_is_sent(self):
+        handler = schema_handler()
+        make_client(handler).read_features(
+            "itm", "parcels", time_field="surveyed", time_from="2026-01-01"
+        )
+        params = dict(handler.seen[-1].url.params)
+        assert params["timeField"] == "surveyed"
+        assert params["timeFrom"] == "2026-01-01"
+
+    def test_schema_is_fetched_once(self):
+        handler = schema_handler()
+        gg = make_client(handler)
+        for _ in range(3):
+            gg.read_features("itm", "parcels", parent_fk="owner", parent_id="x")
+        assert sum(1 for r in handler.seen if r.url.path == "/api/items/itm") == 1
+
+    def test_missing_layer_names_the_ones_that_exist(self):
+        handler = schema_handler()
+        with pytest.raises(NotFoundError, match="Layers on this item: parcels"):
+            make_client(handler).layer_schema("itm", "nope")
+
+
+class TestSearchFeatures:
+    def test_returns_the_results_array(self):
+        def extra(request):
+            return httpx.Response(200, json={"results": [{"id": "a"}], "truncated": False})
+
+        handler = schema_handler(extra)
+        found = make_client(handler).search_features("itm", "parcels", "smith")
+        assert found == [{"id": "a"}]
+        assert handler.seen[-1].url.path.endswith("/features-search")
+        assert dict(handler.seen[-1].url.params)["q"] == "smith"
+
+    def test_field_restriction_is_validated(self):
+        handler = schema_handler()
+        with pytest.raises(ValueError, match="no field 'nope'"):
+            make_client(handler).search_features("itm", "parcels", "x", fields=["nope"])
+
+
+class TestExport:
+    def test_geoparquet_is_the_default_and_returns_bytes(self):
+        def handler(request):
+            assert request.url.path == "/api/items/itm/layers/parcels/geoparquet"
+            return httpx.Response(200, content=b"PAR1data")
+
+        assert make_client(handler).export_layer("itm", "parcels") == b"PAR1data"
+
+    def test_writes_to_a_path_and_returns_it(self, tmp_path):
+        def handler(request):
+            return httpx.Response(200, content=b"a,b\n1,2\n")
+
+        out = tmp_path / "parcels.csv"
+        got = make_client(handler).export_layer("itm", "parcels", format="csv", path=out)
+        assert got == out
+        assert out.read_bytes() == b"a,b\n1,2\n"
+
+    def test_unknown_format_is_refused_locally(self):
+        with pytest.raises(ValueError, match="Unknown export format"):
+            make_client(lambda r: httpx.Response(200)).export_layer(
+                "itm", "parcels", format="shapefile"
+            )
+
+    def test_geometry_option_is_csv_only(self):
+        with pytest.raises(ValueError, match="only applies to the csv"):
+            make_client(lambda r: httpx.Response(200)).export_layer(
+                "itm", "parcels", geometry="wkt"
+            )
+
+    def test_a_403_still_carries_the_portal_message(self):
+        # The body of a streamed error response has to be read before it
+        # can be reported, or the user gets a bare status code.
+        def handler(request):
+            return httpx.Response(
+                403, json={"message": "Downloading the data requires a share with download permission."}
+            )
+
+        with pytest.raises(AuthError, match="download permission"):
+            make_client(handler).export_layer("itm", "parcels")
+
+
+class TestCreateDataLayer:
+    def test_builds_a_v3_payload(self):
+        from gratisgis import field, layer
+
+        captured = {}
+
+        def handler(request):
+            captured.update(json.loads(request.content))
+            return httpx.Response(201, json={"id": "new"})
+
+        make_client(handler).create_data_layer(
+            "Buffered parcels",
+            layers=[
+                layer("buffered", "Buffered", "polygon", [field("parcel_id", "string")])
+            ],
+        )
+        assert captured["type"] == "data_layer"
+        assert captured["data"]["version"] == 3
+        got = captured["data"]["layers"][0]
+        assert got["id"] == "buffered"
+        assert got["geometryType"] == "polygon"
+        assert got["fields"][0] == {
+            "name": "parcel_id",
+            "type": "string",
+            "label": "parcel_id",
+            "nullable": True,
+        }
+
+    def test_refuses_an_empty_layer_list(self):
+        with pytest.raises(ValueError, match="at least one layer"):
+            make_client(lambda r: httpx.Response(200)).create_data_layer("x", layers=[])
+
+    def test_rejects_geojson_geometry_names(self):
+        from gratisgis import layer
+
+        # 'LineString' is the GeoJSON name; the portal calls it 'line'.
+        with pytest.raises(ValueError, match="Unknown geometry type"):
+            layer("l", "L", "LineString", [])
+
+    def test_a_table_layer_has_no_geometry(self):
+        from gratisgis import layer
+
+        assert layer("t", "T", None, [])["geometryType"] is None
+
+    def test_rejects_an_unknown_field_type(self):
+        from gratisgis import field
+
+        with pytest.raises(ValueError, match="Unknown field type"):
+            field("x", "integer")

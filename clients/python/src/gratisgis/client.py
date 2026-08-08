@@ -21,7 +21,8 @@ It is not trying to mirror every route the portal exposes.
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, Iterable, Iterator, List, Optional
+from pathlib import Path
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple, Union
 
 import httpx
 
@@ -34,17 +35,103 @@ from .errors import (
     ValidationError,
 )
 
-__all__ = ["GratisGIS"]
+__all__ = ["GratisGIS", "field", "layer"]
 
 # Declared here rather than in __init__, which imports this module:
 # the default User-Agent below needs it, and a second literal would
 # drift from the package version the first time one of them is bumped
 # alone.
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 # The portal caps a single append at 5000 features (AppendFeaturesBodyDto).
 # Batch below it so a caller handing us a million rows just works.
 MAX_APPEND_BATCH = 1000
+
+#: Field types a layer may declare. Mirrors FeatureFieldType in
+#: packages/shared-types/src/data-layer.ts.
+FIELD_TYPES = ("string", "number", "boolean", "date", "multi_select")
+
+#: Geometry a layer may hold. ``None`` means an attribute-only table,
+#: which is a real and supported thing, not a missing value. Note these
+#: are the portal's lowercase names, not GeoJSON's ``Point`` /
+#: ``LineString`` / ``Polygon``.
+GEOMETRY_TYPES = ("point", "line", "polygon", None)
+
+#: What :meth:`GratisGIS.export_layer` can write. The portal exposes one
+#: route per format rather than a ``format=`` parameter, so this maps
+#: name to route segment and to the content type it returns.
+EXPORT_FORMATS = {
+    "geoparquet": ("geoparquet", "application/vnd.apache.parquet"),
+    "csv": ("csv", "text/csv"),
+    "geojson": ("geojson", "application/geo+json"),
+}
+
+
+def field(
+    name: str,
+    type: str = "string",
+    label: Optional[str] = None,
+    *,
+    nullable: bool = True,
+    searchable: bool = False,
+) -> Dict[str, Any]:
+    """One column of a layer, for :meth:`GratisGIS.create_data_layer`.
+
+    ``label`` is what people see and defaults to ``name``. Marking a
+    field ``searchable`` asks the portal to index it, which is worth it
+    on the one or two fields anybody looks things up by and wasteful on
+    the rest.
+    """
+    if type not in FIELD_TYPES:
+        raise ValueError(
+            f"Unknown field type {type!r}. One of: {', '.join(FIELD_TYPES)}."
+        )
+    spec: Dict[str, Any] = {
+        "name": name,
+        "type": type,
+        "label": label if label is not None else name,
+        "nullable": nullable,
+    }
+    if searchable:
+        spec["searchable"] = True
+    return spec
+
+
+def layer(
+    id: str,
+    label: str,
+    geometry_type: Optional[str],
+    fields: Iterable[Dict[str, Any]],
+    *,
+    name: Optional[str] = None,
+    editing_enabled: bool = True,
+    attachments_enabled: bool = False,
+) -> Dict[str, Any]:
+    """One layer of a data layer item.
+
+    ``id`` is what appears in every later call and in the URL, so pick
+    something short and stable; ``label`` is the display name and can
+    change freely. ``geometry_type`` is ``'point'``, ``'line'``,
+    ``'polygon'``, or ``None`` for an attribute-only table, which is a
+    supported thing rather than a missing value.
+
+    Note these are the portal's names, not GeoJSON's: ``line``, not
+    ``LineString``.
+    """
+    if geometry_type not in GEOMETRY_TYPES:
+        raise ValueError(
+            f"Unknown geometry type {geometry_type!r}. One of: "
+            "'point', 'line', 'polygon', or None for a table."
+        )
+    return {
+        "id": id,
+        "label": label,
+        "name": name if name is not None else id.replace("-", "_"),
+        "geometryType": geometry_type,
+        "fields": [dict(f) for f in fields],
+        "editingEnabled": editing_enabled,
+        "attachmentsEnabled": attachments_enabled,
+    }
 
 
 class GratisGIS:
@@ -72,6 +159,11 @@ class GratisGIS:
                 "in the portal, or use GratisGIS.from_env()."
             )
         self.portal_url = portal_url.rstrip("/")
+        # Layer definitions, keyed by (item, layer). Filters are checked
+        # against these before they are sent, and a schema does not
+        # change under a script often enough to be worth re-reading on
+        # every call.
+        self._schema_cache: Dict[Tuple[str, str], Dict[str, Any]] = {}
         self._owns_client = client is None
         self._client = client or httpx.Client(
             base_url=f"{self.portal_url}/api",
@@ -229,7 +321,11 @@ class GratisGIS:
         if type:
             params["type"] = type
         if query:
-            params["query"] = query
+            # The portal reads this as `q`. It was sent as `query` until
+            # 0.3.0, which the server ignored silently, so every search
+            # quietly returned an unfiltered list of the first `limit`
+            # items and looked like it had worked.
+            params["q"] = query
         if full:
             params["full"] = 1
         result = self._request("GET", "/items", params=params)
@@ -254,6 +350,54 @@ class GratisGIS:
     # features
     # ---------------------------------------------------------------
 
+    def layer_schema(self, item_id: str, layer: str) -> Dict[str, Any]:
+        """The definition of one layer: its fields, geometry, labels.
+
+        Cached per client instance. Reading it is how the filter
+        arguments below get checked before they are sent, and it is also
+        the thing you want when writing a script against a layer you did
+        not create.
+        """
+        cache = self._schema_cache.get((item_id, layer))
+        if cache is not None:
+            return cache
+        item = self.item(item_id)
+        data = item.get("data") or {}
+        layers = data.get("layers") or []
+        for candidate in layers:
+            if candidate.get("id") == layer:
+                self._schema_cache[(item_id, layer)] = candidate
+                return candidate
+        known = ", ".join(str(l.get("id")) for l in layers) or "none"
+        raise NotFoundError(
+            f"Item {item_id} has no layer {layer!r}. Layers on this item: {known}. "
+            "Note the layer id is the layer's id, not its name or label.",
+            status=404,
+            method="GET",
+            path=f"/items/{item_id}",
+        )
+
+    def _assert_field(self, item_id: str, layer: str, field: str) -> None:
+        """Refuse a filter on a field the layer does not have.
+
+        Checked here rather than left to the portal, because the portal
+        drops an unrecognised filter field SILENTLY and returns the
+        whole layer. A caller who mistypes a field name would otherwise
+        get every row back and no indication that their filter was
+        discarded, which is a wrong answer wearing the costume of a
+        right one.
+        """
+        schema = self.layer_schema(item_id, layer)
+        names = {f.get("name") for f in schema.get("fields") or []}
+        parent_fk = schema.get("parentFkColumn")
+        if parent_fk:
+            names.add(parent_fk)
+        if field not in names:
+            raise ValueError(
+                f"Layer {layer!r} has no field {field!r}. "
+                f"Fields: {', '.join(sorted(n for n in names if n)) or 'none'}."
+            )
+
     def read_features(
         self,
         item_id: str,
@@ -263,6 +407,11 @@ class GratisGIS:
         bbox: Optional[Iterable[float]] = None,
         cursor: Optional[str] = None,
         at: Optional[str] = None,
+        parent_fk: Optional[str] = None,
+        parent_id: Optional[str] = None,
+        time_field: Optional[str] = None,
+        time_from: Optional[str] = None,
+        time_to: Optional[str] = None,
     ) -> Dict[str, Any]:
         """One GeoJSON FeatureCollection for a layer of a data layer.
 
@@ -277,6 +426,23 @@ class GratisGIS:
         whole collection, which on a large layer is a lot of memory and
         one very slow request. Prefer :meth:`iter_features`, which
         handles all of that.
+
+        Filtering, honestly. The portal has no general attribute
+        predicate: there is no ``where=``. What it does have is three
+        specific filters, exposed here under their real names rather
+        than dressed up as something more general:
+
+        ``bbox``
+            ``(minx, miny, maxx, maxy)`` in WGS84.
+        ``parent_fk`` + ``parent_id``
+            Exact equality on one field. Both are required together.
+        ``time_field`` + ``time_from`` / ``time_to``
+            An inclusive date range on one date field. ISO dates.
+
+        Anything else is a client-side filter over
+        :meth:`iter_features`, or :meth:`search_features` for text
+        containment. That is a real limitation and it is better stated
+        than papered over with a ``where=`` that only supports equality.
         """
         params: Dict[str, Any] = {}
         if limit is not None:
@@ -287,9 +453,74 @@ class GratisGIS:
             params["cursor"] = cursor
         if at is not None:
             params["at"] = at
+
+        if (parent_fk is None) != (parent_id is None):
+            raise ValueError(
+                "parent_fk and parent_id go together: pass both to filter on "
+                "a field, or neither. On its own the portal ignores it."
+            )
+        if parent_fk is not None and parent_id is not None:
+            self._assert_field(item_id, layer, parent_fk)
+            params["parentFk"] = parent_fk
+            params["parentId"] = parent_id
+
+        if time_field is not None:
+            if time_from is None and time_to is None:
+                raise ValueError(
+                    "time_field needs at least one of time_from or time_to."
+                )
+            self._assert_field(item_id, layer, time_field)
+            params["timeField"] = time_field
+            if time_from is not None:
+                params["timeFrom"] = time_from
+            if time_to is not None:
+                params["timeTo"] = time_to
+        elif time_from is not None or time_to is not None:
+            raise ValueError(
+                "time_from and time_to need a time_field to apply to."
+            )
+
+        # `/features`, not `/geojson`. Same controller, same response
+        # body, and it is the only one of the two that accepts the
+        # filters above.
         return self._request(
-            "GET", f"/items/{item_id}/layers/{layer}/geojson", params=params
+            "GET", f"/items/{item_id}/layers/{layer}/features", params=params
         )
+
+    def search_features(
+        self,
+        item_id: str,
+        layer: str,
+        q: str,
+        *,
+        fields: Optional[Iterable[str]] = None,
+        limit: int = 25,
+    ) -> List[Dict[str, Any]]:
+        """Find features whose text contains ``q``.
+
+        Containment, case-insensitive, never an exact match and never a
+        comparison: this is the portal's search box, not a query
+        language. With ``fields`` the match is restricted to those
+        fields; without it, every attribute is searched.
+
+        Returns a list of ``{id, properties, point, bbox}``. Capped at
+        50 by the portal. For anything bigger, iterate and filter.
+        """
+        params: Dict[str, Any] = {"q": q, "limit": limit}
+        if fields is not None:
+            names = list(fields)
+            for name in names:
+                self._assert_field(item_id, layer, name)
+            params["fields"] = ",".join(names)
+        result = self._request(
+            "GET",
+            f"/items/{item_id}/layers/{layer}/features-search",
+            params=params,
+        )
+        if isinstance(result, dict):
+            found = result.get("results")
+            return found if isinstance(found, list) else []
+        return []
 
     def iter_features(
         self, item_id: str, layer: str, *, page_size: int = 1000, **kwargs: Any
@@ -330,6 +561,127 @@ class GratisGIS:
             # Pin the snapshot from the first page onward.
             if at is None:
                 at = page.get("asOf")
+
+    def export_layer(
+        self,
+        item_id: str,
+        layer: str,
+        *,
+        format: str = "geoparquet",
+        path: Optional[Union[str, "os.PathLike[str]"]] = None,
+        bbox: Optional[Iterable[float]] = None,
+        at: Optional[str] = None,
+        geometry: Optional[str] = None,
+    ) -> Union[bytes, Path]:
+        """Download a whole layer in one call.
+
+        ``format`` is ``geoparquet`` (default), ``csv``, or ``geojson``.
+        With ``path``, the bytes are streamed to that file and the
+        :class:`pathlib.Path` is returned; without it, you get the bytes.
+        Streaming matters: a county parcel layer is not something to
+        hold in memory twice.
+
+        Two things worth knowing before you pick a format.
+
+        ``geoparquet`` walks the layer with the keyset iterator, so it
+        exports everything. ``csv`` goes through the read path and stops
+        at the portal's 100,000 row ceiling, silently. On a big layer
+        those two give different answers, and only one of them is the
+        whole layer.
+
+        ``csv`` also takes ``geometry``: ``none``, ``wkt``, ``lonlat``,
+        or ``auto``.
+
+        Exporting bulk data needs download permission, which is a step
+        above being able to see the layer on a map. A view-only share
+        gets a clear 403 rather than a truncated file.
+        """
+        try:
+            segment, _content_type = EXPORT_FORMATS[format]
+        except KeyError:
+            raise ValueError(
+                f"Unknown export format {format!r}. "
+                f"Choose one of: {', '.join(sorted(EXPORT_FORMATS))}."
+            ) from None
+        if geometry is not None and format != "csv":
+            raise ValueError("geometry= only applies to the csv format.")
+
+        params: Dict[str, Any] = {}
+        if bbox is not None:
+            params["bbox"] = ",".join(str(v) for v in bbox)
+        if at is not None:
+            params["at"] = at
+        if geometry is not None:
+            params["geometry"] = geometry
+
+        url = f"/items/{item_id}/layers/{layer}/{segment}"
+        try:
+            with self._client.stream("GET", url, params=params) as response:
+                if not response.is_success:
+                    # Read the body before _handle can look at it: a
+                    # streamed response has none until it is consumed,
+                    # and the portal's error message is the useful part.
+                    response.read()
+                    self._handle(response, method="GET", path=url)
+                if path is None:
+                    return b"".join(response.iter_bytes())
+                target = Path(path)
+                with open(target, "wb") as fh:
+                    for chunk in response.iter_bytes():
+                        fh.write(chunk)
+                return target
+        except httpx.RequestError as exc:
+            raise PortalError(
+                f"Could not reach the portal: {exc}", method="GET", path=url
+            ) from exc
+
+    # ---------------------------------------------------------------
+    # creating a layer
+    # ---------------------------------------------------------------
+
+    def create_data_layer(
+        self,
+        title: str,
+        *,
+        layers: Iterable[Dict[str, Any]],
+        description: str = "",
+        tags: Optional[Iterable[str]] = None,
+        access: str = "private",
+    ) -> Dict[str, Any]:
+        """Create an empty data layer you can then append features to.
+
+        One call. Layers are metadata on the observation substrate
+        rather than tables to provision, so the item exists and accepts
+        writes the moment this returns.
+
+        Build the ``layers`` argument with :func:`layer` and
+        :func:`field`::
+
+            item = gg.create_data_layer(
+                "Parcels within 100m of a stream",
+                layers=[layer("buffered", "Buffered parcels", "polygon", [
+                    field("parcel_id", "string", "Parcel ID"),
+                    field("distance_m", "number", "Distance (m)"),
+                ])],
+            )
+            gg.add_features(item["id"], "buffered", features)
+        """
+        payload: Dict[str, Any] = {
+            "type": "data_layer",
+            "title": title,
+            "description": description,
+            "access": access,
+            "data": {
+                "version": 3,
+                "storageType": "postgis",
+                "layers": [dict(spec) for spec in layers],
+            },
+        }
+        if tags is not None:
+            payload["tags"] = list(tags)
+        if not payload["data"]["layers"]:
+            raise ValueError("A data layer needs at least one layer.")
+        return self._request("POST", "/items", json=payload)
 
     def add_features(
         self,
