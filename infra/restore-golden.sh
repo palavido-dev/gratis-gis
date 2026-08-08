@@ -119,7 +119,22 @@ ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
 INFRA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 dc() {
-  docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"
+  # --profile '*' is load-bearing, not tidiness.
+  #
+  # Services behind a `profiles:` key are invisible to compose unless
+  # their profile is active. `script-runner` (#221) is in the "scripts"
+  # profile, so `docker compose stop <list>` and even
+  # `docker compose config --services` silently pretended it did not
+  # exist, while the container itself was up and polling the database
+  # every three seconds. The 2026-08-08 reset died on
+  # "database is being accessed by other users" because of it.
+  #
+  # There is no `dc up` in this script, so enabling every profile only
+  # widens what stop/start/ps can SEE, which is exactly what we want:
+  # a reset must account for everything running, not everything the
+  # default profile admits to.
+  docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" \
+    --env-file "$ENV_FILE" --profile '*' "$@"
 }
 
 # Postgres + DB role for the keycloak DB owner. Init-prod-db.sh
@@ -162,17 +177,50 @@ drop_and_restore() {
 
   echo "--- Restoring database: $db (owner=$owner) ---"
 
-  # Disconnect any active sessions so DROP DATABASE doesn't block.
-  # ALTER DATABASE ... CONNECTION LIMIT 0 prevents new connections
-  # from forming during this; pg_terminate_backend kills any
-  # already-open ones.
+  # Disconnect any active sessions so DROP DATABASE doesn't block, and
+  # keep them from coming straight back.
+  #
+  # This used to say CONNECTION LIMIT 0, which reads like a door being
+  # locked and is not one: Postgres does not enforce a connection limit
+  # for superusers, and every portal service connects as `gratisgis`,
+  # which is a superuser. The limit was set, the terminate ran, and the
+  # client reconnected through it milliseconds later. Verified on the
+  # live box, not inferred from the manual.
+  #
+  # ALLOW_CONNECTIONS false is the real lock. It applies to superusers
+  # too, which is why you cannot connect to template0. The trap set up
+  # further down turns it back on if we die before CREATE DATABASE,
+  # because a database nobody can connect to is a worse outage than the
+  # one we were trying to avoid.
   dc exec -T -e PGPASSWORD="$POSTGRES_PASSWORD" postgres \
-    psql -U gratisgis -d postgres -c "ALTER DATABASE \"$db\" CONNECTION LIMIT 0;" \
+    psql -U gratisgis -d postgres -c "ALTER DATABASE \"$db\" WITH ALLOW_CONNECTIONS false;" \
     || true
   dc exec -T -e PGPASSWORD="$POSTGRES_PASSWORD" postgres \
     psql -U gratisgis -d postgres -c \
     "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$db' AND pid <> pg_backend_pid();" \
     || true
+
+  # Assert the thing we actually need, rather than trusting the two
+  # statements above to have achieved it. This is the check that would
+  # have turned a forty-minute outage into a clean "reset skipped":
+  # DROP DATABASE fails on a single leftover session, and the useful
+  # question when it does is *which* session, which the Postgres error
+  # does not tell you.
+  local leftovers
+  leftovers="$(dc exec -T -e PGPASSWORD="$POSTGRES_PASSWORD" postgres \
+    psql -U gratisgis -d postgres -tAc \
+    "SELECT count(*) FROM pg_stat_activity WHERE datname = '$db' AND pid <> pg_backend_pid();" \
+    | tr -d '[:space:]')"
+  if [[ "$leftovers" != "0" ]]; then
+    echo "FATAL: $leftovers session(s) still connected to \"$db\" after terminate." >&2
+    echo "       Something outside the stopped service list is holding it open:" >&2
+    dc exec -T -e PGPASSWORD="$POSTGRES_PASSWORD" postgres \
+      psql -U gratisgis -d postgres -c \
+      "SELECT pid, usename, application_name, client_addr, state
+         FROM pg_stat_activity
+        WHERE datname = '$db' AND pid <> pg_backend_pid();" >&2 || true
+    exit 1
+  fi
 
   dc exec -T -e PGPASSWORD="$POSTGRES_PASSWORD" postgres \
     psql -U gratisgis -d postgres -c "DROP DATABASE IF EXISTS \"$db\";"
@@ -215,11 +263,88 @@ drop_and_restore() {
   docker exec "$pg_container" rm -f "$in_container" < /dev/null || true
 }
 
+# Everything that is not infrastructure has to be down while the
+# databases are dropped and the MinIO volume is swapped.
+#
+# Derived from compose rather than hand-listed, and that is the whole
+# point. The hand-listed version is what failed on 2026-08-08: the
+# script-runner added for scheduled scripts (#221) polls the database
+# every three seconds, nobody thought to add it to the list, and it
+# reconnected in the gap between pg_terminate_backend and the restore.
+# The run aborted on "database is being accessed by other users" with
+# every app service already stopped, and the public site stayed down
+# until a human noticed.
+#
+# A list you have to remember to update is a list that will be wrong
+# again. Inverting it means a new service is stopped by default and
+# has to be named in KEEP_UP to opt out, which is the safe direction
+# to be wrong in.
+#
+# Two kinds of service are exempt, for two different reasons:
+#
+#   postgres, minio  the storage we are restoring INTO. (minio is
+#                    stopped separately further down, around its own
+#                    volume swap.)
+#   caddy            stays up throughout, so visitors get its polite
+#                    error page instead of a dead socket.
+#   portal-migrate   a one-shot, not a service. It gets run explicitly
+#                    after the restore (see the migrate step below),
+#                    which is a different thing from being swept up in
+#                    a blanket stop and start.
+LEAVE_ALONE=(postgres minio caddy portal-migrate)
+mapfile -t ALL_SERVICES < <(dc config --services | sort)
+if [[ ${#ALL_SERVICES[@]} -eq 0 ]]; then
+  echo "FATAL: could not enumerate compose services; refusing to guess." >&2
+  exit 1
+fi
+APP_SERVICES=()
+for svc in "${ALL_SERVICES[@]}"; do
+  exempt=
+  for k in "${LEAVE_ALONE[@]}"; do
+    [[ "$svc" == "$k" ]] && exempt=1 && break
+  done
+  [[ -n "$exempt" ]] || APP_SERVICES+=("$svc")
+done
+
+# Bring the stack back up however this script exits.
+#
+# Everything between here and "Restarting app services" is destructive
+# and can fail: a corrupt artifact, a stray connection, a full disk.
+# Before this trap existed, any one of those left the site down until
+# somebody looked. Forty minutes, in the case that prompted it. A
+# failed reset should mean the demo missed a reset, not that the demo
+# is gone.
+APP_SERVICES_STOPPED=0
+bring_app_back_up() {
+  local rc=$?
+  trap - EXIT
+  if [[ $rc -ne 0 && $APP_SERVICES_STOPPED -eq 1 ]]; then
+    echo ""
+    echo "=== Reset FAILED (exit $rc). Restoring service before giving up. ==="
+    # Best effort throughout: the reset has already failed, and a
+    # second failure here must not stop us trying the rest.
+    #
+    # Connections first. If we died between ALLOW_CONNECTIONS false and
+    # CREATE DATABASE, the app would come back up and find a database
+    # it is not allowed to open, which looks like total data loss to
+    # anyone reading the logs at 4am.
+    for db in "$POSTGRES_DB_APP" "$KEYCLOAK_DB_NAME"; do
+      dc exec -T -e PGPASSWORD="${POSTGRES_PASSWORD:-}" postgres \
+        psql -U gratisgis -d postgres -c \
+        "ALTER DATABASE \"$db\" WITH ALLOW_CONNECTIONS true;" >/dev/null 2>&1 || true
+    done
+    dc start minio || true
+    dc start "${APP_SERVICES[@]}" || true
+    echo "=== App services restarted. The reset itself did NOT complete. ==="
+  fi
+  exit "$rc"
+}
+trap bring_app_back_up EXIT
+
 echo "=== Stopping app services ==="
-# pointcloud-worker writes postgres + minio mid-job and pg_tileserv
-# holds read connections; both must be down while the databases are
-# dropped and the volume is swapped (mirrors snapshot-golden.sh).
-dc stop portal-api portal-worker pointcloud-worker portal-web keycloak pg_tileserv
+echo "    ${APP_SERVICES[*]}"
+dc stop "${APP_SERVICES[@]}"
+APP_SERVICES_STOPPED=1
 
 # Feedback (#146) is the one table on the demo that must SURVIVE a
 # reset. Everything else here is disposable by design: items, users,
@@ -265,12 +390,10 @@ echo "=== Restoring Postgres databases ==="
 drop_and_restore "$POSTGRES_DB_APP" "$POSTGRES_USER" "$GOLDEN_DIR/postgres-app.dump"
 drop_and_restore "$KEYCLOAK_DB_NAME" "$KEYCLOAK_DB_USER" "$GOLDEN_DIR/postgres-keycloak.dump"
 
-# NB: the carried rows are re-inserted much further down, AFTER the
-# app services restart. They cannot go here. The golden dump predates
-# the feedback table whenever the snapshot was baked before #146
-# persistence, so immediately after the restore the table does not
-# exist yet: it is created by `prisma migrate deploy`, which runs when
-# portal-api boots. Inserting here fails with
+# NB: the carried rows are re-inserted much further down, after the
+# migrate step. They cannot go here. Whenever the golden snapshot was
+# baked before #146 persistence, the restored database has no
+# `feedback` table at this point and the insert fails with
 # `relation "feedback" does not exist`.
 
 echo "=== Restoring MinIO volume ==="
@@ -306,6 +429,38 @@ docker run --rm \
 rm -rf "$FEEDBACK_SHOTS"
 dc start minio
 
+echo "=== Applying migrations to the restored database ==="
+# The golden dump is a point-in-time snapshot, so its schema is
+# whatever the box was running when the snapshot was baked. Every
+# migration merged since is missing from it, and until now nothing in
+# this script put them back.
+#
+# The comment this replaces claimed portal-api runs `prisma migrate
+# deploy` on boot. It does not: portal-api runs with SKIP_MIGRATE=true
+# and logs "assuming portal-migrate ran first" on every start.
+# Migrations are the portal-migrate one-shot's job, portal-api reaches
+# it through `depends_on: service_completed_successfully`, and
+# `docker compose start` (unlike `up`) does not honour depends_on. So
+# the restore path skipped migrations entirely while deploy.sh, which
+# uses `up`, did not, which is why this never showed up in a deploy.
+#
+# The failure was quiet, which is the bad kind. The api boots fine on
+# a stale schema and only breaks later, on the first query touching a
+# table the snapshot predates. That is exactly how the feedback table
+# came back missing after a reset.
+#
+# --force-recreate because a no-op `up` on an already-exited one-shot
+# would leave the old container in place and `docker wait` would hand
+# back a stale exit code from last night's run.
+dc up -d --no-deps --force-recreate portal-migrate
+MIGRATE_RC="$(docker wait "${COMPOSE_PROJECT}-portal-migrate")"
+if [[ "$MIGRATE_RC" != "0" ]]; then
+  echo "FATAL: migrations failed on the restored database (exit $MIGRATE_RC)." >&2
+  docker logs --tail 40 "${COMPOSE_PROJECT}-portal-migrate" >&2 || true
+  exit 1
+fi
+echo "Migrations applied to the restored database."
+
 echo "=== Restarting app services ==="
 # Give minio + postgres a couple of seconds to settle before app
 # services start hitting them.
@@ -313,6 +468,25 @@ sleep 3
 dc start keycloak pg_tileserv
 sleep 5  # Keycloak boot is slower than postgres / minio.
 dc start portal-web portal-worker pointcloud-worker portal-api
+
+# Then anything else that was stopped. Started last on purpose: these
+# are consumers (the script claimer, the print renderers) that talk to
+# the portal, and nothing above depends on them. Computed as a set
+# difference so a service added to compose later comes back up without
+# anyone editing this line.
+STARTED=(keycloak pg_tileserv portal-web portal-worker pointcloud-worker portal-api)
+REMAINING=()
+for svc in "${APP_SERVICES[@]}"; do
+  done_already=
+  for s in "${STARTED[@]}"; do
+    [[ "$svc" == "$s" ]] && done_already=1 && break
+  done
+  [[ -n "$done_already" ]] || REMAINING+=("$svc")
+done
+if [[ ${#REMAINING[@]} -gt 0 ]]; then
+  echo "=== Starting remaining services: ${REMAINING[*]} ==="
+  dc start "${REMAINING[@]}"
+fi
 
 # -----------------------------------------------------------
 # Post-restore Keycloak reconciliation.
@@ -483,11 +657,10 @@ fi
 # reassign ownership has left a working demo with buried content,
 # which is worth a warning rather than a failed unit.
 # Re-insert the feedback carried from before the restore. This has to
-# happen HERE, not next to the dump: portal-api creates the `feedback`
-# table via `prisma migrate deploy` on boot, and boot is the step just
-# above. Attempting it right after the database restore fails with
-# `relation "feedback" does not exist` on any portal whose golden
-# snapshot predates #146 persistence.
+# happen after the migrate step above, not next to the dump: on any
+# portal whose golden snapshot predates #146 persistence, the
+# `feedback` table does not exist until migrations have run, and the
+# insert fails with `relation "feedback" does not exist`.
 if [[ -n "$FEEDBACK_CARRY" && -s "$FEEDBACK_CARRY" ]]; then
   echo "=== Restoring carried feedback ==="
   # Wait for migrations to land the table. portal-api was started
