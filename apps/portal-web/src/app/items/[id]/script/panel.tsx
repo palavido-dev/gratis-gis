@@ -8,17 +8,23 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  Clock,
   Loader2,
   Play,
   Save,
+  SkipForward,
   XCircle,
 } from 'lucide-react';
 import {
   SCRIPT_DEFAULT_TIMEOUT_SECONDS,
   SCRIPT_MAX_TIMEOUT_SECONDS,
+  normalizeScriptSchedule,
+  summarizeScriptSchedule,
   type ScriptData,
   type ScriptRunDetail,
   type ScriptRunSummary,
+  type ScriptSchedule,
+  type ScriptScheduleMode,
 } from '@gratis-gis/shared-types';
 
 /**
@@ -46,6 +52,9 @@ export function ScriptPanel({
   const [notes, setNotes] = useState(initial.notes ?? '');
   const [timeout, setTimeoutSeconds] = useState(
     initial.timeoutSeconds ?? SCRIPT_DEFAULT_TIMEOUT_SECONDS,
+  );
+  const [schedule, setSchedule] = useState<ScriptSchedule>(
+    normalizeScriptSchedule(initial.schedule) ?? { mode: 'off' },
   );
   const [savedSource, setSavedSource] = useState(initial.source ?? '');
   const [saving, setSaving] = useState(false);
@@ -116,6 +125,7 @@ export function ScriptPanel({
         source,
         timeoutSeconds: timeout,
         ...(notes.trim() ? { notes: notes.trim() } : {}),
+        schedule,
       };
       const res = await fetch(`/api/portal/items/${itemId}`, {
         method: 'PATCH',
@@ -284,6 +294,182 @@ export function ScriptPanel({
       </section>
 
       <section className="rounded-lg border border-border bg-surface-1">
+        <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-ink-0">
+            <Clock className="h-4 w-4 text-muted" />
+            Schedule
+          </h2>
+          <span className="text-xs text-muted">
+            {summarizeScriptSchedule(schedule)}
+          </span>
+        </header>
+        <div className="p-4">
+          {canEdit ? (
+            <>
+              <div className="flex flex-wrap items-end gap-3">
+                <div>
+                  <label
+                    htmlFor="script-sched-mode"
+                    className="mb-1 block text-xs font-medium text-ink-1"
+                  >
+                    Run this script
+                  </label>
+                  <select
+                    id="script-sched-mode"
+                    value={schedule.mode}
+                    onChange={(e) =>
+                      setSchedule((s) =>
+                        normalizeScriptSchedule({
+                          ...s,
+                          mode: e.target.value as ScriptScheduleMode,
+                        }) ?? { mode: 'off' },
+                      )
+                    }
+                    className="rounded-md border border-border bg-surface-0 px-2 py-1.5 text-sm text-ink-0"
+                  >
+                    <option value="off">Only when I press Run</option>
+                    <option value="hourly">Every hour</option>
+                    <option value="daily">Every day</option>
+                    <option value="weekly">Every week</option>
+                    <option value="monthly">Every month</option>
+                  </select>
+                </div>
+
+                {schedule.mode === 'weekly' ? (
+                  <div>
+                    <label
+                      htmlFor="script-sched-dow"
+                      className="mb-1 block text-xs font-medium text-ink-1"
+                    >
+                      On
+                    </label>
+                    <select
+                      id="script-sched-dow"
+                      value={schedule.dayOfWeek ?? 1}
+                      onChange={(e) =>
+                        setSchedule((s) => ({
+                          ...s,
+                          dayOfWeek: Number(e.target.value),
+                        }))
+                      }
+                      className="rounded-md border border-border bg-surface-0 px-2 py-1.5 text-sm text-ink-0"
+                    >
+                      {DAYS.map((d, i) => (
+                        <option key={d} value={i}>
+                          {d}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
+
+                {schedule.mode === 'monthly' ? (
+                  <div>
+                    <label
+                      htmlFor="script-sched-dom"
+                      className="mb-1 block text-xs font-medium text-ink-1"
+                    >
+                      On day
+                    </label>
+                    <select
+                      id="script-sched-dom"
+                      value={schedule.dayOfMonth ?? 1}
+                      onChange={(e) =>
+                        setSchedule((s) => ({
+                          ...s,
+                          dayOfMonth: Number(e.target.value),
+                        }))
+                      }
+                      className="rounded-md border border-border bg-surface-0 px-2 py-1.5 text-sm text-ink-0"
+                    >
+                      {/* 1 to 28 only. Later days would skip February
+                          entirely, which reads as a broken script. */}
+                      {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
+                        <option key={d} value={d}>
+                          {d}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
+
+                {schedule.mode !== 'off' && schedule.mode !== 'hourly' ? (
+                  <div>
+                    <label
+                      htmlFor="script-sched-hour"
+                      className="mb-1 block text-xs font-medium text-ink-1"
+                    >
+                      At
+                    </label>
+                    <select
+                      id="script-sched-hour"
+                      value={schedule.hour ?? 3}
+                      onChange={(e) =>
+                        setSchedule((s) => ({
+                          ...s,
+                          hour: Number(e.target.value),
+                        }))
+                      }
+                      className="rounded-md border border-border bg-surface-0 px-2 py-1.5 text-sm text-ink-0"
+                    >
+                      {Array.from({ length: 24 }, (_, h) => h).map((h) => (
+                        <option key={h} value={h}>
+                          {String(h).padStart(2, '0')}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
+
+                {schedule.mode !== 'off' ? (
+                  <div>
+                    <label
+                      htmlFor="script-sched-minute"
+                      className="mb-1 block text-xs font-medium text-ink-1"
+                    >
+                      {schedule.mode === 'hourly' ? 'At minute' : 'Minutes'}
+                    </label>
+                    <select
+                      id="script-sched-minute"
+                      value={schedule.minute ?? 0}
+                      onChange={(e) =>
+                        setSchedule((s) => ({
+                          ...s,
+                          minute: Number(e.target.value),
+                        }))
+                      }
+                      className="rounded-md border border-border bg-surface-0 px-2 py-1.5 text-sm text-ink-0"
+                    >
+                      {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map(
+                        (m) => (
+                          <option key={m} value={m}>
+                            {String(m).padStart(2, '0')}
+                          </option>
+                        ),
+                      )}
+                    </select>
+                  </div>
+                ) : null}
+              </div>
+
+              {schedule.mode !== 'off' ? (
+                <p className="mt-3 text-xs text-muted">
+                  Times are the server&apos;s clock, not yours. Scheduled runs
+                  act as the owner of this script and carry their
+                  permissions. Save to apply; a change takes up to a minute
+                  to take effect.
+                </p>
+              ) : null}
+            </>
+          ) : (
+            <p className="text-sm text-muted">
+              {summarizeScriptSchedule(schedule)}.
+            </p>
+          )}
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-border bg-surface-1">
         <header className="border-b border-border px-4 py-3">
           <h2 className="text-sm font-semibold text-ink-0">Runs</h2>
         </header>
@@ -392,6 +578,13 @@ function RunState({ state }: { state: string }) {
       icon: <Ban className="h-3.5 w-3.5 text-muted" />,
       label: 'Cancelled',
     },
+    // A scheduled run that never started, because the previous one was
+    // still going. Shown rather than hidden: a script slower than its
+    // own schedule should look like one.
+    skipped: {
+      icon: <SkipForward className="h-3.5 w-3.5 text-muted" />,
+      label: 'Skipped',
+    },
   };
   const s = map[state] ?? {
     icon: <span className="h-3.5 w-3.5" />,
@@ -404,6 +597,16 @@ function RunState({ state }: { state: string }) {
     </span>
   );
 }
+
+const DAYS = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+];
 
 const PLACEHOLDER = `from gratisgis import GratisGIS
 

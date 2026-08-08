@@ -248,6 +248,54 @@ source, so a stale failure does not read as a live one.
 
 ## Scheduling
 
-Not in this release. The run rows already carry a `trigger` column
-recording `manual` or `schedule`, so history will not need a backfill
-when the timer lands.
+A script can run on its own: hourly, daily, weekly, or monthly, set on
+the item page. The schedule lives on the item alongside the source, so
+it versions with the code and restoring an old version restores the
+cadence that version ran at.
+
+Structured fields rather than a cron box, matching the backup and
+housekeeping schedules. `0 3 * * 1` is not something a county GIS
+technician should have to learn in order to refresh a layer on Monday
+mornings. There is deliberately no custom-cron escape hatch yet; if
+someone needs "every six hours" we would rather hear that as a request
+than put a cron parser in front of everybody.
+
+Three things worth knowing before you rely on it:
+
+**Times are the server's clock.** Not the viewer's, and not UTC unless
+the server is on UTC.
+
+**A scheduled run acts as the item's owner**, not as whoever last
+edited the schedule. Otherwise anyone with edit access could arrange
+for code to run with the owner's permissions on a timer. If the owner's
+account is deactivated the run does not happen, and the history says
+so rather than failing quietly.
+
+**Overlapping runs are skipped, visibly.** One run per script at a
+time, so a fire that arrives while the previous run is still going is
+recorded as `Skipped` instead of queued. That row exists on purpose: a
+script whose schedule is tighter than its runtime loses most of its
+runs, and a history showing nothing but successes would hide it.
+
+### How it is wired
+
+`ScriptScheduleService` runs in portal-api behind the cron leader lock,
+registers one `CronJob` per scheduled script through `SchedulerRegistry`,
+and only enqueues. The claimer in portal-worker picks the row up exactly
+as it does for the Run button, so a scheduled run and a manual one are
+the same code from that point on.
+
+It re-reads schedules from the database once a minute rather than
+hooking every path that could change one. The alternatives all had to
+be notified by the generic item PATCH, the trash and restore endpoints,
+the bulk housekeeping actions, and the nightly golden restore that
+swaps the whole items table under a running process. That is more code,
+and it is the kind that breaks the day someone adds an eleventh path.
+A sweep cannot drift. The cost is that a change takes up to a minute to
+apply, which is not worth engineering around for something whose finest
+granularity is hourly.
+
+`ScriptScheduleService` lives in its own module, imported by the API
+graph only. It needs `SchedulerRegistry`, which the two worker graphs
+have no reason to carry, and a provider that resolves at typecheck but
+not at boot is how this project has taken production down twice.

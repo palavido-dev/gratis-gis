@@ -27,6 +27,13 @@ import { ScriptsService } from './scripts.service.js';
   imports: [AuthModule, ItemsModule],
   controllers: [ScriptsController],
   providers: [ScriptsService, ScriptRunnerWorker],
-  exports: [ScriptRunnerWorker],
+  // ScriptsService is exported for ScriptScheduleModule, which lives in
+  // the API graph only. The scheduler is deliberately NOT a provider
+  // here: this module is in all three bootable graphs, and the
+  // scheduler needs SchedulerRegistry, which the worker graphs have no
+  // reason to carry. Adding it here would resolve fine at typecheck and
+  // crash-loop portal-worker at boot, which is the exact failure this
+  // module's other comment is about.
+  exports: [ScriptRunnerWorker, ScriptsService],
 })
 export class ScriptsModule {}

@@ -8,6 +8,7 @@ import {
 import {
   SCRIPT_MAX_SOURCE_BYTES,
   clampScriptTimeout,
+  normalizeScriptSchedule,
   type ScriptData,
   type ScriptRunDetail,
   type ScriptRunSummary,
@@ -63,6 +64,7 @@ export class ScriptsService {
 
   static readData(item: { data: unknown }): ScriptData {
     const data = (item.data ?? {}) as Partial<ScriptData>;
+    const schedule = normalizeScriptSchedule(data.schedule);
     return {
       version: 1,
       source: typeof data.source === 'string' ? data.source : '',
@@ -70,6 +72,7 @@ export class ScriptsService {
         ? { timeoutSeconds: data.timeoutSeconds }
         : {}),
       ...(typeof data.notes === 'string' ? { notes: data.notes } : {}),
+      ...(schedule ? { schedule } : {}),
     };
   }
 
@@ -124,6 +127,97 @@ export class ScriptsService {
       select: { id: true, state: true },
     });
     return run;
+  }
+
+  /**
+   * Queue one run because the clock said so, not because a person did.
+   *
+   * Separate from enqueue() rather than sharing it behind a flag,
+   * because almost every rule differs. There is no request user, so
+   * authority comes from the item's owner; there is no caller to
+   * return a 400 to, so every refusal has to become a record or a log
+   * line; and the "already running" case flips from an error into a
+   * normal, expected outcome.
+   *
+   * Whose authority: the owner's. A scheduled run has to act as
+   * somebody, and the owner is the person who took responsibility for
+   * the item. Notably this is NOT whoever last edited the schedule,
+   * which would let an editor quietly arrange for code to run with the
+   * owner's permissions on a timer.
+   *
+   * Returns the run id, or null when nothing was queued.
+   */
+  async enqueueScheduled(scriptId: string): Promise<string | null> {
+    const item = await this.prisma.item.findFirst({
+      where: { id: scriptId, type: 'script', deletedAt: null },
+      select: { id: true, orgId: true, ownerId: true, data: true },
+    });
+    if (!item) return null;
+
+    const source = ScriptsService.readData(item).source.trim();
+    if (source.length === 0) return null;
+    if (Buffer.byteLength(source, 'utf8') > SCRIPT_MAX_SOURCE_BYTES) {
+      return null;
+    }
+
+    // The owner must still be a live user. An owner who has been
+    // deactivated should not keep executing code every night, and
+    // failing closed here is the difference between a stale schedule
+    // and a standing grant that outlives the account.
+    const owner = await this.prisma.user.findFirst({
+      where: { id: item.ownerId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!owner) {
+      await this.recordSkip(
+        item,
+        'The person who owns this script no longer has an active account, so the scheduled run did not start.',
+      );
+      return null;
+    }
+
+    const inFlight = await this.prisma.scriptRun.findFirst({
+      where: { scriptId, state: { in: ['queued', 'running'] } },
+      select: { id: true },
+    });
+    if (inFlight) {
+      await this.recordSkip(
+        item,
+        'Skipped: the previous run was still going when this one was due.',
+      );
+      return null;
+    }
+
+    const run = await this.prisma.scriptRun.create({
+      data: {
+        scriptId,
+        orgId: item.orgId,
+        userId: item.ownerId,
+        trigger: 'schedule',
+        sourceSnapshot: source,
+      },
+      select: { id: true },
+    });
+    return run.id;
+  }
+
+  /** A terminal row explaining why a scheduled fire produced nothing. */
+  private async recordSkip(
+    item: { id: string; orgId: string; ownerId: string },
+    error: string,
+  ): Promise<void> {
+    const now = new Date();
+    await this.prisma.scriptRun.create({
+      data: {
+        scriptId: item.id,
+        orgId: item.orgId,
+        userId: item.ownerId,
+        trigger: 'schedule',
+        state: 'skipped',
+        error,
+        finishedAt: now,
+      },
+    });
   }
 
   async listRuns(

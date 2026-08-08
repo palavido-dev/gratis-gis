@@ -41,6 +41,150 @@ export interface ScriptData {
    * deciding whether it is safe to press Run.
    */
   notes?: string;
+
+  /**
+   * When to run this on its own. Absent or `mode: 'off'` means the
+   * Run button is the only way it ever executes.
+   *
+   * Lives here with the source rather than in its own table so a
+   * schedule change versions through item_data_snapshot alongside the
+   * code it runs. Restoring an old version of a script restores the
+   * cadence it ran at, which is the behaviour that stops surprising
+   * people.
+   */
+  schedule?: ScriptSchedule;
+}
+
+/**
+ * How often a script runs by itself.
+ *
+ * Structured fields rather than a cron expression, matching the backup
+ * and housekeeping schedules. A cron box would be a smaller amount of
+ * code here and a worse product: this is an item page a contributor
+ * sees, not an admin console, and `0 3 * * 1` is not something a county
+ * GIS technician should have to learn to run a layer refresh on Monday
+ * mornings.
+ *
+ * There is deliberately no `custom` cron mode yet, unlike backups. If
+ * someone needs "every six hours" the honest answer is that we should
+ * hear that as a request rather than pre-emptively put a cron parser
+ * in front of everybody.
+ */
+export type ScriptScheduleMode =
+  | 'off'
+  | 'hourly'
+  | 'daily'
+  | 'weekly'
+  | 'monthly';
+
+export interface ScriptSchedule {
+  mode: ScriptScheduleMode;
+  /** Minute past the hour, 0 to 59. Every mode uses it. */
+  minute?: number;
+  /** Hour of the day, 0 to 23, in the server's time zone. Not used by
+   *  `hourly`. */
+  hour?: number;
+  /** 0 is Sunday. `weekly` only. */
+  dayOfWeek?: number;
+  /**
+   * Day of the month, 1 to 28. `monthly` only.
+   *
+   * Capped at 28 on purpose. Allowing 29 to 31 produces a schedule
+   * that silently does not run in February, which reads as a broken
+   * script rather than as a calendar.
+   */
+  dayOfMonth?: number;
+}
+
+const clampInt = (v: unknown, lo: number, hi: number, fallback: number) =>
+  typeof v === 'number' && Number.isFinite(v)
+    ? Math.min(Math.max(Math.floor(v), lo), hi)
+    : fallback;
+
+/** Normalize whatever is on data_json into a schedule we can trust. */
+export function normalizeScriptSchedule(
+  raw: unknown,
+): ScriptSchedule | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const s = raw as Partial<ScriptSchedule>;
+  const mode: ScriptScheduleMode =
+    s.mode === 'hourly' ||
+    s.mode === 'daily' ||
+    s.mode === 'weekly' ||
+    s.mode === 'monthly'
+      ? s.mode
+      : 'off';
+  if (mode === 'off') return { mode: 'off' };
+  return {
+    mode,
+    minute: clampInt(s.minute, 0, 59, 0),
+    hour: clampInt(s.hour, 0, 23, 3),
+    dayOfWeek: clampInt(s.dayOfWeek, 0, 6, 1),
+    dayOfMonth: clampInt(s.dayOfMonth, 1, 28, 1),
+  };
+}
+
+/** The cron expression a schedule means, or null for "never". */
+export function buildScriptCron(schedule: ScriptSchedule | undefined): string | null {
+  const s = normalizeScriptSchedule(schedule);
+  if (!s || s.mode === 'off') return null;
+  const minute = s.minute ?? 0;
+  const hour = s.hour ?? 3;
+  switch (s.mode) {
+    case 'hourly':
+      return `${minute} * * * *`;
+    case 'daily':
+      return `${minute} ${hour} * * *`;
+    case 'weekly':
+      return `${minute} ${hour} * * ${s.dayOfWeek ?? 1}`;
+    case 'monthly':
+      return `${minute} ${hour} ${s.dayOfMonth ?? 1} * *`;
+  }
+}
+
+const DAY_NAMES = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+];
+
+const ordinal = (n: number) => {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
+  switch (n % 10) {
+    case 1:
+      return `${n}st`;
+    case 2:
+      return `${n}nd`;
+    case 3:
+      return `${n}rd`;
+    default:
+      return `${n}th`;
+  }
+};
+
+/** One line of plain English for a schedule, for the UI and the logs. */
+export function summarizeScriptSchedule(
+  schedule: ScriptSchedule | undefined,
+): string {
+  const s = normalizeScriptSchedule(schedule);
+  if (!s || s.mode === 'off') return 'Only when someone runs it';
+  const mm = String(s.minute ?? 0).padStart(2, '0');
+  const at = `${String(s.hour ?? 3).padStart(2, '0')}:${mm}`;
+  switch (s.mode) {
+    case 'hourly':
+      return `Every hour at :${mm}`;
+    case 'daily':
+      return `Every day at ${at}`;
+    case 'weekly':
+      return `Every ${DAY_NAMES[s.dayOfWeek ?? 1]} at ${at}`;
+    case 'monthly':
+      return `The ${ordinal(s.dayOfMonth ?? 1)} of each month at ${at}`;
+  }
 }
 
 /** Lifecycle of one execution. Mirrors the analysis-job vocabulary so
@@ -51,7 +195,17 @@ export type ScriptRunState =
   | 'cancel_requested'
   | 'cancelled'
   | 'failed'
-  | 'done';
+  | 'done'
+  /**
+   * A scheduled fire that found the previous run still going.
+   *
+   * Recorded rather than dropped. A script whose schedule is tighter
+   * than its runtime silently loses most of its runs, and the only
+   * thing worse than that happening is it happening invisibly: the
+   * history would show a tidy row of successes and no hint that
+   * two-thirds of the ticks never happened. Terminal, never claimed.
+   */
+  | 'skipped';
 
 /** What started a run. `schedule` arrives with the timer slice; the
  *  column exists from the first release so run history does not need
