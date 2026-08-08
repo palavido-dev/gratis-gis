@@ -209,6 +209,93 @@ than a confusing failure later.
 Appending batches automatically, so handing it a million features is
 fine.
 
+## Refresh a layer from a file
+
+The reason most people end up here. One call, and it handles shapefiles
+(zip them), GeoPackage, file geodatabases, GeoJSON, KML, GPX, CSV with
+coordinates, and GeoParquet.
+
+```python
+result = gg.import_file(
+    item_id, "parcels", "parcels-2026-08.gpkg",
+    mode="replace",
+    progress=lambda done, total, inserted: print(f"{done}/{total}"),
+)
+print(result["inserted"], "features")
+```
+
+`mode="replace"` empties the layer first, which is what a refresh
+usually means. **It truncates before it inserts**, so a failure part way
+through leaves the layer empty rather than rolling back to yesterday's
+data. If the source is something you cannot fetch again, export first.
+
+`mode="append"` is the default and adds without removing.
+
+For a multi-layer archive like a `.gdb`, name the one you want with
+`source_layer=`. Files are capped at 1 GB.
+
+## Compute a field for every feature
+
+Instead of reading, editing, and writing every feature back:
+
+```python
+gg.calculate_field(
+    item_id, "parcels",
+    "{{acres}} * 4046.86", "area_m2", output_type="number",
+)
+```
+
+The expression language is the portal's own, not Python. Fields are
+`{{name}}`, string joining is `~~`, and there are a handful of
+functions: `upper`, `lower`, `length`, `concat`, `coalesce`, `abs`,
+`round`, `floor`, `ceil`, `if`.
+
+Always try it with `dry_run=True` first. You get the same summary plus a
+five-row sample of before-and-after values, and nothing is written:
+
+```python
+preview = gg.calculate_field(..., dry_run=True)
+for row in preview["sample"]:
+    print(row["oldValue"], "->", row["newValue"])
+```
+
+Rows whose expression fails become `null` and are counted in `errors`
+rather than failing the whole run. Capped at 10,000 rows per call.
+
+## Managing items
+
+```python
+gg.add_layer(item_id, layer("roads", "Roads", "line", [
+    field("surface", "string"),
+]))
+
+gg.set_access(item_id, "org")                       # private | org | public
+gg.share_item(item_id, user_id=uid, permission="edit")
+gg.unshare_item(item_id, user_id=uid)
+print(gg.shares(item_id))
+print(gg.permissions(item_id))                      # what THIS key can do
+
+gg.delete_item(item_id)                             # to the trash
+gg.restore_item(item_id)                            # and back
+gg.purge_item(item_id)                              # gone, for good
+```
+
+`permission` is one of `view`, `download`, `edit`, `admin`, and is
+required rather than defaulting. Re-sharing without it would quietly
+downgrade an existing share to view.
+
+Deleting is a soft delete. Nothing is destroyed until `purge_item`, and
+purge only works on something already in the trash. Deleting needs to be
+the **owner or an org admin** — an `admin` share is not enough, on
+purpose.
+
+`add_layer` is worth using rather than patching `data` yourself: a
+layer's schema lives in one JSON column that is replaced wholesale, so a
+hand-written patch that omits an existing layer makes its features
+unreachable. This reads, appends, refuses to drop anything, and uses
+optimistic concurrency so two people adding layers at once get an error
+instead of one silently losing.
+
 ## Attachments
 
 Photos and documents attach to individual features. All four operations

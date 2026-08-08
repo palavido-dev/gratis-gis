@@ -20,6 +20,7 @@ It is not trying to mirror every route the portal exposes.
 
 from __future__ import annotations
 
+import json
 import os
 from mimetypes import guess_type
 from pathlib import Path
@@ -42,7 +43,7 @@ __all__ = ["GratisGIS", "field", "layer"]
 # the default User-Agent below needs it, and a second literal would
 # drift from the package version the first time one of them is bumped
 # alone.
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 # The portal caps a single append at 5000 features (AppendFeaturesBodyDto).
 # Batch below it so a caller handing us a million rows just works.
@@ -51,6 +52,14 @@ MAX_APPEND_BATCH = 1000
 #: Field types a layer may declare. Mirrors FeatureFieldType in
 #: packages/shared-types/src/data-layer.ts.
 FIELD_TYPES = ("string", "number", "boolean", "date", "multi_select")
+
+#: Broad visibility tiers for an item.
+ITEM_ACCESS = ("private", "org", "public")
+
+#: What one share may allow. Ascending; each includes the ones before.
+#: Note `admin` here does NOT permit deleting the item, which stays with
+#: the owner and org admins.
+SHARE_PERMISSIONS = ("view", "download", "edit", "admin")
 
 #: Geometry a layer may hold. ``None`` means an attribute-only table,
 #: which is a real and supported thing, not a missing value. Note these
@@ -374,8 +383,142 @@ class GratisGIS:
         return result
 
     def update_item(self, item_id: str, patch: Dict[str, Any]) -> Dict[str, Any]:
-        """Sparse update. Only the keys present are changed."""
+        """Sparse update. Only the keys present are changed.
+
+        One exception, and it is the one that bites: ``data`` is a whole
+        column, not a merge. Patching it replaces the entire payload.
+        Use :meth:`add_layer` rather than hand-building a ``data`` patch
+        for a layer.
+        """
         return self._request("PATCH", f"/items/{item_id}", json=patch)
+
+    def delete_item(self, item_id: str, *, cascade: bool = False) -> None:
+        """Move an item to the trash.
+
+        Reversible: see :meth:`restore_item`. Nothing is actually
+        destroyed until :meth:`purge_item`.
+
+        Deleting a folder that contains subfolders is refused unless
+        ``cascade=True``, because the subfolders would be orphaned. The
+        error names them, so you can look before agreeing.
+
+        Needs to be the owner or an org admin. Note that an ``admin``
+        SHARE is not enough; deleting is deliberately not delegable.
+        """
+        params = {"cascade": "true"} if cascade else None
+        try:
+            self._request("DELETE", f"/items/{item_id}", params=params)
+        except ConflictError as err:
+            preview = (err.body or {}).get("cascade") if isinstance(err.body, dict) else None
+            folders = (preview or {}).get("folders") or []
+            names = ", ".join(str(f.get("title")) for f in folders) or "some"
+            raise ConflictError(
+                f"{item_id} is a folder containing {names}. "
+                "Pass cascade=True to trash those too.",
+                status=err.status,
+                method=err.method,
+                path=err.path,
+                body=err.body,
+            ) from err
+
+    def restore_item(self, item_id: str) -> Dict[str, Any]:
+        """Bring an item back out of the trash."""
+        return self._request("POST", f"/items/{item_id}/restore")
+
+    def purge_item(self, item_id: str) -> None:
+        """Destroy a trashed item and its features. Not reversible.
+
+        The item has to be in the trash already, so this cannot be the
+        first thing that happens to a live layer by accident.
+        """
+        self._request("DELETE", f"/items/{item_id}/purge")
+
+    # ---------------------------------------------------------------
+    # sharing
+    # ---------------------------------------------------------------
+
+    def set_access(self, item_id: str, access: str) -> Dict[str, Any]:
+        """Set the broad visibility tier: private, org, or public."""
+        if access not in ITEM_ACCESS:
+            raise ValueError(
+                f"Unknown access {access!r}. One of: {', '.join(ITEM_ACCESS)}."
+            )
+        return self.update_item(item_id, {"access": access})
+
+    def share_item(
+        self,
+        item_id: str,
+        *,
+        permission: str,
+        user_id: Optional[str] = None,
+        group_id: Optional[str] = None,
+        geo_boundary_id: Optional[str] = None,
+        row_scope: Optional[str] = None,
+        expires_at: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Share an item with one user or one group.
+
+        ``permission`` is required rather than defaulting, deliberately.
+        The endpoint is an upsert, and omitting the permission on a
+        re-share rewrites an existing share down to `view`. A silent
+        downgrade is a worse default than making people say what they
+        mean.
+
+        ``geo_boundary_id`` clips what this share can see to a
+        geo_boundary item. ``row_scope='own'`` limits an editor to the
+        rows they created.
+
+        Needs to be the owner or an org admin.
+        """
+        if permission not in SHARE_PERMISSIONS:
+            raise ValueError(
+                f"Unknown permission {permission!r}. "
+                f"One of: {', '.join(SHARE_PERMISSIONS)}."
+            )
+        if (user_id is None) == (group_id is None):
+            raise ValueError("Pass exactly one of user_id or group_id.")
+        body: Dict[str, Any] = {
+            "principalType": "user" if user_id else "group",
+            "principalId": user_id or group_id,
+            "permission": permission,
+        }
+        if geo_boundary_id is not None:
+            body["geoBoundaryId"] = geo_boundary_id
+        if row_scope is not None:
+            if row_scope not in ("all", "own"):
+                raise ValueError("row_scope must be 'all' or 'own'.")
+            body["rowScope"] = row_scope
+        if expires_at is not None:
+            body["expiresAt"] = expires_at
+        return self._request("POST", f"/items/{item_id}/share", json=body)
+
+    def unshare_item(
+        self,
+        item_id: str,
+        *,
+        user_id: Optional[str] = None,
+        group_id: Optional[str] = None,
+    ) -> None:
+        """Remove one user's or group's share."""
+        if (user_id is None) == (group_id is None):
+            raise ValueError("Pass exactly one of user_id or group_id.")
+        self._request(
+            "DELETE",
+            f"/items/{item_id}/share",
+            json={
+                "principalType": "user" if user_id else "group",
+                "principalId": user_id or group_id,
+            },
+        )
+
+    def shares(self, item_id: str) -> List[Dict[str, Any]]:
+        """Who this item is shared with. Read off the item itself."""
+        found = self.item(item_id).get("shares")
+        return found if isinstance(found, list) else []
+
+    def permissions(self, item_id: str) -> Dict[str, Any]:
+        """What THIS key can do with an item: read, edit, download, admin."""
+        return self._request("GET", f"/items/{item_id}/permissions")
 
     # ---------------------------------------------------------------
     # features
@@ -666,6 +809,174 @@ class GratisGIS:
                 f"Could not reach the portal: {exc}", method="GET", path=url
             ) from exc
 
+    def calculate_field(
+        self,
+        item_id: str,
+        layer: str,
+        expression: str,
+        output_name: str,
+        *,
+        output_type: str = "string",
+        scope: str = "all",
+        selected_ids: Optional[Iterable[str]] = None,
+        dry_run: bool = False,
+    ) -> Dict[str, Any]:
+        """Compute a value for every feature and write it to a field.
+
+        Saves a read-modify-write loop over the whole layer::
+
+            gg.calculate_field(item, "parcels",
+                "{{acres}} * 4046.86", "area_m2", output_type="number")
+
+        The expression language is the portal's own, not Python and not
+        SQL. Fields are ``{{name}}``, string concatenation is ``~~``,
+        and the built-ins are upper, lower, length, concat, coalesce,
+        abs, round, floor, ceil, and if.
+
+        Start with ``dry_run=True``. It returns the same summary with a
+        five-row sample of before-and-after values and writes nothing,
+        which is the cheapest way to find out that your expression means
+        something other than you thought.
+
+        Returns ``{totalRows, appliedRows, sample, errors}``. Rows whose
+        expression fails become null and count in ``errors`` rather than
+        failing the whole call. Capped at 10,000 rows per call.
+        """
+        if output_type not in ("number", "string", "boolean"):
+            raise ValueError(
+                "output_type must be 'number', 'string', or 'boolean'."
+            )
+        if scope not in ("all", "selection"):
+            raise ValueError("scope must be 'all' or 'selection'.")
+        body: Dict[str, Any] = {
+            "expression": expression,
+            "outputName": output_name,
+            "outputType": output_type,
+            "scope": scope,
+            "dryRun": dry_run,
+        }
+        if scope == "selection":
+            ids = list(selected_ids or [])
+            if not ids:
+                raise ValueError("scope='selection' needs selected_ids.")
+            body["selectedIds"] = ids
+        elif selected_ids is not None:
+            raise ValueError("selected_ids only applies to scope='selection'.")
+        return self._request(
+            "POST",
+            f"/items/{item_id}/layers/{layer}/features/calculate-field",
+            json=body,
+        )
+
+    # ---------------------------------------------------------------
+    # importing a file
+    # ---------------------------------------------------------------
+
+    def import_file(
+        self,
+        item_id: str,
+        layer: str,
+        path: Union[str, "os.PathLike[str]"],
+        *,
+        mode: str = "append",
+        source_layer: Optional[str] = None,
+        progress: Optional[Any] = None,
+        timeout: float = 3600.0,
+    ) -> Dict[str, Any]:
+        """Load a spatial file into a layer, replacing or appending.
+
+        This is the monthly-refresh call. Anything GDAL reads works:
+        shapefile (zip it), GeoPackage, file geodatabase, GeoJSON, KML,
+        GPX, CSV with coordinates, and GeoParquet.
+
+        ``mode='replace'`` empties the layer first, which is what a
+        refresh usually means. Be aware that it truncates BEFORE
+        inserting, so a failure part way through leaves the layer empty
+        rather than rolling back to yesterday's data. On anything you
+        cannot re-import, export first.
+
+        ``source_layer`` picks one layer out of a multi-layer archive
+        like a .gdb.
+
+        ``progress`` is called with each update as ``(processed,
+        total, inserted)``, so a long import can say something::
+
+            gg.import_file(item, "parcels", "parcels.gpkg", mode="replace",
+                           progress=lambda p, t, i: print(f"{p}/{t}"))
+
+        Returns the terminal summary: inserted, driver, sourceSrs, mode.
+
+        The default timeout is an hour because a million-row import is a
+        single request that takes as long as it takes. Files are capped
+        at 1 GB by the portal.
+        """
+        if mode not in ("append", "replace"):
+            raise ValueError("mode must be 'append' or 'replace'.")
+        src = Path(path)
+        params: Dict[str, Any] = {"mode": mode}
+        if source_layer is not None:
+            params["sourceLayer"] = source_layer
+        url = f"/items/{item_id}/layers/{layer}/import"
+
+        summary: Optional[Dict[str, Any]] = None
+        failure: Optional[str] = None
+        try:
+            with open(src, "rb") as fh:
+                with self._client.stream(
+                    "POST",
+                    url,
+                    params=params,
+                    files={"file": (src.name, fh, "application/octet-stream")},
+                    timeout=httpx.Timeout(timeout, connect=10.0),
+                ) as response:
+                    if not response.is_success:
+                        response.read()
+                        self._handle(response, method="POST", path=url)
+                    # The response is newline-delimited JSON, and this is
+                    # the part that matters: the portal flushes 200 and
+                    # its headers BEFORE it starts work, so an import
+                    # that fails still arrives as a successful HTTP
+                    # response with an error event in the body. Calling
+                    # raise_for_status here and stopping would report a
+                    # failed import as a success.
+                    for line in response.iter_lines():
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            event = json.loads(line)
+                        except ValueError:
+                            continue
+                        kind = event.get("event")
+                        if kind == "progress" and progress is not None:
+                            progress(
+                                event.get("processed", 0),
+                                event.get("total", 0),
+                                event.get("inserted", 0),
+                            )
+                        elif kind == "done":
+                            summary = event
+                        elif kind == "error":
+                            failure = str(event.get("message") or "Import failed.")
+        except httpx.RequestError as exc:
+            raise PortalError(
+                f"Could not reach the portal: {exc}", method="POST", path=url
+            ) from exc
+
+        if failure is not None:
+            raise PortalError(failure, method="POST", path=url)
+        if summary is None:
+            # No terminal event at all: the connection died mid-import,
+            # or a proxy cut it off. Not a success, and saying so beats
+            # returning an empty dict that reads like one.
+            raise PortalError(
+                "The import ended without reporting a result. It may have "
+                "partly completed; check the layer's feature count.",
+                method="POST",
+                path=url,
+            )
+        return summary
+
     # ---------------------------------------------------------------
     # attachments
     # ---------------------------------------------------------------
@@ -871,6 +1182,45 @@ class GratisGIS:
         if not payload["data"]["layers"]:
             raise ValueError("A data layer needs at least one layer.")
         return self._request("POST", "/items", json=payload)
+
+    def add_layer(self, item_id: str, spec: Dict[str, Any]) -> Dict[str, Any]:
+        """Add a layer to an existing data layer item.
+
+        There is no add-layer endpoint. A layer is added by rewriting
+        the item's whole ``data`` payload, which is a footgun worth
+        wrapping: ``data`` is replaced, not merged, so a hand-written
+        PATCH that forgets an existing layer removes it from the schema.
+        The features are not deleted, but nothing can reach them until
+        the layer id comes back.
+
+        So this reads the current schema, appends, and refuses to write
+        a payload that would drop anything. It also sends
+        ``expectedUpdatedAt``, which turns a concurrent edit into a 409
+        rather than one of you silently overwriting the other.
+        """
+        item = self.item(item_id)
+        if item.get("type") != "data_layer":
+            raise ValueError(f"{item_id} is not a data layer.")
+        data = dict(item.get("data") or {})
+        if data.get("version") != 3:
+            raise ValueError(
+                "This item uses an older layer model that this client cannot "
+                "safely edit. Add the layer in the portal instead."
+            )
+        existing = list(data.get("layers") or [])
+        new_id = spec.get("id")
+        if any(l.get("id") == new_id for l in existing):
+            raise ValueError(f"This item already has a layer called {new_id!r}.")
+
+        data["layers"] = existing + [dict(spec)]
+        patch: Dict[str, Any] = {"data": data}
+        # Optimistic concurrency. Cheap, and the alternative is losing
+        # somebody else's layer to a read-modify-write race.
+        if isinstance(item.get("updatedAt"), str):
+            patch["expectedUpdatedAt"] = item["updatedAt"]
+        updated = self._request("PATCH", f"/items/{item_id}", json=patch)
+        self._schema_cache.pop((item_id, str(new_id)), None)
+        return updated
 
     def add_features(
         self,

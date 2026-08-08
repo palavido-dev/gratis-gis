@@ -749,3 +749,304 @@ class TestAttachments:
         assert seen["path"] == (
             "/api/items/itm/layers/parcels/features/f1/attachments/att-1"
         )
+
+
+# ---------------------------------------------------------------------
+# 0.5.0: delete, sharing, add_layer, calculate_field, import
+# ---------------------------------------------------------------------
+
+
+class TestDeleteItem:
+    def test_soft_delete(self):
+        seen = {}
+
+        def handler(request):
+            seen["method"] = request.method
+            seen["path"] = request.url.path
+            seen["params"] = dict(request.url.params)
+            return httpx.Response(200)
+
+        make_client(handler).delete_item("itm")
+        assert (seen["method"], seen["path"]) == ("DELETE", "/api/items/itm")
+        assert seen["params"] == {}
+
+    def test_cascade_is_the_literal_string_true(self):
+        # The server compares to 'true' exactly; ?cascade=1 is ignored.
+        seen = {}
+
+        def handler(request):
+            seen.update(dict(request.url.params))
+            return httpx.Response(200)
+
+        make_client(handler).delete_item("itm", cascade=True)
+        assert seen["cascade"] == "true"
+
+    def test_folder_conflict_names_the_subfolders(self):
+        def handler(request):
+            return httpx.Response(
+                409,
+                json={
+                    "message": "This folder contains subfolders...",
+                    "cascade": {
+                        "folders": [{"id": "f1", "title": "Surveys"}],
+                        "unlinkedItemCount": 3,
+                    },
+                },
+            )
+
+        with pytest.raises(ConflictError, match="Surveys"):
+            make_client(handler).delete_item("itm")
+
+    def test_purge_and_restore_routes(self):
+        seen = []
+
+        def handler(request):
+            seen.append((request.method, request.url.path))
+            return httpx.Response(200, json={})
+
+        gg = make_client(handler)
+        gg.restore_item("itm")
+        gg.purge_item("itm")
+        assert seen == [
+            ("POST", "/api/items/itm/restore"),
+            ("DELETE", "/api/items/itm/purge"),
+        ]
+
+
+class TestSharing:
+    def test_set_access_patches_the_item(self):
+        captured = {}
+
+        def handler(request):
+            captured.update(json.loads(request.content))
+            return httpx.Response(200, json={})
+
+        make_client(handler).set_access("itm", "public")
+        assert captured == {"access": "public"}
+
+    def test_set_access_rejects_an_unknown_tier(self):
+        with pytest.raises(ValueError, match="Unknown access"):
+            make_client(lambda r: httpx.Response(200)).set_access("itm", "world")
+
+    def test_share_requires_a_permission(self):
+        # The endpoint upserts, and omitting permission rewrites an
+        # existing share down to view. Making it required beats a silent
+        # downgrade.
+        with pytest.raises(TypeError):
+            make_client(lambda r: httpx.Response(200)).share_item(  # type: ignore[call-arg]
+                "itm", user_id="u1"
+            )
+
+    def test_share_with_a_user(self):
+        captured = {}
+
+        def handler(request):
+            assert request.url.path == "/api/items/itm/share"
+            captured.update(json.loads(request.content))
+            return httpx.Response(201, json={})
+
+        make_client(handler).share_item("itm", user_id="u1", permission="edit")
+        assert captured == {
+            "principalType": "user",
+            "principalId": "u1",
+            "permission": "edit",
+        }
+
+    def test_share_needs_exactly_one_principal(self):
+        gg = make_client(lambda r: httpx.Response(200))
+        with pytest.raises(ValueError, match="exactly one"):
+            gg.share_item("itm", permission="view")
+        with pytest.raises(ValueError, match="exactly one"):
+            gg.share_item("itm", permission="view", user_id="u", group_id="g")
+
+    def test_unshare_sends_a_body_on_delete(self):
+        captured = {}
+
+        def handler(request):
+            captured["method"] = request.method
+            captured["body"] = json.loads(request.content)
+            return httpx.Response(200)
+
+        make_client(handler).unshare_item("itm", group_id="g1")
+        assert captured["method"] == "DELETE"
+        assert captured["body"]["principalType"] == "group"
+
+
+class TestAddLayer:
+    def _item(self, layers, updated="2026-08-08T00:00:00.000Z"):
+        return {
+            "id": "itm",
+            "type": "data_layer",
+            "updatedAt": updated,
+            "data": {"version": 3, "storageType": "postgis", "layers": layers},
+        }
+
+    def test_appends_without_dropping_the_existing_layer(self):
+        from gratisgis import layer
+
+        captured = {}
+        existing = {"id": "parcels", "label": "Parcels", "fields": []}
+
+        def handler(request):
+            if request.method == "GET":
+                return httpx.Response(200, json=self._item([existing]))
+            captured.update(json.loads(request.content))
+            return httpx.Response(200, json={})
+
+        make_client(handler).add_layer(
+            "itm", layer("roads", "Roads", "line", [])
+        )
+        ids = [l["id"] for l in captured["data"]["layers"]]
+        # The whole `data` column is replaced, so a patch that forgot
+        # the first layer would make its features unreachable.
+        assert ids == ["parcels", "roads"]
+
+    def test_sends_expected_updated_at(self):
+        from gratisgis import layer
+
+        captured = {}
+
+        def handler(request):
+            if request.method == "GET":
+                return httpx.Response(200, json=self._item([]))
+            captured.update(json.loads(request.content))
+            return httpx.Response(200, json={})
+
+        make_client(handler).add_layer("itm", layer("a", "A", "point", []))
+        assert captured["expectedUpdatedAt"] == "2026-08-08T00:00:00.000Z"
+
+    def test_refuses_a_duplicate_layer_id(self):
+        from gratisgis import layer
+
+        def handler(request):
+            return httpx.Response(
+                200, json=self._item([{"id": "roads", "fields": []}])
+            )
+
+        with pytest.raises(ValueError, match="already has a layer"):
+            make_client(handler).add_layer("itm", layer("roads", "R", "line", []))
+
+    def test_refuses_a_non_v3_item(self):
+        def handler(request):
+            return httpx.Response(
+                200,
+                json={"id": "itm", "type": "data_layer", "data": {"version": 2}},
+            )
+
+        with pytest.raises(ValueError, match="older layer model"):
+            make_client(handler).add_layer("itm", {"id": "x"})
+
+
+class TestCalculateField:
+    def test_posts_the_expression(self):
+        captured = {}
+
+        def handler(request):
+            assert request.url.path == (
+                "/api/items/itm/layers/parcels/features/calculate-field"
+            )
+            captured.update(json.loads(request.content))
+            return httpx.Response(
+                201,
+                json={"totalRows": 10, "appliedRows": 10, "sample": [], "errors": 0},
+            )
+
+        out = make_client(handler).calculate_field(
+            "itm", "parcels", "{{acres}} * 4046.86", "area_m2",
+            output_type="number",
+        )
+        assert out["appliedRows"] == 10
+        assert captured == {
+            "expression": "{{acres}} * 4046.86",
+            "outputName": "area_m2",
+            "outputType": "number",
+            "scope": "all",
+            "dryRun": False,
+        }
+
+    def test_selection_scope_needs_ids(self):
+        gg = make_client(lambda r: httpx.Response(200))
+        with pytest.raises(ValueError, match="needs selected_ids"):
+            gg.calculate_field("itm", "p", "1", "x", scope="selection")
+
+    def test_ids_without_selection_scope_is_refused(self):
+        gg = make_client(lambda r: httpx.Response(200))
+        with pytest.raises(ValueError, match="only applies to"):
+            gg.calculate_field("itm", "p", "1", "x", selected_ids=["a"])
+
+    def test_rejects_an_unknown_output_type(self):
+        gg = make_client(lambda r: httpx.Response(200))
+        with pytest.raises(ValueError, match="output_type must be"):
+            gg.calculate_field("itm", "p", "1", "x", output_type="integer")
+
+
+class TestImportFile:
+    def _ndjson(self, *events):
+        return "\n".join(json.dumps(e) for e in events).encode()
+
+    def test_streams_and_returns_the_done_event(self, tmp_path):
+        src = tmp_path / "parcels.gpkg"
+        src.write_bytes(b"GPKGDATA")
+        seen = {}
+
+        def handler(request):
+            seen["params"] = dict(request.url.params)
+            seen["path"] = request.url.path
+            return httpx.Response(
+                200,
+                content=self._ndjson(
+                    {"event": "start", "total": 2, "sourceLayer": "p"},
+                    {"event": "progress", "processed": 1, "total": 2, "inserted": 1},
+                    {"event": "done", "inserted": 2, "mode": "replace",
+                     "driver": "GPKG", "sourceSrs": "EPSG:4326", "replaced": 9},
+                ),
+            )
+
+        ticks = []
+        out = make_client(handler).import_file(
+            "itm", "parcels", src, mode="replace",
+            progress=lambda p, t, i: ticks.append((p, t, i)),
+        )
+        assert seen["path"] == "/api/items/itm/layers/parcels/import"
+        assert seen["params"]["mode"] == "replace"
+        assert out["inserted"] == 2
+        assert ticks == [(1, 2, 1)]
+
+    def test_an_error_event_raises_even_though_http_is_200(self, tmp_path):
+        # The portal flushes 200 and its headers before it starts work,
+        # so a failed import arrives as a successful HTTP response.
+        # Trusting the status code would report failure as success.
+        src = tmp_path / "bad.gpkg"
+        src.write_bytes(b"nope")
+
+        def handler(request):
+            return httpx.Response(
+                200,
+                content=self._ndjson(
+                    {"event": "start", "total": 0},
+                    {"event": "error", "message": "Unsupported driver."},
+                ),
+            )
+
+        with pytest.raises(PortalError, match="Unsupported driver"):
+            make_client(handler).import_file("itm", "parcels", src)
+
+    def test_a_stream_with_no_terminal_event_is_not_a_success(self, tmp_path):
+        src = tmp_path / "x.gpkg"
+        src.write_bytes(b"x")
+
+        def handler(request):
+            return httpx.Response(
+                200, content=self._ndjson({"event": "start", "total": 5})
+            )
+
+        with pytest.raises(PortalError, match="without reporting a result"):
+            make_client(handler).import_file("itm", "parcels", src)
+
+    def test_rejects_an_unknown_mode(self, tmp_path):
+        src = tmp_path / "x.gpkg"
+        src.write_bytes(b"x")
+        with pytest.raises(ValueError, match="mode must be"):
+            make_client(lambda r: httpx.Response(200)).import_file(
+                "itm", "parcels", src, mode="upsert"
+            )

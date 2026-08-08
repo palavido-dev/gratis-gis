@@ -12,6 +12,8 @@ from .client import (
     EXPORT_FORMATS,
     FIELD_TYPES,
     GEOMETRY_TYPES,
+    ITEM_ACCESS,
+    SHARE_PERMISSIONS,
     GratisGIS,
     __version__,
     field,
