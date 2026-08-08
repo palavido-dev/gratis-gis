@@ -45,10 +45,18 @@ curl -H "Authorization: Bearer ggk_your_key_here" \
   https://your-portal.org/api/users/me
 ```
 
-From Python, use the client package:
+From Python, use the client package. See
+[Python client](/help/reference/python-client) for the full guide.
 
 ```bash
 pip install gratisgis
+```
+
+Not on PyPI yet? Until the first release lands, install it from source:
+
+```bash
+pip install "gratisgis @ git+https://github.com/palavido-dev/gratis-gis\
+#subdirectory=clients/python"
 ```
 
 ```python

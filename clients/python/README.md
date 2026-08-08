@@ -8,6 +8,16 @@ machine.
 pip install gratisgis
 ```
 
+Until the first PyPI release, install from source:
+
+```bash
+pip install "gratisgis @ git+https://github.com/palavido-dev/gratis-gis#subdirectory=clients/python"
+```
+
+The full guide, with worked examples for filtering, buffering, writing
+a new layer, and exporting, is in the portal at
+`/help/reference/python-client`.
+
 ## Get a key
 
 In the portal: **Profile -> API keys -> Create key**. The token is shown

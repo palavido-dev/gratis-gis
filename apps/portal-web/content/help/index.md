@@ -36,6 +36,21 @@ The catalog is organized into a handful of top-level areas:
 - **Print templates**. Page layout and parameters.
 - **Analysis**. Derived layers and each analysis step.
 - **Admin**. Housekeeping, geocoders, backups.
+- **Reference**. Item types, and the automation surface below.
+
+## Automating the portal
+
+Anything you can do in the browser you can do from a script, using the
+same API and the same permissions.
+
+- [API keys](/help/reference/api-keys) — how something other than a
+  browser signs in.
+- [Python client](/help/reference/python-client) — read, filter, buffer,
+  create, and export a layer, with worked examples.
+- [Scripts](/help/reference/scripts) — run that Python on the portal
+  itself, on a schedule.
+- [The HTTP API](/help/reference/api) — the routes underneath, for other
+  languages.
 
 ## Coming from ArcGIS Online?
 
