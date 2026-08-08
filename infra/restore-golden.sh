@@ -292,19 +292,58 @@ drop_and_restore() {
 #                    which is a different thing from being swept up in
 #                    a blanket stop and start.
 LEAVE_ALONE=(postgres minio caddy portal-migrate)
-mapfile -t ALL_SERVICES < <(dc config --services | sort)
-if [[ ${#ALL_SERVICES[@]} -eq 0 ]]; then
-  echo "FATAL: could not enumerate compose services; refusing to guess." >&2
+
+# `ps -a --services`, NOT `config --services`: what this host actually
+# has containers for, rather than everything the file declares.
+#
+# The distinction matters on any deployment that has never enabled the
+# scripts profile. It declares script-runner and script-executor and has
+# no containers for either, so the declared list names two services that
+# do not exist here.
+#
+# Honest note on how strong that is. I expected `docker compose start`
+# to fail on a service with no container and wrote this comment saying
+# so. Then I tested it on a throwaway project: `start`, `stop`, with and
+# without --profile, present and absent, every combination exits 0 and
+# says nothing. So this is not a bugfix, and claiming it was would have
+# been a tidier story than the truth.
+#
+# Keeping it anyway, for the reason that survives the test: this is the
+# accurate statement of what the reset means, and it does not depend on
+# compose quietly tolerating names for things that do not exist, which
+# is behaviour I could not find documented and would rather not build a
+# destructive script on top of.
+mapfile -t PRESENT_SERVICES < <(dc ps -a --services | sort -u)
+if [[ ${#PRESENT_SERVICES[@]} -eq 0 ]]; then
+  echo "FATAL: no containers found for project '$COMPOSE_PROJECT'." >&2
+  echo "       Refusing to guess; an empty list would stop everything." >&2
   exit 1
 fi
 APP_SERVICES=()
-for svc in "${ALL_SERVICES[@]}"; do
+for svc in "${PRESENT_SERVICES[@]}"; do
   exempt=
   for k in "${LEAVE_ALONE[@]}"; do
     [[ "$svc" == "$k" ]] && exempt=1 && break
   done
   [[ -n "$exempt" ]] || APP_SERVICES+=("$svc")
 done
+
+# Start only the named services that actually exist here, so the
+# ordered startup below is subject to the same rule as the sweep.
+start_if_present() {
+  local wanted=() svc have
+  for svc in "$@"; do
+    for have in "${APP_SERVICES[@]}"; do
+      if [[ "$svc" == "$have" ]]; then
+        wanted+=("$svc")
+        break
+      fi
+    done
+  done
+  if [[ ${#wanted[@]} -gt 0 ]]; then
+    dc start "${wanted[@]}"
+  fi
+}
 
 # Bring the stack back up however this script exits.
 #
@@ -455,6 +494,10 @@ echo "=== Applying migrations to the restored database ==="
 # --force-recreate because a no-op `up` on an already-exited one-shot
 # would leave the old container in place and `docker wait` would hand
 # back a stale exit code from last night's run.
+#
+# `up`, not `start`, on purpose: this one-shot is in LEAVE_ALONE and so
+# is not in APP_SERVICES, and `up` creates the container if a fresh host
+# has never run it.
 dc up -d --no-deps --force-recreate portal-migrate
 MIGRATE_RC="$(docker wait "${COMPOSE_PROJECT}-portal-migrate")"
 if [[ "$MIGRATE_RC" != "0" ]]; then
@@ -468,9 +511,9 @@ echo "=== Restarting app services ==="
 # Give minio + postgres a couple of seconds to settle before app
 # services start hitting them.
 sleep 3
-dc start keycloak pg_tileserv
+start_if_present keycloak pg_tileserv
 sleep 5  # Keycloak boot is slower than postgres / minio.
-dc start portal-web portal-worker pointcloud-worker portal-api
+start_if_present portal-web portal-worker pointcloud-worker portal-api
 
 # Then anything else that was stopped. Started last on purpose: these
 # are consumers (the script claimer, the print renderers) that talk to

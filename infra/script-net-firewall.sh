@@ -63,7 +63,29 @@ if [[ -z "$SUBNET" ]]; then
   exit 1
 fi
 
-# --- forwarded traffic: script network to link-local ---------------
+# Every other Docker network on this host. Enumerated rather than
+# hardcoded for the same reason as the script subnet, and because a
+# deployment can add networks we have never heard of.
+#
+# This is what actually closes the published-port hairpin. Blocking the
+# host in INPUT is not enough on its own: Docker publishes caddy on
+# 0.0.0.0:80 and :443 with a DNAT rule in nat/PREROUTING, which rewrites
+# the destination to caddy's container address before the packet reaches
+# INPUT. It therefore leaves as FORWARD traffic to another network and
+# never touches the host-bound rule at all. Measured: after the first
+# version of this script, gateway :22 was refused while :80 and :443
+# were still wide open.
+#
+# The general statement is the honest one anyway. A script may reach its
+# own network and the public internet. It has no business on any other
+# Docker network on the box, whether that network exists today or gets
+# added next year.
+OTHER_SUBNETS="$(docker network inspect \
+  $(docker network ls -q) \
+  --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null \
+  | tr ' ' '\n' | grep -v '^$' | grep -vFx "$SUBNET" | sort -u)"
+
+# --- forwarded traffic out of the script network --------------------
 #
 # DOCKER-USER is evaluated before Docker's own FORWARD rules and is the
 # documented place for operator policy; Docker will not clobber its
@@ -71,6 +93,9 @@ fi
 iptables -N "$CHAIN" 2>/dev/null || true
 iptables -F "$CHAIN"
 iptables -A "$CHAIN" -d "$LINK_LOCAL" -j DROP
+for other in $OTHER_SUBNETS; do
+  iptables -A "$CHAIN" -d "$other" -j DROP
+done
 iptables -A "$CHAIN" -j RETURN
 
 # Idempotent: drop any previous jump before adding this one, so
@@ -101,4 +126,7 @@ iptables -I INPUT 1 -s "$SUBNET" -j DROP
 iptables -I INPUT 1 -s "$SUBNET" -m conntrack \
   --ctstate ESTABLISHED,RELATED -j ACCEPT
 
-echo "Script network $SUBNET fenced: link-local and host both refused."
+echo "Script network $SUBNET fenced."
+echo "  link-local:     $LINK_LOCAL DROP"
+echo "  other networks: $(echo "$OTHER_SUBNETS" | tr '\n' ' ')DROP"
+echo "  host itself:    DROP (script-initiated only)"
