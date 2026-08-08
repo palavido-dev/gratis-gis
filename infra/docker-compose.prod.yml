@@ -652,6 +652,16 @@ services:
       # public hostname so a run does not leave the host, hairpin
       # through Caddy, and pay TLS to reach a container beside it.
       PORTAL_BASE_URL: http://portal-api:4000
+    # Bypass the shared entrypoint. It requires DATABASE_URL and runs
+    # `prisma generate`, both of which assume every container talks to
+    # the database; this one deliberately does not, and refusing to
+    # start without a credential it must not have would be exactly
+    # backwards.
+    #
+    # tini is kept. It is the reason this line is not simply removed:
+    # this process spawns Python children, and without an init to reap
+    # them a killed script leaves a zombie behind every run.
+    entrypoint: ["/usr/bin/tini", "--"]
     command: ["node", "dist/script-executor.main.js"]
     # No published port. Reachable only from inside gg-script-net.
     healthcheck:
