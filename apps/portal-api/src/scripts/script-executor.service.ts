@@ -52,10 +52,13 @@ export class ScriptExecutorService {
     await writeFile(file, req.source, 'utf8');
     // The child runs as a different user, so it must be able to read
     // its own source and write into its own scratch directory.
+    // Hand the run's directory to the script user. Not caught: if this
+    // fails the child cannot read its own source and would die with a
+    // baffling error, so failing here with a clear one is better.
     const asUser = scriptUser();
     if (asUser) {
-      await chown(dir, asUser.uid, asUser.gid).catch(() => {});
-      await chown(file, asUser.uid, asUser.gid).catch(() => {});
+      await chown(dir, asUser.uid, asUser.gid);
+      await chown(file, asUser.uid, asUser.gid);
     }
 
     let out = '';

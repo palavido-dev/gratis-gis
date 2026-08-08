@@ -86,10 +86,25 @@ ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 #
 # 10001 is arbitrary and high, chosen to avoid colliding with anything
 # the base image adds later.
+# The scratch parent is root-owned 0711, NOT owned by the script user.
+#
+# Subtle and load-bearing. The executor drops CAP_DAC_OVERRIDE along
+# with every other capability, which means its root cannot write into
+# a directory owned by someone else; the first run after that hardening
+# failed with EACCES on mkdtemp. Root-owned means root can create each
+# run's directory, and mode 0711 lets the script user traverse into the
+# one path it is handed without being able to list the parent and see
+# other runs.
+#
+# Each run's own directory is then chowned to the script user, which is
+# what CAP_CHOWN is for.
 RUN groupadd -g 10001 ggscript \
  && useradd -u 10001 -g 10001 -M -s /usr/sbin/nologin ggscript \
  && mkdir -p /home/ggscript /var/tmp/ggscript \
- && chown ggscript:ggscript /home/ggscript /var/tmp/ggscript
+ && chown ggscript:ggscript /home/ggscript \
+ && chmod 0700 /home/ggscript \
+ && chown root:root /var/tmp/ggscript \
+ && chmod 0711 /var/tmp/ggscript
 ENV SCRIPT_UID=10001
 ENV SCRIPT_GID=10001
 ENV SCRIPT_HOME=/home/ggscript
