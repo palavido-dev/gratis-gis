@@ -56,31 +56,75 @@ a script cannot cache one, and there is nothing in the item to leak.
 **Can:** the portal's HTTP API as its owner, and the public internet
 (the parcel-refresh case needs to fetch from a county endpoint).
 
-**Cannot:** the portal's database, object storage, or Keycloak
-credentials. The child process environment is built from nothing
+**Cannot:** the portal's database, object storage, or Keycloak. Two
+independent reasons, which is the point.
+
+*No credentials.* The child process environment is built from nothing
 rather than inherited and filtered, so it holds the run's API key, a
 PATH, a HOME, a locale, and a CA bundle path. Nothing else. A secret
 added to the deployment later is private by default rather than
 exposed until somebody remembers to update a deny list.
 
-### Limitation: network reachability
+*No route.* The container that runs Python joins only `gg-script-net`,
+which carries the executor, the claimer, and portal-api. `postgres`,
+`minio`, and `keycloak` are not on it. A script cannot open a socket to
+them at all, rather than opening one and lacking a password.
 
-The runner container sits on the same Docker network as the rest of
-the stack, so a script can open a socket to `postgres:5432`,
-`minio:9000`, and `keycloak:8080` even though it has no credentials for
-any of them.
+### Why two containers
 
-This is the honest state of the isolation today, and it is why the
-feature is off by default and why the guidance below is what it is.
-Container-level networking cannot distinguish the runner process
-(which legitimately needs the database to claim work) from the script
-it spawns. Fixing it properly means either splitting the claimer from
-the executor into separate containers, or per-UID egress filtering
-inside the container. Neither is in this release.
+Claiming work needs the database, and anything that needs the database
+sits on a network where the database is reachable. Put the claiming
+and the executing in one container and the script inherits that
+reachability no matter what the environment says.
 
-**Do not enable scripts on a portal where people you do not trust can
-create items.** That includes any public or self-serve deployment. The
-intended deployment is a portal whose editors are colleagues.
+That was not hypothetical. On the original single-container design a
+probe script reported:
+
+```
+REACHABLE  postgres:5432
+REACHABLE  minio:9000
+REACHABLE  keycloak:8080
+```
+
+It had no credentials for any of them, but "needs a password" is a
+weaker property than "cannot open the socket", and only one of the two
+survives a protocol-level CVE in one of those services.
+
+So the two responsibilities are two containers:
+
+| | `script-runner` (claimer) | `script-executor` |
+|---|---|---|
+| Database | yes | **no** |
+| Runs Python | **no** | yes |
+| Networks | `gratis-net`, `gg-script-net` | `gg-script-net` only |
+
+They talk over HTTP on the script network, authenticated with
+`SCRIPT_EXECUTOR_TOKEN`. Network placement is the primary control; the
+token is the backstop for the day something else lands on that
+network.
+
+Cancel is expressed as the claimer hanging up: aborting the request
+makes the executor kill the child. That avoids a second endpoint and a
+run-id registry on the executor that could leak entries when a claimer
+dies mid-run.
+
+`apps/portal-api/src/scripts/script-isolation.spec.ts` asserts this
+topology against the compose file, because the isolation lives in
+container configuration rather than in code, and a one-line edit could
+undo it with nothing else noticing.
+
+Egress to the public internet stays open. The case this feature exists
+for is refreshing a layer from a county REST endpoint, so an
+`internal: true` network would remove the reason to have it.
+
+### Still worth knowing
+
+A script runs as the same OS user as the executor process and shares
+that container's filesystem and CPU. Two scripts do not run
+concurrently (one in-flight run per script, and one executor), but a
+script can read the executor image's contents. There is nothing
+sensitive there by construction, and the container holds no
+credentials, but it is not a per-run sandbox.
 
 ## Turning it on
 
@@ -89,21 +133,25 @@ Two switches, both off by default:
 ```
 # .env.prod
 PORTAL_SCRIPTS_ENABLED=1
+# Shared secret between the claimer and the executor. Any long random
+# string; `openssl rand -hex 32` is fine. The executor refuses every
+# request when this is unset rather than defaulting to open.
+SCRIPT_EXECUTOR_TOKEN=...
 ```
 
 ```sh
-docker compose --profile scripts up -d script-runner
+docker compose --profile scripts up -d script-runner script-executor
 ```
 
 The first makes the API offer the run endpoints and the web app offer
-the item type. The second starts the container that executes runs.
-Both are needed; either alone does nothing useful, which is
-intentional, because turning on the endpoints without a runner would
-queue work nothing consumes.
+the item type. The second starts the pair of containers. Both are
+needed; either alone does nothing useful, which is intentional,
+because turning on the endpoints with nothing consuming the queue
+would just accumulate work.
 
 ## Dependencies
 
-Frozen. The runner image ships the `gratisgis` client plus `httpx`,
+Frozen. The executor image ships the `gratisgis` client plus `httpx`,
 `requests`, `pandas`, `shapely`, `pyproj`, and `python-dateutil`. A
 script that needs anything else does not run until the image is
 rebuilt with it.
@@ -122,7 +170,7 @@ To add one, edit `infra/script-runner/Dockerfile` and rebuild.
 |---|---|---|
 | Wall clock per run | 300s | `SCRIPT_TIMEOUT_SECONDS` |
 | Captured log | 256 KB | `SCRIPT_MAX_LOG_BYTES` |
-| Memory | 1 GB | `mem_limit` on the compose service |
+| Memory | 1 GB | `mem_limit` on `script-executor` |
 | Concurrent runs per script | 1 | not configurable |
 
 A run that exceeds its time limit is killed with SIGKILL, not SIGTERM:

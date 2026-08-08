@@ -2,30 +2,23 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { ApiKeyService } from '../auth/api-key.service.js';
-import { PrismaService } from '../prisma/prisma.service.js';
-import { ScriptRunnerWorker } from './script-runner.worker.js';
+import { ScriptExecutorService } from './script-executor.service.js';
 
 /**
- * The environment handed to a script process is the security boundary
- * of this whole feature. A script is code the portal did not write,
- * running on the portal's own machine, so every variable it can read
- * is one it can exfiltrate.
+ * The environment handed to a script process is one of two security
+ * boundaries for this feature. It controls what a script can READ.
+ *
+ * The other is the network the executor container sits on, which
+ * controls what a script can CONNECT to, and no amount of care in
+ * this file substitutes for it: a script in the original
+ * single-container design had none of the variables below and could
+ * still open a socket to postgres:5432. Both boundaries, or neither
+ * counts.
  */
 describe('script child environment', () => {
-  const worker = new ScriptRunnerWorker(
-    {} as unknown as PrismaService,
-    {} as unknown as ApiKeyService,
-  );
-  // The method is private by design; nothing outside the worker should
-  // build this. Reaching in is deliberate: this is exactly the thing
-  // worth pinning.
+  const executor = new ScriptExecutorService();
   const childEnv = (token: string): NodeJS.ProcessEnv =>
-    (
-      worker as unknown as {
-        childEnv: (t: string) => NodeJS.ProcessEnv;
-      }
-    ).childEnv(token);
+    executor.childEnv(token);
 
   const saved = { ...process.env };
   afterEach(() => {

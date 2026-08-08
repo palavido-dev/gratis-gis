@@ -1,8 +1,4 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { spawn } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { clampScriptTimeout } from '@gratis-gis/shared-types';
@@ -11,45 +7,44 @@ import { ApiKeyService } from '../auth/api-key.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 /**
- * Executes queued `script` runs (#221).
+ * Claims queued `script` runs and hands them to the executor (#221).
  *
- * The privilege story, which is the whole design:
+ * This process NEVER spawns Python. That is the whole point of the
+ * split.
  *
- *   - The child process gets a SCRUBBED environment. Not the worker's
- *     environment minus a few names: a fresh object with exactly the
- *     variables listed below. The worker itself needs DATABASE_URL to
- *     claim rows and MinIO credentials for other work, and none of
- *     that may leak into a process running code the portal did not
- *     write. An allowlist fails closed when a new secret is added to
- *     compose later; a denylist fails open, silently.
- *   - The only credential the child receives is an API key minted for
- *     this run, valid for the run's timeout, revoked when it ends.
- *     Its authority is the owning user's, so a script can never reach
- *     anything that user could not reach in the browser.
- *   - Writes therefore go through the public HTTP API and the engine,
- *     preserving the observation log's bitemporal semantics. A direct
- *     database handle would let a script corrupt that model silently.
- *     Same boundary the analysis bridge draws.
+ * Claiming requires the database, and a container that can reach the
+ * database sits on a network where the database is reachable. In the
+ * original single-container design the script inherited that: a probe
+ * script opened sockets to postgres:5432, minio:9000, and
+ * keycloak:8080. It had no credentials for any of them, but "needs a
+ * password" is a much weaker property than "cannot open the socket",
+ * and only one of the two survives a protocol-level vulnerability.
  *
- * Claiming reuses the analysis queue's proven mechanism: FOR UPDATE
- * SKIP LOCKED, a heartbeat while running, and a sweep that fails rows
- * whose worker died. A SIGKILLed worker cannot flip its own row.
+ * So the two responsibilities are now two containers. This one holds
+ * the database handle and no Python. The executor holds the Python and
+ * no database, on a network carrying only this claimer and portal-api.
+ *
+ * Cancel is expressed as hanging up: aborting the HTTP request makes
+ * the executor kill the child. That avoids a second endpoint and a
+ * run-id registry on the executor that could leak entries when a
+ * claimer dies mid-run.
+ *
+ * Claim, heartbeat, and stale reclaim are the analysis queue's proven
+ * mechanism, reused rather than reinvented.
  */
 @Injectable()
 export class ScriptRunnerWorker implements OnModuleDestroy {
   private readonly log = new Logger(ScriptRunnerWorker.name);
   private timer: NodeJS.Timeout | null = null;
   private stopping = false;
-  /** Live children, so shutdown and cancel can reach them. */
-  private readonly running = new Map<string, { kill: () => void }>();
+  /** In-flight runs, so shutdown can abort them promptly. */
+  private readonly inFlight = new Map<string, AbortController>();
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly apiKeys: ApiKeyService,
   ) {}
 
-  /** Started explicitly by the worker entry point, never by the API
-   *  process: an API replica must not spend its CPU on user code. */
   start(): void {
     if (this.timer) return;
     const period = Number(process.env.SCRIPT_POLL_MS ?? 3000);
@@ -57,13 +52,15 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
       void this.tick();
     }, period);
     this.timer.unref();
-    this.log.log(`script runner polling every ${period}ms`);
+    this.log.log(
+      `script claimer polling every ${period}ms, executor at ${executorUrl()}`,
+    );
   }
 
   onModuleDestroy(): void {
     this.stopping = true;
     if (this.timer) clearInterval(this.timer);
-    for (const child of this.running.values()) child.kill();
+    for (const ac of this.inFlight.values()) ac.abort();
   }
 
   private async tick(): Promise<void> {
@@ -71,7 +68,7 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
     try {
       await this.reclaimStale();
       const claimed = await this.claimOne();
-      if (claimed) await this.execute(claimed);
+      if (claimed) await this.dispatch(claimed);
     } catch (err) {
       this.log.error(
         `script poll failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -80,9 +77,8 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
   }
 
   /**
-   * Fail runs whose worker stopped beating. Without this a killed
-   * worker leaves a row in `running` forever and the UI spins. Same
-   * reasoning and window as the analysis queue.
+   * Fail runs whose claimer stopped beating. Without this a killed
+   * claimer leaves a row in `running` forever and the UI spins.
    */
   private async reclaimStale(): Promise<void> {
     const staleAfterMs = Number(process.env.SCRIPT_STALE_MS ?? 10 * 60 * 1000);
@@ -103,14 +99,10 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
             : 'The worker running this script stopped responding.',
         apiKeyId: row.apiKeyId,
       });
-      this.log.warn(`script run ${row.id}: reclaimed, worker heartbeat stale`);
+      this.log.warn(`script run ${row.id}: reclaimed, heartbeat stale`);
     }
   }
 
-  /**
-   * Claim the oldest queued run. SKIP LOCKED so two workers never take
-   * the same row and neither blocks on the other.
-   */
   private async claimOne(): Promise<{
     id: string;
     userId: string;
@@ -143,7 +135,7 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
     return { id: row.id, userId: row.user_id, source: row.source_snapshot };
   }
 
-  private async execute(job: {
+  private async dispatch(job: {
     id: string;
     userId: string;
     source: string;
@@ -162,199 +154,115 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
       data: { apiKeyId: key.id },
     });
 
-    const dir = await mkdtemp(join(tmpdir(), 'gg-script-'));
-    const file = join(dir, 'main.py');
-    await writeFile(file, job.source, 'utf8');
+    const ac = new AbortController();
+    this.inFlight.set(job.id, ac);
+
+    const heartbeat = setInterval(() => {
+      void this.prisma.scriptRun
+        .update({ where: { id: job.id }, data: { heartbeatAt: new Date() } })
+        .catch(() => {
+          // A missed beat is recoverable; the sweep window is minutes.
+        });
+    }, 30_000);
+    heartbeat.unref();
+
+    // Cooperative cancel: poll the row and hang up on the executor,
+    // which kills the child when the request closes.
+    const cancelPoll = setInterval(() => {
+      void this.prisma.scriptRun
+        .findUnique({ where: { id: job.id }, select: { state: true } })
+        .then((r) => {
+          if (r?.state === 'cancel_requested') ac.abort();
+        })
+        .catch(() => {
+          // A transient DB blip must not kill a healthy run.
+        });
+    }, 2000);
+    cancelPoll.unref();
 
     const started = Date.now();
-    let out = '';
-    let truncated = false;
-    const maxLog = Number(process.env.SCRIPT_MAX_LOG_BYTES ?? 256 * 1024);
-
     try {
-      const result = await new Promise<{
-        code: number | null;
-        killedBy: 'timeout' | 'cancel' | null;
-      }>((resolve) => {
-        const child = spawn(
-          process.env.SCRIPT_PYTHON ?? 'python3',
-          // -I isolates: ignores PYTHON* env vars and the user site
-          // directory, so the run cannot be steered by leftovers in
-          // the image. -u keeps output unbuffered, which matters
-          // because a killed process must not lose the last thing it
-          // printed before dying.
-          ['-I', '-u', file],
-          {
-            cwd: dir,
-            env: this.childEnv(key.token),
-            stdio: ['ignore', 'pipe', 'pipe'],
-          },
-        );
-
-        let settled = false;
-        let killedBy: 'timeout' | 'cancel' | null = null;
-        const collect = (buf: Buffer) => {
-          if (truncated) return;
-          out += buf.toString('utf8');
-          if (out.length > maxLog) {
-            out = out.slice(0, maxLog);
-            truncated = true;
-            // Say so explicitly. A log that just stops reads as a
-            // crash, and the author would go looking for the wrong bug.
-            out += '\n--- output truncated at the size limit ---\n';
-          }
-        };
-        child.stdout.on('data', collect);
-        child.stderr.on('data', collect);
-
-        const hardKill = () => {
-          // SIGKILL, not SIGTERM: a script can install a SIGTERM
-          // handler, and a timeout that a script can decline to honour
-          // is not a timeout.
-          try {
-            child.kill('SIGKILL');
-          } catch {
-            // Already gone.
-          }
-        };
-        const timeoutHandle = setTimeout(() => {
-          killedBy = 'timeout';
-          hardKill();
-        }, timeoutSeconds * 1000);
-        timeoutHandle.unref();
-
-        // Cooperative cancel: poll the row rather than hold a
-        // listener, matching how the analysis queue does it.
-        const cancelPoll = setInterval(() => {
-          void this.prisma.scriptRun
-            .findUnique({
-              where: { id: job.id },
-              select: { state: true },
-            })
-            .then((r) => {
-              if (r?.state === 'cancel_requested') {
-                killedBy = 'cancel';
-                hardKill();
-              }
-            })
-            .catch(() => {
-              // A transient DB blip must not kill a healthy run.
-            });
-        }, 2000);
-        cancelPoll.unref();
-
-        const heartbeat = setInterval(() => {
-          void this.prisma.scriptRun
-            .update({
-              where: { id: job.id },
-              data: { heartbeatAt: new Date() },
-            })
-            .catch(() => {
-              // Same: a missed beat is recoverable, the sweep window
-              // is minutes wide.
-            });
-        }, 30_000);
-        heartbeat.unref();
-
-        this.running.set(job.id, { kill: hardKill });
-
-        const done = (code: number | null) => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timeoutHandle);
-          clearInterval(cancelPoll);
-          clearInterval(heartbeat);
-          this.running.delete(job.id);
-          resolve({ code, killedBy });
-        };
-        child.on('error', (err) => {
-          out += `\nCould not start the script: ${err.message}\n`;
-          done(null);
-        });
-        child.on('close', (code) => done(code));
+      const res = await fetch(`${executorUrl()}/execute`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-script-executor-token': process.env.SCRIPT_EXECUTOR_TOKEN ?? '',
+        },
+        body: JSON.stringify({
+          source: job.source,
+          apiKeyToken: key.token,
+          timeoutSeconds,
+          maxLogBytes: Number(process.env.SCRIPT_MAX_LOG_BYTES ?? 262_144),
+        }),
+        signal: ac.signal,
       });
 
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        await this.finish(job.id, {
+          state: 'failed',
+          error: `The script executor refused the run (HTTP ${res.status}).`,
+          log: detail.slice(0, 2000),
+          apiKeyId: key.id,
+        });
+        return;
+      }
+
+      const out = (await res.json()) as {
+        exitCode: number | null;
+        log: string;
+        killedBy: 'timeout' | 'cancel' | null;
+      };
       const seconds = ((Date.now() - started) / 1000).toFixed(1);
-      if (result.killedBy === 'timeout') {
+
+      if (out.killedBy === 'timeout') {
         await this.finish(job.id, {
           state: 'failed',
           error: `Stopped after ${timeoutSeconds}s, the time limit for a script run.`,
-          log: out,
+          log: out.log,
           apiKeyId: key.id,
         });
-      } else if (result.killedBy === 'cancel') {
+      } else if (out.killedBy === 'cancel') {
         await this.finish(job.id, {
           state: 'cancelled',
           error: 'Cancelled.',
-          log: out,
+          log: out.log,
           apiKeyId: key.id,
         });
-      } else if (result.code === 0) {
+      } else if (out.exitCode === 0) {
         await this.finish(job.id, {
           state: 'done',
           exitCode: 0,
-          log: out,
+          log: out.log,
           apiKeyId: key.id,
         });
         this.log.log(`script run ${job.id}: done in ${seconds}s`);
       } else {
         await this.finish(job.id, {
           state: 'failed',
-          exitCode: result.code,
-          error: `The script exited with code ${result.code}.`,
-          log: out,
+          exitCode: out.exitCode,
+          error: `The script exited with code ${out.exitCode}.`,
+          log: out.log,
           apiKeyId: key.id,
         });
       }
     } catch (err) {
+      // An aborted fetch is the cancel path, not a failure of ours.
+      const cancelled = ac.signal.aborted;
       await this.finish(job.id, {
-        state: 'failed',
-        error: err instanceof Error ? err.message : String(err),
-        log: out,
+        state: cancelled ? 'cancelled' : 'failed',
+        error: cancelled
+          ? 'Cancelled.'
+          : `Could not reach the script executor: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
         apiKeyId: key.id,
       });
     } finally {
-      await rm(dir, { recursive: true, force: true }).catch(() => {
-        // A leftover temp dir is not worth failing a finished run.
-      });
+      clearInterval(heartbeat);
+      clearInterval(cancelPoll);
+      this.inFlight.delete(job.id);
     }
-  }
-
-  /**
-   * The child's entire environment, built from nothing.
-   *
-   * Allowlist, not denylist. The worker's own environment holds
-   * DATABASE_URL, MinIO root credentials, the Keycloak admin secret,
-   * and the credential encryption key. Passing `...process.env` minus
-   * a hand-maintained deny set means the next secret someone adds to
-   * compose is exposed to every script until somebody remembers to
-   * add it to the list. Starting empty means the next secret is
-   * private by default and the mistake is a missing variable, which
-   * is loud.
-   */
-  private childEnv(apiKeyToken: string): NodeJS.ProcessEnv {
-    return {
-      // Exactly the two names `GratisGIS.from_env()` reads. Getting
-      // this wrong is invisible to a unit test that asserts the same
-      // wrong name, and shows up as a ValueError on the first real
-      // run; it did. The client's contract is the authority here, not
-      // this file, because the same two variables are what a person
-      // exports on their laptop.
-      GRATISGIS_URL: process.env.PORTAL_BASE_URL ?? 'http://localhost:3000',
-      GRATISGIS_API_KEY: apiKeyToken,
-      // Enough of a system for python to start and for TLS to verify.
-      PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
-      HOME: process.env.SCRIPT_HOME ?? '/tmp',
-      LANG: 'C.UTF-8',
-      LC_ALL: 'C.UTF-8',
-      // Requests / httpx read these for the CA bundle in slim images.
-      ...(process.env.SSL_CERT_FILE
-        ? { SSL_CERT_FILE: process.env.SSL_CERT_FILE }
-        : {}),
-      ...(process.env.SSL_CERT_DIR
-        ? { SSL_CERT_DIR: process.env.SSL_CERT_DIR }
-        : {}),
-    };
   }
 
   /** Terminal update plus key revocation, in that order. */
@@ -389,4 +297,10 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
       });
     }
   }
+}
+
+function executorUrl(): string {
+  return (
+    process.env.SCRIPT_EXECUTOR_URL ?? 'http://script-executor:4100'
+  ).replace(/\/+$/, '');
 }

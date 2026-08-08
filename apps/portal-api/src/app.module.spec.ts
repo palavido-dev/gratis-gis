@@ -48,6 +48,7 @@ import { Test } from '@nestjs/testing';
 import { AppModule } from './app.module.js';
 import { WorkerAppModule } from './worker.module.js';
 import { ScriptWorkerAppModule } from './script-worker.module.js';
+import { ScriptExecutorAppModule } from './script-executor.module.js';
 
 // The real module reads configuration at construction time. These are
 // syntactically valid throwaways: nothing here connects anywhere,
@@ -84,6 +85,7 @@ describe('AppModule dependency graph', () => {
   it.each([
     ['portal-worker', WorkerAppModule],
     ['script-runner', ScriptWorkerAppModule],
+    ['script-executor', ScriptExecutorAppModule],
   ])('resolves every provider in the %s graph too', async (_name, mod) => {
     // Each of these is a real container CMD. A graph that does not
     // resolve here is a container that crash-loops on deploy, and the

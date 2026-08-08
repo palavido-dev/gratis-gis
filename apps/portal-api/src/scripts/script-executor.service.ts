@@ -1,0 +1,162 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import { spawn } from 'node:child_process';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Injectable, Logger } from '@nestjs/common';
+
+export interface ExecuteRequest {
+  source: string;
+  /** The run's minted portal key. The only credential the child gets. */
+  apiKeyToken: string;
+  timeoutSeconds: number;
+  maxLogBytes: number;
+}
+
+export interface ExecuteResult {
+  exitCode: number | null;
+  log: string;
+  killedBy: 'timeout' | 'cancel' | null;
+}
+
+/**
+ * Spawns the Python. This is the only code in the portal that runs
+ * something the portal did not write.
+ *
+ * It lives in its own process and its own container on purpose (see
+ * script-executor.main.ts). The container it runs in has no database
+ * credentials and sits on a network that cannot reach postgres,
+ * object storage, or Keycloak, so "what can this process reach" is
+ * answered by Docker rather than by this file being careful.
+ *
+ * That matters because the environment scrub below, good as it is,
+ * only controls what the child can READ. It does nothing about what
+ * the child can CONNECT to. A script in the previous single-container
+ * design could open a socket to postgres:5432 with no credentials;
+ * verified, not theorised. Credentials were never the whole story.
+ */
+@Injectable()
+export class ScriptExecutorService {
+  private readonly log = new Logger(ScriptExecutorService.name);
+
+  async execute(
+    req: ExecuteRequest,
+    /** Fires when the caller goes away, i.e. a cancel. */
+    signal?: AbortSignal,
+  ): Promise<ExecuteResult> {
+    const dir = await mkdtemp(join(tmpdir(), 'gg-script-'));
+    const file = join(dir, 'main.py');
+    await writeFile(file, req.source, 'utf8');
+
+    let out = '';
+    let truncated = false;
+
+    try {
+      return await new Promise<ExecuteResult>((resolve) => {
+        const child = spawn(
+          process.env.SCRIPT_PYTHON ?? 'python3',
+          // -I isolates: ignores PYTHON* env vars and the user site
+          // directory, so the run cannot be steered by leftovers in
+          // the image. -u keeps output unbuffered, because a killed
+          // process must not lose the last thing it printed.
+          ['-I', '-u', file],
+          {
+            cwd: dir,
+            env: this.childEnv(req.apiKeyToken),
+            stdio: ['ignore', 'pipe', 'pipe'],
+          },
+        );
+
+        let settled = false;
+        let killedBy: 'timeout' | 'cancel' | null = null;
+
+        const collect = (buf: Buffer) => {
+          if (truncated) return;
+          out += buf.toString('utf8');
+          if (out.length > req.maxLogBytes) {
+            out = out.slice(0, req.maxLogBytes);
+            truncated = true;
+            // Say so. A log that just stops reads as a crash, and the
+            // author goes looking for the wrong bug.
+            out += '\n--- output truncated at the size limit ---\n';
+          }
+        };
+        child.stdout.on('data', collect);
+        child.stderr.on('data', collect);
+
+        const hardKill = () => {
+          // SIGKILL, not SIGTERM: a script can install a SIGTERM
+          // handler, and a timeout a script may decline to honour is
+          // not a timeout.
+          try {
+            child.kill('SIGKILL');
+          } catch {
+            // Already gone.
+          }
+        };
+
+        const timer = setTimeout(() => {
+          killedBy = 'timeout';
+          hardKill();
+        }, req.timeoutSeconds * 1000);
+        timer.unref();
+
+        const onAbort = () => {
+          killedBy = 'cancel';
+          hardKill();
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
+
+        const done = (code: number | null) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          signal?.removeEventListener('abort', onAbort);
+          resolve({ exitCode: code, log: out, killedBy });
+        };
+        child.on('error', (err) => {
+          out += `\nCould not start the script: ${err.message}\n`;
+          done(null);
+        });
+        child.on('close', (code) => done(code));
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true }).catch(() => {
+        // A leftover temp dir is not worth failing a finished run.
+      });
+    }
+  }
+
+  /**
+   * The child's entire environment, built from nothing.
+   *
+   * Allowlist, not denylist. Passing `...process.env` minus a
+   * hand-maintained deny set means the next secret someone adds to
+   * compose is exposed to every script until somebody remembers to
+   * add it to the list. Starting empty means the next secret is
+   * private by default and the mistake is a missing variable, which
+   * is loud.
+   *
+   * GRATISGIS_URL and GRATISGIS_API_KEY are exactly the names
+   * `GratisGIS.from_env()` reads. That is a contract shared with
+   * everyone who exports them on their own machine, so the spec
+   * checks them against the client's source rather than a literal.
+   */
+  childEnv(apiKeyToken: string): NodeJS.ProcessEnv {
+    return {
+      GRATISGIS_URL: process.env.PORTAL_BASE_URL ?? 'http://localhost:3000',
+      GRATISGIS_API_KEY: apiKeyToken,
+      // Enough of a system for python to start and for TLS to verify.
+      PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
+      HOME: process.env.SCRIPT_HOME ?? '/tmp',
+      LANG: 'C.UTF-8',
+      LC_ALL: 'C.UTF-8',
+      ...(process.env.SSL_CERT_FILE
+        ? { SSL_CERT_FILE: process.env.SSL_CERT_FILE }
+        : {}),
+      ...(process.env.SSL_CERT_DIR
+        ? { SSL_CERT_DIR: process.env.SSL_CERT_DIR }
+        : {}),
+    };
+  }
+}

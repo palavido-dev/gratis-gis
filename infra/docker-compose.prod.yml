@@ -481,6 +481,12 @@ services:
       - gg-staging:/var/lib/gg-staging
     networks:
       - gratis-net
+      # #221: also reachable from the script network, because a script
+      # talking to the portal's public API is the entire supported way
+      # for it to do anything. postgres, minio, and keycloak
+      # deliberately do NOT join that network; this is the one door,
+      # and it is the same authenticated HTTP surface any client uses.
+      - gg-script-net
     # No public port. Caddy talks to it as `portal-api:4000` and load-
     # balances across replicas via Docker DNS round-robin.
 
@@ -566,36 +572,29 @@ services:
     networks:
       - gratis-net
 
-  # #221: executes user-authored `script` items.
+  # #221: claims queued script runs and hands them to the executor.
   #
-  # Behind the `scripts` profile, so it is NOT started by a plain
-  # `docker compose up`. This is the only container that runs code the
-  # portal did not write, and an operator should turn that on
-  # deliberately rather than inherit it from an upgrade. Start it with
-  # `--profile scripts`, and set PORTAL_SCRIPTS_ENABLED=1 so the API
-  # offers the run endpoints.
+  # Behind the `scripts` profile, so a plain `docker compose up` does
+  # not start it. Running code the portal did not write should be a
+  # deliberate decision, not something inherited from an upgrade.
+  # Start with `--profile scripts` and set PORTAL_SCRIPTS_ENABLED=1 so
+  # the API offers the run endpoints.
   #
-  # Its own image (portal-api plus a Python venv) and its own process,
-  # so a runaway script cannot OOM the import queue, and so the
-  # environment nearest the user code holds as few secrets as possible.
+  # This container holds the database handle and NO Python. It sits on
+  # both networks because it needs postgres to claim work and the
+  # executor to dispatch it. That dual membership is precisely why the
+  # Python lives somewhere else.
   script-runner:
-    image: gratis-gis/script-runner:latest
+    image: gratis-gis/portal-api:latest
     container_name: gratis-gis-prod-script-runner
     profiles: ["scripts"]
-    build:
-      context: ..
-      dockerfile: infra/script-runner/Dockerfile
-      args:
-        PORTAL_API_IMAGE: gratis-gis/portal-api:latest
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
       portal-migrate:
         condition: service_completed_successfully
-    # Deliberately modest. A maintenance script that needs more than
-    # this is doing something the analysis tier should be doing.
-    mem_limit: 1024m
+    mem_limit: 512m
     environment:
       NODE_ENV: production
       # Never migrate from here: portal-migrate owns that, and a
@@ -603,17 +602,12 @@ services:
       SKIP_MIGRATE: "true"
       ENABLE_CRONS: "false"
       DATABASE_URL: postgresql://${POSTGRES_USER:-gratisgis}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gratisgis}
-      # Where a script's own API calls go. Internal DNS rather than the
-      # public hostname so a run does not leave the host, hairpin
-      # through Caddy, and pay TLS to talk to a container beside it.
-      PORTAL_BASE_URL: http://portal-api:4000
-      # NOTE the absence of MINIO_*, KEYCLOAK_ADMIN_*, and
-      # CREDENTIAL_ENCRYPTION_KEY. This process has no use for them,
-      # and the runner scrubs the child environment anyway; not having
-      # them here at all means there is nothing to scrub.
+      SCRIPT_EXECUTOR_URL: http://script-executor:4100
+      SCRIPT_EXECUTOR_TOKEN: ${SCRIPT_EXECUTOR_TOKEN:?SCRIPT_EXECUTOR_TOKEN must be set in .env.prod when the scripts profile is used}
       SCRIPT_TIMEOUT_SECONDS: ${SCRIPT_TIMEOUT_SECONDS:-300}
       SCRIPT_POLL_MS: ${SCRIPT_POLL_MS:-3000}
       SCRIPT_MAX_LOG_BYTES: ${SCRIPT_MAX_LOG_BYTES:-262144}
+    command: ["node", "dist/script-worker.main.js"]
     healthcheck:
       test: ["CMD-SHELL", "grep -q script-worker.main.js /proc/1/cmdline"]
       interval: 30s
@@ -621,6 +615,52 @@ services:
       retries: 3
     networks:
       - gratis-net
+      - gg-script-net
+
+  # #221: the one container that runs user-authored Python.
+  #
+  # No DATABASE_URL, no MinIO keys, no Keycloak secret, and crucially
+  # only on gg-script-net, which does not carry postgres, minio, or
+  # keycloak. A script cannot open a socket to them, rather than being
+  # able to open one and merely lacking a password.
+  #
+  # Its own image because it needs a Python interpreter and a
+  # scientific stack that no other service wants.
+  script-executor:
+    image: gratis-gis/script-runner:latest
+    container_name: gratis-gis-prod-script-executor
+    profiles: ["scripts"]
+    build:
+      context: ..
+      dockerfile: infra/script-runner/Dockerfile
+      args:
+        PORTAL_API_IMAGE: gratis-gis/portal-api:latest
+    restart: unless-stopped
+    # Deliberately modest. A maintenance script needing more than this
+    # is doing work the analysis tier should be doing.
+    mem_limit: 1024m
+    environment:
+      NODE_ENV: production
+      SKIP_MIGRATE: "true"
+      ENABLE_CRONS: "false"
+      # Shared secret with the claimer. Network placement is the
+      # primary control; this is the backstop for the day something
+      # else lands on gg-script-net.
+      SCRIPT_EXECUTOR_TOKEN: ${SCRIPT_EXECUTOR_TOKEN:?SCRIPT_EXECUTOR_TOKEN must be set in .env.prod when the scripts profile is used}
+      SCRIPT_EXECUTOR_PORT: "4100"
+      # Where a script's own API calls go. Internal DNS rather than the
+      # public hostname so a run does not leave the host, hairpin
+      # through Caddy, and pay TLS to reach a container beside it.
+      PORTAL_BASE_URL: http://portal-api:4000
+    command: ["node", "dist/script-executor.main.js"]
+    # No published port. Reachable only from inside gg-script-net.
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q script-executor.main.js /proc/1/cmdline"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - gg-script-net
 
   # #184 workbench: server-heavy analysis tier. PDAL + untwine +
   # GDAL from conda-forge in a dedicated image so the Node images
@@ -854,4 +894,24 @@ volumes:
 
 networks:
   gratis-net:
+    driver: bridge
+
+  # #221: the network user-authored Python is allowed to see.
+  #
+  # Members: script-executor (which runs the Python), script-runner
+  # (which hands it work), and portal-api (which the script talks to).
+  # NOT postgres, NOT minio, NOT keycloak. That absence is the control.
+  #
+  # Measured before it existed: a probe script on the single-network
+  # design opened sockets to postgres:5432, minio:9000, and
+  # keycloak:8080. It had no credentials for any of them, but "needs a
+  # password" is a weaker property than "cannot open the socket", and
+  # only one of the two survives a protocol-level CVE in one of those
+  # services.
+  #
+  # Deliberately NOT `internal: true`. A script legitimately needs the
+  # public internet: the case this feature exists for is refreshing a
+  # layer from a county REST endpoint. Cutting off egress would remove
+  # the reason to have it.
+  gg-script-net:
     driver: bridge

@@ -4,9 +4,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { ApiKeyService } from '../auth/api-key.service.js';
-import { PrismaService } from '../prisma/prisma.service.js';
-import { ScriptRunnerWorker } from './script-runner.worker.js';
+import { ScriptExecutorService } from './script-executor.service.js';
 
 /**
  * The unit spec next door asserts the shape of the environment object.
@@ -69,14 +67,9 @@ if (!PYTHON && process.env.REQUIRE_PYTHON_SPECS === '1') {
 }
 
 d('script runner, against a real interpreter', () => {
-  const worker = new ScriptRunnerWorker(
-    {} as unknown as PrismaService,
-    {} as unknown as ApiKeyService,
-  );
+  const executor = new ScriptExecutorService();
   const childEnv = (token: string): NodeJS.ProcessEnv =>
-    (
-      worker as unknown as { childEnv: (t: string) => NodeJS.ProcessEnv }
-    ).childEnv(token);
+    executor.childEnv(token);
 
   let dir: string;
   beforeAll(async () => {
