@@ -37,13 +37,13 @@ from .errors import (
     ValidationError,
 )
 
-__all__ = ["GratisGIS", "field", "layer"]
+__all__ = ["GratisGIS", "field", "layer", "buffer", "step"]
 
 # Declared here rather than in __init__, which imports this module:
 # the default User-Agent below needs it, and a second literal would
 # drift from the package version the first time one of them is bumped
 # alone.
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 # The portal caps a single append at 5000 features (AppendFeaturesBodyDto).
 # Batch below it so a caller handing us a million rows just works.
@@ -75,6 +75,78 @@ EXPORT_FORMATS = {
     "csv": ("csv", "text/csv"),
     "geojson": ("geojson", "application/geo+json"),
 }
+
+
+#: Distance units a buffer accepts.
+LENGTH_UNITS = ("meters", "kilometers", "feet", "yards", "miles")
+
+#: Every geoprocessing step a derived layer can run, server-side.
+#: Build the common ones with the helpers below; the rest are plain
+#: dicts of ``{"tool": name, "params": {...}}``.
+TOOLS = (
+    "buffer",
+    "dissolve",
+    "centroid",
+    "convex-hull",
+    "bbox",
+    "simplify",
+    "vertices",
+    "densify",
+    "top-n",
+    "random-sample",
+    "nearest-neighbor",
+    "fishnet",
+    "calculate-geometry",
+    "filter",
+    "calculate-field",
+    "aggregate",
+    "spatial-join",
+    "spatial-filter",
+    "clip",
+    "erase",
+    "contour",
+)
+
+
+def buffer(distance: float, unit: str = "meters") -> Dict[str, Any]:
+    """A buffer step, for :meth:`GratisGIS.create_derived_layer`.
+
+    Runs as ``ST_Buffer`` on the geography type, so the distance is
+    correct anywhere on the globe and you do not have to pick a
+    projection. Capped at 100 km.
+
+    Pass a field name instead of a number to buffer each feature by its
+    own value: ``buffer("setback_ft", "feet")``.
+    """
+    if unit not in LENGTH_UNITS:
+        raise ValueError(
+            f"Unknown unit {unit!r}. One of: {', '.join(LENGTH_UNITS)}."
+        )
+    if isinstance(distance, str):
+        params: Dict[str, Any] = {
+            "mode": "field",
+            "field": distance,
+            "unit": unit,
+        }
+    else:
+        if distance <= 0:
+            raise ValueError("Buffer distance must be greater than zero.")
+        params = {"mode": "fixed", "distance": distance, "unit": unit}
+    return {"tool": "buffer", "params": params}
+
+
+def step(tool: str, **params: Any) -> Dict[str, Any]:
+    """Any other pipeline step, by name.
+
+    ``step("dissolve", fields=["county"])``. The parameter names are the
+    portal's, so check the tool in the portal's own pipeline editor if
+    you are unsure what one takes.
+    """
+    if tool not in TOOLS:
+        raise ValueError(
+            f"Unknown tool {tool!r}. One of: {', '.join(TOOLS)}."
+        )
+    return {"tool": tool, "params": dict(params)}
 
 
 def _host_of(url: str) -> str:
@@ -867,6 +939,150 @@ class GratisGIS:
             f"/items/{item_id}/layers/{layer}/features/calculate-field",
             json=body,
         )
+
+    # ---------------------------------------------------------------
+    # server-side geometry: derived layers
+    # ---------------------------------------------------------------
+
+    def preview_pipeline(
+        self,
+        source_item_id: str,
+        layer: str,
+        pipeline: Iterable[Dict[str, Any]],
+        *,
+        up_to: Optional[int] = None,
+        limit: int = 50,
+        at: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Run a geoprocessing pipeline and look at the first few rows.
+
+        Nothing is saved. This is how you check that a buffer distance
+        or a filter means what you meant before committing it, and how
+        you debug a pipeline step by step with ``up_to``.
+
+        Sample size is capped server-side, so this stays cheap on a
+        large layer.
+        """
+        steps = [dict(s) for s in pipeline]
+        if not steps:
+            raise ValueError("A pipeline needs at least one step.")
+        # Exactly these keys. This endpoint validates strictly, so an
+        # extra one is a 400 rather than an ignored field.
+        body: Dict[str, Any] = {
+            "source": {
+                "kind": "data_layer",
+                "itemId": source_item_id,
+                "layerKey": layer,
+            },
+            "pipeline": steps,
+            "limit": limit,
+        }
+        if up_to is not None:
+            body["upTo"] = up_to
+        if at is not None:
+            body["at"] = at
+        return self._request("POST", "/items/derived-layer:preview", json=body)
+
+    def create_derived_layer(
+        self,
+        title: str,
+        source_item_id: str,
+        layer: str,
+        pipeline: Iterable[Dict[str, Any]],
+        *,
+        description: str = "",
+        tags: Optional[Iterable[str]] = None,
+        access: str = "private",
+        feature_limit: int = 1000,
+    ) -> Dict[str, Any]:
+        """Save a geoprocessing pipeline as a layer of its own.
+
+        The important part: a derived layer is a **recipe**, not a copy.
+        It is evaluated when read, in PostGIS, so it never goes stale
+        and nothing is duplicated. Buffer a parcels layer and the buffer
+        follows every later edit to the parcels.
+
+        The result reads like any other layer, so
+        :meth:`read_features`, :meth:`iter_features` and
+        :meth:`export_layer` all work on it unchanged.
+
+        This is also the answer to "can the server do the geometry so I
+        do not have to download the layer". Yes, for vector work:
+        buffer, dissolve, clip, erase, spatial joins and the rest run in
+        the database. Build the steps with :func:`buffer` and friends,
+        or hand-write them.
+        """
+        steps = [dict(s) for s in pipeline]
+        if not steps:
+            raise ValueError(
+                "A derived layer needs at least one step; with none it would "
+                "just be the source layer."
+            )
+        payload: Dict[str, Any] = {
+            "type": "derived_layer",
+            "title": title,
+            "description": description,
+            "access": access,
+            "data": {
+                "version": 1,
+                "source": {
+                    "kind": "data_layer",
+                    "itemId": source_item_id,
+                    "layerKey": layer,
+                },
+                "pipeline": steps,
+                "featureLimit": feature_limit,
+            },
+        }
+        if tags is not None:
+            payload["tags"] = list(tags)
+        return self._request("POST", "/items", json=payload)
+
+    # ---------------------------------------------------------------
+    # geocoding
+    # ---------------------------------------------------------------
+
+    def find_geocoders(self) -> List[Dict[str, Any]]:
+        """Geocoding services this key can see.
+
+        There is no single portal-wide geocoder. A geocoder is an item
+        somebody configured, either over one of the org's own layers or
+        pointing at an external locator, so :meth:`geocode` needs to
+        know which one you mean and this is how you find out.
+        """
+        return self.find_items(type="geocoding_service", limit=50)
+
+    def geocode(
+        self,
+        item_id: str,
+        text: str,
+        *,
+        bbox: Optional[Iterable[float]] = None,
+        limit: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Look an address or place name up against one geocoder.
+
+        Returns candidates ordered best first, each
+        ``{featureId, score, label, geom, attributes}`` where ``geom``
+        is always a Point, the centroid for a line or polygon match.
+
+        ``bbox`` as ``(west, south, east, north)`` biases and restricts
+        the search. The server caps results at 50.
+
+        Note this searches whatever the geocoder was configured over:
+        the org's own address layer, or an external locator. It is not
+        a global street-address service unless somebody set one up.
+        """
+        params: Dict[str, Any] = {"text": text}
+        if bbox is not None:
+            params["bbox"] = ",".join(str(v) for v in bbox)
+        if limit is not None:
+            params["limit"] = limit
+        result = self._request("GET", f"/geocode/{item_id}", params=params)
+        if isinstance(result, dict):
+            found = result.get("candidates")
+            return found if isinstance(found, list) else []
+        return []
 
     # ---------------------------------------------------------------
     # importing a file

@@ -147,8 +147,49 @@ successful query with a surprising number of rows.
 
 ## Buffer, and other geometry
 
-The client does no geometry. Use [Shapely](https://shapely.readthedocs.io),
-which is already installed in the script runner:
+Two ways, and the first is usually the right one.
+
+### On the server, without downloading anything
+
+A **derived layer** is a saved pipeline that PostGIS evaluates when the
+layer is read. The data never leaves the server, and the result is not a
+copy: buffer a parcels layer and the buffer follows every later edit to
+the parcels.
+
+```python
+from gratisgis import buffer, step
+
+# Look before you commit: runs the pipeline, returns a small sample,
+# saves nothing.
+preview = gg.preview_pipeline(item_id, "parcels", [buffer(100)])
+
+derived = gg.create_derived_layer(
+    "Parcels buffered 100m",
+    item_id, "parcels",
+    [buffer(100), step("dissolve", fields=["county"])],
+)
+```
+
+`buffer()` runs as `ST_Buffer` on the geography type, so 100 metres is
+100 metres anywhere on Earth and you do not have to choose a projection.
+Buffer each feature by its own field with `buffer("setback_ft", "feet")`.
+
+Available steps: `buffer`, `dissolve`, `centroid`, `convex-hull`,
+`bbox`, `simplify`, `vertices`, `densify`, `top-n`, `random-sample`,
+`nearest-neighbor`, `fishnet`, `calculate-geometry`, `filter`,
+`calculate-field`, `aggregate`, `spatial-join`, `spatial-filter`,
+`clip`, `erase`, `contour`. Note `clip` and `erase` rather than
+`intersect` and `difference`.
+
+The result reads like any other layer, so `iter_features`,
+`export_layer` and the rest work on it unchanged.
+
+### In your own process
+
+When the pipeline cannot express what you need, pull the features and
+use [Shapely](https://shapely.readthedocs.io), which is already
+installed in the script runner. You are then responsible for the
+projection, and that is the part people get wrong:
 
 ```bash
 pip install shapely pyproj    # on your own machine
@@ -429,12 +470,35 @@ if __name__ == "__main__":
         sys.exit(1)
 ```
 
+## Geocoding
+
+There is no single portal-wide geocoder. Each one is an item somebody
+configured, either over one of the org's own address layers or pointing
+at an external locator, so you pick which to use:
+
+```python
+for g in gg.find_geocoders():
+    print(g["id"], g["title"])
+
+hits = gg.geocode(geocoder_id, "12 Main St", limit=5)
+print(hits[0]["label"], hits[0]["geom"]["coordinates"])
+```
+
+Candidates come back best first, each with a `score` and a Point
+`geom`, which is the centroid when the match was a line or polygon. Pass
+`bbox=(west, south, east, north)` to restrict the search area.
+
+If nothing shows up in `find_geocoders()`, nobody has set one up on
+this portal. There is no reverse geocoding and no batch call.
+
 ## What the client does not do
 
-- **No geometry operations.** Buffer, intersect, and dissolve are
-  Shapely's job, or the portal's analysis tools for anything large.
-- **No raster or point cloud access.** Those go through the portal UI
-  and the analysis queue.
+- **No raster or point cloud access.** Hillshade, viewshed, contours,
+  and the rest of the elevation tools run as jobs from the portal UI,
+  and need the analysis worker deployed.
+- **No local geometry.** Vector geoprocessing is a derived layer, which
+  runs on the server; anything beyond those steps is Shapely's job in
+  your own process.
 - **No admin.** Creating users, editing org settings, and managing
   other people's keys are refused for API keys entirely, by design.
 - **No async.** It is a synchronous client, which is what a cron job

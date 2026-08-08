@@ -1050,3 +1050,135 @@ class TestImportFile:
             make_client(lambda r: httpx.Response(200)).import_file(
                 "itm", "parcels", src, mode="upsert"
             )
+
+
+# ---------------------------------------------------------------------
+# derived layers (server-side geometry) and geocoding
+# ---------------------------------------------------------------------
+
+
+class TestPipelineSteps:
+    def test_fixed_buffer(self):
+        from gratisgis import buffer
+
+        assert buffer(100) == {
+            "tool": "buffer",
+            "params": {"mode": "fixed", "distance": 100, "unit": "meters"},
+        }
+
+    def test_buffer_by_a_field(self):
+        from gratisgis import buffer
+
+        assert buffer("setback_ft", "feet")["params"] == {
+            "mode": "field",
+            "field": "setback_ft",
+            "unit": "feet",
+        }
+
+    def test_rejects_a_bad_unit_and_a_zero_distance(self):
+        from gratisgis import buffer
+
+        with pytest.raises(ValueError, match="Unknown unit"):
+            buffer(10, "furlongs")
+        with pytest.raises(ValueError, match="greater than zero"):
+            buffer(0)
+
+    def test_step_rejects_an_unknown_tool(self):
+        from gratisgis import step
+
+        with pytest.raises(ValueError, match="Unknown tool"):
+            step("intersect")          # the portal calls it clip
+        assert step("dissolve", fields=["county"]) == {
+            "tool": "dissolve",
+            "params": {"fields": ["county"]},
+        }
+
+
+class TestDerivedLayers:
+    def test_preview_sends_only_the_allowed_keys(self):
+        from gratisgis import buffer
+
+        captured = {}
+
+        def handler(request):
+            assert request.url.path == "/api/items/derived-layer:preview"
+            captured.update(json.loads(request.content))
+            return httpx.Response(201, json={"features": []})
+
+        make_client(handler).preview_pipeline("src", "parcels", [buffer(100)])
+        # This endpoint validates strictly: an extra key is a 400, not an
+        # ignored field.
+        assert set(captured) == {"source", "pipeline", "limit"}
+        assert captured["source"] == {
+            "kind": "data_layer",
+            "itemId": "src",
+            "layerKey": "parcels",
+        }
+
+    def test_create_builds_a_recipe_item(self):
+        from gratisgis import buffer, step
+
+        captured = {}
+
+        def handler(request):
+            assert request.url.path == "/api/items"
+            captured.update(json.loads(request.content))
+            return httpx.Response(201, json={"id": "derived-1"})
+
+        make_client(handler).create_derived_layer(
+            "Parcels within 100m of a stream",
+            "src",
+            "parcels",
+            [buffer(100), step("dissolve", fields=["county"])],
+        )
+        assert captured["type"] == "derived_layer"
+        assert captured["data"]["version"] == 1
+        assert [s["tool"] for s in captured["data"]["pipeline"]] == [
+            "buffer",
+            "dissolve",
+        ]
+
+    def test_an_empty_pipeline_is_refused(self):
+        gg = make_client(lambda r: httpx.Response(200))
+        with pytest.raises(ValueError, match="at least one step"):
+            gg.create_derived_layer("t", "src", "parcels", [])
+        with pytest.raises(ValueError, match="at least one step"):
+            gg.preview_pipeline("src", "parcels", [])
+
+
+class TestGeocoding:
+    def test_geocode_unwraps_candidates(self):
+        def handler(request):
+            assert request.url.path == "/api/geocode/geo-1"
+            assert dict(request.url.params)["text"] == "12 Main St"
+            return httpx.Response(
+                200, json={"candidates": [{"label": "12 Main St", "score": 91}]}
+            )
+
+        out = make_client(handler).geocode("geo-1", "12 Main St")
+        assert out[0]["score"] == 91
+
+    def test_bbox_is_comma_joined(self):
+        seen = {}
+
+        def handler(request):
+            seen.update(dict(request.url.params))
+            return httpx.Response(200, json={"candidates": []})
+
+        make_client(handler).geocode(
+            "geo-1", "x", bbox=(-80.1, 38.7, -80.0, 38.8), limit=5
+        )
+        assert seen["bbox"] == "-80.1,38.7,-80.0,38.8"
+        assert seen["limit"] == "5"
+
+    def test_find_geocoders_filters_by_type(self):
+        seen = {}
+
+        def handler(request):
+            seen.update(dict(request.url.params))
+            return httpx.Response(200, json=[])
+
+        make_client(handler).find_geocoders()
+        # There is no portal-wide geocoder; each one is an item, so
+        # discovery is a normal item search.
+        assert seen["type"] == "geocoding_service"
