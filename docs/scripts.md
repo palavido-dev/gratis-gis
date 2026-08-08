@@ -188,10 +188,39 @@ changes the subnet the rules are written against. The script reads the
 subnet from Docker each time rather than hardcoding it, since a rule
 pointing at a stale subnet fails open silently.
 
-Public internet access is deliberately left alone, and so is RFC1918
-generally: a self-hosted portal may well need to reach an internal
-server at 10.x, and blanket private-range blocking would break that
-while adding little.
+RFC1918 generally is deliberately left alone: a self-hosted portal may
+well need to reach an internal server at 10.x, and blanket private-range
+blocking would break that while adding little.
+
+### Egress modes, and how to demo this safely
+
+Public internet access is on by default, because refreshing a layer from
+a county endpoint is the case the feature exists for.
+
+`SCRIPT_EGRESS=portal-only` turns it off. Scripts keep the whole portal
+API and lose everything else.
+
+```
+# .env.prod
+SCRIPT_EGRESS=portal-only
+```
+
+This exists so a public demo can offer scripts at all. The reason not to
+hand script authoring to strangers was never that they might escape the
+sandbox: it is that open egress lets them make requests from your
+server's address, and the abuse report arrives with your name on it.
+Remove the egress and the objection goes with it.
+
+What survives is most of what people actually write:
+
+```
+read a layer -> compute something -> write a new layer -> read the log
+```
+
+Measured on the demo box in `portal-only`: a script read 200 real
+parcels, buffered them 100 m through shapely and pyproj, reported the
+area, and got `URLError` on `https://example.com`. Same script in
+`open` mode reaches the internet normally.
 
 ### Still true, and worth being clear about
 

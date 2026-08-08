@@ -18,6 +18,10 @@ Type=oneshot
 # run: the rules would have been installed once and then never
 # re-asserted, which is precisely the failure the timer exists to
 # prevent.
+# Read SCRIPT_EGRESS from the deployment's env file if it sets one.
+# `-` so a box without the file still boots the fence in its default
+# (open) mode rather than failing and leaving no rules at all.
+EnvironmentFile=-/opt/gratis-gis/infra/.env.prod
 ExecStart=/opt/gratis-gis/infra/script-net-firewall.sh
 # Do not fail the boot over this. The unit is re-run by its timer every
 # few minutes, so a transient failure here (docker not answering yet)

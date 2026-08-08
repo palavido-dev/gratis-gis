@@ -41,6 +41,33 @@ NETWORK="${GG_SCRIPT_NETWORK:-gratis-gis-prod_gg-script-net}"
 CHAIN="GG-SCRIPT-EGRESS"
 LINK_LOCAL="169.254.0.0/16"
 
+# How much of the internet a script may reach.
+#
+#   open         (default) the public internet. What the feature is for:
+#                refreshing a layer from a county REST endpoint needs to
+#                leave the building.
+#   portal-only  nothing outside this network. Scripts can still use the
+#                whole portal API, so they can read layers, compute, and
+#                write results, which is most of what people write.
+#
+# portal-only exists so a public demo can offer scripts at all. The
+# sandbox holds either way; the thing that makes open egress unwise in
+# front of strangers is not that they might escape it, but that they can
+# make requests from your server's address, and the abuse report has
+# your name on it. Turning egress off removes the reason to say no.
+#
+# Deliberately not the default. A self-hoster who turns scripts on has
+# already decided who can create one, and silently crippling the
+# headline use case would be a worse surprise than the one it prevents.
+SCRIPT_EGRESS="${SCRIPT_EGRESS:-open}"
+case "$SCRIPT_EGRESS" in
+  open|portal-only) ;;
+  *)
+    echo "FATAL: SCRIPT_EGRESS must be 'open' or 'portal-only', got '$SCRIPT_EGRESS'." >&2
+    exit 1
+    ;;
+esac
+
 if [[ $EUID -ne 0 ]]; then
   echo "FATAL: must run as root (iptables)." >&2
   exit 1
@@ -96,6 +123,14 @@ iptables -A "$CHAIN" -d "$LINK_LOCAL" -j DROP
 for other in $OTHER_SUBNETS; do
   iptables -A "$CHAIN" -d "$other" -j DROP
 done
+if [[ "$SCRIPT_EGRESS" == "portal-only" ]]; then
+  # Everything that is not this network. Traffic to portal-api never
+  # reaches this chain at all: same-bridge delivery, so there is nothing
+  # to allow explicitly and no rule here that could accidentally widen
+  # it. DNS is likewise untouched, because Docker's resolver answers
+  # inside the container's own namespace.
+  iptables -A "$CHAIN" ! -d "$SUBNET" -j DROP
+fi
 iptables -A "$CHAIN" -j RETURN
 
 # Idempotent: drop any previous jump before adding this one, so
@@ -130,3 +165,8 @@ echo "Script network $SUBNET fenced."
 echo "  link-local:     $LINK_LOCAL DROP"
 echo "  other networks: $(echo "$OTHER_SUBNETS" | tr '\n' ' ')DROP"
 echo "  host itself:    DROP (script-initiated only)"
+if [[ "$SCRIPT_EGRESS" == "portal-only" ]]; then
+  echo "  internet:       DROP (SCRIPT_EGRESS=portal-only)"
+else
+  echo "  internet:       allowed (SCRIPT_EGRESS=open)"
+fi

@@ -152,8 +152,18 @@ docker compose --profile scripts up -d script-runner script-executor
 Before you turn this on, the question to ask is not whether the sandbox
 holds. It is **who can create a script item**, because a run carries its
 owner's permissions and can make outbound requests from your server's
-address. That is the contributor role. On a portal where strangers can
-sign up, leave scripts off, or run with outbound access disabled.
+address. That is the contributor role.
+
+If people you do not know can get an account, add:
+
+```
+SCRIPT_EGRESS=portal-only
+```
+
+Scripts then keep the entire portal API and lose the internet, which
+still covers reading a layer, computing something, and writing the
+result. What it removes is the ability to use your server as a way to
+reach somewhere else, which is the part you would be answering for.
 
 ## See also
 
