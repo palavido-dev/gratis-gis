@@ -90,6 +90,20 @@ It had no credentials for any of them, but "needs a password" is a
 weaker property than "cannot open the socket", and only one of the two
 survives a protocol-level CVE in one of those services.
 
+The same probe after the split:
+
+```
+blocked    postgres:5432  (gaierror)
+blocked    minio:9000     (gaierror)
+blocked    keycloak:8080  (gaierror)
+REACHABLE  portal-api:4000
+```
+
+`gaierror` rather than a refused connection: those names do not
+resolve for that container at all. The portal API still answers, the
+client still authenticates and reads features, and outbound internet
+still works.
+
 So the two responsibilities are two containers:
 
 | | `script-runner` (claimer) | `script-executor` |
