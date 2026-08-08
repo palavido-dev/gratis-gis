@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { spawn } from 'node:child_process';
-import { chown, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, chown, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Injectable, Logger } from '@nestjs/common';
@@ -52,21 +52,34 @@ export class ScriptExecutorService {
     await writeFile(file, req.source, 'utf8');
     // The child runs as a different user, so it must be able to read
     // its own source and write into its own scratch directory.
-    // Hand the run's directory to the script user, INNERMOST FIRST.
+    // Share the run directory by GROUP rather than handing it over.
     //
-    // The order is not cosmetic. Once the directory belongs to another
-    // user, this process cannot modify entries inside it: root without
-    // CAP_DAC_OVERRIDE gets EACCES, which is exactly what happened the
-    // first time this ran with the directory chowned before the file.
-    // Give away the contents, then the container.
+    // The obvious version, chown the directory to the script user, does
+    // not work here and the failure is instructive. Root in this
+    // container has no CAP_DAC_OVERRIDE, so it is an ordinary user for
+    // permission checks. Once the directory belonged to uid 10001 with
+    // mkdtemp's default 0700, root could no longer chdir into it, and
+    // spawn failed with EACCES before the child ever started. It was
+    // the cwd, not the uid: the same spawn with cwd=/tmp worked.
+    //
+    // So: directory stays owned by root, group is the script group,
+    // mode 0770. Root can enter it and clean it up afterwards; the
+    // child can read, write, and enter it through the group bit.
+    // Removing files the child created works because unlink is
+    // governed by permission on the DIRECTORY, which root owns.
+    //
+    // The source file is group-readable and not writable by the child:
+    // a script has no business rewriting the record of what ran.
     //
     // Not caught: if this fails the child cannot read its own source
-    // and would die somewhere confusing, so failing here with a clear
-    // error is better.
+    // and would die somewhere confusing, so a clear error here is
+    // better.
     const asUser = scriptUser();
     if (asUser) {
-      await chown(file, asUser.uid, asUser.gid);
-      await chown(dir, asUser.uid, asUser.gid);
+      await chown(file, 0, asUser.gid);
+      await chmod(file, 0o640);
+      await chown(dir, 0, asUser.gid);
+      await chmod(dir, 0o770);
     }
 
     let out = '';
