@@ -3,20 +3,27 @@ Description=Re-assert the GratisGIS script-network egress fence (#221)
 Documentation=https://github.com/palavido-dev/gratis-gis
 
 [Timer]
-# Every five minutes, and once shortly after boot.
+# Every five minutes on the wall clock.
 #
-# A timer rather than trusting a single application at startup, for the
-# same reason the script scheduler sweeps instead of subscribing to
+# A timer at all, rather than trusting one application at startup, for
+# the same reason the script scheduler sweeps instead of subscribing to
 # events: the list of things that can quietly remove these rules is
 # open-ended. `systemctl restart docker` rebuilds the iptables chains.
-# So does a docker upgrade. So does recreating the script network,
-# which also changes the subnet the rules are written against.
+# So does a docker upgrade. So does recreating the script network, which
+# also changes the subnet the rules are written against. Re-applying is
+# idempotent and costs a handful of iptables calls, which is a cheap way
+# to make a security control self-healing instead of merely true on the
+# day it was installed.
 #
-# Re-applying is idempotent and costs two iptables calls, which is a
-# very cheap way to make a security control self-healing rather than
-# something that was true on the day it was installed.
-OnBootSec=2min
-OnUnitActiveSec=5min
+# OnCalendar rather than OnUnitActiveSec, and that is not a style
+# preference. OnUnitActiveSec schedules relative to the service's last
+# activation, so it cannot schedule anything at all while the service is
+# still active. Combined with the RemainAfterExit that used to be on the
+# service, the timer showed a LAST, no NEXT, and NextElapseUSecMonotonic
+# of infinity: it had run once and retired. Wall-clock scheduling does
+# not care what state the unit is in, so a run that hangs costs one
+# missed tick rather than every future one.
+OnCalendar=*:0/5
 Unit=gg-script-firewall.service
 
 [Install]
