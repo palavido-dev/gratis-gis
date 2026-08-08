@@ -81,6 +81,35 @@ with `parentId` is exact equality on one field; `timeField` with
 name in either is **ignored**, and you get the unfiltered layer back, so
 check your spelling against the layer's `fields`.
 
+### Attachments
+
+Files attach to individual features. There is no multipart upload: the
+API never handles the bytes.
+
+| | |
+|---|---|
+| `GET /api/items/:id/layers/:layer/features/:fid/attachments` | List. A bare array, unpaginated. |
+| `POST /api/storage/presign-upload` | `{kind: "feature-attachment", contentType}` → `{uploadUrl, publicUrl, key, contentType, maxBytes}`. |
+| `PUT <uploadUrl>` | The bytes, straight to object storage. |
+| `POST /api/items/:id/layers/:layer/features/:fid/attachments` | Register: `{fileName, mime, sizeBytes, storageKey, storageUrl}`. |
+| `GET /api/storage/private/feature-attachment/:key` | Download. Streams, supports `Range`. |
+| `DELETE /api/items/:id/layers/:layer/features/:fid/attachments/:attId` | 204. |
+
+Three things that catch people out:
+
+- **The presigned `PUT` must not carry your API key.** The URL is signed,
+  and an extra `Authorization` header invalidates the signature. Its
+  `Content-Type` must exactly match what you presigned with. It expires
+  in 180 seconds.
+- **`storageUrl` on a record is a path into the web app**, not the API.
+  To download, take the UUID from the end of it and call
+  `/api/storage/private/feature-attachment/{uuid}`.
+- **`maxBytes` is advisory.** Nothing rejects a larger upload
+  server-side, so check it yourself.
+
+Listing and downloading need read access; registering and deleting need
+edit access and a key without the read-only option.
+
 ### Export
 
 | | |

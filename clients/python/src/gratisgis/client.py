@@ -21,6 +21,7 @@ It is not trying to mirror every route the portal exposes.
 from __future__ import annotations
 
 import os
+from mimetypes import guess_type
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple, Union
 
@@ -41,7 +42,7 @@ __all__ = ["GratisGIS", "field", "layer"]
 # the default User-Agent below needs it, and a second literal would
 # drift from the package version the first time one of them is bumped
 # alone.
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 # The portal caps a single append at 5000 features (AppendFeaturesBodyDto).
 # Batch below it so a caller handing us a million rows just works.
@@ -65,6 +66,32 @@ EXPORT_FORMATS = {
     "csv": ("csv", "text/csv"),
     "geojson": ("geojson", "application/geo+json"),
 }
+
+
+def _host_of(url: str) -> str:
+    """Just enough of a URL to say which host an upload was aimed at."""
+    without_scheme = url.split("://", 1)[-1]
+    return without_scheme.split("/", 1)[0]
+
+
+def _attachment_key(attachment: Dict[str, Any]) -> str:
+    """The storage key to download, from an attachment record.
+
+    The record's ``storageUrl`` is a path into the WEB app's proxy
+    (``/api/portal/storage/...``), not the API. Fetching it against the
+    API base gives a 404 that looks like a missing file. The stable part
+    is the uuid on the end, which is what the API's own route takes.
+    """
+    url = attachment.get("storageUrl")
+    if not isinstance(url, str) or not url:
+        raise ValueError(
+            "That does not look like an attachment record; expected one of "
+            "the dicts returned by attachments()."
+        )
+    key = url.rstrip("/").rsplit("/", 1)[-1]
+    if not key:
+        raise ValueError(f"Could not read a storage key out of {url!r}.")
+    return key
 
 
 def field(
@@ -159,6 +186,10 @@ class GratisGIS:
                 "in the portal, or use GratisGIS.from_env()."
             )
         self.portal_url = portal_url.rstrip("/")
+        # Remembered for the attachment upload, which needs its own
+        # client: the presigned PUT goes to object storage and must not
+        # carry this one's Authorization header.
+        self._verify_tls = verify_tls
         # Layer definitions, keyed by (item, layer). Filters are checked
         # against these before they are sent, and a schema does not
         # change under a script often enough to be worth re-reading on
@@ -634,6 +665,164 @@ class GratisGIS:
             raise PortalError(
                 f"Could not reach the portal: {exc}", method="GET", path=url
             ) from exc
+
+    # ---------------------------------------------------------------
+    # attachments
+    # ---------------------------------------------------------------
+
+    def attachments(
+        self, item_id: str, layer: str, feature_id: str
+    ) -> List[Dict[str, Any]]:
+        """Every file attached to one feature.
+
+        Returns records shaped
+        ``{id, fileName, mime, sizeBytes, storageUrl, createdAt, createdBy}``.
+        Note ``fileName`` and ``mime``, not ``filename`` and
+        ``content_type``: these are the portal's names and renaming them
+        here would only mean two vocabularies to learn.
+
+        Attachments are not carried on the feature itself, so listing
+        them for a whole layer is one call per feature. That is the
+        portal's shape, not an oversight of this method.
+        """
+        result = self._request(
+            "GET",
+            f"/items/{item_id}/layers/{layer}/features/{feature_id}/attachments",
+        )
+        return result if isinstance(result, list) else []
+
+    def attach_file(
+        self,
+        item_id: str,
+        layer: str,
+        feature_id: str,
+        path: Union[str, "os.PathLike[str]"],
+        *,
+        file_name: Optional[str] = None,
+        content_type: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Attach a file to a feature.
+
+        Three calls under the hood, because the portal never handles the
+        bytes itself: ask for a presigned URL, PUT the file straight to
+        object storage, then register the metadata. A 25 MB photo from a
+        field crew therefore never passes through the API process.
+
+        Needs a key WITHOUT the read-only option, and edit access to the
+        item.
+        """
+        src = Path(path)
+        data = src.read_bytes()
+        name = file_name or src.name
+        mime = content_type or guess_type(name)[0] or "application/octet-stream"
+
+        presign = self._request(
+            "POST",
+            "/storage/presign-upload",
+            json={"kind": "feature-attachment", "contentType": mime},
+        )
+        upload_url = presign["uploadUrl"]
+        max_bytes = presign.get("maxBytes")
+        # Checked here because the server does not check it. The
+        # presigned PUT carries no size condition and the register call
+        # believes whatever sizeBytes it is told, so without this a
+        # typo uploads a gigabyte and only fails when someone notices
+        # the disk. maxBytes is the deployment's own stated limit,
+        # echoed back to us for exactly this purpose.
+        if isinstance(max_bytes, int) and len(data) > max_bytes:
+            raise ValueError(
+                f"{name} is {len(data)} bytes; this portal accepts at most "
+                f"{max_bytes}."
+            )
+
+        # A separate, bare client for the PUT. The portal key must not go
+        # anywhere near it: the URL is signed with SigV4 and an extra
+        # Authorization header invalidates the signature. The
+        # Content-Type must match what we presigned with, for the same
+        # reason.
+        try:
+            with httpx.Client(
+                timeout=httpx.Timeout(300.0, connect=10.0),
+                verify=self._verify_tls,
+            ) as raw:
+                put = raw.put(
+                    upload_url, content=data, headers={"content-type": mime}
+                )
+        except httpx.RequestError as exc:
+            raise PortalError(
+                f"Could not reach object storage at {_host_of(upload_url)}: {exc}. "
+                "If that host looks internal (localhost, or a container name "
+                "like minio), this portal is configured for uploads from "
+                "inside its own network and cannot accept them from here.",
+                method="PUT",
+                path=upload_url,
+            ) from exc
+        if not put.is_success:
+            raise PortalError(
+                f"Object storage refused the upload (HTTP {put.status_code}).",
+                status=put.status_code,
+                method="PUT",
+                path=upload_url,
+            )
+
+        return self._request(
+            "POST",
+            f"/items/{item_id}/layers/{layer}/features/{feature_id}/attachments",
+            json={
+                "fileName": name,
+                "mime": mime,
+                "sizeBytes": len(data),
+                "storageKey": presign["key"],
+                "storageUrl": presign["publicUrl"],
+            },
+        )
+
+    def download_attachment(
+        self,
+        attachment: Dict[str, Any],
+        *,
+        path: Optional[Union[str, "os.PathLike[str]"]] = None,
+    ) -> Union[bytes, Path]:
+        """Fetch one attachment, given a record from :meth:`attachments`.
+
+        With ``path``, streams to that file and returns the
+        :class:`pathlib.Path`; without it, returns the bytes. Pass a
+        directory and the attachment's own ``fileName`` is used inside
+        it, which is what you want when saving a whole feature's worth.
+        """
+        key = _attachment_key(attachment)
+        url = f"/storage/private/feature-attachment/{key}"
+        target: Optional[Path] = None
+        if path is not None:
+            target = Path(path)
+            if target.is_dir():
+                target = target / str(attachment.get("fileName") or key)
+
+        try:
+            with self._client.stream("GET", url) as response:
+                if not response.is_success:
+                    response.read()
+                    self._handle(response, method="GET", path=url)
+                if target is None:
+                    return b"".join(response.iter_bytes())
+                with open(target, "wb") as fh:
+                    for chunk in response.iter_bytes():
+                        fh.write(chunk)
+                return target
+        except httpx.RequestError as exc:
+            raise PortalError(
+                f"Could not reach the portal: {exc}", method="GET", path=url
+            ) from exc
+
+    def delete_attachment(
+        self, item_id: str, layer: str, feature_id: str, attachment_id: str
+    ) -> None:
+        """Remove one attachment. Needs edit access and a writable key."""
+        self._request(
+            "DELETE",
+            f"/items/{item_id}/layers/{layer}/features/{feature_id}"
+            f"/attachments/{attachment_id}",
+        )
 
     # ---------------------------------------------------------------
     # creating a layer

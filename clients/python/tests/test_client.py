@@ -595,3 +595,157 @@ class TestCreateDataLayer:
 
         with pytest.raises(ValueError, match="Unknown field type"):
             field("x", "integer")
+
+
+# ---------------------------------------------------------------------
+# attachments
+# ---------------------------------------------------------------------
+
+ATTACHMENT = {
+    "id": "att-1",
+    "fileName": "site.jpg",
+    "mime": "image/jpeg",
+    "sizeBytes": 9,
+    "storageUrl": "/api/portal/storage/private/feature-attachment/abc-123",
+    "createdAt": "2026-08-08T00:00:00.000Z",
+    "createdBy": "user-1",
+}
+
+
+class TestAttachments:
+    def test_list_returns_the_array(self):
+        def handler(request):
+            assert request.url.path == (
+                "/api/items/itm/layers/parcels/features/f1/attachments"
+            )
+            return httpx.Response(200, json=[ATTACHMENT])
+
+        got = make_client(handler).attachments("itm", "parcels", "f1")
+        assert got[0]["fileName"] == "site.jpg"
+
+    def test_upload_presigns_puts_then_registers(self, tmp_path, monkeypatch):
+        src = tmp_path / "site.jpg"
+        src.write_bytes(b"JPEGBYTES")
+        calls = []
+
+        def handler(request):
+            calls.append((request.method, request.url.path))
+            if request.url.path == "/api/storage/presign-upload":
+                body = json.loads(request.content)
+                assert body == {
+                    "kind": "feature-attachment",
+                    "contentType": "image/jpeg",
+                }
+                return httpx.Response(
+                    200,
+                    json={
+                        "uploadUrl": "https://storage.example/put?sig=x",
+                        "publicUrl": "/api/portal/storage/private/feature-attachment/abc-123",
+                        "key": "feature-attachment/abc-123",
+                        "contentType": "image/jpeg",
+                        "maxBytes": 26214400,
+                    },
+                )
+            return httpx.Response(201, json=ATTACHMENT)
+
+        put_seen = {}
+
+        class FakeRaw:
+            def __init__(self, *a, **k):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def put(self, url, content=None, headers=None):
+                put_seen["url"] = url
+                put_seen["body"] = content
+                put_seen["headers"] = dict(headers or {})
+                return httpx.Response(200)
+
+        # Build the real client BEFORE swapping httpx.Client, or the
+        # patch replaces the transport this test is asserting against.
+        gg = make_client(handler)
+        monkeypatch.setattr(httpx, "Client", FakeRaw)
+        got = gg.attach_file("itm", "parcels", "f1", src)
+
+        assert got["id"] == "att-1"
+        assert calls == [
+            ("POST", "/api/storage/presign-upload"),
+            ("POST", "/api/items/itm/layers/parcels/features/f1/attachments"),
+        ]
+        assert put_seen["body"] == b"JPEGBYTES"
+        # The signed URL is signed over the content type, so it has to
+        # match what was presigned.
+        assert put_seen["headers"]["content-type"] == "image/jpeg"
+        # And the portal key must NOT be sent: it would invalidate the
+        # SigV4 signature.
+        assert "authorization" not in {
+            k.lower() for k in put_seen["headers"]
+        }
+
+    def test_upload_refuses_a_file_over_the_portals_limit(self, tmp_path):
+        src = tmp_path / "big.bin"
+        src.write_bytes(b"x" * 100)
+
+        def handler(request):
+            return httpx.Response(
+                200,
+                json={
+                    "uploadUrl": "https://storage.example/put",
+                    "publicUrl": "/api/portal/storage/private/feature-attachment/k",
+                    "key": "feature-attachment/k",
+                    "contentType": "application/octet-stream",
+                    "maxBytes": 10,
+                },
+            )
+
+        # Checked here because the server does not check it: the signed
+        # PUT carries no size condition and register believes whatever
+        # sizeBytes it is told.
+        with pytest.raises(ValueError, match="accepts at most 10"):
+            make_client(handler).attach_file("itm", "parcels", "f1", src)
+
+    def test_download_uses_the_api_route_not_the_bff_path(self, tmp_path):
+        # storageUrl points at the WEB app's proxy. Fetching it against
+        # the API base would 404 in a way that looks like a missing file.
+        def handler(request):
+            assert request.url.path == (
+                "/api/storage/private/feature-attachment/abc-123"
+            )
+            return httpx.Response(200, content=b"JPEGBYTES")
+
+        assert (
+            make_client(handler).download_attachment(ATTACHMENT) == b"JPEGBYTES"
+        )
+
+    def test_download_into_a_directory_uses_the_stored_name(self, tmp_path):
+        def handler(request):
+            return httpx.Response(200, content=b"JPEGBYTES")
+
+        got = make_client(handler).download_attachment(ATTACHMENT, path=tmp_path)
+        assert got == tmp_path / "site.jpg"
+        assert got.read_bytes() == b"JPEGBYTES"
+
+    def test_download_rejects_something_that_is_not_a_record(self):
+        with pytest.raises(ValueError, match="attachment record"):
+            make_client(lambda r: httpx.Response(200)).download_attachment(
+                {"id": "x"}
+            )
+
+    def test_delete_hits_the_right_route(self):
+        seen = {}
+
+        def handler(request):
+            seen["method"] = request.method
+            seen["path"] = request.url.path
+            return httpx.Response(204)
+
+        make_client(handler).delete_attachment("itm", "parcels", "f1", "att-1")
+        assert seen["method"] == "DELETE"
+        assert seen["path"] == (
+            "/api/items/itm/layers/parcels/features/f1/attachments/att-1"
+        )

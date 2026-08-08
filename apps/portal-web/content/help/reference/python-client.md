@@ -209,6 +209,51 @@ than a confusing failure later.
 Appending batches automatically, so handing it a million features is
 fine.
 
+## Attachments
+
+Photos and documents attach to individual features. All four operations
+work from Python.
+
+```python
+# what is already attached
+for att in gg.attachments(item_id, "inspections", feature_id):
+    print(att["fileName"], att["sizeBytes"], att["mime"])
+
+# add one
+gg.attach_file(item_id, "inspections", feature_id, "site-photo.jpg")
+
+# fetch them all into a folder
+import pathlib
+out = pathlib.Path("photos"); out.mkdir(exist_ok=True)
+for att in gg.attachments(item_id, "inspections", feature_id):
+    gg.download_attachment(att, path=out)   # keeps the original name
+
+# remove one
+gg.delete_attachment(item_id, "inspections", feature_id, att["id"])
+```
+
+Uploading takes three calls under the hood: the client asks the portal
+for a presigned URL, sends the bytes straight to object storage, then
+registers the metadata. The API never handles the file, which is why a
+25 MB photo from a field crew does not go through it. You do not have to
+think about any of that, but it explains two things you might otherwise
+trip over.
+
+**Uploading needs a key without the read-only option.** Read-only keys
+are refused on every write, so listing and downloading work but
+attaching and deleting return a permission error.
+
+**Self-hosted portals sometimes cannot accept uploads from outside.**
+Object storage has its own address, and some deployments point it at an
+internal hostname that only resolves inside the server. Listing and
+downloading still work, because those go through the portal. If an
+upload fails, the error names the host it tried, which is the thing to
+give your administrator.
+
+Downloading only needs read access to the layer. Worth knowing: that is
+a lower bar than exporting the layer's data, which needs download
+permission. A view-only share can still fetch the attached files.
+
 ## Export
 
 ```python
