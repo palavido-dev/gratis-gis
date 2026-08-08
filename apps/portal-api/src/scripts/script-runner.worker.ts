@@ -37,6 +37,8 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
   private readonly log = new Logger(ScriptRunnerWorker.name);
   private timer: NodeJS.Timeout | null = null;
   private stopping = false;
+  /** One run at a time. See the note in tick(). */
+  private busy = false;
   /** In-flight runs, so shutdown can abort them promptly. */
   private readonly inFlight = new Map<string, AbortController>();
 
@@ -65,6 +67,13 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
 
   private async tick(): Promise<void> {
     if (this.stopping) return;
+    // setInterval does not wait for an async callback, so without this
+    // guard a 300-second run would let 100 further ticks fire while it
+    // was still going, each claiming another row and spawning another
+    // interpreter. Someone queueing fifty runs would get fifty
+    // concurrent Python processes. One executor, one run at a time.
+    if (this.busy) return;
+    this.busy = true;
     try {
       await this.reclaimStale();
       const claimed = await this.claimOne();
@@ -73,6 +82,8 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
       this.log.error(
         `script poll failed: ${err instanceof Error ? err.message : String(err)}`,
       );
+    } finally {
+      this.busy = false;
     }
   }
 

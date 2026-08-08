@@ -639,6 +639,29 @@ services:
     # Deliberately modest. A maintenance script needing more than this
     # is doing work the analysis tier should be doing.
     mem_limit: 1024m
+    # Measured gap, not a precaution: before this the container had no
+    # CPU quota at all, so a `while True: pass` pegged every core on
+    # the box for the whole timeout. Two cores leaves the API, the
+    # database, and the import queue responsive while a script misbehaves.
+    cpus: 2.0
+    # A fork bomb otherwise gets ~9000 processes. 256 is generous for
+    # anything a maintenance script legitimately does.
+    pids_limit: 256
+    # Root INSIDE the container, and nothing else. The executor needs
+    # to change user when it spawns a script (an unprivileged parent
+    # cannot), and needs no other privilege whatsoever. Dropping every
+    # capability but SETUID/SETGID makes "root" here mean almost
+    # nothing, and no-new-privileges stops a setuid binary in the image
+    # from being used to climb back out.
+    user: "0:0"
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETUID
+      - SETGID
+      - CHOWN
+    security_opt:
+      - no-new-privileges:true
     environment:
       NODE_ENV: production
       SKIP_MIGRATE: "true"

@@ -31,6 +31,13 @@ const compose = parse(
       networks?: string[];
       environment?: Record<string, string>;
       command?: string[];
+      user?: string;
+      cap_drop?: string[];
+      cap_add?: string[];
+      security_opt?: string[];
+      cpus?: number | string;
+      pids_limit?: number;
+      mem_limit?: string;
     }
   >;
   networks: Record<string, unknown>;
@@ -95,6 +102,55 @@ describe('script executor isolation', () => {
     const claimer = compose.services['script-runner']!;
     expect(claimer.environment?.DATABASE_URL).toBeDefined();
     expect(claimer.command).toEqual(['node', 'dist/script-worker.main.js']);
+  });
+
+  // The environment scrub stops a script INHERITING variables. It does
+  // not stop it reading /proc/1/environ, which is readable by the
+  // owning UID. Measured: a script running as the executor's own user
+  // recovered the executor's entire environment, SCRIPT_EXECUTOR_TOKEN
+  // included. A separate UID is what actually closes that, and it
+  // needs the capabilities below.
+  it('can drop the script to a separate user, and holds only the privilege to do so', () => {
+    const ex = compose.services['script-executor']!;
+    expect(ex.user).toBe('0:0');
+    expect(ex.cap_drop).toEqual(['ALL']);
+    // SETUID/SETGID to change the child's user, CHOWN to hand it its
+    // own scratch directory. Nothing else, ever.
+    expect([...(ex.cap_add ?? [])].sort()).toEqual([
+      'CHOWN',
+      'SETGID',
+      'SETUID',
+    ]);
+    expect(ex.security_opt).toContain('no-new-privileges:true');
+  });
+
+  it('bounds what a runaway script can consume', () => {
+    const ex = compose.services['script-executor']!;
+    // Before these, a `while True: pass` had every core on the box and
+    // a fork bomb had ~9000 processes.
+    expect(typeof ex.cpus === 'number' ? ex.cpus : Number(ex.cpus)).
+      toBeGreaterThan(0);
+    expect(ex.pids_limit).toBeGreaterThan(0);
+    expect(ex.mem_limit).toBeDefined();
+  });
+
+  it('keeps the executor environment free of anything worth stealing', () => {
+    // A script CAN read the executor's environment off /proc when the
+    // UIDs match, and the UID split is defence rather than proof. The
+    // durable guarantee is that there is nothing there worth reading.
+    // This list is the allowlist; adding to it should require thought.
+    const env = compose.services['script-executor']!.environment ?? {};
+    expect(Object.keys(env).sort()).toEqual([
+      'ENABLE_CRONS',
+      'NODE_ENV',
+      'PORTAL_BASE_URL',
+      'SCRIPT_EXECUTOR_PORT',
+      // Grants nothing a script does not already have: it authenticates
+      // calls to the executor, and a script is already running inside
+      // one.
+      'SCRIPT_EXECUTOR_TOKEN',
+      'SKIP_MIGRATE',
+    ]);
   });
 
   it('does not cut the executor off from the internet', () => {

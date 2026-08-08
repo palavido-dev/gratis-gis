@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chown, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Injectable, Logger } from '@nestjs/common';
@@ -44,9 +44,19 @@ export class ScriptExecutorService {
     /** Fires when the caller goes away, i.e. a cancel. */
     signal?: AbortSignal,
   ): Promise<ExecuteResult> {
-    const dir = await mkdtemp(join(tmpdir(), 'gg-script-'));
+    // Scratch under a directory owned by the script user, not shared
+    // /tmp, so one run cannot plant a file another one picks up.
+    const base = process.env.SCRIPT_TMPDIR ?? tmpdir();
+    const dir = await mkdtemp(join(base, 'gg-script-'));
     const file = join(dir, 'main.py');
     await writeFile(file, req.source, 'utf8');
+    // The child runs as a different user, so it must be able to read
+    // its own source and write into its own scratch directory.
+    const asUser = scriptUser();
+    if (asUser) {
+      await chown(dir, asUser.uid, asUser.gid).catch(() => {});
+      await chown(file, asUser.uid, asUser.gid).catch(() => {});
+    }
 
     let out = '';
     let truncated = false;
@@ -64,6 +74,16 @@ export class ScriptExecutorService {
             cwd: dir,
             env: this.childEnv(req.apiKeyToken),
             stdio: ['ignore', 'pipe', 'pipe'],
+            // Drop to the dedicated script identity. Without this the
+            // child shares the executor's UID and can read
+            // /proc/1/environ, which defeats the scrub above and hands
+            // it the executor's token. Measured, not theorised.
+            //
+            // Also puts the child in its own process group, so a kill
+            // reaches anything it spawned rather than only the
+            // interpreter.
+            ...(asUser ? { uid: asUser.uid, gid: asUser.gid } : {}),
+            detached: true,
           },
         );
 
@@ -88,6 +108,16 @@ export class ScriptExecutorService {
           // SIGKILL, not SIGTERM: a script can install a SIGTERM
           // handler, and a timeout a script may decline to honour is
           // not a timeout.
+          //
+          // Negative pid kills the whole process GROUP. A script that
+          // spawns helpers would otherwise leave them running after
+          // the interpreter dies, which is how a timeout turns into a
+          // permanent background process.
+          try {
+            if (child.pid) process.kill(-child.pid, 'SIGKILL');
+          } catch {
+            // Group already gone; fall through to the direct kill.
+          }
           try {
             child.kill('SIGKILL');
           } catch {
@@ -159,4 +189,27 @@ export class ScriptExecutorService {
         : {}),
     };
   }
+}
+
+/**
+ * The identity a script runs as, distinct from the executor's own.
+ *
+ * Absent in local development, where the executor runs as an ordinary
+ * user who cannot setuid to anyone. The container sets both, and the
+ * compose service grants exactly SETUID and SETGID for this.
+ *
+ * Returning null rather than guessing matters: spawning with a bogus
+ * uid throws EPERM and every run fails, which is a worse outcome than
+ * a dev machine running the child as the developer.
+ */
+function scriptUser(): { uid: number; gid: number } | null {
+  const uid = Number(process.env.SCRIPT_UID);
+  const gid = Number(process.env.SCRIPT_GID);
+  if (!Number.isInteger(uid) || !Number.isInteger(gid)) return null;
+  if (uid <= 0 || gid <= 0) return null;
+  // Only meaningful if we are privileged enough to change user at all.
+  if (typeof process.getuid !== 'function' || process.getuid() !== 0) {
+    return null;
+  }
+  return { uid, gid };
 }

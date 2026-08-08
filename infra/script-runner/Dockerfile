@@ -69,8 +69,44 @@ ENV SCRIPT_PYTHON=/opt/script-venv/bin/python3
 ENV SCRIPT_HOME=/tmp
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 
-# Back to the unprivileged user the base image defines. A script
-# process inherits this, so user code never runs as root.
-USER app
+# A dedicated identity for user code, distinct from the one the
+# executor process runs as.
+#
+# This exists because of something measured, not imagined. When the
+# script ran as the SAME user as the executor, it could read
+# /proc/1/environ and recover the executor's whole environment,
+# including SCRIPT_EXECUTOR_TOKEN. The environment scrub prevents the
+# child INHERITING variables; it does nothing about reading the
+# parent's copy off /proc, because /proc/<pid>/environ is readable by
+# the owning UID.
+#
+# Different UID closes that: the kernel refuses the read. It also means
+# a script cannot signal, trace, or otherwise interfere with the
+# process supervising it.
+#
+# 10001 is arbitrary and high, chosen to avoid colliding with anything
+# the base image adds later.
+RUN groupadd -g 10001 ggscript \
+ && useradd -u 10001 -g 10001 -M -s /usr/sbin/nologin ggscript \
+ && mkdir -p /home/ggscript /var/tmp/ggscript \
+ && chown ggscript:ggscript /home/ggscript /var/tmp/ggscript
+ENV SCRIPT_UID=10001
+ENV SCRIPT_GID=10001
+ENV SCRIPT_HOME=/home/ggscript
+# Scratch space for a run, owned by the script user rather than
+# shared /tmp, so one run cannot plant files another one reads.
+ENV SCRIPT_TMPDIR=/var/tmp/ggscript
 
+# NOTE: no `USER app` here.
+#
+# The executor process stays root so it can drop to SCRIPT_UID when it
+# spawns the child; an unprivileged parent cannot change a child's
+# user. That is the standard privilege-separation shape, and it is
+# strictly better than the alternative it replaces, where the
+# untrusted child had exactly the same privileges as its supervisor.
+#
+# The compose service pins this down: every Linux capability dropped
+# except SETUID/SETGID, and no-new-privileges. Root with no
+# capabilities, no secrets, and no database is a much smaller thing
+# than the word "root" suggests.
 CMD ["node", "dist/script-worker.main.js"]
