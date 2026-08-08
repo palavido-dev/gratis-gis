@@ -647,6 +647,27 @@ services:
     # A fork bomb otherwise gets ~9000 processes. 256 is generous for
     # anything a maintenance script legitimately does.
     pids_limit: 256
+    # Scratch space for a run, as RAM rather than disk.
+    #
+    # Also a measured gap. CPU, memory, and processes were all capped
+    # while writes were not, so a script could `open('x','w')` in a loop
+    # and fill the host's root filesystem, which takes down postgres,
+    # the API, and the site along with it. Probed on prod: 27 GiB free
+    # and no quota in the way.
+    #
+    # tmpfs rather than a disk quota because a tmpfs is counted against
+    # this container's own memory cgroup. That collapses two limits into
+    # one honest number: a run gets 1 GB total across memory and
+    # scratch, and exceeding it kills the run rather than the machine.
+    # A disk quota would need a specific storage driver and would still
+    # leave the two budgets independent.
+    #
+    # mode 0711 matches what the Dockerfile creates: root-owned, so the
+    # executor can make each run's directory, traversable so the script
+    # user can enter the one directory it is handed without being able
+    # to list the parent and see other runs.
+    tmpfs:
+      - /var/tmp/ggscript:size=256m,mode=0711,uid=0,gid=0
     # Root INSIDE the container, and nothing else. The executor needs
     # to change user when it spawns a script (an unprivileged parent
     # cannot), and needs no other privilege whatsoever. Dropping every

@@ -1,0 +1,22 @@
+[Unit]
+Description=GratisGIS script-network egress fence (#221)
+Documentation=https://github.com/palavido-dev/gratis-gis
+# Docker rebuilds its iptables chains when it starts, so these rules
+# have to be (re)applied after it, never before.
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/gratis-gis/infra/script-net-firewall.sh
+# Do not fail the boot over this. The unit is re-run by its timer every
+# few minutes, so a transient failure here (docker not answering yet)
+# self-corrects rather than leaving the operator with a failed unit and
+# no rules.
+SuccessExitStatus=0
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

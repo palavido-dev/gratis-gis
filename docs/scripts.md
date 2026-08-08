@@ -155,22 +155,63 @@ user, and the container caps what a runaway can take: 2 CPUs, 1 GB of
 memory, 256 processes. Before those caps, a `while True: pass` had
 every core on the box and a fork bomb reached roughly 9,000 processes.
 
-What is still true, and worth being clear about:
+Writes are capped too, and that one was missing for a while. CPU,
+memory, and processes were limited while disk was not, so a script
+could fill the host's root filesystem and take postgres and the site
+down with it. Scratch is now a 256 MB tmpfs, which is charged to the
+container's own memory cgroup: a run gets 1 GB across memory and
+scratch together, and overrunning it kills the run rather than the
+machine.
 
-- A script can read the executor image's contents. There is nothing
-  sensitive there by construction (no database URL, no object-storage
-  keys, no realm credentials), but it is a shared image, not a
-  per-run sandbox.
-- A script has full outbound internet access. That is the point of the
-  feature, and it also means a script is a way to make requests from
-  your server's IP address.
+### The egress fence
+
+Putting the executor on its own network stops it reaching postgres,
+minio, and keycloak. Probing from inside it showed two things that it
+does not stop, neither of them obvious:
+
+- **The host, through the bridge gateway.** `172.19.0.1:22`, `:80` and
+  `:443` all answered. No key, so no login, but "it would need a
+  password" is the weaker property we already rejected for postgres.
+- **`169.254.169.254`, the cloud metadata service.** Harmless on the
+  Hetzner box we run the demo on, where user-data is empty and the
+  key list is `[]`. Not harmless in general: on AWS, GCP, and Azure
+  that address hands out the instance's IAM credentials to anything
+  that asks. Since this is software other people self-host, leaving it
+  open would mean anybody enabling scripts on a cloud VM gives
+  arbitrary user code their instance role.
+
+`infra/script-net-firewall.sh` closes both, applied at boot and
+re-asserted every five minutes by `gg-script-firewall.timer`. A timer
+rather than a one-time install because restarting Docker rebuilds its
+iptables chains, and so does recreating the script network, which also
+changes the subnet the rules are written against. The script reads the
+subnet from Docker each time rather than hardcoding it, since a rule
+pointing at a stale subnet fails open silently.
+
+Public internet access is deliberately left alone, and so is RFC1918
+generally: a self-hosted portal may well need to reach an internal
+server at 10.x, and blanket private-range blocking would break that
+while adding little.
+
+### Still true, and worth being clear about
+
+- **A script can make arbitrary outbound requests from your server's
+  IP.** That is the feature working as intended (fetching from a county
+  endpoint is the whole point) and it is also the thing to weigh
+  hardest before giving the ability to someone you do not trust.
+- A script can read the executor image's contents. Nothing sensitive is
+  there by construction, but it is a shared image, not a per-run
+  sandbox, and `$HOME` persists between runs.
 - Runs are serialised, one at a time, so a script that uses its whole
   time limit delays the next one.
-- The credential a script holds is a short-lived key minted for that
-  run, carrying the permissions of the person the script belongs to.
-  A script can therefore do anything through the API that its owner
-  could do by hand. Who may create a script item is the control that
-  matters, and it is the contributor role, not a separate one.
+- **The credential a script holds is a short-lived key carrying its
+  owner's permissions**, so a script can do anything through the API
+  that its owner could do by hand. This is the control that actually
+  matters, and it is not a sandbox property: it is who you let create a
+  script item. That is the contributor role.
+
+On a portal where strangers can get accounts, including a public demo,
+leave scripts off.
 
 ## Turning it on
 

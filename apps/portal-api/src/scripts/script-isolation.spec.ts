@@ -38,6 +38,7 @@ const compose = parse(
       cpus?: number | string;
       pids_limit?: number;
       mem_limit?: string;
+      tmpfs?: string[];
     }
   >;
   networks: Record<string, unknown>;
@@ -134,6 +135,22 @@ describe('script executor isolation', () => {
     expect(ex.mem_limit).toBeDefined();
   });
 
+  it('caps the scratch a run can write, as RAM not disk', () => {
+    // The fourth limit, and the one that was missing while the other
+    // three looked complete. CPU, memory, and pids were capped; writes
+    // were not, so a script could fill the host root filesystem and
+    // take postgres and the site down with it. Measured on prod: 27 GiB
+    // free and nothing in the way.
+    //
+    // A tmpfs is charged to this container's memory cgroup, so the
+    // scratch budget and the memory budget are the same number and
+    // overrunning it kills the run rather than the machine.
+    const tmpfs = compose.services['script-executor']!.tmpfs ?? [];
+    const scratch = tmpfs.find((m) => m.startsWith('/var/tmp/ggscript'));
+    expect(scratch).toBeDefined();
+    expect(scratch).toMatch(/size=\d+m/);
+  });
+
   it('keeps the executor environment free of anything worth stealing', () => {
     // A script CAN read the executor's environment off /proc when the
     // UIDs match, and the UID split is defence rather than proof. The
@@ -151,6 +168,24 @@ describe('script executor isolation', () => {
       'SCRIPT_EXECUTOR_TOKEN',
       'SKIP_MIGRATE',
     ]);
+  });
+
+  it('ships the egress fence that Docker networking does not provide', () => {
+    // Grep rather than parse, because there is nothing to parse: this
+    // is a shell script, and the alternative is not testing a control
+    // that two measured holes depend on.
+    //
+    // Both halves are asserted because the second one is easy to lose.
+    // Traffic to the bridge gateway is addressed to the host and never
+    // traverses FORWARD, so a rule that only touches DOCKER-USER reads
+    // correctly in a diff and blocks nothing.
+    const fence = readFileSync(
+      join(__dirname, '..', '..', '..', '..', 'infra', 'script-net-firewall.sh'),
+      'utf8',
+    );
+    expect(fence).toContain('169.254.0.0/16');
+    expect(fence).toContain('DOCKER-USER');
+    expect(fence).toMatch(/iptables -I INPUT/);
   });
 
   it('does not cut the executor off from the internet', () => {

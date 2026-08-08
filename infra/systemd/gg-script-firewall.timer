@@ -1,0 +1,23 @@
+[Unit]
+Description=Re-assert the GratisGIS script-network egress fence (#221)
+Documentation=https://github.com/palavido-dev/gratis-gis
+
+[Timer]
+# Every five minutes, and once shortly after boot.
+#
+# A timer rather than trusting a single application at startup, for the
+# same reason the script scheduler sweeps instead of subscribing to
+# events: the list of things that can quietly remove these rules is
+# open-ended. `systemctl restart docker` rebuilds the iptables chains.
+# So does a docker upgrade. So does recreating the script network,
+# which also changes the subnet the rules are written against.
+#
+# Re-applying is idempotent and costs two iptables calls, which is a
+# very cheap way to make a security control self-healing rather than
+# something that was true on the day it was installed.
+OnBootSec=2min
+OnUnitActiveSec=5min
+Unit=gg-script-firewall.service
+
+[Install]
+WantedBy=timers.target
