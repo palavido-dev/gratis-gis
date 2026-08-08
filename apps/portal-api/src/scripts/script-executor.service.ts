@@ -52,13 +52,21 @@ export class ScriptExecutorService {
     await writeFile(file, req.source, 'utf8');
     // The child runs as a different user, so it must be able to read
     // its own source and write into its own scratch directory.
-    // Hand the run's directory to the script user. Not caught: if this
-    // fails the child cannot read its own source and would die with a
-    // baffling error, so failing here with a clear one is better.
+    // Hand the run's directory to the script user, INNERMOST FIRST.
+    //
+    // The order is not cosmetic. Once the directory belongs to another
+    // user, this process cannot modify entries inside it: root without
+    // CAP_DAC_OVERRIDE gets EACCES, which is exactly what happened the
+    // first time this ran with the directory chowned before the file.
+    // Give away the contents, then the container.
+    //
+    // Not caught: if this fails the child cannot read its own source
+    // and would die somewhere confusing, so failing here with a clear
+    // error is better.
     const asUser = scriptUser();
     if (asUser) {
-      await chown(dir, asUser.uid, asUser.gid);
       await chown(file, asUser.uid, asUser.gid);
+      await chown(dir, asUser.uid, asUser.gid);
     }
 
     let out = '';
