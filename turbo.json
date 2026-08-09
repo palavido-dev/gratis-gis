@@ -31,7 +31,19 @@
       // one. The first CI run after wiring the pg suites proved the
       // failure mode: TEST_DATABASE_URL was set on the step, turbo
       // filtered it, jest saw nothing, both suites skipped, job green.
-      "env": ["TEST_DATABASE_URL", "REQUIRE_PG_SPECS"]
+      //
+      // The script-runner pair was added later and reproduced the same
+      // bug: ci.yml set REQUIRE_PYTHON_SPECS but turbo.json was never
+      // updated, so the anti-skip guard in
+      // script-executor.integration.spec.ts could not fire. SCRIPT_PYTHON
+      // belongs here too - on Windows it is the only way to run that
+      // suite at all.
+      "env": [
+        "TEST_DATABASE_URL",
+        "REQUIRE_PG_SPECS",
+        "REQUIRE_PYTHON_SPECS",
+        "SCRIPT_PYTHON"
+      ]
     },
     "typecheck": {
       "dependsOn": ["^build"]
