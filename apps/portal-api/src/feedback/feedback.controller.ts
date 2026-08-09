@@ -163,18 +163,32 @@ export class FeedbackController {
 }
 
 /**
- * Best-effort client IP. Prefers X-Forwarded-For (set by Caddy in
- * front of the api) over the raw socket, since the socket address
- * is always Caddy's.
+ * Best-effort client IP, read from the RIGHT of X-Forwarded-For.
+ *
+ * This keys the feedback rate limiter and the stored ipHash, so getting
+ * it wrong is a bypass, not a cosmetic bug. The previous version took
+ * the LEFTMOST entry, which is attacker-controlled: Caddy appends the
+ * real peer to whatever X-Forwarded-For the client sent, so a client
+ * that sends `X-Forwarded-For: 9.9.9.9` makes the leftmost value 9.9.9.9
+ * and gets a fresh rate-limit budget per request, plus poisons every
+ * stored hash. Confirmed on the box: the Caddyfile sets no
+ * trusted_proxies and no XFF handling, so it appends rather than
+ * replaces.
+ *
+ * Caddy is the single edge proxy (it binds :443 directly), so it appends
+ * exactly one hop: the true client. The RIGHTMOST entry is therefore the
+ * real immediate peer and cannot be forged by the client, whatever it
+ * stuffs to the left. Caddy's trusted_proxies is also set now as
+ * defence-in-depth, but reading from the right is the property that does
+ * not depend on proxy config.
  */
-function clientIp(req: Request): string {
+export function clientIp(req: Request): string {
   const fwd = req.headers['x-forwarded-for'];
-  const raw = Array.isArray(fwd) ? fwd[0] : fwd;
+  const raw = Array.isArray(fwd) ? fwd[fwd.length - 1] : fwd;
   if (typeof raw === 'string' && raw.length > 0) {
-    // X-Forwarded-For is a comma-separated list; the leftmost entry
-    // is the original client.
-    const first = raw.split(',')[0]?.trim();
-    if (first) return first;
+    const parts = raw.split(',');
+    const last = parts[parts.length - 1]?.trim();
+    if (last) return last;
   }
   return req.ip ?? req.socket.remoteAddress ?? 'unknown';
 }

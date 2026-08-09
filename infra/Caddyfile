@@ -29,6 +29,18 @@
     # Production cert authority. Switch to `acme_ca https://acme-staging-v02.api.letsencrypt.org/directory`
     # when iterating on cert issuance to avoid the LE rate limit.
     # No `auto_https off`; we want the default behaviour.
+
+    # Trust no upstream proxy for X-Forwarded-* by default. Caddy is the
+    # edge here (it binds :443 directly), so there is no legitimate
+    # upstream proxy whose forwarding headers we should believe. With no
+    # trusted proxies, Caddy treats an incoming X-Forwarded-For from a
+    # client as untrusted and its own appended entry (the true peer) is
+    # authoritative. This is defence-in-depth for the app, which now also
+    # reads the client IP from the rightmost XFF entry; before both, the
+    # feedback rate limiter keyed on a spoofable leftmost value.
+    servers {
+        trusted_proxies static private_ranges
+    }
 }
 
 # www.gratisgis.org always 301s to the apex. Most users don't type
