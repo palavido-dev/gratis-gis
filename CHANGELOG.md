@@ -5,6 +5,68 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.10] - 2026-08-08
+
+Scheduled scripts and notebooks, a much larger Python client, and real
+documentation for both. Everything new is off unless you turn it on, so
+a deployment that ignores scripts is unaffected. One additive database
+column; safe upgrade.
+
+### Added
+
+- **Scripts run on a schedule.** Hourly, daily, weekly, or monthly, set
+  on the item. Structured fields rather than a cron expression. A
+  scheduled run acts as the item's owner, not whoever last edited the
+  schedule, and a run that arrives while the previous one is still
+  going is recorded as skipped rather than dropped, so a script slower
+  than its own schedule looks like one.
+- **Jupyter notebooks run.** Upload a `.ipynb` and the portal executes
+  it head-lessly with papermill, keeping the executed copy with its
+  output on the run, including when the run fails. Charts appear
+  inline. There is still no browser kernel and there is not going to
+  be one; authoring belongs in the editor you already have.
+- **`SCRIPT_EGRESS=portal-only`.** Drops a script's internet access
+  while keeping the whole portal API, which is what makes it safe to
+  offer script authoring to people you do not know.
+- **Python client 0.6.0**, from ten methods to thirty-five: file
+  import with replace, export to GeoParquet/CSV/GeoJSON, layer
+  creation, feature attachments, sharing, delete and restore,
+  calculate-field, server-side geoprocessing through derived layers,
+  and geocoding.
+- **Documentation for the automation surface.** New help pages for the
+  Python client, scripts, and the HTTP API, with worked examples, and
+  a link to them from the help landing page, which previously pointed
+  at none of it.
+
+### Fixed
+
+- **`find_items(query=...)` in the Python client never filtered.** It
+  sent the wrong parameter name, the portal ignored it, and every
+  search returned an unfiltered list of the first `limit` items while
+  looking like it had worked.
+- **A script could reach the host and the cloud metadata service.**
+  Container isolation stopped it reaching postgres, minio, and
+  keycloak, but not `169.254.169.254`, which on a cloud VM serves the
+  instance's credentials. `infra/script-net-firewall.sh` and its
+  systemd units close that; installing them is now part of turning
+  scripts on. Scratch space is also capped, which it was not: CPU,
+  memory, and processes were limited while a script could fill the
+  host disk.
+- **The nightly demo reset could abort and leave the stack down.**
+  Three causes: a service behind a compose profile was invisible to
+  the stop list, `CONNECTION LIMIT 0` does not apply to superusers so
+  the reconnect guard did nothing, and nothing brought services back
+  when a step failed. The reset now derives what to stop, blocks
+  connections in a way that works, and restores service on any
+  failure.
+
+### Notes for operators
+
+- If you enable scripts, install the egress fence units. See
+  [docs/scripts.md](./docs/scripts.md#turning-it-on). On a cloud VM
+  this is a real exposure, not a precaution.
+- `SCRIPT_EGRESS` defaults to `open`, which is the existing behaviour.
+
 ## [0.9.9] - 2026-08-05
 
 A follow-up to 0.9.8 that makes reading a large layer from a script

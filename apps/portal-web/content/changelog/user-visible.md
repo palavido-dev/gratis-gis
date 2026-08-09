@@ -12,6 +12,23 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-08-08 - Run Python and notebooks on a schedule
+The portal can now run your Python for you, on its own, hourly or
+daily or monthly. Paste a script or upload a Jupyter notebook, give it
+a schedule, and a layer that should be refreshed every month actually
+is. Notebooks keep their charts and their explanations alongside the
+results, so a job somebody else set up is readable rather than a wall
+of print statements. Your administrator has to turn this on.
+
+## 2026-08-08 - A much bigger Python toolkit
+The `gratisgis` Python package went from reading and writing features
+to most of what you can do in the browser: load a shapefile or
+GeoPackage into a layer, export to GeoParquet or CSV, attach and
+download photos, create and share layers, compute a field across a
+whole layer at once, and run buffers and other geoprocessing on the
+server so the data never has to come down to your machine. There is
+now proper documentation with worked examples under Help.
+
 ## 2026-08-05 - Reading a big layer from a script
 Pulling a large layer into a script used to fetch the whole thing at
 once, and past a certain size it quietly stopped short, so you could

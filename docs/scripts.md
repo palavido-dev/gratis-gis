@@ -277,6 +277,32 @@ needed; either alone does nothing useful, which is intentional,
 because turning on the endpoints with nothing consuming the queue
 would just accumulate work.
 
+**Then install the egress fence. This is not optional on a cloud VM.**
+
+```sh
+sudo install -m 0644 infra/systemd/gg-script-firewall.service /etc/systemd/system/
+sudo install -m 0644 infra/systemd/gg-script-firewall.timer   /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now gg-script-firewall.service gg-script-firewall.timer
+```
+
+Docker's network isolation stops a script reaching postgres, minio, and
+keycloak. It does **not** stop it reaching `169.254.169.254`, and on
+AWS, GCP, or Azure that address hands out the instance's IAM
+credentials to anything that asks. Without these units, enabling
+scripts on a cloud VM gives arbitrary user code your instance role.
+
+They are systemd units rather than something deploy.sh does, matching
+how every other timer in this project is installed. That means it is a
+step you have to take, which is why it is here rather than in a
+footnote.
+
+Verify it took:
+
+```sh
+sudo iptables -S GG-SCRIPT-EGRESS
+```
+
 ## Notebooks
 
 A script whose source is `.ipynb` JSON is executed with papermill
