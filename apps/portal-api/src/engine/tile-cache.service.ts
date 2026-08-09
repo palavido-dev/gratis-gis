@@ -343,14 +343,23 @@ export function tileCacheKey(args: {
 /**
  * Compute a stable fingerprint over the per-tile options that
  * change output bytes (fields list, geoLimit, boundaryClip,
- * isTable). Used as part of the cache key so a request with
- * different options stores under a separate slot.
+ * isTable, ownRowsOnly). Used as part of the cache key so a request
+ * with different options stores under a separate slot.
+ *
+ * `ownRowsOnly` carries a user id and therefore PARTITIONS the cache
+ * per viewer. That is deliberate and it is load-bearing: a row-scoped
+ * viewer and an unscoped one must never share a slot, or the first
+ * unscoped request to warm a tile would serve every row to the scoped
+ * viewer afterwards. Only row-scoped shares pay the extra slots; the
+ * common unscoped tile keeps the empty fingerprint and one shared
+ * entry.
  */
 export function optsFingerprint(opts: {
   fields?: ReadonlyArray<{ name: string; type?: string }>;
   geoLimit?: unknown;
   boundaryClip?: unknown;
   isTable?: boolean;
+  ownRowsOnly?: { userId: string } | undefined;
 }): string {
   // Sort fields by name so caller order doesn't fragment the
   // cache. The portal always emits field arrays in schema order
@@ -363,12 +372,19 @@ export function optsFingerprint(opts: {
   const geoLimit = opts.geoLimit ? stableJson(opts.geoLimit) : '';
   const boundaryClip = opts.boundaryClip ? stableJson(opts.boundaryClip) : '';
   const isTable = opts.isTable ? '1' : '';
+  const ownRows = opts.ownRowsOnly ? `own:${opts.ownRowsOnly.userId}` : '';
   // Short-circuit the all-empty case so the cache key for a
   // bare /items/.../tile request stays human-readable in logs.
-  if (fields === '' && geoLimit === '' && boundaryClip === '' && isTable === '') {
+  if (
+    fields === '' &&
+    geoLimit === '' &&
+    boundaryClip === '' &&
+    isTable === '' &&
+    ownRows === ''
+  ) {
     return '';
   }
-  const raw = `${fields}|${geoLimit}|${boundaryClip}|${isTable}`;
+  const raw = `${fields}|${geoLimit}|${boundaryClip}|${isTable}|${ownRows}`;
   return createHash('sha1').update(raw).digest('base64url').slice(0, 16);
 }
 

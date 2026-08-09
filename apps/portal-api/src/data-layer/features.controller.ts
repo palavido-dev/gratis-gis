@@ -479,7 +479,7 @@ export class DataLayerFeaturesController {
     @Param('y') yStr: string,
     @Query('clip') clip?: string,
   ) {
-    const { geoLimit, isTable, layer } = await this.assertV3Layer(
+    const { geoLimit, rowScope, isTable, layer } = await this.assertV3Layer(
       user,
       itemId,
       layerId,
@@ -503,10 +503,17 @@ export class DataLayerFeaturesController {
       geoLimit?: unknown;
       boundaryClip?: unknown;
       isTable?: boolean;
+      ownRowsOnly?: { userId: string };
       fields?: Array<{ name: string; type?: string }>;
     } = {};
     if (isTable) opts.isTable = true;
     if (geoLimit) opts.geoLimit = geoLimit;
+    // #40: the tile has to honour row-scope like /features does. This
+    // is the endpoint the map renders from, and it projects every
+    // declared field below, so without it a share configured
+    // rowScope='own' handed the whole layer to the viewer through the
+    // map while /features dutifully withheld it.
+    if (rowScope === 'own') opts.ownRowsOnly = { userId: user.id };
     if (clip) {
       const geom = await this.resolveBoundaryGeometry(clip);
       if (geom) opts.boundaryClip = geom;

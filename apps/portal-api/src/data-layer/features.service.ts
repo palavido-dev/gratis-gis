@@ -485,6 +485,10 @@ export class DataLayerFeaturesService {
       geoLimit?: unknown;
       boundaryClip?: unknown;
       isTable?: boolean;
+      /** Share row-scope (#40). The tile is what the map renders
+       *  from, so a scoped /features response is cosmetic without
+       *  this. */
+      ownRowsOnly?: { userId: string };
       /**
        * Layer's declared field schema. Passed through to the engine
        * so each declared field is projected as an MVT feature
@@ -509,6 +513,9 @@ export class DataLayerFeaturesService {
         ? { boundaryClip: opts.boundaryClip as GeoJsonGeometry }
         : {}),
       ...(opts.isTable === true ? { isTable: true } : {}),
+      ...(opts.ownRowsOnly !== undefined
+        ? { ownRowsOnly: opts.ownRowsOnly }
+        : {}),
       ...(opts.fields ? { fields: opts.fields } : {}),
     });
   }

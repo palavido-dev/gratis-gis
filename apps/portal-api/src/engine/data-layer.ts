@@ -2114,6 +2114,17 @@ export class DataLayerEngine {
     boundaryClip?: GeoJsonGeometry;
     isTable?: boolean;
     /**
+     * Share row-scope (#40). Restricts the tile to entities the user
+     * created, matching listFeatures: the predicate is on the entity's
+     * `create` observation, so a row stays yours after someone else
+     * edits it. Without this the tile endpoint returned every row of a
+     * layer shared with rowScope='own', and the tile is what the map
+     * renders from, so the scoped /features response was cosmetic.
+     * Note optsFingerprint() hashes this, so scoped tiles cache per
+     * viewer.
+     */
+    ownRowsOnly?: { userId: string };
+    /**
      * Layer's declared field schema. Each entry's name is projected
      * into the MVT as a feature property so MapLibre expressions
      * (`['get', 'fieldName']` for labels, popups, and filters) can
@@ -2174,6 +2185,7 @@ export class DataLayerEngine {
       y: number;
       geoLimit?: GeoJsonGeometry;
       boundaryClip?: GeoJsonGeometry;
+      ownRowsOnly?: { userId: string };
       fields?: Array<{ name: string; type?: string }>;
       maxFeaturesPerTile?: number;
     },
@@ -2298,11 +2310,33 @@ export class DataLayerEngine {
     // bounded. Layers that are sparse enough to fit in fewer rows
     // are unaffected -- this is a worst-case ceiling, not a floor.
     const MAX_FEATURES_PER_TILE = args.maxFeaturesPerTile ?? 5000;
+    // Row-scope (#40), mirroring listFeatures' candidate_entities CTE
+    // exactly. The predicate belongs on the entity's `create`
+    // observation, NOT on whichever version this tile happens to
+    // touch: filtering the version rows would drop your own feature
+    // the moment another grantee edited it, and would leak someone
+    // else's feature that you had once edited.
+    const ownerCte =
+      args.ownRowsOnly !== undefined
+        ? Prisma.sql`candidate_entities AS (
+            SELECT entity
+            FROM observation
+            WHERE scope = ${scope}
+              AND kind = 'create'
+              AND author_sub = ${args.ownRowsOnly.userId}
+          ),`
+        : Prisma.empty;
+    const ownerFilter =
+      args.ownRowsOnly !== undefined
+        ? Prisma.sql`AND entity IN (SELECT entity FROM candidate_entities)`
+        : Prisma.empty;
     const rows = await this.prisma.$queryRaw<TileRow[]>`
-      WITH tile_candidates AS (
+      WITH ${ownerCte}
+      tile_candidates AS (
         SELECT entity
         FROM observation
         WHERE scope = ${scope}
+          ${ownerFilter}
           AND geom IS NOT NULL
           AND geom && ST_Transform(ST_TileEnvelope(${args.z}::integer, ${args.x}::integer, ${args.y}::integer), 4326)
           -- Sanity-filter out geometries whose bbox spans more
