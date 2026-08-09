@@ -12,6 +12,11 @@ import {
 import type { Request } from 'express';
 import { timingSafeEqual } from 'node:crypto';
 
+import {
+  SCRIPT_MAX_NOTEBOOK_BYTES,
+  type ScriptFormat,
+} from '@gratis-gis/shared-types';
+
 import { Public } from '../auth/public.decorator.js';
 import {
   ScriptExecutorService,
@@ -39,11 +44,23 @@ export class ScriptExecutorController {
   @HttpCode(200)
   async execute(
     @Body()
+    // Every field the claimer sends has to be named here AND forwarded
+    // below. Both, or it is silently dropped: this body is destructured
+    // by hand rather than bound to a DTO, so an unlisted property does
+    // not arrive, and there is no error to notice.
+    //
+    // That is exactly how notebooks shipped broken. The claimer detected
+    // the notebook and sent `format`, the executor service branched on
+    // `req.format`, and the hop between them threw it away, so every
+    // notebook ran as if it were Python and died on the first line of
+    // its own JSON. Each end was individually correct and tested.
     body: {
       source?: string;
       apiKeyToken?: string;
       timeoutSeconds?: number;
       maxLogBytes?: number;
+      format?: ScriptFormat;
+      maxNotebookBytes?: number;
     },
     @Headers('x-script-executor-token') token: string | undefined,
     @Req() req: Request,
@@ -73,6 +90,16 @@ export class ScriptExecutorController {
         apiKeyToken: body.apiKeyToken,
         timeoutSeconds: clamp(body.timeoutSeconds, 300, 1, 3600),
         maxLogBytes: clamp(body.maxLogBytes, 262_144, 1024, 4_194_304),
+        // Anything other than the literal runs as Python. A body that
+        // arrived without a format, from an older claimer mid-deploy,
+        // should behave the way it always did.
+        format: body.format === 'notebook' ? 'notebook' : 'python',
+        maxNotebookBytes: clamp(
+          body.maxNotebookBytes,
+          SCRIPT_MAX_NOTEBOOK_BYTES,
+          1024,
+          32 * 1024 * 1024,
+        ),
       },
       ac.signal,
     );

@@ -2,6 +2,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import type { Request } from 'express';
+
 import { ScriptExecutorService } from './script-executor.service.js';
 
 /**
@@ -147,5 +149,91 @@ describe('script child environment', () => {
     expect(childEnv('t').SSL_CERT_FILE).toBe(
       '/etc/ssl/certs/ca-certificates.crt',
     );
+  });
+});
+
+// ---------------------------------------------------------------------
+// The claimer -> executor hop
+// ---------------------------------------------------------------------
+
+describe('ScriptExecutorController forwards the whole request', () => {
+  // Notebooks shipped broken because this hop dropped `format`. The
+  // claimer detected the notebook correctly and the executor service
+  // branched on it correctly; the controller destructures the body by
+  // hand, `format` was not in the list, and it vanished with no error.
+  // Every notebook then ran as Python and died on the first line of its
+  // own JSON.
+  //
+  // Testing the two ends in isolation could never catch that, which is
+  // the point of this block: it asserts what the controller PASSES ON,
+  // not what it receives.
+  const makeController = () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const executor = {
+      execute: jest.fn(async (req: Record<string, unknown>) => {
+        calls.push(req);
+        return { exitCode: 0, log: '', killedBy: null, notebook: null };
+      }),
+    };
+    process.env.SCRIPT_EXECUTOR_TOKEN = 'tok';
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const {
+      ScriptExecutorController,
+    } = require('./script-executor.controller.js');
+    const controller = new ScriptExecutorController(executor);
+    const req = { on: jest.fn() } as unknown as Request;
+    return { controller, calls, req };
+  };
+
+  const body = {
+    source: 'print(1)',
+    apiKeyToken: 'ggk_x',
+    timeoutSeconds: 60,
+    maxLogBytes: 4096,
+  };
+
+  it('passes format through to the service', async () => {
+    const { controller, calls, req } = makeController();
+    await controller.execute({ ...body, format: 'notebook' }, 'tok', req);
+    expect(calls[0]!.format).toBe('notebook');
+  });
+
+  it('passes the notebook size cap through', async () => {
+    const { controller, calls, req } = makeController();
+    await controller.execute(
+      { ...body, format: 'notebook', maxNotebookBytes: 2048 },
+      'tok',
+      req,
+    );
+    expect(calls[0]!.maxNotebookBytes).toBe(2048);
+  });
+
+  it('defaults to python when no format is sent', async () => {
+    // An older claimer mid-deploy must behave the way it always did.
+    const { controller, calls, req } = makeController();
+    await controller.execute({ ...body }, 'tok', req);
+    expect(calls[0]!.format).toBe('python');
+  });
+
+  it('treats an unrecognised format as python rather than trusting it', async () => {
+    const { controller, calls, req } = makeController();
+    await controller.execute({ ...body, format: 'wasm' }, 'tok', req);
+    expect(calls[0]!.format).toBe('python');
+  });
+
+  it('forwards every field the claimer sends', async () => {
+    // The guard against the next one going missing: if the service's
+    // request shape grows a field, this fails until the controller
+    // forwards it too.
+    const { controller, calls, req } = makeController();
+    await controller.execute({ ...body, format: 'notebook' }, 'tok', req);
+    expect(Object.keys(calls[0]!).sort()).toEqual([
+      'apiKeyToken',
+      'format',
+      'maxLogBytes',
+      'maxNotebookBytes',
+      'source',
+      'timeoutSeconds',
+    ]);
   });
 });
