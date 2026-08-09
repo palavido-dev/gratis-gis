@@ -5,6 +5,50 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.13] - 2026-08-09
+
+A security-hardening pass over the script execution feature, plus two
+header-trust fixes and a CSV export correctness fix. All findings from a
+full audit (docs/handoff/security-audit-2026-08-09.md). Safe upgrade, no
+database changes. Everything script-related stays off unless enabled.
+
+### Security
+
+- **Script egress fence no longer reopens on restart.** It targets the
+  executor's IP but was only re-applied every few minutes and the IP was
+  dynamic, so each deploy or restart left the executor briefly able to
+  reach the cloud metadata service (instance credentials on a cloud VM).
+  The executor now has a static address, the fence is applied during
+  deploy, and the network is pinned IPv4-only.
+- **A script can no longer fill the host disk.** The executor runs
+  read-only with a bounded tmpfs for every writable path; previously
+  only the scratch dir was capped and a loop writing to /tmp could take
+  the box down.
+- **Orphaned script processes are killed after each run** (a script
+  could previously escape the timeout kill with os.setsid and leave a
+  process running).
+- **The scripts off-switch now reaches the claimer**, and the executor
+  refuses to run as root if its unprivileged uid is misconfigured rather
+  than silently un-sandboxing.
+- **Feedback rate limiting no longer trusts a spoofable header.** The
+  client IP is read from the real proxied position, and Caddy is
+  configured to sanitise forwarding headers. Previously a client could
+  rotate X-Forwarded-For to bypass the limit. OGC link documents are now
+  built from the configured base URL rather than a spoofable Host header.
+
+### Fixed
+
+- **CSV export no longer silently stops at 100,000 rows.** It streams
+  the whole layer like the GeoParquet export already did; a large export
+  was quietly truncated before.
+
+### Notes for operators
+
+- No action required for a deployment that leaves scripts off. If you run
+  scripts, redeploy so the executor picks up the read-only and
+  static-IP configuration, and confirm the egress fence units are
+  installed (docs/scripts.md).
+
 ## [0.9.12] - 2026-08-09
 
 Fixes two things that made the scripts feature unusable in practice.
