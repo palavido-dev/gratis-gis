@@ -5,7 +5,23 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.11] - 2026-08-08
+
+v0.9.10 did not start and was never live anywhere. Use this instead.
+
+### Fixed
+
+- **v0.9.10 hung on boot.** Both API replicas mapped every route,
+  logged leader election, and then stopped before listening, with no
+  error. The scheduling module for scripts imported a fifth
+  `ScheduleModule.forRoot()` to reach Nest's scheduler registry; the
+  registry was never needed, since the service already owns its jobs,
+  so the import is gone. Everything in 0.9.10 is otherwise unchanged
+  and is listed below.
+
 ## [0.9.10] - 2026-08-08
+
+**Withdrawn: this release does not boot. Use 0.9.11.**
 
 Scheduled scripts and notebooks, a much larger Python client, and real
 documentation for both. Everything new is off unless you turn it on, so
