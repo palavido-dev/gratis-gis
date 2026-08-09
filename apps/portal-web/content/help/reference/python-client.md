@@ -272,7 +272,9 @@ usually means. **It truncates before it inserts**, so a failure part way
 through leaves the layer empty rather than rolling back to yesterday's
 data. If the source is something you cannot fetch again, export first.
 
-`mode="append"` is the default and adds without removing.
+`mode` is required: `"replace"` empties the layer first, `"append"` adds
+to what is there. There is no default, because the two are one word
+apart and the wrong one either doubles a layer or wipes it.
 
 For a multi-layer archive like a `.gdb`, name the one you want with
 `source_layer=`. Files are capped at 1 GB.

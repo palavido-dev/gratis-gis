@@ -1029,7 +1029,7 @@ class TestImportFile:
             )
 
         with pytest.raises(PortalError, match="Unsupported driver"):
-            make_client(handler).import_file("itm", "parcels", src)
+            make_client(handler).import_file("itm", "parcels", src, mode="replace")
 
     def test_a_stream_with_no_terminal_event_is_not_a_success(self, tmp_path):
         src = tmp_path / "x.gpkg"
@@ -1041,7 +1041,17 @@ class TestImportFile:
             )
 
         with pytest.raises(PortalError, match="without reporting a result"):
-            make_client(handler).import_file("itm", "parcels", src)
+            make_client(handler).import_file("itm", "parcels", src, mode="append")
+
+    def test_mode_is_required(self, tmp_path):
+        # The destructive-vs-additive choice must be explicit: a default
+        # is how a refresh job silently doubles or wipes a layer.
+        src = tmp_path / "x.gpkg"
+        src.write_bytes(b"x")
+        with pytest.raises(TypeError):
+            make_client(lambda r: httpx.Response(200)).import_file(  # type: ignore[call-arg]
+                "itm", "parcels", src
+            )
 
     def test_rejects_an_unknown_mode(self, tmp_path):
         src = tmp_path / "x.gpkg"

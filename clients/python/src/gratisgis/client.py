@@ -43,7 +43,7 @@ __all__ = ["GratisGIS", "field", "layer", "buffer", "step"]
 # the default User-Agent below needs it, and a second literal would
 # drift from the package version the first time one of them is bumped
 # alone.
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 # The portal caps a single append at 5000 features (AppendFeaturesBodyDto).
 # Batch below it so a caller handing us a million rows just works.
@@ -1094,7 +1094,7 @@ class GratisGIS:
         layer: str,
         path: Union[str, "os.PathLike[str]"],
         *,
-        mode: str = "append",
+        mode: str,
         source_layer: Optional[str] = None,
         progress: Optional[Any] = None,
         timeout: float = 3600.0,
@@ -1105,11 +1105,16 @@ class GratisGIS:
         shapefile (zip it), GeoPackage, file geodatabase, GeoJSON, KML,
         GPX, CSV with coordinates, and GeoParquet.
 
-        ``mode='replace'`` empties the layer first, which is what a
-        refresh usually means. Be aware that it truncates BEFORE
-        inserting, so a failure part way through leaves the layer empty
-        rather than rolling back to yesterday's data. On anything you
-        cannot re-import, export first.
+        ``mode`` is required, on purpose. This is the one call that can
+        destroy or double data, and the two directions are one word
+        apart: ``mode='replace'`` empties the layer first (a refresh),
+        ``mode='append'`` adds to what is there (doubling it if you
+        meant to refresh). A silent default is how a monthly job quietly
+        doubles a layer or wipes it, so you have to say which you mean.
+
+        ``mode='replace'`` truncates BEFORE inserting, so a failure part
+        way through leaves the layer empty rather than rolling back to
+        yesterday's data. On anything you cannot re-import, export first.
 
         ``source_layer`` picks one layer out of a multi-layer archive
         like a .gdb.
