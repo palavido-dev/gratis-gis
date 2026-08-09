@@ -41,76 +41,97 @@ export interface CsvExportOptions {
   emitLonLat?: boolean;
 }
 
+/** The resolved column shape for one export, computed once up front so
+ *  the header and every row agree without re-deciding per feature. */
+export interface CsvColumnPlan {
+  fields: FeatureField[];
+  includeGeometry: boolean;
+  emitWkt: boolean;
+  emitLonLat: boolean;
+}
+
 /**
- * Build the CSV body as a single string. For very large feature
- * counts this concatenates in memory; for now that's acceptable
- * (the data_layer ingest pipeline already buffers similarly and
- * the 4 GB Node heap on portal-api covers ~3M rows). A future
- * pass can convert to a streaming Readable if a real customer
- * hits the limit.
+ * Decide the columns for an export.
+ *
+ * `isPoint` selects lon/lat vs WKT for `auto` geometry. For a streaming
+ * export it comes from the layer's declared geometry type (there is no
+ * first feature to sniff); the batch `featuresToCsv` sniffs it instead.
+ */
+export function csvColumnPlan(
+  fields: FeatureField[],
+  opts: CsvExportOptions = {},
+  isPoint = false,
+): CsvColumnPlan {
+  const includeGeometry = opts.includeGeometry !== false;
+  return {
+    fields,
+    includeGeometry,
+    emitWkt: opts.emitWkt ?? !isPoint,
+    emitLonLat: opts.emitLonLat ?? isPoint,
+  };
+}
+
+/** The header row (no trailing newline) for a column plan. */
+export function csvHeaderRow(plan: CsvColumnPlan): string {
+  const headers: string[] = plan.fields.map((f) => f.label || f.name);
+  if (plan.includeGeometry) {
+    if (plan.emitLonLat) headers.push('geometry_lon', 'geometry_lat');
+    if (plan.emitWkt) headers.push('geometry_wkt');
+  }
+  return headers.map(csvEscape).join(',');
+}
+
+/** One feature's row (no trailing newline) for a column plan. */
+export function csvFeatureRow(
+  feat: FeatureRecord,
+  plan: CsvColumnPlan,
+): string {
+  const props = (feat.properties ?? {}) as Record<string, unknown>;
+  const cells: string[] = [];
+  for (const field of plan.fields) {
+    cells.push(formatField(props[field.name], field));
+  }
+  if (plan.includeGeometry) {
+    if (plan.emitLonLat) {
+      const pt = pointCoords(feat.geometry);
+      cells.push(pt ? csvEscape(String(pt[0])) : '');
+      cells.push(pt ? csvEscape(String(pt[1])) : '');
+    }
+    if (plan.emitWkt) {
+      const wkt = geometryToWkt(feat.geometry);
+      cells.push(wkt ? csvEscape(wkt) : '');
+    }
+  }
+  return cells.join(',');
+}
+
+/**
+ * Build the CSV body as a single string. Convenience for callers that
+ * already hold the whole feature array in memory (small layers, tests).
+ * The export endpoint streams instead, via csvColumnPlan +
+ * csvHeaderRow + csvFeatureRow over the keyset iterator, so it is not
+ * bounded by a row cap or the heap.
  */
 export function featuresToCsv(
   features: FeatureRecord[],
   fields: FeatureField[],
   opts: CsvExportOptions = {},
 ): string {
-  const includeGeometry = opts.includeGeometry !== false;
-
-  // Sniff the first non-null geometry to decide point-vs-other.
-  // Point layers default to lon/lat columns; everything else gets
-  // a single WKT column.
   let isPoint = false;
-  if (includeGeometry) {
+  if (opts.includeGeometry !== false) {
     for (const f of features) {
       const g = (f.geometry as { type?: string } | null) ?? null;
       if (g && typeof g.type === 'string') {
-        if (g.type === 'Point') isPoint = true;
+        isPoint = g.type === 'Point';
         break;
       }
     }
   }
-  const emitWkt = opts.emitWkt ?? !isPoint;
-  const emitLonLat = opts.emitLonLat ?? isPoint;
-
-  // Header row: attribute fields in declared order, then geometry
-  // columns (if any). Use field.label when set, fall back to
-  // field.name so the column header is human-readable.
-  const headers: string[] = fields.map((f) => f.label || f.name);
-  if (includeGeometry) {
-    if (emitLonLat) {
-      headers.push('geometry_lon', 'geometry_lat');
-    }
-    if (emitWkt) {
-      headers.push('geometry_wkt');
-    }
-  }
-
-  const lines: string[] = [headers.map(csvEscape).join(',')];
-
-  for (const feat of features) {
-    const props = (feat.properties ?? {}) as Record<string, unknown>;
-    const cells: string[] = [];
-    for (const field of fields) {
-      const raw = props[field.name];
-      cells.push(formatField(raw, field));
-    }
-    if (includeGeometry) {
-      if (emitLonLat) {
-        const pt = pointCoords(feat.geometry);
-        cells.push(pt ? csvEscape(String(pt[0])) : '');
-        cells.push(pt ? csvEscape(String(pt[1])) : '');
-      }
-      if (emitWkt) {
-        const wkt = geometryToWkt(feat.geometry);
-        cells.push(wkt ? csvEscape(wkt) : '');
-      }
-    }
-    lines.push(cells.join(','));
-  }
-
-  // RFC-4180 says CRLF; Excel insists on it for the import dialog
-  // to skip the per-language locale prompt. Most modern readers
-  // accept LF too, so portability is fine either way.
+  const plan = csvColumnPlan(fields, opts, isPoint);
+  const lines: string[] = [csvHeaderRow(plan)];
+  for (const feat of features) lines.push(csvFeatureRow(feat, plan));
+  // RFC-4180 says CRLF; Excel insists on it for the import dialog to
+  // skip the per-language locale prompt. Most modern readers accept LF.
   return lines.join('\r\n');
 }
 

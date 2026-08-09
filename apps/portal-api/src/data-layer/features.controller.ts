@@ -56,7 +56,12 @@ import { EditorPolicyService } from '../items/editor-policy.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { DataLayerFeaturesService } from './features.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
-import { featuresToCsv } from './csv-export.js';
+import {
+  csvColumnPlan,
+  csvFeatureRow,
+  csvHeaderRow,
+  type CsvExportOptions,
+} from './csv-export.js';
 import { parsePagingParams } from './feature-paging.js';
 import { writeGeoParquetExport } from './geoparquet-export.js';
 import { DuckDbUnavailableError } from '../ingest/parquet-reader.js';
@@ -843,15 +848,22 @@ export class DataLayerFeaturesController {
     @Query('parentId') parentId?: string,
     @Query('geometry') geometry?: 'none' | 'wkt' | 'lonlat' | 'auto',
   ) {
-    // Visibility + download gate BEFORE any feature read, so a
-    // denied caller never pulls rows (same shape as /geoparquet).
-    // The layer schema from the same assert drives CSV column order
-    // (declared field order, human-friendly labels).
-    const { layer, isTable, item } = await this.assertV3Layer(
+    // Visibility + download gate and scoped read opts BEFORE any feature
+    // read, same as /geoparquet. buildScopedReadOpts applies bbox, clip,
+    // geo limits, own-rows scope, and parentFk in one place.
+    const { opts, isTable, layer, item } = await this.buildScopedReadOpts(
       user,
       itemId,
       layerId,
-      'read',
+      {
+        bbox,
+        clip,
+        parentFk,
+        parentId,
+        timeField: undefined,
+        timeFrom: undefined,
+        timeTo: undefined,
+      },
     );
     const withShares = item as typeof item & { shares?: ItemShare[] };
     if (!this.sharing.canDownload(user, item, withShares.shares ?? [])) {
@@ -859,25 +871,20 @@ export class DataLayerFeaturesController {
         'This layer is shared with you as view only. Downloading the data requires a share with download permission.',
       );
     }
-    const fc = await this.listFeatures(
-      user,
-      itemId,
-      layerId,
-      bbox,
-      at,
-      clip,
-      parentFk,
-      parentId,
-    );
-    const fields: FeatureField[] = (layer?.fields ?? []) as FeatureField[];
-    const features = ((fc as { features?: FeatureRecord[] }).features ??
-      []) as FeatureRecord[];
 
-    // Geometry-mode opts. `auto` (default) lets featuresToCsv pick
-    // lon/lat for points and WKT for everything else; explicit modes
-    // force the column shape. Table-mode sublayers always omit
-    // geometry regardless of the query parameter.
-    const csvOpts: Parameters<typeof featuresToCsv>[2] = {};
+    const iterOpts: Parameters<typeof this.v3.iterateFeatures>[2] = {
+      ...opts,
+    };
+    if (at) iterOpts.at = at;
+
+    const fields: FeatureField[] = (layer?.fields ?? []) as FeatureField[];
+
+    // Geometry-mode opts. `auto` (default) uses lon/lat for point layers
+    // and WKT for everything else; explicit modes force the shape.
+    // Table-mode sublayers always omit geometry. isPoint comes from the
+    // declared geometry type rather than sniffing a feature, because the
+    // stream has no first feature to peek at.
+    const csvOpts: CsvExportOptions = {};
     if (isTable || geometry === 'none') {
       csvOpts.includeGeometry = false;
     } else if (geometry === 'wkt') {
@@ -887,19 +894,45 @@ export class DataLayerFeaturesController {
       csvOpts.emitWkt = false;
       csvOpts.emitLonLat = true;
     }
+    const isPoint =
+      (layer as { geometryType?: string } | undefined)?.geometryType ===
+      'point';
+    const plan = csvColumnPlan(fields, csvOpts, isPoint);
 
-    const body = featuresToCsv(features, fields, csvOpts);
-    // The minimal layer shape returned by assertV3Layer doesn't carry
-    // user-facing label/name; use layerId as a stable filename stem.
-    // The browser still picks up Content-Disposition's filename and
-    // the user can rename on save anyway.
     const filenameStem = layerId.replace(/[^\w.-]+/g, '_');
     res.setHeader('content-type', 'text/csv; charset=utf-8');
     res.setHeader(
       'content-disposition',
       `attachment; filename="${filenameStem}.csv"`,
     );
-    res.send(body);
+
+    // Stream over the keyset iterator, one page at a time, so the whole
+    // layer is exported rather than the first 100k rows. The old path
+    // buffered listFeatures (capped, in-memory) and silently truncated:
+    // a CSV that looked complete but was missing most of a large layer.
+    // Headers are already sent, so a mid-stream error cannot become an
+    // HTTP error; the CRLF-joined body is identical to featuresToCsv.
+    try {
+      res.write(csvHeaderRow(plan));
+      for await (const batch of this.v3.iterateFeatures(
+        itemId,
+        layerId,
+        iterOpts,
+      )) {
+        let chunk = '';
+        for (const feat of batch as FeatureRecord[]) {
+          chunk += '\r\n' + csvFeatureRow(feat, plan);
+        }
+        if (chunk) res.write(chunk);
+      }
+      res.end();
+    } catch {
+      // Best-effort: the response has already started, so there is no
+      // clean way to signal an error to the client beyond ending the
+      // stream. The paged read is snapshot-pinned so a partial file is
+      // at least internally consistent up to where it stopped.
+      res.end();
+    }
   }
 
   /**
