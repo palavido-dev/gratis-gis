@@ -16,6 +16,10 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { DataLayerFeaturesService } from '../../data-layer/features.service.js';
 import { absoluteBase } from './url.js';
 import { parseCollectionId, formatCollectionId } from './collection-id.js';
+import {
+  PUBLIC_TIER_SELECT,
+  publicTierGeoLimit,
+} from '../public-geo-limit.js';
 
 /**
  * OGC API Features Part 1 (Core + GeoJSON + OAS30 + Part 2 CRS) for
@@ -164,12 +168,18 @@ export class OgcFeaturesController {
     const opts: {
       bbox?: [number, number, number, number];
       limit?: number;
+      geoLimit?: unknown;
     } = {
       limit: fetchN,
     };
     if (bboxParam) {
       opts.bbox = parseBbox(bboxParam, bboxCrs);
     }
+    const tierClip = await publicTierGeoLimit(
+      this.prisma,
+      row.publicGeoBoundaryId,
+    );
+    if (tierClip) opts.geoLimit = tierClip;
 
     const fc = await this.v3.listFeatures(row.itemId, row.layerId, opts);
 
@@ -253,8 +263,16 @@ export class OgcFeaturesController {
     if (!row) throw new NotFoundException('Collection not found.');
     const crs = parseCrs(crsParam);
 
+    // Clip here too: without it, a caller who knows a feature id can
+    // read a feature that sits outside the public tier boundary one
+    // at a time, which defeats the clip on the collection listing.
+    const tierClip = await publicTierGeoLimit(
+      this.prisma,
+      row.publicGeoBoundaryId,
+    );
     const fc = await this.v3.listFeatures(row.itemId, row.layerId, {
       entity: featureId,
+      ...(tierClip ? { geoLimit: tierClip } : {}),
     });
     const found = fc.features[0];
     if (!found) throw new NotFoundException('Feature not found.');
@@ -303,6 +321,7 @@ export class OgcFeaturesController {
         license: true,
         updatedAt: true,
         data: true,
+        ...PUBLIC_TIER_SELECT,
       },
       orderBy: { updatedAt: 'desc' },
     });
@@ -321,6 +340,7 @@ export class OgcFeaturesController {
         tags: r.tags,
         license: r.license,
         updatedAt: r.updatedAt,
+        publicGeoBoundaryId: r.publicGeoBoundaryId ?? null,
       });
       // Multi-layer items also expose each layer (including the
       // first) under the explicit `<itemId>__<layerKey>` form so
@@ -337,6 +357,7 @@ export class OgcFeaturesController {
             tags: r.tags,
             license: r.license,
             updatedAt: r.updatedAt,
+            publicGeoBoundaryId: r.publicGeoBoundaryId ?? null,
           });
         }
       }
@@ -364,6 +385,7 @@ export class OgcFeaturesController {
         license: true,
         updatedAt: true,
         data: true,
+        ...PUBLIC_TIER_SELECT,
       },
     });
     if (!item) return null;
@@ -394,6 +416,7 @@ export class OgcFeaturesController {
       tags: item.tags,
       license: item.license,
       updatedAt: item.updatedAt,
+      publicGeoBoundaryId: item.publicGeoBoundaryId ?? null,
     };
   }
 }
@@ -407,6 +430,9 @@ interface DataLayerRow {
   tags: string[];
   license: string | null;
   updatedAt: Date;
+  /** #80 tier boundary. Every read off this row must clip by it; the
+   *  OGC feed is a public mirror like any other. */
+  publicGeoBoundaryId: string | null;
 }
 
 interface V3LayerLite {

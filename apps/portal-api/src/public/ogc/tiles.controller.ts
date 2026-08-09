@@ -21,6 +21,10 @@ import {
 } from '../../engine/tile-cache.service.js';
 import { absoluteBase } from './url.js';
 import { parseCollectionId, formatCollectionId } from './collection-id.js';
+import {
+  PUBLIC_TIER_SELECT,
+  publicTierGeoLimit,
+} from '../public-geo-limit.js';
 
 /**
  * OGC API - Tiles Part 1 Core for the publicly-shared data layers.
@@ -215,6 +219,14 @@ export class OgcTilesController {
       );
     }
 
+    // Tier clip (#80). optsFingerprint() hashes geoLimit into the
+    // tile cache key, so a clipped tile cannot be served from the
+    // unclipped slot or vice versa.
+    const tierClip = await publicTierGeoLimit(
+      this.prisma,
+      row.publicGeoBoundaryId,
+    );
+
     let mvt: Buffer;
     let etag: string;
     try {
@@ -228,6 +240,7 @@ export class OgcTilesController {
           ...(row.fieldSchema.length > 0
             ? { fields: row.fieldSchema.map((f) => ({ name: f.name, type: f.type })) }
             : {}),
+          ...(tierClip ? { geoLimit: tierClip } : {}),
         },
       ));
     } catch (e) {
@@ -281,6 +294,7 @@ export class OgcTilesController {
         title: true,
         description: true,
         data: true,
+        ...PUBLIC_TIER_SELECT,
       },
     });
     if (!item) return null;
@@ -305,6 +319,7 @@ export class OgcTilesController {
           : item.title,
       description: item.description,
       fieldSchema: target.fields,
+      publicGeoBoundaryId: item.publicGeoBoundaryId ?? null,
     };
   }
 }
@@ -317,6 +332,9 @@ interface TilesetRow {
   title: string;
   description: string;
   fieldSchema: V3LayerLite['fields'];
+  /** #80 tier boundary; the OGC tile feed clips by it like every
+   *  other public mirror. */
+  publicGeoBoundaryId: string | null;
 }
 
 interface V3LayerLite {

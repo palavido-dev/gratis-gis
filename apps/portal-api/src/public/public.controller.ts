@@ -23,6 +23,10 @@ import {
   tileOverloadRetryAfterSeconds,
 } from '../engine/tile-cache.service.js';
 import { synthesizeThumbnailUrl } from '../items/thumbnail-url.js';
+import {
+  PUBLIC_TIER_SELECT,
+  publicTierGeoLimit,
+} from './public-geo-limit.js';
 
 /**
  * Unauthenticated surface area for the portal. Anything here is
@@ -318,10 +322,17 @@ export class PublicController {
    * session is present.
    *
    * Supports the same bbox / at filters the auth'd path supports.
-   * Per-share geographic restrictions (geoLimit) and rowScope are
-   * not in play here -- those concepts only exist for authenticated
-   * shares. Layer-level boundary clip would be a future addition
-   * if a public-shared map needs it.
+   *
+   * Per-SHARE geographic restrictions (item_share.geoLimit) and
+   * rowScope genuinely do not apply here: those hang off a share row
+   * and an anonymous caller has none. The TIER boundary does apply,
+   * though -- item.publicGeoBoundaryId (#80) exists precisely so a
+   * public data_layer can be clipped for everyone on the internet,
+   * and SharingService.geoLimitFor honours it on the auth'd path. A
+   * previous version of this comment claimed no boundary concept
+   * reached the public surface at all, and the missing clip meant
+   * this mirror served the whole layer for an item the owner had
+   * deliberately scoped to a region.
    */
   @Public()
   @Get('items/:id/layers/:layerId/features')
@@ -354,14 +365,20 @@ export class PublicController {
         access: 'public',
         deletedAt: null,
       },
-      select: { id: true },
+      select: { id: true, ...PUBLIC_TIER_SELECT },
     });
     if (!item) throw new NotFoundException('Item not found');
     const opts: {
       bbox?: [number, number, number, number];
       at?: string;
       entity?: string;
+      geoLimit?: unknown;
     } = {};
+    const tierClip = await publicTierGeoLimit(
+      this.prisma,
+      item.publicGeoBoundaryId,
+    );
+    if (tierClip) opts.geoLimit = tierClip;
     if (bbox) {
       const parts = bbox.split(',').map(Number);
       if (parts.length === 4 && parts.every((n) => Number.isFinite(n))) {
@@ -443,7 +460,7 @@ export class PublicController {
         access: 'public',
         deletedAt: null,
       },
-      select: { id: true, data: true },
+      select: { id: true, data: true, ...PUBLIC_TIER_SELECT },
     });
     if (!item) throw new NotFoundException('Item not found');
     const layer = pickV3Layer(item.data, layerId);
@@ -452,7 +469,17 @@ export class PublicController {
     const text = (q ?? '').trim();
     if (text.length === 0) return { results: [], truncated: false };
 
-    const opts: { q: string; fields?: string[]; limit?: number } = { q: text };
+    const opts: {
+      q: string;
+      fields?: string[];
+      limit?: number;
+      geoLimit?: unknown;
+    } = { q: text };
+    const tierClip = await publicTierGeoLimit(
+      this.prisma,
+      item.publicGeoBoundaryId,
+    );
+    if (tierClip) opts.geoLimit = tierClip;
     if (fields) {
       // Whitelist requested fields against the layer's public schema so
       // an arbitrary attribute key can't be probed via attrs->>'..'.
@@ -508,7 +535,7 @@ export class PublicController {
         access: 'public',
         deletedAt: null,
       },
-      select: { id: true, data: true },
+      select: { id: true, data: true, ...PUBLIC_TIER_SELECT },
     });
     if (!item) throw new NotFoundException('Item not found');
 
@@ -537,9 +564,18 @@ export class PublicController {
     const opts: {
       fields?: Array<{ name: string; type?: string }>;
       isTable?: boolean;
+      geoLimit?: unknown;
     } = {};
     if (layer.fields.length > 0) opts.fields = layer.fields;
     if (layer.geometryType === null) opts.isTable = true;
+    // Safe against the tile cache: optsFingerprint() already hashes
+    // geoLimit into the cache key, so a clipped tile stores under its
+    // own slot rather than overwriting the unclipped one.
+    const tierClip = await publicTierGeoLimit(
+      this.prisma,
+      item.publicGeoBoundaryId,
+    );
+    if (tierClip) opts.geoLimit = tierClip;
 
     let mvt: Buffer;
     let etag: string;
