@@ -4,6 +4,7 @@ import { Logger } from '@nestjs/common';
 
 import { ScriptWorkerAppModule } from './script-worker.module.js';
 import { ScriptRunnerWorker } from './scripts/script-runner.worker.js';
+import { isScriptsEnabled } from './scripts/scripts-config.js';
 
 /**
  * script-runner entry point (#221).
@@ -34,12 +35,24 @@ async function bootstrap() {
   );
   app.enableShutdownHooks();
 
-  // Shutdown must reach the children: onModuleDestroy kills any live
-  // script process. Without the hooks above, docker stop would leave
-  // an orphaned python process holding a run row in `running` until
-  // the stale sweep noticed minutes later.
-  app.get(ScriptRunnerWorker).start();
-  log.log('script runner ready');
+  // The off switch has to reach the claimer, not just the API.
+  //
+  // Without this the claimer polled and executed queued runs regardless
+  // of PORTAL_SCRIPTS_ENABLED, so a row left over from before the flag
+  // was turned off, injected directly, or restored from a golden dump
+  // would still run. worker.main.ts already gates its copy this way; the
+  // dedicated script-runner container did not, which made "scripts are
+  // off" true for the API and false for the thing that runs them.
+  if (isScriptsEnabled()) {
+    // Shutdown must reach the children: onModuleDestroy kills any live
+    // script process. Without the hooks above, docker stop would leave
+    // an orphaned python process holding a run row in `running` until
+    // the stale sweep noticed minutes later.
+    app.get(ScriptRunnerWorker).start();
+    log.log('script runner ready');
+  } else {
+    log.log('scripts are disabled (PORTAL_SCRIPTS_ENABLED); claimer idle');
+  }
 }
 
 void bootstrap();

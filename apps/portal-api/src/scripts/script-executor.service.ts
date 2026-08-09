@@ -1,6 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { spawn } from 'node:child_process';
-import { chmod, chown, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  chown,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Injectable, Logger } from '@nestjs/common';
@@ -220,9 +229,52 @@ export class ScriptExecutorService {
         child.on('close', (code) => done(code));
       });
     } finally {
+      // Kill anything the run left behind BEFORE removing its dir.
+      //
+      // hardKill() targets the child's process group, which a script can
+      // escape with os.setsid() or a double fork: the orphan lands in a
+      // new session that a negative-pid kill never reaches, and survives
+      // until the container stops. Runs are serialised (one claimer, one
+      // at a time), and only scripts run as the script uid, so after a
+      // run finishes there should be zero processes owned by that uid.
+      // Sweep them.
+      if (asUser) await this.killByUid(asUser.uid);
       await rm(dir, { recursive: true, force: true }).catch(() => {
         // A leftover temp dir is not worth failing a finished run.
       });
+    }
+  }
+
+  /**
+   * SIGKILL every process owned by `uid`. Best-effort.
+   *
+   * Reads /proc rather than shelling out to pkill, which the slim image
+   * does not ship. Needs CAP_KILL, which the executor holds precisely so
+   * root can signal across the uid boundary to the script user; the
+   * script itself never gets that capability. Safe to sweep the whole
+   * uid because runs are serialised and no other process runs as it.
+   */
+  private async killByUid(uid: number): Promise<void> {
+    let pids: string[];
+    try {
+      pids = (await readdir('/proc')).filter((p) => /^\d+$/.test(p));
+    } catch {
+      return; // Not Linux, or no /proc. Nothing to sweep.
+    }
+    for (const pid of pids) {
+      try {
+        const status = await readFile(`/proc/${pid}/status`, 'utf8');
+        // "Uid:\treal\teffective\tsaved\tfs" — match the real uid.
+        const m = /^Uid:\s+(\d+)/m.exec(status);
+        if (!m || Number(m[1]) !== uid) continue;
+        process.kill(Number(pid), 'SIGKILL');
+        this.log.warn(
+          `Killed leftover script process ${pid} (uid ${uid}) after the run.`,
+        );
+      } catch {
+        // Process already gone between readdir and kill, or a status we
+        // could not read. Either way it is not our concern now.
+      }
     }
   }
 
@@ -270,14 +322,37 @@ export class ScriptExecutorService {
   }
 
   childEnv(apiKeyToken: string, runDir?: string): NodeJS.ProcessEnv {
+    // Everything writable points at the per-run directory, which lives on
+    // the size-capped tmpfs (SCRIPT_TMPDIR) and is deleted when the run
+    // ends. That is what lets the executor container run `read_only` with
+    // no uncapped writable path: HOME, the temp dir, and every cache dir
+    // below resolve into this one bounded, disposable place.
+    //
+    // Before this, HOME defaulted to /tmp and TMPDIR was unset, so
+    // Python's tempfile wrote to /tmp on the container's writable overlay
+    // (the host disk), with no quota. A `open('/tmp/x','wb')` loop could
+    // fill the host filesystem and take postgres and the site down. The
+    // tmpfs only ever covered the scratch dir; this makes it cover
+    // everything a run can write.
+    const home = runDir ?? process.env.SCRIPT_HOME ?? '/tmp';
     return {
       GRATISGIS_URL: process.env.PORTAL_BASE_URL ?? 'http://localhost:3000',
       GRATISGIS_API_KEY: apiKeyToken,
       // Enough of a system for python to start and for TLS to verify.
       PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
-      HOME: process.env.SCRIPT_HOME ?? '/tmp',
+      HOME: home,
+      // Point every temp path at the capped run dir. TMPDIR/TMP/TEMP
+      // cover tempfile and most libraries; the others cover tools that
+      // read their own env.
+      TMPDIR: home,
+      TMP: home,
+      TEMP: home,
       LANG: 'C.UTF-8',
       LC_ALL: 'C.UTF-8',
+      // Parity with the plain-python `-I` flag for the notebook path,
+      // which papermill runs without it: ignore any per-user site dir so
+      // a run cannot be steered by leftovers under a writable HOME.
+      PYTHONNOUSERSITE: '1',
       ...(process.env.SSL_CERT_FILE
         ? { SSL_CERT_FILE: process.env.SSL_CERT_FILE }
         : {}),
@@ -306,22 +381,36 @@ export class ScriptExecutorService {
 /**
  * The identity a script runs as, distinct from the executor's own.
  *
- * Absent in local development, where the executor runs as an ordinary
- * user who cannot setuid to anyone. The container sets both, and the
- * compose service grants exactly SETUID and SETGID for this.
+ * Two cases, and the split is a security control, not a convenience:
  *
- * Returning null rather than guessing matters: spawning with a bogus
- * uid throws EPERM and every run fails, which is a worse outcome than
- * a dev machine running the child as the developer.
+ *   Not root (local dev): the executor is an ordinary user who cannot
+ *   setuid to anyone, so we return null and the child runs as the
+ *   developer. Fine on a laptop.
+ *
+ *   Root (the container): the uid drop is the ONLY thing standing
+ *   between the child and /proc/1/environ, which holds the executor
+ *   token. If SCRIPT_UID/SCRIPT_GID are missing or bogus here we must
+ *   REFUSE, not fall through to running the child as root. The previous
+ *   version returned null in that case, silently handing an untrusted
+ *   script the executor's own privileges and its secret. Failing the
+ *   run loudly is the safe direction; a single env slip should break
+ *   scripts, not quietly un-sandbox them.
  */
 function scriptUser(): { uid: number; gid: number } | null {
+  const privileged =
+    typeof process.getuid === 'function' && process.getuid() === 0;
+  if (!privileged) return null;
+
   const uid = Number(process.env.SCRIPT_UID);
   const gid = Number(process.env.SCRIPT_GID);
-  if (!Number.isInteger(uid) || !Number.isInteger(gid)) return null;
-  if (uid <= 0 || gid <= 0) return null;
-  // Only meaningful if we are privileged enough to change user at all.
-  if (typeof process.getuid !== 'function' || process.getuid() !== 0) {
-    return null;
+  const valid =
+    Number.isInteger(uid) && Number.isInteger(gid) && uid > 0 && gid > 0;
+  if (!valid) {
+    throw new Error(
+      'Executor is running as root but SCRIPT_UID/SCRIPT_GID are not set ' +
+        'to a valid non-root uid/gid. Refusing to run: this is the control ' +
+        'that stops a script reading the executor token off /proc.',
+    );
   }
   return { uid, gid };
 }

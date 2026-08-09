@@ -125,13 +125,21 @@ describe('script child environment', () => {
         'PATH',
       ]),
     );
-    // Nothing beyond the known set (the two optional SSL vars
-    // included). A growing environment here is a regression.
+    // Nothing beyond the known set (the optional SSL vars and the temp
+    // redirects included). A growing environment here is a regression:
+    // the point is that a secret added to compose later is NOT here.
+    // TMPDIR/TMP/TEMP and PYTHONNOUSERSITE were added so a read-only
+    // executor still has a writable, bounded temp dir and the notebook
+    // path ignores any per-user site dir.
     for (const k of keys) {
       expect([
         'GRATISGIS_API_KEY',
         'GRATISGIS_URL',
         'HOME',
+        'TMPDIR',
+        'TMP',
+        'TEMP',
+        'PYTHONNOUSERSITE',
         'LANG',
         'LC_ALL',
         'PATH',

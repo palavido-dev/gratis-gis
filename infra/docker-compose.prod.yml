@@ -614,6 +614,10 @@ services:
       # third writer racing it is how half-applied migrations happen.
       SKIP_MIGRATE: "true"
       ENABLE_CRONS: "false"
+      # The claimer's own off switch. script-worker.main.ts checks this
+      # before it starts polling; without it here, a queued run would be
+      # executed even with the feature turned off everywhere else.
+      PORTAL_SCRIPTS_ENABLED: ${PORTAL_SCRIPTS_ENABLED:-}
       DATABASE_URL: postgresql://${POSTGRES_USER:-gratisgis}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gratisgis}
       SCRIPT_EXECUTOR_URL: http://script-executor:4100
       SCRIPT_EXECUTOR_TOKEN: ${SCRIPT_EXECUTOR_TOKEN:?SCRIPT_EXECUTOR_TOKEN must be set in .env.prod when the scripts profile is used}
@@ -679,14 +683,29 @@ services:
     # executor can make each run's directory, traversable so the script
     # user can enter the one directory it is handed without being able
     # to list the parent and see other runs.
+    # Read-only root, with a bounded tmpfs for every path a run can
+    # write. Before this, only /var/tmp/ggscript was capped; the rest of
+    # the container root was writable overlay on the HOST disk with no
+    # quota, and TMPDIR was unset so Python's tempfile wrote to /tmp
+    # there. A `open('/tmp/x','wb')` loop filled the host filesystem and
+    # took the site down. Now the root is read-only and the only
+    # writable places are these tmpfs mounts, all charged to this
+    # container's 1 GB memory cgroup, so overrunning them kills the run
+    # rather than the machine. The executor's childEnv points HOME and
+    # TMPDIR at the per-run dir under /var/tmp/ggscript.
+    read_only: true
     tmpfs:
       - /var/tmp/ggscript:size=256m,mode=0711,uid=0,gid=0
+      # Safety net for anything that ignores TMPDIR and hardcodes /tmp.
+      - /tmp:size=32m,mode=1777
     # Root INSIDE the container, and nothing else. The executor needs
     # to change user when it spawns a script (an unprivileged parent
-    # cannot), and needs no other privilege whatsoever. Dropping every
-    # capability but SETUID/SETGID makes "root" here mean almost
-    # nothing, and no-new-privileges stops a setuid binary in the image
-    # from being used to climb back out.
+    # cannot), and CAP_KILL so it can SIGKILL a script's orphaned
+    # processes across the uid boundary after a run (a script can escape
+    # the process-group kill with os.setsid; the executor sweeps every
+    # process left owned by the script uid). Nothing else. Dropping every
+    # other capability plus no-new-privileges makes "root" here mean
+    # almost nothing.
     user: "0:0"
     cap_drop:
       - ALL
@@ -694,6 +713,7 @@ services:
       - SETUID
       - SETGID
       - CHOWN
+      - KILL
     security_opt:
       - no-new-privileges:true
     environment:
@@ -727,7 +747,11 @@ services:
       timeout: 5s
       retries: 3
     networks:
-      - gg-script-net
+      gg-script-net:
+        # Static address so the egress fence never points at a stale IP.
+        # Must sit inside the pinned subnet and outside the range Docker
+        # hands out dynamically to the other members.
+        ipv4_address: 172.19.0.10
 
   # #184 workbench: server-heavy analysis tier. PDAL + untwine +
   # GDAL from conda-forge in a dedicated image so the Node images
@@ -980,5 +1004,19 @@ networks:
   # public internet: the case this feature exists for is refreshing a
   # layer from a county REST endpoint. Cutting off egress would remove
   # the reason to have it.
+  #
+  # Pinned subnet so the executor can hold a STATIC address (see
+  # script-executor.networks). The egress fence targets the executor's
+  # IP; when that IP was dynamic, every recreate handed it a fresh
+  # address the fence did not yet cover, reopening the metadata/host
+  # holes for up to a fence-timer interval. A fixed IP means the rules
+  # are written once and never go stale. IPv4-only on purpose: the fence
+  # is iptables, and enabling IPv6 here without ip6tables mirrors would
+  # be an unfenced path.
   gg-script-net:
     driver: bridge
+    enable_ipv6: false
+    ipam:
+      config:
+        - subnet: 172.19.0.0/16
+          gateway: 172.19.0.1

@@ -35,13 +35,19 @@ async function bootstrap() {
   });
   app.enableShutdownHooks();
 
-  // A run can be the full timeout long, and the default Node server
-  // timeout would cut the connection out from under a legitimate job.
-  // 0 disables it; the executor's own per-run timer is the authority.
+  // A run can be the full timeout long, so the request body/response can
+  // legitimately take an hour: disable requestTimeout, and let the
+  // executor's own per-run timer be the authority on run duration.
+  //
+  // But headersTimeout stays finite. It only bounds how long a client
+  // may take to send the request HEADERS, which is never legitimately
+  // slow, and disabling it lets a caller on the script network hold
+  // sockets open indefinitely (a slowloris) against the single executor.
+  // The claimer sends headers immediately, so a few seconds is ample.
   const port = Number(process.env.SCRIPT_EXECUTOR_PORT ?? 4100);
   const server = await app.listen(port, '0.0.0.0');
   server.requestTimeout = 0;
-  server.headersTimeout = 0;
+  server.headersTimeout = 10_000;
 
   if (!process.env.SCRIPT_EXECUTOR_TOKEN) {
     // Loud, and it still starts: the controller refuses every request

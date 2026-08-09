@@ -173,6 +173,21 @@ echo "=== Bringing up stack ==="
 echo "=== Status ==="
 "${COMPOSE[@]}" ps
 
+# Re-apply the script egress fence right after the stack is up.
+#
+# `docker compose up` rebuilds Docker's own iptables chains and can
+# recreate the executor container, so the fence has to be re-asserted
+# now rather than waiting up to five minutes for its systemd timer. The
+# executor holds a static IP, so this is normally a no-op re-assert, but
+# on a first deploy or a network recreate it is the difference between
+# the executor being fenced and being open to the metadata service until
+# the next timer tick. Non-fatal: the timer is the backstop.
+if [[ -x infra/script-net-firewall.sh ]]; then
+  echo "=== Applying script egress fence ==="
+  sudo -n infra/script-net-firewall.sh || \
+    echo "WARN: could not apply the script fence now; the timer will retry." >&2
+fi
+
 # -----------------------------------------------------------
 # Idempotent post-deploy Keycloak reconciliation.
 #

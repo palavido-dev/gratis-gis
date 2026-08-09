@@ -28,10 +28,12 @@ const compose = parse(
   services: Record<
     string,
     {
-      networks?: string[];
+      // Short form (`- gg-script-net`) or map form (with ipv4_address).
+      networks?: string[] | Record<string, unknown>;
       environment?: Record<string, string>;
       command?: string[];
       user?: string;
+      read_only?: boolean;
       cap_drop?: string[];
       cap_add?: string[];
       security_opt?: string[];
@@ -46,6 +48,11 @@ const compose = parse(
 
 const SCRIPT_NET = 'gg-script-net';
 
+/** Network names a service is on, regardless of short/map compose form. */
+const networkNames = (
+  nets: string[] | Record<string, unknown> | undefined,
+): string[] => (Array.isArray(nets) ? nets : Object.keys(nets ?? {}));
+
 describe('script executor isolation', () => {
   it('defines a separate network for user code', () => {
     expect(Object.keys(compose.networks)).toContain(SCRIPT_NET);
@@ -54,10 +61,21 @@ describe('script executor isolation', () => {
   it('runs user Python in a container on that network ONLY', () => {
     const ex = compose.services['script-executor'];
     expect(ex).toBeDefined();
-    expect(ex!.networks).toEqual([SCRIPT_NET]);
+    expect(networkNames(ex!.networks)).toEqual([SCRIPT_NET]);
     // If this ever runs a different entry point, the assumption that
     // this is the process spawning Python no longer holds.
     expect(ex!.command).toEqual(['node', 'dist/script-executor.main.js']);
+  });
+
+  it('gives the executor a STATIC address so the egress fence cannot go stale', () => {
+    // The fence targets the executor's IP. When that IP was dynamic,
+    // every recreate handed it a fresh address the fence did not yet
+    // cover, reopening the metadata/host holes until the next timer tick.
+    const nets = compose.services['script-executor']!.networks as Record<
+      string,
+      { ipv4_address?: string }
+    >;
+    expect(nets[SCRIPT_NET]?.ipv4_address).toMatch(/^\d+\.\d+\.\d+\.\d+$/);
   });
 
   // The heart of it. These three are what a script must not be able to
@@ -67,7 +85,7 @@ describe('script executor isolation', () => {
     (name) => {
       const svc = compose.services[name];
       expect(svc).toBeDefined();
-      expect(svc!.networks ?? []).not.toContain(SCRIPT_NET);
+      expect(networkNames(svc!.networks)).not.toContain(SCRIPT_NET);
     },
   );
 
@@ -76,7 +94,7 @@ describe('script executor isolation', () => {
     // ADDING something to that network fails here and has to be a
     // conscious decision with a reason.
     const members = Object.entries(compose.services)
-      .filter(([, v]) => (v.networks ?? []).includes(SCRIPT_NET))
+      .filter(([, v]) => networkNames(v.networks).includes(SCRIPT_NET))
       .map(([k]) => k)
       .sort();
     expect(members).toEqual([
@@ -115,14 +133,37 @@ describe('script executor isolation', () => {
     const ex = compose.services['script-executor']!;
     expect(ex.user).toBe('0:0');
     expect(ex.cap_drop).toEqual(['ALL']);
-    // SETUID/SETGID to change the child's user, CHOWN to hand it its
-    // own scratch directory. Nothing else, ever.
+    // SETUID/SETGID to change the child's user, CHOWN to hand it its own
+    // scratch directory, KILL to sweep processes a script orphaned past
+    // the process-group kill (os.setsid escape). Nothing else, ever.
     expect([...(ex.cap_add ?? [])].sort()).toEqual([
       'CHOWN',
+      'KILL',
       'SETGID',
       'SETUID',
     ]);
     expect(ex.security_opt).toContain('no-new-privileges:true');
+  });
+
+  it('runs the executor read-only so nothing can write outside the tmpfs', () => {
+    // read_only root + a bounded tmpfs for every writable path is what
+    // stops a script filling the host disk. Without read_only, the
+    // container root is writable overlay on the host filesystem.
+    const ex = compose.services['script-executor']!;
+    expect(ex.read_only).toBe(true);
+    const tmpfs = ex.tmpfs ?? [];
+    // /tmp must be a bounded tmpfs too: it is where Python's tempfile
+    // lands for anything that ignores TMPDIR.
+    expect(tmpfs.some((m) => m.startsWith('/tmp:') && /size=\d+m/.test(m)))
+      .toBe(true);
+  });
+
+  it('gives the claimer the feature flag so its off switch works', () => {
+    // script-worker.main.ts gates the claimer on PORTAL_SCRIPTS_ENABLED;
+    // without it in the env the claimer runs queued scripts even when the
+    // feature is off everywhere else.
+    const env = compose.services['script-runner']!.environment ?? {};
+    expect(Object.keys(env)).toContain('PORTAL_SCRIPTS_ENABLED');
   });
 
   it('bounds what a runaway script can consume', () => {
