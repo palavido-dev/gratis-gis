@@ -5,7 +5,6 @@ import {
   type OnApplicationBootstrap,
   type OnModuleDestroy,
 } from '@nestjs/common';
-import { SchedulerRegistry } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { CronJob } from 'cron';
 import {
@@ -22,17 +21,20 @@ import { isScriptsEnabled } from './scripts-config.js';
 /** How often we re-read schedules from the database. */
 const RECONCILE_MS = 60_000;
 
-const jobName = (scriptId: string) => `script-scheduled:${scriptId}`;
-
 /**
  * Runs `script` items on their own schedule (#221).
  *
- * Follows BackupCronService: dynamic CronJobs through SchedulerRegistry
- * rather than `@Cron`, because the expressions live in the database and
- * change without a restart. It differs in one way that shapes the whole
- * file. Backups and housekeeping are singletons, one job under one
- * fixed name. Scripts are many, and the set changes as people create,
+ * Dynamic CronJobs rather than `@Cron`, because the expressions live in
+ * the database and change without a restart. Like BackupCronService in
+ * that respect, and unlike it in the one that shapes this whole file:
+ * backups and housekeeping are singletons, one job under one fixed
+ * name, while scripts are many and the set changes as people create,
  * edit, retype, trash, and restore items.
+ *
+ * The jobs are held in a plain Map here rather than in Nest's
+ * SchedulerRegistry. Registering bought nothing this file did not
+ * already do, and it cost a `ScheduleModule.forRoot()` in the module,
+ * which is what hung v0.9.10 on boot. See script-schedule.module.ts.
  *
  * So the source of truth is a periodic reconcile rather than a set of
  * invalidation hooks. Every path that could change a schedule would
@@ -58,15 +60,22 @@ export class ScriptScheduleService
   implements OnApplicationBootstrap, OnModuleDestroy
 {
   private readonly log = new Logger(ScriptScheduleService.name);
-  /** scriptId to the cron expression currently registered for it. */
-  private readonly registered = new Map<string, string>();
+  /**
+   * scriptId to its running job and the expression it was built from.
+   *
+   * Held here rather than in Nest's SchedulerRegistry. The registry is
+   * an introspection surface, and this service already has to own the
+   * set to reconcile it, so registering as well bought nothing and cost
+   * a `ScheduleModule.forRoot()` in the graph, which is what hung
+   * v0.9.10 on boot.
+   */
+  private readonly jobs = new Map<string, { cron: string; job: CronJob }>();
   private timer: NodeJS.Timeout | null = null;
   private stopping = false;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly scripts: ScriptsService,
-    private readonly scheduler: SchedulerRegistry,
     private readonly leader: LeaderElectionService,
   ) {}
 
@@ -97,7 +106,7 @@ export class ScriptScheduleService
   onModuleDestroy(): void {
     this.stopping = true;
     if (this.timer) clearInterval(this.timer);
-    for (const scriptId of [...this.registered.keys()]) {
+    for (const scriptId of [...this.jobs.keys()]) {
       this.unregister(scriptId);
     }
   }
@@ -148,15 +157,15 @@ export class ScriptScheduleService
 
     // Drop anything gone or changed. Snapshot the keys first: unregister
     // mutates the map we are walking.
-    for (const scriptId of [...this.registered.keys()]) {
+    for (const scriptId of [...this.jobs.keys()]) {
       const want = desired.get(scriptId);
-      if (!want || want.expr !== this.registered.get(scriptId)) {
+      if (!want || want.expr !== this.jobs.get(scriptId)?.cron) {
         this.unregister(scriptId);
       }
     }
 
     for (const [scriptId, want] of desired) {
-      if (this.registered.has(scriptId)) continue;
+      if (this.jobs.has(scriptId)) continue;
       this.register(scriptId, want.expr, want.title);
     }
   }
@@ -176,30 +185,19 @@ export class ScriptScheduleService
       );
       return;
     }
-    // cron@4 dropped `.running`; @nestjs/schedule's typing still expects
-    // it. addCronJob only touches `.fireOnTick` at runtime. Same cast as
-    // BackupCronService.
-    this.scheduler.addCronJob(
-      jobName(scriptId),
-      job as unknown as Parameters<typeof this.scheduler.addCronJob>[1],
-    );
     job.start();
-    this.registered.set(scriptId, expr);
+    this.jobs.set(scriptId, { cron: expr, job });
     this.log.log(`Scheduled "${title}": ${expr}`);
   }
 
   private unregister(scriptId: string): void {
-    this.registered.delete(scriptId);
+    const entry = this.jobs.get(scriptId);
+    this.jobs.delete(scriptId);
     try {
-      const existing = this.scheduler.getCronJob(jobName(scriptId));
-      if (existing) {
-        existing.stop();
-        this.scheduler.deleteCronJob(jobName(scriptId));
-      }
+      entry?.job.stop();
     } catch {
-      // getCronJob throws rather than returning undefined when the name
-      // is unknown. Expected on first boot and after a schedule is
-      // turned off.
+      // Already stopped, or never started. Either way it is not firing,
+      // which is the only thing this method is for.
     }
   }
 
@@ -232,7 +230,7 @@ export class ScriptScheduleService
 
   /** Human-readable current state, for logs and tests. */
   describe(): Array<{ scriptId: string; cron: string }> {
-    return [...this.registered.entries()].map(([scriptId, cron]) => ({
+    return [...this.jobs.entries()].map(([scriptId, { cron }]) => ({
       scriptId,
       cron,
     }));

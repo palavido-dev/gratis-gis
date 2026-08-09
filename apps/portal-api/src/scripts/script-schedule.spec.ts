@@ -68,94 +68,76 @@ describe('script schedule expressions', () => {
   });
 });
 
-/** Minimal stand-in for SchedulerRegistry backed by a Map. */
-function fakeScheduler() {
-  const jobs = new Map<string, { stop: () => void }>();
-  return {
-    jobs,
-    addCronJob: jest.fn((name: string, job: { stop: () => void }) => {
-      jobs.set(name, job);
-    }),
-    getCronJob: jest.fn((name: string) => {
-      const j = jobs.get(name);
-      // Real SchedulerRegistry throws rather than returning undefined.
-      if (!j) throw new Error(`no job ${name}`);
-      return j;
-    }),
-    deleteCronJob: jest.fn((name: string) => {
-      jobs.delete(name);
-    }),
-  };
-}
-
 type Row = { id: string; title: string; schedule: unknown };
 
 function makeService(rows: Row[], opts: { leader?: boolean } = {}) {
   const state = { rows };
-  const scheduler = fakeScheduler();
   const enqueueScheduled = jest.fn(async () => 'run-1');
   const svc = new ScriptScheduleService(
     { $queryRaw: jest.fn(async () => state.rows) } as never,
     { enqueueScheduled } as never,
-    scheduler as never,
     { shouldRun: () => opts.leader !== false } as never,
   );
   const reconcile = () =>
     (svc as unknown as { reconcile(): Promise<void> }).reconcile();
-  return { svc, scheduler, state, enqueueScheduled, reconcile };
+  /** The jobs the service is actually holding, by script id. */
+  const jobs = () =>
+    (svc as unknown as { jobs: Map<string, unknown> }).jobs;
+  return { svc, state, enqueueScheduled, reconcile, jobs };
 }
 
 describe('ScriptScheduleService reconcile', () => {
   const daily = { mode: 'daily', hour: 4, minute: 30 };
 
   it('registers a job per scheduled script and ignores the rest', async () => {
-    const { svc, scheduler, reconcile } = makeService([
+    const { svc, reconcile, jobs } = makeService([
       { id: 'a', title: 'Nightly parcels', schedule: daily },
       { id: 'b', title: 'Ad hoc', schedule: { mode: 'off' } },
       { id: 'c', title: 'Never configured', schedule: null },
     ]);
     await reconcile();
     expect(svc.describe()).toEqual([{ scriptId: 'a', cron: '30 4 * * *' }]);
-    expect([...scheduler.jobs.keys()]).toEqual(['script-scheduled:a']);
+    expect([...jobs().keys()]).toEqual(['a']);
     svc.onModuleDestroy();
   });
 
   it('is idempotent: a second pass does not re-register', async () => {
-    const { svc, scheduler, reconcile } = makeService([
+    const { svc, reconcile, jobs } = makeService([
       { id: 'a', title: 'Nightly', schedule: daily },
     ]);
     await reconcile();
+    const first = jobs().get('a');
     await reconcile();
-    // Two registrations would mean two jobs firing, i.e. every
-    // scheduled run happening twice.
-    expect(scheduler.addCronJob).toHaveBeenCalledTimes(1);
+    // A second registration would mean two jobs firing, i.e. every
+    // scheduled run happening twice. Same object means untouched.
+    expect(jobs().get('a')).toBe(first);
     svc.onModuleDestroy();
   });
 
   it('re-registers when the expression changes', async () => {
-    const { svc, scheduler, state, reconcile } = makeService([
+    const { svc, state, reconcile, jobs } = makeService([
       { id: 'a', title: 'Nightly', schedule: daily },
     ]);
     await reconcile();
+    const first = jobs().get('a');
     state.rows = [
       { id: 'a', title: 'Nightly', schedule: { mode: 'hourly', minute: 0 } },
     ];
     await reconcile();
     expect(svc.describe()).toEqual([{ scriptId: 'a', cron: '0 * * * *' }]);
-    expect(scheduler.deleteCronJob).toHaveBeenCalledWith('script-scheduled:a');
-    expect(scheduler.addCronJob).toHaveBeenCalledTimes(2);
+    expect(jobs().get('a')).not.toBe(first);
     svc.onModuleDestroy();
   });
 
   it('drops the job when the schedule is turned off', async () => {
-    const { svc, scheduler, state, reconcile } = makeService([
+    const { svc, state, reconcile, jobs } = makeService([
       { id: 'a', title: 'Nightly', schedule: daily },
     ]);
     await reconcile();
     state.rows = [{ id: 'a', title: 'Nightly', schedule: { mode: 'off' } }];
     await reconcile();
     expect(svc.describe()).toEqual([]);
-    expect(scheduler.jobs.size).toBe(0);
+    expect(jobs().size).toBe(0);
     svc.onModuleDestroy();
   });
 

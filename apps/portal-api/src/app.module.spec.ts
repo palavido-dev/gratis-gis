@@ -29,6 +29,21 @@
 // opens sockets: Prisma connects, MinIO checks buckets, the leader
 // election starts polling. That is the line this test rides: full DI
 // resolution, no I/O. Do not call `init()` here.
+//
+// KNOWN GAP, and it cost an outage. v0.9.10 shipped a module whose DI
+// resolved perfectly and whose BOOT hung: both API replicas mapped
+// every route, logged leader election, and then stopped before
+// listening, with no error to grep for. Nothing here could have caught
+// it, because the failure was in the lifecycle phase this file
+// deliberately does not enter.
+//
+// Covering it properly means starting the app for real, which needs
+// postgres, Keycloak, and MinIO, and would make this a slow integration
+// test rather than the fast graph check it is. The cheap half is below:
+// `describes the module graph without duplicate global roots` catches
+// the specific shape that caused it, a second `forRoot()` of a module
+// that installs application-wide machinery. That is narrower than the
+// real thing and it is honest about being narrower.
 
 // This originally compiled only AppModule, and that turned out to be
 // half the job. There are THREE bootable module graphs in this
@@ -111,4 +126,59 @@ describe('AppModule dependency graph', () => {
     expect(moduleRef).toBeDefined();
     await moduleRef.close();
   }, 120_000);
+
+  it('imports ScheduleModule.forRoot() at most once across the app', async () => {
+    // The v0.9.10 boot hang. A new module imported
+    // `ScheduleModule.forRoot()` to get SchedulerRegistry, which added a
+    // fifth copy of application-wide scheduling machinery and moved
+    // which copy was registered last. Both API replicas then mapped
+    // every route, logged leader election, and stopped before
+    // listening, with nothing in the logs to grep for.
+    //
+    // Counted by reading the source rather than by introspecting the
+    // container, because a duplicated global root is a fact about how
+    // modules are written and stays true whether or not this particular
+    // container instantiates it. Crude, and it would have caught the
+    // outage.
+    //
+    // If a module legitimately needs cron machinery, import the module
+    // that already calls forRoot(), or hold your own timers the way
+    // ScriptScheduleService ended up doing.
+    const { readdirSync, readFileSync, statSync } = await import('node:fs');
+    const { join } = await import('node:path');
+
+    // Comments are stripped first. Without that, this failed on
+    // script-schedule.module.ts, whose comment explains why it does NOT
+    // import forRoot. A test that cannot tell code from prose about
+    // code is a test that punishes writing the prose.
+    const withoutComments = (src: string) =>
+      src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+    const hits: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir)) {
+        if (entry === 'node_modules') continue;
+        const full = join(dir, entry);
+        if (statSync(full).isDirectory()) {
+          walk(full);
+          continue;
+        }
+        if (!entry.endsWith('.module.ts')) continue;
+        const src = withoutComments(readFileSync(full, 'utf8'));
+        if (src.includes('ScheduleModule.forRoot(')) hits.push(entry);
+      }
+    };
+    walk(__dirname);
+
+    // Four is the number this codebase shipped with for a long time and
+    // booted fine; the fifth is what broke. Pinning the exact set means
+    // adding one is a deliberate act with a failing test to argue with,
+    // rather than a one-line import nobody reviews.
+    expect(hits.sort()).toEqual([
+      'backup.module.ts',
+      'ingest.module.ts',
+      'maintenance.module.ts',
+      'notifications.module.ts',
+    ]);
+  });
 });
