@@ -293,34 +293,29 @@ drop_and_restore() {
 #                    a blanket stop and start.
 LEAVE_ALONE=(postgres minio caddy portal-migrate)
 
-# `ps -a --services`, NOT `config --services`: what this host actually
-# has containers for, rather than everything the file declares.
+# `ps --services` (RUNNING only), NOT `ps -a` and NOT `config`.
 #
-# The distinction matters on any deployment that has never enabled the
-# scripts profile. It declares script-runner and script-executor and has
-# no containers for either, so the declared list names two services that
-# do not exist here.
+# The reset stops the app services to free the databases, restores, then
+# starts them again. The set it starts must be exactly the set that was
+# running when it began: anything an operator deliberately stopped should
+# STAY stopped.
 #
-# Honest note on how strong that is. I expected `docker compose start`
-# to fail on a service with no container and wrote this comment saying
-# so. Then I tested it on a throwaway project: `start`, `stop`, with and
-# without --profile, present and absent, every combination exits 0 and
-# says nothing. So this is not a bugfix, and claiming it was would have
-# been a tidier story than the truth.
-#
-# Keeping it anyway, for the reason that survives the test: this is the
-# accurate statement of what the reset means, and it does not depend on
-# compose quietly tolerating names for things that do not exist, which
-# is behaviour I could not find documented and would rather not build a
-# destructive script on top of.
-mapfile -t PRESENT_SERVICES < <(dc ps -a --services | sort -u)
-if [[ ${#PRESENT_SERVICES[@]} -eq 0 ]]; then
-  echo "FATAL: no containers found for project '$COMPOSE_PROJECT'." >&2
-  echo "       Refusing to guess; an empty list would stop everything." >&2
+# `ps -a` (the previous version) included exited containers, so a service
+# turned off with `docker compose stop` -- the natural way to disable
+# scripts without editing the profile -- was resurrected at 04:00 UTC.
+# For the executor, which runs untrusted code, that is the wrong
+# direction to be wrong in: a demo where scripts had been switched off
+# would have them back on after the nightly reset. Capturing the running
+# set at the top and restarting exactly that set fixes it, and stopping
+# only-running services is all the reset needs anyway.
+mapfile -t RUNNING_SERVICES < <(dc ps --services | sort -u)
+if [[ ${#RUNNING_SERVICES[@]} -eq 0 ]]; then
+  echo "FATAL: no RUNNING services for project '$COMPOSE_PROJECT'." >&2
+  echo "       The stack is already down; refusing to guess what to start." >&2
   exit 1
 fi
 APP_SERVICES=()
-for svc in "${PRESENT_SERVICES[@]}"; do
+for svc in "${RUNNING_SERVICES[@]}"; do
   exempt=
   for k in "${LEAVE_ALONE[@]}"; do
     [[ "$svc" == "$k" ]] && exempt=1 && break
