@@ -8,15 +8,15 @@ machine.
 pip install gratisgis
 ```
 
-Until the first PyPI release, install from source:
-
-```bash
-pip install "gratisgis @ git+https://github.com/palavido-dev/gratis-gis#subdirectory=clients/python"
-```
-
 The full guide, with worked examples for filtering, buffering, writing
 a new layer, and exporting, is in the portal at
 `/help/reference/python-client`.
+
+Releases go out on a `python-v*` tag through
+`.github/workflows/publish-python.yml`, using PyPI trusted publishing,
+so there is no API token anywhere. Bump `__version__` in
+`src/gratisgis/client.py` (the single source; `pyproject.toml` reads it)
+and tag to match, or the workflow refuses the release.
 
 ## Get a key
 

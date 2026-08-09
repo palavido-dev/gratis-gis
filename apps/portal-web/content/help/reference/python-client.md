@@ -26,6 +26,8 @@ job on the server.
 pip install gratisgis
 ```
 
+Python 3.9 or newer, and one dependency (`httpx`).
+
 You need an API key. Create one at **Profile → API keys**; see
 [API keys](/help/reference/api-keys).
 

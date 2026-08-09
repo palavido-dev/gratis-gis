@@ -52,13 +52,6 @@ From Python, use the client package. See
 pip install gratisgis
 ```
 
-Not on PyPI yet? Until the first release lands, install it from source:
-
-```bash
-pip install "gratisgis @ git+https://github.com/palavido-dev/gratis-gis\
-#subdirectory=clients/python"
-```
-
 ```python
 from gratisgis import GratisGIS
 
