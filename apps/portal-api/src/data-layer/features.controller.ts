@@ -613,7 +613,7 @@ export class DataLayerFeaturesController {
     @Query('entityIds') entityIds?: string,
     @Query('clip') clip?: string,
   ) {
-    const { geoLimit, isTable, layer } = await this.assertV3Layer(
+    const { geoLimit, rowScope, isTable, layer } = await this.assertV3Layer(
       user,
       itemId,
       layerId,
@@ -630,8 +630,10 @@ export class DataLayerFeaturesController {
       geoLimit?: unknown;
       boundaryClip?: unknown;
       isTable?: boolean;
+      ownRowsOnly?: { userId: string };
     } = {};
     if (isTable) opts.isTable = true;
+    if (rowScope === 'own') opts.ownRowsOnly = { userId: user.id };
     if (bbox) {
       const parts = bbox.split(',').map(Number);
       if (parts.length === 4 && parts.every((n) => !isNaN(n))) {
@@ -691,11 +693,20 @@ export class DataLayerFeaturesController {
    * `clip`: optional geo_boundary item id, same layer-author content
    *   clip the other reads honor.
    *
-   * Read access, plus the share's geo-limit, are enforced by
-   * assertV3Layer + the engine filters, identical to /features-page.
-   * Like that sibling read this does not apply the editor-only
-   * own-rows constraint: row-scoping governs who can edit a row, not
-   * whether a reader can find it.
+   * Read access, the share's geo-limit, and its row-scope are all
+   * enforced by assertV3Layer + the engine filters, identical to
+   * /features-page.
+   *
+   * This comment previously claimed the opposite, that "row-scoping
+   * governs who can edit a row, not whether a reader can find it".
+   * That was wrong and it was load-bearing: four read endpoints
+   * enforced row-scope and four (this one among them) did not, and
+   * the permissive ones won because they returned the same data. The
+   * schema docstring ("only sees / edits"), effectiveRowScope
+   * computing with action='read', the existence of editRowScope
+   * (whose entire purpose is read=all with edit=own), and the UX
+   * checklist entry "bob sees only his own features" all say reads
+   * are scoped. Do not reintroduce the exemption.
    */
   @Get('features-search')
   async featuresSearch(
@@ -707,7 +718,7 @@ export class DataLayerFeaturesController {
     @Query('limit') limit?: string,
     @Query('clip') clip?: string,
   ) {
-    const { geoLimit, layer } = await this.assertV3Layer(
+    const { geoLimit, rowScope, layer } = await this.assertV3Layer(
       user,
       itemId,
       layerId,
@@ -722,7 +733,9 @@ export class DataLayerFeaturesController {
       limit?: number;
       geoLimit?: unknown;
       boundaryClip?: unknown;
+      ownRowsOnly?: { userId: string };
     } = { q: text };
+    if (rowScope === 'own') opts.ownRowsOnly = { userId: user.id };
 
     if (fields) {
       const wanted = fields
@@ -761,7 +774,7 @@ export class DataLayerFeaturesController {
     @Query('entityIds') entityIds?: string,
     @Query('clip') clip?: string,
   ): Promise<{ bbox: [number, number, number, number] | null }> {
-    const { geoLimit } = await this.assertV3Layer(
+    const { geoLimit, rowScope } = await this.assertV3Layer(
       user,
       itemId,
       layerId,
@@ -782,7 +795,12 @@ export class DataLayerFeaturesController {
       entityIds: string[];
       geoLimit?: unknown;
       boundaryClip?: unknown;
+      ownRowsOnly?: { userId: string };
     } = { entityIds: ids };
+    // Without this a scoped viewer could pass ids they cannot read and
+    // get back a bbox covering them. An extent leaks location even
+    // though it carries no attributes.
+    if (rowScope === 'own') opts.ownRowsOnly = { userId: user.id };
     if (geoLimit) opts.geoLimit = geoLimit;
     if (clip) {
       const geom = await this.resolveBoundaryGeometry(clip);

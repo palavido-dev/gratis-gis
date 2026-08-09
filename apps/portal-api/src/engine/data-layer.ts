@@ -1581,6 +1581,9 @@ export class DataLayerEngine {
     geoLimit?: GeoJsonGeometry;
     boundaryClip?: GeoJsonGeometry;
     isTable?: boolean;
+    /** Share row-scope (#40). See the collapseFilters push below for
+     *  why this is entity-level rather than a content predicate. */
+    ownRowsOnly?: { userId: string };
   }): Promise<{
     features: Array<{ id: string; properties: Record<string, unknown> }>;
     count: number;
@@ -1618,6 +1621,28 @@ export class DataLayerEngine {
           Prisma.sql`AND geom IS NOT NULL AND ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326))`,
         );
       }
+    }
+    if (args.ownRowsOnly !== undefined) {
+      // Share row-scope (#40). Goes in collapseFilters, not
+      // contentFilters: an entity-id restriction is version
+      // INDEPENDENT (entity ids never change across observations), so
+      // it is safe inside the collapse and cannot resurrect a ghost.
+      //
+      // The subquery keys on the entity's `create` observation, which
+      // is the same predicate listFeatures applies through its
+      // candidate_entities CTE. Filtering `author_sub` on the raw rows
+      // instead would mean "any version you authored", which both
+      // drops your own feature once another grantee edits it and
+      // leaks theirs once you edit it.
+      collapseFilters.push(
+        Prisma.sql`AND entity IN (
+          SELECT entity
+          FROM observation
+          WHERE scope = ${scope}
+            AND kind = 'create'
+            AND author_sub = ${args.ownRowsOnly.userId}
+        )`,
+      );
     }
     if (args.entityIds !== undefined && args.entityIds.length > 0) {
       // The caller validates these are UUIDs upstream; cast each
@@ -1831,6 +1856,10 @@ export class DataLayerEngine {
     limit: number;
     geoLimit?: GeoJsonGeometry;
     boundaryClip?: GeoJsonGeometry;
+    /** Share row-scope (#40). Whole-layer attribute search reaches
+     *  features anywhere in the layer, so without this it was the
+     *  widest of the row-scope bypasses. */
+    ownRowsOnly?: { userId: string };
   }): Promise<{
     results: Array<{
       id: string;
@@ -1881,6 +1910,22 @@ export class DataLayerEngine {
       );
     }
     const filterExtras = Prisma.join(filters, ' ');
+    // Share row-scope (#40). Kept out of `filters` on purpose: that
+    // array is injected twice (candidate discovery AND the re-check
+    // against the collapsed latest row), and ownership is decided by
+    // the entity's `create` observation, so restricting the candidate
+    // set once is both sufficient and cheaper. Same predicate shape as
+    // listFeatures' candidate_entities CTE.
+    const ownerExtra =
+      args.ownRowsOnly !== undefined
+        ? Prisma.sql`AND entity IN (
+            SELECT entity
+            FROM observation
+            WHERE scope = ${scope}
+              AND kind = 'create'
+              AND author_sub = ${args.ownRowsOnly.userId}
+          )`
+        : Prisma.empty;
 
     interface Row {
       entity: string;
@@ -1908,6 +1953,7 @@ export class DataLayerEngine {
         SELECT DISTINCT entity
         FROM observation
         WHERE scope = ${scope}
+          ${ownerExtra}
           ${filterExtras}
       )
       SELECT
@@ -1986,6 +2032,10 @@ export class DataLayerEngine {
     entityIds: string[];
     geoLimit?: GeoJsonGeometry;
     boundaryClip?: GeoJsonGeometry;
+    /** Share row-scope (#40). "Zoom to selected" must not reveal the
+     *  extent of rows the caller cannot see; a bbox over someone
+     *  else's features leaks their location even without attributes. */
+    ownRowsOnly?: { userId: string };
   }): Promise<[number, number, number, number] | null> {
     if (args.entityIds.length === 0) return null;
     // Bound user-supplied geometry size before it reaches PostGIS.
@@ -2045,6 +2095,17 @@ export class DataLayerEngine {
           AND entity = ANY(ARRAY[${Prisma.join(
             ids.map((id) => Prisma.sql`${id}::uuid`),
           )}])
+          ${
+            args.ownRowsOnly !== undefined
+              ? Prisma.sql`AND entity IN (
+                  SELECT entity
+                  FROM observation
+                  WHERE scope = ${scope}
+                    AND kind = 'create'
+                    AND author_sub = ${args.ownRowsOnly.userId}
+                )`
+              : Prisma.empty
+          }
         ORDER BY entity, valid_from DESC, tx_time DESC
       )
       SELECT

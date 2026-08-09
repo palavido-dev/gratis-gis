@@ -422,6 +422,197 @@ d('observation-log read paths against real PostGIS', () => {
     });
   });
 
+  /**
+   * Share row-scope (#40) across every read path. Four of the eight v3
+   * read endpoints used to drop `rowScope` on the floor, so a share
+   * configured "own rows only" was enforced on /features and handed
+   * the whole layer over through /features-page, /features-search,
+   * /selection-extent and the MVT tile. The tile mattered most: it is
+   * what the map renders from and it projects every declared field.
+   *
+   * The subtle half is WHOSE row it is. Ownership is decided by the
+   * entity's `create` observation, so a feature stays yours after
+   * someone else edits it. Filtering `author_sub` on the raw version
+   * rows instead would fail in both directions at once: it would drop
+   * your own feature the moment another grantee touched it, and leak
+   * theirs the moment you touched it.
+   */
+  describe('scenario 7: row-scope narrows every read path (#40)', () => {
+    const itemId = uuidv7();
+    const layerId = 'layer-rowscope';
+    const scope = dataLayerScope(itemId, layerId);
+    const mine = uuidv7();
+    const theirs = uuidv7();
+    const ALICE = { sub: 'alice-sub', displayName: 'Alice' };
+    const BOB = { sub: 'bob-sub', displayName: 'Bob' };
+    const own = { userId: ALICE.sub };
+    const NEAR: [number, number] = [HERE[0] + 0.001, HERE[1] + 0.001];
+
+    async function seedAs(
+      author: { sub: string; displayName: string },
+      entity: string,
+      kind: 'create' | 'update' | 'delete',
+      attrs: Record<string, unknown> | null,
+      lngLat: [number, number] | null,
+    ): Promise<void> {
+      const ts = nextTs();
+      await engineSvc.write({
+        scope,
+        entity,
+        kind,
+        validFrom: ts,
+        validTo: null,
+        txTime: ts,
+        attrs,
+        geom: lngLat ? { type: 'Point', coordinates: lngLat } : null,
+        author,
+        source: { kind: 'itest' },
+        parents: [],
+      });
+    }
+
+    beforeAll(async () => {
+      await seedAs(ALICE, mine, 'create', { name: 'Alice feature' }, HERE);
+      await seedAs(BOB, theirs, 'create', { name: 'Bob feature' }, NEAR);
+      // Bob edits Alice's row. The latest observation on `mine` is now
+      // authored by Bob, which is exactly the case a naive
+      // author_sub-on-latest filter gets wrong.
+      await seedAs(BOB, mine, 'update', { name: 'Alice feature v2' }, HERE);
+    });
+
+    it('unscoped reads still see both (the guard is opt-in)', async () => {
+      const page = await makeEngine().pageFeatures({ itemId, layerId, limit: 100 });
+      expect(page.features.map((f) => f.id).sort()).toEqual([mine, theirs].sort());
+    });
+
+    it('pageFeatures returns only rows the caller created', async () => {
+      const page = await makeEngine().pageFeatures({
+        itemId,
+        layerId,
+        limit: 100,
+        ownRowsOnly: own,
+      });
+      expect(page.features.map((f) => f.id)).toEqual([mine]);
+    });
+
+    it('pageFeatures keeps the scope when a content filter is present', async () => {
+      // pageFeatures has two query shapes; the content-filter branch
+      // takes a different path through the CTE and must scope too.
+      const page = await makeEngine().pageFeatures({
+        itemId,
+        layerId,
+        limit: 100,
+        bbox: IN_BBOX,
+        ownRowsOnly: own,
+      });
+      expect(page.features.map((f) => f.id)).toEqual([mine]);
+    });
+
+    it('searchFeatures reaches the whole layer but only the caller rows', async () => {
+      const all = await makeEngine().searchFeatures({
+        itemId,
+        layerId,
+        q: 'feature',
+        limit: 8,
+      });
+      expect(all.results.map((r) => r.id).sort()).toEqual([mine, theirs].sort());
+      const scoped = await makeEngine().searchFeatures({
+        itemId,
+        layerId,
+        q: 'feature',
+        limit: 8,
+        ownRowsOnly: own,
+      });
+      expect(scoped.results.map((r) => r.id)).toEqual([mine]);
+    });
+
+    it('selectionExtent ignores ids the caller does not own', async () => {
+      // A bbox over someone else's rows leaks their location even
+      // though it carries no attributes.
+      const engine = makeEngine();
+      const unscoped = await engine.selectionExtent({
+        itemId,
+        layerId,
+        entityIds: [mine, theirs],
+      });
+      expect(unscoped).toEqual([HERE[0], HERE[1], NEAR[0], NEAR[1]]);
+      const scoped = await engine.selectionExtent({
+        itemId,
+        layerId,
+        entityIds: [mine, theirs],
+        ownRowsOnly: own,
+      });
+      expect(scoped).toEqual([HERE[0], HERE[1], HERE[0], HERE[1]]);
+      const noneOwned = await engine.selectionExtent({
+        itemId,
+        layerId,
+        entityIds: [theirs],
+        ownRowsOnly: own,
+      });
+      expect(noneOwned).toBeNull();
+    });
+
+    it('ownership follows the create observation, not the last editor', async () => {
+      // `mine` was last edited by Bob. It must still be Alice's, and
+      // must NOT become Bob's.
+      const alice = await makeEngine().pageFeatures({
+        itemId,
+        layerId,
+        limit: 100,
+        ownRowsOnly: { userId: ALICE.sub },
+      });
+      expect(alice.features.map((f) => f.id)).toEqual([mine]);
+      const bob = await makeEngine().pageFeatures({
+        itemId,
+        layerId,
+        limit: 100,
+        ownRowsOnly: { userId: BOB.sub },
+      });
+      expect(bob.features.map((f) => f.id)).toEqual([theirs]);
+    });
+
+    it('the MVT tile omits features the caller does not own', async () => {
+      const { x, y } = tileFor(14, HERE[0], HERE[1]);
+      const { mvt } = await makeEngine().mvtTile({
+        itemId,
+        layerId,
+        z: 14,
+        x,
+        y,
+        ownRowsOnly: own,
+      });
+      expect(tileContains(mvt, mine)).toBe(true);
+      expect(tileContains(mvt, theirs)).toBe(false);
+    });
+
+    it('a warmed unscoped tile is never served to a row-scoped viewer', async () => {
+      // The cache-poisoning case, and the reason optsFingerprint()
+      // hashes ownRowsOnly. ONE engine, so both reads share a cache:
+      // the unscoped request warms the slot first, exactly as an
+      // ordinary viewer would before a scoped one arrives.
+      const engine = makeEngine();
+      const { x, y } = tileFor(14, HERE[0], HERE[1]);
+      const { mvt: unscoped } = await engine.mvtTile({
+        itemId,
+        layerId,
+        z: 14,
+        x,
+        y,
+      });
+      expect(tileContains(unscoped, theirs)).toBe(true);
+      const { mvt: scoped } = await engine.mvtTile({
+        itemId,
+        layerId,
+        z: 14,
+        x,
+        y,
+        ownRowsOnly: own,
+      });
+      expect(tileContains(scoped, mine)).toBe(true);
+      expect(tileContains(scoped, theirs)).toBe(false);
+    });
+  });
+
   describe('scenario 3: MVT budget applies after the collapse', () => {
     const itemId = uuidv7();
     const layerId = 'layer-1';

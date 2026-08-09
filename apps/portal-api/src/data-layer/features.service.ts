@@ -385,6 +385,7 @@ export class DataLayerFeaturesService {
       geoLimit?: unknown;
       boundaryClip?: unknown;
       isTable?: boolean;
+      ownRowsOnly?: { userId: string };
     } = {},
   ) {
     return this.dataLayer.pageFeatures({
@@ -403,6 +404,9 @@ export class DataLayerFeaturesService {
         ? { boundaryClip: args.boundaryClip as GeoJsonGeometry }
         : {}),
       ...(args.isTable === true ? { isTable: true } : {}),
+      ...(args.ownRowsOnly !== undefined
+        ? { ownRowsOnly: args.ownRowsOnly }
+        : {}),
     });
   }
 
@@ -422,6 +426,7 @@ export class DataLayerFeaturesService {
       limit?: number;
       geoLimit?: unknown;
       boundaryClip?: unknown;
+      ownRowsOnly?: { userId: string };
     },
   ) {
     return this.dataLayer.searchFeatures({
@@ -435,6 +440,9 @@ export class DataLayerFeaturesService {
         : {}),
       ...(args.boundaryClip !== undefined
         ? { boundaryClip: args.boundaryClip as GeoJsonGeometry }
+        : {}),
+      ...(args.ownRowsOnly !== undefined
+        ? { ownRowsOnly: args.ownRowsOnly }
         : {}),
     });
   }
@@ -452,6 +460,7 @@ export class DataLayerFeaturesService {
       entityIds: string[];
       geoLimit?: unknown;
       boundaryClip?: unknown;
+      ownRowsOnly?: { userId: string };
     },
   ): Promise<[number, number, number, number] | null> {
     return this.dataLayer.selectionExtent({
@@ -463,6 +472,9 @@ export class DataLayerFeaturesService {
         : {}),
       ...(args.boundaryClip !== undefined
         ? { boundaryClip: args.boundaryClip as GeoJsonGeometry }
+        : {}),
+      ...(args.ownRowsOnly !== undefined
+        ? { ownRowsOnly: args.ownRowsOnly }
         : {}),
     });
   }
