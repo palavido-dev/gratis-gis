@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import type { ItemAccess, ItemType, PrincipalType, SharePermission } from '@prisma/client';
@@ -55,6 +55,7 @@ import {
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { DerivedLayersService } from '../derived-layers/derived-layers.service.js';
 import { StorageService } from '../storage/storage.service.js';
+import { ITEM_ASSET_KIND, assetKeyFor, isValidAssetKey } from '../storage/asset-keys.js';
 
 // Optional fields use `| undefined` explicitly so class-validator DTOs
 // (which leave unset keys present-as-undefined) can satisfy these types
@@ -388,8 +389,31 @@ export interface ShareItemInput {
   expiresAt?: string | Date | null | undefined;
 }
 
+/**
+ * Reject a proposed `data.storageKey` that does not belong to this
+ * item type's own MinIO prefix. No-op for the 26 item types that do
+ * not name an object, and for the absent / empty-string cases (an
+ * upload that has not happened yet, and the UI's clear-the-file
+ * action respectively).
+ *
+ * See `storage/asset-keys.ts` for why this is enforced rather than
+ * trusted.
+ */
+function assertItemAssetKey(itemType: string, data: unknown): void {
+  if (data === undefined || data === null || typeof data !== 'object') return;
+  const key = (data as { storageKey?: unknown }).storageKey;
+  if (assetKeyFor(itemType, key).ok) return;
+  throw new BadRequestException(
+    `storageKey must be an upload under ${
+      ITEM_ASSET_KIND[itemType as keyof typeof ITEM_ASSET_KIND]
+    }/ for a ${itemType} item.`,
+  );
+}
+
 @Injectable()
 export class ItemsService {
+  private readonly log = new Logger(ItemsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly sharing: SharingService,
@@ -1077,6 +1101,12 @@ export class ItemsService {
       }
     }
 
+    // Same pin as update(): a file / tile_layer / point_cloud item may
+    // only reference an upload under its own prefix. The new-item
+    // wizard legitimately posts a presigned key here, so this
+    // validates rather than strips.
+    assertItemAssetKey(input.type, resolvedData);
+
     const bbox = itemBbox(input.type, resolvedData);
     let row;
     try {
@@ -1573,6 +1603,15 @@ export class ItemsService {
     // Metadata-only updates (title / tags / sharing) bypass this so
     // they stay cheap.
     let nextData: Prisma.InputJsonValue | undefined = input.data;
+    // For file / tile_layer / point_cloud, `data.storageKey` names a
+    // MinIO object that @Public serve proxies later read with
+    // portal-api's own credentials, and that purge later deletes. The
+    // /items DTO validates `data` with nothing but @IsObject, so the
+    // key arrives unvalidated from whoever called PATCH. Pin it to the
+    // item type's own prefix here, which is the only choke point every
+    // writer passes through: point-cloud and tile-layer validate their
+    // own finalize inputs, but this generic path bypasses both.
+    assertItemAssetKey(item.type, nextData);
     if (input.data !== undefined && item.type === 'derived_layer') {
       nextData = (await this.enrichDerivedLayerData(
         user,
@@ -2150,11 +2189,26 @@ export class ItemsService {
       // on the storage card surfaces any leaked object.
       const data = itemData as { storageKey?: string } | null;
       const key = data?.storageKey;
+      // Pin the prefix before deleting through it. Rows written before
+      // the create/update guard landed can still carry a key pointing
+      // at another kind's object, and purge runs with portal-api's
+      // credentials, so an unpinned key here is a delete primitive over
+      // the whole bucket. Skip rather than throw: purge must still tear
+      // the item row down, and a stale key is a leaked object at worst
+      // (the housekeeping orphan card accounts for it).
+      const expectedKind =
+        ITEM_ASSET_KIND[itemType as keyof typeof ITEM_ASSET_KIND];
       if (typeof key === 'string' && key.length > 0) {
-        try {
-          await this.storage.deleteObject(key);
-        } catch (err) {
-          void err;
+        if (!isValidAssetKey(key, expectedKind)) {
+          this.log.warn(
+            `purge ${itemId}: refusing to delete storageKey ${key}, outside ${expectedKind}/`,
+          );
+        } else {
+          try {
+            await this.storage.deleteObject(key);
+          } catch (err) {
+            void err;
+          }
         }
       }
     }

@@ -156,7 +156,15 @@ export class PointCloudController {
     if (upstream.contentLength !== undefined) {
       res.setHeader('Content-Length', String(upstream.contentLength));
     }
-    if (upstream.contentType) res.setHeader('Content-Type', upstream.contentType);
+    // The stored Content-Type came from whatever the uploader declared
+    // at presign time, and this route is @Public and served from the
+    // portal's own origin, so echoing it unqualified makes any upload
+    // that sniffs as HTML a stored-XSS vector with session access.
+    // COPC readers only ever want the bytes, so force an opaque type,
+    // forbid sniffing, and mark it a download.
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Disposition', 'attachment');
     if (upstream.etag) res.setHeader('ETag', upstream.etag);
     res.setHeader('Accept-Ranges', upstream.acceptRanges ?? 'bytes');
     res.setHeader('Cache-Control', 'public, max-age=86400, immutable');

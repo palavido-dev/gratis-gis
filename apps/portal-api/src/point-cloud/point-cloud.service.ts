@@ -20,6 +20,7 @@ import { isPointCloudData } from '@gratis-gis/shared-types';
 import { ItemsService } from '../items/items.service.js';
 import { SharingService } from '../items/sharing.service.js';
 import { StorageService } from '../storage/storage.service.js';
+import { ITEM_ASSET_KIND, isValidAssetKey } from '../storage/asset-keys.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import {
@@ -424,6 +425,20 @@ export class PointCloudService {
       throw new NotFoundException(
         'Point cloud has not been uploaded yet (or the upload finalize step did not run).',
       );
+    }
+    // Pin the prefix at serve time, not only on the finalize inputs.
+    // This endpoint is @Public and streams with portal-api's own MinIO
+    // credentials, so it bypasses the bucket policy rather than riding
+    // it; an unpinned key turns any public point_cloud into a read
+    // primitive over the whole bucket. items.service now rejects an
+    // out-of-prefix key on write, but rows written before that guard
+    // existed still have to fail closed here. 404 rather than 400: the
+    // caller should not learn whether the key it named exists.
+    if (!isValidAssetKey(data.storageKey, ITEM_ASSET_KIND.point_cloud)) {
+      this.log.warn(
+        `point_cloud ${itemId}: storageKey ${data.storageKey} is outside ${ITEM_ASSET_KIND.point_cloud}/, refusing to serve`,
+      );
+      throw new NotFoundException('Point cloud not found.');
     }
     return data.storageKey;
   }
