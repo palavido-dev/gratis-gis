@@ -5,6 +5,26 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.12] - 2026-08-09
+
+Fixes two things that made the scripts feature unusable in practice.
+Safe upgrade, no database changes.
+
+### Fixed
+
+- **Turning scripts on did nothing.** `PORTAL_SCRIPTS_ENABLED` was named
+  in a comment in the compose file and referenced by the docs, but was
+  never passed to any service. Setting it left the portal reporting the
+  feature as off, with nothing to explain why. It now reaches portal-api
+  and portal-worker, which are the two that read it.
+- **Notebooks ran as Python.** The claimer detected a notebook and the
+  executor knew how to run one, but the request between them dropped the
+  format, so every notebook failed on the first line of its own JSON.
+- **The script egress fence could stop the API from starting.** It was
+  scoped to the whole script network, which portal-api is also on, so
+  the API inherited a fence meant for user code and hung on boot with no
+  error. It now applies to the executor's own address.
+
 ## [0.9.11] - 2026-08-08
 
 v0.9.10 did not start and was never live anywhere. Use this instead.

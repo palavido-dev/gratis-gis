@@ -467,6 +467,15 @@ services:
       # button to every visitor, which is right for the demo and wrong
       # for a private deployment.
       PORTAL_FEEDBACK_ENABLED: ${PORTAL_FEEDBACK_ENABLED:-}
+      # Scripts (#221). Off unless set.
+      #
+      # This line was missing until 2026-08-09, and its absence meant the
+      # documented way to enable scripts did nothing at all: the variable
+      # was named in a comment further down this file, referenced by the
+      # docs, and never passed to a single service. Setting it in
+      # .env.prod left /portal-info reporting `scripts: false` with no
+      # indication why. Found by setting it and watching nothing happen.
+      PORTAL_SCRIPTS_ENABLED: ${PORTAL_SCRIPTS_ENABLED:-}
       # Notification address. Submissions persist regardless; this only
       # decides whether an email goes out. Note this was never passed
       # through before, which is why the old code path silently fell
@@ -534,6 +543,10 @@ services:
       # leader-election service from acquiring an extra connection it
       # doesn't need.
       ENABLE_CRONS: "false"
+      # worker.main.ts gates the script claimer on this. Missing here for
+      # the same reason it was missing on portal-api: it was documented
+      # and never wired.
+      PORTAL_SCRIPTS_ENABLED: ${PORTAL_SCRIPTS_ENABLED:-}
       DATABASE_URL: postgresql://${POSTGRES_USER:-gratisgis}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gratisgis}
       KEYCLOAK_URL: https://${AUTH_DOMAIN:-auth.gratisgis.org}
       KEYCLOAK_INTERNAL_URL: http://keycloak:8080

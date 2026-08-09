@@ -188,6 +188,22 @@ describe('script executor isolation', () => {
     expect(fence).toMatch(/iptables -I INPUT/);
   });
 
+  it('actually passes the feature flag to the services that read it', () => {
+    // PORTAL_SCRIPTS_ENABLED was named in a comment in this compose
+    // file, referenced by the docs, and passed to nothing. Setting it
+    // in .env.prod did exactly nothing: /portal-info kept reporting
+    // `scripts: false` and there was no error to explain it. The
+    // documented way to turn the feature on had never worked.
+    //
+    // Asserted per service that actually reads it. portal-api gates the
+    // run endpoints and the portal-info flag; worker.main.ts gates the
+    // claimer. A flag that reaches neither is a switch wired to nothing.
+    for (const name of ['portal-api', 'portal-worker']) {
+      const env = compose.services[name]?.environment ?? {};
+      expect(Object.keys(env)).toContain('PORTAL_SCRIPTS_ENABLED');
+    }
+  });
+
   it('does not cut the executor off from the internet', () => {
     // Not `internal: true` on purpose: the case this feature exists
     // for is refreshing a layer from a county REST endpoint. An
