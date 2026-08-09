@@ -90,6 +90,40 @@ if [[ -z "$SUBNET" ]]; then
   exit 1
 fi
 
+# Fence the EXECUTOR, by address, not the whole subnet.
+#
+# The first version matched `-s $SUBNET` and broke production. portal-api
+# is on this network too, so it inherited a fence meant for user code:
+# its route to `storage.gratisgis.org` hairpins through the published
+# port, Docker DNATs that to caddy on the other bridge, and the "no other
+# Docker network" rule silently dropped it. The API then hung on boot
+# with no error, because a DROP is silent and the socket just never
+# connects. Both replicas mapped every route, logged leader election, and
+# stopped before listening. It took a rollback and a wrong hypothesis to
+# find, and the reason it was hard is that the fence looked like it was
+# about a network when it is actually about one container.
+#
+# Only script-executor runs code the portal did not write. portal-api and
+# script-runner are ours and must not be fenced. Matching them by address
+# is exact, and re-reading it every five minutes handles the address
+# changing when the container is recreated.
+# Our INPUT rules are recognised by their source lying inside the script
+# subnet. Narrow enough not to touch anybody else's firewall, and it
+# still finds rules written for an address the executor has since lost.
+GG_INPUT_MARK="${SUBNET%%.*}."
+EXECUTOR_MATCH="${GG_SCRIPT_EXECUTOR_NAME:-script-executor}"
+EXECUTOR_IPS="$(docker network inspect "$NETWORK" \
+  --format '{{range .Containers}}{{.Name}} {{.IPv4Address}}
+{{end}}' \
+  | awk -v m="$EXECUTOR_MATCH" '$1 ~ m {split($2, a, "/"); print a[1]}')"
+
+if [[ -z "$EXECUTOR_IPS" ]]; then
+  # Not running, so there is nothing executing user code and nothing to
+  # fence. Leaving no rules is correct here, and leaving stale rules
+  # pointed at a recycled address would be worse than none.
+  echo "No executor on '$NETWORK'; removing any previous rules."
+fi
+
 # Every other Docker network on this host. Enumerated rather than
 # hardcoded for the same reason as the script subnet, and because a
 # deployment can add networks we have never heard of.
@@ -133,12 +167,19 @@ if [[ "$SCRIPT_EGRESS" == "portal-only" ]]; then
 fi
 iptables -A "$CHAIN" -j RETURN
 
-# Idempotent: drop any previous jump before adding this one, so
-# re-running does not stack duplicates.
-while iptables -C DOCKER-USER -s "$SUBNET" -j "$CHAIN" 2>/dev/null; do
-  iptables -D DOCKER-USER -s "$SUBNET" -j "$CHAIN"
+# Idempotent, and it must clean up addresses the executor no longer has.
+# Sweep every rule in DOCKER-USER that jumps to our chain, whatever its
+# source, then add one per current executor address. A rule left pointing
+# at a recycled address would fence whichever container inherits it,
+# which is exactly the failure this file already caused once.
+while read -r stale; do
+  [[ -n "$stale" ]] && iptables -D DOCKER-USER -s "$stale" -j "$CHAIN" 2>/dev/null || true
+done < <(iptables -S DOCKER-USER 2>/dev/null \
+  | awk -v c="$CHAIN" '$0 ~ ("-j " c) {for (i=1;i<NF;i++) if ($i=="-s") print $(i+1)}')
+
+for ip in $EXECUTOR_IPS; do
+  iptables -I DOCKER-USER 1 -s "$ip" -j "$CHAIN"
 done
-iptables -I DOCKER-USER 1 -s "$SUBNET" -j "$CHAIN"
 
 # --- traffic to the host itself ------------------------------------
 #
@@ -149,22 +190,26 @@ iptables -I DOCKER-USER 1 -s "$SUBNET" -j "$CHAIN"
 #
 # ESTABLISHED first so anything the HOST initiates toward a container
 # still gets its replies. Only script-initiated connections are refused.
-while iptables -C INPUT -s "$SUBNET" -j DROP 2>/dev/null; do
-  iptables -D INPUT -s "$SUBNET" -j DROP
-done
-while iptables -C INPUT -s "$SUBNET" -m conntrack \
-    --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null; do
-  iptables -D INPUT -s "$SUBNET" -m conntrack \
+while read -r stale; do
+  [[ -z "$stale" ]] && continue
+  iptables -D INPUT -s "$stale" -j DROP 2>/dev/null || true
+  iptables -D INPUT -s "$stale" -m conntrack \
+    --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
+done < <(iptables -S INPUT 2>/dev/null \
+  | awk -v n="$GG_INPUT_MARK" '$0 ~ n {for (i=1;i<NF;i++) if ($i=="-s") print $(i+1)}' \
+  | sort -u)
+
+for ip in $EXECUTOR_IPS; do
+  iptables -I INPUT 1 -s "$ip" -j DROP
+  iptables -I INPUT 1 -s "$ip" -m conntrack \
     --ctstate ESTABLISHED,RELATED -j ACCEPT
 done
-iptables -I INPUT 1 -s "$SUBNET" -j DROP
-iptables -I INPUT 1 -s "$SUBNET" -m conntrack \
-  --ctstate ESTABLISHED,RELATED -j ACCEPT
 
-echo "Script network $SUBNET fenced."
+echo "Script executor(s) fenced: $(echo $EXECUTOR_IPS | tr '\n' ' ')"
 echo "  link-local:     $LINK_LOCAL DROP"
 echo "  other networks: $(echo "$OTHER_SUBNETS" | tr '\n' ' ')DROP"
-echo "  host itself:    DROP (script-initiated only)"
+echo "  host itself:    DROP (executor-initiated only)"
+echo "  NOT fenced:     portal-api and script-runner, which share this network"
 if [[ "$SCRIPT_EGRESS" == "portal-only" ]]; then
   echo "  internet:       DROP (SCRIPT_EGRESS=portal-only)"
 else
