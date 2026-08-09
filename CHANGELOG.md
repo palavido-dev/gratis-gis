@@ -5,6 +5,68 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.14] - 2026-08-09
+
+Security fixes from a second deep review pass
+(docs/handoff/deep-review-2026-08-09-pass2.md), covering object storage,
+the anonymous public read surface, and share row-scope. Safe upgrade, no
+database changes, nothing to configure.
+
+Three of these make reads return **less** data than before. That is the
+point: each enforces an access control that was configured but not
+applied, so anything you lose was data the portal was already meant to
+be withholding.
+
+### Security
+
+- **An item can no longer point at an arbitrary storage object.** The
+  `storageKey` on file, tile layer and point cloud items is now pinned
+  to its own type's object prefix on write, on read, and on delete. The
+  items API previously accepted any key, and the public point cloud
+  proxy reads with the portal's own storage credentials, which bypasses
+  the bucket policy rather than riding it. Any account that could create
+  an item, down to the lowest role, could therefore read or delete any
+  object in the bucket, including the feedback screenshots meant only
+  for admin triage. The same proxy no longer echoes a stored content
+  type, so an upload that sniffs as HTML cannot execute as script on the
+  portal's own origin.
+- **Public data layers are clipped by their tier boundary.** A
+  data_layer marked public with a geographic boundary attached was
+  clipped for signed-in readers but served whole by `/api/public/...`
+  and the OGC feeds. That also let a reader who was being clipped bypass
+  their own clip by calling the public mirror instead. Six read paths
+  now apply it, including single-feature OGC reads, where a caller who
+  knew a feature id could otherwise walk outside the boundary one row at
+  a time.
+- **Share row-scope applies to reads, not only writes.** A share set to
+  "own rows only" was enforced on `/features` and ignored by the paged
+  read, attribute search, selection extent, and the vector tile. The
+  tile is what the map renders from and it projects every declared
+  field, so the restriction was effectively cosmetic. Ownership keys on
+  the feature's creation, so a row stays yours after another editor
+  touches it.
+
+### Fixed
+
+- **A CI safety guard was inert.** `REQUIRE_PYTHON_SPECS` and
+  `SCRIPT_PYTHON` were never declared in `turbo.json`, so turbo stripped
+  them before the tests saw them and the suite that checks a spawned
+  script cannot read the worker's secrets could skip while the job
+  stayed green. Same failure mode the database-backed suites hit once
+  before.
+
+### Notes for operators
+
+- No schema migrations. No golden refresh needed.
+- If one of your public layers has a geographic boundary attached,
+  anonymous visitors and OGC clients will now see only the clipped
+  extent. That is what the setting always promised; until now it was
+  only honoured for signed-in readers.
+- If any item somehow holds a storage key outside its type's prefix, it
+  now 404s on read instead of serving the object, and purge logs and
+  skips rather than deleting through it. A warning naming the item is
+  written to the API log in that case.
+
 ## [0.9.13] - 2026-08-09
 
 A security-hardening pass over the script execution feature, plus two
