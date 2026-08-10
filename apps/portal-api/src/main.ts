@@ -35,6 +35,24 @@ async function bootstrap() {
   // default `x-powered-by: Express` header is informational only,
   // but it hands an attacker exact version targeting.
   app.disable('x-powered-by');
+  // Trust exactly one proxy hop: Caddy, which is the only thing that
+  // ever talks to this process in the shipped topology.
+  //
+  // Without this, `req.ip` is the connection peer, i.e. Caddy's own
+  // container address on every request, so ThrottlerGuard (whose
+  // default tracker is literally `req.ip`) put the entire internet in
+  // ONE bucket per route. That is broken in both directions at once: a
+  // single abusive client exhausts the budget for every other visitor,
+  // and no individual client is ever limited.
+  //
+  // `1` and not `true`: Caddy APPENDS the real peer to X-Forwarded-For
+  // rather than replacing it, so with one trusted hop Express reads the
+  // rightmost entry, which Caddy wrote. `true` would take the leftmost,
+  // which is whatever the caller sent, and would hand out a fresh
+  // rate-limit budget per forged header. That is the same trap
+  // feedback.controller.ts documents for its own clientIp() (#0.9.13);
+  // keep the two consistent if the proxy topology ever changes.
+  app.set('trust proxy', 1);
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
   );
