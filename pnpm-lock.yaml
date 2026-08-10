@@ -168,6 +168,9 @@ importers:
       rxjs:
         specifier: ^7.8.2
         version: 7.8.2
+      tar-stream:
+        specifier: ^3.2.0
+        version: 3.2.0
     devDependencies:
       '@nestjs/cli':
         specifier: ^11.0.21
@@ -199,6 +202,9 @@ importers:
       '@types/pg-copy-streams':
         specifier: ^1.2.5
         version: 1.2.5
+      '@types/tar-stream':
+        specifier: ^3.1.4
+        version: 3.1.4
       h3-js:
         specifier: ^4.4.0
         version: 4.4.0
@@ -2443,6 +2449,9 @@ packages:
 
   '@types/supercluster@7.1.3':
     resolution: {integrity: sha512-Z0pOY34GDFl3Q6hUFYf3HkTwKEE02e7QgtJppBt+beEAxnyOpJua+voGFvxINBHa06GwLFFym7gRPY2SiKIfIA==}
+
+  '@types/tar-stream@3.1.4':
+    resolution: {integrity: sha512-921gW0+g29mCJX0fRvqeHzBlE/XclDaAG0Ousy1LCghsOhvaKacDeRGEVzQP9IPfKn8Vysy7FEXAIxycpc/CMg==}
 
   '@types/use-sync-external-store@0.0.6':
     resolution: {integrity: sha512-zFDAD+tlpf2r4asuHEj0XH6pY6i0g5NeAHPn+15wk3BV6JA69eERFXC1gyGThDkVa1zCyKr5jox1+2LbV/AMLg==}
@@ -8726,6 +8735,10 @@ snapshots:
   '@types/supercluster@7.1.3':
     dependencies:
       '@types/geojson': 7946.0.16
+
+  '@types/tar-stream@3.1.4':
+    dependencies:
+      '@types/node': 25.9.1
 
   '@types/use-sync-external-store@0.0.6': {}
 

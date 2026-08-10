@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { spawn } from 'node:child_process';
-import { createWriteStream } from 'node:fs';
+import { createReadStream, createWriteStream } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -20,7 +20,22 @@ import {
 import { ConfigService } from '@nestjs/config';
 
 import { PrismaService } from '../prisma/prisma.service.js';
-import { createTarGz } from './tar-cli.js';
+import { writeTarGz, type TarEntry } from './tar-pack.js';
+
+/** Human-readable bytes for operator-facing refusal messages. Local
+ *  copy, matching tile-layer.service.ts and import.ts; not worth a
+ *  shared module for three call sites in three unrelated features. */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let v = bytes / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i += 1;
+  }
+  return `${v.toFixed(1)} ${units[i]}`;
+}
 
 export type ScheduleMode = 'off' | 'daily' | 'weekly' | 'monthly' | 'custom';
 
@@ -535,31 +550,67 @@ export class BackupService implements OnModuleInit {
     const stageDir = path.join(backupDir, `.stage-${run.id}`);
     const filename = `backup-${timestamp}-${run.id.slice(0, 8)}.tar.gz`;
     const finalPath = path.join(backupDir, filename);
+    // Published by rename, never written under its final name. A
+    // killed run therefore cannot leave anything matching the
+    // retention sweep's /^backup-.*\.tar\.gz$/, which previously
+    // ranked a truncated archive FIRST (newest ISO timestamp) and
+    // protected it while evicting good ones. The dot prefix also
+    // keeps it out of directory listings an operator scans by eye.
+    const partialPath = path.join(backupDir, `.partial-${run.id}.tar.gz`);
+
+    // Retention BEFORE the payload, reserving room for this run.
+    //
+    // This is the fix for the ratchet that turned one bad night into
+    // sixteen: retention used to be reachable ONLY from the success
+    // path of a scheduled run, so the single mechanism that frees
+    // space was gated behind the operation that lack of space
+    // prevents. Once a run failed for want of disk, nothing could
+    // ever reclaim any. Sweeping first, on every trigger, means a
+    // manual "Run now" can break the deadlock by hand.
+    try {
+      await this.enforceRetention(1);
+    } catch (e) {
+      // Never fatal: a retention failure must not stop a backup.
+      this.log.warn(
+        `Pre-run retention sweep failed: ${e instanceof Error ? e.message : e}`,
+      );
+    }
 
     try {
       await fs.mkdir(stageDir, { recursive: true });
       await fs.mkdir(path.join(stageDir, 'postgres'), { recursive: true });
-      await fs.mkdir(path.join(stageDir, 'minio'), { recursive: true });
 
-      // 1. Postgres dump via pg_dump. Custom format (-Fc) is self-
-      //    compressing and supports partial restores via pg_restore,
-      //    which we'll want for disaster-recovery scenarios.
+      // 1. Postgres dump. Custom format (-Fc) is self-compressing and
+      //    supports partial restores via pg_restore. This is the one
+      //    member that cannot stream: pg_dump writes to stdout with no
+      //    declared length, and a tar member header needs its size up
+      //    front. Staging it costs little (the dump is a rounding
+      //    error next to the bucket) and it is why the stage dir still
+      //    exists at all.
       const dbName = this.extractDbName(
         this.cfg.get<string>('DATABASE_URL', ''),
       );
-      const dumpPath = path.join(
-        stageDir,
-        'postgres',
-        `${dbName || 'gratisgis'}.dump`,
-      );
+      const dumpName = `${dbName || 'gratisgis'}.dump`;
+      const dumpPath = path.join(stageDir, 'postgres', dumpName);
       await this.runPgDump(dumpPath);
+      const dumpSize = (await fs.stat(dumpPath)).size;
 
-      // 2. MinIO mirror. We stream each object straight to disk so a
-      //    big bucket doesn't pin the whole thing in memory.
-      const minioStats = await this.mirrorMinio(path.join(stageDir, 'minio'));
+      // 2. Plan the archive from a list-only pass. Metadata only, no
+      //    bodies: this is what makes an accurate preflight possible
+      //    and what lets the manifest carry real totals while still
+      //    being written FIRST (a v1-compatible reordering that makes
+      //    a future cheap peek possible).
+      const plan = await this.planMinioArchive();
 
-      // 3. Manifest: enough context to drive a restore without
-      //    reopening the dump files.
+      // 3. Refuse loudly rather than filling the volume. The old
+      //    design had no check at all and drove the disk to 1.4% free,
+      //    taking the object store down with it, then died inside gzip
+      //    with "No space left on device". Note this probes the ARCHIVE
+      //    directory: the two existing statfs probes in this repo point
+      //    at '/' and tmpdir(), neither of which is this filesystem,
+      //    which is why the product's own disk gauge read healthy.
+      await this.assertRoomForArchive(backupDir, plan.totalBytes + dumpSize);
+
       const manifest: BackupManifest = {
         version: 1,
         createdAt: run.startedAt.toISOString(),
@@ -571,30 +622,25 @@ export class BackupService implements OnModuleInit {
         databases: [dbName || 'gratisgis'],
         minio: {
           bucket: this.bucket,
-          objectCount: minioStats.count,
-          totalBytes: minioStats.bytes,
+          objectCount: plan.count,
+          totalBytes: plan.totalBytes,
         },
         gitSha: this.cfg.get<string>('GIT_SHA') || null,
       };
-      await fs.writeFile(
-        path.join(stageDir, 'manifest.json'),
-        JSON.stringify(manifest, null, 2),
-        'utf8',
+
+      // 4. Seal, streaming object bodies straight from S3 into the
+      //    archive. Nothing is mirrored to disk, so peak occupancy is
+      //    (dump + archive) instead of (bucket + dump + archive).
+      await writeTarGz(
+        partialPath,
+        this.archiveEntries(manifest, dumpName, dumpPath, plan.keys),
       );
 
-      // 4. Seal the archive. We shell out to the system tar so we
-      //    don't carry the npm `tar` dep (#47). tar streams gzip-
-      //    compressed bytes directly to `finalPath`, so at no point
-      //    do we hold the entire archive in memory. cwd/stage root
-      //    means the paths inside the tar are relative (postgres/...,
-      //    minio/..., manifest.json): portable across hosts.
-      await createTarGz(finalPath, stageDir, [
-        'postgres',
-        'minio',
-        'manifest.json',
-      ]);
+      const stat = await fs.stat(partialPath);
+      // Publish atomically. Until this rename the archive does not
+      // exist under a name anything looks for.
+      await fs.rename(partialPath, finalPath);
 
-      const stat = await fs.stat(finalPath);
       await this.prisma.backupRun.update({
         where: { id: run.id },
         data: {
@@ -605,38 +651,182 @@ export class BackupService implements OnModuleInit {
         },
       });
       this.log.log(
-        `Backup ${run.id} finished: ${filename} (${stat.size} bytes)`,
+        `Backup ${run.id} finished: ${filename} (${stat.size} bytes, ` +
+          `${plan.count} objects)`,
       );
-
-      // 5. Enforce retention. Done after the new row is finalised so
-      //    we never delete the just-written archive as part of the
-      //    same run. Manual runs deliberately do NOT trigger retention
-      //    sweeps; those happen on the scheduled path.
-      if (trigger === 'scheduled') {
-        await this.enforceRetention();
-      }
-
-      return this.getRun(run.id);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       this.log.error(`Backup ${run.id} failed: ${msg}`);
-      await this.prisma.backupRun.update({
-        where: { id: run.id },
-        data: {
-          status: 'failed',
-          finishedAt: new Date(),
-          error: msg.slice(0, 500),
-        },
-      });
-      // Best-effort cleanup: an empty/partial archive is worse than
-      // no archive, because the admin page would think it succeeded.
-      await fs.rm(finalPath, { force: true });
-      return this.getRun(run.id);
+      // Disk first, bookkeeping second. The old order recorded the
+      // failure before cleaning up, so when the update threw (the row
+      // had been deleted underneath a running backup) the partial
+      // archive was stranded AND the original error was replaced by a
+      // Prisma one. Cleanup must never be downstream of a fallible
+      // database write.
+      await fs.rm(partialPath, { force: true }).catch(() => undefined);
+      await this.prisma.backupRun
+        .update({
+          where: { id: run.id },
+          data: {
+            status: 'failed',
+            finishedAt: new Date(),
+            error: msg.slice(0, 500),
+          },
+        })
+        .catch((dbErr: unknown) => {
+          // Losing the row is not a reason to lose the reason.
+          this.log.error(
+            `Backup ${run.id}: could not record the failure (${
+              dbErr instanceof Error ? dbErr.message : dbErr
+            }). Original failure above.`,
+          );
+        });
     } finally {
-      // Stage dir goes away regardless: on success its contents are
-      // already inside the tar; on failure they're orphaned bytes
-      // we don't want cluttering BACKUP_DIR.
-      await fs.rm(stageDir, { recursive: true, force: true });
+      await fs.rm(stageDir, { recursive: true, force: true }).catch(() => undefined);
+      await fs.rm(partialPath, { force: true }).catch(() => undefined);
+    }
+
+    // Deliberately outside the try: a sealed, recorded, successful
+    // archive must not be routed into the catch by a later hiccup.
+    // Retention used to run INSIDE it, so a database blip after the
+    // seal flipped the row to failed and then deleted the archive.
+    if (trigger === 'scheduled') {
+      try {
+        await this.enforceRetention();
+      } catch (e) {
+        this.log.warn(
+          `Post-run retention sweep failed: ${e instanceof Error ? e.message : e}`,
+        );
+      }
+    }
+    return this.getRun(run.id);
+  }
+
+  /**
+   * List every object with its size, without fetching a single body.
+   *
+   * Two jobs: it is the input to the free-space preflight, and it lets
+   * the manifest carry accurate totals while being written as the
+   * FIRST archive member rather than the last.
+   */
+  private async planMinioArchive(): Promise<{
+    keys: Array<{ key: string; size: number }>;
+    count: number;
+    totalBytes: number;
+  }> {
+    const keys: Array<{ key: string; size: number }> = [];
+    let totalBytes = 0;
+    let token: string | undefined;
+    do {
+      const page = await this.s3.send(
+        new ListObjectsV2Command({
+          Bucket: this.bucket,
+          ...(token ? { ContinuationToken: token } : {}),
+        }),
+      );
+      for (const obj of page.Contents ?? []) {
+        if (!obj.Key) continue;
+        const size = Number(obj.Size ?? 0);
+        keys.push({ key: obj.Key, size });
+        totalBytes += size;
+      }
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token);
+    return { keys, count: keys.length, totalBytes };
+  }
+
+  /**
+   * Refuse the run if the archive cannot fit, with the numbers in the
+   * message. Mirrors the shape of the tile-layer upload preflight.
+   *
+   * `payloadBytes` is the uncompressed sum. gzip is left out of the
+   * estimate on purpose: this corpus is COG, PMTiles, LAZ, JPEG and an
+   * already-zlib-compressed pg_dump, so the ratio is close to 1:1 and
+   * assuming otherwise is how you talk yourself into a run that cannot
+   * finish. Overhead covers tar block padding (~1 KiB per member).
+   *
+   * Fails OPEN when statfs itself fails, matching tile-layer: a broken
+   * probe should not block a backup, and a genuine ENOSPC is now
+   * survivable (atomic publish, cleanup in the finally).
+   */
+  private async assertRoomForArchive(
+    dir: string,
+    payloadBytes: number,
+  ): Promise<void> {
+    const required = Math.ceil(payloadBytes * 1.02) + 16 * 1024 * 1024;
+    let free: number;
+    try {
+      const st = await fs.statfs(dir);
+      free = Number(st.bavail) * Number(st.bsize);
+    } catch (err) {
+      this.log.warn(
+        `statfs(${dir}) failed: ${err instanceof Error ? err.message : err}. ` +
+          'Proceeding without a space preflight.',
+      );
+      return;
+    }
+    if (required > free) {
+      throw new Error(
+        `Not enough space for this backup. It needs about ` +
+          `${formatBytes(required)} and ${dir} has ${formatBytes(free)} free. ` +
+          'Lower the retention count, move the archive directory to a larger ' +
+          'volume, or free space and run again. Nothing was written.',
+      );
+    }
+  }
+
+  /**
+   * The archive, as a stream of members.
+   *
+   * Order is manifest, dump, objects. Manifest first is v1-compatible
+   * (both readers locate it by name) and is a precondition for ever
+   * making the peek cheap, which today gunzips the whole payload to
+   * read one small file at the end.
+   */
+  private async *archiveEntries(
+    manifest: BackupManifest,
+    dumpName: string,
+    dumpPath: string,
+    keys: ReadonlyArray<{ key: string; size: number }>,
+  ): AsyncGenerator<TarEntry> {
+    yield {
+      kind: 'buffer',
+      name: 'manifest.json',
+      body: Buffer.from(JSON.stringify(manifest, null, 2), 'utf8'),
+    };
+
+    const dumpSize = (await fs.stat(dumpPath)).size;
+    yield {
+      kind: 'stream',
+      name: `postgres/${dumpName}`,
+      size: dumpSize,
+      open: () => createReadStream(dumpPath),
+    };
+
+    for (const { key } of keys) {
+      const get = await this.s3.send(
+        new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+      );
+      const body = get.Body;
+      if (!body) {
+        // Previously a bare `continue`, which dropped the object from
+        // the archive without dropping it from the counts, so a
+        // partial backup reported a full one. A backup that cannot
+        // read an object is not a backup.
+        throw new Error(`Object "${key}" returned no body; refusing to seal.`);
+      }
+      // Size from the GET, never from the listing. The portal keeps
+      // serving during a backup, so a listing size can be stale by the
+      // time the body arrives, and a tar member header commits to its
+      // length before the bytes. See the size contract in tar-pack.ts.
+      const size = Number(get.ContentLength ?? 0);
+      yield {
+        kind: 'stream',
+        name: `minio/${key}`,
+        size,
+        open: () =>
+          body instanceof Readable ? body : Readable.fromWeb(body as never),
+      };
     }
   }
 
@@ -686,11 +876,25 @@ export class BackupService implements OnModuleInit {
   /**
    * Keep only the most recent N successful backups. Failed runs are
    * NOT counted against the cap: operators want to see "these three
-   * in a row failed" while the last 7 successful archives still sit
-   * on disk. Called by the scheduler after a successful run.
+   * in a row failed" while the last N successful archives still sit
+   * on disk.
+   *
+   * `reserve` shrinks the cap for this sweep so a run can make room
+   * for the archive it is about to write. runBackup calls it with 1
+   * before starting and 0 after a successful scheduled run.
+   *
+   * Called from BOTH ends of runBackup and on both triggers. It used
+   * to be reachable only from the success path of a SCHEDULED run,
+   * which meant the one mechanism that frees disk was gated behind
+   * the operation that lack of disk prevents. One failed night then
+   * locked the portal out of backups permanently, and a manual run
+   * could not break it either.
    */
-  async enforceRetention(): Promise<{ removed: number }> {
-    const cap = (await this.getConfig()).retentionCount;
+  async enforceRetention(reserve = 0): Promise<{ removed: number }> {
+    const cap = Math.max(
+      1,
+      (await this.getConfig()).retentionCount - Math.max(0, reserve),
+    );
     const successful = await this.prisma.backupRun.findMany({
       where: { status: 'succeeded' },
       orderBy: { startedAt: 'desc' },
@@ -809,49 +1013,13 @@ export class BackupService implements OnModuleInit {
     }
   }
 
-  // ---------------------------------------------------------------
-  // Private: MinIO mirror
-  // ---------------------------------------------------------------
-
-  /**
-   * Stream every object in the configured bucket into `targetDir/`,
-   * preserving the object-key tree as directory structure. Returns
-   * totals for the manifest.
-   */
-  private async mirrorMinio(
-    targetDir: string,
-  ): Promise<{ count: number; bytes: number }> {
-    let continuation: string | undefined;
-    let count = 0;
-    let bytes = 0;
-    do {
-      const res = await this.s3.send(
-        new ListObjectsV2Command({
-          Bucket: this.bucket,
-          ...(continuation ? { ContinuationToken: continuation } : {}),
-        }),
-      );
-      for (const obj of res.Contents ?? []) {
-        if (!obj.Key) continue;
-        const outPath = path.join(targetDir, obj.Key);
-        await fs.mkdir(path.dirname(outPath), { recursive: true });
-        const get = await this.s3.send(
-          new GetObjectCommand({ Bucket: this.bucket, Key: obj.Key }),
-        );
-        const body = get.Body;
-        if (!body) continue;
-        const readable =
-          body instanceof Readable ? body : Readable.fromWeb(body as never);
-        await pipeline(readable, createWriteStream(outPath));
-        count += 1;
-        bytes += Number(obj.Size ?? 0);
-      }
-      continuation = res.IsTruncated
-        ? res.NextContinuationToken
-        : undefined;
-    } while (continuation);
-    return { count, bytes };
-  }
+  // Removed: mirrorMinio(). It copied the whole bucket to disk before
+  // sealing, which is the intermediate copy that made a backup need
+  // roughly 2x (bucket + dump) free and left this deployment with no
+  // operating point at any retention setting. Object bodies now go
+  // straight from S3 into the archive; see archiveEntries() above and
+  // tar-pack.ts. It also silently skipped bodyless objects while still
+  // counting them, so a partial backup reported a complete one.
 
   // ---------------------------------------------------------------
   // Private: helpers
