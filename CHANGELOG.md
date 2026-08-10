@@ -5,6 +5,80 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.15] - 2026-08-10
+
+A rework of the backup subsystem after it was found to have been
+producing nothing for sixteen days, plus a rate-limiting fix. Contains
+one schema migration. Safe upgrade.
+
+**If you run a portal with a large object store, read the operator note
+at the end of this section: your archives are about to get much bigger
+than they used to be, and the default retention count may no longer
+fit.**
+
+### Fixed
+
+- **Backups no longer need twice their own size in free disk.** A
+  backup copied the entire object store to disk, then compressed the
+  copy, in the same directory as the archives it keeps. Peak usage was
+  bucket + database dump + archive. Because a `pg_dump` is already
+  compressed and a GIS object store is mostly already-compressed
+  imagery, compression buys almost nothing, so that came to roughly
+  twice the size of everything being backed up. On a portal whose
+  object store had grown, no retention setting was low enough to make
+  a backup fit, and every attempt failed after filling the disk.
+  Object data is now streamed directly into the archive. The archive
+  format is unchanged and existing archives restore exactly as before.
+- **A failed backup no longer prevents all future backups.** Old
+  archives were only cleaned up at the end of a *successful scheduled*
+  run, so once a backup failed for want of disk, nothing could ever
+  free any, and running one by hand could not break the deadlock
+  either. Cleanup now runs before every backup.
+- **A backup that cannot fit now refuses to start**, and says how much
+  space it needs and how much there is, instead of filling the disk
+  and failing partway. On a portal where the object store shares a
+  volume with something else, that failure could take the other
+  service down with it.
+- **A backup is now published only once it is complete.** Previously
+  the archive was written under its final name as it went, so a backup
+  killed partway left a file that looked like the newest good backup
+  and was kept in preference to real ones.
+- **A backup killed mid-run no longer stays "In progress" forever**,
+  and its temporary files are cleaned up on the next start.
+- **Rate limiting now applies per client.** The portal was reading the
+  wrong address for every request, so all traffic on the internet
+  shared a single allowance per endpoint: one heavy user could exhaust
+  everyone else's, while no individual user was ever limited.
+
+### Added
+
+- **A backup health check.** The admin area can now report the age of
+  the newest archive that actually exists on disk and whether that is
+  overdue for the configured schedule. Nothing previously reported
+  this, which is why sixteen days without a backup looked identical to
+  sixteen hours.
+- **Backups can be cancelled.** Previously a running backup could not
+  be stopped at all; deleting its entry removed the record while the
+  work carried on, leaving an untracked file behind. Deleting a
+  running backup is now refused, with cancellation offered instead.
+- **Two backups can no longer run at once**, which previously doubled
+  the disk a portal needed at the worst possible moment.
+
+### Notes for operators
+
+- **Your archives will be much larger than before.** An archive is
+  effectively a second copy of your object store, and compression does
+  little on imagery. If your object store has grown since you set your
+  retention count, multiply the two together before the next scheduled
+  run: the default of 7 may no longer fit. Lowering retention or
+  giving backups their own volume are both reasonable answers.
+- **Give backups a volume that is not shared with your object store**
+  if you can. A backup that fills a shared volume takes the object
+  store down with it.
+- Contains one migration; it applies automatically on upgrade.
+- If a backup has been failing silently, the new health check will say
+  so as soon as you upgrade. That is the point.
+
 ## [0.9.14] - 2026-08-09
 
 Security fixes from a second deep review pass
