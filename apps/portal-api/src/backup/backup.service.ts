@@ -25,6 +25,15 @@ import { createTarGz } from './tar-cli.js';
 export type ScheduleMode = 'off' | 'daily' | 'weekly' | 'monthly' | 'custom';
 
 /**
+ * How old a `running` BackupRun has to be before startup treats it as
+ * abandoned. Deliberately far beyond any real backup: the largest
+ * archive on the demo is about 3 GB and seals in a few minutes, so six
+ * hours cannot catch a live run even on a much slower host with a much
+ * bigger bucket. See BackupService.reclaimStaleRuns.
+ */
+const STALE_RUN_MS = 6 * 60 * 60 * 1000;
+
+/**
  * User-facing config shape the admin page edits. All values are
  * effective values: i.e. the DB row merged over the env defaults
  * so the UI can show what's actually running without having to
@@ -437,6 +446,62 @@ export class BackupService implements OnModuleInit {
   // ---------------------------------------------------------------
   // Run a backup
   // ---------------------------------------------------------------
+
+  /**
+   * Mark abandoned runs failed and sweep the staging directories they
+   * left behind.
+   *
+   * A backup is owned by one process: `runBackup` marks its own row
+   * failed in a catch and drops the stage dir in a finally. Neither
+   * runs if the process is killed mid-backup (OOM, container
+   * recreate, host reboot), so the row stays `running` forever and a
+   * multi-GB `.stage-<id>` directory stays on disk forever.
+   *
+   * That is not hypothetical. Prod carried a run stuck `running` since
+   * 2026-07-25 with its stage dir still present, and because the admin
+   * page renders it as "In progress" it read as a backup that was
+   * merely slow rather than one that died 16 days earlier.
+   *
+   * Leader-only, and only for runs older than the cutoff, so this can
+   * never mark a genuinely in-flight backup as failed. Nothing here
+   * touches sealed archives: a stuck row never produced one.
+   */
+  async reclaimStaleRuns(): Promise<number> {
+    const cutoff = new Date(Date.now() - STALE_RUN_MS);
+    const stale = await this.prisma.backupRun.findMany({
+      where: { status: 'running', startedAt: { lt: cutoff } },
+      select: { id: true, startedAt: true },
+    });
+    if (stale.length === 0) return 0;
+
+    const { archiveDirectory: backupDir } = await this.getConfig();
+    for (const run of stale) {
+      const age = Math.round(
+        (Date.now() - run.startedAt.getTime()) / 3_600_000,
+      );
+      await this.prisma.backupRun.update({
+        where: { id: run.id },
+        data: {
+          status: 'failed',
+          finishedAt: new Date(),
+          error:
+            `Abandoned: still marked running ${age}h after it started, ` +
+            'so the process that owned it died before it could finish. ' +
+            'Reclaimed on startup.',
+        },
+      });
+      // The stage dir is the orphaned bytes the finally never got to.
+      await fs.rm(path.join(backupDir, `.stage-${run.id}`), {
+        recursive: true,
+        force: true,
+      });
+      this.log.warn(
+        `Reclaimed abandoned backup ${run.id} (started ${age}h ago) and ` +
+          'removed its staging directory.',
+      );
+    }
+    return stale.length;
+  }
 
   /**
    * Execute a backup. Creates the BackupRun row first (status=running)

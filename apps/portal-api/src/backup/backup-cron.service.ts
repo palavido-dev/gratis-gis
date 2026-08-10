@@ -56,6 +56,27 @@ export class BackupCronService implements OnApplicationBootstrap {
       this.backup.onConfigChange((next) => this.apply(next));
       return;
     }
+    // Before scheduling anything, close out runs that a previous
+    // process died in the middle of. Only the leader gets here, and
+    // only runs older than the stale cutoff are touched, so a live
+    // backup can never be reclaimed. Failure here must not stop the
+    // cron from registering: a missed reclaim is a stale row, a
+    // missed registration is no backups at all.
+    try {
+      const reclaimed = await this.backup.reclaimStaleRuns();
+      if (reclaimed > 0) {
+        this.log.warn(
+          `Reclaimed ${reclaimed} abandoned backup run(s) on startup. ` +
+            'Each was showing as "In progress" in the admin UI.',
+        );
+      }
+    } catch (e) {
+      this.log.error(
+        `Stale-run reclaim failed: ${(e as Error).message}. ` +
+          'Continuing to cron registration.',
+      );
+    }
+
     const cfg = await this.backup.getConfig();
     this.apply(cfg);
     this.backup.onConfigChange((next) => this.apply(next));
