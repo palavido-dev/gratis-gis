@@ -12,6 +12,7 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import {
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -21,6 +22,34 @@ import { ConfigService } from '@nestjs/config';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { writeTarGz, type TarEntry } from './tar-pack.js';
+
+/**
+ * Thrown when an admin asked a running backup to stop. Distinct from a
+ * failure so the row can record "cancelled" rather than blaming
+ * pg_dump for the SIGTERM we sent it.
+ */
+export class BackupCancelledError extends Error {
+  constructor() {
+    super('Backup cancelled by an administrator.');
+    this.name = 'BackupCancelledError';
+  }
+}
+
+/**
+ * How often a running backup checks whether it has been asked to stop.
+ * The poll is one indexed lookup by primary key; two seconds is
+ * responsive to a human clicking Cancel while being nothing against a
+ * run that streams tens of thousands of objects.
+ */
+const CANCEL_POLL_MS = 2000;
+
+/**
+ * A `running` row older than this is treated as abandoned rather than
+ * as a reason to refuse a new backup. Without the bound, one killed
+ * process would block every future run, which is the same ratchet that
+ * gated retention behind success.
+ */
+const RUNNING_ROW_STALE_MS = 6 * 60 * 60 * 1000;
 
 /** Human-readable bytes for operator-facing refusal messages. Local
  *  copy, matching tile-layer.service.ts and import.ts; not worth a
@@ -534,6 +563,26 @@ export class BackupService implements OnModuleInit {
     trigger: 'manual' | 'scheduled',
     startedBy: string | null,
   ) {
+    // Refuse a second concurrent run. Two replicas share one archive
+    // volume and `POST /admin/backup/runs` carries only AdminGuard, so
+    // nothing stopped two backups from staging at once and doubling
+    // the peak. Bounded by staleness on purpose: an abandoned row from
+    // a killed process must not lock out every future backup, which is
+    // the same shape as the retention ratchet.
+    const active = await this.prisma.backupRun.findFirst({
+      where: {
+        status: 'running',
+        startedAt: { gte: new Date(Date.now() - RUNNING_ROW_STALE_MS) },
+      },
+      orderBy: { startedAt: 'desc' },
+    });
+    if (active) {
+      throw new ConflictException(
+        `A backup is already running (started ${active.startedAt.toISOString()}). ` +
+          'Wait for it to finish or cancel it first.',
+      );
+    }
+
     const run = await this.prisma.backupRun.create({
       data: {
         trigger,
@@ -541,6 +590,30 @@ export class BackupService implements OnModuleInit {
       },
     });
     this.log.log(`Backup ${run.id} started (${trigger})`);
+
+    // Cancellation is a durable flag polled by this loop, not an
+    // in-memory controller: the cancel request lands on whichever
+    // replica the proxy picks, which is usually not this one. The
+    // controller below is the local end of that signal, so pg_dump and
+    // the S3 reads can be torn down the moment the flag flips.
+    const abort = new AbortController();
+    let lastCancelCheck = 0;
+    const checkCancelled = async (): Promise<void> => {
+      const now = Date.now();
+      if (now - lastCancelCheck < CANCEL_POLL_MS) return;
+      lastCancelCheck = now;
+      const row = await this.prisma.backupRun.findUnique({
+        where: { id: run.id },
+        select: { cancelRequestedAt: true },
+      });
+      // A row that vanished counts as cancelled: an admin deleted it
+      // underneath us, and continuing would only produce an archive
+      // nothing can reference.
+      if (!row || row.cancelRequestedAt) {
+        abort.abort();
+        throw new BackupCancelledError();
+      }
+    };
 
     const { archiveDirectory: backupDir } = await this.getConfig();
     const timestamp = run.startedAt
@@ -592,8 +665,9 @@ export class BackupService implements OnModuleInit {
       );
       const dumpName = `${dbName || 'gratisgis'}.dump`;
       const dumpPath = path.join(stageDir, 'postgres', dumpName);
-      await this.runPgDump(dumpPath);
+      await this.runPgDump(dumpPath, abort.signal);
       const dumpSize = (await fs.stat(dumpPath)).size;
+      await checkCancelled();
 
       // 2. Plan the archive from a list-only pass. Metadata only, no
       //    bodies: this is what makes an accurate preflight possible
@@ -633,7 +707,14 @@ export class BackupService implements OnModuleInit {
       //    (dump + archive) instead of (bucket + dump + archive).
       await writeTarGz(
         partialPath,
-        this.archiveEntries(manifest, dumpName, dumpPath, plan.keys),
+        this.archiveEntries(
+          manifest,
+          dumpName,
+          dumpPath,
+          plan.keys,
+          checkCancelled,
+          abort.signal,
+        ),
       );
 
       const stat = await fs.stat(partialPath);
@@ -655,8 +736,18 @@ export class BackupService implements OnModuleInit {
           `${plan.count} objects)`,
       );
     } catch (e) {
+      const cancelled = e instanceof BackupCancelledError;
       const msg = e instanceof Error ? e.message : String(e);
-      this.log.error(`Backup ${run.id} failed: ${msg}`);
+      // A cancellation is not an incident. It still lands as `failed`
+      // because the run produced no archive and BackupStatus has no
+      // fourth value, but the message says which it was and the health
+      // signal below keys off archives on disk rather than row status,
+      // so a cancelled run never reads as a broken backup system.
+      if (cancelled) {
+        this.log.log(`Backup ${run.id} cancelled by an administrator.`);
+      } else {
+        this.log.error(`Backup ${run.id} failed: ${msg}`);
+      }
       // Disk first, bookkeeping second. The old order recorded the
       // failure before cleaning up, so when the update threw (the row
       // had been deleted underneath a running backup) the partial
@@ -788,6 +879,8 @@ export class BackupService implements OnModuleInit {
     dumpName: string,
     dumpPath: string,
     keys: ReadonlyArray<{ key: string; size: number }>,
+    checkCancelled: () => Promise<void>,
+    signal: AbortSignal,
   ): AsyncGenerator<TarEntry> {
     yield {
       kind: 'buffer',
@@ -804,8 +897,13 @@ export class BackupService implements OnModuleInit {
     };
 
     for (const { key } of keys) {
+      // Between members, not mid-body: a cancel that lands halfway
+      // through a multi-GB object still tears down promptly because
+      // the same signal aborts the S3 request itself.
+      await checkCancelled();
       const get = await this.s3.send(
         new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+        { abortSignal: signal },
       );
       const body = get.Body;
       if (!body) {
@@ -862,8 +960,115 @@ export class BackupService implements OnModuleInit {
    * file just gets the row cleaned up anyway so the table stays
    * consistent with what's on disk.
    */
+  /**
+   * Ask a running backup to stop.
+   *
+   * Sets a durable flag; the run polls it and tears down pg_dump and
+   * the in-flight S3 read through its own AbortController. Cross
+   * replica by construction, which an in-memory registry would not be:
+   * prod runs two portal-api replicas and this request lands on
+   * whichever one the proxy picked.
+   *
+   * Idempotent. Cancelling an already-finished run is a no-op rather
+   * than an error, because the admin clicking Cancel cannot know
+   * whether the run finished a second earlier.
+   */
+  async requestCancel(runId: string) {
+    const run = await this.getRun(runId);
+    if (run.status !== 'running') {
+      return { cancelled: false, status: run.status };
+    }
+    await this.prisma.backupRun.update({
+      where: { id: run.id },
+      data: { cancelRequestedAt: new Date() },
+    });
+    this.log.log(`Backup ${run.id}: cancellation requested.`);
+    return { cancelled: true, status: 'running' as const };
+  }
+
+  /**
+   * Age of the newest archive ON DISK, plus whether that is overdue
+   * for the configured schedule.
+   *
+   * Deliberately computed from the directory rather than from
+   * `backup_run`. The archives are the durable half: this deployment
+   * drops and restores the whole database nightly from a golden
+   * snapshot while explicitly excluding the backups volume, so rows
+   * are reverted every morning and a row-based health check reports
+   * whatever golden happened to capture. That is exactly how sixteen
+   * days without a backup rendered as seven healthy runs.
+   */
+  async getHealth(): Promise<{
+    lastArchiveAt: string | null;
+    ageHours: number | null;
+    archiveCount: number;
+    overdue: boolean;
+    reason: string;
+  }> {
+    const cfg = await this.getConfig();
+    let newest: Date | null = null;
+    let count = 0;
+    try {
+      for (const name of await fs.readdir(cfg.archiveDirectory)) {
+        if (!/^backup-.*\.tar\.gz$/.test(name)) continue;
+        count += 1;
+        const st = await fs.stat(path.join(cfg.archiveDirectory, name));
+        if (!newest || st.mtime > newest) newest = st.mtime;
+      }
+    } catch (err) {
+      return {
+        lastArchiveAt: null,
+        ageHours: null,
+        archiveCount: 0,
+        overdue: true,
+        reason: `Could not read the archive directory: ${
+          err instanceof Error ? err.message : err
+        }`,
+      };
+    }
+    if (!newest) {
+      return {
+        lastArchiveAt: null,
+        ageHours: null,
+        archiveCount: 0,
+        overdue: cfg.scheduleMode !== 'off',
+        reason:
+          cfg.scheduleMode === 'off'
+            ? 'No archives, and scheduled backups are off.'
+            : 'No backup archives exist.',
+      };
+    }
+    const ageHours = (Date.now() - newest.getTime()) / 3_600_000;
+    // Two scheduled windows of slack before calling it overdue, so one
+    // missed night is a warning rather than an alarm, but a silent
+    // week is impossible to miss.
+    const windowHours =
+      cfg.scheduleMode === 'monthly' ? 24 * 31 : cfg.scheduleMode === 'weekly' ? 24 * 7 : 24;
+    const overdue = cfg.scheduleMode !== 'off' && ageHours > windowHours * 2;
+    return {
+      lastArchiveAt: newest.toISOString(),
+      ageHours: Math.round(ageHours * 10) / 10,
+      archiveCount: count,
+      overdue,
+      reason: overdue
+        ? `The newest backup is ${Math.round(ageHours)}h old; the schedule is ${cfg.scheduleSummary}.`
+        : `Newest backup is ${Math.round(ageHours)}h old.`,
+    };
+  }
+
   async deleteRun(runId: string) {
     const run = await this.getRun(runId);
+    // Refuse to delete a live run. Deleting one was worse than a
+    // no-op: `filename` is null until the success update, so nothing
+    // came off disk, while the row the running process needs to record
+    // its own outcome was destroyed. That is how a failed backup left
+    // a 9 GB partial archive with no row, invisible to the UI and
+    // unreachable by retention.
+    if (run.status === 'running') {
+      throw new ConflictException(
+        'That backup is still running. Cancel it first, then delete it.',
+      );
+    }
     if (run.filename) {
       const { archiveDirectory } = await this.getConfig();
       const p = path.join(archiveDirectory, run.filename);
@@ -959,7 +1164,7 @@ export class BackupService implements OnModuleInit {
    * We pipe stdout straight to a file stream rather than buffering
    * through Node, so a 5 GB dump doesn't need 5 GB of RAM.
    */
-  private async runPgDump(outPath: string) {
+  private async runPgDump(outPath: string, signal?: AbortSignal) {
     const raw = this.cfg.get<string>('DATABASE_URL', '');
     if (!raw) throw new Error('DATABASE_URL is not set; cannot run pg_dump');
     // Prisma's DATABASE_URL carries non-libpq params (notably
@@ -991,13 +1196,30 @@ export class BackupService implements OnModuleInit {
         const child = spawn(bin, args, {
           stdio: ['ignore', 'pipe', 'pipe'],
         });
+        // Cancellation. Without this the child was unreachable: it was
+        // a local inside a promise executor with no handle kept
+        // anywhere, so a "cancel" could only ever have removed the
+        // bookkeeping and left pg_dump running. SIGTERM first so the
+        // server-side query is torn down cleanly; the close handler
+        // below turns the non-zero exit into the rejection.
+        const onAbort = () => {
+          child.kill('SIGTERM');
+        };
+        if (signal) {
+          if (signal.aborted) onAbort();
+          else signal.addEventListener('abort', onAbort, { once: true });
+        }
         const stderrChunks: Buffer[] = [];
         child.stderr.on('data', (c) => stderrChunks.push(c));
         child.stdout.pipe(out);
         out.on('error', reject);
         child.on('error', reject);
         child.on('close', (code) => {
+          signal?.removeEventListener('abort', onAbort);
           if (code === 0) return resolve();
+          if (signal?.aborted) {
+            return reject(new BackupCancelledError());
+          }
           const tail = Buffer.concat(stderrChunks).toString('utf8').slice(-500);
           reject(
             new Error(

@@ -166,6 +166,28 @@ export class BackupController {
     createReadStream(p).pipe(res);
   }
 
+  /**
+   * Ask a running backup to stop.
+   *
+   * This exists because Delete was previously the only per-run action,
+   * so an admin wanting to stop a run reached for it, and it removed
+   * the bookkeeping while pg_dump carried on writing. There was
+   * nothing anywhere that could signal the work itself.
+   */
+  @Post('runs/:id/cancel')
+  async cancel(@Param('id') id: string) {
+    return this.backup.requestCancel(id);
+  }
+
+  /**
+   * Age of the newest archive on disk. Answers the one question the
+   * admin page could not: is this portal actually being backed up.
+   */
+  @Get('health')
+  async health() {
+    return this.backup.getHealth();
+  }
+
   @Delete('runs/:id')
   async remove(@Param('id') id: string) {
     return this.backup.deleteRun(id);

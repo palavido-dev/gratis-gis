@@ -710,6 +710,13 @@ model BackupRun {
   /// show a tooltip.
   error String?
 
+  /// Set when an admin asks a running backup to stop. The signal is a
+  /// column rather than an in-process AbortController because prod
+  /// runs portal-api at 2 replicas: the cancel request lands on
+  /// whichever one the proxy picks, which is usually not the one
+  /// holding the pg_dump. The running backup polls this.
+  cancelRequestedAt DateTime? @map("cancel_requested_at") @db.Timestamptz(6)
+
   @@index([startedAt])
   @@map("backup_run")
 }
