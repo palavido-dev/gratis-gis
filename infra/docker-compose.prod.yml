@@ -410,6 +410,24 @@ services:
       # Backup archives. The runtime image pre-creates this with
       # app:app ownership so the named volume below inherits it.
       BACKUP_DIR: /app/backups
+      # How many successful archives to keep. MUST be passed through
+      # explicitly: --env-file only populates variables for
+      # interpolation in THIS file, it does not put them in the
+      # container's environment, so setting it in .env.prod alone is
+      # inert. (Same class of mistake as an env var missing from
+      # turbo.json's task env: set in one place, never reaching the
+      # process that reads it.)
+      #
+      # Retention is the durable knob rather than the admin UI's,
+      # because the UI writes a backup_config row and the nightly
+      # golden reset drops and restores the whole database, reverting
+      # it every morning.
+      #
+      # Sizing note: an archive is roughly a second copy of the object
+      # store and compression buys little on imagery, so budget
+      # retention x bucket size, not retention x what old archives
+      # used to be.
+      BACKUP_RETENTION_COUNT: ${BACKUP_RETENTION_COUNT:-7}
       # Public URL for redirects + OG metadata.
       PUBLIC_URL: ${PUBLIC_URL:-https://gratisgis.org}
       # #159 Phase 2: WebSocket endpoints of the chromium sidecars.
