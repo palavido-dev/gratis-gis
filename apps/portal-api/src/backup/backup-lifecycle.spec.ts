@@ -143,6 +143,78 @@ describe('backup lifecycle', () => {
     });
   });
 
+  describe('cancel polling', () => {
+    // The first live cancel took ~60s against a 2s poll, because the
+    // check was driven from the archive loop and could therefore only
+    // fire between members: it was waiting out a multi-GB object. The
+    // poll now runs on its own timer so the signal reaches the
+    // in-flight S3 read, which is the whole reason that read is wired
+    // to an AbortSignal.
+    it('polls on a timer rather than from the archive loop', async () => {
+      const setSpy = jest.spyOn(global, 'setInterval');
+      const findUnique = jest.fn().mockResolvedValue({ cancelRequestedAt: null });
+      const { svc } = makeService({ findUnique });
+      // Fail fast once the poll is started; we only care that the
+      // timer was armed, not that a backup completes.
+      jest
+        .spyOn(
+          svc as unknown as { runPgDump: () => Promise<void> },
+          'runPgDump',
+        )
+        .mockRejectedValue(new Error('stop here'));
+      (svc as unknown as { prisma: { backupRun: { create: jest.Mock } } }).prisma
+        .backupRun.create = jest
+        .fn()
+        .mockResolvedValue({ id: 'r1', startedAt: new Date() });
+
+      await svc.runBackup('manual', null).catch(() => undefined);
+
+      const armed = setSpy.mock.calls.some(([, ms]) => ms === 2000);
+      expect(armed).toBe(true);
+      setSpy.mockRestore();
+    });
+
+    it('clears the timer even when the run fails', async () => {
+      // A leaked interval would query the database every two seconds
+      // for the life of the process. It is started inside the try
+      // precisely so the finally always reaches it.
+      const clearSpy = jest.spyOn(global, 'clearInterval');
+      const { svc } = makeService({});
+      jest
+        .spyOn(
+          svc as unknown as { runPgDump: () => Promise<void> },
+          'runPgDump',
+        )
+        .mockRejectedValue(new Error('boom'));
+      (svc as unknown as { prisma: { backupRun: { create: jest.Mock } } }).prisma
+        .backupRun.create = jest
+        .fn()
+        .mockResolvedValue({ id: 'r1', startedAt: new Date() });
+
+      await svc.runBackup('manual', null).catch(() => undefined);
+
+      expect(clearSpy).toHaveBeenCalled();
+      clearSpy.mockRestore();
+    });
+
+    it('does not arm the timer at all if config lookup fails', async () => {
+      // getConfig() runs before the try. Arming the timer any earlier
+      // would leak it on exactly this path.
+      const setSpy = jest.spyOn(global, 'setInterval');
+      const { svc } = makeService({});
+      jest.spyOn(svc, 'getConfig').mockRejectedValue(new Error('no config'));
+      (svc as unknown as { prisma: { backupRun: { create: jest.Mock } } }).prisma
+        .backupRun.create = jest
+        .fn()
+        .mockResolvedValue({ id: 'r1', startedAt: new Date() });
+
+      await svc.runBackup('manual', null).catch(() => undefined);
+
+      expect(setSpy.mock.calls.some(([, ms]) => ms === 2000)).toBe(false);
+      setSpy.mockRestore();
+    });
+  });
+
   describe('getHealth', () => {
     it('reads the archive directory, not the run table', async () => {
       // The table is reverted nightly by the golden reset while the

@@ -591,28 +591,61 @@ export class BackupService implements OnModuleInit {
     });
     this.log.log(`Backup ${run.id} started (${trigger})`);
 
-    // Cancellation is a durable flag polled by this loop, not an
-    // in-memory controller: the cancel request lands on whichever
-    // replica the proxy picks, which is usually not this one. The
-    // controller below is the local end of that signal, so pg_dump and
-    // the S3 reads can be torn down the moment the flag flips.
+    // Cancellation is a durable flag: the cancel request lands on
+    // whichever replica the proxy picks, which is usually not this
+    // one. The AbortController is the local end of that signal.
+    //
+    // The poll runs on its OWN timer rather than being called from the
+    // archive loop. Driving it from the loop meant it could only fire
+    // BETWEEN members, so a cancel issued while streaming a multi-GB
+    // point cloud waited for that whole object to finish: measured at
+    // ~60s against a 2s poll interval on the first live test. On a
+    // timer the signal reaches the in-flight S3 read and pg_dump
+    // immediately, which is the entire reason those two are wired to
+    // an AbortSignal in the first place.
     const abort = new AbortController();
-    let lastCancelCheck = 0;
-    const checkCancelled = async (): Promise<void> => {
-      const now = Date.now();
-      if (now - lastCancelCheck < CANCEL_POLL_MS) return;
-      lastCancelCheck = now;
-      const row = await this.prisma.backupRun.findUnique({
-        where: { id: run.id },
-        select: { cancelRequestedAt: true },
-      });
-      // A row that vanished counts as cancelled: an admin deleted it
-      // underneath us, and continuing would only produce an archive
-      // nothing can reference.
-      if (!row || row.cancelRequestedAt) {
-        abort.abort();
-        throw new BackupCancelledError();
-      }
+    let cancelled = false;
+    // Declared here, STARTED inside the try below. Starting it here
+    // would leak it: `getConfig()` sits between this point and the
+    // try, so a config failure would leave a timer querying the
+    // database every couple of seconds for the life of the process.
+    let cancelPoll: ReturnType<typeof setInterval> | undefined;
+    const startCancelPoll = () => {
+      cancelPoll = setInterval(() => {
+        void (async () => {
+          try {
+            const row = await this.prisma.backupRun.findUnique({
+              where: { id: run.id },
+              select: { cancelRequestedAt: true },
+            });
+            // A row that vanished counts as cancelled: an admin
+            // deleted it underneath us, and continuing would only
+            // produce an archive nothing can reference.
+            if (!row || row.cancelRequestedAt) {
+              cancelled = true;
+              abort.abort();
+            }
+          } catch (e) {
+            // A database blip must not kill a running backup. Worst
+            // case a cancel is noticed one tick later.
+            this.log.warn(
+              `Backup ${run.id}: cancel poll failed: ${
+                e instanceof Error ? e.message : e
+              }`,
+            );
+          }
+        })();
+      }, CANCEL_POLL_MS);
+      // Never hold the event loop open on this timer alone.
+      cancelPoll.unref?.();
+    };
+
+    /** Cheap synchronous gate between members. The timer does the
+     *  querying; this just gives a clean exit point with a proper
+     *  error instead of letting a torn-down stream surface as a
+     *  size-mismatch further down. */
+    const checkCancelled = (): void => {
+      if (abort.signal.aborted) throw new BackupCancelledError();
     };
 
     const { archiveDirectory: backupDir } = await this.getConfig();
@@ -650,6 +683,8 @@ export class BackupService implements OnModuleInit {
     }
 
     try {
+      // Inside the try, so the finally below always clears it.
+      startCancelPoll();
       await fs.mkdir(stageDir, { recursive: true });
       await fs.mkdir(path.join(stageDir, 'postgres'), { recursive: true });
 
@@ -667,7 +702,7 @@ export class BackupService implements OnModuleInit {
       const dumpPath = path.join(stageDir, 'postgres', dumpName);
       await this.runPgDump(dumpPath, abort.signal);
       const dumpSize = (await fs.stat(dumpPath)).size;
-      await checkCancelled();
+      checkCancelled();
 
       // 2. Plan the archive from a list-only pass. Metadata only, no
       //    bodies: this is what makes an accurate preflight possible
@@ -736,14 +771,25 @@ export class BackupService implements OnModuleInit {
           `${plan.count} objects)`,
       );
     } catch (e) {
-      const cancelled = e instanceof BackupCancelledError;
-      const msg = e instanceof Error ? e.message : String(e);
+      // The signal wins over the error type. Aborting mid-body tears
+      // down the S3 stream, so the packer sees a member that delivered
+      // fewer bytes than its header promised and reports a size
+      // mismatch. That is a correct complaint about a corrupt archive
+      // but the wrong story to tell an operator who just clicked
+      // Cancel, so anything that surfaces while the signal is aborted
+      // is reported as the cancellation it actually is.
+      const wasCancelled = cancelled || abort.signal.aborted || e instanceof BackupCancelledError;
+      const msg = wasCancelled
+        ? 'Cancelled by an administrator.'
+        : e instanceof Error
+          ? e.message
+          : String(e);
       // A cancellation is not an incident. It still lands as `failed`
       // because the run produced no archive and BackupStatus has no
       // fourth value, but the message says which it was and the health
       // signal below keys off archives on disk rather than row status,
       // so a cancelled run never reads as a broken backup system.
-      if (cancelled) {
+      if (wasCancelled) {
         this.log.log(`Backup ${run.id} cancelled by an administrator.`);
       } else {
         this.log.error(`Backup ${run.id} failed: ${msg}`);
@@ -773,6 +819,9 @@ export class BackupService implements OnModuleInit {
           );
         });
     } finally {
+      // First, always. A leaked interval would keep querying for a run
+      // that finished, once every couple of seconds, forever.
+      if (cancelPoll) clearInterval(cancelPoll);
       await fs.rm(stageDir, { recursive: true, force: true }).catch(() => undefined);
       await fs.rm(partialPath, { force: true }).catch(() => undefined);
     }
@@ -879,7 +928,7 @@ export class BackupService implements OnModuleInit {
     dumpName: string,
     dumpPath: string,
     keys: ReadonlyArray<{ key: string; size: number }>,
-    checkCancelled: () => Promise<void>,
+    checkCancelled: () => void,
     signal: AbortSignal,
   ): AsyncGenerator<TarEntry> {
     yield {
@@ -897,10 +946,9 @@ export class BackupService implements OnModuleInit {
     };
 
     for (const { key } of keys) {
-      // Between members, not mid-body: a cancel that lands halfway
-      // through a multi-GB object still tears down promptly because
-      // the same signal aborts the S3 request itself.
-      await checkCancelled();
+      // Clean exit point between members. A cancel landing mid-body is
+      // handled by the signal itself, which aborts the in-flight GET.
+      checkCancelled();
       const get = await this.s3.send(
         new GetObjectCommand({ Bucket: this.bucket, Key: key }),
         { abortSignal: signal },
