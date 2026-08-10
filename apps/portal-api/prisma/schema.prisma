@@ -1167,9 +1167,10 @@ model NotificationTypeDefault {
 /// Phase B of #229. Phase A only adds the table + the new types; the
 /// admin UI for editing rows lands in Phase B.
 model NotificationTemplate {
-  /// Org scope. Today this is always the lone org's id since we're
-  /// pre-multi-tenant; the column lives now so when multi-org lands
-  /// (#47) the existing rows already have the right scope.
+  /// Org scope. Always the deployment's only org id: a portal serves
+  /// one organization, and a second one means a second deployment.
+  /// The column stays because every other table carries it and
+  /// dropping it would make this model the odd one out.
   orgId     String              @map("org_id") @db.Uuid
   type      NotificationType
   channel   NotificationChannel

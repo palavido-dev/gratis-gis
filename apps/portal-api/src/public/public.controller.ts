@@ -54,9 +54,10 @@ export class PublicController {
    *   - grid of public items (honoring featuredItemIds order) OR
    *     empty array when the toggle is off
    *
-   * In single-tenant deployments the `org` query param is optional
-   * and resolves to the only organization. Multi-tenant deployments
-   * require the slug.
+   * The `org` query param is optional and resolves to the
+   * deployment's only organization. It is kept because older clients
+   * send it and because it makes the resolved org explicit in logs,
+   * not because a portal ever serves more than one.
    */
   @Public()
   @Get('landing')

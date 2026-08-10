@@ -61,11 +61,11 @@ export class PortalInfoController {
   }
 
   /**
-   * Prefer a configured org's `landingTitle` when the deployment is
-   * single-tenant. Fall back to the org name, then to a generic
-   * default. Multi-tenant portals that want different display names
-   * per landing page can keep using PublicController.landing instead;
-   * this discovery endpoint is portal-level, not org-level.
+   * Prefer the org's `landingTitle`, fall back to the org name, then
+   * to a generic default. A deployment serves one organization, so
+   * this portal-level discovery endpoint and the org-level
+   * PublicController.landing describe the same org; the split is
+   * about what the caller already knows, not about tenancy.
    */
   private async resolveName(): Promise<string> {
     const org = await this.prisma.organization.findFirst({

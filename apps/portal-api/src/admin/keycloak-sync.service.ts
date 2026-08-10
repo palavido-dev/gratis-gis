@@ -207,9 +207,11 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
         }
         const orgId = orgIdBySlug.get(orgSlug);
         if (!orgId) {
-          // The user is in a realm org we've never seen locally
-          // (multi-tenant scenario where Prisma didn't auto-create
-          // the org because no one from that org has signed in yet).
+          // The user is in a realm org we've never seen locally.
+          // A deployment serves one organization, so in practice this
+          // means the realm carries a group the portal was never told
+          // about, or nobody from it has signed in yet, so Prisma has
+          // not auto-created the row.
           // Skipping is correct: we can't reconcile a user against
           // an org we don't have a row for. Auth-sync will create
           // the org on the user's first real sign-in and the next

@@ -27,9 +27,9 @@ hand-rolled DSL. Reasoning:
   conditions) maps cleanly to Cedar; users coming from Esri see
   similar shape, written declaratively.
 
-OPA stays a candidate for the v2 multi-tenant SaaS hosting story
-where running a sidecar pays for itself; until then Cedar's
-in-process model wins.
+OPA stays a candidate only if a hosted offering ever makes a
+policy sidecar pay for itself. A portal serves one organization,
+so for the self-hosted product Cedar's in-process model wins.
 
 ## Integration scope
 

@@ -390,9 +390,9 @@ that change models record an audit event. Admins can configure
   compose file points the api at `host.docker.internal:11434`
   on Mac. Linux deployments with NVIDIA GPUs use the standard
   `--gpus all` setup.
-- **Multi-tenancy.** A single LLM instance serving multiple orgs
-  is fine for inference (stateless), but we need to make sure
-  one org's prompt never includes another org's data. The auth-
+- **Shared inference.** One LLM instance serving several portals
+  is fine for inference (stateless), but we need to make sure one
+  portal's prompt never includes another's data. The auth-
   bounded retrieval handles this on the input side; the model
   itself has no cross-org memory.
 - **Cost reporting.** Local LLMs have no per-token cost, but

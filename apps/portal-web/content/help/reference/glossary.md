@@ -143,9 +143,10 @@ vocabulary.
 ("user U created feature F at time T", "user U set field X to
 Y on feature F at time T"). Every edit is an observation.
 
-**Organization.** The multi-tenant boundary. Every item and
-every user belongs to one org. Cross-org reads are blocked by
-default.
+**Organization.** The ownership boundary for content and
+people. Every item and every user belongs to one org. A portal
+serves a single organization; running a second one means
+running a second portal.
 
 ## P
 
