@@ -5,6 +5,27 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.16] - 2026-08-10
+
+A one-line follow-up to 0.9.15.
+
+### Fixed
+
+- **The backup retention setting had no effect.** The portal read a
+  `BACKUP_RETENTION_COUNT` setting and fell back to keeping 7, but the
+  value was never passed into the container, so it always kept 7 no
+  matter what was configured. Setting it now works.
+
+### Notes for operators
+
+- Retention is set through the environment, not the admin area. On a
+  deployment that restores its database from a snapshot on a schedule,
+  a value set in the admin area is reverted on the next restore; the
+  environment setting is not.
+- Worth setting deliberately after upgrading to 0.9.15: an archive is
+  now roughly the size of your object store, so retention multiplied by
+  that is what your backup volume needs to hold.
+
 ## [0.9.15] - 2026-08-10
 
 A rework of the backup subsystem after it was found to have been
