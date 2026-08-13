@@ -3,6 +3,7 @@ import { Pool, type PoolClient } from 'pg';
 import { from as copyFrom } from 'pg-copy-streams';
 import { Worker } from 'node:worker_threads';
 import { join } from 'node:path';
+import type { Writable } from 'node:stream';
 
 import { type Observation } from '@gratis-gis/engine';
 
@@ -52,7 +53,7 @@ import { type Observation } from '@gratis-gis/engine';
 export class CopyWriter {
   private pool: Pool;
   private client: PoolClient | null = null;
-  private stream: NodeJS.WritableStream | null = null;
+  private stream: Writable | null = null;
   private rowCount = 0;
   private encoder: Worker | null = null;
   private nextRequestId = 0;
@@ -153,8 +154,7 @@ export class CopyWriter {
         'parents',
       ].join(', ') +
       ') FROM STDIN WITH (FORMAT text)';
-    this.stream = this.client.query(copyFrom(sql)) as unknown as
-      NodeJS.WritableStream;
+    this.stream = this.client.query(copyFrom(sql)) as unknown as Writable;
     // Spawn the encoder worker_thread. The compiled JS sits at
     // dist/engine/copy-writer.js, with copy-encoder.worker.js next
     // to it. portal-api is built as CommonJS so we resolve via
@@ -288,27 +288,47 @@ export class CopyWriter {
 
   /** Abort the in-flight COPY and roll back. Call from a finally
    *  branch when the caller throws mid-write so the connection
-   *  isn't leaked back to the pool with an open transaction. */
+   *  isn't leaked back to the pool with an open transaction.
+   *
+   *  Does NOT issue a ROLLBACK on this connection. Once `beginCopy`
+   *  has run the connection is in copy-in mode, and a plain query
+   *  (ROLLBACK) hangs forever: the server is waiting for COPY data or
+   *  a copy-end, not SQL. A bad-file replace import (streamLayerFromPath
+   *  throws immediately after beginCopy, with zero rows written) hit
+   *  exactly this and left an uncommitted scope-delete transaction
+   *  open on the server. Instead we destroy the connection; Postgres
+   *  rolls the open transaction back on the disconnect, which can
+   *  never hang. Connection reuse does not matter on an abort. */
   async abort(): Promise<void> {
-    try {
-      if (this.client) {
-        await this.client.query('ROLLBACK');
+    // Tear the COPY stream down first (best-effort) so nothing keeps
+    // writing into a socket we are about to drop.
+    if (this.stream) {
+      try {
+        this.stream.destroy();
+      } catch {
+        /* already torn down */
       }
-    } catch {
-      // Best-effort; nothing to do if the transaction is already
-      // dead.
-    } finally {
-      this.client?.release();
-      this.client = null;
       this.stream = null;
-      if (this.encoder) {
-        try {
-          await this.encoder.terminate();
-        } catch {
-          /* best effort */
-        }
-        this.encoder = null;
+    }
+    if (this.client) {
+      try {
+        // Passing a truthy value destroys the client instead of
+        // returning it to the pool; the disconnect rolls back the
+        // transaction server-side.
+        this.client.release(true);
+      } catch {
+        /* best effort */
       }
+      this.client = null;
+    }
+    this.stream = null;
+    if (this.encoder) {
+      try {
+        await this.encoder.terminate();
+      } catch {
+        /* best effort */
+      }
+      this.encoder = null;
     }
   }
 
