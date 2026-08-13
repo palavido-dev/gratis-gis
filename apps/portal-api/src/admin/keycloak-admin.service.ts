@@ -310,6 +310,35 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
     }));
   }
 
+  /**
+   * Resolve a Keycloak user id from a username via
+   * GET /users?username=<exact>&exact=true. Returns null when nothing
+   * matches. Seeded / pre-Keycloak local rows carry a different local
+   * user.id than their Keycloak sub (auth-sync upserts by username and
+   * never rewrites the id), so any admin action that starts from a
+   * local id must resolve through the username first, or the write
+   * hits a nonexistent Keycloak id and 404s.
+   */
+  async findUserIdByUsername(username: string): Promise<string | null> {
+    const token = await this.getAccessToken();
+    const qs = new URLSearchParams({
+      username,
+      exact: 'true',
+      max: '1',
+      briefRepresentation: 'true',
+    });
+    const res = await fetch(this.adminUrl(`/users?${qs.toString()}`), {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      throw new BadGatewayException(
+        `Keycloak findUserIdByUsername failed: ${res.status} ${res.statusText}`,
+      );
+    }
+    const rows = (await res.json()) as Array<{ id?: string }>;
+    return rows[0]?.id ?? null;
+  }
+
   async getUser(id: string): Promise<KeycloakUserRep> {
     const token = await this.getAccessToken();
     const res = await fetch(this.adminUrl(`/users/${id}`), {

@@ -493,7 +493,18 @@ export class HousekeepingScheduleService {
     let count = 0;
     for (const u of candidates) {
       try {
-        await this.keycloak.updateUser(u.id, { enabled: false });
+        // Resolve the Keycloak id from the username: u.id is the local
+        // row id, which differs from the Keycloak sub for seeded /
+        // pre-Keycloak users, so updateUser(u.id) would 404 and the
+        // disable would silently never happen.
+        const kcId = await this.keycloak.findUserIdByUsername(u.username);
+        if (!kcId) {
+          this.log.warn(
+            `auto-disable (expired): no Keycloak user for ${u.username}; skipping`,
+          );
+          continue;
+        }
+        await this.keycloak.updateUser(kcId, { enabled: false });
         count += 1;
         // Fire user_disabled notification (#128). The cron's
         // sweep-once-per-tick contract means we only get here when
@@ -550,7 +561,17 @@ export class HousekeepingScheduleService {
     const now = new Date();
     for (const u of candidates) {
       try {
-        await this.keycloak.updateUser(u.id, { enabled: false });
+        // See autoDisableExpiredUsers: resolve the Keycloak id by
+        // username, since u.id is the local row id and would 404 for
+        // seeded users.
+        const kcId = await this.keycloak.findUserIdByUsername(u.username);
+        if (!kcId) {
+          this.log.warn(
+            `auto-disable: no Keycloak user for ${u.username}; skipping`,
+          );
+          continue;
+        }
+        await this.keycloak.updateUser(kcId, { enabled: false });
         count += 1;
         // Quiet-user disable doesn't have a stored autoDisableAt
         // (the heuristic is the disable trigger). Use `now` as
