@@ -51,7 +51,13 @@ describe('ImportJobsService counter honesty', () => {
       where: unknown;
       data: Record<string, unknown>;
     };
-    expect(arg.where).toEqual({ id: { in: ['dead-1', 'dead-2'] } });
+    // Guarded on status 'running' so a job that completes between the
+    // findMany and this update is not flipped to failed (and zeroed)
+    // out from under its durably-committed rows.
+    expect(arg.where).toEqual({
+      id: { in: ['dead-1', 'dead-2'] },
+      status: 'running',
+    });
     expect(arg.data.status).toBe('failed');
     // The crashed worker's transaction died with its connection,
     // so the recovered rows must not claim any inserted rows.
