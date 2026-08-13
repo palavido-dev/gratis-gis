@@ -29,6 +29,7 @@ import {
 } from '../data-layer/tables.service.js';
 import { IngestService } from './ingest.service.js';
 import { IngestStagingService } from './ingest-staging.service.js';
+import { CopyWriter } from '../engine/copy-writer.js';
 
 /**
  * Server-side ingest endpoint. Accepts a multipart upload of an
@@ -443,45 +444,21 @@ export class IngestController {
       let lastLayerName = '';
       let lastSourceSrs: string | null = null;
 
-      try {
-        // #234 pre-validate before the destructive replace-truncate.
-        // Probe is metadata only (no insert); only once the source is
-        // known-readable and carries the requested layer do we delete
-        // the existing data. A probe failure throws BEFORE the
-        // truncate, so a bad upload can no longer empty the layer.
-        // (This does not make a mid-insert DB failure atomic; the full
-        // fix is to run truncate + insert in one engine transaction.)
-        if (ingestMode === 'replace') {
-          const probe = await this.ingest.probeFileFromPath(sourcePath);
-          if (probe.layers.length === 0) {
-            throw new BadRequestException(
-              'The uploaded file has no readable layers; nothing was changed.',
-            );
-          }
-          if (
-            sourceLayer &&
-            !probe.layers.some((l) => l.name === sourceLayer)
-          ) {
-            throw new BadRequestException(
-              `Source layer "${sourceLayer}" was not found in the uploaded file; nothing was changed.`,
-            );
-          }
-          truncated = await this.dataLayerTables.countLiveEntities(
-            itemId,
-            layer.id,
-          );
-          await this.dataLayerTables.truncateLayer(itemId, layerId);
-        }
-
+      // Shared streaming/progress loop, parameterized by how a batch
+      // is inserted. Emits the start event on the first batch (or on an
+      // empty source) and a progress event per batch.
+      const runStream = async (
+        insertBatch: (
+          filtered: Array<{
+            geometry: unknown;
+            properties: Record<string, unknown>;
+          }>,
+        ) => Promise<number>,
+      ): Promise<void> => {
         const meta = await this.ingest.streamLayerFromPath(
           sourcePath,
           sourceLayer,
           async (batch, progress) => {
-            // First flush carries `total` so the wizard can render an
-            // accurate "Loaded X of N" denominator immediately. We
-            // only know the GDAL-reported total once streamLayer has
-            // opened the dataset, so we stamp the start event from
-            // inside the first batch callback.
             if (!startedFlushed) {
               writeEvent({
                 event: 'start',
@@ -494,14 +471,7 @@ export class IngestController {
               geometry: b.geometry,
               properties: filterProps(b.properties),
             }));
-            const { inserted } =
-              await this.dataLayerFeatures.insertFeatures(
-                itemId,
-                layerId,
-                filtered,
-                user,
-              );
-            totalInserted += inserted;
+            totalInserted += await insertBatch(filtered);
             writeEvent({
               event: 'progress',
               processed: progress.processed,
@@ -513,15 +483,75 @@ export class IngestController {
         lastDriver = meta.driver;
         lastLayerName = meta.layerName;
         lastSourceSrs = meta.sourceSrs;
-
         // Empty-source edge case: streamLayer opens fine but yields
-        // zero batches. The start event never fires; emit one now so
-        // the client gets a complete event sequence.
+        // zero batches. Emit the start event so the client still gets a
+        // complete event sequence.
         if (!startedFlushed) {
           writeEvent({
             event: 'start',
             total: meta.total,
             sourceLayer: sourceLayer ?? null,
+          });
+        }
+      };
+
+      try {
+        if (ingestMode === 'replace') {
+          // #234 atomic replace. Route through the same COPY-transaction
+          // path the async import worker uses: the scope delete and
+          // every inserted row commit or roll back together. The old
+          // shape truncated in a separate committed transaction before
+          // the inserts, so a failed, empty, or unreadable import
+          // emptied the layer and then failed. Now any throw rolls the
+          // whole thing back to the exact pre-import state. (COPY is
+          // also 5-10x faster than the per-batch insert.)
+          const databaseUrl = process.env.DATABASE_URL;
+          if (!databaseUrl) {
+            throw new Error('DATABASE_URL is not set; import cannot start.');
+          }
+          // Count what we are about to replace for the done event,
+          // before the delete runs inside the writer's transaction.
+          truncated = await this.dataLayerTables.countLiveEntities(
+            itemId,
+            layer.id,
+          );
+          const writer = new CopyWriter(databaseUrl);
+          let copyClosed = false;
+          try {
+            await writer.begin();
+            await writer.deleteScope(`data_layer:${itemId}:${layerId}`);
+            writer.beginCopy();
+            await runStream(async (filtered) => {
+              const { inserted } =
+                await this.dataLayerFeatures.bulkInsertFeatures(
+                  itemId,
+                  layerId,
+                  filtered,
+                  user,
+                  writer,
+                );
+              return inserted;
+            });
+            await writer.end();
+            copyClosed = true;
+          } finally {
+            // Any throw (parse error, DB error, disconnect) rolls the
+            // transaction back so the scope delete and the partial COPY
+            // vanish together, leaving the pre-import rows intact.
+            if (!copyClosed) await writer.abort();
+            await writer.close();
+          }
+        } else {
+          // Append: a partial result loses nothing, so the lighter
+          // per-batch idempotent insert path is fine.
+          await runStream(async (filtered) => {
+            const { inserted } = await this.dataLayerFeatures.insertFeatures(
+              itemId,
+              layerId,
+              filtered,
+              user,
+            );
+            return inserted;
           });
         }
       } finally {
