@@ -5,6 +5,21 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.20] - 2026-08-13
+
+Memory-safety fix for reads of large layers. No schema changes.
+
+### Fixed
+
+- **Reading a whole layer as GeoJSON no longer risks running a server
+  replica out of memory.** The endpoints that return a full layer (the
+  map's overlay source and its anonymous public equivalent) loaded the
+  entire collection into memory and serialised it in one pass, so a few
+  concurrent reads of a large public layer could exhaust a replica, and
+  the response was silently capped at 100,000 features. They now stream
+  the response: memory stays bounded regardless of layer size and the
+  cap is gone. Paged reads and single-feature lookups are unchanged.
+
 ## [0.9.19] - 2026-08-13
 
 Fixes a hang introduced with the atomic import in 0.9.18. No schema
