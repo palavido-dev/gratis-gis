@@ -5,6 +5,12 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.24] - 2026-08-13
+
+Fixes a build break in the 0.9.23 test suite that turned CI and the
+image scan red (a strict-mode type error in a new unit test; no runtime
+change). 0.9.23 was never deployed; deploy 0.9.24 instead.
+
 ## [0.9.23] - 2026-08-13
 
 Worker crash recovery. Adds one migration (two nullable timestamp

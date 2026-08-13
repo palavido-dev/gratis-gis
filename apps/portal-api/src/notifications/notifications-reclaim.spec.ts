@@ -47,14 +47,16 @@ describe('NotificationsWorker.reclaimStaleSending', () => {
     await reclaim();
 
     expect(updateMany).toHaveBeenCalledTimes(2);
-    const [requeue, fail] = updateMany.mock.calls.map((c) => c[0]) as Array<{
+    type Call = {
       where: {
         status: string;
         sendingAt: { lt: Date };
         attempts: { lt?: number; gte?: number };
       };
       data: { status: string; sendingAt: null; scheduledAt?: Date };
-    }>;
+    };
+    const requeue = updateMany.mock.calls[0]![0] as Call;
+    const fail = updateMany.mock.calls[1]![0] as Call;
 
     // Requeue branch: still-retryable rows go back to queued, now.
     expect(requeue.where.status).toBe('sending');
