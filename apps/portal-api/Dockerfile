@@ -120,6 +120,12 @@ ARG PMTILES_VERSION=1.30.3
 # still does at v1.31.2, so bumping PMTILES_VERSION does not clear it.
 # Fixed upstream in x/text 0.39.0.
 ARG PMTILES_XTEXT_VERSION=0.39.0
+# CVE-2026-46600, HIGH: go-pmtiles pulls golang.org/x/net v0.52.0, which
+# bumping PMTILES_VERSION does not clear. Fixed upstream in x/net 0.56.0.
+# Pinned here the same way as x/text so Trivy sees a patched version
+# embedded in the binary. Watch for go-pmtiles adopting >=0.56.0 itself,
+# at which point this pin can drop.
+ARG PMTILES_XNET_VERSION=0.56.0
 # GOTOOLCHAIN=auto (the default) lets Go honour go-pmtiles' go.mod
 # directive and pull the matching toolchain if the image's Go is
 # older than declared. CGO=0 produces a static binary that runs on
@@ -135,8 +141,10 @@ RUN mkdir -p /pmtiles-build && cd /pmtiles-build \
     && go mod init pmtiles-build \
     && go get "github.com/protomaps/go-pmtiles@v${PMTILES_VERSION}" \
     && go get "golang.org/x/text@v${PMTILES_XTEXT_VERSION}" \
+    && go get "golang.org/x/net@v${PMTILES_XNET_VERSION}" \
     && go build -o /go/bin/go-pmtiles github.com/protomaps/go-pmtiles \
-    && go version -m /go/bin/go-pmtiles | grep -q "golang.org/x/text[[:space:]]*v${PMTILES_XTEXT_VERSION}"
+    && go version -m /go/bin/go-pmtiles | grep -q "golang.org/x/text[[:space:]]*v${PMTILES_XTEXT_VERSION}" \
+    && go version -m /go/bin/go-pmtiles | grep -q "golang.org/x/net[[:space:]]*v${PMTILES_XNET_VERSION}"
 
 FROM base AS runtime
 WORKDIR /app
@@ -195,7 +203,8 @@ RUN rm -rf /pnpm /usr/local/lib/node_modules/pnpm \
 # Rebuilding against the current `golang:1.26-bookworm` toolchain
 # embeds a patched stdlib version into the binary so the alerts
 # resolve at the source rather than via .trivyignore. The same stage
-# upgrades golang.org/x/text past CVE-2026-56852 for the same reason.
+# upgrades golang.org/x/text past CVE-2026-56852 and golang.org/x/net
+# past CVE-2026-46600 for the same reason.
 ARG PMTILES_VERSION=1.30.3
 COPY --from=pmtiles-build /go/bin/go-pmtiles /usr/local/bin/pmtiles
 RUN /usr/local/bin/pmtiles version
