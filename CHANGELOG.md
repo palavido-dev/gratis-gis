@@ -5,6 +5,26 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.18] - 2026-08-13
+
+Two follow-up fixes from working through the lower-priority tail of the
+2026-08-13 review. No schema changes; safe upgrade.
+
+### Fixed
+
+- **A failed replace-mode import no longer empties the layer.** The
+  per-layer import endpoint (the one the Python client uses) wiped the
+  target layer in a separate step before loading the new data, so a
+  corrupt file, an empty source, a wrong layer name, or any error part
+  way through left the layer empty. The wipe and the load now happen in
+  one transaction: on any failure it all rolls back and the existing
+  data is left exactly as it was. The import is also faster.
+- **A background analysis job can no longer hang forever if it crashed
+  at one specific moment.** A contour or similar job that was
+  interrupted between preparing its result and queuing the load could
+  sit "in progress" indefinitely; it is now recovered and reported as
+  failed so it can be retried.
+
 ## [0.9.17] - 2026-08-13
 
 A remediation release from a second deep security and reliability review.
