@@ -5,6 +5,21 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.22] - 2026-08-13
+
+Upload-size hardening. No schema changes.
+
+### Fixed
+
+- **Upload size limits are now enforced by the server, not just
+  advised.** A presigned upload returned a size cap that the browser was
+  trusted to honour, so a determined authenticated user could upload an
+  arbitrarily large file, including into the small public prefixes
+  (avatars, hero images, thumbnails) that are never garbage-collected,
+  exhausting storage. The server now refuses an over-cap upload and signs
+  the size into the upload URL, so the storage backend rejects anything
+  larger.
+
 ## [0.9.21] - 2026-08-13
 
 Memory-safety fix for large uploads. No schema changes.
