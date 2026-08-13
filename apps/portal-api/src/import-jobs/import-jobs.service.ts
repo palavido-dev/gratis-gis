@@ -289,7 +289,11 @@ export class ImportJobsService {
     });
     if (stale.length === 0) return;
     await this.prisma.importJob.updateMany({
-      where: { id: { in: stale.map((s) => s.id) } },
+      // Guard on status: 'running'. A job that completes between the
+      // findMany above and this update is now 'succeeded'/'failed' and
+      // must not be flipped to failed (with insertedFeatures zeroed)
+      // out from under its durably-committed rows.
+      where: { id: { in: stale.map((s) => s.id) }, status: 'running' },
       data: {
         status: 'failed',
         finishedAt: new Date(),

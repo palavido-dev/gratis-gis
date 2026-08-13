@@ -48,7 +48,11 @@ export async function stampAnalysisTargetFailed(
   let itemId: string | null = null;
   if (RASTER_TARGET_KINDS.has(job.kind)) {
     itemId = job.targetItemId;
-  } else if (job.kind === 'copc-build') {
+  } else if (job.kind === 'copc-build' || job.kind === 'imagery-mosaic') {
+    // Same shape as copc-build: enqueueMosaic sets the tile_layer item
+    // to processingState 'building', and a dead worker has no except
+    // path, so without this the item stays 'building' forever after a
+    // reclaim fails the job.
     itemId = job.targetItemId ?? job.sourceItemId;
   }
   if (!itemId) return;
