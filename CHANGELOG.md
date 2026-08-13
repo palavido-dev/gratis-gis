@@ -5,6 +5,16 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.25] - 2026-08-13
+
+### Fixed
+
+- **A notification stranded mid-send is now rescued even while email
+  delivery is down.** The recovery from 0.9.23 only ran while the mail
+  server was reachable, but a send is most likely to be interrupted
+  exactly when mail is flaky; a stuck message is now requeued regardless
+  and simply waits for delivery to come back.
+
 ## [0.9.24] - 2026-08-13
 
 Fixes a build break in the 0.9.23 test suite that turned CI and the
