@@ -5,6 +5,22 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.19] - 2026-08-13
+
+Fixes a hang introduced with the atomic import in 0.9.18. No schema
+changes; recommended if you are on 0.9.18.
+
+### Fixed
+
+- **A replace-mode import of an unreadable file could hang instead of
+  failing cleanly.** The atomic replace added in 0.9.18 rolls back
+  correctly on a bad file, but the rollback itself could hang while the
+  bulk-load connection was mid-transfer, leaving the import request open
+  and the layer's rows held in an uncommitted state until the connection
+  was cleared. The rollback now tears the connection down directly,
+  which cannot hang. Caught by running a corrupt-file import against the
+  live demo.
+
 ## [0.9.18] - 2026-08-13
 
 Two follow-up fixes from working through the lower-priority tail of the
