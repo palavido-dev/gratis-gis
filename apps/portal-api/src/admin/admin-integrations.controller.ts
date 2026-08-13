@@ -7,6 +7,10 @@ import { AdminGuard } from './admin.guard.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import {
+  assertSafeOutboundUrl,
+  UnsafeOutboundUrlError,
+} from '../common/net-guards.js';
 
 /**
  * Admin-only read / write for org-scoped third-party-integration
@@ -72,9 +76,11 @@ export class AdminIntegrationsController {
             'osmOverpassEndpoint must be a non-empty URL or null. Use null to clear.',
           );
         }
-        // Light sanity check on the URL shape; the OSM resolver
-        // does its own SSRF guard at fetch time, so we just keep
-        // the obvious garbage out of the row.
+        // Validate the URL shape, then SSRF-check it. The OSM resolver
+        // now fetches through safeFetch so it is guarded at query time
+        // too, but a private/loopback/metadata endpoint should be
+        // refused at save so the admin gets an error now, not a silent
+        // failure when a recipe runs.
         try {
           const url = new URL(trimmed);
           if (url.protocol !== 'http:' && url.protocol !== 'https:') {
@@ -84,6 +90,14 @@ export class AdminIntegrationsController {
           throw new BadRequestException(
             `osmOverpassEndpoint is not a valid URL: ${err instanceof Error ? err.message : String(err)}`,
           );
+        }
+        try {
+          await assertSafeOutboundUrl(trimmed);
+        } catch (err) {
+          if (err instanceof UnsafeOutboundUrlError) {
+            throw new BadRequestException(err.message);
+          }
+          throw err;
         }
         data.osmOverpassEndpoint = trimmed;
       }

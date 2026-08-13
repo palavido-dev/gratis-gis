@@ -97,7 +97,7 @@ export class PointCloudService {
       if (typeof s.storageKey !== 'string' || s.storageKey.length === 0) {
         throw new BadRequestException('A source tile is missing its storageKey.');
       }
-      if (!s.storageKey.startsWith('item-point-cloud/')) {
+      if (!isValidAssetKey(s.storageKey, ITEM_ASSET_KIND.point_cloud)) {
         throw new BadRequestException(
           'A source tile is not a point-cloud upload.',
         );
@@ -306,7 +306,7 @@ export class PointCloudService {
     // client-supplied, and a key pointing into another prefix
     // (thumbnails, attachments) must not become readable through
     // the point-cloud proxy.
-    if (!input.storageKey.startsWith('item-point-cloud/')) {
+    if (!isValidAssetKey(input.storageKey, ITEM_ASSET_KIND.point_cloud)) {
       throw new BadRequestException('storageKey is not a point-cloud upload');
     }
     if (typeof input.fileName !== 'string' || input.fileName.length === 0) {

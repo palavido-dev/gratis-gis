@@ -2392,8 +2392,23 @@ export class ItemsService {
         if (!firstSpatial?.id) {
           return { type: 'FeatureCollection', features: [] };
         }
+        // Defense in depth: `firstSpatial.id` is client-set on
+        // data.layers and is interpolated as a SQL identifier below,
+        // so gate it (and the hex item id) to safe tokens rather than
+        // trust the shape. Today the v3 fs_ table does not exist, so
+        // this path already returns nothing, but a gate keeps a future
+        // refactor from turning a latent injection live.
+        if (
+          !/^[0-9a-f]{32}$/.test(id.replace(/-/g, '')) ||
+          !/^[A-Za-z0-9_]+$/.test(firstSpatial.id)
+        ) {
+          return { type: 'FeatureCollection', features: [] };
+        }
         tbl = `fs_${id.replace(/-/g, '')}_${firstSpatial.id}`;
       } else {
+        if (!/^[0-9a-f]{32}$/.test(id.replace(/-/g, ''))) {
+          return { type: 'FeatureCollection', features: [] };
+        }
         tbl = `fs_${id.replace(/-/g, '')}`;
       }
       const params: unknown[] = [];

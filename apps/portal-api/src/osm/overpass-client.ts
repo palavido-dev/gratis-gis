@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Injectable, Logger } from '@nestjs/common';
 
+import { safeFetch } from '../common/net-guards.js';
 import type { OverpassResponse } from './osm-to-geojson.js';
 
 /**
@@ -37,7 +38,11 @@ export class OverpassClient {
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const res = await fetch(args.endpoint, {
+      // safeFetch, not fetch: the endpoint can be a per-org override
+      // (org.osmOverpassEndpoint), so it is a user-influenced URL and
+      // must be SSRF-guarded (private/loopback/metadata hosts refused,
+      // every redirect hop re-validated).
+      const res = await safeFetch(args.endpoint, {
         method: 'POST',
         headers: {
           'content-type': 'application/x-www-form-urlencoded',

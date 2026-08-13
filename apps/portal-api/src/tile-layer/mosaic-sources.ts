@@ -29,6 +29,7 @@ import {
 } from '@gratis-gis/shared-types';
 
 import { envNum } from '../util/env-num.js';
+import { ITEM_ASSET_KIND, isValidAssetKey } from '../storage/asset-keys.js';
 
 /** Same batch cap as the point-cloud merge; beyond this the right
  *  answer is separate mosaics, not one heroic job. */
@@ -109,7 +110,7 @@ export function validateMosaicSources(
     if (typeof s.storageKey !== 'string' || s.storageKey.length === 0) {
       throw new BadRequestException('A source image is missing its storageKey.');
     }
-    if (!s.storageKey.startsWith(MOSAIC_SOURCE_PREFIX)) {
+    if (!isValidAssetKey(s.storageKey, ITEM_ASSET_KIND.tile_layer)) {
       throw new BadRequestException('A source image is not an imagery upload.');
     }
     if (seen.has(s.storageKey)) {

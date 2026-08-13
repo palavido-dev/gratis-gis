@@ -114,6 +114,17 @@ export class RelationshipsController {
       throw new BadRequestException('relatedItemId must reference a data_layer item');
     }
 
+    // Registering the relationship ALTERs the child's PostGIS table and
+    // overwrites its parentRelationship metadata, so require admin on
+    // the child too, not just read. Without this a parent-admin who can
+    // merely read a victim data_layer (org-access, public, or a view
+    // share) could add an FK column to it and clobber its parent link.
+    if (!this.sharing.canAdmin(user, childItem)) {
+      throw new ForbiddenException(
+        'You need owner or org-admin rights on the related item to register a relationship that alters it',
+      );
+    }
+
     if (!(await this.features.tableExists(id))) {
       throw new BadRequestException('Parent feature table is not yet provisioned. Ingest some features first.');
     }

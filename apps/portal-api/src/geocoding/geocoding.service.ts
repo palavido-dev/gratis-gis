@@ -679,7 +679,10 @@ export class GeocodingService {
       }
       throw err;
     }
-    const res = await fetch(safeMetaUrl, {
+    // safeFetch, not fetch: re-validate every redirect hop so a
+    // validated host that 302s to an internal address is refused too
+    // (the assert above only covers the first URL).
+    const res = await safeFetch(safeMetaUrl.toString(), {
       headers: { 'user-agent': 'GratisGIS/geocoder-probe' },
     });
     if (!res.ok) {
