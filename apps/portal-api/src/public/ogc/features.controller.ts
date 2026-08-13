@@ -142,6 +142,19 @@ export class OgcFeaturesController {
 
     const limit = clamp(parseInt(limitParam ?? '', 10) || 100, 1, 10_000);
     const offset = Math.max(0, parseInt(offsetParam ?? '', 10) || 0);
+    // Cap the offset. Because the engine over-fetches `offset + limit
+    // + 1` (see below) an unbounded offset asks the engine to
+    // materialize that many rows into memory, which is the 2026-05-21
+    // pool-storm shape on a large public layer. A deep walk is also
+    // O(offset^2); past this ceiling a bbox filter is the right tool.
+    const MAX_OFFSET = 100_000;
+    if (offset > MAX_OFFSET) {
+      throw new BadRequestException(
+        `offset beyond ${MAX_OFFSET} is not supported; narrow the ` +
+          'result with a bbox filter, or page from the start using the ' +
+          'returned next links.',
+      );
+    }
     const crs = parseCrs(crsParam);
     const bboxCrs = parseCrs(bboxCrsParam);
 

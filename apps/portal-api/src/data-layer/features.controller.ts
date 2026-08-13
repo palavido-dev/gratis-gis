@@ -131,6 +131,38 @@ function assertFeatureIdShape(featureId: string): void {
  * enforce visibility (throws 403/404 as needed); sharing rights drive
  * read vs write gating via canEdit().
  */
+
+/**
+ * Await a writable's `drain` when `res.write` has signalled
+ * backpressure, resolving on drain and rejecting if the client
+ * disconnects (so the streaming loop stops rather than hanging on a
+ * drain that will never come).
+ */
+function onceDrain(res: Response): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      res.off('drain', onDrain);
+      res.off('close', onClose);
+      res.off('error', onError);
+    };
+    const onDrain = () => {
+      cleanup();
+      resolve();
+    };
+    const onClose = () => {
+      cleanup();
+      reject(new Error('client closed'));
+    };
+    const onError = (err: Error) => {
+      cleanup();
+      reject(err);
+    };
+    res.once('drain', onDrain);
+    res.once('close', onClose);
+    res.once('error', onError);
+  });
+}
+
 @ApiTags('features', 'v3')
 @ApiBearerAuth()
 @Controller('items/:id/layers/:layerId')
@@ -948,7 +980,14 @@ export class DataLayerFeaturesController {
         for (const feat of batch as FeatureRecord[]) {
           chunk += '\r\n' + csvFeatureRow(feat, plan);
         }
-        if (chunk) res.write(chunk);
+        // Honour socket backpressure. The DB cursor will always
+        // outrun a slow WAN client, so without awaiting drain the
+        // difference buffers in the response's writable queue and, on
+        // a large layer, reconverges on the whole file in memory,
+        // undoing the point of streaming.
+        if (chunk && !res.write(chunk)) {
+          await onceDrain(res);
+        }
       }
       res.end();
     } catch {
