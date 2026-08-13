@@ -86,6 +86,28 @@ export async function syncQueue(
     onProgress?: (done: number, total: number) => void;
   } = {},
 ): Promise<SyncResult> {
+  // Reclaim rows stranded in 'syncing' by a page that died between
+  // marking a record 'syncing' and writing its result. The service
+  // worker replay does this too, but Background Sync is Chromium-only,
+  // so on Firefox / Safari this in-app drain is the only replay path
+  // and must reclaim them itself, or the edit is stuck (and not even
+  // counted as remaining) until the user re-enqueues. Only rows older
+  // than the stale window are reclaimed so a concurrent drain's
+  // in-flight record is left alone. Replays are idempotent server-side
+  // (client globalId + advisory-lock dedupe), so a reclaim at worst
+  // causes a harmless retry.
+  const STALE_SYNCING_MS = 60_000;
+  const staleCutoff = Date.now() - STALE_SYNCING_MS;
+  const stranded = await listQueueByStatus(dataCollectionId, 'syncing');
+  for (const record of stranded) {
+    const attemptedAt = record.lastAttemptAt
+      ? Date.parse(record.lastAttemptAt)
+      : 0;
+    if (!Number.isFinite(attemptedAt) || attemptedAt < staleCutoff) {
+      await updateQueueRecord({ ...record, syncStatus: 'pending' });
+    }
+  }
+
   // Pull both pending and previously-failed records. failed records
   // are intentional retries; the user pressing "Sync now" expects
   // them to be tried again. New records get queueStatus='pending' on
