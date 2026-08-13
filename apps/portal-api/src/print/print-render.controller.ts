@@ -74,8 +74,8 @@ export class PrintRenderController {
    */
   @Public()
   @Post('consume-render-token')
-  consume(@Body() dto: ConsumeTokenDto) {
-    const claims = this.svc.consumeToken(dto.token);
+  async consume(@Body() dto: ConsumeTokenDto) {
+    const claims = await this.svc.consumeToken(dto.token);
     if (!claims) {
       throw new BadRequestException('Render token is missing or expired');
     }

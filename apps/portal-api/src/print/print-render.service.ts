@@ -58,10 +58,6 @@ const TOKEN_TTL_MS = 60_000;
 @Injectable()
 export class PrintRenderService {
   private readonly log = new Logger(PrintRenderService.name);
-  private readonly tokens = new Map<
-    string,
-    { userId: string; templateId: string; mapId: string; expiresAt: number }
-  >();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -74,15 +70,24 @@ export class PrintRenderService {
    * Tokens are single-use: a successful validation consumes the
    * entry.
    */
-  consumeToken(token: string): { userId: string; templateId: string; mapId: string } | null {
-    const entry = this.tokens.get(token);
-    if (!entry) return null;
-    this.tokens.delete(token);
-    if (entry.expiresAt < Date.now()) return null;
+  async consumeToken(
+    token: string,
+  ): Promise<{ userId: string; templateId: string; mapId: string } | null> {
+    // DELETE is the atomic single-use claim: exactly one caller, on
+    // either replica, can remove a given row. A row that is not found
+    // (unknown or already consumed) throws P2025, which we treat as a
+    // null result.
+    let row;
+    try {
+      row = await this.prisma.printRenderToken.delete({ where: { token } });
+    } catch {
+      return null;
+    }
+    if (row.expiresAt.getTime() < Date.now()) return null;
     return {
-      userId: entry.userId,
-      templateId: entry.templateId,
-      mapId: entry.mapId,
+      userId: row.userId,
+      templateId: row.templateId,
+      mapId: row.mapId,
     };
   }
 
@@ -96,7 +101,7 @@ export class PrintRenderService {
    * trip from chromium-network -> portal-api).
    */
   async loadJobByToken(token: string): Promise<RenderJobBundle | null> {
-    const claims = this.consumeToken(token);
+    const claims = await this.consumeToken(token);
     if (!claims) return null;
     const user = await this.prisma.user.findUnique({
       where: { id: claims.userId },
@@ -201,14 +206,26 @@ export class PrintRenderService {
       }
     ) as PrintPaperSpec;
 
-    // 2. Mint a render token, drop it into the in-memory map.
+    // 2. Mint a render token in the shared store (PrintRenderToken).
+    // In-memory would fail across the 2-replica prod topology: the
+    // sidecar's consume callback lands on either replica.
     const token = randomBytes(24).toString('hex');
-    this.tokens.set(token, {
-      userId: user.id,
-      templateId: args.templateId,
-      mapId: args.mapId,
-      expiresAt: Date.now() + TOKEN_TTL_MS,
+    await this.prisma.printRenderToken.create({
+      data: {
+        token,
+        userId: user.id,
+        templateId: args.templateId,
+        mapId: args.mapId,
+        expiresAt: new Date(Date.now() + TOKEN_TTL_MS),
+      },
     });
+    // Opportunistically sweep expired tokens so an unconsumed mint
+    // cannot grow the table unbounded (fire-and-forget).
+    this.prisma.printRenderToken
+      .deleteMany({ where: { expiresAt: { lt: new Date() } } })
+      .catch(() => {
+        /* best effort */
+      });
 
     // 3. Pick a chromium endpoint at random for load balancing.
     const endpoints = (process.env.CHROMIUM_WS_ENDPOINTS ?? '')

@@ -1009,6 +1009,26 @@ model SystemSetting {
   @@map("system_setting")
 }
 
+/// #229 single-use tokens for the server-side print render flow.
+/// portal-api mints a token, hands the chromium sidecar a URL with
+/// ?renderToken=..., and the print-preview route calls back to
+/// consume it. The store MUST be shared across replicas: mint and
+/// consume land on different portal-api replicas under DNS
+/// round-robin, so the previous in-memory map returned null for
+/// ~half of prod renders and the sidecar captured a 404 as the PDF.
+/// Consuming is a DELETE, which is the single-use guarantee.
+model PrintRenderToken {
+  token      String   @id
+  userId     String   @map("user_id") @db.Uuid
+  templateId String   @map("template_id") @db.Uuid
+  mapId      String   @map("map_id") @db.Uuid
+  expiresAt  DateTime @map("expires_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([expiresAt])
+  @@map("print_render_token")
+}
+
 /// #184 / workbench foundation: queue for server-side analysis
 /// jobs (hillshade, point-cloud merges, future primitives). The
 /// pointcloud-worker service polls this table with
