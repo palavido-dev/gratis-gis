@@ -5,6 +5,21 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.21] - 2026-08-13
+
+Memory-safety fix for large uploads. No schema changes.
+
+### Fixed
+
+- **A large file upload no longer loads the whole file into server
+  memory.** The import upload endpoints (the layer probe, the
+  create-wizard's staged upload, and the direct per-layer import)
+  buffered the entire upload in the API's memory for the life of the
+  request, so two concurrent county-scale imports could exhaust a
+  replica. Uploads now write straight to disk, bounding memory
+  regardless of file size. (The in-browser preview and the legacy v2
+  import still buffer; a follow-up covers those.)
+
 ## [0.9.20] - 2026-08-13
 
 Memory-safety fix for reads of large layers. No schema changes.
