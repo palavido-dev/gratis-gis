@@ -9,9 +9,11 @@ import {
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { LeaderElectionService } from '../cron/leader-election.service.js';
 import {
+  copyFile,
   mkdir,
   readdir,
   readFile,
+  rename,
   rm,
   stat,
   writeFile,
@@ -127,6 +129,61 @@ export class IngestStagingService implements OnModuleInit {
       filePath,
       originalName: input.originalName,
       sizeBytes: input.buffer.length,
+    };
+  }
+
+  /**
+   * Like `stage`, but the upload is already on disk (multer disk
+   * storage) so we MOVE it into the staging area rather than writing
+   * a buffer. This keeps a large upload off the API replica's heap:
+   * nothing is ever held in memory. `input.filePath` is consumed
+   * (moved away), so the caller only needs to clean up its now-empty
+   * temp dir.
+   */
+  async stageFromPath(input: {
+    filePath: string;
+    originalName: string;
+    ownerId: string;
+  }): Promise<{
+    stagingId: string;
+    filePath: string;
+    originalName: string;
+    sizeBytes: number;
+  }> {
+    const stagingId = randomUUID();
+    const dir = join(this.root, stagingId);
+    await mkdir(dir, { recursive: true });
+    const fileName = safeFilename(input.originalName);
+    const filePath = join(dir, fileName);
+    // rename is instant within a filesystem; fall back to copy+unlink
+    // across devices (multer's tmpdir may be on a different mount than
+    // the staging root).
+    try {
+      await rename(input.filePath, filePath);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EXDEV') {
+        await copyFile(input.filePath, filePath);
+        await rm(input.filePath, { force: true }).catch(() => {});
+      } else {
+        throw err;
+      }
+    }
+    const sizeBytes = (await stat(filePath)).size;
+    const meta: StagingMeta = {
+      ownerId: input.ownerId,
+      originalName: input.originalName,
+      sizeBytes,
+      createdAt: new Date().toISOString(),
+    };
+    await writeFile(join(dir, 'meta.json'), JSON.stringify(meta));
+    this.log.log(
+      `Staged ${input.originalName} (${sizeBytes} B) as ${stagingId} for user ${input.ownerId}`,
+    );
+    return {
+      stagingId,
+      filePath,
+      originalName: input.originalName,
+      sizeBytes,
     };
   }
 

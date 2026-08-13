@@ -30,6 +30,8 @@ import {
 import { IngestService } from './ingest.service.js';
 import { IngestStagingService } from './ingest-staging.service.js';
 import { CopyWriter } from '../engine/copy-writer.js';
+import { INGEST_DISK_UPLOAD } from './disk-upload.js';
+import { rm } from 'node:fs/promises';
 
 /**
  * Server-side ingest endpoint. Accepts a multipart upload of an
@@ -63,18 +65,20 @@ export class IngestController {
    * user fills in details and creates the item.
    */
   @Post('ingest/probe')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      limits: { fileSize: 1024 * 1024 * 1024 },
-    }),
-  )
+  @UseInterceptors(FileInterceptor('file', INGEST_DISK_UPLOAD))
   async probe(@UploadedFile() file: Express.Multer.File | undefined) {
     if (!file) {
       throw new BadRequestException(
         'No file uploaded; field name must be "file".',
       );
     }
-    return this.ingest.probeFile(file.buffer, file.originalname);
+    try {
+      return await this.ingest.probeFileFromPath(file.path);
+    } finally {
+      await rm(file.destination, { recursive: true, force: true }).catch(
+        () => {},
+      );
+    }
   }
 
   /**
@@ -121,11 +125,7 @@ export class IngestController {
    * to re-upload, which we accept as the trade for bounded disk.
    */
   @Post('ingest/stage')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      limits: { fileSize: 1024 * 1024 * 1024 },
-    }),
-  )
+  @UseInterceptors(FileInterceptor('file', INGEST_DISK_UPLOAD))
   async stage(
     @CurrentUser() user: AuthUser,
     @UploadedFile() file: Express.Multer.File | undefined,
@@ -135,15 +135,17 @@ export class IngestController {
         'No file uploaded; field name must be "file".',
       );
     }
-    // Stage first so the file is on disk under a stable path. probe
-    // can then read it from there without re-buffering. If the probe
-    // fails (corrupt zip, etc.) we drop the staging to keep disk
-    // tidy; the user gets an inline error and re-uploads.
-    const staged = await this.staging.stage({
-      buffer: file.buffer,
+    // The upload is already on disk (disk storage). Move it into the
+    // staging area rather than re-buffering, then drop the now-empty
+    // temp dir. probe reads the staged file from its stable path.
+    const staged = await this.staging.stageFromPath({
+      filePath: file.path,
       originalName: file.originalname,
       ownerId: user.id,
     });
+    await rm(file.destination, { recursive: true, force: true }).catch(
+      () => {},
+    );
     try {
       const probe = await this.ingest.probeFileFromPath(staged.filePath);
       return {
@@ -281,11 +283,7 @@ export class IngestController {
    * by ItemsService).
    */
   @Post('items/:id/layers/:layerId/import')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      limits: { fileSize: 1024 * 1024 * 1024 },
-    }),
-  )
+  @UseInterceptors(FileInterceptor('file', INGEST_DISK_UPLOAD))
   async ingestV3Layer(
     @Res() res: Response,
     @CurrentUser() user: AuthUser,
@@ -428,14 +426,17 @@ export class IngestController {
         provenanceSizeBytes = staged.sizeBytes;
       } else {
         const f = file!;
-        const tmp = await this.ingest.materializeBufferToTemp(
-          f.buffer,
-          f.originalname,
-        );
-        sourcePath = tmp.filePath;
+        // Disk storage already wrote the upload to f.path inside its
+        // own temp dir; use it directly (no 1 GB memory buffer, no
+        // separate materialize step). The finally cleans up the dir.
+        sourcePath = f.path;
         provenanceFileName = f.originalname;
         provenanceSizeBytes = f.size;
-        cleanupSourceDir = tmp.cleanup;
+        cleanupSourceDir = async () => {
+          await rm(f.destination, { recursive: true, force: true }).catch(
+            () => {},
+          );
+        };
       }
 
       let totalInserted = 0;
