@@ -5,6 +5,22 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.23] - 2026-08-13
+
+Worker crash recovery. Adds one migration (two nullable timestamp
+columns); applied automatically on deploy.
+
+### Fixed
+
+- **A crashed import or interrupted notification no longer strands
+  forever.** If the server was interrupted partway through an ArcGIS
+  Online migration, the import wizard would spin indefinitely; the job
+  now times out and reports that it stopped, so it can be started again.
+  Likewise a notification whose send was interrupted mid-flight used to
+  get stuck invisibly; it is now automatically requeued (or, once its
+  retries are spent, marked failed) and can be retried from the admin
+  screen.
+
 ## [0.9.22] - 2026-08-13
 
 Upload-size hardening. No schema changes.
