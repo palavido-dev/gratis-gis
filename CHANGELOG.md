@@ -5,6 +5,81 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.17] - 2026-08-13
+
+A remediation release from a second deep security and reliability review.
+Contains one database migration (the print render token store). Safe
+upgrade. Several of the fixes matter specifically to deployments that run
+the API at more than one replica, which the production compose file does.
+
+### Security
+
+- **The external-service proxy could be steered at internal addresses
+  through a redirect.** When the portal fetches a connected service on
+  your behalf, it checked that the service URL was not internal, but then
+  followed HTTP redirects without re-checking. A service whose URL
+  redirected to an internal address (including a cloud provider's
+  metadata endpoint) could have its response relayed back. Every hop is
+  now re-validated, and the same fix applies to the service probe and the
+  geocoder and OpenStreetMap endpoints. Server-side fetches also gained a
+  timeout and a response-size ceiling.
+- **Registering a relationship now requires edit rights on both layers,**
+  not just the one you own. Previously a user who could only view the
+  second layer could still alter its table through the relationship.
+
+### Fixed
+
+- **Printing and PDF export failed intermittently on multi-replica
+  setups.** The one-time token that authorizes a render lived in the
+  memory of a single API replica, so about half of renders, handled by
+  the other replica, produced a blank or error page. Tokens now live in
+  the database.
+- **A database restore now pauses the whole portal, not just one
+  replica.** The maintenance flag raised during a restore was
+  per-replica, so a second replica kept serving traffic against a
+  database being rewritten. The flag is now shared.
+- **Scheduled jobs (backups, cleanups, notifications) recover after a
+  database blip.** Leadership among replicas was decided once at startup
+  and never rechecked, so a dropped database connection could leave those
+  jobs running twice or not at all. Leadership is now re-verified
+  continuously.
+- **Auto-disabling inactive users now works for every account.** The
+  housekeeping job looked users up in the identity provider by the wrong
+  identifier and silently skipped accounts that predated it, so they
+  stayed able to sign in.
+- **Imports no longer fail on a whole file because of one uncommon
+  geometry.** A geometry collection (produced by some KML and GML files)
+  aborted the entire import; these are now imported, and coordinates that
+  are not real numbers are reported clearly instead of failing cryptically.
+- **Large object downloads and imports are more resilient.** Object reads
+  now time out rather than hang if storage stalls, streamed downloads are
+  released promptly when a viewer navigates away, and CSV export respects
+  a slow client instead of buffering the whole file.
+- **Deep paging of the OGC Features API is bounded** so a very large
+  offset can no longer ask the server to load millions of rows at once.
+- **Field data queued offline no longer gets stuck** in a mid-sync state
+  on browsers without background sync; the in-app sync now recovers those
+  records.
+- **Backup cancellation responds mid-object** instead of only between
+  files.
+
+### Security tooling
+
+- The bundled PMTiles converter is rebuilt with a patched
+  `golang.org/x/net`, clearing a high-severity advisory the image scan
+  flagged.
+
+### Notes for operators
+
+- This release adds one table (`print_render_token`) and applies its
+  migration automatically on deploy. On a deployment that restores its
+  database from a snapshot on a schedule, re-capture the snapshot after
+  upgrading so the new table survives the next restore.
+- Worker processes now cap their database connection pool
+  (`DB_POOL_MAX`) so the combined demand from the API replicas, the
+  workers, and the identity provider stays within PostgreSQL's connection
+  limit. Nothing to configure; the defaults are set in the compose file.
+
 ## [0.9.16] - 2026-08-10
 
 A one-line follow-up to 0.9.15.
