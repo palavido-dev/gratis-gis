@@ -150,6 +150,47 @@ export class AnalysisBridgeWorker implements OnModuleInit {
             : 'The analysis worker stopped responding, so this layer could not be created. Try running the analysis again.',
       );
     }
+
+    // Second sweep: rows stranded in 'importing' with no importJobId.
+    // claimIngestJobs flips 'ingest' -> 'importing' and only later
+    // writes params.importJobId; a crash in that window leaves a row
+    // that settleImportingJobs skips forever (it requires importJobId)
+    // and that the sweep above never touches (it is neither 'running'
+    // nor 'cancel_requested'). Age those out the same way. Rows that
+    // DO carry an importJobId are healthy and owned by the import
+    // queue's own reclaim, so they are left alone.
+    const stranded = await this.prisma.$queryRaw<
+      Array<{
+        id: string;
+        kind: string;
+        target_item_id: string | null;
+        source_item_id: string;
+      }>
+    >`
+      UPDATE analysis_job
+      SET state = 'failed',
+          error = 'The analysis result could not be staged for import (worker stopped responding).',
+          finished_at = now()
+      WHERE state = 'importing'
+        AND (params->>'importJobId') IS NULL
+        AND COALESCE(heartbeat_at, started_at, created_at)
+            < now() - make_interval(mins => ${RECLAIM_AFTER_MINUTES})
+      RETURNING id, kind, target_item_id, source_item_id
+    `;
+    for (const row of stranded) {
+      this.log.warn(
+        `analysis ${row.id} (${row.kind}): reclaimed from a stuck 'importing' state (no import was ever queued)`,
+      );
+      await stampAnalysisTargetFailed(
+        this.prisma,
+        {
+          kind: row.kind,
+          targetItemId: row.target_item_id,
+          sourceItemId: row.source_item_id,
+        },
+        'The analysis result could not be imported because the worker stopped responding. Try running the analysis again.',
+      );
+    }
   }
 
   /** state='ingest' -> stage artifact + enqueue import -> 'importing'. */

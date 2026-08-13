@@ -189,10 +189,18 @@ interface ReclaimedRow {
   source_item_id: string;
 }
 
-function makeBridge(rows: ReclaimedRow[], world: World): AnalysisBridgeWorker {
+function makeBridge(
+  rows: ReclaimedRow[],
+  world: World,
+  importingRows: ReclaimedRow[] = [],
+): AnalysisBridgeWorker {
   const prisma = {
     $queryRaw: jest.fn(async (strings: readonly string[], ...values: unknown[]) => {
       world.executeRawCalls.push({ strings, values });
+      // reclaimStaleJobs runs two sweeps: the running/cancel_requested
+      // one returns `rows`; the second, stranded-'importing' sweep
+      // returns `importingRows`.
+      if (strings.join('?').includes("state = 'importing'")) return importingRows;
       return rows;
     }),
     $executeRaw: jest.fn(async (strings: readonly string[], ...values: unknown[]) => {
@@ -256,7 +264,11 @@ describe('AnalysisBridgeWorker.reclaimStaleJobs', () => {
     // Stamps: hillshade target, copc-build (falls back to the source
     // item, which IS the point cloud being merged), viewshed target.
     // contours is bridge-settled and gets no processingState stamp.
-    const stamps = world.executeRawCalls.slice(1);
+    // Filter to the item stamps (the analysis_job sweeps also land in
+    // executeRawCalls; there are now two of them).
+    const stamps = world.executeRawCalls.filter((c) =>
+      c.strings.join('?').includes('data_json'),
+    );
     expect(stamps).toHaveLength(3);
     const stampedItems = stamps.map((c) => c.values[1]);
     expect(stampedItems).toEqual(['t-hs', 's-pc', 't-vs']);
@@ -270,6 +282,40 @@ describe('AnalysisBridgeWorker.reclaimStaleJobs', () => {
     // The cancel_requested row was the user's own stop, so its item
     // note says cancelled, not crashed.
     expect(messages[2]).toContain('cancelled');
+  });
+
+  it('reclaims rows stranded in importing with no import ever queued', async () => {
+    const world = freshWorld();
+    const bridge = makeBridge(
+      [], // nothing stale in running / cancel_requested
+      world,
+      [
+        {
+          id: 'imp-1',
+          kind: 'contours',
+          state: 'importing',
+          target_item_id: 't-dl',
+          source_item_id: 's-dl',
+        },
+      ],
+    );
+    await bridge.reclaimStaleJobs();
+
+    const importingSweep = world.executeRawCalls
+      .map((c) => c.strings.join('?'))
+      .find((s) => s.includes("state = 'importing'"));
+    expect(importingSweep).toBeDefined();
+    // Only rows that never got an import queued, and only once stale.
+    expect(importingSweep).toContain("(params->>'importJobId') IS NULL");
+    expect(importingSweep).toContain(
+      'COALESCE(heartbeat_at, started_at, created_at)',
+    );
+    // contours is bridge-settled, so no processingState stamp is
+    // written; the point of the sweep is that the job stops hanging.
+    const stamps = world.executeRawCalls.filter((c) =>
+      c.strings.join('?').includes('data_json'),
+    );
+    expect(stamps).toHaveLength(0);
   });
 
   it('throttles: a second sweep within the minute issues no query', async () => {
