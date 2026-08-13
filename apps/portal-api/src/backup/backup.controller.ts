@@ -242,8 +242,10 @@ export class BackupController {
 
     // Flip maintenance mode BEFORE we touch anything; the global
     // middleware then 503s unrelated requests that are in flight or
-    // arriving during the restore window.
-    this.mode.activate(
+    // arriving during the restore window. Awaited so the shared flag
+    // is persisted (and the other replica will pick it up) before the
+    // restore starts dropping the schema.
+    await this.mode.activate(
       `Restoring backup ${id.slice(0, 8)}… Initiated by ${user.username ?? user.id.slice(0, 8)}.`,
     );
     try {
@@ -256,7 +258,7 @@ export class BackupController {
       // Always turn maintenance mode off, even if the restore
       // threw mid-way. Better to surface whatever post-restore
       // state the DB is in than leave the portal unreachable.
-      this.mode.deactivate();
+      await this.mode.deactivate();
     }
   }
 
