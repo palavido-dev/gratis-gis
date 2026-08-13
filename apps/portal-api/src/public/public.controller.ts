@@ -16,6 +16,7 @@ import { Public } from '../auth/public.decorator.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { DataLayerFeaturesService } from '../data-layer/features.service.js';
 import { parsePagingParams } from '../data-layer/feature-paging.js';
+import { streamFeatureCollection } from '../data-layer/feature-stream.js';
 import { loadOsmPresetCatalog } from '../osm/preset-catalog.js';
 import {
   TileCacheOverloadError,
@@ -340,6 +341,7 @@ export class PublicController {
   async layerFeatures(
     @Param('id') itemId: string,
     @Param('layerId') layerId: string,
+    @Res() res: Response,
     @Query('bbox') bbox?: string,
     @Query('at') at?: string,
     // Single-feature lookup by stable entity id.  The MVT-popup
@@ -402,14 +404,27 @@ export class PublicController {
         pageSize: paging.pageSize,
         after: paging.after,
       });
-      return {
+      res.json({
         type: 'FeatureCollection' as const,
         features: page.features,
         nextCursor: page.nextCursor,
         asOf: page.asOf.toISOString(),
-      };
+      });
+      return;
     }
-    return this.v3.listFeatures(itemId, layerId, opts);
+    if (entity) {
+      // Single-feature lookup: bounded to 0 or 1, so buffer it.
+      res.json(await this.v3.listFeatures(itemId, layerId, opts));
+      return;
+    }
+    // Whole-collection read: stream it so a large public layer cannot
+    // buffer up to 100k features in memory and OOM a replica for an
+    // anonymous caller.
+    const { entity: _ignoredForStream, ...iterOpts } = opts;
+    await streamFeatureCollection(
+      res,
+      this.v3.iterateFeatures(itemId, layerId, iterOpts),
+    );
   }
 
   /** Alias of /features under the same naming the auth'd v3
@@ -420,13 +435,23 @@ export class PublicController {
   async layerGeojson(
     @Param('id') itemId: string,
     @Param('layerId') layerId: string,
+    @Res() res: Response,
     @Query('bbox') bbox?: string,
     @Query('at') at?: string,
     @Query('entity') entity?: string,
     @Query('limit') limit?: string,
     @Query('cursor') cursor?: string,
   ) {
-    return this.layerFeatures(itemId, layerId, bbox, at, entity, limit, cursor);
+    await this.layerFeatures(
+      itemId,
+      layerId,
+      res,
+      bbox,
+      at,
+      entity,
+      limit,
+      cursor,
+    );
   }
 
   /**

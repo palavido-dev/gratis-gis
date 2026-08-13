@@ -126,7 +126,7 @@ describe('DataLayerFeaturesController.geoparquet download gate', () => {
     (res as unknown as { send: jest.Mock }).send = send;
     const listFeatures = jest
       .spyOn(controller, 'listFeatures')
-      .mockResolvedValue({ type: 'FeatureCollection', features: [] });
+      .mockResolvedValue(undefined);
 
     await expect(
       controller.csv(res, makeUser(), ITEM_ID, LAYER_ID),

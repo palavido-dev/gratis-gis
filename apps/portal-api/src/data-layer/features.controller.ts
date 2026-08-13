@@ -40,6 +40,7 @@ import {
   matchesIfNoneMatch,
   tileOverloadRetryAfterSeconds,
 } from '../engine/tile-cache.service.js';
+import { onceDrain, streamFeatureCollection } from './feature-stream.js';
 
 import type { ItemShare } from '@prisma/client';
 import {
@@ -132,37 +133,6 @@ function assertFeatureIdShape(featureId: string): void {
  * read vs write gating via canEdit().
  */
 
-/**
- * Await a writable's `drain` when `res.write` has signalled
- * backpressure, resolving on drain and rejecting if the client
- * disconnects (so the streaming loop stops rather than hanging on a
- * drain that will never come).
- */
-function onceDrain(res: Response): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const cleanup = () => {
-      res.off('drain', onDrain);
-      res.off('close', onClose);
-      res.off('error', onError);
-    };
-    const onDrain = () => {
-      cleanup();
-      resolve();
-    };
-    const onClose = () => {
-      cleanup();
-      reject(new Error('client closed'));
-    };
-    const onError = (err: Error) => {
-      cleanup();
-      reject(err);
-    };
-    res.once('drain', onDrain);
-    res.once('close', onClose);
-    res.once('error', onError);
-  });
-}
-
 @ApiTags('features', 'v3')
 @ApiBearerAuth()
 @Controller('items/:id/layers/:layerId')
@@ -181,6 +151,7 @@ export class DataLayerFeaturesController {
     @CurrentUser() user: AuthUser,
     @Param('id') itemId: string,
     @Param('layerId') layerId: string,
+    @Res() res: Response,
     @Query('bbox') bbox?: string,
     @Query('at') at?: string,
     @Query('clip') clip?: string,
@@ -211,7 +182,7 @@ export class DataLayerFeaturesController {
     @Query('limit') limit?: string,
     @Query('cursor') cursor?: string,
   ) {
-    return this.readFeatures(user, itemId, layerId, {
+    await this.readFeatures(user, itemId, layerId, res, {
       bbox,
       at,
       clip,
@@ -239,6 +210,7 @@ export class DataLayerFeaturesController {
     user: AuthUser,
     itemId: string,
     layerId: string,
+    res: Response,
     // `| undefined` rather than `?`: under exactOptionalPropertyTypes
     // these come straight off @Query decorators as possibly-undefined
     // values, and an absent param and an explicit undefined mean the
@@ -290,9 +262,27 @@ export class DataLayerFeaturesController {
           'Use either a single feature lookup or paging, not both.',
         );
       }
-      return this.pagedFeatures(fullOpts, itemId, layerId, paging);
+      res.json(await this.pagedFeatures(fullOpts, itemId, layerId, paging));
+      return;
     }
-    return this.v3.listFeatures(itemId, layerId, fullOpts);
+    if (entity) {
+      // Single-feature lookup: bounded to 0 or 1 features, so buffering
+      // it is fine and keeps the exact single-object response shape.
+      res.json(await this.v3.listFeatures(itemId, layerId, fullOpts));
+      return;
+    }
+    // Whole-collection read. Stream it rather than buffering up to
+    // 100k features and serialising them in one synchronous pass,
+    // which could OOM a replica (anonymously, on the public mirror).
+    // Same opts the CSV export already streams over.
+    const iterOpts: Parameters<typeof this.v3.iterateFeatures>[2] = {
+      ...opts,
+    };
+    if (at) iterOpts.at = at;
+    await streamFeatureCollection(
+      res,
+      this.v3.iterateFeatures(itemId, layerId, iterOpts),
+    );
   }
 
   /**
@@ -850,6 +840,7 @@ export class DataLayerFeaturesController {
     @CurrentUser() user: AuthUser,
     @Param('id') itemId: string,
     @Param('layerId') layerId: string,
+    @Res() res: Response,
     @Query('bbox') bbox?: string,
     @Query('at') at?: string,
     @Query('clip') clip?: string,
@@ -858,7 +849,7 @@ export class DataLayerFeaturesController {
     @Query('limit') limit?: string,
     @Query('cursor') cursor?: string,
   ) {
-    return this.readFeatures(user, itemId, layerId, {
+    await this.readFeatures(user, itemId, layerId, res, {
       bbox,
       at,
       clip,
