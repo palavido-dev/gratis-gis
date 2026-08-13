@@ -78,7 +78,12 @@ export function ImageUploader({
       const presignRes = await fetch(PRESIGN_ENDPOINT, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ kind, contentType: file.type }),
+        // Send the size so the server signs it into the presigned PUT
+        // and refuses an over-cap upload: these public prefixes (avatar
+        // / hero / thumbnail) are not swept, so an over-cap blob here is
+        // permanent. The browser sets a matching Content-Length on the
+        // PUT below.
+        body: JSON.stringify({ kind, contentType: file.type, sizeBytes: file.size }),
       });
       if (!presignRes.ok) {
         setError(`Could not start upload: ${presignRes.status}`);

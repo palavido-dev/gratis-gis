@@ -286,7 +286,11 @@ export class StorageService implements OnModuleInit {
    * Mint a short-lived presigned PUT for the browser, plus the public
    * URL we'll persist on the entity once upload succeeds.
    */
-  async presignUpload(kind: AssetKind, contentType: string): Promise<PresignResult> {
+  async presignUpload(
+    kind: AssetKind,
+    contentType: string,
+    sizeBytes?: number,
+  ): Promise<PresignResult> {
     // Thumbnails/avatars stay image-only. Feature attachments + file
     // items accept any MIME type because they legitimately include
     // PDFs, audio, CAD exports, zipped shapefiles -- whatever the
@@ -313,11 +317,40 @@ export class StorageService implements OnModuleInit {
         );
       }
     }
+    const maxBytes = isTileLayer
+      ? TILE_LAYER_MAX_BYTES
+      : isPointCloud
+        ? POINT_CLOUD_MAX_BYTES
+        : isFileItem
+          ? FILE_ITEM_MAX_BYTES
+          : isAttachment
+            ? ATTACHMENT_MAX_BYTES
+            : MAX_UPLOAD_BYTES;
+    // When the caller declares the upload size, refuse over-cap uploads
+    // here and sign the size into the URL. The browser's PUT must then
+    // send a matching Content-Length, so a client cannot upload more
+    // than the size we validated (MinIO enforces the signed
+    // Content-Length). Without this the per-kind cap was advisory only,
+    // and the public prefixes (avatar / hero / thumbnail) are not swept,
+    // so an over-cap blob there was permanent.
+    if (sizeBytes !== undefined) {
+      if (!Number.isFinite(sizeBytes) || sizeBytes < 0) {
+        throw new Error('Invalid upload size.');
+      }
+      if (sizeBytes > maxBytes) {
+        throw new Error(
+          `File is too large for this upload type. The cap is ${Math.round(
+            maxBytes / 1024 / 1024,
+          )} MB.`,
+        );
+      }
+    }
     const key = `${kind}/${randomUUID()}`;
     const cmd = new PutObjectCommand({
       Bucket: this.bucket,
       Key: key,
       ContentType: contentType,
+      ...(sizeBytes !== undefined ? { ContentLength: sizeBytes } : {}),
     });
     // Presigned-PUT expiry: tight by default so a leaked URL is
     // short-lived.  60s suffices for a 5 MB thumbnail; 180s for
@@ -340,15 +373,7 @@ export class StorageService implements OnModuleInit {
       publicUrl,
       key,
       contentType,
-      maxBytes: isTileLayer
-        ? TILE_LAYER_MAX_BYTES
-        : isPointCloud
-          ? POINT_CLOUD_MAX_BYTES
-          : isFileItem
-          ? FILE_ITEM_MAX_BYTES
-          : isAttachment
-            ? ATTACHMENT_MAX_BYTES
-            : MAX_UPLOAD_BYTES,
+      maxBytes,
     };
   }
 
