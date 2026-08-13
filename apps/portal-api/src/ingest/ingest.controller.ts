@@ -386,18 +386,13 @@ export class IngestController {
       }
       await this.items.assertCanEdit(user, itemId);
 
-      // #244 replace-mode preflight (unchanged from non-streaming
-      // version). Truncate happens before any inserts so a failed
-      // stream leaves an empty layer rather than a half-old / half-
-      // new mix.
+      // #234: the replace-mode truncate moved DOWN into the streaming
+      // block below, after the source file is resolved and probed.
+      // It used to run here, before the file had even been opened, so
+      // a corrupt upload, an empty source, or a wrong sourceLayer name
+      // emptied the layer and only THEN failed. See the pre-validate
+      // note at the truncate's new home.
       let truncated = 0;
-      if (ingestMode === 'replace') {
-        truncated = await this.dataLayerTables.countLiveEntities(
-          itemId,
-          layer.id,
-        );
-        await this.dataLayerTables.truncateLayer(itemId, layerId);
-      }
 
       // Property whitelist (unchanged). Sparse schemas drop unknown
       // columns; an empty schema is treated as "take everything".
@@ -449,6 +444,35 @@ export class IngestController {
       let lastSourceSrs: string | null = null;
 
       try {
+        // #234 pre-validate before the destructive replace-truncate.
+        // Probe is metadata only (no insert); only once the source is
+        // known-readable and carries the requested layer do we delete
+        // the existing data. A probe failure throws BEFORE the
+        // truncate, so a bad upload can no longer empty the layer.
+        // (This does not make a mid-insert DB failure atomic; the full
+        // fix is to run truncate + insert in one engine transaction.)
+        if (ingestMode === 'replace') {
+          const probe = await this.ingest.probeFileFromPath(sourcePath);
+          if (probe.layers.length === 0) {
+            throw new BadRequestException(
+              'The uploaded file has no readable layers; nothing was changed.',
+            );
+          }
+          if (
+            sourceLayer &&
+            !probe.layers.some((l) => l.name === sourceLayer)
+          ) {
+            throw new BadRequestException(
+              `Source layer "${sourceLayer}" was not found in the uploaded file; nothing was changed.`,
+            );
+          }
+          truncated = await this.dataLayerTables.countLiveEntities(
+            itemId,
+            layer.id,
+          );
+          await this.dataLayerTables.truncateLayer(itemId, layerId);
+        }
+
         const meta = await this.ingest.streamLayerFromPath(
           sourcePath,
           sourceLayer,
