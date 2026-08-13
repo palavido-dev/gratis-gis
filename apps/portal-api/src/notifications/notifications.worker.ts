@@ -93,19 +93,21 @@ export class NotificationsWorker {
       // this tick rather than overlap; the next one is 30s away.
       return;
     }
-    if (!(await this.transport.isAvailable())) {
-      // SMTP misconfigured. Logged once per process by EmailTransport;
-      // we silently skip ticks until the admin saves SMTP via
-      // /admin/notifications and the transport reload picks it up.
-      return;
-    }
     this.busy = true;
     try {
-      // Reclaim first, so anything a dead sender stranded in `sending`
-      // is back to `queued` before this tick's drain and goes out now
-      // rather than a tick later.
+      // Reclaim first, and BEFORE the transport check: a row a crashed
+      // replica stranded in `sending` must be rescued even while SMTP
+      // is down, which is exactly when a mid-send crash is most likely.
+      // Requeuing needs no transport (the row just waits in `queued`),
+      // so gating it on SMTP would leave the stuck row invisible until
+      // SMTP recovered. The drain itself still needs a live transport.
       await this.reclaimStaleSending();
-      await this.drainBatch();
+      if (await this.transport.isAvailable()) {
+        await this.drainBatch();
+      }
+      // else: SMTP misconfigured. Logged once per process by
+      // EmailTransport; we skip the drain until the admin saves SMTP
+      // via /admin/notifications and the transport reload picks it up.
     } catch (err) {
       this.log.error(
         `Drain batch failed: ${err instanceof Error ? err.message : err}`,
