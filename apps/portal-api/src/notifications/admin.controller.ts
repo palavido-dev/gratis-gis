@@ -269,22 +269,28 @@ export class NotificationsAdminController {
   }
 
   /**
-   * Push a failed row back into the queue. Resets attempts to 0 so
-   * the worker treats it as a fresh send (and the exponential
-   * backoff doesn't kick in immediately on a row that already burned
-   * its budget). scheduledAt becomes "now" so the next tick picks
-   * it up. No-op when the row is already in any non-failed state --
+   * Push a failed or stuck-sending row back into the queue. Resets
+   * attempts to 0 so the worker treats it as a fresh send (and the
+   * exponential backoff doesn't kick in immediately on a row that
+   * already burned its budget). scheduledAt becomes "now" so the next
+   * tick picks it up. No-op when the row is already queued/sent --
    * keeps the action idempotent for double-clicks.
+   *
+   * `sending` is included so an admin can rescue a row stranded by a
+   * sender that died mid-flight without waiting for the worker's own
+   * stale-sending sweep. Clearing sendingAt keeps that sweep from also
+   * acting on the row a moment later.
    */
   @Post(':id/retry')
   async retry(@Param('id') id: string): Promise<{ retried: boolean }> {
     const r = await this.prisma.notification.updateMany({
-      where: { id, status: 'failed' },
+      where: { id, status: { in: ['failed', 'sending'] } },
       data: {
         status: 'queued',
         attempts: 0,
         lastError: null,
         scheduledAt: new Date(),
+        sendingAt: null,
       },
     });
     return { retried: r.count > 0 };

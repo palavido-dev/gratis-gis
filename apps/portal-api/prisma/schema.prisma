@@ -966,6 +966,13 @@ model Notification {
   /// trigger fired.
   address     String
   status      NotificationStatus  @default(queued)
+  /// When the worker claimed this row (queued -> sending). Null in
+  /// every other state. The reclaim sweep uses it to detect a row
+  /// stranded in `sending` by a process that died between the claim
+  /// and the terminal update; without a claim timestamp there is
+  /// nothing to threshold a stale send against. Plain timestamp(3)
+  /// like scheduled_at: compared against a Prisma Date cutoff.
+  sendingAt   DateTime?           @map("sending_at")
   attempts    Int                 @default(0)
   /// Last error message from a failed send attempt. Truncated to
   /// 1KB at the application layer; not enforced in schema since
@@ -1402,6 +1409,15 @@ model AgoImportJob {
   createdAt      DateTime           @default(now()) @map("created_at")
   startedAt      DateTime?          @map("started_at")
   finishedAt     DateTime?          @map("finished_at")
+  /// Worker liveness beat, same contract as ImportJob.lastHeartbeatAt:
+  /// the runner stamps it on the queued -> running flip, on every
+  /// per-item progress write, and on a timer during a long single-item
+  /// copy. The reclaim sweep fails a running row whose beat has gone
+  /// stale, because a crashed runner cannot flip its own row and the
+  /// wizard would otherwise poll a spinner forever. Plain timestamp(3)
+  /// like started_at: the reclaim compares it against a Prisma Date
+  /// cutoff, not raw now(), so it needs no zone anchoring.
+  lastHeartbeatAt DateTime?         @map("last_heartbeat_at")
 
   @@index([createdBy, createdAt], map: "ago_import_job_user_created_idx")
   @@index([orgId, status], map: "ago_import_job_org_status_idx")

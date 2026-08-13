@@ -35,6 +35,16 @@ import { LeaderElectionService } from '../cron/leader-election.service.js';
  * not needed today, called out as a TODO so a future scale-out
  * doesn't quietly double-send.
  */
+/**
+ * A row claimed queued -> sending whose sendingAt is older than this is
+ * treated as stranded by a dead sender and reclaimed. Generous on
+ * purpose: a real SMTP send resolves in seconds, so fifteen minutes of
+ * a row sitting in `sending` means the process that claimed it died
+ * before writing a terminal state. The wide margin also bounds the
+ * at-least-once risk (see reclaimStaleSending).
+ */
+const SENDING_RECLAIM_AFTER_MS = 15 * 60_000;
+
 @Injectable()
 export class NotificationsWorker {
   private readonly log = new Logger(NotificationsWorker.name);
@@ -91,6 +101,10 @@ export class NotificationsWorker {
     }
     this.busy = true;
     try {
+      // Reclaim first, so anything a dead sender stranded in `sending`
+      // is back to `queued` before this tick's drain and goes out now
+      // rather than a tick later.
+      await this.reclaimStaleSending();
       await this.drainBatch();
     } catch (err) {
       this.log.error(
@@ -98,6 +112,62 @@ export class NotificationsWorker {
       );
     } finally {
       this.busy = false;
+    }
+  }
+
+  /**
+   * Rescue rows stranded in `sending`.
+   *
+   * `processOne` claims a row by flipping queued -> sending, then sends,
+   * then writes a terminal state. A process that dies in that window
+   * leaves the row at `sending` forever: `drainBatch` selects only
+   * `queued`, so it never comes back, and the admin retry only touches
+   * `failed`. This sweep, running under the same leader gate as the
+   * drain, moves a stale `sending` row back to `queued` (still
+   * retryable) or to `failed` (budget already spent).
+   *
+   * At-least-once by construction: a row that was actually sent but
+   * crashed before the DB write will send again. That is the right
+   * trade for notifications (a rare duplicate email beats a silently
+   * dropped one), and the 15-minute threshold keeps a still-in-flight
+   * send from being reclaimed out from under a slow transport. Every
+   * update is guarded on status='sending' so it cannot disturb a row
+   * that has since reached a terminal state.
+   */
+  private async reclaimStaleSending() {
+    const cutoff = new Date(Date.now() - SENDING_RECLAIM_AFTER_MS);
+    const requeued = await this.prisma.notification.updateMany({
+      where: {
+        status: NotificationStatus.sending,
+        sendingAt: { lt: cutoff },
+        attempts: { lt: this.maxAttempts },
+      },
+      data: {
+        status: NotificationStatus.queued,
+        scheduledAt: new Date(),
+        sendingAt: null,
+        lastError: 'Sending was interrupted before it completed; requeued.',
+      },
+    });
+    // Belt and braces: a row whose retry budget is already spent cannot
+    // be requeued (drainBatch caps at attempts < maxAttempts, so it
+    // would sit in `sending` forever). Fail it instead.
+    const failed = await this.prisma.notification.updateMany({
+      where: {
+        status: NotificationStatus.sending,
+        sendingAt: { lt: cutoff },
+        attempts: { gte: this.maxAttempts },
+      },
+      data: {
+        status: NotificationStatus.failed,
+        sendingAt: null,
+        lastError:
+          'Sending was interrupted after the retry budget was exhausted.',
+      },
+    });
+    const n = requeued.count + failed.count;
+    if (n > 0) {
+      this.log.warn(`Reclaimed ${n} notification(s) stranded in 'sending'.`);
     }
   }
 
@@ -143,7 +213,9 @@ export class NotificationsWorker {
     // an admin requeued it) we just skip.
     const claimed = await this.prisma.notification.updateMany({
       where: { id, status: NotificationStatus.queued },
-      data: { status: NotificationStatus.sending },
+      // Stamp sendingAt so the reclaim sweep can tell a genuinely
+      // in-flight send from one whose sender died mid-flight.
+      data: { status: NotificationStatus.sending, sendingAt: new Date() },
     });
     if (claimed.count === 0) return;
 
@@ -184,6 +256,7 @@ export class NotificationsWorker {
           status: NotificationStatus.failed,
           lastError: `No template registered for type "${row.type}"`,
           attempts: { increment: 1 },
+          sendingAt: null,
         },
       });
       this.log.warn(
@@ -206,6 +279,7 @@ export class NotificationsWorker {
           sentAt: new Date(),
           attempts: { increment: 1 },
           lastError: null,
+          sendingAt: null,
         },
       });
     } catch (err) {
@@ -237,6 +311,7 @@ export class NotificationsWorker {
           // up the row size.
           lastError: message.slice(0, 1024),
           scheduledAt: isFinal ? row.scheduledAt : new Date(Date.now() + delay),
+          sendingAt: null,
         },
       });
       this.log.warn(
