@@ -250,6 +250,12 @@ export class StorageController {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'private, max-age=60');
 
+    // Tear down the S3 read stream when the client disconnects (or the
+    // response finishes) so its socket returns to the pool instead of
+    // draining to the end. `pipe` does not destroy the source on a
+    // destination close, and range-read viewers abort constantly.
+    // destroy() is idempotent, so firing on a normal finish is safe.
+    res.on('close', () => upstream.body.destroy());
     upstream.body.pipe(res);
   }
 }

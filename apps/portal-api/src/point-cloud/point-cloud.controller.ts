@@ -174,7 +174,13 @@ export class PointCloudController {
       await new Promise<void>((resolve, reject) => {
         upstream.body.on('end', resolve);
         upstream.body.on('error', reject);
-        res.on('close', resolve);
+        res.on('close', () => {
+          // Client hung up (camera moves kill in-flight node fetches):
+          // destroy the S3 read so its socket returns to the pool
+          // instead of draining to the end and leaking under churn.
+          upstream.body.destroy();
+          resolve();
+        });
       });
     } catch (err) {
       // Client disconnects mid-stream are normal (camera moves kill

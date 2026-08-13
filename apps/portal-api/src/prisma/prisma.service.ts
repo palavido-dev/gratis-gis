@@ -34,10 +34,12 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     // per replica that queues 100+ queries on 20 connections and
     // each tile waits ~half a second just for a pool slot, before
     // any actual compute starts. Bumping to 25 cuts the queue
-    // depth to ~2x, and Postgres' max_connections=100 still has
-    // plenty of headroom (2 replicas * 25 + worker + pg_tileserv
-    // + 1-2 admin = ~55-60 peak). Override via DB_POOL_MAX if a
-    // future per-tenant deploy needs to tune.
+    // depth to ~2x. The prod DB budget against max_connections=100:
+    // portal-api runs 2 replicas at 25 (=50), and the worker
+    // processes are capped lower via DB_POOL_MAX in
+    // docker-compose.prod.yml (portal-worker 8, script-runner 4) so
+    // that plus Keycloak (which shares this Postgres) and the nightly
+    // pg_dump stays inside 100. Override via DB_POOL_MAX per service.
     const poolMax = Number(process.env.DB_POOL_MAX ?? 25);
     super({
       adapter: new PrismaPg({ connectionString: url, max: poolMax }),

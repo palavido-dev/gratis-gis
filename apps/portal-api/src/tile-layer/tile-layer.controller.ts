@@ -265,7 +265,13 @@ export class TileLayerController {
       await new Promise<void>((resolve, reject) => {
         upstream.body.on('end', resolve);
         upstream.body.on('error', reject);
-        res.on('close', resolve);
+        res.on('close', () => {
+          // Client hung up (panning kills in-flight tile fetches):
+          // destroy the S3 read so its socket returns to the pool
+          // instead of draining to the end and leaking under churn.
+          upstream.body.destroy();
+          resolve();
+        });
       });
     } catch (err) {
       // Client disconnected mid-stream is normal (panning kills

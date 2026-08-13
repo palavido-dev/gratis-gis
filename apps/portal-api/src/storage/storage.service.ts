@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { randomUUID } from 'node:crypto';
+import type { Readable } from 'node:stream';
 import {
   CreateBucketCommand,
   GetObjectCommand,
@@ -162,6 +163,16 @@ export class StorageService implements OnModuleInit {
       region: 'us-east-1', // MinIO ignores this but the SDK requires a value.
       credentials: { accessKeyId, secretAccessKey },
       forcePathStyle: true, // MinIO only supports path-style addressing.
+      // Bound the HTTP handler. The SDK default is unlimited, so a
+      // MinIO that hangs (black-holes rather than refuses) would pin
+      // streamObject / uploadBuffer / ensureBucket and the housekeeping
+      // sweeps forever. connectionTimeout is short because connect is
+      // immediate on the docker network; requestTimeout is generous so
+      // a large range read still completes under it.
+      requestHandler: {
+        connectionTimeout: 3_000,
+        requestTimeout: 60_000,
+      },
       // AWS SDK v3 turns on default integrity protections that send
       // x-amz-sdk-checksum-algorithm + x-amz-content-sha256 headers
       // even on operations like HeadBucket. Older / non-AWS S3
@@ -492,7 +503,7 @@ export class StorageService implements OnModuleInit {
     contentRange: string | undefined;
     etag: string | undefined;
     acceptRanges: string | undefined;
-    body: NodeJS.ReadableStream;
+    body: Readable;
   }> {
     const cmd = new GetObjectCommand({
       Bucket: this.bucket,
@@ -502,7 +513,7 @@ export class StorageService implements OnModuleInit {
     const res = await this.client.send(cmd);
     // The SDK returns the body as a Node Readable when running on
     // Node; cast accordingly.
-    const body = res.Body as NodeJS.ReadableStream;
+    const body = res.Body as Readable;
     return {
       // SDK returns 200 for full responses, 206 for ranged.  We
       // mirror that via the http status from the underlying http

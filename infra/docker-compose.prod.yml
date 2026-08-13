@@ -565,6 +565,11 @@ services:
       # the same reason it was missing on portal-api: it was documented
       # and never wired.
       PORTAL_SCRIPTS_ENABLED: ${PORTAL_SCRIPTS_ENABLED:-}
+      # Cap the Prisma pool below the API default (25). The worker does
+      # not serve tiles, so it does not need a wide pool, and this keeps
+      # total DB demand (portal-api 2x25 + this + script-runner +
+      # Keycloak) inside postgres max_connections=100.
+      DB_POOL_MAX: "8"
       DATABASE_URL: postgresql://${POSTGRES_USER:-gratisgis}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gratisgis}
       KEYCLOAK_URL: https://${AUTH_DOMAIN:-auth.gratisgis.org}
       KEYCLOAK_INTERNAL_URL: http://keycloak:8080
@@ -636,6 +641,9 @@ services:
       # before it starts polling; without it here, a queued run would be
       # executed even with the feature turned off everywhere else.
       PORTAL_SCRIPTS_ENABLED: ${PORTAL_SCRIPTS_ENABLED:-}
+      # Small Prisma pool: the script claimer is a light poll loop. See
+      # the portal-worker note above on the shared max_connections budget.
+      DB_POOL_MAX: "4"
       DATABASE_URL: postgresql://${POSTGRES_USER:-gratisgis}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gratisgis}
       SCRIPT_EXECUTOR_URL: http://script-executor:4100
       SCRIPT_EXECUTOR_TOKEN: ${SCRIPT_EXECUTOR_TOKEN:?SCRIPT_EXECUTOR_TOKEN must be set in .env.prod when the scripts profile is used}
