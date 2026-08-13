@@ -85,7 +85,23 @@ function encodeRow(obs: ObservationLike): string {
   const validToStr = obs.validTo === null ? '\\N' : escapeText(toIsoString(obs.validTo));
   const cellStr = obs.cell == null ? '\\N' : escapeText(obs.cell);
   const attrsStr = obs.attrs === null ? '\\N' : escapeText(JSON.stringify(obs.attrs));
-  const geomStr = obs.geom == null ? '\\N' : geomToEwkt(obs.geom);
+  let geomStr: string;
+  if (obs.geom == null) {
+    geomStr = '\\N';
+  } else {
+    const ewkt = geomToEwkt(obs.geom);
+    if (!ewkt) {
+      // An unknown / unencodable geometry type. Fail with a clear
+      // message instead of writing '' (empty geom), which Postgres'
+      // geometry_in aborts the whole COPY on with a cryptic error.
+      throw new Error(
+        `Unencodable geometry of type "${
+          (obs.geom as { type?: string }).type ?? 'unknown'
+        }"; import aborted rather than writing an empty geometry.`,
+      );
+    }
+    geomStr = ewkt;
+  }
   const sourceStr = escapeText(JSON.stringify(obs.source));
   const parentsStr = `{${obs.parents.join(',')}}`;
   // Tab-separate, newline-terminate. Coordinates and SRID prefixes
@@ -147,6 +163,9 @@ function escapeText(s: string): string {
     .replace(/\r/g, '\\r');
 }
 
+/** EWKT SRID prefix for our single working CRS (EPSG:4326). */
+const SRID_PREFIX = 'SRID=4326;';
+
 /**
  * Hand-rolled GeoJSON-to-EWKT converter. Skips the regex-based
  * escapeText because numeric coordinates and the SRID prefix never
@@ -155,10 +174,32 @@ function escapeText(s: string): string {
  */
 function geomToEwkt(g: unknown): string {
   if (!g || typeof g !== 'object') return '';
-  const obj = g as { type?: string; coordinates?: unknown };
+  const obj = g as {
+    type?: string;
+    coordinates?: unknown;
+    geometries?: unknown;
+  };
   const t = obj.type;
+  if (!t) return '';
+  // GeometryCollection carries `geometries`, not `coordinates`, and
+  // each member is emitted without its own SRID prefix (the collection
+  // owns the SRID). GDAL produces these from KML/GML/GeoJSON; the old
+  // default branch returned '' for them, which wrote an empty string
+  // into the COPY geom column and aborted the entire import.
+  if (t === 'GeometryCollection') {
+    const geoms = obj.geometries;
+    if (!Array.isArray(geoms) || geoms.length === 0) return '';
+    let inner = '';
+    for (let i = 0; i < geoms.length; i += 1) {
+      const memberEwkt = geomToEwkt(geoms[i]);
+      if (!memberEwkt) return ''; // an unencodable member fails the whole collection
+      if (i > 0) inner += ', ';
+      inner += memberEwkt.slice(SRID_PREFIX.length);
+    }
+    return `${SRID_PREFIX}GEOMETRYCOLLECTION(${inner})`;
+  }
   const c = obj.coordinates;
-  if (!t || c === undefined) return '';
+  if (c === undefined) return '';
   const hasZ = detectZ(c);
   const dimTag = hasZ ? ' Z' : '';
   switch (t) {
@@ -190,14 +231,33 @@ function detectZ(c: unknown): boolean {
 
 function pointToWkt(c: unknown, hasZ: boolean): string {
   if (!Array.isArray(c) || c.length < 2) return '';
+  const x = c[0];
+  const y = c[1];
+  // Reject non-finite / non-numeric ordinates rather than emitting
+  // "NaN NaN", which Postgres' geometry_in would abort the whole COPY
+  // on with a cryptic parse error. Throwing here surfaces a clear
+  // message (the encoder failure fails the import job).
+  if (
+    typeof x !== 'number' ||
+    typeof y !== 'number' ||
+    !Number.isFinite(x) ||
+    !Number.isFinite(y)
+  ) {
+    throw new Error(
+      `Non-finite or non-numeric coordinate in geometry: [${String(x)}, ${String(y)}]`,
+    );
+  }
   // String concatenation is faster than template literals in V8 for
   // hot paths (template literals allocate a tagged-template tuple
   // even for the simple form). Each polygon vertex hits this; on a
   // 50000-vertex polygon the difference adds up.
   if (hasZ && typeof c[2] === 'number') {
-    return c[0] + ' ' + c[1] + ' ' + c[2];
+    if (!Number.isFinite(c[2])) {
+      throw new Error(`Non-finite Z ordinate in geometry: ${String(c[2])}`);
+    }
+    return x + ' ' + y + ' ' + c[2];
   }
-  return c[0] + ' ' + c[1];
+  return x + ' ' + y;
 }
 
 function ringToWkt(c: unknown, hasZ: boolean): string {
