@@ -28,10 +28,11 @@ import {
   maskCredential,
 } from '../items/item-proxy.controller.js';
 import { isUuidShape } from './public.controller.js';
+import { safeFetch, UnsafeOutboundUrlError } from '../common/net-guards.js';
 import {
-  assertSafeOutboundUrl,
-  UnsafeOutboundUrlError,
-} from '../common/net-guards.js';
+  PROXY_FETCH_TIMEOUT_MS,
+  streamUpstreamToResponse,
+} from '../common/proxy-stream.js';
 
 /**
  * Anonymous twin of ItemProxyController for #307. Proxies upstream
@@ -152,23 +153,22 @@ export class PublicProxyController {
     // the internet can hit it for any access='public' item.  If a
     // (compromised or careless) admin marked an item public whose
     // url points at an internal host, the entire internet could
-    // read internal responses through that item id.  Hard-refuse
-    // before fetching.
-    let safeTarget: URL;
+    // read internal responses through that item id.  safeFetch
+    // re-validates every redirect hop, so a public host that 302s to
+    // http://169.254.169.254/ (cloud metadata) or an internal docker
+    // service is refused too, not just a directly-internal url.
+    let upstream: globalThis.Response;
     try {
-      safeTarget = await assertSafeOutboundUrl(target);
+      upstream = await safeFetch(target, {
+        method: 'GET',
+        headers,
+        signal: AbortSignal.timeout(PROXY_FETCH_TIMEOUT_MS),
+      });
     } catch (err) {
       if (err instanceof UnsafeOutboundUrlError) {
         res.status(400).json({ message: err.message });
         return;
       }
-      throw err;
-    }
-
-    let upstream: Response | globalThis.Response;
-    try {
-      upstream = await fetch(safeTarget, { method: 'GET', headers });
-    } catch (err) {
       this.log.warn(
         `public proxy fetch failed for item=${itemId} target=${maskCredential(
           target,
@@ -178,10 +178,6 @@ export class PublicProxyController {
       return;
     }
 
-    res.status(upstream.status);
-    const ct = upstream.headers.get('content-type');
-    if (ct) res.setHeader('content-type', ct);
-    const body = Buffer.from(await upstream.arrayBuffer());
-    res.end(body);
+    await streamUpstreamToResponse(upstream, res);
   }
 }

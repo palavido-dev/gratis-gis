@@ -20,10 +20,11 @@ import {
 } from './credential.service.js';
 import { exchangeBasicForArcgisToken } from './arcgis-auth.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { safeFetch, UnsafeOutboundUrlError } from '../common/net-guards.js';
 import {
-  assertSafeOutboundUrl,
-  UnsafeOutboundUrlError,
-} from '../common/net-guards.js';
+  PROXY_FETCH_TIMEOUT_MS,
+  streamUpstreamToResponse,
+} from '../common/proxy-stream.js';
 
 /**
  * Authenticated upstream proxy for secured external services (#36).
@@ -157,22 +158,21 @@ export class ItemProxyController {
 
     // SSRF guard.  An item with a malicious data.url that pointed
     // at an internal host would otherwise be a free SSRF reflector
-    // for any user with read access to that item.
-    let safeTarget: URL;
+    // for any user with read access to that item.  safeFetch
+    // re-validates every redirect hop, so a data.url that 302s to an
+    // internal host or the cloud-metadata endpoint is refused too.
+    let upstream: globalThis.Response;
     try {
-      safeTarget = await assertSafeOutboundUrl(target);
+      upstream = await safeFetch(target, {
+        method: 'GET',
+        headers,
+        signal: AbortSignal.timeout(PROXY_FETCH_TIMEOUT_MS),
+      });
     } catch (err) {
       if (err instanceof UnsafeOutboundUrlError) {
         res.status(400).json({ message: err.message });
         return;
       }
-      throw err;
-    }
-
-    let upstream: Response | globalThis.Response;
-    try {
-      upstream = await fetch(safeTarget, { method: 'GET', headers });
-    } catch (err) {
       this.log.warn(
         `proxy fetch failed for item=${itemId} target=${maskCredential(target)}: ${
           err instanceof Error ? err.message : String(err)
@@ -182,24 +182,13 @@ export class ItemProxyController {
       return;
     }
 
-    // Forward status + body. Filter the headers to a known-safe
-    // subset so we don't accidentally leak server internals
-    // (e.g. some upstreams set Set-Cookie or proprietary headers
-    // we don't want to bridge into the browser context).
-    //
-    // Don't forward content-length: Node's fetch transparently
-    // decompresses gzip / br, so the upstream's reported byte
-    // count refers to the compressed payload while our buffer
-    // holds the decompressed bytes. Browsers truncate at the
-    // header's count and the JSON parse fails mid-document
-    // ("Expected ',' or '}' at position N"). Letting Express
-    // set the header from the actual body length avoids the
-    // mismatch.
-    res.status(upstream.status);
-    const ct = upstream.headers.get('content-type');
-    if (ct) res.setHeader('content-type', ct);
-    const body = Buffer.from(await upstream.arrayBuffer());
-    res.end(body);
+    // Stream the upstream body back with a byte ceiling and
+    // backpressure. Content-length is not forwarded: Node's fetch
+    // transparently decompresses gzip / br, so the upstream count
+    // describes the compressed payload while we emit decompressed
+    // bytes; a forwarded, wrong length truncates the document
+    // mid-parse in the browser.
+    await streamUpstreamToResponse(upstream, res);
 
     // Stamp lastUsageAt for the stale heuristic (#96). Only on a
     // successful upstream fetch -- a 4xx / 5xx upstream isn't real

@@ -24,10 +24,8 @@ import {
   type CredentialPayload,
 } from './credential.service.js';
 import { exchangeBasicForArcgisToken } from './arcgis-auth.js';
-import {
-  assertSafeOutboundUrl,
-  UnsafeOutboundUrlError,
-} from '../common/net-guards.js';
+import { safeFetch, UnsafeOutboundUrlError } from '../common/net-guards.js';
+import { PROXY_FETCH_TIMEOUT_MS } from '../common/proxy-stream.js';
 
 /**
  * Inline service probe with optional ephemeral credential (#74).
@@ -123,29 +121,22 @@ export class ServiceProbeController {
     // bake it into the URL if the caller didn't already.
     const finalUrl = ensureJsonFormat(target);
 
-    // SSRF guard: refuse private / loopback / single-label hosts and
-    // re-check the resolved IP to defeat DNS rebinding.  Run on the
-    // pre-credential URL the user provided so the error message
-    // doesn't leak the credential, then re-validate finalUrl (same
-    // host, but capturing the URL object makes the dataflow into
-    // fetch explicit).
+    // SSRF guard: safeFetch refuses private / loopback / single-label
+    // hosts, re-checks the resolved IP to defeat DNS rebinding, and
+    // re-validates every redirect hop so a public host that 302s
+    // inward is caught too. The timeout keeps a black-holing upstream
+    // from pinning the request.
+    let upstream: Response;
     try {
-      await assertSafeOutboundUrl(dto.url);
+      upstream = await safeFetch(finalUrl, {
+        method: 'GET',
+        headers,
+        signal: AbortSignal.timeout(PROXY_FETCH_TIMEOUT_MS),
+      });
     } catch (err) {
       if (err instanceof UnsafeOutboundUrlError) {
         throw new BadRequestException(err.message);
       }
-      throw err;
-    }
-    const safeFinalUrl = await assertSafeOutboundUrl(finalUrl);
-
-    let upstream: Response;
-    try {
-      upstream = await fetch(safeFinalUrl, {
-        method: 'GET',
-        headers,
-      });
-    } catch (err) {
       this.log.warn(
         `probe fetch failed user=${user.id} url=${maskCredential(finalUrl)}: ${
           err instanceof Error ? err.message : String(err)
