@@ -5,6 +5,26 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.26] - 2026-08-14
+
+### Added
+
+- **Tile layers can now be drawn by desktop GIS software.** Layers
+  stored as a tile package could only be viewed in the portal itself:
+  the file is served whole, and QGIS has no way to read that particular
+  package format, so those layers could not be added to a desktop map
+  at all. The portal now serves their individual map tiles directly, so
+  QGIS and similar tools can draw them like any other tile service.
+  Private and organization layers still require sign-in, and public
+  ones stay public.
+
+### Fixed
+
+- **A tile package uploaded directly could not be served.** Only
+  packages the portal built itself were reachable; one supplied ready
+  made resolved to nothing and returned "not found". These now serve
+  correctly, without loosening who is allowed to see them.
+
 ## [0.9.25] - 2026-08-13
 
 ### Fixed
