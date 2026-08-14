@@ -9,7 +9,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PMTiles, Source, RangeResponse, Header } from 'pmtiles';
+import { PMTiles, Source, RangeResponse, Header, TileType } from 'pmtiles';
 import { Prisma } from '@prisma/client';
 import type {
   TileLayerData,
@@ -68,6 +68,18 @@ const PRE_TILED_HEADROOM = 1.5;
 const TILE_LAYER_KEY_PREFIX = 'item-tile-layer/';
 
 /**
+ * How many open PMTiles archives the XYZ endpoint keeps around.
+ *
+ * The cap is the point of the structure, not an optimization: an
+ * unbounded map would pin one decoded header plus root directory
+ * per archive for the life of the process, and a crawler walking
+ * every tile_layer in a large portal would size that map by the
+ * item count. 32 is far more than the handful of archives any one
+ * map or QGIS project draws at once.
+ */
+const PMTILES_ARCHIVE_CACHE_SIZE = 32;
+
+/**
  * Service for the tile_layer item type (#179).
  *
  * Two responsibilities:
@@ -100,6 +112,17 @@ const TILE_LAYER_KEY_PREFIX = 'item-tile-layer/';
 @Injectable()
 export class TileLayerService {
   private readonly log = new Logger(TileLayerService.name);
+
+  /**
+   * Open archives for the XYZ tile endpoint. Not a general cache:
+   * only getPmtilesTile reads it, and it holds no tile bytes.
+   * Staleness is a non-issue because a re-baked pyramid lands under
+   * a fresh storage key, so the key it is entered under changes
+   * with the bytes.
+   */
+  private readonly archives = new PmtilesArchiveCache(
+    PMTILES_ARCHIVE_CACHE_SIZE,
+  );
 
   constructor(
     private readonly items: ItemsService,
@@ -456,6 +479,17 @@ export class TileLayerService {
     if (format === 'pmtiles') {
       const pmtilesKey = tileKey(d.pmtilesStorageKey);
       if (pmtilesKey) return pmtilesKey;
+      // Pass-through uploads (a .pmtiles the user handed us, or an
+      // .mbtiles / XYZ zip the converter repacked) never run the
+      // pyramid worker, so nothing ever sets pmtilesStorageKey on
+      // them: their archive IS the item's storageKey. Gating on the
+      // stored format keeps the #185 pin intact, because a
+      // COG-backed item still refuses here rather than answering a
+      // pmtiles client with GeoTIFF bytes.
+      if (d.format === 'pmtiles') {
+        const passthroughKey = tileKey(d.storageKey);
+        if (passthroughKey) return passthroughKey;
+      }
       throw new NotFoundException(
         'This layer has no optimized tile file yet.',
       );
@@ -509,6 +543,44 @@ export class TileLayerService {
       throw new NotFoundException('Tile layer not found.');
     }
     return item.data;
+  }
+
+  /**
+   * Read one tile out of the item's PMTiles archive, addressed the
+   * XYZ way. Returns null when the archive holds no tile there,
+   * which is the ordinary case outside a sparse pyramid's coverage.
+   *
+   * Reading a tile rather than proxying the archive is what lets a
+   * desktop GIS draw a raster PMTiles at all: GDAL's PMTiles driver
+   * handles vector archives only and rejects a PNG one outright, so
+   * the archive itself is unopenable there.
+   *
+   * The archive instance is pooled per storage key because the
+   * pmtiles library keeps the decoded header and root directory on
+   * the instance. Discarding it would turn every tile into three
+   * ranged reads against MinIO instead of one.
+   */
+  async getPmtilesTile(
+    user: AuthUser | null,
+    itemId: string,
+    z: number,
+    x: number,
+    y: number,
+  ): Promise<{ data: Buffer; contentType: string } | null> {
+    const storageKey = await this.resolveStorageKey(user, itemId, 'pmtiles');
+    const archive = this.archives.get(
+      storageKey,
+      (key) => new PMTiles(new StorageRangeSource(this.storage, key)),
+    );
+    const tile = await archive.getZxy(z, x, y);
+    if (!tile) return null;
+    // Free after getZxy: the same instance already resolved and
+    // cached the header to find the tile.
+    const header = await archive.getHeader();
+    return {
+      data: Buffer.from(tile.data),
+      contentType: tileTypeContentType(header.tileType),
+    };
   }
 
   /**
@@ -999,6 +1071,70 @@ function tileTypeToken(
       return 'avif';
     default:
       return 'unknown';
+  }
+}
+
+/**
+ * MIME type for the individual tiles inside a PMTiles archive,
+ * read off the archive header's tileType.
+ *
+ * The XYZ endpoint needs this and the archive proxy does not: an
+ * XYZ client picks its decoder from Content-Type alone, while the
+ * archive object is served as one opaque application/octet-stream
+ * and the client parses the header itself.
+ */
+export function tileTypeContentType(tileType: number): string {
+  switch (tileType) {
+    case TileType.Mvt:
+      return 'application/vnd.mapbox-vector-tile';
+    case TileType.Png:
+      return 'image/png';
+    case TileType.Jpeg:
+      return 'image/jpeg';
+    case TileType.Webp:
+      return 'image/webp';
+    case TileType.Avif:
+      return 'image/avif';
+    default:
+      // TileType.Unknown, plus whatever a later spec revision adds.
+      // Handing back octet-stream lets the caller decide rather than
+      // asserting a decoder we have no evidence for.
+      return 'application/octet-stream';
+  }
+}
+
+/**
+ * Bounded pool of open PMTiles archives, keyed by storage key.
+ *
+ * Eviction is insertion order, deliberately not least-recently-used:
+ * a miss costs one ranged read of the header plus root directory,
+ * which is not worth per-hit bookkeeping at this size.
+ *
+ * Tile bytes are not held here. Bounding by archive count keeps the
+ * memory ceiling predictable; bounding by tile count would tie it to
+ * whatever imagery someone uploaded. HTTP caching covers the bytes.
+ */
+export class PmtilesArchiveCache {
+  private readonly open = new Map<string, PMTiles>();
+
+  constructor(private readonly capacity: number) {}
+
+  get size(): number {
+    return this.open.size;
+  }
+
+  /** Cached archive for `key`, opening one through `openArchive` on a miss. */
+  get(key: string, openArchive: (key: string) => PMTiles): PMTiles {
+    const existing = this.open.get(key);
+    if (existing) return existing;
+    const archive = openArchive(key);
+    this.open.set(key, archive);
+    while (this.open.size > this.capacity) {
+      const oldest = this.open.keys().next();
+      if (oldest.done) break;
+      this.open.delete(oldest.value);
+    }
+    return archive;
   }
 }
 

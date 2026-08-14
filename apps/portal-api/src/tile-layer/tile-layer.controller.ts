@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -38,6 +39,52 @@ const INLINE_SAFE_TILE_TYPES = new Set([
 ]);
 
 /**
+ * Deepest zoom the XYZ endpoint will address. Matches the cap the
+ * data_layer MVT route already uses. Past it the addresses stop
+ * describing anything a web-mercator pyramid holds, and keeping
+ * 2**z well inside exact double range means the bounds check below
+ * cannot go soft.
+ */
+const MAX_TILE_ZOOM = 24;
+
+/**
+ * Parse an XYZ address out of route params.
+ *
+ * Number() alone is not a validator here: it turns '', ' 2 ',
+ * '1e3', '0x10' and '2.0' into finite values that would then sail
+ * through an integer and range check while naming a tile nobody
+ * asked for. Requiring plain digits first makes the accepted set
+ * exactly the one the XYZ scheme defines. It also means every
+ * parsed value is already non-negative, so the range checks need
+ * upper bounds only; a rejected segment arrives as NaN, which
+ * fails Number.isInteger.
+ *
+ * Exported for the spec: it is the whole input surface of a route
+ * anonymous callers can reach.
+ */
+export function parseTileCoords(
+  zStr: string,
+  xStr: string,
+  yStr: string,
+): { z: number; x: number; y: number } {
+  const coord = (v: string): number =>
+    /^\d+$/.test(v) ? Number(v) : Number.NaN;
+  const z = coord(zStr);
+  if (!Number.isInteger(z) || z > MAX_TILE_ZOOM) {
+    throw new BadRequestException('Invalid tile coordinates.');
+  }
+  // A zoom level holds 2**z tiles per axis; anything at or past
+  // that names no tile, so refuse before it costs an archive read.
+  const span = 2 ** z;
+  const x = coord(xStr);
+  const y = coord(yStr);
+  if (!Number.isInteger(x) || x >= span || !Number.isInteger(y) || y >= span) {
+    throw new BadRequestException('Invalid tile coordinates.');
+  }
+  return { z, x, y };
+}
+
+/**
  * HTTP surface for tile_layer items (#179).
  *
  *   POST /items/:id/tile-layer/finalize
@@ -51,6 +98,11 @@ const INLINE_SAFE_TILE_TYPES = new Set([
  *     Forwards the Range header to the file's public MinIO URL
  *     and streams the response back. Item-level ACL applies via
  *     ItemsService.get inside resolveStorageUrl().
+ *
+ *   GET /tile-layer/:itemId/tiles/:z/:x/:y[.png]
+ *     Server-side XYZ tiles read out of the same PMTiles archive,
+ *     for desktop GIS clients that cannot open a raster archive
+ *     themselves. Same ACL, one tile per request.
  */
 @ApiTags('tile-layer')
 @ApiBearerAuth()
@@ -286,5 +338,62 @@ export class TileLayerController {
         /* response may already be closed */
       }
     }
+  }
+
+  /**
+   * Plain XYZ tiles unrolled from the item's PMTiles archive.
+   *
+   * Why this exists when the archive is already downloadable at
+   * /tile-layer/:itemId/file.pmtiles: GDAL's PMTiles driver reads
+   * vector archives only and refuses a raster one outright ("Tile
+   * type PNG not handled by the driver"), so a desktop GIS pointed
+   * at the archive cannot draw it at all. Every raster PMTiles in
+   * the portal was unreachable from QGIS until this route. COGs are
+   * unaffected, since /vsicurl opens those directly.
+   *
+   * Why XYZ rather than another OGC surface: QGIS's XYZ provider is
+   * QNetworkRequest based, so it honours an authcfg and sends the
+   * portal API key with every tile. Private and org-only layers
+   * therefore authenticate through the ordinary bearer path with no
+   * extra plumbing.
+   *
+   * Both URL forms serve identical bytes. The `.png` variant exists
+   * because some clients pick a decoder off the URL suffix, and it
+   * is registered first because the bare pattern's `:y` would
+   * otherwise swallow "3.png" whole.
+   */
+  @Public()
+  @Get([
+    'tile-layer/:itemId/tiles/:z/:x/:y.png',
+    'tile-layer/:itemId/tiles/:z/:x/:y',
+  ])
+  async serveTile(
+    @CurrentUser() user: AuthUser | null,
+    @Param('itemId') itemId: string,
+    @Param('z') zStr: string,
+    @Param('x') xStr: string,
+    @Param('y') yStr: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { z, x, y } = parseTileCoords(zStr, xStr, yStr);
+    const tile = await this.tileLayer.getPmtilesTile(user, itemId, z, x, y);
+    if (!tile) {
+      // A missing tile is a 404 by XYZ convention, which clients
+      // read as "nothing to draw here" rather than as an error.
+      res.status(404).json({ message: 'No tile at that address.' });
+      return;
+    }
+    res.setHeader('Content-Type', tile.contentType);
+    res.setHeader('Content-Length', String(tile.data.byteLength));
+    // The type comes from the archive header, not from anything a
+    // caller supplied, but this route is @Public and serves bytes a
+    // user uploaded; nosniff keeps a browser from second-guessing
+    // one into something scriptable.
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    // private, because the same path serves non-public items: a
+    // shared proxy must not hand one viewer's tiles to the next
+    // caller. One hour matches the archive proxy's window.
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.send(tile.data);
   }
 }
