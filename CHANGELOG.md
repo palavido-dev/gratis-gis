@@ -5,6 +5,28 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.27] - 2026-08-15
+
+### Added
+
+- **Every raster layer can now be drawn by desktop GIS software.**
+  0.9.26 did this for layers stored as a tile package. Layers stored
+  as a single image file were still left out: the file is served
+  whole, and the only way QGIS could read one was to open it over the
+  network itself, which hangs QGIS outright whenever a saved project
+  containing such a layer is reopened. The portal now serves map tiles
+  for these layers too, off the same address as the others, so a
+  desktop map draws them like any other tile service and nothing has
+  to open the file.
+
+  Elevation layers are included, and are drawn as a grey picture of
+  the terrain. Download the file itself if you need the elevation
+  values for analysis.
+
+  Which kind of file backs a layer is worked out per request, so a
+  desktop map saved while a layer was still being converted keeps
+  working after the conversion finishes.
+
 ## [0.9.26] - 2026-08-14
 
 ### Added
