@@ -515,6 +515,75 @@ export class TileLayerService {
   }
 
   /**
+   * What the XYZ tile route should read for this item, in one ACL'd
+   * pass: which kind of file backs it, where that file is, and the
+   * footprint if the item carries one.
+   *
+   * The tile route serves both kinds and the caller cannot tell them
+   * apart from the URL, by design. A client that stamped a tile URL
+   * while an upload was still a COG keeps working after the pyramid
+   * build turns it into PMTiles, and vice versa; the item decides,
+   * per request. Deciding in the controller instead would mean two
+   * ACL reads for the COG branch.
+   *
+   * PMTiles wins when both keys are present. That is the same
+   * preference the bare file endpoint uses, and it is the cheaper
+   * read: a pyramid tile is a byte-range fetch, a COG tile is a warp.
+   */
+  async resolveTileSource(
+    user: AuthUser | null,
+    itemId: string,
+  ): Promise<{
+    kind: 'pmtiles' | 'cog';
+    storageKey: string;
+    bbox?: [number, number, number, number];
+  }> {
+    const data = await this.readTileLayerDataDualAcl(user, itemId);
+    if (!isTileLayerData(data)) {
+      throw new NotFoundException(
+        'Tile layer has not been uploaded yet (or the upload finalize step did not run).',
+      );
+    }
+    const d = data as unknown as Record<string, unknown>;
+    // Same serve-time prefix pin as resolveStorageKey: item.data is
+    // owner-writable through the generic items PATCH, so a key that
+    // escaped the finalize check must never make this @Public route
+    // read another prefix with portal-api's credentials.
+    const tileKey = (v: unknown): string | null =>
+      typeof v === 'string' && v.startsWith(TILE_LAYER_KEY_PREFIX) ? v : null;
+    const bbox =
+      Array.isArray(d.bbox) &&
+      d.bbox.length === 4 &&
+      d.bbox.every((n) => typeof n === 'number' && Number.isFinite(n))
+        ? ([...d.bbox] as [number, number, number, number])
+        : undefined;
+
+    const pmtiles = tileKey(d.pmtilesStorageKey);
+    if (pmtiles) {
+      return { kind: 'pmtiles', storageKey: pmtiles, ...(bbox ? { bbox } : {}) };
+    }
+    // A pass-through upload (a .pmtiles the user handed us, or an
+    // .mbtiles the converter repacked) never runs the pyramid
+    // worker, so nothing sets pmtilesStorageKey: its archive IS the
+    // item's storageKey, and only the stored format says so.
+    if (d.format === 'pmtiles') {
+      const passthrough = tileKey(d.storageKey);
+      if (passthrough) {
+        return {
+          kind: 'pmtiles',
+          storageKey: passthrough,
+          ...(bbox ? { bbox } : {}),
+        };
+      }
+    }
+    const cog = tileKey(d.cogStorageKey) ?? tileKey(d.storageKey);
+    if (cog) {
+      return { kind: 'cog', storageKey: cog, ...(bbox ? { bbox } : {}) };
+    }
+    throw new NotFoundException('Tile layer storage key is missing.');
+  }
+
+  /**
    * #185 / #211: the shared dual-ACL read behind every serve-time
    * resolver. `user` is null for anonymous requests, which resolve
    * only when the item is shared publicly (the public-mirror rule).
@@ -568,6 +637,23 @@ export class TileLayerService {
     y: number,
   ): Promise<{ data: Buffer; contentType: string } | null> {
     const storageKey = await this.resolveStorageKey(user, itemId, 'pmtiles');
+    return this.getPmtilesTileByKey(storageKey, z, x, y);
+  }
+
+  /**
+   * The same read with the ACL already done, for a caller that
+   * resolved the item once and then branched on what backs it (see
+   * resolveTileSource). Taking a raw storage key here is safe only
+   * because every caller got it from a resolver that applied the
+   * dual ACL and the prefix pin; nothing may pass a key straight off
+   * a request.
+   */
+  async getPmtilesTileByKey(
+    storageKey: string,
+    z: number,
+    x: number,
+    y: number,
+  ): Promise<{ data: Buffer; contentType: string } | null> {
     const archive = this.archives.get(
       storageKey,
       (key) => new PMTiles(new StorageRangeSource(this.storage, key)),

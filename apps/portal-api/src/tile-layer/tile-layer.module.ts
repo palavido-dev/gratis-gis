@@ -4,6 +4,7 @@ import { Module } from '@nestjs/common';
 import { EngineModule } from '../engine/engine.module.js';
 import { ItemsModule } from '../items/items.module.js';
 import { StorageModule } from '../storage/storage.module.js';
+import { CogTileService } from './cog-tiles.service.js';
 import { ElevationMosaicController } from './elevation-mosaic.controller.js';
 import { ElevationMosaicService } from './elevation-mosaic.service.js';
 import { TileLayerController } from './tile-layer.controller.js';
@@ -21,7 +22,7 @@ import { TileLayerService } from './tile-layer.service.js';
 @Module({
   imports: [ItemsModule, StorageModule, EngineModule],
   controllers: [TileLayerController, ElevationMosaicController],
-  providers: [TileLayerService, ElevationMosaicService],
+  providers: [TileLayerService, ElevationMosaicService, CogTileService],
   exports: [TileLayerService],
 })
 export class TileLayerModule {}

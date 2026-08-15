@@ -252,3 +252,130 @@ describe('TileLayerService.resolveStorageKey (pmtiles pin)', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 });
+
+/**
+ * The XYZ endpoint serves both archive-backed and COG-backed items
+ * off one URL, so this resolver picks the branch. It decides per
+ * request rather than off a stamped URL, which is what lets a client
+ * that saved a tile URL during the pre-pyramid window keep working
+ * after the background build finishes.
+ *
+ * A COG-backed item had no tile route at all until this: the only way
+ * to read one from a desktop GIS was GDAL's /vsicurl over the file,
+ * and a saved project containing such a layer deadlocks QGIS on open.
+ */
+describe('TileLayerService.resolveTileSource', () => {
+  function makeService(data: unknown) {
+    const items = {
+      get: jest.fn(async () => ({ id: ITEM_ID, type: 'tile_layer', data })),
+    };
+    const service = new TileLayerService(
+      items as unknown as ConstructorParameters<typeof TileLayerService>[0],
+      {} as ConstructorParameters<typeof TileLayerService>[1],
+      {} as ConstructorParameters<typeof TileLayerService>[2],
+      {} as ConstructorParameters<typeof TileLayerService>[3],
+      {} as ConstructorParameters<typeof TileLayerService>[4],
+    );
+    return { service, items };
+  }
+
+  const user = { id: 'u1', orgId: 'org-1' } as unknown as AuthUser;
+
+  it('sends a COG-backed item down the warp path', async () => {
+    const { service } = makeService({
+      version: 1,
+      format: 'cog',
+      storageKey: 'item-tile-layer/source-cog',
+      cogStorageKey: 'item-tile-layer/source-cog',
+    });
+    await expect(service.resolveTileSource(user, ITEM_ID)).resolves.toEqual({
+      kind: 'cog',
+      storageKey: 'item-tile-layer/source-cog',
+    });
+  });
+
+  it('prefers the pyramid once the worker has built one', async () => {
+    // A pyramid tile is a byte-range read; a COG tile is a warp. When
+    // both exist the cheap one has to win, or the whole pyramid build
+    // buys nothing.
+    const { service } = makeService({
+      version: 1,
+      format: 'pmtiles',
+      storageKey: 'item-tile-layer/source-cog',
+      cogStorageKey: 'item-tile-layer/source-cog',
+      pmtilesStorageKey: 'item-tile-layer/pyramid',
+    });
+    await expect(service.resolveTileSource(user, ITEM_ID)).resolves.toEqual({
+      kind: 'pmtiles',
+      storageKey: 'item-tile-layer/pyramid',
+    });
+  });
+
+  it('serves a directly uploaded archive as pmtiles', async () => {
+    const { service } = makeService({
+      version: 1,
+      format: 'pmtiles',
+      storageKey: 'item-tile-layer/uploaded',
+    });
+    await expect(service.resolveTileSource(user, ITEM_ID)).resolves.toEqual({
+      kind: 'pmtiles',
+      storageKey: 'item-tile-layer/uploaded',
+    });
+  });
+
+  it('carries the footprint through when the item has one', async () => {
+    // The COG branch answers a tile outside this box without opening
+    // the raster, which is most tiles for a county-sized image on a
+    // world grid.
+    const { service } = makeService({
+      version: 1,
+      format: 'cog',
+      storageKey: 'item-tile-layer/source-cog',
+      cogStorageKey: 'item-tile-layer/source-cog',
+      bbox: [-80.1023483, 38.7211441, -80.0316238, 38.7677365],
+    });
+    await expect(service.resolveTileSource(user, ITEM_ID)).resolves.toEqual({
+      kind: 'cog',
+      storageKey: 'item-tile-layer/source-cog',
+      bbox: [-80.1023483, 38.7211441, -80.0316238, 38.7677365],
+    });
+  });
+
+  it('drops a malformed footprint rather than trusting it', async () => {
+    // A short or non-numeric bbox would make every intersection test
+    // answer nonsense, and the visible result is a layer that draws
+    // nowhere. Absent is safe: the raster gets opened instead.
+    const { service } = makeService({
+      version: 1,
+      format: 'cog',
+      storageKey: 'item-tile-layer/source-cog',
+      cogStorageKey: 'item-tile-layer/source-cog',
+      bbox: [-80.1, 38.7, 'east', 38.8],
+    });
+    await expect(service.resolveTileSource(user, ITEM_ID)).resolves.toEqual({
+      kind: 'cog',
+      storageKey: 'item-tile-layer/source-cog',
+    });
+  });
+
+  it('keeps the prefix pinned on both branches', async () => {
+    // item.data is owner-writable through the generic items PATCH,
+    // and this route is @Public and reads with portal-api's own
+    // MinIO credentials. A key outside our prefix must read as
+    // absent, not be opened.
+    for (const data of [
+      {
+        version: 1,
+        format: 'cog',
+        storageKey: 'feature-attachment/theirs',
+        cogStorageKey: 'feature-attachment/theirs',
+      },
+      { version: 1, format: 'pmtiles', storageKey: 'feature-attachment/theirs' },
+    ]) {
+      const { service } = makeService(data);
+      await expect(
+        service.resolveTileSource(user, ITEM_ID),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    }
+  });
+});

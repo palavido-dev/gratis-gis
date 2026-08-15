@@ -18,7 +18,13 @@ import { CurrentUser } from '../auth/current-user.decorator.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Public } from '../auth/public.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import {
+  TileCacheOverloadError,
+  matchesIfNoneMatch,
+  tileOverloadRetryAfterSeconds,
+} from '../engine/tile-cache.service.js';
 import { StorageService } from '../storage/storage.service.js';
+import { CogTileService } from './cog-tiles.service.js';
 import { TileLayerService } from './tile-layer.service.js';
 
 /**
@@ -112,6 +118,7 @@ export class TileLayerController {
   constructor(
     private readonly tileLayer: TileLayerService,
     private readonly storage: StorageService,
+    private readonly cogTiles: CogTileService,
   ) {}
 
   @Post('items/:itemId/tile-layer/finalize')
@@ -341,15 +348,29 @@ export class TileLayerController {
   }
 
   /**
-   * Plain XYZ tiles unrolled from the item's PMTiles archive.
+   * Plain XYZ tiles for any tile_layer, whatever backs it.
    *
-   * Why this exists when the archive is already downloadable at
-   * /tile-layer/:itemId/file.pmtiles: GDAL's PMTiles driver reads
-   * vector archives only and refuses a raster one outright ("Tile
-   * type PNG not handled by the driver"), so a desktop GIS pointed
-   * at the archive cannot draw it at all. Every raster PMTiles in
-   * the portal was unreachable from QGIS until this route. COGs are
-   * unaffected, since /vsicurl opens those directly.
+   * PMTiles-backed items are unrolled from the archive. This exists
+   * for them because GDAL's PMTiles driver reads vector archives
+   * only and refuses a raster one outright ("Tile type PNG not
+   * handled by the driver"), so a desktop GIS pointed at the archive
+   * cannot draw it at all; every raster PMTiles in the portal was
+   * unreachable from QGIS until this route.
+   *
+   * COG-backed items are warped out of the GeoTIFF per tile. This
+   * exists for them because the alternative, opening the file over
+   * HTTP range reads with GDAL's /vsicurl, DEADLOCKS QGIS whenever a
+   * saved project containing such a layer is opened: providers are
+   * built on a worker pool during project read while the GUI thread
+   * waits for them, and a /vsicurl provider never returns. Adding
+   * the layer by hand always worked, which is what made the bug look
+   * intermittent. The COG stays downloadable at /file.cog; a DEM
+   * served here is a picture of the terrain, not values.
+   *
+   * Which one an item uses is resolved per request rather than
+   * stamped into the URL, so a client that saved a tile URL while an
+   * upload was still a COG keeps working after the pyramid build
+   * turns it into PMTiles.
    *
    * Why XYZ rather than another OGC surface: QGIS's XYZ provider is
    * QNetworkRequest based, so it honours an authcfg and sends the
@@ -368,6 +389,7 @@ export class TileLayerController {
     'tile-layer/:itemId/tiles/:z/:x/:y',
   ])
   async serveTile(
+    @Req() req: Request,
     @CurrentUser() user: AuthUser | null,
     @Param('itemId') itemId: string,
     @Param('z') zStr: string,
@@ -376,24 +398,77 @@ export class TileLayerController {
     @Res() res: Response,
   ): Promise<void> {
     const { z, x, y } = parseTileCoords(zStr, xStr, yStr);
-    const tile = await this.tileLayer.getPmtilesTile(user, itemId, z, x, y);
-    if (!tile) {
-      // A missing tile is a 404 by XYZ convention, which clients
-      // read as "nothing to draw here" rather than as an error.
-      res.status(404).json({ message: 'No tile at that address.' });
-      return;
-    }
-    res.setHeader('Content-Type', tile.contentType);
-    res.setHeader('Content-Length', String(tile.data.byteLength));
-    // The type comes from the archive header, not from anything a
-    // caller supplied, but this route is @Public and serves bytes a
-    // user uploaded; nosniff keeps a browser from second-guessing
-    // one into something scriptable.
-    res.setHeader('X-Content-Type-Options', 'nosniff');
+    // One ACL'd read decides the branch; both branches then work
+    // from the key it returned.
+    const source = await this.tileLayer.resolveTileSource(user, itemId);
+
     // private, because the same path serves non-public items: a
     // shared proxy must not hand one viewer's tiles to the next
     // caller. One hour matches the archive proxy's window.
-    res.setHeader('Cache-Control', 'private, max-age=3600');
-    res.send(tile.data);
+    const cacheControl = 'private, max-age=3600';
+
+    if (source.kind === 'pmtiles') {
+      const tile = await this.tileLayer.getPmtilesTileByKey(
+        source.storageKey,
+        z,
+        x,
+        y,
+      );
+      if (!tile) {
+        // A missing tile is a 404 by XYZ convention, which clients
+        // read as "nothing to draw here" rather than as an error.
+        res.status(404).json({ message: 'No tile at that address.' });
+        return;
+      }
+      res.setHeader('Content-Type', tile.contentType);
+      res.setHeader('Content-Length', String(tile.data.byteLength));
+      // The type comes from the archive header, not from anything a
+      // caller supplied, but this route is @Public and serves bytes
+      // a user uploaded; nosniff keeps a browser from second-
+      // guessing one into something scriptable.
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Cache-Control', cacheControl);
+      res.send(tile.data);
+      return;
+    }
+
+    let hit: Awaited<ReturnType<CogTileService['tile']>>;
+    try {
+      hit = await this.cogTiles.tile(
+        { itemId, storageKey: source.storageKey, ...(source.bbox ? { bbox: source.bbox } : {}) },
+        z,
+        x,
+        y,
+      );
+    } catch (e) {
+      if (e instanceof TileCacheOverloadError) {
+        // Same back-off contract as the MVT and elevation routes:
+        // the warp concurrency cap is saturated, so tell the client
+        // to retry shortly instead of amplifying the storm.
+        res.setHeader('Retry-After', String(tileOverloadRetryAfterSeconds()));
+        res.setHeader('Cache-Control', 'no-store');
+        res.status(503).end();
+        return;
+      }
+      throw e;
+    }
+    if (!hit) {
+      res.status(404).json({ message: 'No tile at that address.' });
+      return;
+    }
+    if (matchesIfNoneMatch(req.headers['if-none-match'], hit.etag)) {
+      // Warping is the expensive part of this route, so a
+      // revalidation that costs nothing is worth answering.
+      res.setHeader('ETag', hit.etag);
+      res.setHeader('Cache-Control', cacheControl);
+      res.status(304).end();
+      return;
+    }
+    res.setHeader('ETag', hit.etag);
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Content-Length', String(hit.buf.byteLength));
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', cacheControl);
+    res.send(hit.buf);
   }
 }
