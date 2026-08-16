@@ -21,6 +21,7 @@ import {
   tileBbox3857,
   tileBboxWgs84,
 } from './elevation-mosaic.compositor.js';
+import { ensureVsis3, loadGdal } from './gdal-s3.js';
 
 /** One stack entry after ACL resolution. */
 interface ResolvedDem {
@@ -227,44 +228,13 @@ export class ElevationMosaicService {
     }
   }
 
-  /**
-   * Native addon, deliberately deferred so a missing prebuild can't
-   * crash boot (same rule as ingest).
-   */
-  private async loadGdal(): Promise<typeof import('gdal-async')> {
-    const mod = await import('gdal-async');
-    return (
-      (mod as unknown as { default?: typeof import('gdal-async') }).default ??
-      mod
-    );
+  /** Both shared with the COG tile service; see gdal-s3.ts. */
+  private loadGdal(): Promise<typeof import('gdal-async')> {
+    return loadGdal();
   }
 
-  private vsis3Ready = false;
-
-  /**
-   * Point GDAL's /vsis3/ at MinIO using the credentials the SDK
-   * client already holds. Process-global GDAL config; idempotent.
-   */
   private ensureVsis3(gdal: typeof import('gdal-async')): void {
-    if (this.vsis3Ready) return;
-    const { endpoint, accessKeyId, secretAccessKey } =
-      this.storage.vsis3Config();
-    let host = endpoint;
-    let https = true;
-    try {
-      const url = new URL(endpoint);
-      host = url.host;
-      https = url.protocol === 'https:';
-    } catch {
-      // Not URL-shaped; assume host[:port] as-is.
-      https = false;
-    }
-    gdal.config.set('AWS_S3_ENDPOINT', host);
-    gdal.config.set('AWS_HTTPS', https ? 'YES' : 'NO');
-    gdal.config.set('AWS_VIRTUAL_HOSTING', 'FALSE');
-    gdal.config.set('AWS_ACCESS_KEY_ID', accessKeyId);
-    gdal.config.set('AWS_SECRET_ACCESS_KEY', secretAccessKey);
-    this.vsis3Ready = true;
+    ensureVsis3(gdal, this.storage);
   }
 }
 

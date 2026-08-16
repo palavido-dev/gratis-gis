@@ -2,6 +2,12 @@
 node_modules/
 .pnpm-store/
 
+# Headless overnight run logs (scripts/overnight.sh)
+logs/
+
+# Local Claude session state
+.claude/
+
 # Build output
 dist/
 build/

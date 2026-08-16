@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { createHash } from 'node:crypto';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { Injectable, Logger } from '@nestjs/common';
 
@@ -11,6 +10,7 @@ import {
 } from '../engine/tile-cache.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { bboxesIntersect } from './elevation-mosaic.compositor.js';
+import { ensureVsis3, loadGdal } from './gdal-s3.js';
 import {
   COG_TILE_SIZE,
   grayscaleArgs,
@@ -133,11 +133,9 @@ export class CogTileService {
       const addAlpha = needsAlphaBand(lastInterp);
 
       // The stretch range has to come from the whole raster, so read
-      // it here, before the warp narrows the view to one tile. It is
-      // approximate on purpose: computed off an overview, it costs
-      // about ten milliseconds instead of a full-resolution pass.
+      // it here, before the warp narrows the view to one tile.
       const stretch = needsRendering(dataType)
-        ? this.statisticsRange(src)
+        ? this.statisticsRange(source.storageKey, src)
         : null;
 
       warped = await gdal.warpAsync(
@@ -190,72 +188,75 @@ export class CogTileService {
   }
 
   /**
-   * Approximate min and max of band 1, for the grey stretch.
+   * Cached stretch ranges, keyed by storage key. The range describes
+   * the FILE, so a re-pointed key misses naturally, and a re-baked
+   * file under the same key serves with the old range until the
+   * process restarts, which is the same staleness the tile cache
+   * already accepts. Bounded because keys accumulate for the life of
+   * the process; eviction is oldest-inserted, which is fine at this
+   * size.
+   */
+  private readonly stretchRanges = new Map<
+    string,
+    { low: number; high: number }
+  >();
+  private static readonly MAX_STRETCH_RANGES = 512;
+
+  /**
+   * Approximate min and max of band 1, for the grey stretch, cached
+   * per storage key.
+   *
+   * Cached because this used to run on every cache-miss tile of a
+   * non-Byte raster: `getStatistics` is a synchronous native call
+   * that blocks the event loop while it reads (about 10 ms when the
+   * file carries stats or overviews, unbounded when it has to scan),
+   * and the answer is a property of the file, not of the tile. One
+   * read per file per process is the honest cost.
    *
    * Falls back to the full Byte range when statistics are
    * unavailable, which renders SOMETHING rather than failing the
    * tile: a wrong-looking layer is a report, a broken one is a
-   * support call.
+   * support call. The fallback is cached too; re-paying a broken
+   * statistics read on every tile would just repeat the failure.
    */
   private statisticsRange(
+    storageKey: string,
     src: import('gdal-async').Dataset,
   ): { low: number; high: number } {
+    const cached = this.stretchRanges.get(storageKey);
+    if (cached) return cached;
+
+    let range = { low: 0, high: 255 };
     try {
       const stats = src.bands.get(1).getStatistics(true, true) as {
         min: number;
         max: number;
       };
       if (Number.isFinite(stats.min) && Number.isFinite(stats.max)) {
-        return { low: stats.min, high: stats.max };
+        range = { low: stats.min, high: stats.max };
       }
     } catch (err) {
       this.log.warn(
-        `no statistics for the stretch: ${
+        `no statistics for the stretch (${storageKey}): ${
           err instanceof Error ? err.message : String(err)
         }`,
       );
     }
-    return { low: 0, high: 255 };
-  }
-
-  /** Native addon, deferred so a missing prebuild cannot crash boot
-   *  (same rule as ingest and the elevation mosaic). */
-  private async loadGdal(): Promise<typeof import('gdal-async')> {
-    const mod = await import('gdal-async');
-    return (
-      (mod as unknown as { default?: typeof import('gdal-async') }).default ??
-      mod
-    );
-  }
-
-  private vsis3Ready = false;
-
-  /**
-   * Point GDAL's /vsis3/ at MinIO using the credentials the SDK
-   * client already holds. Process-global GDAL config; idempotent,
-   * and identical to the elevation mosaic's, which may have run
-   * first.
-   */
-  private ensureVsis3(gdal: typeof import('gdal-async')): void {
-    if (this.vsis3Ready) return;
-    const { endpoint, accessKeyId, secretAccessKey } =
-      this.storage.vsis3Config();
-    let host = endpoint;
-    let https = true;
-    try {
-      const url = new URL(endpoint);
-      host = url.host;
-      https = url.protocol === 'https:';
-    } catch {
-      // Not URL-shaped; assume host[:port] as-is.
-      https = false;
+    if (this.stretchRanges.size >= CogTileService.MAX_STRETCH_RANGES) {
+      const oldest = this.stretchRanges.keys().next().value;
+      if (oldest !== undefined) this.stretchRanges.delete(oldest);
     }
-    gdal.config.set('AWS_S3_ENDPOINT', host);
-    gdal.config.set('AWS_HTTPS', https ? 'YES' : 'NO');
-    gdal.config.set('AWS_VIRTUAL_HOSTING', 'FALSE');
-    gdal.config.set('AWS_ACCESS_KEY_ID', accessKeyId);
-    gdal.config.set('AWS_SECRET_ACCESS_KEY', secretAccessKey);
-    this.vsis3Ready = true;
+    this.stretchRanges.set(storageKey, range);
+    return range;
+  }
+
+  /** Both shared with the elevation mosaic; see gdal-s3.ts. */
+  private loadGdal(): Promise<typeof import('gdal-async')> {
+    return loadGdal();
+  }
+
+  private ensureVsis3(gdal: typeof import('gdal-async')): void {
+    ensureVsis3(gdal, this.storage);
   }
 }
 

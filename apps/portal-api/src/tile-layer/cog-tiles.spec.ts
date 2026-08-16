@@ -24,6 +24,7 @@ import {
   tileBoundsWgs84,
   warpArgs,
 } from './cog-tiles.js';
+import { CogTileService } from './cog-tiles.service.js';
 
 /** Read `-flag value` out of an argument list. */
 function argAfter(args: string[], flag: string): string | undefined {
@@ -214,5 +215,62 @@ describe('isValidTileAddress', () => {
     // resolution costs a full read for a tile nobody can see, and an
     // uncapped z makes 2 ** z lose integer precision.
     expect(isValidTileAddress(25, 0, 0)).toBe(false);
+  });
+});
+
+describe('CogTileService.statisticsRange', () => {
+  // The service is constructed with dead collaborators because this
+  // method touches neither; what is under test is the per-file cache.
+  const service = () =>
+    new CogTileService(
+      {} as ConstructorParameters<typeof CogTileService>[0],
+      {} as ConstructorParameters<typeof CogTileService>[1],
+    );
+
+  const dataset = (getStatistics: jest.Mock) =>
+    ({ bands: { get: () => ({ getStatistics }) } }) as never;
+
+  it('reads a file once, not once per tile', () => {
+    // getStatistics is a synchronous native call that blocks the
+    // event loop, and the answer is a property of the file. Before
+    // the cache it ran on every cache-miss tile of a non-Byte raster.
+    const stats = jest.fn(() => ({ min: 492.7, max: 1180.5 }));
+    const svc = service();
+    const call = () =>
+      (svc as never as {
+        statisticsRange: (k: string, s: never) => { low: number; high: number };
+      }).statisticsRange('item-tile-layer/dem', dataset(stats));
+    expect(call()).toEqual({ low: 492.7, high: 1180.5 });
+    expect(call()).toEqual({ low: 492.7, high: 1180.5 });
+    expect(stats).toHaveBeenCalledTimes(1);
+  });
+
+  it('keys the cache by file, not by service', () => {
+    const a = jest.fn(() => ({ min: 0, max: 10 }));
+    const b = jest.fn(() => ({ min: 5, max: 15 }));
+    const svc = service() as never as {
+      statisticsRange: (k: string, s: never) => { low: number; high: number };
+    };
+    expect(svc.statisticsRange('item-tile-layer/a', dataset(a)).high).toBe(10);
+    expect(svc.statisticsRange('item-tile-layer/b', dataset(b)).high).toBe(15);
+    expect(a).toHaveBeenCalledTimes(1);
+    expect(b).toHaveBeenCalledTimes(1);
+  });
+
+  it('caches the fallback for a file with no readable statistics', () => {
+    // Re-paying a broken statistics read on every tile would repeat
+    // the failure; the fallback renders the full Byte range instead.
+    const stats = jest.fn(() => {
+      throw new Error('no stats');
+    });
+    const svc = service() as never as {
+      statisticsRange: (k: string, s: never) => { low: number; high: number };
+    };
+    expect(svc.statisticsRange('item-tile-layer/x', dataset(stats))).toEqual({
+      low: 0,
+      high: 255,
+    });
+    svc.statisticsRange('item-tile-layer/x', dataset(stats));
+    expect(stats).toHaveBeenCalledTimes(1);
   });
 });
