@@ -16,7 +16,7 @@
 # a release with a fetch regression and broke prod writes). Bump
 # deliberately, both Dockerfiles together.
 
-FROM node:24.18.0-bookworm-slim AS base
+FROM node:26.7.0-bookworm-slim AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 # Three things in one RUN to keep the layer count tight:
