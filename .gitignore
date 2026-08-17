@@ -157,3 +157,6 @@ page-head.tsx
 !infra/**/*.zip
 !docs/**/*.geojson
 !docs/**/*.zip
+  
+# Personal preparation notes, not project documentation. Kept locally.  
+OSGEO-SUBMISSION.md  
