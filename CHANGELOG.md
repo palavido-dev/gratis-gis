@@ -5,6 +5,20 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.28] - 2026-08-17
+
+### Added
+
+- **Signed-in access to layers as real features.** A new signed-in
+  data feed at /api/ogc serves every data layer you can see, not just
+  public ones, in the standard format desktop GIS software reads
+  (OGC API Features). In practice: private and organization layers
+  can now be opened in QGIS as true feature layers with working
+  attribute tables, using the same read-only key that already draws
+  them. Everything you are limited to stays limited: geographic
+  limits on shares and own-rows-only scoping apply to every read,
+  including single-feature lookups.
+
 ## [0.9.27] - 2026-08-15
 
 ### Added
