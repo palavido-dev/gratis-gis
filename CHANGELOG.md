@@ -5,6 +5,18 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.29] - 2026-08-17
+
+### Added
+
+- **Data layers now report how many features each layer holds.** The
+  per-layer feature count is stamped after every import and kept
+  fresh by the housekeeping extent recompute, which also backfills
+  existing layers on its next run. Client software uses it to pick a
+  sensible default: the QGIS plugin (0.16.0) opens layers at or
+  under 50,000 features as real feature layers with working
+  attribute tables, and keeps larger ones on fast tiles.
+
 ## [0.9.28] - 2026-08-17
 
 ### Added
