@@ -195,6 +195,56 @@ export class DataLayerTablesService {
    * for the response. Best-effort: failures swallow to zero so a
    * count error never blocks a successful ingest.
    */
+  /**
+   * Recompute and persist `featureCount` on every layer of a v3
+   * data_layer's `data.layers[]`. The count is what lets clients
+   * pick a sensible default rendering (the QGIS plugin opens layers
+   * at or under a threshold as true feature layers and keeps the
+   * huge ones on tiles), so it has to exist and stay fresh, not
+   * just be stamped once at ingest. Called from the import worker
+   * after a successful job and from the housekeeping extent
+   * recompute, which doubles as the backfill for items created
+   * before the field was maintained. Returns true when a write
+   * happened. Best-effort like the other read helpers: a failure
+   * here must never fail the operation that triggered it.
+   */
+  async stampFeatureCounts(itemId: string): Promise<boolean> {
+    const row = await this.prisma.item.findUnique({
+      where: { id: itemId },
+      select: { data: true },
+    });
+    const data = row?.data as
+      | { version?: number; layers?: Array<Record<string, unknown>> }
+      | null;
+    if (!data || data.version !== 3 || !Array.isArray(data.layers)) {
+      return false;
+    }
+    let changed = false;
+    const nextLayers: Array<Record<string, unknown>> = [];
+    for (const layer of data.layers) {
+      const layerId = (layer as { id?: unknown }).id;
+      if (typeof layerId !== 'string' || layerId === '') {
+        nextLayers.push(layer);
+        continue;
+      }
+      const count = await this.countLiveEntities(itemId, layerId);
+      if (layer.featureCount === count) {
+        nextLayers.push(layer);
+        continue;
+      }
+      nextLayers.push({ ...layer, featureCount: count });
+      changed = true;
+    }
+    if (!changed) return false;
+    await this.prisma.item.update({
+      where: { id: itemId },
+      data: {
+        data: { ...(data as object), layers: nextLayers } as never,
+      },
+    });
+    return true;
+  }
+
   async countLiveEntities(
     itemId: string,
     layerId: string,

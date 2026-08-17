@@ -1345,6 +1345,16 @@ export class HousekeepingService {
         const layers = readV3Layers(it.data);
         if (layers !== null) {
           next = await this.dataLayerTables.aggregateBbox(it.id, layers);
+          // Same maintenance pass keeps per-layer featureCount
+          // honest; this is also the backfill for items created
+          // before the field was maintained (the QGIS plugin's
+          // feature-vs-tiles default reads it). Best-effort: a
+          // count failure must not sink the extent recompute.
+          try {
+            await this.dataLayerTables.stampFeatureCounts(it.id);
+          } catch {
+            // logged inside the stamper's count helper
+          }
         }
         // Fall back paths in priority order:
         //   1) the raw stored data.bbox / data.layers[].bbox

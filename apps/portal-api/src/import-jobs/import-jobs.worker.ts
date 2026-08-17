@@ -374,8 +374,13 @@ export class ImportJobsWorker implements OnModuleInit {
       });
 
       // Recompute item-level bbox so the items list and detail page
-      // map preview anchor on the fresh data.
+      // map preview anchor on the fresh data, and stamp per-layer
+      // featureCount so clients (the QGIS plugin's feature-vs-tiles
+      // default) can judge the layer's size without counting it.
+      // Counts first: the stamp rewrites data.layers[], and doing it
+      // before the bbox read keeps this block one-directional.
       try {
+        await this.dataLayerTables.stampFeatureCounts(job.itemId);
         const fresh = await this.prisma.item.findUnique({
           where: { id: job.itemId },
           select: { data: true },
@@ -395,7 +400,7 @@ export class ImportJobsWorker implements OnModuleInit {
         }
       } catch (err) {
         this.log.warn(
-          `bbox recompute failed for ${job.itemId}/${job.layerId} on job ${job.id}: ${
+          `bbox/count recompute failed for ${job.itemId}/${job.layerId} on job ${job.id}: ${
             err instanceof Error ? err.message : err
           }`,
         );
