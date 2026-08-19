@@ -4515,6 +4515,19 @@ function ChartCanvas({
  * fills its parent (the WidgetFrame's flex-1 wrapper); chart-type
  * switch picks bar / line / pie.
  */
+/**
+ * Series animation is off on purpose.
+ *
+ * A chart inside an app re-renders whenever the surrounding runtime
+ * does (a map move, a selection, a refresh tick), and recharts
+ * restarts its mount animation on each re-render. On a page with a
+ * live map that meant the bars grew from zero forever: the axes,
+ * gridlines and category labels drew correctly while the data itself
+ * stayed invisible, which reads as "the chart is broken" rather than
+ * "the chart is animating". Drawing the series immediately is both
+ * deterministic and, on a dashboard someone glances at, what they
+ * wanted anyway.
+ */
 function ChartPlot({
   rows,
   kind,
@@ -4545,6 +4558,7 @@ function ChartPlot({
             dataKey="value"
             nameKey="name"
             outerRadius="70%"
+            isAnimationActive={false}
           >
             {rows.map((_, i) => (
               <Recharts.Cell key={i} fill={palette[i % palette.length]!} />
@@ -4575,6 +4589,7 @@ function ChartPlot({
             stroke={palette[0]!}
             strokeWidth={2}
             dot={{ r: 3 }}
+            isAnimationActive={false}
           />
         </Recharts.LineChart>
       </Recharts.ResponsiveContainer>
@@ -4588,7 +4603,11 @@ function ChartPlot({
         <Recharts.XAxis dataKey="name" tick={{ fontSize: 11 }} />
         <Recharts.YAxis tick={{ fontSize: 11 }} />
         <Recharts.Tooltip />
-        <Recharts.Bar dataKey="value" fill={palette[0]!} />
+        <Recharts.Bar
+          dataKey="value"
+          fill={palette[0]!}
+          isAnimationActive={false}
+        />
       </Recharts.BarChart>
     </Recharts.ResponsiveContainer>
   );
