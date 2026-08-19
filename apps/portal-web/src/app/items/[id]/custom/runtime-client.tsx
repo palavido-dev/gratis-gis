@@ -4380,7 +4380,11 @@ function IndicatorWidgetRender({ widget }: { widget: CustomWidget }) {
       : 'text-[hsl(var(--app-danger))]';
   })();
 
+  // The indicator is its own label: a number over a caption. Letting
+  // WidgetFrame also draw a header would print the caption twice on
+  // every tile, which is what the first live dashboard looked like.
   return (
+    <SuppressFrameHeaderContext.Provider value={true}>
     <WidgetFrame icon={ChevronRight} title={label}>
       <div className="flex flex-1 flex-col items-center justify-center gap-1 p-3 text-center">
         {state.error ? (
@@ -4410,6 +4414,7 @@ function IndicatorWidgetRender({ widget }: { widget: CustomWidget }) {
         )}
       </div>
     </WidgetFrame>
+    </SuppressFrameHeaderContext.Provider>
   );
 }
 
@@ -4534,7 +4539,12 @@ function ChartPlot({
             ))}
           </Recharts.Pie>
           <Recharts.Tooltip />
-          <Recharts.Legend />
+          {/* A legend is only useful while it is readable. Grouped by
+              a near-unique field (a name, an id) a pie returns dozens
+              of slices and the legend swallows the chart whole, which
+              is what the first live dashboard looked like. Past a
+              dozen slices the tooltip carries the labels instead. */}
+          {rows.length <= 12 ? <Recharts.Legend /> : null}
         </Recharts.PieChart>
       </Recharts.ResponsiveContainer>
     );
