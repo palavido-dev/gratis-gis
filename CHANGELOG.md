@@ -5,6 +5,45 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.31] - 2026-08-19
+
+Adds a STAC API and repairs the backup panel's handling of runs whose
+process died. Contains one migration (a liveness timestamp on backup
+runs); it applies automatically on deploy. On a deployment that
+restores its database from a snapshot on a schedule, re-capture the
+snapshot after upgrading so the new column survives the next restore.
+
+### Added
+
+- **A STAC catalog of your raster layers.** QGIS 3.42 and newer ships
+  a native STAC browser, so the portal's imagery, elevation, and
+  other raster layers can now be browsed from stock QGIS with no
+  plugin: footprints on the canvas, filtering by area and date, and
+  the layer's files and tiles one click away. Public rasters are
+  served anonymously; signing in (an API key works) shows every
+  raster you can see, with sharing rules applied as everywhere else.
+  Searches with filters the server does not support are refused with
+  the offender named, never answered with unfiltered results.
+
+### Fixed
+
+- **A backup interrupted by a restart no longer haunts the panel.** A
+  backup whose server process died (a deploy or crash mid-run) stayed
+  "In progress" forever: it could not be deleted, cancelling it did
+  nothing, and no new scheduled backup would start for six hours.
+  Running backups now carry a liveness signal, so one that dies is
+  closed out as failed within minutes, on its own.
+- **The backup panel now offers Stop for a running backup.** The
+  server has supported stopping one for a while, but the panel only
+  offered Delete, which is refused for live runs; the refusal then
+  surfaced as a raw error code instead of the server's explanation.
+  Errors now show the actual reason in plain language.
+- **Backups whose file no longer exists say so.** A history entry can
+  outlive its archive (moved, deleted by hand, or restored from an
+  old database snapshot); the panel offered Download and Restore
+  anyway, which could not work. Those entries are now labeled and the
+  buttons withheld.
+
 ## [0.9.30] - 2026-08-18
 
 ### Fixed

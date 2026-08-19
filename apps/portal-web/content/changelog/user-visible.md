@@ -12,6 +12,14 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-08-19 - Browse your rasters from QGIS, no plugin needed
+Newer QGIS (3.42 and up) has a built-in catalog browser, and this
+portal now speaks its language. Point it at the portal and your
+imagery, elevation, and other raster layers appear with their
+footprints on the map, filterable by area and date, ready to load.
+Public layers work without signing in; an API key shows everything
+you can see, with the usual sharing rules applied.
+
 ## 2026-08-18 - Search can find your rasters now
 Imagery, terrain, and lidar layers never recorded where on the map
 they are, so searching by area quietly skipped them, and zooming to
