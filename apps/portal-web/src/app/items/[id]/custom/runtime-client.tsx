@@ -4197,9 +4197,10 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
           valueField,
         );
         const rows = res.groups.map((g) => ({
-          name: groupBy
-            ? (g.key[groupBy] ?? '(missing)')
-            : 'All',
+          // Features with no value for the grouping field are a real
+          // category, not an error: "(no value)" says so without
+          // implying something went wrong.
+          name: groupBy ? (g.key[groupBy] ?? '(no value)') : 'All',
           value: g.values[key] ?? 0,
         }));
         // Bars and pies read best largest-first; a line chart is
@@ -4550,27 +4551,78 @@ function ChartPlot({
   ];
 
   if (kind === 'pie') {
+    // A pie is only readable while its slices are distinguishable, and
+    // the long tail of a real categorical field (a dozen communities,
+    // half of them with one feature) is neither readable nor
+    // interesting. The biggest slices keep their own identity and the
+    // remainder collapses into one labelled bucket, so nothing is
+    // hidden: the bucket says how many categories it stands for and
+    // the tooltip gives its total.
+    const MAX_SLICES = 8;
+    const sliced =
+      rows.length > MAX_SLICES + 1
+        ? [
+            ...rows.slice(0, MAX_SLICES),
+            {
+              name: `Other (${rows.length - MAX_SLICES} more)`,
+              value: rows
+                .slice(MAX_SLICES)
+                .reduce((sum, r) => sum + r.value, 0),
+            },
+          ]
+        : rows;
+    const total = sliced.reduce((sum, r) => sum + r.value, 0) || 1;
     return (
       <Recharts.ResponsiveContainer width="100%" height="100%">
-        <Recharts.PieChart>
+        <Recharts.PieChart margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
           <Recharts.Pie
-            data={rows}
+            data={sliced}
             dataKey="value"
             nameKey="name"
-            outerRadius="70%"
+            cx="32%"
+            outerRadius="78%"
             isAnimationActive={false}
+            // Percent labels on the slices big enough to hold one, so
+            // the chart still says something when the legend is
+            // scrolled or the tile is narrow. Below 8% the label would
+            // collide with its neighbours and is left to the tooltip.
+            label={(entry: { value?: number }) => {
+              const share = ((entry.value ?? 0) / total) * 100;
+              return share >= 8 ? `${Math.round(share)}%` : '';
+            }}
+            labelLine={false}
           >
-            {rows.map((_, i) => (
+            {sliced.map((_, i) => (
               <Recharts.Cell key={i} fill={palette[i % palette.length]!} />
             ))}
           </Recharts.Pie>
-          <Recharts.Tooltip />
-          {/* A legend is only useful while it is readable. Grouped by
-              a near-unique field (a name, an id) a pie returns dozens
-              of slices and the legend swallows the chart whole, which
-              is what the first live dashboard looked like. Past a
-              dozen slices the tooltip carries the labels instead. */}
-          {rows.length <= 12 ? <Recharts.Legend /> : null}
+          <Recharts.Tooltip
+            formatter={(value, name) => {
+              const n = Number(value);
+              const share = Number.isFinite(n)
+                ? ` (${Math.round((n / total) * 100)}%)`
+                : '';
+              return [`${value}${share}`, String(name)];
+            }}
+          />
+          {/* The legend is what makes a pie legible, so it always
+              renders. It sits on the right, where a tall thin column
+              of categories fits a dashboard tile better than a
+              bottom row, and scrolls rather than pushing the chart
+              out of view. */}
+          <Recharts.Legend
+            layout="vertical"
+            align="right"
+            verticalAlign="middle"
+            width={150}
+            wrapperStyle={{
+              fontSize: 11,
+              lineHeight: '15px',
+              maxHeight: '100%',
+              overflowY: 'auto',
+              paddingLeft: 4,
+            }}
+          />
         </Recharts.PieChart>
       </Recharts.ResponsiveContainer>
     );
@@ -4607,7 +4659,16 @@ function ChartPlot({
           dataKey="value"
           fill={palette[0]!}
           isAnimationActive={false}
-        />
+        >
+          {/* The number on the bar. A dashboard is read at a glance
+              and from across a room; making someone trace a bar back
+              to the axis defeats the point of the tile. */}
+          <Recharts.LabelList
+            dataKey="value"
+            position="top"
+            style={{ fontSize: 11, fill: 'hsl(var(--app-muted))' }}
+          />
+        </Recharts.Bar>
       </Recharts.BarChart>
     </Recharts.ResponsiveContainer>
   );
