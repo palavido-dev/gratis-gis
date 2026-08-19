@@ -12,6 +12,48 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-08-18 - Search can find your rasters now
+Imagery, terrain, and lidar layers never recorded where on the map
+they are, so searching by area quietly skipped them, and zooming to
+one from desktop GIS software went to the whole world. Every raster
+and point cloud now records its map extent, including ones uploaded
+long ago, so area search matches them and zoom-to lands on the data.
+
+## 2026-08-17 - The QGIS plugin reaches 1.0
+The official GratisGIS plugin for QGIS is at 1.0, with every flow
+tested by hand on a real install. From inside QGIS you can search the
+portal, inspect items, publish vector and raster layers, publish an
+open project as a portal map, clone a layer to take into the field,
+and sync your edits back. Private layers work throughout: create a
+read-only API key under Profile and QGIS sees exactly what you see.
+
+## 2026-08-17 - Private layers open in any desktop GIS
+A new signed-in data feed serves every layer you can see, not just
+public ones, in the standard format desktop GIS software reads. That
+means private and organization layers open as real feature layers
+with working attribute tables, using the same API key that already
+draws them. Sharing limits still apply to every read. Layers also
+report how many features they hold, so client software can pick real
+features for small layers and fast tiles for county-scale ones.
+
+## 2026-08-15 - Raster layers draw in desktop GIS too
+Layers stored as tile packages or single image files could only be
+viewed in the portal itself. The portal now serves plain map tiles
+for all of them, so QGIS and similar tools draw them like any other
+tile service, with no special support needed. Private layers still
+require sign-in. Elevation layers draw as a picture of the terrain;
+download the file itself if you need the elevation values.
+
+## 2026-08-10 - Backups you can actually trust
+For self-hosted portals: backups now stream straight into the archive
+instead of needing twice their own size in free disk, old archives
+are cleaned up before every run rather than only after a successful
+one, and a backup that cannot fit refuses to start and says how much
+space it needs. A running backup can be cancelled. And a new health
+check reports the age of the newest archive actually on disk, so a
+backup that has been failing quietly shows up immediately instead of
+looking fine for weeks.
+
 ## 2026-08-08 - Run Python and notebooks on a schedule
 The portal can now run your Python for you, on its own, hourly or
 daily or monthly. Paste a script or upload a Jupyter notebook, give it
