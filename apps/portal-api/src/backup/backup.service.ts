@@ -19,6 +19,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { writeTarGz, type TarEntry } from './tar-pack.js';
@@ -36,20 +37,31 @@ export class BackupCancelledError extends Error {
 }
 
 /**
- * How often a running backup checks whether it has been asked to stop.
- * The poll is one indexed lookup by primary key; two seconds is
- * responsive to a human clicking Cancel while being nothing against a
- * run that streams tens of thousands of objects.
+ * How often a running backup checks whether it has been asked to stop
+ * AND stamps its liveness beat. One indexed UPDATE by primary key;
+ * two seconds is responsive to a human clicking Cancel while being
+ * nothing against a run that streams tens of thousands of objects.
  */
 const CANCEL_POLL_MS = 2000;
 
 /**
- * A `running` row older than this is treated as abandoned rather than
- * as a reason to refuse a new backup. Without the bound, one killed
- * process would block every future run, which is the same ratchet that
- * gated retention behind success.
+ * A `running` row whose beat is older than this belongs to a process
+ * that died before it could record its own outcome. Rows from before
+ * the heartbeat column threshold on startedAt instead; those cannot
+ * belong to a live process, because shipping the column restarted
+ * every replica.
+ *
+ * Five minutes is 150 missed beats: generous against a database blip,
+ * still short enough that an admin staring at a dead "In progress" row
+ * is unstuck in minutes. The previous bound had no liveness signal to
+ * work with and had to guess at six hours, during which reclaim would
+ * not touch the row, the concurrency guard refused new runs, Delete
+ * 409'd (correctly, for a live run), and Cancel set a flag nothing
+ * polled. That exact shape shipped the undeletable phantom of
+ * 2026-08-19, when a deploy killed the 02:00 scheduled run seven
+ * minutes in.
  */
-const RUNNING_ROW_STALE_MS = 6 * 60 * 60 * 1000;
+const STALE_HEARTBEAT_MS = 5 * 60 * 1000;
 
 /** Human-readable bytes for operator-facing refusal messages. Local
  *  copy, matching tile-layer.service.ts and import.ts; not worth a
@@ -67,15 +79,6 @@ function formatBytes(bytes: number): string {
 }
 
 export type ScheduleMode = 'off' | 'daily' | 'weekly' | 'monthly' | 'custom';
-
-/**
- * How old a `running` BackupRun has to be before startup treats it as
- * abandoned. Deliberately far beyond any real backup: the largest
- * archive on the demo is about 3 GB and seals in a few minutes, so six
- * hours cannot catch a live run even on a much slower host with a much
- * bigger bucket. See BackupService.reclaimStaleRuns.
- */
-const STALE_RUN_MS = 6 * 60 * 60 * 1000;
 
 /**
  * User-facing config shape the admin page edits. All values are
@@ -481,6 +484,41 @@ export class BackupService implements OnModuleInit {
     });
   }
 
+  /**
+   * Run history plus whether each successful run's archive still
+   * exists on disk. The table outlives the files two ways: an operator
+   * can move or delete archives by hand, and on a deployment that
+   * restores its database from a snapshot the restored rows describe
+   * files from another era entirely (the public demo does this
+   * nightly). Download and Restore are only honest offers when the
+   * bytes exist, so the UI needs to know. One readdir covers every
+   * row.
+   *
+   * `archiveOnDisk` is three-valued on purpose: true / false when the
+   * directory could be read, null when it could not (or when the run
+   * has no archive to look for). Unknown must not render as missing,
+   * or an unmounted volume would gray out buttons for archives that
+   * are fine.
+   */
+  async listRunsWithArchiveState(limit = 50) {
+    const runs = await this.listRuns(limit);
+    let names: Set<string> | null = null;
+    try {
+      const { archiveDirectory } = await this.getConfig();
+      names = new Set(await fs.readdir(archiveDirectory));
+    } catch {
+      // Unknown beats wrong; the download endpoint reports the miss
+      // with a proper message if it comes to that.
+    }
+    return runs.map((r) => ({
+      ...r,
+      archiveOnDisk:
+        r.status === 'succeeded' && r.filename && names
+          ? names.has(r.filename)
+          : null,
+    }));
+  }
+
   async getRun(id: string) {
     const run = await this.prisma.backupRun.findUnique({ where: { id } });
     if (!run) throw new NotFoundException('Backup run not found');
@@ -492,59 +530,118 @@ export class BackupService implements OnModuleInit {
   // ---------------------------------------------------------------
 
   /**
-   * Mark abandoned runs failed and sweep the staging directories they
-   * left behind.
+   * Mark dead runs failed and sweep the staging bytes they left
+   * behind.
    *
    * A backup is owned by one process: `runBackup` marks its own row
    * failed in a catch and drops the stage dir in a finally. Neither
-   * runs if the process is killed mid-backup (OOM, container
+   * runs if the process is killed mid-backup (deploy, OOM, container
    * recreate, host reboot), so the row stays `running` forever and a
    * multi-GB `.stage-<id>` directory stays on disk forever.
    *
-   * That is not hypothetical. Prod carried a run stuck `running` since
-   * 2026-07-25 with its stage dir still present, and because the admin
-   * page renders it as "In progress" it read as a backup that was
-   * merely slow rather than one that died 16 days earlier.
+   * That is not hypothetical twice over. Prod carried a run stuck
+   * `running` since 2026-07-25 with its stage dir still present,
+   * reading as a slow backup rather than one 16 days dead. And on
+   * 2026-08-19 a deploy killed the 02:00 scheduled run seven minutes
+   * in, leaving an "In progress" row the admin could neither cancel
+   * (the flag had no poller left alive) nor delete (409, the guard for
+   * live runs).
    *
-   * Leader-only, and only for runs older than the cutoff, so this can
-   * never mark a genuinely in-flight backup as failed. Nothing here
+   * Deadness is the heartbeat gone stale (startedAt for pre-heartbeat
+   * rows), so a genuinely in-flight backup, which beats every couple
+   * of seconds, can never be reclaimed. Safe on any replica and on any
+   * trigger: startup, the periodic sweep, the pre-run guard, and the
+   * cancel/delete paths when they meet a dead row. Nothing here
    * touches sealed archives: a stuck row never produced one.
    */
   async reclaimStaleRuns(): Promise<number> {
-    const cutoff = new Date(Date.now() - STALE_RUN_MS);
     const stale = await this.prisma.backupRun.findMany({
-      where: { status: 'running', startedAt: { lt: cutoff } },
-      select: { id: true, startedAt: true },
+      where: this.deadRunningWhere(),
+      select: { id: true, startedAt: true, heartbeatAt: true },
     });
     if (stale.length === 0) return 0;
 
     const { archiveDirectory: backupDir } = await this.getConfig();
     for (const run of stale) {
-      const age = Math.round(
-        (Date.now() - run.startedAt.getTime()) / 3_600_000,
-      );
-      await this.prisma.backupRun.update({
-        where: { id: run.id },
-        data: {
-          status: 'failed',
-          finishedAt: new Date(),
-          error:
-            `Abandoned: still marked running ${age}h after it started, ` +
-            'so the process that owned it died before it could finish. ' +
-            'Reclaimed on startup.',
-        },
-      });
-      // The stage dir is the orphaned bytes the finally never got to.
-      await fs.rm(path.join(backupDir, `.stage-${run.id}`), {
-        recursive: true,
-        force: true,
-      });
-      this.log.warn(
-        `Reclaimed abandoned backup ${run.id} (started ${age}h ago) and ` +
-          'removed its staging directory.',
-      );
+      await this.reclaimDeadRun(run, backupDir);
     }
     return stale.length;
+  }
+
+  /**
+   * Prisma filter matching `running` rows whose owner is provably
+   * dead. The OR arm exists for rows created before the heartbeat
+   * column: they cannot belong to a live process (shipping the column
+   * restarted every replica), so their age alone is enough.
+   */
+  private deadRunningWhere(): Prisma.BackupRunWhereInput {
+    const cutoff = new Date(Date.now() - STALE_HEARTBEAT_MS);
+    return {
+      status: 'running',
+      OR: [
+        { heartbeatAt: { lt: cutoff } },
+        { heartbeatAt: null, startedAt: { lt: cutoff } },
+      ],
+    };
+  }
+
+  /** The in-memory twin of deadRunningWhere, for a row already in hand. */
+  private isRunDead(run: {
+    status: string;
+    startedAt: Date;
+    heartbeatAt: Date | null;
+  }): boolean {
+    if (run.status !== 'running') return false;
+    const beat = run.heartbeatAt ?? run.startedAt;
+    return beat.getTime() < Date.now() - STALE_HEARTBEAT_MS;
+  }
+
+  /**
+   * Close out one dead run: fail the row with a message that says the
+   * process died (not that the backup itself erred), and remove the
+   * staging directory AND the partial archive its finally never
+   * reached. A kill can land mid-seal, so both can exist.
+   */
+  private async reclaimDeadRun(
+    run: { id: string; startedAt: Date },
+    backupDir: string,
+  ): Promise<void> {
+    const ageMin = Math.max(
+      1,
+      Math.round((Date.now() - run.startedAt.getTime()) / 60_000),
+    );
+    const age =
+      ageMin >= 120 ? `${Math.round(ageMin / 60)}h` : `${ageMin}m`;
+    await this.prisma.backupRun.update({
+      where: { id: run.id },
+      data: {
+        status: 'failed',
+        finishedAt: new Date(),
+        error:
+          `Abandoned: no sign of life from the process running this ` +
+          `backup, ${age} after it started. It was interrupted before ` +
+          'it could finish (a deploy, restart, or crash) and has been ' +
+          'closed out automatically. No archive was produced.',
+      },
+    });
+    // Failing to sweep must not fail the reclaim: the row flip is what
+    // unblocks the admin and the guard; stranded bytes are a warning.
+    const sweep = (p: string, recursive: boolean) =>
+      fs
+        .rm(p, { recursive, force: true })
+        .catch((e: unknown) =>
+          this.log.warn(
+            `Reclaim of ${run.id}: could not remove ${p}: ${
+              e instanceof Error ? e.message : e
+            }`,
+          ),
+        );
+    await sweep(path.join(backupDir, `.stage-${run.id}`), true);
+    await sweep(path.join(backupDir, `.partial-${run.id}.tar.gz`), false);
+    this.log.warn(
+      `Reclaimed dead backup ${run.id} (started ${age} ago) and removed ` +
+        'its staging bytes.',
+    );
   }
 
   /**
@@ -563,16 +660,30 @@ export class BackupService implements OnModuleInit {
     trigger: 'manual' | 'scheduled',
     startedBy: string | null,
   ) {
-    // Refuse a second concurrent run. Two replicas share one archive
-    // volume and `POST /admin/backup/runs` carries only AdminGuard, so
-    // nothing stopped two backups from staging at once and doubling
-    // the peak. Bounded by staleness on purpose: an abandoned row from
-    // a killed process must not lock out every future backup, which is
-    // the same shape as the retention ratchet.
+    // Close out dead rows first, then refuse only if a LIVE run
+    // remains. Two replicas share one archive volume and
+    // `POST /admin/backup/runs` carries only AdminGuard, so nothing
+    // stopped two backups from staging at once and doubling the peak.
+    // Reclaiming here (not just bounding by staleness) means a row
+    // abandoned by a killed process can never lock out a future
+    // backup, which is the same shape as the retention ratchet.
+    try {
+      await this.reclaimStaleRuns();
+    } catch (e) {
+      // A failed sweep must not stop a backup; the liveness filter
+      // below still keeps a dead row from blocking this run.
+      this.log.warn(
+        `Pre-run reclaim failed: ${e instanceof Error ? e.message : e}`,
+      );
+    }
+    const liveCutoff = new Date(Date.now() - STALE_HEARTBEAT_MS);
     const active = await this.prisma.backupRun.findFirst({
       where: {
         status: 'running',
-        startedAt: { gte: new Date(Date.now() - RUNNING_ROW_STALE_MS) },
+        OR: [
+          { heartbeatAt: { gte: liveCutoff } },
+          { heartbeatAt: null, startedAt: { gte: liveCutoff } },
+        ],
       },
       orderBy: { startedAt: 'desc' },
     });
@@ -586,6 +697,9 @@ export class BackupService implements OnModuleInit {
     const run = await this.prisma.backupRun.create({
       data: {
         trigger,
+        // First beat at birth, so the liveness window never has to
+        // special-case the gap before the poll timer's first tick.
+        heartbeatAt: new Date(),
         ...(startedBy ? { startedBy } : {}),
       },
     });
@@ -614,20 +728,35 @@ export class BackupService implements OnModuleInit {
       cancelPoll = setInterval(() => {
         void (async () => {
           try {
-            const row = await this.prisma.backupRun.findUnique({
+            // The poll doubles as the liveness beat: one UPDATE by
+            // primary key stamps heartbeatAt and reads the cancel flag
+            // in the same round trip. The beat is what lets reclaim
+            // tell this run apart from one whose process died, in
+            // minutes rather than hours, so it deliberately rides the
+            // timer that already exists instead of adding a second.
+            const row = await this.prisma.backupRun.update({
               where: { id: run.id },
+              data: { heartbeatAt: new Date() },
               select: { cancelRequestedAt: true },
             });
-            // A row that vanished counts as cancelled: an admin
-            // deleted it underneath us, and continuing would only
-            // produce an archive nothing can reference.
-            if (!row || row.cancelRequestedAt) {
+            if (row.cancelRequestedAt) {
               cancelled = true;
               abort.abort();
             }
           } catch (e) {
+            // A row that vanished counts as cancelled: something
+            // deleted it underneath us (deleteRun refuses live runs,
+            // but a hand-run SQL delete can still land), and
+            // continuing would only produce an archive nothing can
+            // reference. Prisma reports the miss as P2025.
+            if ((e as { code?: string }).code === 'P2025') {
+              cancelled = true;
+              abort.abort();
+              return;
+            }
             // A database blip must not kill a running backup. Worst
-            // case a cancel is noticed one tick later.
+            // case a cancel is noticed, and the beat lands, one tick
+            // later; the reclaim threshold absorbs 150 missed ticks.
             this.log.warn(
               `Backup ${run.id}: cancel poll failed: ${
                 e instanceof Error ? e.message : e
@@ -1026,6 +1155,22 @@ export class BackupService implements OnModuleInit {
     if (run.status !== 'running') {
       return { cancelled: false, status: run.status };
     }
+    if (this.isRunDead(run)) {
+      // There is nothing left to signal: the process that owned this
+      // run is gone. Setting the flag anyway would leave the admin
+      // staring at "In progress" while nothing polls it (the exact
+      // phantom of 2026-08-19), so close the run out here and say so.
+      const { archiveDirectory } = await this.getConfig();
+      await this.reclaimDeadRun(run, archiveDirectory);
+      this.log.warn(
+        `Backup ${run.id}: cancel requested on a dead run; closed out as failed.`,
+      );
+      return {
+        cancelled: false,
+        status: 'failed' as const,
+        reclaimed: true as const,
+      };
+    }
     await this.prisma.backupRun.update({
       where: { id: run.id },
       data: { cancelRequestedAt: new Date() },
@@ -1106,16 +1251,25 @@ export class BackupService implements OnModuleInit {
 
   async deleteRun(runId: string) {
     const run = await this.getRun(runId);
-    // Refuse to delete a live run. Deleting one was worse than a
+    // Refuse to delete a LIVE run. Deleting one was worse than a
     // no-op: `filename` is null until the success update, so nothing
     // came off disk, while the row the running process needs to record
     // its own outcome was destroyed. That is how a failed backup left
     // a 9 GB partial archive with no row, invisible to the UI and
     // unreachable by retention.
+    //
+    // A DEAD run is different: its process cannot be waited for or
+    // cancelled, so refusing produced an undeletable "In progress"
+    // phantom (409 on Delete, Cancel setting a flag nothing polled).
+    // Close it out, then do the delete the admin asked for.
     if (run.status === 'running') {
-      throw new ConflictException(
-        'That backup is still running. Cancel it first, then delete it.',
-      );
+      if (!this.isRunDead(run)) {
+        throw new ConflictException(
+          'That backup is still running. Stop it first, then delete it.',
+        );
+      }
+      const { archiveDirectory } = await this.getConfig();
+      await this.reclaimDeadRun(run, archiveDirectory);
     }
     if (run.filename) {
       const { archiveDirectory } = await this.getConfig();

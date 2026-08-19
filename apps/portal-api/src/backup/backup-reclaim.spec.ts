@@ -34,6 +34,7 @@ jest.mock('node:fs/promises', () => ({
 describe('BackupService.reclaimStaleRuns', () => {
   const BACKUP_DIR = '/app/backups';
   const HOURS = 3_600_000;
+  const MINUTES = 60_000;
   const rm = fs.rm as unknown as jest.Mock;
 
   function makeService(rows: Array<{ id: string; startedAt: Date }>) {
@@ -64,21 +65,30 @@ describe('BackupService.reclaimStaleRuns', () => {
     expect(rm).not.toHaveBeenCalled();
   });
 
-  it('only ever queries for runs older than the cutoff', async () => {
-    // The guard that makes this safe to run on every boot: a live
-    // backup must never be reclaimable. If this query loses its
-    // startedAt bound, a long-running backup gets marked failed
-    // underneath itself.
+  it('only ever queries for runs whose liveness signal has gone stale', async () => {
+    // The guard that makes this safe to run on every boot and every
+    // sweep: a live backup, which beats every couple of seconds, must
+    // never be reclaimable. One arm thresholds the heartbeat; the
+    // other exists only for rows that predate the heartbeat column
+    // and thresholds their startedAt instead. If either arm loses its
+    // bound, a long-running backup gets marked failed underneath
+    // itself.
     const { svc, findMany } = makeService([]);
     const before = Date.now();
     await svc.reclaimStaleRuns();
     const where = findMany.mock.calls[0]![0].where;
     expect(where.status).toBe('running');
-    const cutoff: Date = where.startedAt.lt;
-    // Six hours back, generously bounded so the assertion is about
+    const arms = where.OR as Array<Record<string, { lt?: Date } | null>>;
+    expect(arms).toHaveLength(2);
+    const beatCutoff = (arms[0]!.heartbeatAt as { lt: Date }).lt;
+    expect(arms[1]!.heartbeatAt).toBeNull();
+    const startCutoff = (arms[1]!.startedAt as { lt: Date }).lt;
+    // Five minutes back, generously bounded so the assertion is about
     // the order of magnitude rather than clock precision.
-    expect(before - cutoff.getTime()).toBeGreaterThanOrEqual(5.9 * HOURS);
-    expect(before - cutoff.getTime()).toBeLessThanOrEqual(6.1 * HOURS);
+    for (const cutoff of [beatCutoff, startCutoff]) {
+      expect(before - cutoff.getTime()).toBeGreaterThanOrEqual(4.9 * MINUTES);
+      expect(before - cutoff.getTime()).toBeLessThanOrEqual(5.1 * MINUTES);
+    }
   });
 
   it('marks an abandoned run failed and records why', async () => {
@@ -99,7 +109,9 @@ describe('BackupService.reclaimStaleRuns', () => {
     expect(arg.data.error).toContain('380h');
   });
 
-  it('removes the staging directory the finally never reached', async () => {
+  it('removes the staging directory and partial archive the finally never reached', async () => {
+    // A kill can land mid-seal, so both a .stage-<id> directory and a
+    // .partial-<id>.tar.gz can be orphaned by the same death.
     const { svc } = makeService([
       { id: 'run-1', startedAt: new Date(Date.now() - 20 * HOURS) },
     ]);
@@ -111,19 +123,29 @@ describe('BackupService.reclaimStaleRuns', () => {
       path.join(BACKUP_DIR, '.stage-run-1'),
       { recursive: true, force: true },
     );
+    expect(rm).toHaveBeenCalledWith(
+      path.join(BACKUP_DIR, '.partial-run-1.tar.gz'),
+      { recursive: false, force: true },
+    );
   });
 
-  it('never deletes a sealed archive, only the staging dir', async () => {
+  it('never deletes a sealed archive, only staging bytes', async () => {
     // A stuck row never produced a final archive, so nothing in this
-    // path should ever address one. Guards against someone later
-    // "tidying up" by removing the run's filename too.
+    // path should ever address one. Sealed archives are the only files
+    // named backup-*.tar.gz; staging bytes are dot-prefixed. Guards
+    // against someone later "tidying up" by removing the run's
+    // filename too.
     const { svc } = makeService([
       { id: 'run-1', startedAt: new Date(Date.now() - 20 * HOURS) },
     ]);
     await svc.reclaimStaleRuns();
+    expect(rm).toHaveBeenCalled();
     for (const call of rm.mock.calls) {
-      expect(String(call[0])).toContain('.stage-');
-      expect(String(call[0])).not.toMatch(/\.tar\.gz$/);
+      const base = path.basename(String(call[0]));
+      expect(base.startsWith('.stage-') || base.startsWith('.partial-')).toBe(
+        true,
+      );
+      expect(base.startsWith('backup-')).toBe(false);
     }
   });
 
@@ -134,6 +156,19 @@ describe('BackupService.reclaimStaleRuns', () => {
     ]);
     await expect(svc.reclaimStaleRuns()).resolves.toBe(2);
     expect(update).toHaveBeenCalledTimes(2);
-    expect(rm).toHaveBeenCalledTimes(2);
+    // Stage dir + partial archive per run.
+    expect(rm).toHaveBeenCalledTimes(4);
+  });
+
+  it('reports a recent death in minutes, not a rounded-to-zero hour', async () => {
+    // The 2026-08-19 phantom died seven minutes in. "0h" would read
+    // as nonsense; the message thresholds to minutes below two hours.
+    const { svc, update } = makeService([
+      { id: 'run-1', startedAt: new Date(Date.now() - 7 * MINUTES) },
+    ]);
+    await svc.reclaimStaleRuns();
+    const arg = update.mock.calls[0]![0];
+    expect(arg.data.error).toContain('7m');
+    expect(arg.data.error).toMatch(/abandoned/i);
   });
 });

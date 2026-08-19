@@ -7,15 +7,18 @@ import {
   CheckCircle2,
   ChevronDown,
   Download,
+  FileX2,
   Info,
   Loader2,
   PlayCircle,
   Save,
   ShieldAlert,
+  Square,
   Trash2,
   XCircle,
 } from 'lucide-react';
 
+import { useT } from '@/lib/i18n/locale-context';
 import { formatBytes } from '@/lib/format-bytes';
 import { RestoreDialog } from './restore-dialog';
 
@@ -47,6 +50,35 @@ export interface BackupRun {
   trigger: string;
   startedBy: string | null;
   error: string | null;
+  /** Set while a stop has been requested and the run is winding down. */
+  cancelRequestedAt: string | null;
+  /**
+   * Whether the archive file still exists on the server. False means
+   * the row outlived its file (moved, deleted by hand, or the row was
+   * restored from a database snapshot describing another era); null
+   * means unknown, which must keep the buttons rather than hide them.
+   */
+  archiveOnDisk: boolean | null;
+}
+
+/**
+ * Prefer the server's sentence over inventing one here: the API
+ * explains refusals in plain English (e.g. why a running backup cannot
+ * be deleted), and swapping that for an HTTP status code was how the
+ * panel once showed "Could not delete (HTTP 409)" to an admin it
+ * should have told "stop it first".
+ */
+async function readServerMessage(res: Response): Promise<string | null> {
+  try {
+    const body = (await res.json()) as { message?: string | string[] };
+    if (!body || body.message === undefined) return null;
+    const msg = Array.isArray(body.message)
+      ? body.message.join('; ')
+      : body.message;
+    return typeof msg === 'string' && msg.trim().length > 0 ? msg : null;
+  } catch {
+    return null;
+  }
 }
 
 interface Props {
@@ -57,11 +89,13 @@ interface Props {
 }
 
 export function BackupView({ initialConfig, initialRuns, orgName }: Props) {
+  const t = useT();
   const [config, setConfig] = useState<BackupConfig>(initialConfig);
   const [runs, setRuns] = useState<BackupRun[]>(initialRuns);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [stopping, setStopping] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
   const [restoringRun, setRestoringRun] = useState<BackupRun | null>(null);
 
@@ -104,12 +138,16 @@ export function BackupView({ initialConfig, initialRuns, orgName }: Props) {
         method: 'POST',
       });
       if (!res.ok) {
-        setError(`Could not start backup (HTTP ${res.status}).`);
+        setError(
+          (await readServerMessage(res)) ?? t('adminBackup.startFailed'),
+        );
         return;
       }
       await reloadRuns();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not start backup.');
+      setError(
+        e instanceof Error ? e.message : t('adminBackup.startFailed'),
+      );
     } finally {
       setRunning(false);
     }
@@ -123,15 +161,46 @@ export function BackupView({ initialConfig, initialRuns, orgName }: Props) {
         method: 'DELETE',
       });
       if (!res.ok) {
-        setError(`Could not delete (HTTP ${res.status}).`);
+        setError(
+          (await readServerMessage(res)) ?? t('adminBackup.deleteFailed'),
+        );
         return;
       }
       await reloadRuns();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not delete.');
+      setError(
+        e instanceof Error ? e.message : t('adminBackup.deleteFailed'),
+      );
     } finally {
       setDeleting(null);
       setConfirmingDelete(null);
+    }
+  }
+
+  async function handleStop(id: string) {
+    setStopping(id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/portal/admin/backup/runs/${id}/cancel`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        setError(
+          (await readServerMessage(res)) ?? t('adminBackup.stopFailed'),
+        );
+        return;
+      }
+      // Either the run was asked to stop (it winds down over the next
+      // few seconds; the poll keeps the row fresh) or the server found
+      // it already dead and closed it out as failed. Both answers are
+      // fully reflected in the reloaded list.
+      await reloadRuns();
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : t('adminBackup.stopFailed'),
+      );
+    } finally {
+      setStopping(null);
     }
   }
 
@@ -207,9 +276,11 @@ export function BackupView({ initialConfig, initialRuns, orgName }: Props) {
                   run={r}
                   confirming={confirmingDelete === r.id}
                   deleting={deleting === r.id}
+                  stopping={stopping === r.id}
                   onConfirmDelete={() => setConfirmingDelete(r.id)}
                   onCancelDelete={() => setConfirmingDelete(null)}
                   onDelete={() => handleDelete(r.id)}
+                  onStop={() => handleStop(r.id)}
                   onRestore={() => setRestoringRun(r)}
                 />
               ))}
@@ -557,24 +628,36 @@ function RunRow({
   run,
   confirming,
   deleting,
+  stopping,
   onConfirmDelete,
   onCancelDelete,
   onDelete,
+  onStop,
   onRestore,
 }: {
   run: BackupRun;
   confirming: boolean;
   deleting: boolean;
+  stopping: boolean;
   onConfirmDelete: () => void;
   onCancelDelete: () => void;
   onDelete: () => void;
+  onStop: () => void;
   onRestore: () => void;
 }) {
+  const t = useT();
   const started = new Date(run.startedAt);
   const finished = run.finishedAt ? new Date(run.finishedAt) : null;
   const durationMs = finished ? finished.getTime() - started.getTime() : null;
   const size = run.sizeBytes ? formatBytes(BigInt(run.sizeBytes)) : '-';
   const triggeredBy = run.trigger === 'scheduled' ? 'Scheduled' : 'Manual';
+  const isRunning = run.status === 'running';
+  const stopRequested = isRunning && run.cancelRequestedAt !== null;
+  // Only an explicit false hides Download / Restore: null means the
+  // server could not check, and hiding on "unknown" would gray out
+  // perfectly good archives whenever the volume hiccups.
+  const archiveMissing =
+    run.status === 'succeeded' && run.filename !== null && run.archiveOnDisk === false;
 
   return (
     <tr className="hover:bg-surface-2/50">
@@ -616,34 +699,69 @@ function RunRow({
           </span>
         ) : (
           <span className="inline-flex items-center gap-1">
-            {run.status === 'succeeded' && run.filename ? (
+            {isRunning ? (
+              // A running row gets Stop, not Delete: the server
+              // refuses to delete a live run (its process still needs
+              // the row to record its outcome), and if the process
+              // turns out to be dead the same click closes the run out
+              // as failed. Delete appears once the row settles.
+              <button
+                type="button"
+                onClick={onStop}
+                disabled={stopping || stopRequested}
+                className="inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-2 py-0.5 text-2xs text-ink-1 hover:bg-surface-2 disabled:opacity-60"
+                title={t('adminBackup.stopTitle')}
+              >
+                {stopping || stopRequested ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Square className="h-3 w-3" />
+                )}
+                {stopRequested
+                  ? t('adminBackup.stopping')
+                  : t('adminBackup.stop')}
+              </button>
+            ) : (
               <>
-                <a
-                  href={`/api/portal/admin/backup/runs/${run.id}/download`}
-                  className="inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-2 py-0.5 text-2xs text-ink-1 hover:bg-surface-2"
-                >
-                  <Download className="h-3 w-3" />
-                  Download
-                </a>
+                {run.status === 'succeeded' && run.filename && !archiveMissing ? (
+                  <>
+                    <a
+                      href={`/api/portal/admin/backup/runs/${run.id}/download`}
+                      className="inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-2 py-0.5 text-2xs text-ink-1 hover:bg-surface-2"
+                    >
+                      <Download className="h-3 w-3" />
+                      Download
+                    </a>
+                    <button
+                      type="button"
+                      onClick={onRestore}
+                      className="inline-flex items-center gap-1 rounded border border-danger/40 bg-danger/5 px-2 py-0.5 text-2xs font-medium text-danger hover:bg-danger/10"
+                      title="Roll the whole portal back to this backup. Anything changed since then will be lost."
+                    >
+                      <ShieldAlert className="h-3 w-3" />
+                      Restore
+                    </button>
+                  </>
+                ) : null}
+                {archiveMissing ? (
+                  <span
+                    className="inline-flex items-center gap-1 px-1 text-2xs text-muted"
+                    title={t('adminBackup.fileMissingTitle')}
+                  >
+                    <FileX2 className="h-3 w-3" />
+                    {t('adminBackup.fileMissing')}
+                  </span>
+                ) : null}
                 <button
                   type="button"
-                  onClick={onRestore}
-                  className="inline-flex items-center gap-1 rounded border border-danger/40 bg-danger/5 px-2 py-0.5 text-2xs font-medium text-danger hover:bg-danger/10"
-                  title="Roll the whole portal back to this backup. Anything changed since then will be lost."
+                  onClick={onConfirmDelete}
+                  className="inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-2 py-0.5 text-2xs text-muted hover:bg-surface-2 hover:text-ink-1"
                 >
-                  <ShieldAlert className="h-3 w-3" />
-                  Restore
+                  <Trash2 className="h-3 w-3" />
+                  Delete
                 </button>
               </>
-            ) : null}
-            <button
-              type="button"
-              onClick={onConfirmDelete}
-              className="inline-flex items-center gap-1 rounded border border-border bg-surface-1 px-2 py-0.5 text-2xs text-muted hover:bg-surface-2 hover:text-ink-1"
-            >
-              <Trash2 className="h-3 w-3" />
-              Delete
-            </button>
+            )}
           </span>
         )}
       </td>

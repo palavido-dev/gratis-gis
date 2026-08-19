@@ -717,6 +717,16 @@ model BackupRun {
   /// holding the pg_dump. The running backup polls this.
   cancelRequestedAt DateTime? @map("cancel_requested_at") @db.Timestamptz(6)
 
+  /// Liveness beat while running, stamped every couple of seconds by
+  /// the process that owns the run (from the same timer that polls
+  /// cancelRequestedAt; one UPDATE, no extra round trip). A running
+  /// row whose beat has gone stale belongs to a process that died
+  /// (deploy, OOM, host reboot) and is reclaimed in minutes instead of
+  /// the six-hour guess this table lived with before. Null on rows
+  /// from before the column existed; liveness falls back to startedAt
+  /// for those.
+  heartbeatAt DateTime? @map("heartbeat_at") @db.Timestamptz(6)
+
   @@index([startedAt])
   @@map("backup_run")
 }

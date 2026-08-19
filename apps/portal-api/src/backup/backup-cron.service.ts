@@ -35,6 +35,10 @@ import { LeaderElectionService } from '../cron/leader-election.service.js';
 export class BackupCronService implements OnApplicationBootstrap {
   private readonly log = new Logger(BackupCronService.name);
   private static readonly JOB_NAME = 'backup-scheduled';
+  /** One minute: a dead run is visible in the UI within a poll or
+   *  two of the five-minute liveness threshold expiring. */
+  private static readonly RECLAIM_INTERVAL_MS = 60_000;
+  private reclaimTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(
     private readonly backup: BackupService,
@@ -43,6 +47,34 @@ export class BackupCronService implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap() {
+    // Periodic dead-run sweep, registered on EVERY replica and gated
+    // per tick. Leadership is re-verified continuously and can move
+    // (the 0.9.17 fix), so tying this to the boot-time leader check
+    // would freeze reclaim on the replica that happened to boot as
+    // follower. The boot-time reclaim below still exists for the
+    // common case; this timer is what catches a run whose process
+    // dies WITHOUT a restart following it, and what flips the admin
+    // page's "In progress" phantom to failed within minutes instead
+    // of leaving it until the next boot.
+    this.reclaimTimer = setInterval(() => {
+      void (async () => {
+        if (!this.leader.shouldRun()) return;
+        try {
+          const n = await this.backup.reclaimStaleRuns();
+          if (n > 0) {
+            this.log.warn(
+              `Periodic sweep reclaimed ${n} dead backup run(s).`,
+            );
+          }
+        } catch (e) {
+          this.log.warn(
+            `Periodic dead-run sweep failed: ${(e as Error).message}`,
+          );
+        }
+      })();
+    }, BackupCronService.RECLAIM_INTERVAL_MS);
+    this.reclaimTimer.unref?.();
+
     // Multi-replica safety: only the leader registers the cron.
     // Backups write to the shared portal-api-backups volume, but the
     // pg_dump process itself is a heavyweight operation we never
@@ -57,11 +89,11 @@ export class BackupCronService implements OnApplicationBootstrap {
       return;
     }
     // Before scheduling anything, close out runs that a previous
-    // process died in the middle of. Only the leader gets here, and
-    // only runs older than the stale cutoff are touched, so a live
-    // backup can never be reclaimed. Failure here must not stop the
-    // cron from registering: a missed reclaim is a stale row, a
-    // missed registration is no backups at all.
+    // process died in the middle of. Only runs whose liveness beat has
+    // gone stale are touched, so a live backup can never be reclaimed.
+    // Failure here must not stop the cron from registering: a missed
+    // reclaim is a stale row, a missed registration is no backups at
+    // all.
     try {
       const reclaimed = await this.backup.reclaimStaleRuns();
       if (reclaimed > 0) {

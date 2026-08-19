@@ -202,9 +202,20 @@ if [[ -z "$PG_CONTAINER" ]]; then
 fi
 
 echo "=== Dumping Postgres: $POSTGRES_DB_APP ==="
+# backup_run is schema-only (--exclude-table-data): the archives it
+# describes live on the backups volume, which golden explicitly does
+# not capture, so restored rows describe files from another era. Worse,
+# a dump taken while a backup is in flight bakes in a permanently
+# "running" row that every nightly reset then resurrects (2026-08-19:
+# the 02:07 snapshot caught the 02:00 scheduled run seven minutes in).
+# The panel's history starts empty after each reset; backup HEALTH is
+# unaffected, portal-api computes it from archives on disk. backup_
+# CONFIG is deliberately still captured: the demo's schedule and
+# retention should survive the reset.
 dc exec -T postgres pg_dump \
   -U "$POSTGRES_USER" \
   -d "$POSTGRES_DB_APP" \
+  --exclude-table-data='backup_run' \
   -F c -Z 6 \
   > "$APP_DUMP_TMP"
 

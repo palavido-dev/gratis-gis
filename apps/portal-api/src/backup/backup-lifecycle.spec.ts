@@ -31,6 +31,7 @@ jest.mock('node:fs/promises', () => ({
  */
 describe('backup lifecycle', () => {
   const HOURS = 3_600_000;
+  const MINUTES = 60_000;
   const DIR = '/app/backups';
   const readdir = fs.readdir as unknown as jest.Mock;
   const stat = fs.stat as unknown as jest.Mock;
@@ -64,13 +65,59 @@ describe('backup lifecycle', () => {
 
   beforeEach(() => jest.clearAllMocks());
 
+  /** A run whose owner is provably alive: beat within the window. */
+  const liveRun = (extra: Record<string, unknown> = {}) => ({
+    id: 'r1',
+    status: 'running',
+    filename: null,
+    startedAt: new Date(),
+    heartbeatAt: new Date(),
+    ...extra,
+  });
+
+  /** A run whose owner died: last beat far outside the window. */
+  const deadRun = (extra: Record<string, unknown> = {}) => ({
+    id: 'r1',
+    status: 'running',
+    filename: null,
+    startedAt: new Date(Date.now() - 2 * HOURS),
+    heartbeatAt: new Date(Date.now() - 2 * HOURS),
+    ...extra,
+  });
+
   describe('deleteRun', () => {
     it('refuses to delete a run that is still going', async () => {
       const { svc } = makeService({});
+      jest.spyOn(svc, 'getRun').mockResolvedValue(liveRun() as never);
+      await expect(svc.deleteRun('r1')).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('closes out and deletes a run whose process died', async () => {
+      // The 2026-08-19 phantom: a deploy killed the 02:00 run, and the
+      // admin was left with a row Delete 409'd on and Cancel could not
+      // reach. A dead run has no process to protect, so the same click
+      // fails the row and then does the delete that was asked for.
+      const del = jest.fn().mockResolvedValue({});
+      const update = jest.fn().mockResolvedValue({});
+      const { svc } = makeService({ delete: del, update });
+      jest.spyOn(svc, 'getRun').mockResolvedValue(deadRun() as never);
+      await expect(svc.deleteRun('r1')).resolves.toEqual({ deleted: 'r1' });
+      expect(update).toHaveBeenCalled();
+      expect(update.mock.calls[0]![0].data.status).toBe('failed');
+      expect(del).toHaveBeenCalled();
+    });
+
+    it('treats a pre-heartbeat running row as dead once old enough', async () => {
+      // Rows created before the heartbeat column have heartbeatAt null
+      // and threshold on startedAt. They cannot belong to a live
+      // process; shipping the column restarted every replica.
+      const del = jest.fn().mockResolvedValue({});
+      const { svc } = makeService({ delete: del });
       jest
         .spyOn(svc, 'getRun')
-        .mockResolvedValue({ id: 'r1', status: 'running', filename: null } as never);
-      await expect(svc.deleteRun('r1')).rejects.toBeInstanceOf(ConflictException);
+        .mockResolvedValue(deadRun({ heartbeatAt: null }) as never);
+      await expect(svc.deleteRun('r1')).resolves.toEqual({ deleted: 'r1' });
+      expect(del).toHaveBeenCalled();
     });
 
     it('still deletes a finished run', async () => {
@@ -90,9 +137,7 @@ describe('backup lifecycle', () => {
       // the proxy picked, usually not the one holding pg_dump.
       const update = jest.fn().mockResolvedValue({});
       const { svc } = makeService({ update });
-      jest
-        .spyOn(svc, 'getRun')
-        .mockResolvedValue({ id: 'r1', status: 'running' } as never);
+      jest.spyOn(svc, 'getRun').mockResolvedValue(liveRun() as never);
       await expect(svc.requestCancel('r1')).resolves.toEqual({
         cancelled: true,
         status: 'running',
@@ -100,6 +145,26 @@ describe('backup lifecycle', () => {
       const arg = update.mock.calls[0]![0];
       expect(arg.where).toEqual({ id: 'r1' });
       expect(arg.data.cancelRequestedAt).toBeInstanceOf(Date);
+    });
+
+    it('closes out a dead run instead of setting a flag nothing polls', async () => {
+      // Cancel on a dead run used to "succeed" by writing
+      // cancelRequestedAt for a process that no longer existed, so the
+      // row stayed In progress and the admin stayed stuck. It now says
+      // what actually happened.
+      const update = jest.fn().mockResolvedValue({});
+      const { svc } = makeService({ update });
+      jest.spyOn(svc, 'getRun').mockResolvedValue(deadRun() as never);
+      await expect(svc.requestCancel('r1')).resolves.toEqual({
+        cancelled: false,
+        status: 'failed',
+        reclaimed: true,
+      });
+      // The one write is the reclaim, not a cancel flag.
+      expect(update).toHaveBeenCalledTimes(1);
+      const arg = update.mock.calls[0]![0];
+      expect(arg.data.status).toBe('failed');
+      expect(arg.data.cancelRequestedAt).toBeUndefined();
     });
 
     it('is a no-op on a finished run rather than an error', async () => {
@@ -129,17 +194,60 @@ describe('backup lifecycle', () => {
       );
     });
 
-    it('only counts runs inside the stale window', async () => {
+    it('only counts runs with a live heartbeat', async () => {
       // An abandoned row from a killed process must not lock out every
       // future backup. That is the retention ratchet in another guise.
+      // The guard filters to rows whose beat (or, pre-heartbeat, whose
+      // startedAt) is within the five-minute liveness window; dead
+      // rows were already reclaimed a moment earlier.
       const findFirst = jest.fn().mockResolvedValue(null);
       const { svc } = makeService({ findFirst });
       await svc.runBackup('manual', 'u1').catch(() => undefined);
       const where = findFirst.mock.calls[0]![0].where;
       expect(where.status).toBe('running');
-      const floor: Date = where.startedAt.gte;
-      expect(Date.now() - floor.getTime()).toBeGreaterThan(5.9 * HOURS);
-      expect(Date.now() - floor.getTime()).toBeLessThan(6.1 * HOURS);
+      const arms = where.OR as Array<Record<string, { gte?: Date } | null>>;
+      expect(arms).toHaveLength(2);
+      const beatFloor = (arms[0]!.heartbeatAt as { gte: Date }).gte;
+      expect(arms[1]!.heartbeatAt).toBeNull();
+      const startFloor = (arms[1]!.startedAt as { gte: Date }).gte;
+      for (const floor of [beatFloor, startFloor]) {
+        expect(Date.now() - floor.getTime()).toBeGreaterThan(4.9 * MINUTES);
+        expect(Date.now() - floor.getTime()).toBeLessThan(5.1 * MINUTES);
+      }
+    });
+
+    it('reclaims dead rows before deciding, so they cannot block', async () => {
+      // The full deadlock shape: a killed process leaves a running row
+      // and, without this, every future scheduled run refuses forever.
+      const findMany = jest
+        .fn()
+        .mockResolvedValue([
+          { id: 'dead', startedAt: new Date(Date.now() - 2 * HOURS), heartbeatAt: null },
+        ]);
+      const update = jest.fn().mockResolvedValue({});
+      const findFirst = jest.fn().mockResolvedValue(null);
+      const { svc, prisma } = makeService({ findFirst, update });
+      (prisma.backupRun as unknown as { findMany: jest.Mock }).findMany =
+        findMany;
+      jest
+        .spyOn(
+          svc as unknown as { runPgDump: () => Promise<void> },
+          'runPgDump',
+        )
+        .mockRejectedValue(new Error('stop here'));
+      (prisma.backupRun as unknown as { create: jest.Mock }).create = jest
+        .fn()
+        .mockResolvedValue({ id: 'r-new', startedAt: new Date() });
+
+      await svc.runBackup('manual', 'u1').catch(() => undefined);
+
+      // The dead row was failed BEFORE the guard query ran.
+      const reclaimCall = update.mock.calls.find(
+        (c) => c[0].where.id === 'dead',
+      );
+      expect(reclaimCall).toBeDefined();
+      expect(reclaimCall![0].data.status).toBe('failed');
+      expect(findFirst).toHaveBeenCalled();
     });
   });
 
@@ -195,6 +303,27 @@ describe('backup lifecycle', () => {
 
       expect(clearSpy).toHaveBeenCalled();
       clearSpy.mockRestore();
+    });
+
+    it('stamps a first liveness beat when the row is created', async () => {
+      // The liveness window must hold from birth; without this a run
+      // could be "dead" for the gap before the poll's first tick.
+      const create = jest
+        .fn()
+        .mockResolvedValue({ id: 'r1', startedAt: new Date() });
+      const { svc, prisma } = makeService({});
+      (prisma.backupRun as unknown as { create: jest.Mock }).create = create;
+      jest
+        .spyOn(
+          svc as unknown as { runPgDump: () => Promise<void> },
+          'runPgDump',
+        )
+        .mockRejectedValue(new Error('stop here'));
+
+      await svc.runBackup('manual', null).catch(() => undefined);
+
+      expect(create).toHaveBeenCalled();
+      expect(create.mock.calls[0]![0].data.heartbeatAt).toBeInstanceOf(Date);
     });
 
     it('does not arm the timer at all if config lookup fails', async () => {

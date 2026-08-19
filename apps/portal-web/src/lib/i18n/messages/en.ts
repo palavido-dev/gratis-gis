@@ -573,6 +573,18 @@ export const en = {
     dark: 'Dark',
     system: 'System',
   },
+  adminBackup: {
+    startFailed: 'The backup could not be started.',
+    deleteFailed: 'The backup could not be deleted.',
+    stopFailed: 'The backup could not be stopped.',
+    stop: 'Stop',
+    stopping: 'Stopping...',
+    stopTitle:
+      'Ask this backup to stop. Nothing is published until a backup finishes, so stopping is always safe.',
+    fileMissing: 'File no longer on the server',
+    fileMissingTitle:
+      'This backup finished, but its file is no longer in the backup folder. It may have been moved, deleted by hand, or belong to an earlier restore of the database. It cannot be downloaded or restored.',
+  },
   welcome: {
     title: 'Welcome to GratisGIS',
     intro: 'Your workspace is empty. Pick a starting point.',

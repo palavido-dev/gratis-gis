@@ -130,7 +130,9 @@ export class BackupController {
     // string here so the admin page can format it without a runtime
     // surprise. (Keeping BigInt in the DB is still worth it: it's
     // the right domain type for "bytes of a backup archive".)
-    const runs = await this.backup.listRuns();
+    // archiveOnDisk rides along so the page only offers Download /
+    // Restore for archives that still exist.
+    const runs = await this.backup.listRunsWithArchiveState();
     return runs.map((r) => ({
       ...r,
       sizeBytes: r.sizeBytes === null ? null : r.sizeBytes.toString(),
