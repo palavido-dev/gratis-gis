@@ -5,6 +5,19 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.37] - 2026-08-19
+
+### Added
+
+- **Charts say what they are showing.** Pie charts now always carry a
+  legend, on the right so it fits a dashboard tile, and slices with
+  room show their share as a percentage. When a field has a long tail
+  of one-off values the smaller ones collect into a single "Other"
+  slice that says how many categories it covers, so the chart stays
+  readable without hiding anything. Bars now show their value above
+  them, and features with no value for the grouping field read "(no
+  value)".
+
 ## [0.9.36] - 2026-08-19
 
 ### Fixed
