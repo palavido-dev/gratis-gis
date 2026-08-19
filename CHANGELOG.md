@@ -5,6 +5,28 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.30] - 2026-08-18
+
+### Fixed
+
+- **Raster and point cloud items now have a map extent.** Their
+  extents were computed at upload and then never copied into the field
+  that search and clients read, so geographic search never matched a
+  raster, and "Zoom to Layer" on one in QGIS went to the whole world.
+  New uploads record it, and existing items are filled in during the
+  upgrade.
+- **Asking the OGC API for a filter it does not support is now an
+  error instead of a wrong answer.** A request with an unsupported
+  parameter (for example a date filter) used to return data as if the
+  filter had been applied, with no way to tell it had been ignored.
+- **The OGC conformance declaration now matches what is actually
+  served.** It claimed a catalogue class that does not exist in the
+  standard and two tile classes with no matching endpoint; the missing
+  per-collection tilesets list now exists, and the invented and
+  unsupported claims are gone. Responses also carry the media types
+  the documents advertise for themselves (GeoJSON for features,
+  Mapbox style JSON for styles, OpenAPI for the API description).
+
 ## [0.9.29] - 2026-08-17
 
 ### Added
