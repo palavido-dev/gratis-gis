@@ -266,6 +266,45 @@ export interface ItemsQuery {
   sortbyParam?: string | undefined;
 }
 
+/**
+ * The GeoJSON media type Features Part 1 requires on /items and
+ * /items/:id responses. Nest defaults to application/json, and the
+ * links in our own documents have always advertised geo+json, so
+ * until this constant existed the surface disagreed with itself.
+ */
+export const GEOJSON_MEDIA_TYPE = 'application/geo+json';
+
+/**
+ * Refuse query parameters the API definition does not declare.
+ *
+ * Features Part 1 requires this (/req/core/query-param-unknown), and
+ * it is not pedantry: before this check, `?datetime=...` returned
+ * 200 with UNFILTERED data, silently ignoring the temporal filter the
+ * caller asked for. A wrong answer is strictly worse than a 400,
+ * because the caller has no way to discover their filter did nothing.
+ *
+ * `allowed` lists the declared query parameter names for the
+ * endpoint. Anything else in the request's query string is rejected
+ * by name, so the caller learns exactly which parameter the server
+ * does not understand.
+ */
+export function rejectUnknownParams(
+  queryKeys: Iterable<string>,
+  allowed: readonly string[],
+): void {
+  const allowedSet = new Set(allowed);
+  const unknown = [...queryKeys].filter((key) => !allowedSet.has(key));
+  if (unknown.length > 0) {
+    throw new BadRequestException(
+      `Unknown query parameter(s): ${unknown.join(', ')}. ` +
+        `This endpoint supports: ${allowed.join(', ') || '(none)'}. ` +
+        'Unsupported filters are rejected rather than silently ' +
+        'ignored so a filtered request can never return unfiltered ' +
+        'data.',
+    );
+  }
+}
+
 export interface CollectionDoc {
   id: string;
   title: string;

@@ -22,6 +22,10 @@ const ITEM_ID = '22222222-2222-7222-8222-222222222222';
 const req = {
   protocol: 'https',
   headers: {},
+  // `query` is part of every real Express request; the handlers read
+  // it to refuse undeclared parameters, so the stand-in must carry it
+  // or the mock diverges from the thing it mocks.
+  query: {},
   get: () => 'gratisgis.test',
 } as never;
 

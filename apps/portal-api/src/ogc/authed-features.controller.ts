@@ -2,6 +2,7 @@
 import {
   Controller,
   Get,
+  Header,
   NotFoundException,
   Param,
   Query,
@@ -22,14 +23,29 @@ import { SharingService } from '../items/sharing.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { parseCollectionId } from '../public/ogc/collection-id.js';
 import {
+  GEOJSON_MEDIA_TYPE,
   buildItemsResponse,
   collectionDoc,
   expandCollectionRows,
   parseCrs,
   pickV3Layers,
+  rejectUnknownParams,
   swapAxes,
   type CollectionRow,
 } from '../public/ogc/features-core.js';
+
+/** Declared query params, kept in lockstep with the public mirror so
+ *  the two surfaces answer identically for everything that is not
+ *  authorization. */
+const ITEMS_QUERY_PARAMS = [
+  'bbox',
+  'bbox-crs',
+  'crs',
+  'limit',
+  'offset',
+  'sortby',
+] as const;
+const FEATURE_QUERY_PARAMS = ['crs'] as const;
 import { absoluteBase } from '../public/ogc/url.js';
 
 /**
@@ -169,6 +185,7 @@ export class AuthedOgcFeaturesController {
   }
 
   @Get('collections/:id/items')
+  @Header('Content-Type', GEOJSON_MEDIA_TYPE)
   async items(
     @CurrentUser() user: AuthUser,
     @Req() req: Request,
@@ -180,6 +197,7 @@ export class AuthedOgcFeaturesController {
     @Query('offset') offsetParam?: string,
     @Query('sortby') sortbyParam?: string,
   ) {
+    rejectUnknownParams(Object.keys(req.query), ITEMS_QUERY_PARAMS);
     const resolved = await this.resolveCollection(user, id);
     const base = absoluteBase(req);
     return buildItemsResponse({
@@ -198,6 +216,7 @@ export class AuthedOgcFeaturesController {
   }
 
   @Get('collections/:id/items/:featureId')
+  @Header('Content-Type', GEOJSON_MEDIA_TYPE)
   async feature(
     @CurrentUser() user: AuthUser,
     @Req() req: Request,
@@ -205,6 +224,7 @@ export class AuthedOgcFeaturesController {
     @Param('featureId') featureId: string,
     @Query('crs') crsParam?: string,
   ) {
+    rejectUnknownParams(Object.keys(req.query), FEATURE_QUERY_PARAMS);
     const resolved = await this.resolveCollection(user, id);
     const crs = parseCrs(crsParam);
     // The clips apply to single-feature reads too, or a caller who

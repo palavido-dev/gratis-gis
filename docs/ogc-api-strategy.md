@@ -42,8 +42,12 @@ sub-paths:
 - `/api/public/ogc/collections/{collectionId}/items/{featureId}`
 - `/api/public/ogc/tileMatrixSets` - Tiles registry
 - `/api/public/ogc/tileMatrixSets/{tmsId}` - one TMS
+- `/api/public/ogc/collections/{collectionId}/tiles` - tilesets list
 - `/api/public/ogc/collections/{collectionId}/tiles/{tmsId}` - tileset
-- `/api/public/ogc/collections/{collectionId}/tiles/{tmsId}/{z}/{x}/{y}` - tile
+- `/api/public/ogc/collections/{collectionId}/tiles/{tmsId}/{tileMatrix}/{tileRow}/{tileCol}` - tile
+  (OGC names: tileMatrix is the zoom band, tileRow is Y, tileCol is X.
+  This doc previously said `{z}/{x}/{y}`, which reversed row and
+  column; the code has always used the OGC order.)
 - `/api/public/ogc/styles` - Styles list
 - `/api/public/ogc/styles/{styleId}` - one style
 - `/api/public/ogc/styles/{styleId}/metadata`

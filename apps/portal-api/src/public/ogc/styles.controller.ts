@@ -2,6 +2,7 @@
 import {
   Controller,
   Get,
+  Header,
   NotFoundException,
   Param,
   Req,
@@ -90,6 +91,10 @@ export class OgcStylesController {
 
   @Public()
   @Get(':styleId')
+  // The styles list and the OpenAPI document have always advertised
+  // this media type for the style document itself; serving plain
+  // application/json made the surface disagree with its own links.
+  @Header('Content-Type', 'application/vnd.mapbox.style+json')
   async style(@Req() req: Request, @Param('styleId') styleId: string) {
     const row = await this.resolveStyleTarget(styleId);
     if (!row) throw new NotFoundException('Style not found.');

@@ -66,10 +66,14 @@ function makeController(featureCount: number) {
   return { controller, listFeatures };
 }
 
-function makeReq(): Request {
+function makeReq(query: Record<string, string> = {}): Request {
+  // `query` is part of every real Express request; the handler now
+  // reads it to refuse undeclared parameters, so the stand-in must
+  // carry it or the mock diverges from the thing it mocks.
   return {
     headers: { host: 'portal.test' },
     protocol: 'http',
+    query,
   } as unknown as Request;
 }
 
@@ -243,5 +247,79 @@ describe('OgcFeaturesController.items sortby rejection', () => {
         expect(new URL(link.href!).searchParams.has('sortby')).toBe(false);
       }
     }
+  });
+});
+
+describe('OgcFeaturesController unknown-parameter rejection', () => {
+  // Features Part 1 /req/core/query-param-unknown. The stakes are not
+  // pedantic: before this check, ?datetime=... returned 200 with
+  // UNFILTERED data, silently ignoring the temporal filter the caller
+  // asked for. A caller has no way to discover their filter did
+  // nothing, so the wrong answer is strictly worse than the 400.
+
+  it('rejects datetime, the parameter that used to lie', async () => {
+    const { controller, listFeatures } = makeController(10);
+    await expect(
+      controller.items(
+        makeReq({ datetime: '2024-01-01T00:00:00Z/2024-12-31T23:59:59Z' }),
+        ITEM_ID,
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+    // Refused before any data was read: an error response must not
+    // cost an engine query.
+    expect(listFeatures).not.toHaveBeenCalled();
+  });
+
+  it('names the offending parameter in the message', async () => {
+    const { controller } = makeController(10);
+    await expect(
+      controller.items(makeReq({ filter: "name='x'" }), ITEM_ID),
+    ).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringContaining('filter'),
+    });
+  });
+
+  it('rejects several unknowns at once, naming all of them', async () => {
+    const { controller } = makeController(10);
+    await expect(
+      controller.items(
+        makeReq({ properties: 'name', skipGeometry: 'true' }),
+        ITEM_ID,
+      ),
+    ).rejects.toMatchObject({
+      message: expect.stringMatching(/properties.*skipGeometry/),
+    });
+  });
+
+  it('accepts every declared parameter together', async () => {
+    const { controller } = makeController(10);
+    const res = await controller.items(
+      makeReq({
+        bbox: '-81,38,-79,40',
+        'bbox-crs': 'http://www.opengis.net/def/crs/OGC/1.3/CRS84',
+        crs: 'http://www.opengis.net/def/crs/OGC/1.3/CRS84',
+        limit: '5',
+        offset: '0',
+      }),
+      ITEM_ID,
+      '-81,38,-79,40',
+      'http://www.opengis.net/def/crs/OGC/1.3/CRS84',
+      'http://www.opengis.net/def/crs/OGC/1.3/CRS84',
+      '5',
+      '0',
+    );
+    expect(res.type).toBe('FeatureCollection');
+  });
+
+  it('rejects unknowns on the single-feature endpoint too', async () => {
+    const { controller } = makeController(10);
+    await expect(
+      controller.feature(
+        makeReq({ properties: 'name' }),
+        ITEM_ID,
+        'id-0',
+      ),
+    ).rejects.toMatchObject({ status: 400 });
   });
 });

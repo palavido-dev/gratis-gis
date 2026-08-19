@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Controller, Get, Req } from '@nestjs/common';
+import { Controller, Get, Header, Req } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 
@@ -122,15 +122,29 @@ export class OgcLandingController {
         // OGC API - Styles Part 1
         'http://www.opengis.net/spec/ogcapi-styles-1/1.0/conf/core',
         'http://www.opengis.net/spec/ogcapi-styles-1/1.0/conf/mapbox-styles',
-        // OGC API - Tiles Part 1
+        // OGC API - Tiles Part 1. `dataset-tilesets` is deliberately
+        // absent: that class requires a DATASET-level /tiles resource
+        // at the API root, which we do not serve (tiles exist per
+        // collection only). It was declared for months alongside
+        // `tilesets-list` while even the per-collection tilesets list
+        // endpoint did not exist; the list below now matches the
+        // routes exactly. If a root /tiles ever lands, restore the
+        // URI in the same commit.
         'http://www.opengis.net/spec/ogcapi-tiles-1/1.0/conf/core',
         'http://www.opengis.net/spec/ogcapi-tiles-1/1.0/conf/tileset',
         'http://www.opengis.net/spec/ogcapi-tiles-1/1.0/conf/tilesets-list',
-        'http://www.opengis.net/spec/ogcapi-tiles-1/1.0/conf/dataset-tilesets',
         'http://www.opengis.net/spec/ogcapi-tiles-1/1.0/conf/geodata-tilesets',
         'http://www.opengis.net/spec/ogcapi-tiles-1/1.0/conf/mvt',
-        // OGC API - Records Part 1
-        'http://www.opengis.net/spec/ogcapi-records-1/1.0/conf/core',
+        // OGC API - Records Part 1. `conf/core` is NOT a class this
+        // standard defines (checked against OGC 20-004r1's own
+        // conformance tables; the record model's class is
+        // `conf/record-core`). We declared the invented URI for
+        // months, which no client could have matched. Note
+        // `conf/searchable-catalog` stays absent on purpose: it
+        // requires records at /collections/{catalogId}/items, and
+        // ours are still at /records. Declare it when the catalogue
+        // moves to the standard path, not before.
+        'http://www.opengis.net/spec/ogcapi-records-1/1.0/conf/record-core',
         'http://www.opengis.net/spec/ogcapi-records-1/1.0/conf/json',
         'http://www.opengis.net/spec/ogcapi-records-1/1.0/conf/sorting',
       ],
@@ -147,6 +161,10 @@ export class OgcLandingController {
    */
   @Public()
   @Get('api')
+  // The landing page has always advertised this media type on its
+  // service-desc link; serving plain application/json made the
+  // document disagree with its own advertisement.
+  @Header('Content-Type', 'application/vnd.oai.openapi+json;version=3.0')
   openApi(@Req() req: Request) {
     const base = absoluteBase(req);
     const root = `${base}/api/public/ogc`;
@@ -400,6 +418,24 @@ export class OgcLandingController {
             responses: {
               '200': { description: 'TileMatrixSet document' },
               '404': { description: 'TileMatrixSet not found' },
+            },
+          },
+        },
+        '/collections/{collectionId}/tiles': {
+          get: {
+            summary: 'Tilesets list for a collection',
+            tags: ['Tiles'],
+            parameters: [
+              {
+                name: 'collectionId',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' },
+              },
+            ],
+            responses: {
+              '200': { description: 'Tilesets list document' },
+              '404': { description: 'Collection not found' },
             },
           },
         },

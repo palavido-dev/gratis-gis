@@ -2,6 +2,7 @@
 import {
   Controller,
   Get,
+  Header,
   NotFoundException,
   Param,
   Query,
@@ -20,14 +21,36 @@ import {
   publicTierGeoLimit,
 } from '../public-geo-limit.js';
 import {
+  GEOJSON_MEDIA_TYPE,
   buildItemsResponse,
   collectionDoc,
   expandCollectionRows,
   parseCrs,
   pickV3Layers,
+  rejectUnknownParams,
   swapAxes,
   type CollectionRow,
 } from './features-core.js';
+
+/**
+ * The query parameters the API definition declares for /items, and
+ * for the single-feature endpoint. `rejectUnknownParams` refuses
+ * everything else with a 400 naming the offender, per Features Part 1
+ * /req/core/query-param-unknown. `sortby` stays listed here although
+ * the handler rejects it separately with its own message: it IS a
+ * recognised parameter, just an unsupported one, and "we know this
+ * parameter and do not support it" is a more useful error than
+ * "never heard of it".
+ */
+const ITEMS_QUERY_PARAMS = [
+  'bbox',
+  'bbox-crs',
+  'crs',
+  'limit',
+  'offset',
+  'sortby',
+] as const;
+const FEATURE_QUERY_PARAMS = ['crs'] as const;
 
 /**
  * OGC API Features Part 1 (Core + GeoJSON + OAS30 + Part 2 CRS) for
@@ -102,6 +125,7 @@ export class OgcFeaturesController {
 
   @Public()
   @Get(':id/items')
+  @Header('Content-Type', GEOJSON_MEDIA_TYPE)
   async items(
     @Req() req: Request,
     @Param('id') id: string,
@@ -112,6 +136,7 @@ export class OgcFeaturesController {
     @Query('offset') offsetParam?: string,
     @Query('sortby') sortbyParam?: string,
   ) {
+    rejectUnknownParams(Object.keys(req.query), ITEMS_QUERY_PARAMS);
     const row = await this.resolvePublicCollection(id);
     if (!row) throw new NotFoundException('Collection not found.');
 
@@ -145,12 +170,14 @@ export class OgcFeaturesController {
    */
   @Public()
   @Get(':id/items/:featureId')
+  @Header('Content-Type', GEOJSON_MEDIA_TYPE)
   async feature(
     @Req() req: Request,
     @Param('id') id: string,
     @Param('featureId') featureId: string,
     @Query('crs') crsParam?: string,
   ) {
+    rejectUnknownParams(Object.keys(req.query), FEATURE_QUERY_PARAMS);
     const row = await this.resolvePublicCollection(id);
     if (!row) throw new NotFoundException('Collection not found.');
     const crs = parseCrs(crsParam);

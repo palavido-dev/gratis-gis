@@ -115,6 +115,61 @@ export class OgcTilesController {
   }
 
   /**
+   * Tilesets list for a collection. OGC Tiles Part 1 §7.1: the
+   * `.../tiles` resource enumerates the tilesets available for the
+   * geodata, one entry per TileMatrixSet. We tile in WebMercatorQuad
+   * only, so the list has one entry, but the resource must exist:
+   * the conformance declaration carried `conf/tilesets-list` and
+   * `conf/geodata-tilesets` for months while this endpoint did not
+   * exist, and a client that walked the declared classes got a 404.
+   * An over-declared conformsTo is worse than a short one, because
+   * clients branch on it.
+   */
+  @Public()
+  @Get('collections/:collectionId/tiles')
+  async tilesetsList(
+    @Req() req: Request,
+    @Param('collectionId') collectionId: string,
+  ) {
+    const row = await this.resolvePublicTileset(collectionId);
+    if (!row) throw new NotFoundException('Tileset not found.');
+    const base = absoluteBase(req);
+    const listBase = `${base}/api/public/ogc/collections/${collectionId}/tiles`;
+    return {
+      tilesets: [
+        {
+          title: row.title,
+          dataType: 'vector',
+          crs: 'http://www.opengis.net/def/crs/EPSG/0/3857',
+          tileMatrixSetURI:
+            'http://www.opengis.net/def/tilematrixset/OGC/1.0/WebMercatorQuad',
+          links: [
+            {
+              href: `${listBase}/WebMercatorQuad`,
+              rel: 'self',
+              type: 'application/json',
+              title: `${row.title} (WebMercatorQuad)`,
+            },
+            {
+              href: `${base}/api/public/ogc/tileMatrixSets/WebMercatorQuad`,
+              rel: 'http://www.opengis.net/def/rel/ogc/1.0/tiling-scheme',
+              type: 'application/json',
+            },
+          ],
+        },
+      ],
+      links: [
+        { href: listBase, rel: 'self', type: 'application/json' },
+        {
+          href: `${base}/api/public/ogc/collections/${collectionId}`,
+          rel: 'collection',
+          type: 'application/json',
+        },
+      ],
+    };
+  }
+
+  /**
    * Tileset metadata for a collection at WebMercatorQuad. Returns
    * the per-tileset doc with the URL template the client uses to
    * fetch actual tiles. OGC Tiles Part 1 §10.
