@@ -5,6 +5,18 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.38] - 2026-08-19
+
+### Added
+
+- **The app builder now shows your data widgets while you lay them
+  out.** Indicators, charts, and attribute tables drew a grey
+  placeholder box on the design canvas, so building a dashboard meant
+  arranging boxes and then opening the app to see what you had made.
+  They now render with real data on the canvas, using the same
+  components the published app uses, so what you arrange is what you
+  get. Map-driven widgets keep their existing previews for now.
+
 ## [0.9.37] - 2026-08-19
 
 ### Added
