@@ -8402,6 +8402,81 @@ function WidgetFrame({
   );
 }
 
+/**
+ * Render a widget the way the runtime will, for the DESIGNER canvas.
+ *
+ * The builder used to draw a grey "Chart content" box for anything
+ * without a bespoke preview, which is fine for a map app (you place
+ * one map and the tools around it) and useless for a dashboard, where
+ * the whole job is judging whether four indicators and two charts sit
+ * well together. Laying that out against placeholders is guesswork.
+ *
+ * This deliberately reuses the runtime's own renderers rather than
+ * adding a ninth hand-written preview beside the eight already in
+ * detail.tsx. Those previews drift: each one reimplements a widget's
+ * look and then falls behind the real thing. Calling the same
+ * component the runtime calls means the canvas cannot be wrong, and a
+ * new widget kind gets a canvas preview the day it ships.
+ *
+ * What design time deliberately differs on:
+ *   - **No live map.** The context carries no MapLibre instances, so
+ *     widgets that steer a map keep their existing previews; the
+ *     `DESIGN_TIME_KINDS` list below is the set that renders without
+ *     one. Hosting real map canvases inside the builder is a separate
+ *     piece of work (gesture conflicts with drag and resize).
+ *   - **No polling.** Refresh is pinned to 0. A builder open for an
+ *     hour must not sit there re-querying every minute.
+ *   - **No interaction.** The caller wraps this in pointer-events-none
+ *     so a click lands on the widget card's drag handler, not on a
+ *     chart tooltip.
+ */
+export const DESIGN_TIME_KINDS: ReadonlySet<CustomWidgetKind> = new Set([
+  'indicator',
+  'chart',
+  'attribute-table',
+]);
+
+export function DesignTimeWidgetPreview({
+  widget,
+  resolvedTargets,
+}: {
+  widget: CustomWidget;
+  resolvedTargets: ResolvedAppTarget[];
+}) {
+  const noop = () => undefined;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const ctx = useMemo<CustomMapsCtx>(
+    () => ({
+      states: {},
+      update: noop,
+      registerRef: noop,
+      basemaps: [],
+      resolvedTargets,
+      flyTo: noop,
+      refreshMapLayer: noop,
+      navigateToPage: noop,
+      pages: [],
+      maps: {},
+      registerMap: noop,
+      editClaims: {},
+      setEditClaim: noop,
+      runtimeContainerRef: containerRef,
+      popupSuppressed: {},
+      setPopupSuppressed: noop,
+    }),
+    [resolvedTargets],
+  );
+  return (
+    <AppRefreshContext.Provider value={0}>
+      <CustomMapsContext.Provider value={ctx}>
+        <div ref={containerRef} className="flex h-full w-full flex-col">
+          {renderWidget(widget)}
+        </div>
+      </CustomMapsContext.Provider>
+    </AppRefreshContext.Provider>
+  );
+}
+
 // Keep a kind icon registry just for static/lookup; not currently
 // used by the renderer above but parallels the designer's
 // PALETTE_TILES so a future "WidgetFrame defaults to kind icon"

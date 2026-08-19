@@ -59,6 +59,7 @@ import type {
   CustomWidgetKind,
   Item,
   MapData,
+  MapLayer,
   PanelAnchor,
   PanelArrangement,
   ViewerTarget,
@@ -66,6 +67,14 @@ import type {
 } from '@gratis-gis/shared-types';
 import {
   APP_THEMES,
+  DEFAULT_LAYER_ACCESS,
+  DEFAULT_LAYER_INTERACTIONS,
+  DEFAULT_LAYER_LABELS,
+  DEFAULT_LAYER_POPUP,
+  DEFAULT_LAYER_RENDERER,
+  DEFAULT_LAYER_SCALE,
+  DEFAULT_LAYER_SEARCH,
+  DEFAULT_LAYER_STYLE,
   applyAppTheme,
   applyAppThemeTokens,
   migrateCustomAppData,
@@ -78,6 +87,20 @@ import { PickMapDialog } from '../editor/pick-map-dialog';
 import { useConfirm } from '@/components/dialog-provider';
 import { BuilderShell } from '@/components/builder-shell/builder-shell';
 import { Container } from './themed-containers';
+import {
+  DESIGN_TIME_KINDS,
+  DesignTimeWidgetPreview,
+} from './runtime-client';
+
+/** The target shape the runtime renderers read. Mirrors the runtime's
+ *  ResolvedAppTarget; kept local so the designer does not import a
+ *  type that only exists to describe runtime internals. */
+interface ResolvedTargetLite {
+  dataLayerId: string;
+  layerKey: string;
+  title: string;
+  mapLayer: MapLayer;
+}
 import { ToolPicker } from './tool-picker';
 import { MAP_ICONS, MAP_ICON_CATEGORIES, renderIconSvg } from '../map/map-icons';
 
@@ -211,6 +234,10 @@ export function CustomAppDetail({
   // preview falls back to MapCanvas's inline OSM raster style in
   // that interim window.
   const [previewBasemaps, setPreviewBasemaps] = useState<CustomBasemap[]>([]);
+  // Canvas widgets render live (see DesignTimeWidgetPreview), which
+  // needs the app's targets in the same shape the runtime resolves
+  // them into.
+  const resolvedTargets = useResolvedTargets(app.targets);
   // #363: per-Map-widget MapData when the widget has its own
   // config.mapId override. Without this the canvas preview shows
   // the app default for EVERY map widget, ignoring overrides.
@@ -976,6 +1003,7 @@ export function CustomAppDetail({
               canEdit={canEdit}
               previewMapData={previewMapData}
               previewBasemaps={previewBasemaps}
+              resolvedTargets={resolvedTargets}
               widgetMapData={widgetMapData}
               activeTabIdxByWidget={activeTabIdxByWidget}
               themePresetId={app.themePresetId}
@@ -1844,6 +1872,7 @@ function Canvas({
   canEdit,
   previewMapData,
   previewBasemaps,
+  resolvedTargets,
   widgetMapData,
   activeTabIdxByWidget,
   themePresetId,
@@ -1860,6 +1889,9 @@ function Canvas({
   canEdit: boolean;
   previewMapData: MapData | null;
   previewBasemaps: CustomBasemap[];
+  /** Targets resolved to the runtime's shape so canvas widgets can
+   *  render live rather than as placeholders. */
+  resolvedTargets: ResolvedTargetLite[];
   widgetMapData: Record<string, MapData>;
   activeTabIdxByWidget: Record<string, number>;
   /**
@@ -2496,6 +2528,7 @@ function Canvas({
       // resolved, else fall through to the app default.
       previewMapData={widgetMapData[w.id] ?? previewMapData}
       previewBasemaps={previewBasemaps}
+      resolvedTargets={resolvedTargets}
       activeTabIdx={activeTabIdxByWidget[w.id] ?? 0}
       itemTitle={itemTitle}
       selectedChildId={selectedId}
@@ -2612,6 +2645,7 @@ function WidgetCard({
   isDropTarget,
   previewMapData,
   previewBasemaps,
+  resolvedTargets,
   activeTabIdx,
   itemTitle,
   selectedChildId,
@@ -2646,6 +2680,9 @@ function WidgetCard({
   isDropTarget: boolean;
   previewMapData: MapData | null;
   previewBasemaps: CustomBasemap[];
+  /** Targets resolved to the runtime's shape so canvas widgets can
+   *  render live rather than as placeholders. */
+  resolvedTargets: ResolvedTargetLite[];
   activeTabIdx: number;
   /**
    * #22 WYSIWYG: forwarded to inline-rendered children of container
@@ -2918,6 +2955,17 @@ function WidgetCard({
           <span className="text-2xs text-ink-1">
             {widget.config.title?.trim() || '(no title)'}
           </span>
+        </div>
+      ) : DESIGN_TIME_KINDS.has(widget.kind) ? (
+        // Live widget, rendered by the runtime's own component. The
+        // wrapper turns off pointer events so a drag still grabs the
+        // card rather than a chart tooltip, and clips overflow so a
+        // wide table cannot push the card's own bounds around.
+        <div className="pointer-events-none relative flex min-h-0 flex-1 overflow-hidden">
+          <DesignTimeWidgetPreview
+            widget={widget}
+            resolvedTargets={resolvedTargets}
+          />
         </div>
       ) : (
         <div className="flex flex-1 items-center justify-center p-3 text-xs text-muted">
@@ -7229,6 +7277,81 @@ function MapBindingPicker({
 }
 
 // ---- Generic field + number input -----------------------------------------
+
+/**
+ * Resolve the app's targets into the shape the runtime renderers
+ * expect, so the canvas can draw real widgets instead of placeholder
+ * boxes.
+ *
+ * This mirrors what the runtime's server entry builds (see
+ * custom/run/page.tsx), from the browser and with the same defaults,
+ * because the designer has no server pass to do it in. Targets that
+ * point at a deleted or unreadable layer are dropped, exactly as the
+ * runtime drops them, so the canvas shows the same empty state the
+ * published app would.
+ */
+function useResolvedTargets(targets: ViewerTarget[]): ResolvedTargetLite[] {
+  const [resolved, setResolved] = useState<ResolvedTargetLite[]>([]);
+  // Targets is a fresh array identity on every keystroke in the
+  // inspector; key the effect on the identity that actually matters.
+  const key = targets.map((t) => `${t.dataLayerId}:${t.layerKey}`).join('|');
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const out: ResolvedTargetLite[] = [];
+      for (const t of targets) {
+        try {
+          const res = await fetch(`/api/portal/items/${t.dataLayerId}`);
+          if (!res.ok) continue;
+          const item = (await res.json()) as {
+            title?: string;
+            data?: {
+              version?: number;
+              layers?: Array<{ id?: string; label?: string; geometryType?: string | null }>;
+            };
+          };
+          if (item.data?.version !== 3) continue;
+          const sub = item.data.layers?.find((l) => l.id === t.layerKey);
+          if (!sub) continue;
+          const title = `${item.title ?? 'Layer'} / ${sub.label ?? t.layerKey}`;
+          out.push({
+            dataLayerId: t.dataLayerId,
+            layerKey: t.layerKey,
+            title,
+            mapLayer: {
+              id: `custom-target:${t.dataLayerId}:${t.layerKey}`,
+              title,
+              visible: true,
+              opacity: 1,
+              source: {
+                kind: 'geojson-url',
+                url: `/api/portal/items/${t.dataLayerId}/layers/${t.layerKey}/geojson`,
+              },
+              style: DEFAULT_LAYER_STYLE,
+              renderer: DEFAULT_LAYER_RENDERER,
+              popup: DEFAULT_LAYER_POPUP,
+              interactions: DEFAULT_LAYER_INTERACTIONS,
+              labels: DEFAULT_LAYER_LABELS,
+              search: DEFAULT_LAYER_SEARCH,
+              filter: null,
+              scale: DEFAULT_LAYER_SCALE,
+              access: DEFAULT_LAYER_ACCESS,
+            } as MapLayer,
+          });
+        } catch {
+          // A target that cannot be read is simply absent from the
+          // canvas, which is what the runtime does too.
+        }
+      }
+      if (!cancelled) setResolved(out);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  return resolved;
+}
 
 /**
  * Field names for one app target, read from the data_layer item's
