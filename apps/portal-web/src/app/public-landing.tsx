@@ -10,11 +10,11 @@ import {
   LogIn,
   MessageCircle,
   MessageSquarePlus,
+  Monitor,
   RefreshCw,
   Smartphone,
   Sparkles,
   Users,
-  Wrench,
   type LucideIcon,
 } from 'lucide-react';
 import { BrandMark } from '@/components/brand-mark';
@@ -372,18 +372,24 @@ function ProjectAboutSection() {
           </h2>
           <p className="mt-2 text-sm text-muted sm:text-base">
             GratisGIS is a portal for publishing datasets, web maps,
-            forms, and dashboards on your own infrastructure. Built on
-            open components (PostGIS, MapLibre, Keycloak). No license
-            fees; your only cost is the hardware (or cloud bill) you
-            choose to run it on.
+            forms, and dashboards on your own infrastructure, with an
+            official QGIS plugin for desktop work. Built on open
+            components (PostGIS, MapLibre, Keycloak). No license fees;
+            your only cost is the hardware (or cloud bill) you choose
+            to run it on.
           </p>
         </div>
 
         <ul className="mb-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           <FeatureTile
             icon={Database}
-            title="Runs on your own hardware"
-            body="PostGIS-backed datasets, web maps, and forms. Bring data in from shapefiles, GeoJSON, GDB, or any OGR-supported format."
+            title="Self-hosted on your own hardware"
+            body="PostGIS-backed datasets, web maps, and forms; bring data in from shapefiles, GeoJSON, GDB, or any OGR-supported format. Docker compose, single-command deploy, runs on a $20/month VPS. No license fees, no SaaS lock-in."
+          />
+          <FeatureTile
+            icon={Monitor}
+            title="First-class QGIS support"
+            body="An official plugin in the QGIS plugin repository: browse and search the portal, publish layers and whole projects from the canvas, take a layer to the field, and sync edits back. No plugin? Rasters appear in QGIS's built-in catalog browser and layers open over standard APIs, with an API key for private content."
           />
           <FeatureTile
             icon={Smartphone}
@@ -393,12 +399,7 @@ function ProjectAboutSection() {
           <FeatureTile
             icon={Globe}
             title="Works with the tools you already use"
-            body="OGC API Features, Tiles, Styles, and Records; CSW 2.0.2 catalog; Schema.org JSON-LD; WMS / WFS service references; plus Esri WebMap JSON export so portal maps open in ArcGIS Pro, ArcGIS Online, QGIS, and kepler.gl."
-          />
-          <FeatureTile
-            icon={Wrench}
-            title="Built for self-hosting"
-            body="Docker compose, single-command deploy. Runs on a $20/month VPS or your existing infrastructure. No SaaS lock-in."
+            body="OGC API Features, Tiles, Styles, and Records; a STAC catalog; CSW 2.0.2; Schema.org JSON-LD; WMS / WFS service references; plus Esri WebMap JSON export so portal maps open in ArcGIS Pro, ArcGIS Online, and kepler.gl."
           />
         </ul>
 
