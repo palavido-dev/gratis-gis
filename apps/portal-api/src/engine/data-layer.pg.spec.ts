@@ -944,6 +944,241 @@ d('observation-log read paths against real PostGIS', () => {
     });
   });
 
+  describe('scenario 8: aggregates answer from live rows only (#29 f/u)', () => {
+    const itemId = uuidv7();
+    const layerId = 'layer-agg';
+    const scope = dataLayerScope(itemId, layerId);
+    const edited = uuidv7();
+    const doomed = uuidv7();
+    const steady = uuidv7();
+    const moved = uuidv7();
+    const ALICE = { sub: 'agg-alice', displayName: 'Alice' };
+    const BOB = { sub: 'agg-bob', displayName: 'Bob' };
+
+    async function seedAs(
+      author: { sub: string; displayName: string },
+      entity: string,
+      kind: 'create' | 'update' | 'delete',
+      attrs: Record<string, unknown> | null,
+      lngLat: [number, number] | null,
+    ): Promise<void> {
+      const ts = nextTs();
+      await engineSvc.write({
+        scope,
+        entity,
+        kind,
+        validFrom: ts,
+        validTo: null,
+        txTime: ts,
+        attrs,
+        geom: lngLat ? { type: 'Point', coordinates: lngLat } : null,
+        author,
+        source: { kind: 'itest' },
+        parents: [],
+      });
+    }
+
+    beforeAll(async () => {
+      // A layer with every shape that breaks a naive aggregate:
+      // an edited entity (two versions), a deleted one (tombstone),
+      // a plain live one, and one that moved out of the bbox.
+      await seedAs(ALICE, edited, 'create', { STATUS: 'Open', ACRES: 10 }, HERE);
+      await seedAs(ALICE, edited, 'update', { STATUS: 'Closed', ACRES: 12 }, HERE);
+      await seedAs(BOB, doomed, 'create', { STATUS: 'Open', ACRES: 100 }, HERE);
+      await seedAs(BOB, doomed, 'delete', null, null);
+      await seedAs(BOB, steady, 'create', { STATUS: 'Closed', ACRES: 8 }, HERE);
+      await seedAs(ALICE, moved, 'create', { STATUS: 'Closed', ACRES: 5 }, HERE);
+      await seedAs(ALICE, moved, 'update', { STATUS: 'Closed', ACRES: 5 }, AWAY);
+    });
+
+    it('count is live entities, not observations', async () => {
+      // Seven observations, three live entities. Aggregating the raw
+      // log would say 7; counting pre-collapse with a tombstone
+      // filter would say 4 (the deleted entity resurrects through its
+      // surviving create row).
+      const out = await makeEngine().aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+      });
+      expect(out.groups).toHaveLength(1);
+      expect(out.groups[0]!.values.count).toBe(3);
+      expect(out.truncated).toBe(false);
+    });
+
+    it('group keys come from the latest version, so an edited-away value vanishes', async () => {
+      // `edited` was Open and is now Closed. A pre-collapse group-by
+      // would report Open: 2 and hand the dashboard a number that
+      // exists nowhere in the current data.
+      const out = await makeEngine().aggregateFeatures({
+        itemId,
+        layerId,
+        groupBy: ['STATUS'],
+        aggs: [{ op: 'count', as: 'count' }],
+      });
+      const byStatus = Object.fromEntries(
+        out.groups.map((g) => [g.key.STATUS, g.values.count]),
+      );
+      expect(byStatus).toEqual({ Closed: 3 });
+      expect(byStatus.Open).toBeUndefined();
+    });
+
+    it('sum and avg read the latest values and skip the tombstoned row', async () => {
+      // ACRES: edited 10 -> 12, steady 8, moved 5, doomed 100 deleted.
+      // Live sum is 25; counting the old version would give 23 and
+      // counting the deleted one would give 125.
+      const out = await makeEngine().aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [
+          { op: 'sum', field: 'ACRES', as: 'sum' },
+          { op: 'avg', field: 'ACRES', as: 'avg' },
+          { op: 'min', field: 'ACRES', as: 'min' },
+          { op: 'max', field: 'ACRES', as: 'max' },
+        ],
+      });
+      const v = out.groups[0]!.values;
+      expect(v.sum).toBe(25);
+      expect(v.avg).toBeCloseTo(25 / 3, 6);
+      expect(v.min).toBe(5);
+      expect(v.max).toBe(12);
+    });
+
+    it('bbox filters on the latest geometry, not any historical one', async () => {
+      // `moved` was created inside IN_BBOX and edited to AWAY. It must
+      // count in AWAY_BBOX and NOT in IN_BBOX; the reverse is the
+      // ghost-geometry bug this shape exists to prevent.
+      const engine = makeEngine();
+      const here = await engine.aggregateFeatures({
+        itemId,
+        layerId,
+        bbox: IN_BBOX,
+        aggs: [{ op: 'count', as: 'count' }],
+      });
+      expect(here.groups[0]!.values.count).toBe(2);
+      const away = await engine.aggregateFeatures({
+        itemId,
+        layerId,
+        bbox: AWAY_BBOX,
+        aggs: [{ op: 'count', as: 'count' }],
+      });
+      expect(away.groups[0]!.values.count).toBe(1);
+    });
+
+    it('row scope narrows the aggregate the same way it narrows the rows', async () => {
+      // The whole reason this endpoint is server-side: a share scoped
+      // to own-rows must see its own count. Alice created `edited` and
+      // `moved`; Bob created `steady` (and the deleted one).
+      const out = await makeEngine().aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        ownRowsOnly: { userId: ALICE.sub },
+      });
+      expect(out.groups[0]!.values.count).toBe(2);
+    });
+
+    it('geo limit clips the aggregate', async () => {
+      const out = await makeEngine().aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        geoLimit: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [AWAY_BBOX[0], AWAY_BBOX[1]],
+              [AWAY_BBOX[2], AWAY_BBOX[1]],
+              [AWAY_BBOX[2], AWAY_BBOX[3]],
+              [AWAY_BBOX[0], AWAY_BBOX[3]],
+              [AWAY_BBOX[0], AWAY_BBOX[1]],
+            ],
+          ],
+        },
+      });
+      expect(out.groups[0]!.values.count).toBe(1);
+    });
+
+    it('a non-numeric column aggregates to null instead of failing the request', async () => {
+      // STATUS is text. A dashboard asking for sum(STATUS) is a
+      // configuration mistake, but a 500 tells the viewer nothing;
+      // null renders as "no data" and the widget stays up.
+      const out = await makeEngine().aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [{ op: 'sum', field: 'STATUS', as: 'sum' }],
+      });
+      expect(out.groups[0]!.values.sum).toBeNull();
+    });
+
+    it('caps group cardinality and says so, returning the biggest groups', async () => {
+      const capItem = uuidv7();
+      const capScope = dataLayerScope(capItem, layerId);
+      // 5 distinct keys; one of them ("k0") has two features so it is
+      // unambiguously the top group under the ORDER BY.
+      for (let i = 0; i < 5; i += 1) {
+        const ts = nextTs();
+        await engineSvc.write({
+          scope: capScope,
+          entity: uuidv7(),
+          kind: 'create',
+          validFrom: ts,
+          validTo: null,
+          txTime: ts,
+          attrs: { K: `k${i}` },
+          geom: { type: 'Point', coordinates: HERE },
+          author: ALICE,
+          source: { kind: 'itest' },
+          parents: [],
+        });
+      }
+      const extra = nextTs();
+      await engineSvc.write({
+        scope: capScope,
+        entity: uuidv7(),
+        kind: 'create',
+        validFrom: extra,
+        validTo: null,
+        txTime: extra,
+        attrs: { K: 'k0' },
+        geom: { type: 'Point', coordinates: HERE },
+        author: ALICE,
+        source: { kind: 'itest' },
+        parents: [],
+      });
+      const out = await makeEngine().aggregateFeatures({
+        itemId: capItem,
+        layerId,
+        groupBy: ['K'],
+        aggs: [{ op: 'count', as: 'count' }],
+        limit: 2,
+      });
+      expect(out.groups).toHaveLength(2);
+      expect(out.truncated).toBe(true);
+      // Truncation keeps the TOP groups, which is what makes the cap
+      // defensible: "showing top 2" is honest, an arbitrary 2 is not.
+      expect(out.groups[0]!.key.K).toBe('k0');
+      expect(out.groups[0]!.values.count).toBe(2);
+    });
+
+    it('refuses an empty or oversized aggregate list', async () => {
+      const engine = makeEngine();
+      await expect(
+        engine.aggregateFeatures({ itemId, layerId, aggs: [] }),
+      ).rejects.toThrow(/between 1 and/);
+      await expect(
+        engine.aggregateFeatures({
+          itemId,
+          layerId,
+          aggs: Array.from({ length: 9 }, (_, i) => ({
+            op: 'count' as const,
+            as: `c${i}`,
+          })),
+        }),
+      ).rejects.toThrow(/between 1 and/);
+    });
+  });
+
   describe('scenario 5: globalId create idempotency', () => {
     const itemId = uuidv7();
     const layerId = 'layer-1';

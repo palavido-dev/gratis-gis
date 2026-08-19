@@ -16,6 +16,10 @@ import { Public } from '../auth/public.decorator.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { DataLayerFeaturesService } from '../data-layer/features.service.js';
 import { parsePagingParams } from '../data-layer/feature-paging.js';
+import {
+  parseAggregateQuery,
+  rejectUnknownAggregateParams,
+} from '../data-layer/aggregate-params.js';
 import { streamFeatureCollection } from '../data-layer/feature-stream.js';
 import { loadOsmPresetCatalog } from '../osm/preset-catalog.js';
 import {
@@ -523,6 +527,87 @@ export class PublicController {
       }
     }
     return this.v3.searchFeatures(itemId, layerId, opts);
+  }
+
+  /**
+   * Anonymous grouped aggregate for a layer of a public data_layer
+   * item. Mirrors the auth'd
+   * /api/items/:id/layers/:layerId/aggregate but gated to
+   * `access='public'`.
+   *
+   * This is the half that is easy to forget: a dashboard shared
+   * publicly renders for an anonymous visitor, so its indicator and
+   * chart widgets hit this path. Without the mirror they 401 at the
+   * BFF and the tiles render beside empty numbers, which reads as a
+   * broken dashboard rather than a missing route. The BFF's anonymous
+   * rewrite allowlist needs the matching entry; the mirror alone is
+   * not enough (see the comments in
+   * apps/portal-web/src/app/api/portal/[...path]/route.ts).
+   *
+   * Share-level geo limits and row scope do not apply to an
+   * anonymous caller (both hang off a share row they do not have),
+   * but the PUBLIC TIER boundary does, exactly as it does on the
+   * feature mirrors above: a layer the owner clipped for the
+   * internet must report clipped numbers too, or the aggregate
+   * becomes a side channel around the clip.
+   */
+  @Public()
+  @Get('items/:id/layers/:layerId/aggregate')
+  async layerAggregate(
+    @Req() req: Request,
+    @Param('id') itemId: string,
+    @Param('layerId') layerId: string,
+  ) {
+    if (!isUuidShape(itemId)) throw new NotFoundException('Item not found');
+    rejectUnknownAggregateParams(Object.keys(req.query));
+    const parsed = parseAggregateQuery(req.query as Record<string, unknown>);
+    const item = await this.prisma.item.findFirst({
+      where: {
+        id: itemId,
+        type: 'data_layer',
+        access: 'public',
+        deletedAt: null,
+      },
+      select: { id: true, data: true, ...PUBLIC_TIER_SELECT },
+    });
+    if (!item) throw new NotFoundException('Item not found');
+    const layer = pickV3Layer(item.data, layerId);
+    if (!layer) throw new NotFoundException('Layer not found');
+
+    // Whitelist every requested name against the layer schema, same
+    // as the search mirror does, so an arbitrary attribute key cannot
+    // be probed through attrs->>'..' and so a typo cannot answer with
+    // a confident zero.
+    const allowed = new Set(layer.fields.map((f) => f.name));
+    for (const name of [
+      ...parsed.groupBy,
+      ...parsed.aggs.map((a) => a.field).filter((f): f is string => !!f),
+    ]) {
+      if (!allowed.has(name)) {
+        throw new BadRequestException(
+          `"${name}" is not a field on this layer.`,
+        );
+      }
+    }
+
+    const opts: {
+      groupBy?: string[];
+      aggs: typeof parsed.aggs;
+      bbox?: [number, number, number, number];
+      geoLimit?: unknown;
+      limit?: number;
+      asOf?: Date;
+    } = { aggs: parsed.aggs };
+    if (parsed.groupBy.length > 0) opts.groupBy = parsed.groupBy;
+    if (parsed.bbox) opts.bbox = parsed.bbox;
+    if (parsed.limit !== undefined) opts.limit = parsed.limit;
+    if (parsed.asOf !== undefined) opts.asOf = parsed.asOf;
+    const tierClip = await publicTierGeoLimit(
+      this.prisma,
+      item.publicGeoBoundaryId,
+    );
+    if (tierClip) opts.geoLimit = tierClip;
+    return this.v3.aggregateFeatures(itemId, layerId, opts);
   }
 
   /**

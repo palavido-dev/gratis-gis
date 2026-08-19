@@ -304,6 +304,29 @@ export interface TileResult {
 const DEFAULT_SOURCE: SourceRef = { kind: 'data_layer:write' };
 
 /**
+ * Caps for `aggregateFeatures`. The group cap is what stops a
+ * groupBy on a near-unique column from becoming a whole-layer
+ * download: over it, the response is truncated (top-N by the first
+ * aggregate) and flagged. The key and agg counts mirror the derived
+ * layer aggregate tool's limits so the two surfaces agree on what a
+ * reasonable grouping is.
+ */
+const AGG_GROUP_CAP = 1000;
+const AGG_MAX_GROUP_KEYS = 4;
+const AGG_MAX_AGGS = 8;
+
+/**
+ * Attribute names are bound as JSONB path PARAMETERS
+ * (`attrs->>$1`), never interpolated as identifiers, so this shape
+ * check is for error legibility rather than injection safety. Keep
+ * it permissive enough for real-world column names (imported
+ * shapefiles carry dots and spaces) while excluding control
+ * characters and anything absurdly long.
+ */
+// eslint-disable-next-line no-control-regex
+const ATTR_NAME_RE = /^[^\x00-\x1f]{1,128}$/;
+
+/**
  * Encode a `(itemId, layerId)` pair as the canonical engine scope
  * for a data_layer sublayer. Every adapter call uses this; no other
  * surface should construct scopes by hand.
@@ -1792,6 +1815,256 @@ export class DataLayerEngine {
         },
       })),
       count: kept.length,
+      truncated,
+    };
+  }
+
+  /**
+   * Grouped aggregate read for dashboard widgets (#29 follow-on).
+   *
+   * Returns one row per group with the requested aggregates, or a
+   * single row when `groupBy` is empty (the indicator-widget case).
+   * The chart widget previously downloaded the whole layer as GeoJSON
+   * and aggregated in browser JS, which does not survive a
+   * county-scale layer and, more importantly, cannot be scoped: an
+   * aggregate is a read, and a read has to answer with the caller's
+   * rows. Doing it here means share geo limits and own-rows-only
+   * scoping clip the numbers exactly as they clip the features.
+   *
+   * Ghost-safety is the same three-stage shape as pageFeatures, for
+   * the same reason: aggregating raw log rows would count every
+   * version of every entity and resurrect deleted ones. Entities
+   * collapse to their latest observation FIRST, tombstones drop, and
+   * only then do the aggregates run. Version-independent filters
+   * (entity id, row scope) may sit inside the collapse; content
+   * predicates (bbox, geo limit) must not.
+   *
+   * Group cardinality is capped. A groupBy on a near-unique column
+   * (a parcel id, a timestamp) would otherwise return a row per
+   * feature, which is a whole-layer download wearing a hat. Over the
+   * cap the response is truncated and says so, so the widget can
+   * render "showing top N" instead of quietly lying.
+   */
+  async aggregateFeatures(args: {
+    itemId: string;
+    layerId: string;
+    /**
+     * Bitemporal read instant. Defaults to now. The time-slider
+     * widget drives this, so a chart scrubbed back in time must
+     * aggregate the snapshot as of that instant rather than today's
+     * rows: without it, moving the slider would change the map and
+     * the table while the numbers beside them silently stayed
+     * current, which is a wrong answer of exactly the kind this
+     * endpoint exists to avoid.
+     */
+    asOf?: Date;
+    /** Attribute names to group by. Empty = one row over the layer. */
+    groupBy?: string[];
+    /** Requested aggregates. `count` needs no field. */
+    aggs: Array<{
+      op: 'count' | 'sum' | 'avg' | 'min' | 'max';
+      field?: string;
+      /** Result key. Caller-supplied so the widget can address it. */
+      as: string;
+    }>;
+    bbox?: [number, number, number, number];
+    geoLimit?: GeoJsonGeometry;
+    boundaryClip?: GeoJsonGeometry;
+    ownRowsOnly?: { userId: string };
+    /** Max groups returned. Server clamps to AGG_GROUP_CAP. */
+    limit?: number;
+  }): Promise<{
+    groups: Array<{
+      key: Record<string, string | null>;
+      values: Record<string, number | null>;
+    }>;
+    truncated: boolean;
+  }> {
+    validateGeoJson(args.geoLimit);
+    validateGeoJson(args.boundaryClip);
+    const scope = this.scope(args.itemId, args.layerId);
+    const asOf = args.asOf ?? new Date();
+    const groupBy = (args.groupBy ?? []).slice(0, AGG_MAX_GROUP_KEYS);
+    if (args.aggs.length === 0 || args.aggs.length > AGG_MAX_AGGS) {
+      throw new Error(
+        `aggregateFeatures needs between 1 and ${AGG_MAX_AGGS} aggregates.`,
+      );
+    }
+    const cap = Math.min(
+      Math.max((args.limit ?? AGG_GROUP_CAP) | 0, 1),
+      AGG_GROUP_CAP,
+    );
+
+    // Attribute names reach SQL as JSONB path arguments, never as
+    // identifiers: attrs->>$1 is a parameter, so a hostile field name
+    // is a lookup miss rather than an injection point. The shape
+    // check below is belt-and-braces for readable errors.
+    for (const name of [
+      ...groupBy,
+      ...args.aggs.map((a) => a.field).filter((f): f is string => !!f),
+    ]) {
+      if (!ATTR_NAME_RE.test(name)) {
+        throw new Error(`Invalid attribute name: ${name}`);
+      }
+    }
+
+    const collapseFilters: Prisma.Sql[] = [];
+    const contentFilters: Prisma.Sql[] = [];
+    if (args.bbox !== undefined) {
+      const [w, s, e, n] = args.bbox;
+      contentFilters.push(
+        Prisma.sql`AND geom && ST_MakeEnvelope(${w}, ${s}, ${e}, ${n}, 4326)`,
+      );
+    }
+    if (args.geoLimit !== undefined) {
+      const json = JSON.stringify(args.geoLimit);
+      contentFilters.push(
+        Prisma.sql`AND (geom IS NULL OR ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
+      );
+    }
+    if (args.boundaryClip !== undefined) {
+      const json = JSON.stringify(args.boundaryClip);
+      contentFilters.push(
+        Prisma.sql`AND geom IS NOT NULL AND ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326))`,
+      );
+    }
+    if (args.ownRowsOnly !== undefined) {
+      // Entity-level and version-independent, so it is safe inside
+      // the collapse. Same create-row keying as pageFeatures: author
+      // of the CREATE owns the row, regardless of who edited later.
+      collapseFilters.push(
+        Prisma.sql`AND entity IN (
+          SELECT entity
+          FROM observation
+          WHERE scope = ${scope}
+            AND kind = 'create'
+            AND author_sub = ${args.ownRowsOnly.userId}
+        )`,
+      );
+    }
+    const collapseExtras =
+      collapseFilters.length > 0
+        ? Prisma.join(collapseFilters, ' ')
+        : Prisma.empty;
+    const contentExtras =
+      contentFilters.length > 0
+        ? Prisma.join(contentFilters, ' ')
+        : Prisma.empty;
+
+    // Group keys and aggregate expressions are built positionally:
+    // g0, g1... and a0, a1..., with the caller's attribute names
+    // bound as parameters. That keeps every user-supplied string a
+    // value, and keeps the emitted SQL free of quoting decisions.
+    const groupSelect = groupBy.map(
+      (name, i) => Prisma.sql`attrs->>${name} AS ${Prisma.raw(`g${i}`)}`,
+    );
+    const groupRefs = groupBy.map((_, i) => Prisma.raw(`g${i}`));
+    const aggSelect = args.aggs.map((a, i) => {
+      const alias = Prisma.raw(`a${i}`);
+      if (a.op === 'count') return Prisma.sql`COUNT(*)::double precision AS ${alias}`;
+      // Non-numeric values become NULL rather than erroring the whole
+      // request: a column that is numeric for 99% of rows still gives
+      // a useful sum, and a fully non-numeric one gives NULL, which
+      // the widget renders as "no data" instead of a 500. A bare
+      // `::double precision` does NOT do this, it raises 22P02 on the
+      // first bad row, which is how a chart pointed at a text column
+      // took the whole panel down in testing.
+      //
+      // pg_input_is_valid is the exact test (it asks the type's own
+      // input function), so 'NaN', '1e5' and ' 12 ' behave exactly as
+      // a cast would, which a regex approximation cannot promise. It
+      // needs PostgreSQL 16+; this project's floor is 17 (see
+      // infra/docker-compose.yml and docs/SETUP.md).
+      const value = Prisma.sql`CASE WHEN pg_input_is_valid(attrs->>${a.field!}, 'double precision') THEN (attrs->>${a.field!})::double precision END`;
+      switch (a.op) {
+        case 'sum':
+          return Prisma.sql`SUM(${value}) AS ${alias}`;
+        case 'avg':
+          return Prisma.sql`AVG(${value}) AS ${alias}`;
+        case 'min':
+          return Prisma.sql`MIN(${value}) AS ${alias}`;
+        case 'max':
+          return Prisma.sql`MAX(${value}) AS ${alias}`;
+      }
+    });
+    const selectList = Prisma.join([...groupSelect, ...aggSelect], ', ');
+    const groupClause =
+      groupRefs.length > 0
+        ? Prisma.sql`GROUP BY ${Prisma.join(groupRefs, ', ')}`
+        : Prisma.empty;
+    // Order by the first aggregate descending when grouped, so a
+    // truncated result is the TOP N rather than an arbitrary N. That
+    // is what makes the cap defensible: the interesting groups are
+    // the big ones, and the widget can honestly say "top N".
+    const orderClause =
+      groupRefs.length > 0
+        ? Prisma.sql`ORDER BY ${Prisma.raw('a0')} DESC NULLS LAST`
+        : Prisma.empty;
+    const fetchN = cap + 1;
+
+    type AggRow = Record<string, string | number | null>;
+    const rows =
+      contentFilters.length === 0
+        ? await this.prisma.$queryRaw<AggRow[]>`
+      SELECT ${selectList}
+      FROM (
+        SELECT DISTINCT ON (entity)
+          entity, attrs, kind
+        FROM observation
+        WHERE scope = ${scope}
+          AND valid_from <= ${asOf}
+          ${collapseExtras}
+        ORDER BY entity, valid_from DESC, tx_time DESC
+      ) latest
+      WHERE kind <> 'delete'
+      ${groupClause}
+      ${orderClause}
+      LIMIT ${fetchN}
+    `
+        : await this.prisma.$queryRaw<AggRow[]>`
+      WITH content_candidates AS (
+        SELECT DISTINCT entity
+        FROM observation
+        WHERE scope = ${scope}
+          AND valid_from <= ${asOf}
+          ${collapseExtras}
+          ${contentExtras}
+      )
+      SELECT ${selectList}
+      FROM (SELECT entity FROM content_candidates) cand
+      CROSS JOIN LATERAL (
+        SELECT entity, attrs, geom, kind
+        FROM observation
+        WHERE scope = ${scope}
+          AND entity = cand.entity
+          AND valid_from <= ${asOf}
+        ORDER BY valid_from DESC, tx_time DESC
+        LIMIT 1
+      ) l
+      WHERE l.kind <> 'delete'
+        ${contentExtras}
+      ${groupClause}
+      ${orderClause}
+      LIMIT ${fetchN}
+    `;
+
+    const truncated = rows.length > cap;
+    const kept = truncated ? rows.slice(0, cap) : rows;
+    return {
+      groups: kept.map((r) => {
+        const key: Record<string, string | null> = {};
+        groupBy.forEach((name, i) => {
+          const v = r[`g${i}`];
+          key[name] = v === null || v === undefined ? null : String(v);
+        });
+        const values: Record<string, number | null> = {};
+        args.aggs.forEach((a, i) => {
+          const v = r[`a${i}`];
+          values[a.as] =
+            v === null || v === undefined ? null : Number(v);
+        });
+        return { key, values };
+      }),
       truncated,
     };
   }

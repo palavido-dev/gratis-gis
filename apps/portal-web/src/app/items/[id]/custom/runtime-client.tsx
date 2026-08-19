@@ -97,6 +97,16 @@ import {
   type ClientExportFormat,
 } from '@/lib/layer-export';
 import { BasemapPreview } from '@/components/basemap-preview';
+import {
+  resolveRefreshSeconds,
+  useAutoRefresh,
+} from '@/lib/use-auto-refresh';
+import {
+  aggKey,
+  defaultIndicatorLabel,
+  fetchAggregate,
+  formatAggregateValue,
+} from '@/lib/layer-aggregate';
 import type { SelectToolMode } from '../map/select-tool';
 import { AttributeTable } from '../map/attribute-table';
 import { AttributeForm } from '../editor/attribute-form';
@@ -284,6 +294,26 @@ const AppTimeContext = createContext<AppTimeCtx>({
   at: null,
   setAt: () => {},
 });
+
+/**
+ * App-level auto-refresh cadence in seconds (0 = manual). Data-bound
+ * widgets read this, apply their own per-widget override on top, and
+ * hand the result to useAutoRefresh. Kept as its own context rather
+ * than threaded through props because a widget can be nested
+ * arbitrarily deep inside containers and tabs.
+ */
+const AppRefreshContext = createContext<number>(0);
+
+/**
+ * Resolve this widget's effective refresh cadence and subscribe to
+ * it. Returns a counter that changes when the widget is due for a
+ * re-fetch; callers put it in their effect's dependency list.
+ */
+function useWidgetRefresh(widget: CustomWidget): number {
+  const appSeconds = useContext(AppRefreshContext);
+  const seconds = resolveRefreshSeconds(widget.refreshSeconds, appSeconds);
+  return useAutoRefresh(seconds);
+}
 
 /**
  * Read the current app-time as an ISO string, or null if the app
@@ -612,6 +642,7 @@ export function CustomRuntimeClient({
   );
 
   return (
+    <AppRefreshContext.Provider value={app.refreshSeconds ?? 0}>
     <AppTimeContext.Provider value={appTimeCtx}>
     <RuntimeInfoContext.Provider value={{ itemTitle }}>
     <CustomMapsContext.Provider value={ctxValue}>
@@ -862,6 +893,7 @@ export function CustomRuntimeClient({
     </CustomMapsContext.Provider>
     </RuntimeInfoContext.Provider>
     </AppTimeContext.Provider>
+    </AppRefreshContext.Provider>
   );
 }
 
@@ -1559,6 +1591,8 @@ function renderWidget(widget: CustomWidget): React.ReactNode {
       return <TextWidgetRender widget={widget} />;
     case 'chart':
       return <ChartWidgetRender widget={widget} />;
+    case 'indicator':
+      return <IndicatorWidgetRender widget={widget} />;
     case 'search':
       return <SearchWidgetRender widget={widget} />;
     case 'print':
@@ -4093,86 +4127,292 @@ function renderInline(s: string): React.ReactNode {
 function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
   if (widget.config.kind !== 'chart') return null;
   const ctx = useContext(CustomMapsContext);
-  // #87 -- read app-time so the chart re-fetches against the
+  // #87 -- read app-time so the chart re-aggregates against the
   // bitemporal snapshot when the user scrubs back in time.
   const appAt = useAppTime();
+  const refreshTick = useWidgetRefresh(widget);
   const cfg = widget.config;
   const target = ctx?.resolvedTargets[cfg.targetIndex] ?? null;
-  const [data, setData] = useState<FetchedFeatures>({
-    loading: true,
-    rows: [],
-    fields: [],
-    error: null,
-  });
+  const [state, setState] = useState<{
+    loading: boolean;
+    rows: Array<{ name: string; value: number }>;
+    truncated: boolean;
+    error: string | null;
+  }>({ loading: true, rows: [], truncated: false, error: null });
+
+  const aggregate = cfg.aggregate ?? 'count';
+  const valueField = cfg.valueField;
+  const groupBy = cfg.groupBy;
+  const chartType = cfg.chartType;
 
   useEffect(() => {
     if (!target) {
-      setData({ loading: false, rows: [], fields: [], error: 'No target' });
+      setState({
+        loading: false,
+        rows: [],
+        truncated: false,
+        error: 'No target',
+      });
       return;
     }
-    let abort = false;
-    setData({ loading: true, rows: [], fields: [], error: null });
+    // A value aggregate with no field would previously fall back to
+    // counting, which drew a plausible chart of the wrong measure.
+    // Say so instead.
+    if (aggregate !== 'count' && !valueField) {
+      setState({
+        loading: false,
+        rows: [],
+        truncated: false,
+        error: `Pick a number field to ${aggregate}.`,
+      });
+      return;
+    }
+    const controller = new AbortController();
+    setState((s) => ({ ...s, loading: true, error: null }));
     void (async () => {
       try {
-        const url = appendAtParam(
-          `/api/portal/items/${target.dataLayerId}/layers/${target.layerKey}/geojson`,
-          appAt,
+        // Server-side aggregation: one small response instead of the
+        // whole layer, and the numbers are scoped to this viewer's
+        // shares. The previous shape fetched every feature as GeoJSON
+        // and reduced it in the browser, which neither scaled nor
+        // could be scoped.
+        const res = await fetchAggregate({
+          itemId: target.dataLayerId,
+          layerId: target.layerKey,
+          aggs: [
+            valueField
+              ? { op: aggregate, field: valueField }
+              : { op: 'count' },
+          ],
+          ...(groupBy ? { groupBy: [groupBy] } : {}),
+          // Charts read a category axis; past a few dozen slices a
+          // pie is unreadable anyway, and the server returns the top
+          // groups so the truncation is meaningful.
+          limit: 50,
+          ...(appAt ? { asOf: appAt } : {}),
+          signal: controller.signal,
+        });
+        const key = aggKey(
+          valueField ? aggregate : 'count',
+          valueField,
         );
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const fc = (await res.json()) as GeoJSON.FeatureCollection;
-        if (abort) return;
-        const features = fc.features ?? [];
-        const fieldSet = new Set<string>();
-        for (const f of features) {
-          for (const k of Object.keys(f.properties ?? {})) fieldSet.add(k);
-        }
-        const fields = Array.from(fieldSet).filter((f) => !f.startsWith('_'));
-        setData({
+        const rows = res.groups.map((g) => ({
+          name: groupBy
+            ? (g.key[groupBy] ?? '(missing)')
+            : 'All',
+          value: g.values[key] ?? 0,
+        }));
+        // Bars and pies read best largest-first; a line chart is
+        // usually ordinal, so it keeps the server's order.
+        if (chartType !== 'line') rows.sort((a, b) => b.value - a.value);
+        else rows.sort((a, b) => a.name.localeCompare(b.name));
+        setState({
           loading: false,
-          rows: features.map((f) => ({
-            id: (f.id ?? '') as string | number,
-            props: (f.properties ?? {}) as Record<string, unknown>,
-          })),
-          fields,
+          rows,
+          truncated: res.truncated,
           error: null,
         });
       } catch (err) {
-        if (abort) return;
-        setData({
+        if (controller.signal.aborted) return;
+        setState({
           loading: false,
           rows: [],
-          fields: [],
-          error: err instanceof Error ? err.message : 'Fetch failed',
+          truncated: false,
+          error: err instanceof Error ? err.message : 'Could not load data.',
         });
       }
     })();
-    return () => {
-      abort = true;
-    };
-  }, [target, appAt]);
+    return () => controller.abort();
+  }, [target, appAt, aggregate, valueField, groupBy, chartType, refreshTick]);
 
   return (
     <WidgetFrame icon={ChevronRight} title="Chart">
-      {data.loading ? (
+      {state.loading && state.rows.length === 0 ? (
         <p className="p-2 text-xs italic text-[hsl(var(--app-muted))]">Loading…</p>
-      ) : data.error ? (
-        <p className="p-2 text-xs text-[hsl(var(--app-danger))]">{data.error}</p>
+      ) : state.error ? (
+        <p className="p-2 text-xs text-[hsl(var(--app-danger))]">{state.error}</p>
+      ) : state.rows.length === 0 ? (
+        <p className="p-2 text-xs italic text-[hsl(var(--app-muted))]">
+          No data to chart. Bind a target with at least one feature
+          and pick a group-by field.
+        </p>
       ) : (
-        <ChartCanvas rows={data.rows} cfg={cfg} />
+        <div className="flex flex-1 flex-col">
+          <div className="flex-1 p-2">
+            <ChartPlot rows={state.rows} kind={chartType} />
+          </div>
+          {state.truncated ? (
+            <p className="px-2 pb-1 text-2xs text-[hsl(var(--app-muted))]">
+              Showing the 50 largest groups.
+            </p>
+          ) : null}
+        </div>
       )}
     </WidgetFrame>
   );
 }
 
 /**
- * Inner Recharts canvas. Pulls the imports off the package's
- * default surface (the package ships ESM; Next bundles it in the
- * client chunk for this widget). We keep this a separate component
- * so the import boundary lines up with where Recharts actually
- * mounts -- if the chart widget is never used on a page, the chunk
- * never loads.
+ * Indicator widget: one aggregate number, rendered large.
+ *
+ * The smallest dashboard primitive, and deliberately an ordinary
+ * widget: it can sit on a page of indicators or in the corner of a
+ * map app, because there is no dashboard runtime for it to belong to.
+ *
+ * Optionally follows a bound map's viewport. That is opt-in and
+ * labelled, because a number that silently changes as the user pans
+ * is indistinguishable from a number that is wrong.
  */
+function IndicatorWidgetRender({ widget }: { widget: CustomWidget }) {
+  if (widget.config.kind !== 'indicator') return null;
+  const ctx = useContext(CustomMapsContext);
+  const appAt = useAppTime();
+  const refreshTick = useWidgetRefresh(widget);
+  const cfg = widget.config;
+  const target = ctx?.resolvedTargets[cfg.targetIndex] ?? null;
+  const followId = cfg.followMapWidgetId;
+  // Live viewport from the bound map instance, tracked on moveend so
+  // the value settles after the pan rather than churning per frame.
+  // Same source the attribute table uses for its extent-only mode.
+  const boundMapInstance = followId ? (ctx?.maps[followId] ?? null) : null;
+  const [bboxKey, setBboxKey] = useState('');
+  useEffect(() => {
+    if (!boundMapInstance) {
+      setBboxKey('');
+      return;
+    }
+    const update = () => {
+      const b = boundMapInstance.getBounds();
+      // Rounded so a one-pixel nudge does not re-fetch; four decimals
+      // is ~11m, far finer than any indicator cares about.
+      setBboxKey(
+        [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]
+          .map((n) => n.toFixed(4))
+          .join(','),
+      );
+    };
+    update();
+    boundMapInstance.on('moveend', update);
+    return () => {
+      boundMapInstance.off('moveend', update);
+    };
+  }, [boundMapInstance]);
+
+  const [state, setState] = useState<{
+    loading: boolean;
+    value: number | null;
+    error: string | null;
+  }>({ loading: true, value: null, error: null });
+
+  const { aggregate, valueField } = cfg;
+
+  useEffect(() => {
+    if (!target) {
+      setState({ loading: false, value: null, error: 'No layer bound' });
+      return;
+    }
+    if (aggregate !== 'count' && !valueField) {
+      setState({
+        loading: false,
+        value: null,
+        error: `Pick a number field to ${aggregate}.`,
+      });
+      return;
+    }
+    const controller = new AbortController();
+    setState((s) => ({ ...s, loading: true, error: null }));
+    void (async () => {
+      try {
+        const bbox = bboxKey
+          ? (bboxKey.split(',').map(Number) as [number, number, number, number])
+          : undefined;
+        const res = await fetchAggregate({
+          itemId: target.dataLayerId,
+          layerId: target.layerKey,
+          aggs: [
+            valueField ? { op: aggregate, field: valueField } : { op: 'count' },
+          ],
+          ...(bbox ? { bbox } : {}),
+          ...(appAt ? { asOf: appAt } : {}),
+          signal: controller.signal,
+        });
+        const key = aggKey(valueField ? aggregate : 'count', valueField);
+        setState({
+          loading: false,
+          // No groups means no matching features, which is a real
+          // zero for a count and genuinely unknown for sum/avg.
+          value:
+            res.groups.length === 0
+              ? aggregate === 'count'
+                ? 0
+                : null
+              : (res.groups[0]!.values[key] ?? null),
+          error: null,
+        });
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        setState({
+          loading: false,
+          value: null,
+          error: err instanceof Error ? err.message : 'Could not load data.',
+        });
+      }
+    })();
+    return () => controller.abort();
+  }, [target, appAt, aggregate, valueField, bboxKey, refreshTick]);
+
+  const label =
+    cfg.label?.trim() ||
+    defaultIndicatorLabel(aggregate, valueField, target?.title);
+  const ref = cfg.reference;
+  // Color only when the author declared which way is good. A bare
+  // reference draws the comparison without claiming a verdict.
+  const toneClass = (() => {
+    if (!ref || state.value === null || ref.goodWhen === 'none' || !ref.goodWhen) {
+      return 'text-[hsl(var(--app-ink))]';
+    }
+    const good =
+      ref.goodWhen === 'above'
+        ? state.value >= ref.value
+        : state.value <= ref.value;
+    return good
+      ? 'text-[hsl(var(--app-success))]'
+      : 'text-[hsl(var(--app-danger))]';
+  })();
+
+  return (
+    <WidgetFrame icon={ChevronRight} title={label}>
+      <div className="flex flex-1 flex-col items-center justify-center gap-1 p-3 text-center">
+        {state.error ? (
+          <p className="text-xs text-[hsl(var(--app-danger))]">{state.error}</p>
+        ) : (
+          <>
+            <span
+              className={`text-4xl font-semibold tabular-nums leading-none ${toneClass} ${
+                state.loading ? 'opacity-50' : ''
+              }`}
+            >
+              {formatAggregateValue(state.value, cfg.format)}
+            </span>
+            <span className="text-xs text-[hsl(var(--app-muted))]">{label}</span>
+            {ref ? (
+              <span className="text-2xs text-[hsl(var(--app-muted))]">
+                {ref.label?.trim() || 'target'}:{' '}
+                {formatAggregateValue(ref.value, cfg.format)}
+              </span>
+            ) : null}
+            {followId ? (
+              <span className="text-2xs italic text-[hsl(var(--app-muted))]">
+                current map view
+              </span>
+            ) : null}
+          </>
+        )}
+      </div>
+    </WidgetFrame>
+  );
+}
+
 function ChartCanvas({
   rows,
   cfg,
@@ -8071,6 +8311,7 @@ export const KIND_ICON: Record<CustomWidgetKind, typeof MapIcon> = {
   'attribute-table': TableIcon,
   text: TypeIcon,
   chart: ChevronRight,
+  indicator: ChevronRight,
   search: SearchIcon,
   print: Printer,
   select: MousePointer2,

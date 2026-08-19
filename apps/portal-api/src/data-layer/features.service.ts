@@ -411,6 +411,50 @@ export class DataLayerFeaturesService {
   }
 
   /**
+   * Grouped aggregate read. Thin wrapper over the engine adapter;
+   * every clip the caller resolved (share geo limit, layer boundary,
+   * own-rows-only) passes straight through, because an aggregate is
+   * a read and must answer with the caller's rows, not the layer's.
+   */
+  async aggregateFeatures(
+    itemId: string,
+    layerId: string,
+    args: {
+      groupBy?: string[];
+      aggs: Array<{
+        op: 'count' | 'sum' | 'avg' | 'min' | 'max';
+        field?: string;
+        as: string;
+      }>;
+      bbox?: [number, number, number, number];
+      geoLimit?: unknown;
+      boundaryClip?: unknown;
+      ownRowsOnly?: { userId: string };
+      limit?: number;
+      asOf?: Date;
+    },
+  ) {
+    return this.dataLayer.aggregateFeatures({
+      itemId,
+      layerId,
+      aggs: args.aggs,
+      ...(args.asOf !== undefined ? { asOf: args.asOf } : {}),
+      ...(args.groupBy !== undefined ? { groupBy: args.groupBy } : {}),
+      ...(args.bbox !== undefined ? { bbox: args.bbox } : {}),
+      ...(args.geoLimit !== undefined
+        ? { geoLimit: args.geoLimit as GeoJsonGeometry }
+        : {}),
+      ...(args.boundaryClip !== undefined
+        ? { boundaryClip: args.boundaryClip as GeoJsonGeometry }
+        : {}),
+      ...(args.ownRowsOnly !== undefined
+        ? { ownRowsOnly: args.ownRowsOnly }
+        : {}),
+      ...(args.limit !== undefined ? { limit: args.limit } : {}),
+    });
+  }
+
+  /**
    * Attribute search for the map / app search bar. Thin wrapper over
    * the engine's searchFeatures: reaches features anywhere in the
    * layer (not just the viewport) and returns a representative point

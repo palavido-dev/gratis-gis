@@ -100,6 +100,7 @@ function isLongRunningPath(suffix: string): boolean {
  *   - items/:id/layers/:layer/features   -> public/items/:id/layers/:layer/features
  *   - items/:id/layers/:layer/features-search
  *                                        -> public/items/:id/layers/:layer/features-search
+ *   - items/:id/layers/:layer/aggregate  -> public/items/:id/layers/:layer/aggregate
  *   - items/:id/layers/:layer/tile/:z/:x/:y.mvt
  *                                        -> public/items/:id/layers/:layer/tile/:z/:x/:y.mvt
  *   - items/:id/proxy/...                -> public/items/:id/proxy/...
@@ -116,8 +117,15 @@ function publicRewriteForAnonymousGet(suffix: string): string | null {
   if (/^items\/[^/]+$/.test(suffix)) {
     return `public/${suffix}`;
   }
+  // `aggregate` joins the read mirrors here for the dashboard
+  // widgets: an indicator or chart on a publicly-shared app asks for
+  // its own numbers, and portal-api's public mirror applies the
+  // public tier boundary the same way the feature mirrors do. Missing
+  // this row is the documented failure shape on this file: the API
+  // half looks correct, the widget renders empty, and it reads as a
+  // broken dashboard rather than a missing allowlist entry.
   if (
-    /^items\/[^/]+\/layers\/[^/]+\/(geojson|features|features-search)$/.test(
+    /^items\/[^/]+\/layers\/[^/]+\/(geojson|features|features-search|aggregate)$/.test(
       suffix,
     )
   ) {

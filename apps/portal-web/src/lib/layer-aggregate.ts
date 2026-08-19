@@ -1,0 +1,133 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import type { NumberFormat } from '@gratis-gis/shared-types';
+
+/**
+ * Client for the server-side aggregate endpoint, shared by the
+ * indicator and chart widgets.
+ *
+ * Both widgets used to (chart) or would have to (indicator) download
+ * a layer's whole GeoJSON and reduce it in the browser. That does not
+ * survive a county-scale layer, and it cannot be scoped: the numbers
+ * a viewer sees have to come from a query that applied that viewer's
+ * share limits. This module is the small amount of plumbing that
+ * makes "ask the server" as easy as the wrong thing was.
+ *
+ * The BFF forwards /api/portal/... to portal-api and falls back to
+ * the anonymous public mirror when there is no session, so the same
+ * URL works signed in and signed out.
+ */
+
+export type AggOp = 'count' | 'sum' | 'avg' | 'min' | 'max';
+
+export interface AggregateRequest {
+  itemId: string;
+  layerId: string;
+  aggs: Array<{ op: AggOp; field?: string }>;
+  groupBy?: string[];
+  bbox?: [number, number, number, number];
+  limit?: number;
+  signal?: AbortSignal;
+}
+
+export interface AggregateGroup {
+  key: Record<string, string | null>;
+  values: Record<string, number | null>;
+}
+
+export interface AggregateResult {
+  groups: AggregateGroup[];
+  truncated: boolean;
+}
+
+/** The result key the server assigns a spec: `count`, `sum:acres`. */
+export function aggKey(op: AggOp, field?: string): string {
+  return op === 'count' ? 'count' : `${op}:${field ?? ''}`;
+}
+
+export async function fetchAggregate(
+  req: AggregateRequest,
+): Promise<AggregateResult> {
+  const params = new URLSearchParams();
+  for (const a of req.aggs) {
+    params.append('agg', a.op === 'count' ? 'count' : `${a.op}:${a.field}`);
+  }
+  if (req.groupBy && req.groupBy.length > 0) {
+    params.set('groupBy', req.groupBy.join(','));
+  }
+  if (req.bbox) params.set('bbox', req.bbox.join(','));
+  if (req.limit !== undefined) params.set('limit', String(req.limit));
+
+  const res = await fetch(
+    `/api/portal/items/${req.itemId}/layers/${req.layerId}/aggregate?${params.toString()}`,
+    req.signal ? { signal: req.signal } : {},
+  );
+  if (!res.ok) {
+    // Surface the server's sentence when it sent one. The endpoint
+    // refuses unknown filters and unknown field names by name, and
+    // that message is the whole reason it refuses instead of
+    // answering with a confident wrong number.
+    let detail = '';
+    try {
+      const body = (await res.json()) as { message?: string | string[] };
+      const m = body?.message;
+      detail = Array.isArray(m) ? m.join('; ') : (m ?? '');
+    } catch {
+      /* non-JSON error body; fall through to the status text */
+    }
+    throw new Error(detail || `Could not load data (HTTP ${res.status}).`);
+  }
+  return (await res.json()) as AggregateResult;
+}
+
+/**
+ * Render an aggregate for display.
+ *
+ * Compact mode is opt-in rather than automatic: "1,240 permits" is
+ * more useful than "1.2K permits" on the kind of counts a portal
+ * deals with, and rounding a number the reader is about to act on is
+ * a small betrayal. Authors who genuinely want the short form (a
+ * population, a budget) turn it on.
+ */
+export function formatAggregateValue(
+  value: number | null | undefined,
+  fmt: NumberFormat | undefined,
+): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return '—';
+  }
+  const grouping = fmt?.grouping !== false;
+  const opts: Intl.NumberFormatOptions = { useGrouping: grouping };
+  if (fmt?.compact) {
+    opts.notation = 'compact';
+    opts.maximumFractionDigits = fmt.decimals ?? 1;
+  } else if (fmt?.decimals !== undefined) {
+    opts.minimumFractionDigits = fmt.decimals;
+    opts.maximumFractionDigits = fmt.decimals;
+  } else {
+    // Integers print bare; fractions get up to two places. Avoids
+    // "12.00" for a count and "0.3333333" for an average.
+    opts.maximumFractionDigits = Number.isInteger(value) ? 0 : 2;
+  }
+  const body = new Intl.NumberFormat(undefined, opts).format(value);
+  return `${fmt?.prefix ?? ''}${body}${fmt?.suffix ?? ''}`;
+}
+
+/** Default caption when the author has not written one. */
+export function defaultIndicatorLabel(
+  aggregate: AggOp,
+  valueField: string | undefined,
+  layerName: string | undefined,
+): string {
+  const subject = layerName?.trim() || 'records';
+  if (aggregate === 'count') return `Count of ${subject}`;
+  const field = valueField?.trim();
+  const verb =
+    aggregate === 'sum'
+      ? 'Total'
+      : aggregate === 'avg'
+        ? 'Average'
+        : aggregate === 'min'
+          ? 'Lowest'
+          : 'Highest';
+  return field ? `${verb} ${field}` : `${verb} value`;
+}

@@ -47,6 +47,8 @@ import type { CustomAppData, CustomWidget } from './custom-app';
  */
 export type AppTemplateId =
   | 'blank-canvas'
+  | 'kpi-dashboard'
+  | 'ops-board'
   | 'sidebar-explorer'
   | 'showcase-map'
   | 'compact-drawer'
@@ -616,6 +618,164 @@ function viewerReadonlySeed(): CustomAppData {
  * Web App from scratch" path users who don't want to start from a
  * template land in.
  */
+/**
+ * KPI Dashboard starter.
+ *
+ * A row of indicators over a chart pair and a map. Deliberately built
+ * from ordinary widgets on the ordinary canvas: an author who wants a
+ * layer list, an editing tool, or a second page adds them from the
+ * same palette, because this is a web app that starts out looking
+ * like a dashboard rather than a dashboard product with walls around
+ * it.
+ *
+ * `targets` is empty on purpose. The author binds layers after
+ * creation; the widgets carry targetIndex 0 and render an empty
+ * state until then, the same convention every other starter uses.
+ */
+function kpiDashboardSeed(): CustomAppData {
+  const mapId = wid();
+  const indicator = (
+    aggregate: 'count' | 'sum',
+    label: string,
+    col: number,
+  ): CustomWidget => ({
+    id: wid(),
+    kind: 'indicator',
+    layout: { col, row: 1, colSpan: 48, rowSpan: 40 },
+    config: {
+      kind: 'indicator',
+      targetIndex: 0,
+      aggregate,
+      label,
+      format: { grouping: true },
+      ...(aggregate === 'sum' ? { valueField: '' } : {}),
+    },
+  });
+
+  return {
+    version: 4,
+    themePresetId: 'default',
+    blueprint: 'dashboard',
+    // 60s: live enough that a wall display stays honest, cheap enough
+    // that a public dashboard is one small aggregate per minute.
+    refreshSeconds: 60,
+    targets: [],
+    pages: [
+      {
+        id: 'home',
+        title: 'Overview',
+        widgets: [
+          indicator('count', 'Total records', 1),
+          indicator('count', 'Records', 49),
+          indicator('count', 'Records', 97),
+          indicator('count', 'Records', 145),
+          {
+            id: wid(),
+            kind: 'chart',
+            layout: { col: 1, row: 41, colSpan: 96, rowSpan: 90 },
+            config: {
+              kind: 'chart',
+              targetIndex: 0,
+              chartType: 'bar',
+              aggregate: 'count',
+            },
+          },
+          {
+            id: wid(),
+            kind: 'chart',
+            layout: { col: 97, row: 41, colSpan: 96, rowSpan: 90 },
+            config: {
+              kind: 'chart',
+              targetIndex: 0,
+              chartType: 'pie',
+              aggregate: 'count',
+            },
+          },
+          {
+            id: mapId,
+            kind: 'map',
+            layout: { col: 1, row: 131, colSpan: 192, rowSpan: 120 },
+            config: {
+              kind: 'map',
+              // showTargets is a target-index subset; omitting it
+              // means "every bound target", which is what a starter
+              // wants before the author has bound anything.
+              showNavigation: true,
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
+
+/**
+ * Operations Board starter.
+ *
+ * Indicators down the left, a live map on the right, and the
+ * attribute table underneath: the "what is happening right now"
+ * layout for a duty desk or a wall screen. Same construction as
+ * every other app; the only dashboard-specific parts are the widget
+ * choices and the refresh cadence.
+ */
+function opsBoardSeed(): CustomAppData {
+  const mapId = wid();
+  const stat = (label: string, row: number): CustomWidget => ({
+    id: wid(),
+    kind: 'indicator',
+    layout: { col: 1, row, colSpan: 48, rowSpan: 40 },
+    config: {
+      kind: 'indicator',
+      targetIndex: 0,
+      aggregate: 'count',
+      label,
+      format: { grouping: true },
+    },
+  });
+
+  return {
+    version: 4,
+    themePresetId: 'slate',
+    blueprint: 'dashboard',
+    refreshSeconds: 60,
+    targets: [],
+    pages: [
+      {
+        id: 'home',
+        title: 'Operations',
+        widgets: [
+          stat('Open', 1),
+          stat('In progress', 41),
+          stat('Closed today', 81),
+          {
+            id: mapId,
+            kind: 'map',
+            layout: { col: 49, row: 1, colSpan: 144, rowSpan: 160 },
+            config: {
+              kind: 'map',
+              // showTargets is a target-index subset; omitting it
+              // means "every bound target", which is what a starter
+              // wants before the author has bound anything.
+              showNavigation: true,
+            },
+          },
+          {
+            id: wid(),
+            kind: 'attribute-table',
+            layout: { col: 1, row: 161, colSpan: 192, rowSpan: 90 },
+            config: {
+              kind: 'attribute-table',
+              targetIndex: 0,
+              syncWithMapWidgetId: mapId,
+              displayMode: 'panel',
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
+
 function blankSeed(): CustomAppData {
   return {
     version: 4,
@@ -660,6 +820,24 @@ export const APP_TEMPLATES: readonly AppTemplate[] = [
     seed: fieldInspectionSeed,
   },
   {
+    id: 'kpi-dashboard',
+    label: 'KPI Dashboard',
+    description:
+      'A row of big-number indicators over a bar and pie chart, with a map underneath. Refreshes on its own once a minute.',
+    use: 'Program summaries, permit counts, wall displays, "how are we doing" views that someone checks each morning.',
+    tags: ['dashboard', 'indicators', 'charts'],
+    seed: kpiDashboardSeed,
+  },
+  {
+    id: 'ops-board',
+    label: 'Operations Board',
+    description:
+      'Indicators down the side, live map beside them, attribute table below. Refreshes on its own once a minute.',
+    use: 'Duty desks, incident boards, dispatch screens, anything watched while work is happening.',
+    tags: ['dashboard', 'operations', 'live'],
+    seed: opsBoardSeed,
+  },
+  {
     id: 'blank-canvas',
     label: 'Blank Canvas',
     description:
@@ -701,6 +879,8 @@ export const APP_TEMPLATES: readonly AppTemplate[] = [
  */
 export type StarterKind =
   | 'sidebar-explorer'
+  | 'kpi-dashboard'
+  | 'ops-board'
   | 'showcase-map'
   | 'compact-drawer'
   | 'editor-workspace'
@@ -771,6 +951,24 @@ export const STARTERS: readonly StarterTemplate[] = [
     use: 'Public information maps, internal share-only views, anywhere the audience reads but does not write.',
     tags: ['viewer', 'read-only', 'public'],
     seed: viewerReadonlySeed,
+  },
+  {
+    kind: 'kpi-dashboard',
+    label: 'KPI Dashboard',
+    description:
+      'Indicator row over a bar chart and a pie chart, with a map underneath. Auto-refreshes once a minute.',
+    use: 'Program summaries, permit counts, wall displays, morning "how are we doing" checks.',
+    tags: ['dashboard', 'indicators', 'charts'],
+    seed: kpiDashboardSeed,
+  },
+  {
+    kind: 'ops-board',
+    label: 'Operations Board',
+    description:
+      'Indicators down the side, live map beside them, attribute table below. Auto-refreshes once a minute.',
+    use: 'Duty desks, incident boards, dispatch screens, anything watched while work happens.',
+    tags: ['dashboard', 'operations', 'live'],
+    seed: opsBoardSeed,
   },
   {
     kind: 'blank-canvas',

@@ -41,6 +41,10 @@ import {
   tileOverloadRetryAfterSeconds,
 } from '../engine/tile-cache.service.js';
 import { onceDrain, streamFeatureCollection } from './feature-stream.js';
+import {
+  parseAggregateQuery,
+  rejectUnknownAggregateParams,
+} from './aggregate-params.js';
 
 import type { ItemShare } from '@prisma/client';
 import {
@@ -694,6 +698,73 @@ export class DataLayerFeaturesController {
       if (geom) opts.boundaryClip = geom;
     }
     return this.v3.pageFeatures(itemId, layerId, opts);
+  }
+
+  /**
+   * Grouped aggregate read for dashboard widgets.
+   *
+   * `?agg=count`, `?agg=sum:acres&groupBy=status`, optionally
+   * bbox-bounded and clipped. Returns one row per group (top-N by the
+   * first aggregate when capped) or a single row when ungrouped.
+   *
+   * This exists so a chart or indicator does not have to download the
+   * layer to count it, and, more importantly, so the number it shows
+   * is the CALLER'S number: assertV3Layer resolves the same geo limit
+   * and row scope every other read on this controller uses, and both
+   * pass through to the engine. Client-side aggregation over a full
+   * export cannot do that, which is why this is the primary path and
+   * the whole-layer fetch is only a small-layer fallback.
+   */
+  @Get('aggregate')
+  async aggregate(
+    @Req() req: Request,
+    @CurrentUser() user: AuthUser,
+    @Param('id') itemId: string,
+    @Param('layerId') layerId: string,
+    @Query('clip') clip?: string,
+  ) {
+    rejectUnknownAggregateParams(Object.keys(req.query));
+    const parsed = parseAggregateQuery(req.query as Record<string, unknown>);
+    const { geoLimit, rowScope, layer } = await this.assertV3Layer(
+      user,
+      itemId,
+      layerId,
+      'read',
+    );
+    // Group keys and aggregate fields must name real columns. An
+    // unknown name would otherwise aggregate a JSONB miss: every row
+    // NULL, a confidently wrong zero on the dashboard.
+    for (const name of [
+      ...parsed.groupBy,
+      ...parsed.aggs.map((a) => a.field).filter((f): f is string => !!f),
+    ]) {
+      if (!schemaHasField(layer, name)) {
+        throw new BadRequestException(
+          `"${name}" is not a field on this layer.`,
+        );
+      }
+    }
+    const opts: {
+      groupBy?: string[];
+      aggs: typeof parsed.aggs;
+      bbox?: [number, number, number, number];
+      geoLimit?: unknown;
+      boundaryClip?: unknown;
+      ownRowsOnly?: { userId: string };
+      limit?: number;
+      asOf?: Date;
+    } = { aggs: parsed.aggs };
+    if (parsed.groupBy.length > 0) opts.groupBy = parsed.groupBy;
+    if (parsed.bbox) opts.bbox = parsed.bbox;
+    if (parsed.limit !== undefined) opts.limit = parsed.limit;
+    if (parsed.asOf !== undefined) opts.asOf = parsed.asOf;
+    if (geoLimit) opts.geoLimit = geoLimit;
+    if (rowScope === 'own') opts.ownRowsOnly = { userId: user.id };
+    if (clip) {
+      const geom = await this.resolveBoundaryGeometry(clip);
+      if (geom) opts.boundaryClip = geom;
+    }
+    return this.v3.aggregateFeatures(itemId, layerId, opts);
   }
 
   /**

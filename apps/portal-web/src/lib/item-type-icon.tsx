@@ -181,6 +181,22 @@ export function getItemTypeIcon(type: ItemType): LucideIcon {
  * can pass list rows directly. `data` is optional; missing data
  * degrades gracefully to the type-based label.
  */
+/**
+ * Was this custom app started from a dashboard layout?
+ *
+ * Purely cosmetic, and deliberately confined to this file: it flips a
+ * word and an icon in lists and nothing else. A dashboard IS a custom
+ * web app here, with the same widgets, the same designer, and the
+ * same freedom to grow into something else. The moment this predicate
+ * gates a capability, dashboards have quietly become a second app
+ * type, which is the outcome the whole design exists to avoid.
+ */
+function isDashboardApp(item: { type: ItemType | string; data?: unknown }): boolean {
+  if (!isCustomAppItem(item)) return false;
+  const data = item.data as { config?: { custom?: { blueprint?: string } } } | null;
+  return data?.config?.custom?.blueprint === 'dashboard';
+}
+
 export function getItemDisplayLabel(item: {
   type: ItemType | string;
   data?: unknown;
@@ -188,6 +204,7 @@ export function getItemDisplayLabel(item: {
   if (item.type === 'web_app') {
     if (isEditorItem(item)) return 'Editor';
     if (isViewerItem(item)) return 'Viewer';
+    if (isDashboardApp(item)) return 'Dashboard';
     if (isCustomAppItem(item)) return 'Custom web app';
   }
   if ((ITEM_TYPE_LABELS as Record<string, string>)[item.type]) {
@@ -203,6 +220,7 @@ export function getItemDisplayIcon(item: {
   if (item.type === 'web_app') {
     if (isEditorItem(item)) return PencilRuler;
     if (isViewerItem(item)) return Eye;
+    if (isDashboardApp(item)) return LayoutDashboard;
     if (isCustomAppItem(item)) return Sparkles;
   }
   return (

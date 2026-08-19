@@ -283,10 +283,14 @@ const TYPE_GROUPS: TypeGroup[] = [
       // items now (seeded per org alongside Sidebar Explorer
       // etc.); the picker only needs the one "Custom web app"
       // entry, and the wizard's template gallery is where users
-      // pick the editor / viewer / parcel / etc. layout.
-      // Dashboard stays a placeholder item type (existing items
-      // resolve) but isn't surfaced for creation until a real
-      // implementation lands.
+      // pick the editor / viewer / parcel / dashboard layout.
+      //
+      // Dashboards are the same story: the KPI Dashboard and
+      // Operations Board starters are app_template items, so a
+      // dashboard is a custom web app that starts from a dashboard
+      // layout. There is deliberately no `dashboard` entry here and
+      // no dashboard item type to create; the placeholder enum value
+      // survives only so any pre-existing row still resolves.
       {
         value: 'form',
         label: 'Form',

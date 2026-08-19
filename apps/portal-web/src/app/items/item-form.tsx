@@ -99,6 +99,14 @@ const LICENSE_VALUES: string[] = [
 
 // Item types offered in the create form. Labels + descriptions
 // resolve through i18n at render (itemForm.type.<value>.label / .desc).
+//
+// `dashboard` used to be here, which meant this legacy form could
+// create an item type nothing implements: it rendered the
+// coming-soon placeholder and could never become anything else. A
+// dashboard is a custom web app started from a dashboard template,
+// created through the wizard's app gallery. The enum value stays in
+// the schema so any row created back then still resolves, but
+// nothing offers it for creation any more.
 const ITEM_TYPE_VALUES: ItemType[] = [
   'map',
   'data_layer',
@@ -106,7 +114,6 @@ const ITEM_TYPE_VALUES: ItemType[] = [
   'form',
   'web_app',
   'report_template',
-  'dashboard',
   'file',
 ];
 

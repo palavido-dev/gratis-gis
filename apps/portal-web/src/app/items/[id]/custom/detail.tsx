@@ -13,6 +13,7 @@ import {
 import {
   AlertTriangle,
   BarChart3,
+  Gauge,
   Bookmark as BookmarkIcon,
   ChartSpline as ChartSplineIcon,
   Clock,
@@ -1356,6 +1357,13 @@ const PALETTE_TILES: Array<{
     label: 'Chart',
     Icon: BarChart3,
     hint: 'Bar / line / pie over a target',
+    category: 'data',
+  },
+  {
+    kind: 'indicator',
+    label: 'Indicator',
+    Icon: Gauge,
+    hint: 'One big number from a target layer',
     category: 'data',
   },
   {
@@ -3092,6 +3100,10 @@ function summarizeWidget(w: CustomWidget): string {
       return w.config.preset ?? 'body';
     case 'chart':
       return `${w.config.chartType} of #${w.config.targetIndex}`;
+    case 'indicator':
+      return w.config.aggregate === 'count'
+        ? `count of #${w.config.targetIndex}`
+        : `${w.config.aggregate} ${w.config.valueField ?? '(pick a field)'}`;
     case 'image':
       return w.config.url ? 'image set' : 'no url';
     case 'button':
@@ -3918,9 +3930,22 @@ function WidgetConfigForm({
       );
     case 'chart':
       return (
-        <p className="rounded-md border border-dashed border-border px-2 py-3 text-center text-xs text-muted">
-          Chart configuration ships after the runtime (#341).
-        </p>
+        <ChartWidgetConfigEditor
+          config={widget.config}
+          canEdit={canEdit}
+          appTargets={appTargets}
+          onChangeConfig={onChangeConfig}
+        />
+      );
+    case 'indicator':
+      return (
+        <IndicatorWidgetConfigEditor
+          config={widget.config}
+          canEdit={canEdit}
+          appTargets={appTargets}
+          mapWidgets={mapWidgets}
+          onChangeConfig={onChangeConfig}
+        />
       );
     case 'image':
       return (
@@ -7205,6 +7230,455 @@ function MapBindingPicker({
 
 // ---- Generic field + number input -----------------------------------------
 
+/**
+ * Field names for one app target, read from the data_layer item's
+ * schema.
+ *
+ * The chart and indicator editors both need a real field picker: the
+ * aggregate endpoint refuses names that are not on the layer (so a
+ * typo produces an error rather than a confident zero), which is the
+ * right server behaviour but a poor authoring experience if the
+ * author is typing blind. Cached per target for the life of the
+ * inspector; layer schemas change on the order of never.
+ */
+function useTargetFields(target: ViewerTarget | undefined): {
+  fields: Array<{ name: string; type?: string }>;
+  loading: boolean;
+} {
+  const [state, setState] = useState<{
+    fields: Array<{ name: string; type?: string }>;
+    loading: boolean;
+  }>({ fields: [], loading: false });
+  const dataLayerId = target?.dataLayerId;
+  const layerKey = target?.layerKey;
+  useEffect(() => {
+    if (!dataLayerId || !layerKey) {
+      setState({ fields: [], loading: false });
+      return;
+    }
+    let cancelled = false;
+    setState({ fields: [], loading: true });
+    void (async () => {
+      try {
+        const res = await fetch(`/api/portal/items/${dataLayerId}`);
+        if (!res.ok) throw new Error('lookup failed');
+        const item = (await res.json()) as {
+          data?: {
+            layers?: Array<{
+              id?: string;
+              fields?: Array<{ name?: string; type?: string }>;
+            }>;
+          };
+        };
+        const layer = item.data?.layers?.find((l) => l.id === layerKey);
+        const fields = (layer?.fields ?? [])
+          .filter((f): f is { name: string; type?: string } =>
+            typeof f.name === 'string' && f.name.length > 0)
+          .map((f) => ({
+            name: f.name,
+            ...(f.type ? { type: f.type } : {}),
+          }));
+        if (!cancelled) setState({ fields, loading: false });
+      } catch {
+        // A failed lookup leaves the picker empty rather than
+        // blocking the inspector; the author can still switch
+        // targets and the server validates on save either way.
+        if (!cancelled) setState({ fields: [], loading: false });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [dataLayerId, layerKey]);
+  return state;
+}
+
+/** Field names that can carry a numeric aggregate. Layers imported
+ *  from spreadsheets often type everything as text, so an unknown
+ *  type stays offered rather than hidden; the server answers NULL
+ *  for a genuinely non-numeric column. */
+function numericCandidates(
+  fields: Array<{ name: string; type?: string }>,
+): Array<{ name: string; type?: string }> {
+  return fields.filter(
+    (f) =>
+      !f.type ||
+      ['integer', 'int', 'number', 'double', 'float', 'numeric', 'real', 'bigint'].includes(
+        f.type.toLowerCase(),
+      ),
+  );
+}
+
+/** Shared target <select>; both editors bind one layer. */
+function TargetSelect({
+  value,
+  appTargets,
+  canEdit,
+  onChange,
+}: {
+  value: number;
+  appTargets: ViewerTarget[];
+  canEdit: boolean;
+  onChange: (index: number) => void;
+}) {
+  return (
+    <Field
+      label="Target layer"
+      hint={
+        appTargets.length === 0
+          ? 'No targets defined on the app yet. Add one via the Map widget.'
+          : 'The layer this widget summarizes.'
+      }
+    >
+      <select
+        value={value}
+        disabled={!canEdit || appTargets.length === 0}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+      >
+        {appTargets.length === 0 ? (
+          <option value={0}>(no targets)</option>
+        ) : (
+          appTargets.map((tg, i) => (
+            <option key={`${tg.dataLayerId}:${tg.layerKey}`} value={i}>
+              #{i} {tg.dataLayerId.slice(0, 8)} / {tg.layerKey}
+            </option>
+          ))
+        )}
+      </select>
+    </Field>
+  );
+}
+
+const AGGREGATE_OPTIONS = [
+  { value: 'count', label: 'Count of features' },
+  { value: 'sum', label: 'Sum of a field' },
+  { value: 'avg', label: 'Average of a field' },
+  { value: 'min', label: 'Smallest value' },
+  { value: 'max', label: 'Largest value' },
+] as const;
+
+/**
+ * Chart inspector. Replaces the "ships after the runtime" placeholder
+ * that shipped with the chart widget: without a group-by picker the
+ * widget could only ever render one bar, which is why no dashboard
+ * could be built out of it.
+ */
+function ChartWidgetConfigEditor({
+  config,
+  canEdit,
+  appTargets,
+  onChangeConfig,
+}: {
+  config: Extract<CustomWidget['config'], { kind: 'chart' }>;
+  canEdit: boolean;
+  appTargets: ViewerTarget[];
+  onChangeConfig: (patch: Record<string, unknown>) => void;
+}) {
+  const target = appTargets[config.targetIndex];
+  const { fields, loading } = useTargetFields(target);
+  const aggregate = config.aggregate ?? 'count';
+  const numeric = numericCandidates(fields);
+  return (
+    <div className="space-y-3">
+      <TargetSelect
+        value={config.targetIndex}
+        appTargets={appTargets}
+        canEdit={canEdit}
+        onChange={(i) => onChangeConfig({ targetIndex: i })}
+      />
+      <Field label="Chart type">
+        <select
+          value={config.chartType}
+          disabled={!canEdit}
+          onChange={(e) => onChangeConfig({ chartType: e.target.value })}
+          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+        >
+          <option value="bar">Bar</option>
+          <option value="line">Line</option>
+          <option value="pie">Pie</option>
+        </select>
+      </Field>
+      <Field
+        label="Group by"
+        hint={
+          loading
+            ? 'Reading the layer schema…'
+            : fields.length === 0
+              ? 'Bind a target layer to choose a field.'
+              : 'One bar or slice per distinct value of this field.'
+        }
+      >
+        <select
+          value={config.groupBy ?? ''}
+          disabled={!canEdit || fields.length === 0}
+          onChange={(e) =>
+            onChangeConfig({ groupBy: e.target.value || undefined })
+          }
+          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+        >
+          <option value="">(everything in one group)</option>
+          {fields.map((f) => (
+            <option key={f.name} value={f.name}>
+              {f.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Measure">
+        <select
+          value={aggregate}
+          disabled={!canEdit}
+          onChange={(e) =>
+            onChangeConfig({
+              aggregate: e.target.value,
+              // Switching back to count drops the field so the saved
+              // config never carries a measure it does not use.
+              ...(e.target.value === 'count' ? { valueField: undefined } : {}),
+            })
+          }
+          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+        >
+          {AGGREGATE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {aggregate !== 'count' ? (
+        <Field
+          label="Number field"
+          hint="The field to add up. Text values are ignored."
+        >
+          <select
+            value={config.valueField ?? ''}
+            disabled={!canEdit || numeric.length === 0}
+            onChange={(e) =>
+              onChangeConfig({ valueField: e.target.value || undefined })
+            }
+            className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+          >
+            <option value="">(pick a field)</option>
+            {numeric.map((f) => (
+              <option key={f.name} value={f.name}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+      ) : null}
+    </div>
+  );
+}
+
+/** Indicator inspector: the measure, its caption, how it reads, and
+ *  an optional comparison. */
+function IndicatorWidgetConfigEditor({
+  config,
+  canEdit,
+  appTargets,
+  mapWidgets,
+  onChangeConfig,
+}: {
+  config: Extract<CustomWidget['config'], { kind: 'indicator' }>;
+  canEdit: boolean;
+  appTargets: ViewerTarget[];
+  mapWidgets: CustomWidget[];
+  onChangeConfig: (patch: Record<string, unknown>) => void;
+}) {
+  const target = appTargets[config.targetIndex];
+  const { fields, loading } = useTargetFields(target);
+  const numeric = numericCandidates(fields);
+  const fmt = config.format ?? {};
+  const patchFormat = (patch: Record<string, unknown>) =>
+    onChangeConfig({ format: { ...fmt, ...patch } });
+  return (
+    <div className="space-y-3">
+      <TargetSelect
+        value={config.targetIndex}
+        appTargets={appTargets}
+        canEdit={canEdit}
+        onChange={(i) => onChangeConfig({ targetIndex: i })}
+      />
+      <Field label="Measure">
+        <select
+          value={config.aggregate}
+          disabled={!canEdit}
+          onChange={(e) =>
+            onChangeConfig({
+              aggregate: e.target.value,
+              ...(e.target.value === 'count' ? { valueField: undefined } : {}),
+            })
+          }
+          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+        >
+          {AGGREGATE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {config.aggregate !== 'count' ? (
+        <Field
+          label="Number field"
+          hint={
+            loading
+              ? 'Reading the layer schema…'
+              : 'The field to summarize. Text values are ignored.'
+          }
+        >
+          <select
+            value={config.valueField ?? ''}
+            disabled={!canEdit || numeric.length === 0}
+            onChange={(e) =>
+              onChangeConfig({ valueField: e.target.value || undefined })
+            }
+            className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+          >
+            <option value="">(pick a field)</option>
+            {numeric.map((f) => (
+              <option key={f.name} value={f.name}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+      ) : null}
+      <Field label="Caption" hint="Leave blank for an automatic one.">
+        <input
+          type="text"
+          value={config.label ?? ''}
+          disabled={!canEdit}
+          onChange={(e) =>
+            onChangeConfig({ label: e.target.value || undefined })
+          }
+          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+          placeholder="Open permits"
+        />
+      </Field>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Prefix">
+          <input
+            type="text"
+            value={fmt.prefix ?? ''}
+            disabled={!canEdit}
+            onChange={(e) =>
+              patchFormat({ prefix: e.target.value || undefined })
+            }
+            className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+            placeholder="$"
+          />
+        </Field>
+        <Field label="Suffix">
+          <input
+            type="text"
+            value={fmt.suffix ?? ''}
+            disabled={!canEdit}
+            onChange={(e) =>
+              patchFormat({ suffix: e.target.value || undefined })
+            }
+            className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+            placeholder=" acres"
+          />
+        </Field>
+      </div>
+      <Field label="Decimal places" hint="Blank shows whole numbers as whole.">
+        <input
+          type="number"
+          min={0}
+          max={6}
+          value={fmt.decimals ?? ''}
+          disabled={!canEdit}
+          onChange={(e) =>
+            patchFormat({
+              decimals:
+                e.target.value === '' ? undefined : Number(e.target.value),
+            })
+          }
+          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+        />
+      </Field>
+      <label className="flex items-center gap-2 text-xs text-ink-1">
+        <input
+          type="checkbox"
+          checked={fmt.compact === true}
+          disabled={!canEdit}
+          onChange={(e) => patchFormat({ compact: e.target.checked || undefined })}
+        />
+        Shorten large numbers (12.3K)
+      </label>
+      <Field
+        label="Follow a map's view"
+        hint="Optional. The number then counts only what is on screen, and says so."
+      >
+        <select
+          value={config.followMapWidgetId ?? ''}
+          disabled={!canEdit}
+          onChange={(e) =>
+            onChangeConfig({ followMapWidgetId: e.target.value || undefined })
+          }
+          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+        >
+          <option value="">Whole layer</option>
+          {mapWidgets.map((m) => (
+            <option key={m.id} value={m.id}>
+              Map · {m.id.slice(2, 10)}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field
+        label="Compare against"
+        hint="Optional target value. Leave blank for no comparison."
+      >
+        <input
+          type="number"
+          value={config.reference?.value ?? ''}
+          disabled={!canEdit}
+          onChange={(e) =>
+            onChangeConfig({
+              reference:
+                e.target.value === ''
+                  ? undefined
+                  : {
+                      ...(config.reference ?? {}),
+                      value: Number(e.target.value),
+                    },
+            })
+          }
+          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+        />
+      </Field>
+      {config.reference ? (
+        <Field
+          label="Good when"
+          hint="Colors the number. Choose neutral to compare without judging."
+        >
+          <select
+            value={config.reference.goodWhen ?? 'none'}
+            disabled={!canEdit}
+            onChange={(e) =>
+              onChangeConfig({
+                reference: {
+                  ...config.reference,
+                  goodWhen: e.target.value,
+                },
+              })
+            }
+            className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+          >
+            <option value="none">Neutral</option>
+            <option value="above">At or above the target</option>
+            <option value="below">At or below the target</option>
+          </select>
+        </Field>
+      ) : null}
+    </div>
+  );
+}
+
 function Field({
   label,
   hint,
@@ -7337,6 +7811,10 @@ function defaultLayoutForKind(kind: CustomWidgetKind): CustomLayout {
       return { col: 1, row: 1, colSpan: 96, rowSpan: 8 };
     case 'chart':
       return { col: 1, row: 1, colSpan: 48, rowSpan: 48 };
+    // Indicators are wide-and-short by default so a row of four
+    // tiles across the top of a page is the natural first drop.
+    case 'indicator':
+      return { col: 1, row: 1, colSpan: 48, rowSpan: 40 };
     case 'image':
       return { col: 1, row: 1, colSpan: 32, rowSpan: 32 };
     case 'button':
@@ -7950,6 +8428,18 @@ function stampWidget(kind: CustomWidgetKind, layout: CustomLayout): CustomWidget
           targetIndex: 0,
           chartType: 'bar',
           aggregate: 'count',
+        },
+      };
+    case 'indicator':
+      return {
+        id,
+        kind,
+        layout,
+        config: {
+          kind: 'indicator',
+          targetIndex: 0,
+          aggregate: 'count',
+          format: { grouping: true },
         },
       };
     case 'search':

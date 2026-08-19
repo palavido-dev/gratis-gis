@@ -75,6 +75,34 @@ export interface CustomAppData {
     background?: string;
   };
   /**
+   * Cosmetic origin marker, set when the app was stamped from a
+   * starter whose user-facing identity is worth preserving in lists.
+   * Today the only value is 'dashboard'.
+   *
+   * It is READ IN EXACTLY ONE PLACE: the item label / icon helpers in
+   * portal-web. Nothing branches on it, no capability depends on it,
+   * and clearing it changes nothing except the word on the card. That
+   * constraint is the point. A dashboard here is a custom web app
+   * that happens to have started from a dashboard layout, and the
+   * moment this field gates behaviour it has become a second app
+   * type by the back door, which is exactly what folding `editor`
+   * back into `web_app` cost a data migration to undo.
+   */
+  blueprint?: 'dashboard';
+  /**
+   * Auto-refresh cadence in seconds for data-bound widgets
+   * (indicator, chart, attribute table, and map feature sources).
+   * Unset or 0 means never: a page only re-fetches when the user
+   * acts. Dashboard starter templates ship with this set, because a
+   * wall display that silently goes stale is worse than one that
+   * costs a request a minute.
+   *
+   * The runtime floors this at REFRESH_MIN_SECONDS, pauses while the
+   * tab is hidden, and jitters each widget so a room full of
+   * dashboards does not stampede the API on the same tick.
+   */
+  refreshSeconds?: number;
+  /**
    * Theme reference.  Either:
    *   - a built-in starter kind ('default' / 'slate' / 'aurora' /
    *     'forest' / 'paper') matching seedKind on a seeded theme
@@ -143,6 +171,13 @@ export interface CustomWidget {
      *  decorative (a TextWidget header) and shouldn't carry chrome. */
     hideHeader?: boolean;
   };
+  /**
+   * Per-widget auto-refresh override in seconds. Falls back to the
+   * app-level `refreshSeconds`. 0 pins this widget to manual even
+   * when the app refreshes, which is how an author keeps an
+   * expensive table still while the KPI row ticks.
+   */
+  refreshSeconds?: number;
   /** Free-form per-widget config; shape depends on `kind`. */
   config: CustomWidgetConfig;
 }
@@ -190,6 +225,11 @@ export type CustomWidgetKind =
   | 'attribute-table'
   | 'text'
   | 'chart'
+  // Indicator: one aggregate number, big. The dashboard
+  // primitive. Reads the server-side aggregate endpoint like the
+  // chart does, so it costs one small request rather than a layer
+  // download, and it respects the caller's sharing scope.
+  | 'indicator'
   | 'search'
   | 'print'
   | 'select'
@@ -377,6 +417,7 @@ export type CustomWidgetConfig =
   | AttributeTableWidgetConfig
   | TextWidgetConfig
   | ChartWidgetConfig
+  | IndicatorWidgetConfig
   | SearchWidgetConfig
   | PrintWidgetConfig
   | SelectWidgetConfig
@@ -602,6 +643,73 @@ export interface TextWidgetConfig {
    * "Body" without diving into custom CSS.
    */
   preset?: 'header' | 'subheader' | 'body' | 'callout';
+}
+
+/**
+ * How an aggregate number is rendered. Shared by the indicator
+ * widget and (later) any other widget that prints a figure, so
+ * "1,234.5 ac" formats identically wherever it appears.
+ */
+export interface NumberFormat {
+  /** Fixed decimal places. Omitted = up to 2, trailing zeros dropped. */
+  decimals?: number;
+  /** Thousands separators, on by default. */
+  grouping?: boolean;
+  /** Rendered before the number, e.g. "$". */
+  prefix?: string;
+  /** Rendered after the number, e.g. " ac" or "%". */
+  suffix?: string;
+  /** Shorten large values: 12,300 -> 12.3K. Off by default because
+   *  a count of 1,240 permits is more honest than 1.2K. */
+  compact?: boolean;
+}
+
+/**
+ * Indicator widget: one aggregate value, rendered large, optionally
+ * compared against a reference.
+ *
+ * This is the smallest dashboard primitive and deliberately lives in
+ * the same palette as the map and editing widgets: an indicator on a
+ * map app is as valid as an indicator on a page of indicators, which
+ * is the whole point of not building dashboards as a separate app.
+ *
+ * The value comes from the server-side aggregate endpoint, so it is
+ * scoped to the caller's shares exactly like the features are. A
+ * viewer restricted to their own rows sees their own count.
+ */
+export interface IndicatorWidgetConfig {
+  kind: 'indicator';
+  /** Index into the app's `targets` (one indicator, one layer). */
+  targetIndex: number;
+  /** Aggregate to compute. 'count' needs no field. */
+  aggregate: 'count' | 'sum' | 'avg' | 'min' | 'max';
+  /** Numeric field for non-count aggregates. */
+  valueField?: string;
+  /** Caption under the number. Defaults to a generated description
+   *  ("Count of Permits") when unset. */
+  label?: string;
+  /** Number rendering. */
+  format?: NumberFormat;
+  /**
+   * Restrict the value to the bound map's current viewport. Off by
+   * default: an indicator that silently changes when the user pans
+   * is a support ticket, so following the map is opt-in and the
+   * runtime labels it.
+   */
+  followMapWidgetId?: string;
+  /**
+   * Optional comparison. `value` is a fixed reference (a target, a
+   * budget, last year's total). When set, the widget colors itself
+   * by whether the aggregate is at or past the reference.
+   */
+  reference?: {
+    value: number;
+    /** Which direction counts as good. Drives the color, nothing
+     *  else; a neutral choice is 'none'. */
+    goodWhen?: 'above' | 'below' | 'none';
+    /** Caption for the reference line, e.g. "target". */
+    label?: string;
+  };
 }
 
 export interface ChartWidgetConfig {
