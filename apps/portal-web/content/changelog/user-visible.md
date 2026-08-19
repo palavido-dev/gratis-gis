@@ -29,11 +29,13 @@ long ago, so area search matches them and zoom-to lands on the data.
 
 ## 2026-08-17 - The QGIS plugin reaches 1.0
 The official GratisGIS plugin for QGIS is at 1.0, with every flow
-tested by hand on a real install. From inside QGIS you can search the
-portal, inspect items, publish vector and raster layers, publish an
-open project as a portal map, clone a layer to take into the field,
-and sync your edits back. Private layers work throughout: create a
-read-only API key under Profile and QGIS sees exactly what you see.
+tested by hand on a real install, and it is now in the official QGIS
+plugin repository: open Plugins, search for GratisGIS, and install.
+From inside QGIS you can search the portal, inspect items, publish
+vector and raster layers, publish an open project as a portal map,
+clone a layer to take into the field, and sync your edits back.
+Private layers work throughout: create a read-only API key under
+Profile and QGIS sees exactly what you see.
 
 ## 2026-08-17 - Private layers open in any desktop GIS
 A new signed-in data feed serves every layer you can see, not just
