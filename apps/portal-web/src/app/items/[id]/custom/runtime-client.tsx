@@ -4238,14 +4238,20 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
         </p>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
-          {/* min-h-0 + a floor on the plot: ResponsiveContainer
-              measures its parent, and a flex child without min-h-0
-              reports a height its own content inflated, so in a short
-              tile the bars drew past the axis and over the category
-              labels. The floor keeps a squeezed tile scrollable
-              instead of illegible. */}
-          <div className="min-h-[180px] flex-1 p-2">
-            <ChartPlot rows={state.rows} kind={chartType} />
+          {/* The plot is absolutely positioned inside a relative,
+              flex-sized box on purpose. ResponsiveContainer measures
+              its parent, and in a flex column whose height comes from
+              the widget grid it measured width(-1) height(-1) and
+              rendered an empty chart until some later resize event
+              happened to give it a size: axes and labels drawn,
+              nothing plotted. An absolute child takes its box from
+              the positioned ancestor directly, which is definite, so
+              the first measurement is a real one. The floor keeps a
+              very short tile scrollable rather than illegible. */}
+          <div className="relative min-h-[180px] flex-1">
+            <div className="absolute inset-0 p-2">
+              <ChartPlot rows={state.rows} kind={chartType} />
+            </div>
           </div>
           {state.truncated ? (
             <p className="px-2 pb-1 text-2xs text-[hsl(var(--app-muted))]">
