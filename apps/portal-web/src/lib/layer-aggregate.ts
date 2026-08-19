@@ -103,10 +103,15 @@ export function formatAggregateValue(
   } else if (fmt?.decimals !== undefined) {
     opts.minimumFractionDigits = fmt.decimals;
     opts.maximumFractionDigits = fmt.decimals;
+  } else if (Number.isInteger(value) || Math.abs(value) >= 1000) {
+    // Integers print bare, and so does anything past a thousand: a
+    // summed deck area rendering as "798,587.58" spends two digits
+    // on precision the reader did not ask for and cannot use. Below a
+    // thousand the fraction usually IS the point (an average rating
+    // of 6.4, a mean depth of 12.75).
+    opts.maximumFractionDigits = 0;
   } else {
-    // Integers print bare; fractions get up to two places. Avoids
-    // "12.00" for a count and "0.3333333" for an average.
-    opts.maximumFractionDigits = Number.isInteger(value) ? 0 : 2;
+    opts.maximumFractionDigits = 2;
   }
   const body = new Intl.NumberFormat(undefined, opts).format(value);
   return `${fmt?.prefix ?? ''}${body}${fmt?.suffix ?? ''}`;

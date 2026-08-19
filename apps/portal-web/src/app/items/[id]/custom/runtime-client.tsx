@@ -4399,7 +4399,12 @@ function IndicatorWidgetRender({ widget }: { widget: CustomWidget }) {
   return (
     <SuppressFrameHeaderContext.Provider value={true}>
     <WidgetFrame icon={ChevronRight} title={label}>
-      <div className="flex flex-1 flex-col items-center justify-center gap-1 p-3 text-center">
+      {/* overflow-hidden, not the frame's default scroll: a caption
+          that wraps to two lines used to push the tile past its own
+          height and grow a scrollbar, which on a row of KPI tiles
+          reads as breakage. A tile too small for its content should
+          crop, not offer to scroll. */}
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1 overflow-hidden p-3 text-center">
         {state.error ? (
           <p className="text-xs text-[hsl(var(--app-danger))]">{state.error}</p>
         ) : (
