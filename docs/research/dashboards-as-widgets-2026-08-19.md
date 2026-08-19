@@ -176,20 +176,18 @@ feature popups) and threshold bands on charts.
 - Gauges and sparkline microcharts; revisit after phase 2 ships and
   real dashboards exist to justify them.
 
-## Open decisions (Matt)
+## Decisions (Matt, 2026-08-19)
 
-1. **Aggregate endpoint vocabulary**: start with groupBy + five aggs
-   and bbox only, or include the features-search `where` predicate
-   from day one? Smaller first slice vs. fewer follow-ups.
-2. **Display label**: should a web app created from a dashboard
-   starter display as "Dashboard" in lists (a cosmetic
-   `data.custom.blueprint` marker read by `getItemDisplayLabel`), or
-   stay "Custom web app" with the title doing the work? The marker is
-   honest (it changes nothing about capability) but is one more field
-   the editor consolidation taught us to justify carefully.
-3. **Refresh default for the starters**: ship dashboard templates with
-   refresh on (say 60s) so they feel live out of the box, or off so
-   the first load is maximally cheap on public deployments?
+1. **Aggregate endpoint vocabulary**: groupBy + the five aggs + bbox
+   only for phase 1. The `where` predicate lands with the phase 2
+   filter widget that needs it.
+2. **Display label**: a cosmetic `data.custom.blueprint` marker, read
+   only by `getItemDisplayLabel` / icon narrowing (the same mechanism
+   that shows "Editor" and "Viewer" today), so an app started from a
+   dashboard template lists as "Dashboard". Capability is unaffected;
+   the marker never gates behavior anywhere.
+3. **Refresh default**: dashboard starters ship with refresh on at
+   60s, visibility-paused; owners can turn it off per app.
 
 ## Sizing
 
