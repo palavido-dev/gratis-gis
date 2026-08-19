@@ -14,7 +14,21 @@ import type { ItemType } from '@prisma/client';
  *   - map               aggregate over the bboxes the map's layers carry inline
  *   - arcgis_service    item.data.bbox (probed at create time)
  *   - geo_boundary      item.data.bbox (recomputed when the geometry changes)
+ *   - tile_layer        item.data.bbox (read from the COG's gdalinfo or the
+ *                       PMTiles header at finalize)
+ *   - point_cloud       item.data.bboxWgs84 (reprojected from the COPC
+ *                       header's bounds at finalize)
  *   - everything else   no spatial footprint
+ *
+ * tile_layer and point_cloud were missing from this switch for as
+ * long as the types existed, so their computed extents sat in
+ * data_json while the cached item.bbox stayed empty. The visible
+ * costs: geographic search never matched a raster, "Zoom to Layer"
+ * on one in QGIS went to the whole world, and a STAC item cannot be
+ * built without an extent. The finalize paths already persist
+ * through ItemsService.update, which calls this function, so the
+ * switch case is the entire fix for new uploads; existing rows are
+ * backfilled by the 20260818 migration.
  *
  * Deliberately kept outside ItemsService so other call sites (the
  * ingest path, the v3 reconcile path) can call into it without
@@ -38,7 +52,13 @@ export function itemBbox(
     case 'wms_service':
     case 'wfs_service':
     case 'geo_boundary':
+    case 'tile_layer':
       return readBboxField(data);
+    case 'point_cloud':
+      // Point clouds spell their extent bboxWgs84, not bbox: the
+      // native bounds are in the file's own CRS and only the
+      // reprojected copy belongs here.
+      return readBboxField(data, 'bboxWgs84');
     case 'map':
       return aggregateLayerBboxes(data);
     default:
@@ -46,9 +66,12 @@ export function itemBbox(
   }
 }
 
-function readBboxField(data: unknown): [number, number, number, number] | null {
+function readBboxField(
+  data: unknown,
+  key: 'bbox' | 'bboxWgs84' = 'bbox',
+): [number, number, number, number] | null {
   if (!data || typeof data !== 'object') return null;
-  const b = (data as { bbox?: unknown }).bbox;
+  const b = (data as Record<string, unknown>)[key];
   if (Array.isArray(b) && b.length === 4 && b.every((n) => Number.isFinite(n))) {
     return [b[0] as number, b[1] as number, b[2] as number, b[3] as number];
   }
