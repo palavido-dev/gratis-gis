@@ -5,6 +5,16 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.39] - 2026-08-19
+
+### Fixed
+
+- **Indicator tiles no longer grow a scrollbar** when their caption
+  wraps to two lines.
+- **Large totals print whole.** A summed area showed as
+  "798,587.58"; anything past a thousand now drops the decimals
+  unless you ask for them.
+
 ## [0.9.38] - 2026-08-19
 
 ### Added
