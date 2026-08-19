@@ -5,6 +5,16 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.34] - 2026-08-19
+
+### Fixed
+
+- **Charts squeezed into a short tile drew over their own labels.**
+  The bars ran past the axis line and through the category names. A
+  chart with too little room now scrolls rather than rendering
+  something misleading, and the dashboard layouts give their charts
+  more height to begin with.
+
 ## [0.9.33] - 2026-08-19
 
 Presentation fixes for the dashboard widgets, found by building one
