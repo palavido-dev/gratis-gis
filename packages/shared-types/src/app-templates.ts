@@ -672,7 +672,7 @@ function kpiDashboardSeed(): CustomAppData {
           {
             id: wid(),
             kind: 'chart',
-            layout: { col: 1, row: 41, colSpan: 96, rowSpan: 90 },
+            layout: { col: 1, row: 41, colSpan: 96, rowSpan: 110 },
             config: {
               kind: 'chart',
               targetIndex: 0,
@@ -683,7 +683,7 @@ function kpiDashboardSeed(): CustomAppData {
           {
             id: wid(),
             kind: 'chart',
-            layout: { col: 97, row: 41, colSpan: 96, rowSpan: 90 },
+            layout: { col: 97, row: 41, colSpan: 96, rowSpan: 110 },
             config: {
               kind: 'chart',
               targetIndex: 0,
@@ -694,7 +694,7 @@ function kpiDashboardSeed(): CustomAppData {
           {
             id: mapId,
             kind: 'map',
-            layout: { col: 1, row: 131, colSpan: 192, rowSpan: 120 },
+            layout: { col: 1, row: 151, colSpan: 192, rowSpan: 120 },
             config: {
               kind: 'map',
               // showTargets is a target-index subset; omitting it

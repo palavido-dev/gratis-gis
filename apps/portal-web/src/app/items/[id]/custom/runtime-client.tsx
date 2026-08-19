@@ -4237,8 +4237,14 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
           and pick a group-by field.
         </p>
       ) : (
-        <div className="flex flex-1 flex-col">
-          <div className="flex-1 p-2">
+        <div className="flex min-h-0 flex-1 flex-col">
+          {/* min-h-0 + a floor on the plot: ResponsiveContainer
+              measures its parent, and a flex child without min-h-0
+              reports a height its own content inflated, so in a short
+              tile the bars drew past the axis and over the category
+              labels. The floor keeps a squeezed tile scrollable
+              instead of illegible. */}
+          <div className="min-h-[180px] flex-1 p-2">
             <ChartPlot rows={state.rows} kind={chartType} />
           </div>
           {state.truncated ? (
