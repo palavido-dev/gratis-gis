@@ -5,6 +5,45 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.32] - 2026-08-19
+
+Dashboards, built as widgets inside the web app builder rather than
+as an app of their own. No schema changes.
+
+### Added
+
+- **Dashboards.** Two new starting layouts in the web app gallery,
+  KPI Dashboard and Operations Board, plus an Indicator widget that
+  shows a single number (a count, total, or average) from any layer,
+  with its own caption, units, and an optional target to compare
+  against. Because these are ordinary widgets, an indicator can sit
+  on a map app and a dashboard can grow a map, an editing tool, or a
+  second page: a dashboard here is a web app that starts from a
+  dashboard layout, not a separate kind of thing you can get stuck
+  inside.
+- **Charts can finally be configured.** The chart widget shipped
+  without a settings panel, so it could not be grouped by a field.
+  It now has one: pick the layer, the chart type, the field to group
+  by, and what to measure, with the field list read from the layer
+  itself.
+- **Auto-refresh.** An app can refresh its data on a schedule; the
+  dashboard templates come set to once a minute. Refreshing pauses
+  while the page is in a background tab, and any single widget can
+  be pinned to manual.
+
+### Changed
+
+- **Charts are much faster on large layers, and now respect who is
+  looking.** A chart used to download every feature in a layer and
+  count them in the browser. The portal now computes the totals and
+  sends just the answer, which also means the numbers honour the
+  same sharing rules as the features: someone limited to an area, or
+  to their own records, sees totals for what they can actually see.
+- **The unbuilt "Dashboard" item type is no longer offered.** It
+  only ever produced a placeholder page. Anything created that way
+  now explains where dashboards live and links to the web app
+  builder; nothing else changes.
+
 ## [0.9.31] - 2026-08-19
 
 Adds a STAC API and repairs the backup panel's handling of runs whose

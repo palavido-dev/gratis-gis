@@ -12,6 +12,18 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-08-19 - Dashboards, without a separate dashboard app
+You can now build a dashboard: big-number indicators, charts, tables,
+and maps, refreshing on their own once a minute. Start from the KPI
+Dashboard or Operations Board layout when you create a web app. The
+part worth knowing: these are the same widgets as everything else, so
+a dashboard can grow a map, an editing tool, or another page later,
+and an indicator can sit in the corner of a map app. There is no
+separate dashboard product to get stuck inside. Charts also got a
+proper settings panel and now do their counting on the server, so
+they stay quick on big layers and show totals for whatever each
+viewer is allowed to see.
+
 ## 2026-08-19 - Browse your rasters from QGIS, no plugin needed
 Newer QGIS (3.42 and up) has a built-in catalog browser, and this
 portal now speaks its language. Point it at the portal and your
