@@ -5,6 +5,16 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.35] - 2026-08-19
+
+### Fixed
+
+- **Charts drew their axes and labels but plotted nothing.** They
+  would sometimes fill in a few seconds later, so it looked like slow
+  loading rather than a bug. The chart could not work out how much
+  room it had inside a dashboard tile and rendered empty until
+  something else on the page resized.
+
 ## [0.9.34] - 2026-08-19
 
 ### Fixed
