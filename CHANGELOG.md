@@ -5,6 +5,20 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.33] - 2026-08-19
+
+Presentation fixes for the dashboard widgets, found by building one
+on real data.
+
+### Fixed
+
+- **Indicators no longer print their caption twice.** The tile showed
+  its label in the header and again under the number.
+- **A pie chart with dozens of slices is readable again.** Grouping by
+  a field with a unique value per feature produced a legend that
+  swallowed the chart; past a dozen slices the labels move to the
+  tooltip.
+
 ## [0.9.32] - 2026-08-19
 
 Dashboards, built as widgets inside the web app builder rather than
