@@ -4950,6 +4950,40 @@ function ChartPlot({
   };
   const cursor = onPick ? 'pointer' : 'default';
 
+  // Large measures print compact on the axis and on the bars.
+  // "3,759,450" and "5,000,000" side by side on a dashboard tile
+  // overlap into an unreadable smear, and nobody reads a damage
+  // total to the dollar off a bar chart; the tooltip still gives the
+  // exact figure. Small counts print whole, because "43" is already
+  // the shortest true form and "43" as "43" is what the reader
+  // expects.
+  const maxValue = rows.reduce((m, r) => Math.max(m, Math.abs(r.value)), 0);
+  const compact = maxValue >= 10000;
+  // Widened to recharts' RenderableText so the same function serves
+  // both `tickFormatter` (numbers) and `LabelList`'s `formatter`
+  // (anything renderable). A non-numeric input passes through
+  // unchanged rather than becoming "NaN".
+  const fmt = (v: string | number | boolean | null | undefined): string => {
+    if (v === null || v === undefined || typeof v === 'boolean') {
+      return String(v ?? '');
+    }
+    const n = typeof v === 'number' ? v : Number(v);
+    if (!Number.isFinite(n)) return String(v);
+    return compact
+      ? new Intl.NumberFormat(undefined, {
+          notation: 'compact',
+          maximumFractionDigits: 1,
+        }).format(n)
+      : new Intl.NumberFormat(undefined, {
+          maximumFractionDigits: 0,
+        }).format(n);
+  };
+  // The value axis needs room for its ticks AND the rotated caption
+  // beside them. Recharts draws an `insideLeft` label within the
+  // axis's own width, so a default-width axis prints the caption on
+  // top of its numbers.
+  const valueAxisWidth = compact ? 56 : 48;
+
   if (kind === 'pie') {
     // A pie is only readable while its slices are distinguishable, and
     // the long tail of a real categorical field (a dozen communities,
@@ -4974,13 +5008,17 @@ function ChartPlot({
     const total = sliced.reduce((sum, r) => sum + r.value, 0) || 1;
     return (
       <Recharts.ResponsiveContainer width="100%" height="100%">
-        <Recharts.PieChart margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
+        {/* Margin holds the percent labels, which are drawn outside
+            the circle. With the default margin the top and bottom
+            ones were clipped by the plot edge, which reads as a
+            rendering fault rather than a spacing one. */}
+        <Recharts.PieChart margin={{ top: 14, right: 4, bottom: 14, left: 4 }}>
           <Recharts.Pie
             data={sliced}
             dataKey="value"
             nameKey="name"
             cx="32%"
-            outerRadius="78%"
+            outerRadius="70%"
             isAnimationActive={false}
             // Percent labels on the slices big enough to hold one, so
             // the chart still says something when the legend is
@@ -5049,6 +5087,8 @@ function ChartPlot({
               : {})}
           />
           <Recharts.YAxis
+            width={valueAxisWidth}
+            tickFormatter={fmt}
             tick={{ fontSize: 11 }}
             {...(yLabel
               ? { label: { value: yLabel, angle: -90, position: 'insideLeft', style: { textAnchor: 'middle' }, fontSize: 11 } }
@@ -5083,8 +5123,9 @@ function ChartPlot({
           margin={{
             top: 8,
             // Room on the right for the value label, which would
-            // otherwise be clipped by the plot edge on the longest bar.
-            right: 30,
+            // otherwise be clipped by the plot edge on the longest
+            // bar. Sized for a compact number ("3.8M") plus padding.
+            right: 44,
             bottom: yLabel ? 22 : 4,
             left: xLabel ? 14 : 0,
           }}
@@ -5095,6 +5136,7 @@ function ChartPlot({
               horizontal here, so yLabel is what goes underneath. */}
           <Recharts.XAxis
             type="number"
+            tickFormatter={fmt}
             tick={{ fontSize: 11 }}
             {...(yLabel
               ? { label: { value: yLabel, position: 'insideBottom', offset: -14, fontSize: 11 } }
@@ -5123,6 +5165,7 @@ function ChartPlot({
             <Recharts.LabelList
               dataKey="value"
               position="right"
+              formatter={fmt}
               style={{ fontSize: 11, fill: 'hsl(var(--app-muted))' }}
             />
           </Recharts.Bar>
@@ -5149,6 +5192,8 @@ function ChartPlot({
             : {})}
         />
         <Recharts.YAxis
+          width={valueAxisWidth}
+          tickFormatter={fmt}
           tick={{ fontSize: 11 }}
           {...(yLabel
             ? { label: { value: yLabel, angle: -90, position: 'insideLeft', style: { textAnchor: 'middle' }, fontSize: 11 } }
@@ -5171,6 +5216,7 @@ function ChartPlot({
           <Recharts.LabelList
             dataKey="value"
             position="top"
+            formatter={fmt}
             style={{ fontSize: 11, fill: 'hsl(var(--app-muted))' }}
           />
         </Recharts.Bar>
