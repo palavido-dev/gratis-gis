@@ -153,18 +153,56 @@ instead of ComingSoon. Drop the enum value in a later release.
 
 ### Phase 2: filters and cross-widget scope
 
-A `filter` widget (category selector, numeric range, date range)
-that publishes a predicate into a per-page filter context; indicator,
-chart, table, and map target sources subscribe. This is the piece
-that makes a dashboard feel like a dashboard, and it is also the
-piece most likely to be over-built: scope it to attribute predicates
-on shared targets, reusing the features-search predicate vocabulary,
-and let map extent participate as an optional "filter by current
-view" toggle on subscribing widgets. No global cross-filter graph
-editor; subscription is per-widget, visible in the inspector.
+**Cross-filter from a chart click SHIPPED (2026-08-20).** Clicking a
+bar or slice publishes `{targetIndex, field, value}` into a per-page
+selection context; indicator, chart, and map widgets on the same
+target subscribe. The predicate is `MapLayerFilter`, the shape the map
+already applies to a layer, sent to the aggregate endpoint as
+`?where=` (JSON in one parameter: a punctuated `field:op:value` form
+cannot express a value containing a colon, comma, or slash, and real
+category names contain all three).
 
-Also phase 2: a `list` widget (top-N rows by a field, linkable to
-feature popups) and threshold bands on charts.
+What landed, and why each choice:
+
+- **One selection at a time**, replacing rather than intersecting. A
+  page where three charts each hold a hidden term is a page where
+  nobody can say what a number on it means.
+- **Scoped to a target**, so a selection on one layer leaves widgets
+  reading another alone rather than narrowing them to nothing on a
+  field they do not have.
+- **The publishing chart does not filter itself**, or it would
+  collapse to the one bar you clicked. It fades the others instead.
+- **Every narrowed widget says so on its own face.** A number that
+  silently answers a different question than its caption claims is
+  the failure the whole feature has to avoid.
+- **The map filters client-side** as a MapLibre expression. The tile
+  already carries every declared field, and a per-selection tile URL
+  would discard the tile cache and make a click feel slow.
+- **Never persisted.** It is a reading gesture, like a map pan.
+
+Server side, `where` is a CONTENT filter and is applied after the
+latest-per-entity collapse, never inside it. Applied before, an old
+version that matches wins the collapse for an entity whose real latest
+version is deleted or has since changed, and the dashboard counts
+ghosts. `data-layer.pg.spec.ts` pins this against a feature that was
+Open and is now Closed and another that was Open and is deleted:
+filtering to Open must answer zero.
+
+Still open in phase 2:
+
+- A dedicated `filter` widget (category selector, numeric range, date
+  range) publishing into the same context. The context and the wire
+  format are done; the widget is the remaining work. Scope it to
+  attribute predicates on shared targets, and let map extent
+  participate as the existing "follow the map view" toggle already
+  does. No global cross-filter graph editor; subscription stays
+  per-widget and visible in the inspector.
+- A `list` widget (top-N rows by a field, linkable to feature popups)
+  and threshold bands on charts.
+- `where` on the feature read paths. Only `/aggregate` implements it
+  today, which is enough for cross-filter because the map filters
+  client-side, but an attribute table beside a filtered chart still
+  shows every row.
 
 ### Explicitly not in scope
 
@@ -180,7 +218,8 @@ feature popups) and threshold bands on charts.
 
 1. **Aggregate endpoint vocabulary**: groupBy + the five aggs + bbox
    only for phase 1. The `where` predicate lands with the phase 2
-   filter widget that needs it.
+   filter widget that needs it. (Landed 2026-08-20 with chart-click
+   cross-filter, ahead of the filter widget itself.)
 2. **Display label**: a cosmetic `data.custom.blueprint` marker, read
    only by `getItemDisplayLabel` / icon narrowing (the same mechanism
    that shows "Editor" and "Viewer" today), so an app started from a
