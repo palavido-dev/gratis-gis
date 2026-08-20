@@ -227,6 +227,54 @@ export default async function CustomAppRuntimePage(props: Props) {
   }> = [];
   // Kept so the camera can be fitted to the data below.
   const targetItems: Array<{ bbox?: unknown }> = [];
+
+  // #363: collect every map item id we need to fetch. The set is
+  // (optional) app default + every Map widget's per-widget mapId
+  // override across every page. Unique-ifying with a Set keeps a
+  // page with five Map widgets all bound to the same map from
+  // re-fetching it five times. A Map widget without an override
+  // inherits the app default, which is already in the set.
+  //
+  // Fetched BEFORE the source loop below, because that loop now needs
+  // to know what the map already draws.
+  const uniqueMapIds = new Set<string>();
+  if (app.mapId) uniqueMapIds.add(app.mapId);
+  for (const p of app.pages) {
+    for (const w of p.widgets) {
+      if (w.kind === 'map' && w.config.kind === 'map' && w.config.mapId) {
+        uniqueMapIds.add(w.config.mapId);
+      }
+    }
+  }
+  const mapItems = await Promise.all(
+    Array.from(uniqueMapIds).map((id) =>
+      fetchItem<Item<MapData>>(`/api/items/${id}`).catch(() => null),
+    ),
+  );
+  const mapDataById = new Map<string, MapData>();
+  for (const it of mapItems) {
+    if (it && it.data) mapDataById.set(it.id, it.data);
+  }
+
+  // #25: layers a bound map ALREADY draws, by data-layer + sublayer.
+  //
+  // A source whose layer is on the app's map does not need a second
+  // copy of itself published onto that map. Publishing one anyway did
+  // three bad things at once: MapLibre refused the duplicate source
+  // outright ("Source ... already exists"), the copy carried
+  // DEFAULT_LAYER_STYLE so every class break an author set on the map
+  // item was replaced by one flat colour, and the copy fetched the
+  // whole layer as GeoJSON where the map item's own layer streams
+  // vector tiles. On a 285,788-row layer that last one is the
+  // difference between a tile request and a hundred-megabyte download.
+  const mapLayerByTarget = new Map<string, MapLayer>();
+  for (const md of mapDataById.values()) {
+    for (const l of md.layers ?? []) {
+      if (l.source?.kind !== 'data-layer') continue;
+      const key = `${l.source.itemId}:${l.source.layerKey ?? ''}`;
+      if (!mapLayerByTarget.has(key)) mapLayerByTarget.set(key, l);
+    }
+  }
   for (const src of app.sources ?? []) {
     const t = src.layer;
     let layerItem: Item<DataLayerData> | null = null;
@@ -245,6 +293,10 @@ export default async function CustomAppRuntimePage(props: Props) {
     );
     if (!sub || !sub.geometryType) continue;
     targetItems.push(layerItem as unknown as { bbox?: unknown });
+    // Prefer the layer the map already draws. Its id is what the
+    // canvas knows, and its style, renderer and popup are the author's
+    // rather than a default.
+    const existing = mapLayerByTarget.get(`${t.dataLayerId}:${t.layerKey}`);
     const id = customTargetLayerId(t);
     const url = `/api/portal/items/${t.dataLayerId}/layers/${t.layerKey}/geojson`;
     resolvedTargets.push({
@@ -252,7 +304,7 @@ export default async function CustomAppRuntimePage(props: Props) {
       dataLayerId: t.dataLayerId,
       layerKey: t.layerKey,
       title: src.label?.trim() || `${layerItem.title} / ${sub.label}`,
-      mapLayer: {
+      mapLayer: existing ?? {
         id,
         title: `${layerItem.title} / ${sub.label}`,
         visible: true,
@@ -269,22 +321,6 @@ export default async function CustomAppRuntimePage(props: Props) {
         access: DEFAULT_LAYER_ACCESS,
       },
     });
-  }
-
-  // #363: collect every map item id we need to fetch. The set is
-  // (optional) app default + every Map widget's per-widget mapId
-  // override across every page. Unique-ifying with a Set keeps a
-  // page with five Map widgets all bound to the same map from
-  // re-fetching it five times. A Map widget without an override
-  // inherits the app default, which is already in the set.
-  const uniqueMapIds = new Set<string>();
-  if (app.mapId) uniqueMapIds.add(app.mapId);
-  for (const p of app.pages) {
-    for (const w of p.widgets) {
-      if (w.kind === 'map' && w.config.kind === 'map' && w.config.mapId) {
-        uniqueMapIds.add(w.config.mapId);
-      }
-    }
   }
 
   // Fetch the org's basemaps (for MapCanvas's basemap library +
@@ -310,7 +346,9 @@ export default async function CustomAppRuntimePage(props: Props) {
   // full=1 on both lists: the runtime renders basemaps from each
   // row's data payload and resolves theme tokens from the theme
   // item's data, and the list strips data_json by default now.
-  const [basemapItems, themeItems, ...mapItems] = await Promise.all([
+  // The map items were already fetched above, before the source loop,
+  // because that loop needs to know which layers a map already draws.
+  const [basemapItems, themeItems] = await Promise.all([
     fetchItemList<Array<Item<BasemapData>>>(
       '/api/items?type=basemap&full=1',
     ).catch(() => [] as Array<Item<BasemapData>>),
@@ -318,9 +356,6 @@ export default async function CustomAppRuntimePage(props: Props) {
       '/api/items?type=theme&full=1',
     ).catch(
       () => [] as Array<Item<ThemeItemData> & { seedKind?: string | null }>,
-    ),
-    ...Array.from(uniqueMapIds).map((id) =>
-      fetchItem<Item<MapData>>(`/api/items/${id}`).catch(() => null),
     ),
   ]);
 
@@ -346,11 +381,6 @@ export default async function CustomAppRuntimePage(props: Props) {
       Item<ThemeItemData> & { seedKind?: string | null }
     >(`/api/items/${app.themePresetId}`).catch(() => null);
     if (direct) themeItems.push(direct);
-  }
-
-  const mapDataById = new Map<string, MapData>();
-  for (const it of mapItems) {
-    if (it && it.data) mapDataById.set(it.id, it.data);
   }
 
   const basemaps: CustomBasemap[] = basemapItems

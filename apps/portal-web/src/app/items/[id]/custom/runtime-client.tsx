@@ -2158,9 +2158,12 @@ function MapWidgetRender({ widget }: { widget: CustomWidget }) {
     // which is why this asks the selection what it means instead of
     // rebuilding a predicate from its field and value.
     const clauses = selectionClauses(selection);
-    // Match on the layer id, not the source shape. See
-    // customTargetLayerId for why that distinction cost a bug.
-    const targetLayerId = customTargetLayerId(target);
+    // The RESOLVED layer's own id, not one rebuilt from the target's
+    // shape. Since #25 a source whose layer the map already draws
+    // reuses that layer rather than publishing a copy, so its id is
+    // the map author's, not the synthetic `custom-target:` one, and
+    // recomputing it here would filter a layer that is not on the map.
+    const targetLayerId = target.mapLayer.id;
     return {
       ...state.mapData,
       layers: (state.mapData.layers ?? []).map((l) => {
