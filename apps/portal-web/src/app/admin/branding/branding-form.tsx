@@ -230,11 +230,19 @@ export function BrandingForm({ initial }: Props) {
           <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">
             Featured items
           </p>
+          {/* The API treats a non-empty list as a strict filter, not
+              as a set of pins above everything else. The old wording
+              ("pinned to the top") read as the latter, so curating
+              this list looked additive when it actually hides the rest
+              of the catalog. Which is the useful behaviour: basemaps,
+              themes and print templates have to be public for
+              anonymous apps to render, and nobody wants those in a
+              shop window. */}
           <p className="mb-2 text-2xs text-muted">
-            Pick the public items you want pinned to the top of the
-            landing page, in the order they should appear. Leave the
-            list empty to show every public item in the org, newest
-            first.
+            Pick the public items to show on the landing page, in the
+            order they should appear. The landing page shows only
+            these. Leave the list empty to show every public item in
+            the org, newest first.
           </p>
           <FeaturedItemsPicker
             value={featuredIds}
