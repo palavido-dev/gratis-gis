@@ -112,6 +112,45 @@ function basemapItemToCustomBasemap(
  * component does the actual widget rendering against bound map
  * state (CustomRuntimeClient).
  */
+/**
+ * Union of the given extents as the camera fields MapData carries, or
+ * null when there is nothing usable to fit.
+ *
+ * Zoom comes off a rough web-mercator ladder and is deliberately one
+ * step conservative: opening slightly too wide shows the reader all
+ * of their data, while overshooting cuts some of it off the screen
+ * with nothing to say so.
+ */
+function unionExtent(
+  boxes: Array<[number, number, number, number]>,
+): { center: [number, number]; zoom: number } | null {
+  const valid = boxes.filter(
+    (b) => Array.isArray(b) && b.length === 4 && b.every((v) => Number.isFinite(v)),
+  );
+  if (valid.length === 0) return null;
+  let [w, s, e, n] = valid[0]!;
+  for (const b of valid.slice(1)) {
+    w = Math.min(w, b[0]);
+    s = Math.min(s, b[1]);
+    e = Math.max(e, b[2]);
+    n = Math.max(n, b[3]);
+  }
+  if (!(e > w) || !(n > s)) return null;
+  const span = Math.max(e - w, n - s);
+  const zoom =
+    span > 60 ? 3
+      : span > 30 ? 4
+        : span > 15 ? 5
+          : span > 8 ? 6
+            : span > 4 ? 7
+              : span > 2 ? 8
+                : span > 1 ? 9
+                  : span > 0.5 ? 10
+                    : span > 0.25 ? 11
+                      : 12;
+  return { center: [(w + e) / 2, (s + n) / 2], zoom };
+}
+
 export default async function CustomAppRuntimePage(props: Props) {
   const params = await props.params;
   const isAnonymous = !(await hasSession());
@@ -178,6 +217,8 @@ export default async function CustomAppRuntimePage(props: Props) {
     title: string;
     mapLayer: MapLayer;
   }> = [];
+  // Kept so the camera can be fitted to the data below.
+  const targetItems: Array<{ bbox?: unknown }> = [];
   for (const t of app.targets) {
     let layerItem: Item<DataLayerData> | null = null;
     try {
@@ -194,6 +235,7 @@ export default async function CustomAppRuntimePage(props: Props) {
       (l) => l.id === t.layerKey,
     );
     if (!sub || !sub.geometryType) continue;
+    targetItems.push(layerItem as unknown as { bbox?: unknown });
     const id = `custom-target:${t.dataLayerId}:${t.layerKey}`;
     const url = `/api/portal/items/${t.dataLayerId}/layers/${t.layerKey}/geojson`;
     resolvedTargets.push({
@@ -317,8 +359,24 @@ export default async function CustomAppRuntimePage(props: Props) {
     ? mapDataById.get(app.mapId) ?? null
     : null;
   const baseLayers = referencedMapData?.layers ?? [];
+  // Open on the data, not on the continent. An app with no map item
+  // behind it inherits DEFAULT_MAP's national view, so a county-scale
+  // dashboard loaded at zoom 3 and every reader's first act was to
+  // zoom in. When the app has targets and no map item chose a
+  // viewport for it, fit the camera to the union of those layers'
+  // cached extents (item.bbox, which #16 filled in). An app that
+  // references a real map item keeps that map's saved viewport: the
+  // author chose it deliberately.
+  const targetExtent = referencedMapData
+    ? null
+    : unionExtent(
+        targetItems.map((it) => it?.bbox).filter(Boolean) as Array<
+          [number, number, number, number]
+        >,
+      );
   const baseMapData: MapData = {
     ...(referencedMapData ?? DEFAULT_MAP),
+    ...(targetExtent ?? {}),
     layers: [...resolvedTargets.map((t) => t.mapLayer), ...baseLayers],
   };
 

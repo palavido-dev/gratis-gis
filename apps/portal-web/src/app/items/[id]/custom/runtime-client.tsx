@@ -4340,7 +4340,11 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
               the positioned ancestor directly, which is definite, so
               the first measurement is a real one. The floor keeps a
               very short tile scrollable rather than illegible. */}
-          <div className="relative min-h-[180px] flex-1">
+          {/* No min-height: the absolutely positioned plot below
+              already has a definite box, and a floor taller than a
+              short tile only produced a scrollbar on charts stacked
+              beside a map. A squeezed chart should shrink. */}
+          <div className="relative min-h-0 flex-1">
             <div className="absolute inset-0 p-2">
               <ChartPlot
               rows={state.rows}
