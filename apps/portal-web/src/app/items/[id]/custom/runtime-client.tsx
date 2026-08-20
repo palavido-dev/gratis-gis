@@ -4547,7 +4547,15 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
 
   return (
     <WidgetFrame icon={ChevronRight} title={title}>
-      {cfg.description?.trim() || followId || where ? (
+      {/* Caption line: the author's note, the follow-the-map note,
+          and the filter state all share one row. The clear-filter
+          chip lives here rather than under the plot because a chip in
+          the flow below the chart stole about a third of a short
+          tile's height the moment anyone clicked a bar. */}
+      {cfg.description?.trim() ||
+      followId ||
+      where ||
+      activeValue !== undefined ? (
         <p className="shrink-0 px-3 pt-1 text-2xs leading-snug text-[hsl(var(--app-muted))]">
           {cfg.description}
           {cfg.description?.trim() && (followId || where) ? ' ' : ''}
@@ -4563,6 +4571,25 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
               {followId ? ' ' : ''}
               Filtered to {selection.label}.
             </span>
+          ) : null}
+          {activeValue !== undefined ? (
+            <button
+              type="button"
+              onClick={() =>
+                toggle({
+                  widgetId: widget.id,
+                  targetIndex: cfg.targetIndex,
+                  field: groupBy!,
+                  value: activeValue,
+                  label: '',
+                })
+              }
+              className="ml-1 rounded-full border border-[hsl(var(--app-accent))] px-1.5 align-middle text-[hsl(var(--app-accent))] hover:bg-[hsl(var(--app-accent)/0.1)]"
+            >
+              Showing only{' '}
+              {activeValue === null ? '(no value)' : activeValue}
+              {' ×'}
+            </button>
           ) : null}
         </p>
       ) : null}
@@ -4608,22 +4635,6 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
               />
             </div>
           </div>
-          {activeValue !== undefined ? (
-            <button
-              type="button"
-              onClick={() => toggle({
-                widgetId: widget.id,
-                targetIndex: cfg.targetIndex,
-                field: groupBy!,
-                value: activeValue,
-                label: '',
-              })}
-              className="mx-2 mb-1 shrink-0 self-start rounded-full border border-[hsl(var(--app-accent))] px-2 py-0.5 text-2xs text-[hsl(var(--app-accent))] hover:bg-[hsl(var(--app-accent)/0.1)]"
-            >
-              Showing only {activeValue === null ? '(no value)' : activeValue}
-              {' ×'}
-            </button>
-          ) : null}
           {state.truncated ? (
             <p className="px-2 pb-1 text-2xs text-[hsl(var(--app-muted))]">
               Showing the 50 largest groups.
