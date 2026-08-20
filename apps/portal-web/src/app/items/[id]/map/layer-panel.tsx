@@ -1550,6 +1550,7 @@ function LayerRow({
                 <RendererEditor
                   value={layer.renderer}
                   metadata={metadata}
+                  layer={layer}
                   onChange={(renderer) => onPatch({ renderer })}
                 />
                 <div className="mt-3 border-t border-border pt-3">

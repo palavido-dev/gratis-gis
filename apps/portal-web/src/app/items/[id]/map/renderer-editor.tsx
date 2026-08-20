@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { BarChart3, Plus, Shuffle, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { BarChart3, Loader2, Plus, Shuffle, Trash2 } from 'lucide-react';
 import type {
+  MapLayer,
   MapLayerRenderer,
   MapUniqueValueCategory,
 } from '@gratis-gis/shared-types';
@@ -17,6 +19,8 @@ import type { LayerMetadata } from './layer-metadata';
 interface Props {
   value: MapLayerRenderer;
   metadata: LayerMetadata;
+  /** Needed to ask the server for distinct values; see autoPopulate. */
+  layer: MapLayer;
   onChange: (next: MapLayerRenderer) => void;
 }
 
@@ -31,10 +35,22 @@ interface Props {
  * Keeping this focused: no class-breaks yet. The UI makes the missing
  * strategy obvious so the user knows what's coming.
  */
-export function RendererEditor({ value, metadata, onChange }: Props) {
+/**
+ * How many categories Auto fill will create.
+ *
+ * Past a couple of dozen the map stops being readable and the legend
+ * stops fitting, so the cap is a cartographic limit rather than a
+ * technical one. The rest fall through to the layer's single colour,
+ * and the editor says so.
+ */
+const MAX_AUTO_CATEGORIES = 24;
+
+export function RendererEditor({ value, metadata, layer, onChange }: Props) {
   const isUnique = value.kind === 'unique-values';
 
   const isBreaks = value.kind === 'class-breaks';
+  const [filling, setFilling] = useState(false);
+  const [fillNote, setFillNote] = useState<string | null>(null);
 
   function setSimple() {
     onChange({ kind: 'simple' });
@@ -59,12 +75,94 @@ export function RendererEditor({ value, metadata, onChange }: Props) {
     });
   }
 
-  function autoPopulate(field: string) {
-    const values = metadata.valuesByField[field] ?? [];
-    const categories: MapUniqueValueCategory[] = values.map((v, i) => ({
-      value: v,
-      color: UNIQUE_VALUE_PALETTE[i % UNIQUE_VALUE_PALETTE.length]!,
-    }));
+  /**
+   * Seed one category per distinct value of the field.
+   *
+   * The cached `valuesByField` is only populated for layers small
+   * enough to have been sampled whole. On a v3 data layer that sample
+   * is deliberately skipped, because doing it to the 1.4M-row parcels
+   * layer either 500s the endpoint or wedges the browser. So on
+   * exactly the layers people most want to symbolize, the cache was
+   * empty and this button quietly did nothing: it wrote zero
+   * categories and left the "No categories yet" message in place,
+   * which reads as broken rather than as unimplemented.
+   *
+   * `layer-metadata.ts` anticipated this and called for a fetch-on-
+   * demand endpoint. The aggregate endpoint is it: grouping by the
+   * field returns exactly the distinct values, computed server-side,
+   * capped, scoped to what this viewer may read, and ordered by
+   * frequency. Frequency order is a bonus rather than an accident:
+   * the palette's most distinct colours land on the categories a
+   * reader will actually see.
+   */
+  async function autoPopulate(field: string) {
+    const cached = metadata.valuesByField[field] ?? [];
+    if (cached.length > 0) {
+      applyValues(field, cached);
+      return;
+    }
+    const src = layer.source;
+    if (src.kind !== 'data-layer') {
+      setFillNote(
+        'This layer type does not report its values yet; add categories by hand.',
+      );
+      return;
+    }
+    setFilling(true);
+    setFillNote(null);
+    try {
+      const params = new URLSearchParams({
+        agg: 'count',
+        groupBy: field,
+        limit: String(MAX_AUTO_CATEGORIES),
+      });
+      const res = await fetch(
+        `/api/portal/items/${src.itemId}/layers/${src.layerKey ?? ''}` +
+          `/aggregate?${params.toString()}`,
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          message?: string | string[];
+        } | null;
+        const m = body?.message;
+        throw new Error(
+          (Array.isArray(m) ? m.join('; ') : m) ||
+            `Could not read values (HTTP ${res.status}).`,
+        );
+      }
+      const data = (await res.json()) as {
+        groups: Array<{ key: Record<string, string | null> }>;
+        truncated: boolean;
+      };
+      const values = data.groups
+        .map((g) => g.key[field])
+        .filter((v): v is string => typeof v === 'string' && v.length > 0);
+      if (values.length === 0) {
+        setFillNote('No values found in this field.');
+        return;
+      }
+      applyValues(field, values);
+      if (data.truncated) {
+        setFillNote(
+          `Showing the ${MAX_AUTO_CATEGORIES} most common values; the rest use the fallback colour.`,
+        );
+      }
+    } catch (err) {
+      setFillNote(
+        err instanceof Error ? err.message : 'Could not read values.',
+      );
+    } finally {
+      setFilling(false);
+    }
+  }
+
+  function applyValues(field: string, values: string[]) {
+    const categories: MapUniqueValueCategory[] = values
+      .slice(0, MAX_AUTO_CATEGORIES)
+      .map((v, i) => ({
+        value: v,
+        color: UNIQUE_VALUE_PALETTE[i % UNIQUE_VALUE_PALETTE.length]!,
+      }));
     onChange({ kind: 'unique-values', field, categories });
   }
 
@@ -140,10 +238,15 @@ export function RendererEditor({ value, metadata, onChange }: Props) {
                 </select>
                 <button
                   type="button"
-                  onClick={() => value.field && autoPopulate(value.field)}
-                  disabled={!value.field}
-                  className="h-8 rounded border border-border bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+                  onClick={() => {
+                    if (value.field) void autoPopulate(value.field);
+                  }}
+                  disabled={!value.field || filling}
+                  className="inline-flex h-8 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
                 >
+                  {filling ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : null}
                   Auto fill
                 </button>
               </div>
@@ -162,6 +265,8 @@ export function RendererEditor({ value, metadata, onChange }: Props) {
               </p>
             ) : metadata.error ? (
               <p className="mt-1 text-2xs text-warn">{metadata.error}</p>
+            ) : fillNote ? (
+              <p className="mt-1 text-2xs text-warn">{fillNote}</p>
             ) : null}
           </div>
 
