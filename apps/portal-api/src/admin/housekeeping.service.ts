@@ -45,6 +45,20 @@ import { StorageService } from '../storage/storage.service.js';
  * surfaces the candidates. Thresholds are env-configurable with
  * reasonable defaults so operators can tune without a redeploy.
  */
+/**
+ * A basemap the portal seeded, rather than one a user added.
+ *
+ * Basemaps mark themselves with `seededKey` in data_json instead of
+ * the `seedKind` column the other catalog types use, so they need
+ * their own check. See the staleItems where clause for why seeded
+ * content is excluded at all.
+ */
+function isSeededBasemap(data: unknown): boolean {
+  if (typeof data !== 'object' || data === null) return false;
+  const key = (data as { seededKey?: unknown }).seededKey;
+  return typeof key === 'string' && key.length > 0;
+}
+
 @Injectable()
 export class HousekeepingService {
   private readonly log = new Logger(HousekeepingService.name);
@@ -224,6 +238,24 @@ export class HousekeepingService {
           { lastUsageAt: { lt: cutoff } },
         ],
         shares: { none: {} },
+        // Seeded builtins are never stale, however long they sit.
+        //
+        // Every org gets a catalog at creation: basemaps, themes,
+        // print templates, app templates. Most are never edited and
+        // most are referenced by nothing, because their job is to be
+        // available for someone to pick, not to be used. They
+        // therefore satisfy every staleness signal we have, forever.
+        //
+        // On the demo that was the entire report: twenty stale items,
+        // twenty seeded builtins, nothing actionable. A report with a
+        // permanent noise floor is a report nobody reads, which costs
+        // more than the handful of rows it was hiding.
+        //
+        // Templates and themes carry `seedKind`; basemaps carry a
+        // `seededKey` inside data_json instead, and that one is
+        // filtered in the refine loop below rather than here, because
+        // a JSON-path predicate is harder to read than one `continue`.
+        seedKind: null,
       },
       select: {
         id: true,
@@ -252,6 +284,8 @@ export class HousekeepingService {
     > = [];
     for (const r of candidates) {
       if (referenced.has(r.id)) continue;
+      // The basemap half of the seeded-builtin exclusion above.
+      if (isSeededBasemap(r.data)) continue;
       const dataAt = await this.dataActivityAt(r.id, r.type, r.data);
       const effective = pickEffectiveActivity(
         r.updatedAt,
