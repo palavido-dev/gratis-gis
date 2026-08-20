@@ -212,7 +212,14 @@ export default async function CustomAppRuntimePage(props: Props) {
   // the per-sublayer geojson endpoint. Targets pointing at deleted
   // / unreadable layers get silently dropped; the runtime renders
   // whatever survives.
+  //
+  // Each entry carries the id of the SOURCE it came from. Callers
+  // look a target up by that id and never by position: an entry that
+  // fails to resolve is dropped here, so the surviving indices stop
+  // matching the saved ones and every widget after the gap used to
+  // read one layer too far.
   const resolvedTargets: Array<{
+    sourceId: string;
     dataLayerId: string;
     layerKey: string;
     title: string;
@@ -220,7 +227,8 @@ export default async function CustomAppRuntimePage(props: Props) {
   }> = [];
   // Kept so the camera can be fitted to the data below.
   const targetItems: Array<{ bbox?: unknown }> = [];
-  for (const t of app.targets) {
+  for (const src of app.sources ?? []) {
+    const t = src.layer;
     let layerItem: Item<DataLayerData> | null = null;
     try {
       layerItem = await fetchItem<Item<DataLayerData>>(
@@ -240,9 +248,10 @@ export default async function CustomAppRuntimePage(props: Props) {
     const id = customTargetLayerId(t);
     const url = `/api/portal/items/${t.dataLayerId}/layers/${t.layerKey}/geojson`;
     resolvedTargets.push({
+      sourceId: src.id,
       dataLayerId: t.dataLayerId,
       layerKey: t.layerKey,
-      title: `${layerItem.title} / ${sub.label}`,
+      title: src.label?.trim() || `${layerItem.title} / ${sub.label}`,
       mapLayer: {
         id,
         title: `${layerItem.title} / ${sub.label}`,

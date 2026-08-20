@@ -18,5 +18,9 @@
     "incremental": false,
     "ignoreDeprecations": "6.0"
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  // Specs are checked by tsconfig.json but must not reach dist: the
+  // API and the web app both consume this package's build output and
+  // neither wants a test file in it.
+  "exclude": ["src/**/*.spec.ts"]
 }

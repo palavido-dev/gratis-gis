@@ -1151,9 +1151,16 @@ export class SamplesService {
     }
     const custom = starter.seed();
     custom.mapId = mapId;
-    custom.targets = [
-      { dataLayerId: facilitiesId, layerKey: FACILITIES_SUBLAYER },
-    ];
+    const layer = {
+      dataLayerId: facilitiesId,
+      layerKey: FACILITIES_SUBLAYER,
+    };
+    // Both shapes: `sources` is what a v5 client reads, `targets`
+    // keeps the sample openable in an older one for a release. The
+    // id is fixed rather than random because a sample stamped twice
+    // should be byte-identical, which is what makes it diffable.
+    custom.sources = [{ id: 's0', layer }];
+    custom.targets = [layer];
     return {
       version: 1,
       template: 'custom',

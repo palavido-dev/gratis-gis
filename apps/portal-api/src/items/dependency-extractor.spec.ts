@@ -214,6 +214,52 @@ describe('extractDependencies for custom web_app', () => {
     ]);
   });
 
+  it('finds data layers through v5 sources, not just v4 targets', () => {
+    // The v4 to v5 migration runs on the CLIENT, on load, so this
+    // code sees whichever shape was last saved. Reading only one
+    // would leave the public-share cascade warning blank for half
+    // the apps in an org: a sharing warning failing silently, which
+    // is the worst way for it to be wrong.
+    const result = extractDependencies(
+      buildCustom({
+        version: 5,
+        targets: [],
+        sources: [
+          { id: 's0', layer: { dataLayerId: 'dl-1', layerKey: 'a' } },
+          { id: 's1', layer: { dataLayerId: 'dl-2', layerKey: 'b' } },
+        ],
+        pages: [],
+      } as unknown as Parameters<typeof buildCustom>[0]),
+    );
+    expect(result.itemIds.sort()).toEqual(['dl-1', 'dl-2']);
+  });
+
+  it('still finds them through v4 targets', () => {
+    const result = extractDependencies(
+      buildCustom({
+        version: 4,
+        targets: [{ dataLayerId: 'dl-old', layerKey: 'a' }],
+        pages: [],
+      }),
+    );
+    expect(result.itemIds).toEqual(['dl-old']);
+  });
+
+  it('does not double-count a layer named by both shapes', () => {
+    // An app saved by this client carries both for one release.
+    const result = extractDependencies(
+      buildCustom({
+        version: 5,
+        targets: [{ dataLayerId: 'dl-1', layerKey: 'a' }],
+        sources: [
+          { id: 's0', layer: { dataLayerId: 'dl-1', layerKey: 'a' } },
+        ],
+        pages: [],
+      } as unknown as Parameters<typeof buildCustom>[0]),
+    );
+    expect(result.itemIds).toEqual(['dl-1']);
+  });
+
   it('returns no edges for an empty custom app', () => {
     const result = extractDependencies(
       buildCustom({ version: 3, targets: [], pages: [] }),

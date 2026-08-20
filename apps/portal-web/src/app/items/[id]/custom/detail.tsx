@@ -51,6 +51,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type {
+  AppDataSource,
   BasemapData,
   CustomAppData,
   CustomLayout,
@@ -79,6 +80,7 @@ import {
   applyAppTheme,
   applyAppThemeTokens,
   migrateCustomAppData,
+  newSourceId,
 } from '@gratis-gis/shared-types';
 import type { AppThemePresetId, AssetRef } from '@gratis-gis/shared-types';
 import { AssetPicker } from '@/components/asset-picker';
@@ -97,6 +99,8 @@ import {
  *  ResolvedAppTarget; kept local so the designer does not import a
  *  type that only exists to describe runtime internals. */
 interface ResolvedTargetLite {
+  /** Id of the AppDataSource this came from; the binding key. */
+  sourceId: string;
   dataLayerId: string;
   layerKey: string;
   title: string;
@@ -238,7 +242,7 @@ export function CustomAppDetail({
   // Canvas widgets render live (see DesignTimeWidgetPreview), which
   // needs the app's targets in the same shape the runtime resolves
   // them into.
-  const resolvedTargets = useResolvedTargets(app.targets);
+  const resolvedTargets = useResolvedTargets(app.sources ?? []);
   // #363: per-Map-widget MapData when the widget has its own
   // config.mapId override. Without this the canvas preview shows
   // the app default for EVERY map widget, ignoring overrides.
@@ -935,7 +939,7 @@ export function CustomAppDetail({
       canEdit={canEdit}
       pageWidgets={activePage.widgets}
       appPages={app.pages}
-      appTargets={app.targets}
+      appTargets={app.sources ?? []}
       appMapId={app.mapId}
       appMapTitle={mapTitle}
       mapTitlesById={mapTitlesById}
@@ -3435,6 +3439,7 @@ function AppProperties({
   onPickMap: () => void;
   onSaveAsTheme: () => void;
 }) {
+  const sources = app.sources ?? [];
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       <div className="border-b border-border px-4 py-3">
@@ -3521,46 +3526,6 @@ function AppProperties({
             }}
             className="w-28 rounded-md border border-border bg-surface-1 px-2.5 py-1.5 text-sm focus:border-ink-1 focus:outline-none focus:ring-0"
           />
-        </Field>
-        {/* One setting for the whole page, because a dashboard is one
-            answer to one question and its pieces have to agree: a
-            counter reading the whole layer next to a map showing one
-            valley is two answers presented as one page. Doing it per
-            widget is busywork an author forgets on the eighth tile. */}
-        <Field
-          label="Widgets follow this map's view"
-          hint={
-            (page.widgets ?? []).some((w) => w.kind === 'map')
-              ? 'Charts, counters and tables then answer for whatever is on screen, and each says so. A widget can still opt out on its own.'
-              : 'Add a map widget to this page first.'
-          }
-        >
-          <select
-            value={app.followMapWidgetId ?? ''}
-            disabled={
-              !canEdit || !(page.widgets ?? []).some((w) => w.kind === 'map')
-            }
-            onChange={(e) =>
-              // Omit rather than store an empty string: unset means
-              // "every widget decides for itself", which is what apps
-              // saved before this setting existed already do.
-              onUpdateApp(
-                e.target.value
-                  ? { followMapWidgetId: e.target.value }
-                  : { followMapWidgetId: undefined },
-              )
-            }
-            className="w-full rounded-md border border-border bg-surface-1 px-2.5 py-1.5 text-sm"
-          >
-            <option value="">No, each widget decides</option>
-            {(page.widgets ?? [])
-              .filter((w) => w.kind === 'map')
-              .map((w) => (
-                <option key={w.id} value={w.id}>
-                  Map · {w.id.slice(2, 10)}
-                </option>
-              ))}
-          </select>
         </Field>
         {/* Theme preset picker. Sets CSS variables at the app root
             (designer Canvas + runtime container) so every widget
@@ -3673,32 +3638,44 @@ function AppProperties({
             </button>
           )}
         </Field>
+        {/* Layers, and what reading each one means. Removing one no
+            longer shifts anything: widgets bind to a source's id, so
+            the ones bound to the others are untouched and the ones
+            bound to this one say their layer is gone rather than
+            quietly answering about a neighbour. */}
         <Field
-          label="Editable layers"
-          hint="Which layers this app's tools can add to, edit, and outline into. Pick from the layers in the app's map."
+          label="Layers"
+          hint="What this app reads. Widgets pick one of these, and each carries its own scope."
         >
-          {app.targets.length > 0 ? (
+          {sources.length > 0 ? (
             <ul className="mb-2 space-y-1">
-              {app.targets.map((t, i) => (
+              {sources.map((src) => (
                 <li
-                  key={`${t.dataLayerId}:${t.layerKey}`}
+                  key={src.id}
                   className="flex items-center gap-1.5 rounded-md bg-surface-2 px-2 py-1 text-2xs"
                 >
                   <LayersIcon className="h-3.5 w-3.5 text-info" />
                   <span className="flex-1 truncate">
-                    <TargetLabel dataLayerId={t.dataLayerId} layerKey={t.layerKey} />
+                    {src.label?.trim() || (
+                      <TargetLabel
+                        dataLayerId={src.layer.dataLayerId}
+                        layerKey={src.layer.layerKey}
+                      />
+                    )}
                   </span>
                   {canEdit && (
                     <button
                       type="button"
-                      onClick={() => {
-                        const targets: ViewerTarget[] = app.targets.filter(
-                          (_, j) => j !== i,
-                        );
-                        onUpdateApp({ targets });
-                      }}
+                      onClick={() =>
+                        onUpdateApp({
+                          sources: sources.filter((o) => o.id !== src.id),
+                          targets: sources
+                            .filter((o) => o.id !== src.id)
+                            .map((o) => o.layer),
+                        })
+                      }
                       className="text-muted hover:text-danger"
-                      aria-label="Remove editable layer"
+                      aria-label="Remove layer"
                     >
                       <Trash2 className="h-3 w-3" />
                     </button>
@@ -3710,12 +3687,31 @@ function AppProperties({
           {canEdit ? (
             <AddTargetControl
               mapId={app.mapId}
-              existing={app.targets}
-              onAdd={(t) => onUpdateApp({ targets: [...app.targets, t] })}
+              existing={sources.map((src) => src.layer)}
+              onAdd={(t) => {
+                // A new source on a dashboard follows the page's map
+                // by default. That is the whole reason scope moved
+                // here: the author is choosing a layer for a
+                // dashboard, and "answer for what is on the map" is
+                // what they meant. Any other app leaves it unset.
+                const mapWidget =
+                  app.blueprint === 'dashboard'
+                    ? (page.widgets ?? []).find((w) => w.kind === 'map')
+                    : undefined;
+                const next: AppDataSource = {
+                  id: newSourceId(),
+                  layer: t,
+                  ...(mapWidget ? { followMapWidgetId: mapWidget.id } : {}),
+                };
+                onUpdateApp({
+                  sources: [...sources, next],
+                  targets: [...sources.map((o) => o.layer), t],
+                });
+              }}
             />
-          ) : app.targets.length === 0 ? (
+          ) : sources.length === 0 ? (
             <div className="rounded-md border border-dashed border-border px-2 py-3 text-center text-xs text-muted">
-              No editable layers yet.
+              No layers yet.
             </div>
           ) : null}
         </Field>
@@ -3799,7 +3795,7 @@ function WidgetProperties({
   canEdit: boolean;
   pageWidgets: CustomWidget[];
   appPages: CustomPage[];
-  appTargets: ViewerTarget[];
+  appTargets: AppDataSource[];
   appMapId: string | undefined;
   appMapTitle: string | null;
   mapTitlesById: Record<string, string>;
@@ -3994,7 +3990,7 @@ function WidgetConfigForm({
   canEdit: boolean;
   pageWidgets: CustomWidget[];
   appPages: CustomPage[];
-  appTargets: ViewerTarget[];
+  appTargets: AppDataSource[];
   appMapId: string | undefined;
   appMapTitle: string | null;
   mapTitlesById: Record<string, string>;
@@ -4118,9 +4114,9 @@ function WidgetConfigForm({
               {appTargets.length === 0 ? (
                 <option value={0}>(no targets)</option>
               ) : (
-                appTargets.map((t, i) => (
-                  <option key={`${t.dataLayerId}:${t.layerKey}`} value={i}>
-                    #{i} {t.dataLayerId.slice(0, 8)} / {t.layerKey}
+                appTargets.map((src, i) => (
+                  <option key={src.id} value={i}>
+                    {src.label?.trim() || src.layer.layerKey}
                   </option>
                 ))
               )}
@@ -5509,7 +5505,7 @@ function FeatureMutationWidgetConfigEditor({
   };
   canEdit: boolean;
   mapWidgets: CustomWidget[];
-  appTargets: ViewerTarget[];
+  appTargets: AppDataSource[];
   onChangeConfig: (patch: Record<string, unknown>) => void;
 }) {
   // #89 pivot: `targetIndex` is now optional.  When omitted (the
@@ -5550,9 +5546,9 @@ function FeatureMutationWidgetConfigEditor({
           <option value={sentinel}>
             All editable targets (recommended)
           </option>
-          {appTargets.map((t, i) => (
-            <option key={i} value={i}>
-              {`Pin to target ${i + 1} (${t.layerKey})`}
+          {appTargets.map((src, i) => (
+            <option key={src.id} value={i}>
+              {`Only ${src.label?.trim() || src.layer.layerKey}`}
             </option>
           ))}
         </select>
@@ -7527,16 +7523,19 @@ function patchHeader(
  * runtime drops them, so the canvas shows the same empty state the
  * published app would.
  */
-function useResolvedTargets(targets: ViewerTarget[]): ResolvedTargetLite[] {
+function useResolvedTargets(sources: AppDataSource[]): ResolvedTargetLite[] {
   const [resolved, setResolved] = useState<ResolvedTargetLite[]>([]);
-  // Targets is a fresh array identity on every keystroke in the
+  // Sources is a fresh array identity on every keystroke in the
   // inspector; key the effect on the identity that actually matters.
-  const key = targets.map((t) => `${t.dataLayerId}:${t.layerKey}`).join('|');
+  const key = sources
+    .map((src) => `${src.id}:${src.layer.dataLayerId}:${src.layer.layerKey}`)
+    .join('|');
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       const out: ResolvedTargetLite[] = [];
-      for (const t of targets) {
+      for (const src of sources) {
+        const t = src.layer;
         try {
           const res = await fetch(`/api/portal/items/${t.dataLayerId}`);
           if (!res.ok) continue;
@@ -7552,9 +7551,10 @@ function useResolvedTargets(targets: ViewerTarget[]): ResolvedTargetLite[] {
           if (!sub) continue;
           const title = `${item.title ?? 'Layer'} / ${sub.label ?? t.layerKey}`;
           out.push({
+            sourceId: src.id,
             dataLayerId: t.dataLayerId,
             layerKey: t.layerKey,
-            title,
+            title: src.label?.trim() || title,
             mapLayer: {
               id: customTargetLayerId(t),
               title,
@@ -7677,7 +7677,7 @@ function TargetSelect({
   onChange,
 }: {
   value: number;
-  appTargets: ViewerTarget[];
+  appTargets: AppDataSource[];
   canEdit: boolean;
   onChange: (index: number) => void;
 }) {
@@ -7705,9 +7705,11 @@ function TargetSelect({
         {appTargets.length === 0 ? (
           <option value={0}>(no layers)</option>
         ) : (
-          appTargets.map((tg, i) => (
-            <option key={`${tg.dataLayerId}:${tg.layerKey}`} value={i}>
-              {resolved[i]?.title ?? tg.layerKey}
+          appTargets.map((src, i) => (
+            <option key={src.id} value={i}>
+              {src.label?.trim() ||
+                resolved.find((r) => r.sourceId === src.id)?.title ||
+                src.layer.layerKey}
             </option>
           ))
         )}
@@ -7739,11 +7741,15 @@ function ChartWidgetConfigEditor({
 }: {
   config: Extract<CustomWidget['config'], { kind: 'chart' }>;
   canEdit: boolean;
-  appTargets: ViewerTarget[];
+  appTargets: AppDataSource[];
   mapWidgets: CustomWidget[];
   onChangeConfig: (patch: Record<string, unknown>) => void;
 }) {
-  const target = appTargets[config.targetIndex];
+  const target = appTargets.find((src) =>
+    config.sourceId !== undefined
+      ? src.id === config.sourceId
+      : appTargets.indexOf(src) === config.targetIndex,
+  )?.layer;
   const { fields, loading } = useTargetFields(target);
   const aggregate = config.aggregate ?? 'count';
   const numeric = numericCandidates(fields);
@@ -7916,11 +7922,15 @@ function IndicatorWidgetConfigEditor({
 }: {
   config: Extract<CustomWidget['config'], { kind: 'indicator' }>;
   canEdit: boolean;
-  appTargets: ViewerTarget[];
+  appTargets: AppDataSource[];
   mapWidgets: CustomWidget[];
   onChangeConfig: (patch: Record<string, unknown>) => void;
 }) {
-  const target = appTargets[config.targetIndex];
+  const target = appTargets.find((src) =>
+    config.sourceId !== undefined
+      ? src.id === config.sourceId
+      : appTargets.indexOf(src) === config.targetIndex,
+  )?.layer;
   const { fields, loading } = useTargetFields(target);
   const numeric = numericCandidates(fields);
   const fmt = config.format ?? {};

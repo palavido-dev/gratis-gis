@@ -58,6 +58,7 @@ import maplibregl from 'maplibre-gl';
 // rendering widget don't pull the chunk.
 import * as ReactRecharts from 'recharts';
 import type {
+  AppDataSource,
   CustomAppData,
   CustomWidget,
   CustomWidgetKind,
@@ -176,6 +177,13 @@ import { resolveDemForBbox } from '@/lib/dem-resolver';
  */
 
 interface ResolvedAppTarget {
+  /**
+   * Id of the AppDataSource this came from. Widgets look a target up
+   * by this and never by position: an entry that fails to resolve is
+   * dropped from this array while the saved indices still count it,
+   * so every widget after the gap read one layer too far.
+   */
+  sourceId: string;
   dataLayerId: string;
   layerKey: string;
   title: string;
@@ -204,6 +212,8 @@ interface CustomMapsCtx {
   registerRef: (mapWidgetId: string, ref: RefObject<MapCanvasHandle>) => void;
   basemaps: CustomBasemap[];
   resolvedTargets: ResolvedAppTarget[];
+  /** Source ids in author order; the legacy index fallback. */
+  sourceOrder: string[];
   /** Fly the bound map's camera to a bbox via the registered ref. */
   flyTo: (
     mapWidgetId: string,
@@ -321,9 +331,9 @@ const AppRefreshContext = createContext<number>(0);
  *     each hold a hidden term is a page where nobody can say what the
  *     number on screen means, and an author who wants stacked
  *     conditions has the filter widget for that.
- *   - **Scoped to a target, not global.** A selection on the storm
+ *   - **Scoped to a source, not global.** A selection on the storm
  *     layer says nothing about the bridges layer, so widgets reading a
- *     different target are left alone rather than being narrowed to
+ *     different source are left alone rather than being narrowed to
  *     nothing by a field they do not have.
  *   - **Never persisted.** It is a reading gesture, like a map pan.
  *     A reload returns the app the author published.
@@ -331,8 +341,8 @@ const AppRefreshContext = createContext<number>(0);
 export interface CrossFilterSelection {
   /** Widget that published it, so that widget can show it as active. */
   widgetId: string;
-  /** Index into the app's targets; only widgets on it are affected. */
-  targetIndex: number;
+  /** Source it applies to; only widgets on that source are affected. */
+  sourceId: string;
   field: string;
   /** Null selects the features with no value recorded for `field`. */
   value: string | null;
@@ -353,55 +363,139 @@ const CrossFilterContext = createContext<CrossFilterCtx>({
   clear: () => {},
 });
 
+/** The app's data sources, by id. */
+const AppSourcesContext = createContext<Record<string, AppDataSource>>({});
+
 /**
- * The predicate a widget on `targetIndex` should apply, or undefined.
+ * Which source a widget reads.
  *
- * Returns the wire shape the aggregate endpoint takes, which is the
- * same `MapLayerFilter` the map applies to its own layer, so a chart
- * and the map beside it cannot disagree about what a selection means.
+ * Prefers the stable `sourceId` and falls back to `targetIndex` for
+ * one release, so an app saved by an older client still binds. The
+ * fallback resolves through the app's source list rather than the
+ * RESOLVED list, because the two stop agreeing the moment a layer
+ * fails to resolve, and disagreeing quietly is the bug this whole
+ * change exists to end.
  */
-function useCrossFilterWhere(
-  targetIndex: number,
-): MapLayerFilter | undefined {
-  const { selection } = useContext(CrossFilterContext);
-  return useMemo(() => {
-    if (!selection || selection.targetIndex !== targetIndex) return undefined;
-    return {
-      combinator: 'all' as const,
-      clauses: [
-        selection.value === null
-          ? { field: selection.field, op: 'is-null' as const, value: '' }
-          : {
-              field: selection.field,
-              op: '==' as const,
-              value: selection.value,
-            },
-      ],
-    };
-  }, [selection, targetIndex]);
+function useWidgetSource(cfg: {
+  sourceId?: string;
+  targetIndex?: number;
+}): AppDataSource | undefined {
+  const byId = useContext(AppSourcesContext);
+  const order = useContext(AppSourceOrderContext);
+  if (cfg.sourceId !== undefined) return byId[cfg.sourceId];
+  if (typeof cfg.targetIndex === 'number') {
+    const id = order[cfg.targetIndex];
+    return id !== undefined ? byId[id] : undefined;
+  }
+  return undefined;
+}
+
+/** Source ids in author order, for the legacy index fallback. */
+const AppSourceOrderContext = createContext<string[]>([]);
+
+/**
+ * Source id for a widget config, without calling a hook.
+ *
+ * Same precedence as useWidgetSource: the stable id wins, the legacy
+ * index is the one-release fallback. Exists because two attribute
+ * table lookups run inside useMemo bodies where a hook cannot.
+ */
+function sourceIdOf(
+  ctx: CustomMapsCtx,
+  cfg: { sourceId?: string; targetIndex?: number },
+): string | undefined {
+  if (cfg.sourceId !== undefined) return cfg.sourceId;
+  if (typeof cfg.targetIndex === 'number') {
+    return ctx.sourceOrder[cfg.targetIndex];
+  }
+  return undefined;
 }
 
 /**
- * App-level default for "which map's view scopes this widget", or ''
- * when the app has not set one.
+ * The resolved layer behind a widget's source, or null.
+ *
+ * Null means "bound to a source whose layer did not resolve" as well
+ * as "not bound at all", and a widget renders its empty state either
+ * way. That is deliberate: the alternative, falling through to
+ * whatever sits at the same index, is precisely the silent wrong
+ * answer this model exists to prevent.
  */
-const AppFollowMapContext = createContext<string>('');
+function useWidgetTarget(cfg: {
+  sourceId?: string;
+  targetIndex?: number;
+}): ResolvedAppTarget | null {
+  const ctx = useContext(CustomMapsContext);
+  const source = useWidgetSource(cfg);
+  if (!ctx || !source) return null;
+  return (
+    ctx.resolvedTargets.find((t) => t.sourceId === source.id) ?? null
+  );
+}
 
 /**
- * Resolve which map a data widget should follow.
+ * Everything that narrows a source, resolved in one place.
  *
- * The widget's own setting wins, and the EMPTY STRING is a real
- * answer rather than a missing one: it is how an author pins one
- * deliberate whole-layer total on a page that otherwise follows the
- * map. Only an absent value inherits the app default, which is why
- * this reads `undefined` rather than falsiness.
+ * This is the point of the data-source model: two widgets reading one
+ * source cannot disagree about what it means, because neither of them
+ * decides. The author's fixed predicate and the reader's cross-filter
+ * selection are composed here, in that order, and a widget just gets
+ * the answer.
  */
-function useFollowMapWidgetId(
-  own: string | undefined,
-): string | undefined {
-  const appDefault = useContext(AppFollowMapContext);
-  const resolved = own !== undefined ? own : appDefault;
-  return resolved === '' ? undefined : resolved;
+interface SourceScope {
+  /** Viewport, when the source follows a map. */
+  bbox?: [number, number, number, number];
+  /** Author predicate AND reader selection, already merged. */
+  where?: MapLayerFilter;
+  /** What to tell the reader this widget is narrowed by, if anything. */
+  note?: string;
+  /** True when the scope is spatial, so unlocated rows drop out. */
+  spatial: boolean;
+}
+
+function useSourceScope(source: AppDataSource | undefined): SourceScope {
+  const { selection } = useContext(CrossFilterContext);
+  const followId =
+    source?.followMapWidgetId === '' ? undefined : source?.followMapWidgetId;
+  const bboxKey = useMapViewportBbox(followId);
+  const selecting =
+    selection && source && selection.sourceId === source.id
+      ? selection
+      : null;
+  const authorWhere = source?.where;
+  const selKey = selecting
+    ? `${selecting.field} ${String(selecting.value)}`
+    : '';
+  const authorKey = authorWhere ? JSON.stringify(authorWhere) : '';
+  return useMemo(() => {
+    const clauses: MapLayerFilter['clauses'] = [
+      ...(authorWhere?.clauses ?? []),
+    ];
+    if (selecting) {
+      clauses.push(
+        selecting.value === null
+          ? { field: selecting.field, op: 'is-null', value: '' }
+          : { field: selecting.field, op: '==', value: selecting.value },
+      );
+    }
+    const out: SourceScope = { spatial: Boolean(bboxKey) };
+    if (bboxKey) {
+      out.bbox = bboxKey.split(',').map(Number) as [
+        number,
+        number,
+        number,
+        number,
+      ];
+    }
+    if (clauses.length > 0) {
+      // The author's clauses are ANDed with the reader's selection
+      // regardless of the author's own combinator, because a reader's
+      // click narrows what the author published; it never widens it.
+      out.where = { combinator: 'all', clauses };
+    }
+    if (selecting) out.note = selecting.label;
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bboxKey, authorKey, selKey]);
 }
 
 /**
@@ -730,6 +824,7 @@ export function CustomRuntimeClient({
       registerRef,
       basemaps,
       resolvedTargets,
+      sourceOrder,
       flyTo,
       refreshMapLayer,
       navigateToPage,
@@ -777,6 +872,18 @@ export function CustomRuntimeClient({
     [appAt],
   );
 
+  // The app's sources, indexed once. `sourceOrder` exists only to
+  // resolve a legacy `targetIndex`, and goes when that does.
+  const sourcesById = useMemo(() => {
+    const out: Record<string, AppDataSource> = {};
+    for (const src of app.sources ?? []) out[src.id] = src;
+    return out;
+  }, [app.sources]);
+  const sourceOrder = useMemo(
+    () => (app.sources ?? []).map((src) => src.id),
+    [app.sources],
+  );
+
   // Cross-filter selection. Deliberately not in the URL: it is a
   // reading gesture, and a shared link should open the app the author
   // published rather than whatever the sender last clicked.
@@ -801,7 +908,8 @@ export function CustomRuntimeClient({
 
   return (
     <AppRefreshContext.Provider value={app.refreshSeconds ?? 0}>
-    <AppFollowMapContext.Provider value={app.followMapWidgetId ?? ''}>
+    <AppSourcesContext.Provider value={sourcesById}>
+    <AppSourceOrderContext.Provider value={sourceOrder}>
     <CrossFilterContext.Provider value={crossFilterCtx}>
     <AppTimeContext.Provider value={appTimeCtx}>
     <RuntimeInfoContext.Provider value={{ itemTitle }}>
@@ -1077,7 +1185,8 @@ export function CustomRuntimeClient({
     </RuntimeInfoContext.Provider>
     </AppTimeContext.Provider>
     </CrossFilterContext.Provider>
-    </AppFollowMapContext.Provider>
+    </AppSourceOrderContext.Provider>
+    </AppSourcesContext.Provider>
     </AppRefreshContext.Provider>
   );
 }
@@ -1912,7 +2021,9 @@ function MapWidgetRender({ widget }: { widget: CustomWidget }) {
   const { selection } = useContext(CrossFilterContext);
   const state = ctx?.states[widget.id];
   const target =
-    selection && ctx ? ctx.resolvedTargets[selection.targetIndex] : undefined;
+    selection && ctx
+      ? ctx.resolvedTargets.find((t) => t.sourceId === selection.sourceId)
+      : undefined;
 
   // Apply the page's cross-filter to whichever of this map's layers
   // draw the selected target.
@@ -4056,10 +4167,12 @@ function AttributeTableWidgetRender({ widget }: { widget: CustomWidget }) {
   const layers = useMemo<MapLayer[]>(() => {
     if (boundMapState?.mapData.layers) return boundMapState.mapData.layers;
     if (!ctx) return [];
-    const target = ctx.resolvedTargets[cfg.targetIndex];
+    const target = ctx.resolvedTargets.find(
+      (t) => t.sourceId === sourceIdOf(ctx, cfg),
+    );
     if (!target) return [];
     return [target.mapLayer];
-  }, [boundMapState, ctx, cfg.targetIndex]);
+  }, [boundMapState, ctx, cfg.sourceId, cfg.targetIndex]);
 
   // Selection state. Shared with the bound map when present; the
   // table updates `MapState.selection` via the context's `update`
@@ -4118,9 +4231,11 @@ function AttributeTableWidgetRender({ widget }: { widget: CustomWidget }) {
   // first open. Beyond that the user can switch via the dropdown.
   const focusLayerId = useMemo(() => {
     if (!ctx) return null;
-    const target = ctx.resolvedTargets[cfg.targetIndex];
+    const target = ctx.resolvedTargets.find(
+      (t) => t.sourceId === sourceIdOf(ctx, cfg),
+    );
     return target?.mapLayer.id ?? null;
-  }, [ctx, cfg.targetIndex]);
+  }, [ctx, cfg.sourceId, cfg.targetIndex]);
 
   // Metadata is normally populated by the map canvas as it loads
   // each layer's features. The Custom App runtime doesn't fetch
@@ -4412,7 +4527,9 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
   const appAt = useAppTime();
   const refreshTick = useWidgetRefresh(widget);
   const cfg = widget.config;
-  const target = ctx?.resolvedTargets[cfg.targetIndex] ?? null;
+  const source = useWidgetSource(cfg);
+  const target = useWidgetTarget(cfg);
+  const scope = useSourceScope(source);
   const [state, setState] = useState<{
     loading: boolean;
     rows: Array<{ name: string; value: number }>;
@@ -4424,18 +4541,22 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
   const valueField = cfg.valueField;
   const groupBy = cfg.groupBy;
   const chartType = cfg.chartType;
-  const followId = useFollowMapWidgetId(cfg.followMapWidgetId);
-  const bboxKey = useMapViewportBbox(followId);
+  const followId = source?.followMapWidgetId || undefined;
+  const bboxKey = scope.bbox ? scope.bbox.join(',') : '';
 
   // Cross-filter. A chart both publishes a selection (clicking a bar)
   // and obeys one (someone else's click narrows it). The one it
   // published is deliberately NOT applied to itself: a bar chart that
   // filtered itself to the bar you clicked would collapse to a single
-  // bar and lose the context that made the click meaningful.
+  // bar and lose the context that made the click meaningful. The
+  // author's own predicate on the source still applies either way.
   const { selection, toggle } = useContext(CrossFilterContext);
-  const inheritedWhere = useCrossFilterWhere(cfg.targetIndex);
-  const where =
-    selection && selection.widgetId === widget.id ? undefined : inheritedWhere;
+  const publishedHere = Boolean(
+    selection && selection.widgetId === widget.id,
+  );
+  const where = publishedHere
+    ? (source?.where ?? undefined)
+    : scope.where;
   const whereKey = where ? JSON.stringify(where) : '';
   const selectable = Boolean(groupBy);
   const activeValue =
@@ -4558,15 +4679,16 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
     (name: string) => {
       if (!groupBy) return;
       const value = name === '(no value)' ? null : name;
+      if (!source) return;
       toggle({
         widgetId: widget.id,
-        targetIndex: cfg.targetIndex,
+        sourceId: source.id,
         field: groupBy,
         value,
         label: `${xLabel || groupBy}: ${name}`,
       });
     },
-    [groupBy, toggle, widget.id, cfg.targetIndex, xLabel],
+    [groupBy, toggle, widget.id, source, xLabel],
   );
 
   return (
@@ -4602,7 +4724,7 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
               onClick={() =>
                 toggle({
                   widgetId: widget.id,
-                  targetIndex: cfg.targetIndex,
+                  sourceId: source!.id,
                   field: groupBy!,
                   value: activeValue,
                   label: '',
@@ -4687,11 +4809,13 @@ function IndicatorWidgetRender({ widget }: { widget: CustomWidget }) {
   const appAt = useAppTime();
   const refreshTick = useWidgetRefresh(widget);
   const cfg = widget.config;
-  const target = ctx?.resolvedTargets[cfg.targetIndex] ?? null;
-  const followId = useFollowMapWidgetId(cfg.followMapWidgetId);
-  const bboxKey = useMapViewportBbox(followId);
+  const source = useWidgetSource(cfg);
+  const target = useWidgetTarget(cfg);
+  const scope = useSourceScope(source);
+  const followId = source?.followMapWidgetId || undefined;
+  const bboxKey = scope.bbox ? scope.bbox.join(',') : '';
   const { selection } = useContext(CrossFilterContext);
-  const where = useCrossFilterWhere(cfg.targetIndex);
+  const where = scope.where;
   const whereKey = where ? JSON.stringify(where) : '';
 
   const [state, setState] = useState<{
@@ -9045,6 +9169,7 @@ export function DesignTimeWidgetPreview({
       registerRef: noop,
       basemaps: [],
       resolvedTargets,
+      sourceOrder: resolvedTargets.map((t) => t.sourceId),
       flyTo: noop,
       refreshMapLayer: noop,
       navigateToPage: noop,

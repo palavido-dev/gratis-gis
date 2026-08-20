@@ -277,9 +277,20 @@ export function extractDependencies(
         // containers + tabs.
         walkCustomWidgets(widgets, itemIds);
       }
+      // Both shapes, on purpose. A v5 app carries `sources`, but the
+      // v4->v5 migration runs on the CLIENT, on load, so this code
+      // sees whatever was last saved. Reading only one of them would
+      // leave the public-share cascade warning blank for half the
+      // apps in the org, which is a warning failing silently: the
+      // worst way for a sharing check to be wrong.
       const targets = Array.isArray(app.targets) ? app.targets : [];
       for (const t of targets) {
         const dl = t?.dataLayerId;
+        if (typeof dl === 'string' && dl.length > 0) itemIds.add(dl);
+      }
+      const sources = Array.isArray(app.sources) ? app.sources : [];
+      for (const src of sources) {
+        const dl = src?.layer?.dataLayerId;
         if (typeof dl === 'string' && dl.length > 0) itemIds.add(dl);
       }
     }

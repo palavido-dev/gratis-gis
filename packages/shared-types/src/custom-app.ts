@@ -28,6 +28,7 @@
  */
 
 import type { ViewerTarget } from './viewer';
+import type { MapLayerFilter } from './map';
 import type { AssetRef } from './asset-ref';
 
 export interface CustomAppData {
@@ -40,7 +41,7 @@ export interface CustomAppData {
    *  rows. Migration multiplies every widget's col / row / colSpan /
    *  rowSpan by 2 per version bump and rewrites the version on the
    *  next save. */
-  version: 1 | 2 | 3 | 4;
+  version: 1 | 2 | 3 | 4 | 5;
   /**
    * Optional reference to a `map` item the canvas-style widgets
    * (MapWidget) inherit basemap + viewport from. Individual widgets
@@ -49,13 +50,31 @@ export interface CustomAppData {
    */
   mapId?: string;
   /**
-   * Layers the app's widgets can bind to. The designer's "Add
-   * widget" flow lists these as choices for layer-bound widgets
-   * (Attribute Table, Chart, Legend filter). Mirrors ViewerData's
-   * targets shape so a future "convert custom -> viewer" downgrade
-   * path stays mechanical.
+   * Superseded by `sources` at v5. Still read so an app saved by an
+   * older client loads, and still written alongside `sources` for one
+   * release so an older client can open an app this one saved.
+   *
+   * Do not add anything here. See `sources`.
    */
   targets: ViewerTarget[];
+  /**
+   * The layers this app's widgets read, and what each one MEANS.
+   *
+   * A source is not just an identity. It carries its own scope: which
+   * map's view narrows it, a predicate its author fixed, and the
+   * relate that ties it to a parent source. Widgets name a source and
+   * declare nothing about scope themselves.
+   *
+   * That inversion is the whole design. When scope lived on the
+   * widget, making a page agree cost one deliberate act per tile and
+   * the cost grew with exactly the thing that makes a dashboard good.
+   * A counter reading the whole layer beside a map showing one valley
+   * is two answers presented as one page, and it was the default.
+   * Now two widgets on one source cannot disagree by construction.
+   *
+   * Spec: docs/research/app-data-sources-2026-08-20.md
+   */
+  sources?: AppDataSource[];
   /**
    * The page tree. v1 supports a single page so the schema is forward-
    * compatible with multi-page apps without forcing every consumer to
@@ -120,27 +139,6 @@ export interface CustomAppData {
    * dashboards does not stampede the API on the same tick.
    */
   refreshSeconds?: number;
-  /**
-   * Id of the map widget whose current view scopes every data-bound
-   * widget on the page that has not chosen otherwise.
-   *
-   * A dashboard is one answer to one question, and the pieces of it
-   * have to agree: a counter reading the whole layer beside a map
-   * showing one valley is two different answers presented as one
-   * page. Setting this once is what keeps them consistent, and it
-   * exists because doing it per widget is busywork an author will
-   * forget on the eighth tile (I did).
-   *
-   * A widget's own `followMapWidgetId` still wins, including the
-   * empty string, which is how an author pins one deliberate
-   * whole-layer total on an otherwise view-scoped page.
-   *
-   * Unset means every widget decides for itself, which is what apps
-   * saved before this existed do. Turning it on is always an explicit
-   * act, because a number that changes meaning without anyone asking
-   * is indistinguishable from a number that is wrong.
-   */
-  followMapWidgetId?: string;
   /**
    * Theme reference.  Either:
    *   - a built-in starter kind ('default' / 'slate' / 'aurora' /
@@ -236,6 +234,79 @@ export interface CustomWidget {
   allowMaximize?: boolean;
   /** Free-form per-widget config; shape depends on `kind`. */
   config: CustomWidgetConfig;
+}
+
+/**
+ * One layer an app reads, plus the scope that says what reading it
+ * means on this page.
+ */
+export interface AppDataSource {
+  /**
+   * Stable id. Widgets reference this and never a position.
+   *
+   * Position was the old binding, and it was wrong in a way nobody
+   * could see: removing a source shifted every later index, silently
+   * rebinding widgets to a different layer. It was already wrong even
+   * without an edit, because a target that fails to resolve (deleted,
+   * unreadable, or attribute-only) is dropped from the resolved list
+   * while the saved indices still count it, so every widget after it
+   * read one layer too far.
+   */
+  id: string;
+  /** Author-facing name. Falls back to the layer's own title. */
+  label?: string;
+  /** What it reads. */
+  layer: ViewerTarget;
+  /**
+   * Recompute from this map widget's current view.
+   *
+   * The empty string pins the source to the whole layer. Absent means
+   * the same thing today; it is kept distinct so a future page-level
+   * default has somewhere to be inherited from.
+   *
+   * A source whose scope is spatial cannot speak for rows that have
+   * no location, so a widget reading one reports how many of its rows
+   * can participate. Silence is what makes "177" look like a bug when
+   * the layer holds 625.
+   */
+  followMapWidgetId?: string;
+  /**
+   * Predicate the AUTHOR fixed. Always applied, and never cleared by
+   * anything a reader does.
+   *
+   * Deliberately separate from the reader's cross-filter selection,
+   * which lives in page state and never touches this. Merging them
+   * would make "why is this number wrong" unanswerable, because
+   * nobody could tell the author's intent from the last person's
+   * click.
+   */
+  where?: MapLayerFilter;
+  /**
+   * Relate: scope this source to the rows whose `myField` value
+   * appears among the in-scope rows of `sourceId`.
+   *
+   * This is what lets a table with no geometry follow a map. A well
+   * is spatial and an inspection record is not, so `via` says the
+   * inspections in view are the ones whose well id belongs to a well
+   * in view.
+   *
+   * It inherits the parent's RESOLVED scope, not a snapshot of it, so
+   * filtering a parent filters its children with nothing further
+   * declared. Compiled server-side as a semi-join against the parent
+   * scope rather than a harvested `IN (...)` list: the harvest caps
+   * out (20 filter clauses, 1000 group keys) and a short key set is a
+   * quietly wrong answer.
+   *
+   * Chains are capped at two hops and cycles are refused.
+   */
+  via?: {
+    /** Parent source id. */
+    sourceId: string;
+    /** Field on the PARENT holding the shared key. */
+    parentField: string;
+    /** Field on THIS source holding the shared key. */
+    myField: string;
+  };
 }
 
 /** CSS grid layout descriptor in the page's 12-column grid. */
@@ -561,6 +632,15 @@ export interface CreateFeatureWidgetConfig {
   /** Map widget id the click-to-place mode hooks into. */
   mapWidgetId: string;
   /**
+   * Which data source this widget reads. Supersedes `targetIndex`.
+   *
+   * Both are present for one release so an app saved by an older
+   * client still binds correctly; the runtime prefers this and falls
+   * back to the index. See AppDataSource.id for why position was the
+   * wrong binding.
+   */
+  sourceId?: string;
+  /**
    * Optional single-target binding (legacy).  When set, the widget
    * skips the templates picker and immediately enters create mode
    * for the named target.  When omitted (the recommended modern
@@ -588,6 +668,15 @@ export interface EditFeatureWidgetConfig {
   kind: 'edit-feature';
   mapWidgetId: string;
   /**
+   * Which data source this widget reads. Supersedes `targetIndex`.
+   *
+   * Both are present for one release so an app saved by an older
+   * client still binds correctly; the runtime prefers this and falls
+   * back to the index. See AppDataSource.id for why position was the
+   * wrong binding.
+   */
+  sourceId?: string;
+  /**
    * Optional single-target binding (legacy).  When set, only
    * features in that target are click-editable.  When omitted (the
    * recommended modern shape), every editable target in the bound
@@ -611,6 +700,15 @@ export interface EditFeatureWidgetConfig {
 export interface DeleteFeatureWidgetConfig {
   kind: 'delete-feature';
   mapWidgetId: string;
+  /**
+   * Which data source this widget reads. Supersedes `targetIndex`.
+   *
+   * Both are present for one release so an app saved by an older
+   * client still binds correctly; the runtime prefers this and falls
+   * back to the index. See AppDataSource.id for why position was the
+   * wrong binding.
+   */
+  sourceId?: string;
   /**
    * Optional single-target binding (legacy).  When set, only that
    * target's selected features are deleted on confirm.  When
@@ -667,6 +765,15 @@ export interface LayerListWidgetConfig {
 
 export interface AttributeTableWidgetConfig {
   kind: 'attribute-table';
+  /**
+   * Which data source this widget reads. Supersedes `targetIndex`.
+   *
+   * Both are present for one release so an app saved by an older
+   * client still binds correctly; the runtime prefers this and falls
+   * back to the index. See AppDataSource.id for why position was the
+   * wrong binding.
+   */
+  sourceId?: string;
   /** Index into the parent app's `targets` array; identifies the
    *  layer this table renders. */
   targetIndex: number;
@@ -735,6 +842,15 @@ export interface NumberFormat {
  */
 export interface IndicatorWidgetConfig {
   kind: 'indicator';
+  /**
+   * Which data source this widget reads. Supersedes `targetIndex`.
+   *
+   * Both are present for one release so an app saved by an older
+   * client still binds correctly; the runtime prefers this and falls
+   * back to the index. See AppDataSource.id for why position was the
+   * wrong binding.
+   */
+  sourceId?: string;
   /** Index into the app's `targets` (one indicator, one layer). */
   targetIndex: number;
   /** Aggregate to compute. 'count' needs no field. */
@@ -803,6 +919,15 @@ export interface ChartWidgetConfig {
    * indistinguishable from one that is wrong.
    */
   followMapWidgetId?: string;
+  /**
+   * Which data source this widget reads. Supersedes `targetIndex`.
+   *
+   * Both are present for one release so an app saved by an older
+   * client still binds correctly; the runtime prefers this and falls
+   * back to the index. See AppDataSource.id for why position was the
+   * wrong binding.
+   */
+  sourceId?: string;
   /** Index into targets (one chart binds to one layer). */
   targetIndex: number;
   /**
@@ -1271,6 +1396,15 @@ export interface MagicOutlineWidgetConfig {
   /** id of the Map widget the user clicks on. */
   mapWidgetId: string;
   /**
+   * Which data source this widget reads. Supersedes `targetIndex`.
+   *
+   * Both are present for one release so an app saved by an older
+   * client still binds correctly; the runtime prefers this and falls
+   * back to the index. See AppDataSource.id for why position was the
+   * wrong binding.
+   */
+  sourceId?: string;
+  /**
    * Index into the app's `targets` array for the polygon layer the
    * outline is written to. Omitted = use the only editable polygon
    * target in the bound map.
@@ -1476,6 +1610,132 @@ export const DEFAULT_CUSTOM_APP: CustomAppData = {
  * Recurses through Tabs widgets (#362) + Container widgets (#92) so
  * nested children also pick up the new grid coordinates.
  */
+/**
+ * Deterministic source id for the Nth target at migration time.
+ *
+ * Deterministic on purpose. The migrator runs on every load and only
+ * persists on the next save, so a random id would differ between two
+ * loads of the same unsaved app. Nothing observes that today, but
+ * "the ids change when you reload" is the kind of property that turns
+ * into a bug the moment anything starts remembering one.
+ *
+ * Newly added sources use a random id instead, so they can never
+ * collide with a future migration's `s2`.
+ */
+function migratedSourceId(index: number): string {
+  return `s${index}`;
+}
+
+/** Mint an id for a source the author adds after migration. */
+export function newSourceId(): string {
+  return `src_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * v4 to v5: targets become sources, and scope moves onto them.
+ *
+ * Mechanical, and correct exactly once: at migration time, before any
+ * reorder or removal has had a chance to shift the indices out from
+ * under the widgets. That is the bug this migration exists to end, so
+ * it has to happen while position is still trustworthy.
+ *
+ * Three moves:
+ *   - each target becomes a source with a stable id;
+ *   - each widget's `targetIndex` becomes `sourceId` by position,
+ *     with `targetIndex` left in place for one release so an app this
+ *     client saves still opens in an older one;
+ *   - the app-level `followMapWidgetId` (v0.9.46, one release old) is
+ *     copied onto every source and dropped. It answered the right
+ *     question in the wrong place, and two mechanisms for one
+ *     question is how the per-widget mess started.
+ *
+ * An out-of-range index is left unbound rather than clamped to source
+ * zero: a widget pointing at a layer that is not there should render
+ * its empty state and say so, not quietly answer about a different
+ * layer.
+ */
+function migrateTargetsToSources(cur: CustomAppData): CustomAppData {
+  const legacyFollow = (cur as { followMapWidgetId?: string })
+    .followMapWidgetId;
+  const sources: AppDataSource[] = (cur.targets ?? []).map((t, i) => ({
+    id: migratedSourceId(i),
+    layer: t,
+    ...(legacyFollow !== undefined
+      ? { followMapWidgetId: legacyFollow }
+      : {}),
+  }));
+  const bindWidget = (w: CustomWidget): CustomWidget => {
+    const cfg = w.config as { targetIndex?: unknown; sourceId?: unknown };
+    let next = w;
+    if (
+      cfg.sourceId === undefined &&
+      typeof cfg.targetIndex === 'number' &&
+      cfg.targetIndex >= 0 &&
+      cfg.targetIndex < sources.length
+    ) {
+      next = {
+        ...w,
+        config: {
+          ...w.config,
+          sourceId: sources[cfg.targetIndex]!.id,
+        } as CustomWidget['config'],
+      };
+    }
+    return mapWidgetChildren(next, bindWidget);
+  };
+  const migrated: CustomAppData = {
+    ...cur,
+    version: 5,
+    sources,
+    pages: cur.pages.map((p) => ({
+      ...p,
+      widgets: p.widgets.map(bindWidget),
+    })),
+  };
+  delete (migrated as { followMapWidgetId?: string }).followMapWidgetId;
+  return migrated;
+}
+
+/**
+ * Apply `fn` to a widget's nested children (container children and
+ * tab contents) and return the widget with them replaced.
+ *
+ * Mirrors updateWidgetDeep's walk. A migration that only touched
+ * page-level widgets would leave a chart inside a tab bound to
+ * nothing, which is the failure mode nested layouts hide best.
+ */
+function mapWidgetChildren(
+  w: CustomWidget,
+  fn: (child: CustomWidget) => CustomWidget,
+): CustomWidget {
+  const cfg = w.config as {
+    widgets?: CustomWidget[];
+    tabs?: Array<{ widgets?: CustomWidget[] }>;
+  };
+  if (Array.isArray(cfg.widgets)) {
+    return {
+      ...w,
+      config: {
+        ...w.config,
+        widgets: cfg.widgets.map(fn),
+      } as CustomWidget['config'],
+    };
+  }
+  if (Array.isArray(cfg.tabs)) {
+    return {
+      ...w,
+      config: {
+        ...w.config,
+        tabs: cfg.tabs.map((t) => ({
+          ...t,
+          widgets: (t.widgets ?? []).map(fn),
+        })),
+      } as CustomWidget['config'],
+    };
+  }
+  return w;
+}
+
 export function migrateCustomAppData(data: CustomAppData): CustomAppData {
   let cur = data;
   if (cur.version === 1) {
@@ -1507,6 +1767,9 @@ export function migrateCustomAppData(data: CustomAppData): CustomAppData {
         widgets: p.widgets.map((w) => migrateWidgetLayout(w, 4)),
       })),
     };
+  }
+  if (cur.version === 4) {
+    cur = migrateTargetsToSources(cur);
   }
   // #99: spread-normalize.  Containers that hold all their children
   // at the (1, 1, 1, 1) placeholder (the historical default for

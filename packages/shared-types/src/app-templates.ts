@@ -659,13 +659,13 @@ function kpiDashboardSeed(): CustomAppData {
     // 60s: live enough that a wall display stays honest, cheap enough
     // that a public dashboard is one small aggregate per minute.
     refreshSeconds: 60,
-    // The whole page answers for whatever is on the map. A dashboard
-    // is one answer to one question, and a counter reading the whole
-    // layer beside a map showing one valley is two answers dressed as
-    // one page. Each widget still says it is following a view, and
-    // any one of them can opt out.
-    followMapWidgetId: mapId,
+    // Scope lives on each data source, not on the app, so there is
+    // nothing to set here: the seed has no sources yet. The designer
+    // points a new source at this map when the app carries the
+    // dashboard blueprint, which is where the author actually is when
+    // the decision matters.
     targets: [],
+    sources: [],
     pages: [
       {
         id: 'home',
@@ -750,9 +750,9 @@ function opsBoardSeed(): CustomAppData {
     themePresetId: 'slate',
     blueprint: 'dashboard',
     refreshSeconds: 60,
-    // See the KPI starter: one map scopes the page.
-    followMapWidgetId: mapId,
+    // See the KPI starter: scope lives on the source.
     targets: [],
+    sources: [],
     pages: [
       {
         id: 'home',

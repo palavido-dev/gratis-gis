@@ -2,7 +2,11 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src"
+    "rootDir": "src",
+    // The package now carries specs (the custom-app migration), so
+    // the type checker needs to know what `describe` is. The build
+    // config below excludes them from dist.
+    "types": ["node", "jest"]
   },
   "include": ["src/**/*"]
 }
