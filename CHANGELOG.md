@@ -5,6 +5,30 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.42] - 2026-08-20
+
+### Added
+
+- **Click a chart to filter the whole page.** Clicking a bar or a
+  slice narrows every other panel that reads the same layer: the
+  counters recount, the other charts regroup, and the map hides the
+  features that are not in it. Click again, or the chip under the
+  chart, to put the page back. Each narrowed panel says what it is
+  filtered to, because a number that quietly answers a different
+  question than its caption claims is worse than no number.
+
+### Fixed
+
+- **Charts and counters now follow the time slider.** Scrubbing back
+  moved the map and the table while the numbers beside them stayed on
+  today, with nothing on screen to say so.
+- **Chart labels no longer collide.** The value axis printed its
+  caption over its own numbers, long values ran into each other, a
+  horizontal bar's number was clipped on the longest bar, and pie
+  percentages were cut off at the top and bottom. Large values also
+  print short now (3.8M rather than 3,759,450); the tooltip still
+  gives the exact figure.
+
 ## [0.9.41] - 2026-08-20
 
 ### Added
