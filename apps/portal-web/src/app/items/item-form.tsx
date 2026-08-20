@@ -107,13 +107,17 @@ const LICENSE_VALUES: string[] = [
 // created through the wizard's app gallery. The enum value stays in
 // the schema so any row created back then still resolves, but
 // nothing offers it for creation any more.
+//
+// `report_template` is gone for exactly the same reason, and it took
+// longer to notice because the note above was already written. There
+// is no report_template editor; creating one gave you a titled item
+// stuck on the coming-soon page forever.
 const ITEM_TYPE_VALUES: ItemType[] = [
   'map',
   'data_layer',
   'arcgis_service',
   'form',
   'web_app',
-  'report_template',
   'file',
 ];
 

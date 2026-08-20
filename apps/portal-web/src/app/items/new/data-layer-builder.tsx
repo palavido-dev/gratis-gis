@@ -47,7 +47,7 @@ import type {
  * records. Tables can declare a parent layer + FK column so the
  * relationship is captured at the same time the schema is.
  *
- * Persistence of the per-layer PostGIS tables is Phase C backend work;
+ * Schema edits are pure metadata since the observation-log pivot;
  * for now the v3 blob lands in item.data as-is and the detail page
  * surfaces what's there.
  */
@@ -93,7 +93,7 @@ const GEOMETRY_OPTIONS: Array<{
 function randomId(prefix: string): string {
   // Short opaque ids for layers. Not globally unique, just stable per
   // wizard session: the backend will assign its own uuids when it
-  // materializes the tables in Phase C.
+  // No DDL runs: features are keyed by scope, not by a per-layer table.
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 }
 

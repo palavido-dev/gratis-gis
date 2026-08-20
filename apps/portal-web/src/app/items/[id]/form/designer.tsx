@@ -65,6 +65,7 @@ import {
   importXlsForm,
   parseExportEnvelope,
   QUESTION_TYPES,
+  isUncapturable,
   suggestExportFilename,
   suggestQuestionId,
   toExportEnvelope,
@@ -1578,21 +1579,39 @@ function Palette({
                 <div className="mt-1 flex flex-wrap gap-1.5 lg:flex-col">
                   {visible.map((entry) => {
                     const Icon = entry.icon;
+                    // A type no runtime can capture is shown, greyed,
+                    // rather than hidden: the schema supports it, an
+                    // imported XLSForm can contain one, and an author
+                    // deserves to know it is coming. What it must not
+                    // be is draggable, because dropping one in used to
+                    // produce a question a respondent could look at
+                    // and never answer.
+                    const unavailable = isUncapturable(entry.type);
                     return (
                       <button
                         type="button"
                         key={entry.type}
-                        draggable={canEdit}
+                        draggable={canEdit && !unavailable}
                         onDragStart={(e) => {
                           e.dataTransfer.setData('text/x-question-type', entry.type);
                           e.dataTransfer.effectAllowed = 'copy';
                         }}
-                        onClick={() => canEdit && onAdd(entry.type)}
-                        disabled={!canEdit}
-                        className="inline-flex w-full items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2 py-1.5 text-xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+                        onClick={() => canEdit && !unavailable && onAdd(entry.type)}
+                        disabled={!canEdit || unavailable}
+                        title={
+                          unavailable
+                            ? 'Not available yet: there is no way to answer this on the web or in the field app.'
+                            : undefined
+                        }
+                        className="inline-flex w-full items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2 py-1.5 text-xs text-ink-1 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Icon className="h-3.5 w-3.5 text-muted" />
                         <span className="truncate text-left">{entry.label}</span>
+                        {unavailable ? (
+                          <span className="ml-auto shrink-0 rounded border border-border px-1 text-2xs text-muted">
+                            soon
+                          </span>
+                        ) : null}
                       </button>
                     );
                   })}

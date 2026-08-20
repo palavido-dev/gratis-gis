@@ -2,7 +2,11 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src"
+    "rootDir": "src",
+    // jest globals for the spec files. Typechecking the specs is the
+    // point: a spec-only type error would otherwise surface first as
+    // a red Docker build.
+    "types": ["node", "jest"]
   },
   "include": ["src/**/*"]
 }

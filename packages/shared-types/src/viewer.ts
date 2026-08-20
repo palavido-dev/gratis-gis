@@ -108,9 +108,21 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
+/**
+ * `query` is deliberately NOT here.
+ *
+ * It stayed in the type and in this default list while nothing
+ * consumed it, so every new viewer shipped with a Query tool ticked
+ * on and no query control anywhere in the runtime. A toggle that is
+ * on by default and does nothing is worse than a missing feature: it
+ * reads as a broken build rather than an absent one.
+ *
+ * The value survives in ViewerTool so an existing viewer that has it
+ * saved still parses; it just is not offered any more. Put it back
+ * the day the control exists.
+ */
 export const DEFAULT_VIEWER_TOOLS: ViewerTool[] = deepFreeze([
   'select',
-  'query',
   'measure',
   'attribute-table',
   'legend',

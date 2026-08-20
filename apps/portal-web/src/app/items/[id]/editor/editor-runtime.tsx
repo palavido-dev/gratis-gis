@@ -175,22 +175,13 @@ interface Props {
  *     allowed set render read-only (or do not appear at all if the
  *     list is empty).
  *
- * The server-side editor-policy enforcement (so a malicious client
- * cannot bypass the Editor UI by hitting the v3 endpoint directly
- * with a forbidden combination) lands in a follow-up commit. Today
- * the data_layer's own editing.policy + share-edit check are the
- * authoritative gates server-side; the Editor UI's stricter rules
- * are advisory until the policy middleware ships.
- *
- * Tool status:
- *   - select: render-only (no special UI yet, MapCanvas's built-in
- *     popup handles single-feature inspection)
- *   - add: ON. Picks active target, switches terra-draw mode to
- *     match geometry type, captures the drawn geometry, opens the
- *     attribute form, POSTs the new feature, refreshes the layer.
- *   - edit / delete: stubs (slice 3b-3, 3b-4)
- *   - snap toggle / measure: stubs (slice 3b-5)
- *   - undo / redo: stubs (slice 3b-5)
+ * The Editor's rules are enforced SERVER-SIDE as well as here.
+ * `EditorPolicyService.assertAllows` runs on the v3 write endpoints
+ * for any request carrying an `x-editor-id`, alongside the
+ * data_layer's own editing.policy and the share-edit check. Do not
+ * add another gate on the assumption that this side is advisory: it
+ * has not been since the policy service shipped, and this note said
+ * otherwise for long enough to be worth stating plainly.
  */
 
 // Decimal places terra-draw is configured to enforce on every

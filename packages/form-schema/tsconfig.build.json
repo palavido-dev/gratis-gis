@@ -20,5 +20,9 @@
     "incremental": false,
     "ignoreDeprecations": "6.0"
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  // Specs are typechecked by tsconfig.json but must not reach dist:
+  // portal-api require()s this package at runtime and has no business
+  // loading test files.
+  "exclude": ["src/**/*.spec.ts"]
 }

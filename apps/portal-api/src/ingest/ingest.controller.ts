@@ -480,6 +480,12 @@ export class IngestController {
               inserted: totalInserted,
             });
           },
+          // The TARGET decides whether these are table rows. Without
+          // this, importing related records from a GeoJSON or CSV
+          // into an attribute-only layer inserted nothing and said
+          // nothing: the source file looks geometry-bearing to GDAL,
+          // so every geometry-less feature was skipped as corrupt.
+          { isTable: layer.geometryType == null },
         );
         lastDriver = meta.driver;
         lastLayerName = meta.layerName;

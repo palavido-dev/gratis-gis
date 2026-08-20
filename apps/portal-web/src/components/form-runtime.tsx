@@ -989,41 +989,29 @@ function Input({
           onChange={onChange}
         />
       );
-    case 'signature':
-      return (
-        <div className="rounded-md border border-dashed border-border bg-surface-2/30 p-4 text-center text-xs text-muted">
-          Signature capture is part of Phase 2 of the Data Collection rollout.
-        </div>
-      );
     case 'geopoint':
       return <GeoPointInput q={q} value={value} readOnly={readOnly} onChange={onChange} />;
+    // Every type nothing can capture renders the same placeholder,
+    // from the same list the designer and the validator read
+    // (UNCAPTURABLE_QUESTION_TYPES). Previously each said something
+    // different about a different internal phase plan, which told a
+    // respondent nothing and told an author four things.
+    //
+    // The sentence about not blocking submission matters: a required
+    // one used to make the whole form unsubmittable with no way out.
+    // It is now skipped by the required check, and saying so here is
+    // what stops a respondent hunting for a control that does not
+    // exist.
+    case 'signature':
     case 'geotrace':
     case 'geoshape':
-      return (
-        <div className="rounded-md border border-dashed border-border bg-surface-2/30 p-4 text-center text-xs text-muted">
-          Polyline / polygon capture is part of Phase 2 of the Data
-          Collection rollout.
-        </div>
-      );
     case 'pick-feature':
-      return (
-        <div className="rounded-md border border-dashed border-border bg-surface-2/30 p-4 text-center text-xs text-muted">
-          Pick-feature lands with the map-aware picker in a follow-up.
-          Schema captured today; the runtime surface ships next.
-        </div>
-      );
     case 'route':
-      return (
-        <div className="rounded-md border border-dashed border-border bg-surface-2/30 p-4 text-center text-xs text-muted">
-          Route capture lands with the map runtime + routing engine
-          wiring in a follow-up. Schema captured today.
-        </div>
-      );
     case 'area-buffer':
       return (
         <div className="rounded-md border border-dashed border-border bg-surface-2/30 p-4 text-center text-xs text-muted">
-          Area-buffer capture lands with the map runtime + Turf
-          buffer in a follow-up. Schema captured today.
+          This kind of answer cannot be collected yet, so you can leave
+          it blank and still submit.
         </div>
       );
     case 'rating': {

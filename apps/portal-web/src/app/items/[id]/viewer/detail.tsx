@@ -637,13 +637,14 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
   );
 }
 
+/**
+ * `query` is not offered. Nothing in the runtime reads it, so the
+ * checkbox promised a filter control that has never existed. It stays
+ * in ViewerTool for viewers that already have it saved; when the
+ * control ships, add the row back here and to DEFAULT_VIEWER_TOOLS.
+ */
 const ALL_TOOLS: Array<{ key: ViewerTool; label: string; hint: string }> = [
   { key: 'select', label: 'Select', hint: 'Pick features to inspect.' },
-  {
-    key: 'query',
-    label: 'Query',
-    hint: 'Filter visible features by attribute or extent.',
-  },
   {
     key: 'measure',
     label: 'Measure',

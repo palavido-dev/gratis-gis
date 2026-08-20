@@ -601,7 +601,23 @@ export class IngestService {
       batch: Array<{ geometry: unknown; properties: Record<string, unknown> }>,
       progress: { processed: number; total: number },
     ) => Promise<void>,
-    opts: { batchSize?: number } = {},
+    opts: {
+      batchSize?: number;
+      /**
+       * Force table mode: emit every row with a null geometry.
+       *
+       * Table-ness is a property of the TARGET, not of the file. The
+       * source was the only thing consulted (`layer.geomType ===
+       * wkbNone`), which is right for a geodatabase table and wrong
+       * for everything else: a GeoJSON or CSV of related records
+       * reads back as a geometry-bearing layer whose features happen
+       * to have none, so every row was skipped and the import
+       * reported `inserted: 0` with no error. The caller knows the
+       * target layer's geometryType; when that is null it says so
+       * here and the source's opinion stops mattering.
+       */
+      isTable?: boolean;
+    } = {},
   ): Promise<{
     fields: Array<{ name: string; type: 'string' | 'number' | 'boolean' | 'date' }>;
     driver: string;
@@ -675,7 +691,9 @@ export class IngestService {
         properties: Record<string, unknown>;
       }> = [];
       let processed = 0;
-      const isTable = layer.geomType === 100; // wkbNone
+      // The caller's target wins; the source's own wkbNone is the
+      // fallback for a genuine geodatabase table. See opts.isTable.
+      const isTable = opts.isTable === true || layer.geomType === 100;
 
       // Cursor walk via first()/next(). gdal-async's
       // `layer.features.get(i)` looks up by FID, NOT by index --

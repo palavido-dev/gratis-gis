@@ -303,12 +303,10 @@ const TYPE_GROUPS: TypeGroup[] = [
         desc: 'Field-mode deployment: tap features on a map to add or edit them. Forms come from the layer schema by default.',
         Icon: ClipboardList,
       },
-      {
-        value: 'report_template',
-        label: 'Report template',
-        desc: 'A document template that renders data.',
-        Icon: FileText,
-      },
+      // No 'report_template' tile. There is no report_template
+      // editor, so picking it produced a titled item permanently
+      // parked on the coming-soon page. Same reason 'dashboard' is
+      // not offered here.
       {
         value: 'custom',
         label: 'Web app',

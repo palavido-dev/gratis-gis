@@ -32,7 +32,7 @@ import { LeaderElectionService } from '../cron/leader-election.service.js';
  * the cron uses a guard flag to skip a tick when the previous one
  * is still in flight. Multi-instance deploys with multiple workers
  * would need row-level locking (SELECT ... FOR UPDATE SKIP LOCKED);
- * not needed today, called out as a TODO so a future scale-out
+ * not needed today, enforced below so a future scale-out
  * doesn't quietly double-send.
  */
 /**

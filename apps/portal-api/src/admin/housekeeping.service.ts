@@ -1224,6 +1224,16 @@ export class HousekeepingService {
    *     trash must not resurrect a row whose bytes we deleted, and
    *     the same goes for data snapshots an admin can revert to.
    *
+   *     analysis_job is the exception: only jobs that have NOT
+   *     finished count. A running job needs its inputs; a finished
+   *     one is a historical record and nothing ever re-reads its
+   *     params. Counting terminal jobs made every merge an org ever
+   *     ran pin its inputs permanently: one done copc-build from a
+   *     month earlier held 303 lidar tiles, 16 GB, that nothing else
+   *     referenced and the sweep could never reclaim. The item's own
+   *     data is the authoritative owner of anything worth keeping,
+   *     and it is scanned above.
+   *
    * A key that appears anywhere here is off-limits, whichever org
    * owns it: the bucket is instance-global, so the reference scan
    * must be too.
@@ -1261,6 +1271,7 @@ export class HousekeepingService {
         UNION ALL
         SELECT (regexp_matches(a.params::text, ${pattern}, 'g'))[1]
           FROM "analysis_job" a
+          WHERE a.state NOT IN ('done', 'failed', 'cancelled')
         UNION ALL
         SELECT (regexp_matches(f.response::text, ${pattern}, 'g'))[1]
           FROM "form_submission" f

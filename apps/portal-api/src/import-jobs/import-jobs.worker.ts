@@ -311,6 +311,12 @@ export class ImportJobsWorker implements OnModuleInit {
               totalInserted,
             );
           },
+          // Same rule as the synchronous ingest endpoint: the target
+          // layer decides whether these rows have geometry, not the
+          // file. Both paths have to agree or a related-records
+          // import silently succeeds on one and inserts nothing on
+          // the other.
+          { isTable: layer.geometryType == null },
         );
         // Important: streamLayerFromPath returns NORMALLY when we
         // cancel mid-stream (the onBatch callback noops once the

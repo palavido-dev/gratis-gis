@@ -62,11 +62,10 @@ const PREVIEW_BASEMAP_STYLE: maplibregl.StyleSpecification = {
  *   3. Manual editing of the note + "clear geometry": a
  *      starting-from-scratch state.
  *
- * Draw-on-map polygon authoring is a deliberate follow-up; it
- * needs a drawing library wired into MapLibre (terra-draw is
- * installed but not yet integrated) and its own focused pass.
- * For now the map below is a read-only preview that auto-fits to
- * whatever the current geometry is.
+ * Two tabs: draw and paste. Draw is the default for anyone who can
+ * edit, and is a real terra-draw polygon editor over the MapLibre
+ * canvas; paste takes GeoJSON for the import case. The map
+ * auto-fits to whatever the current geometry is.
  *
  * Unit of work is the whole item.data blob. We patch /items/:id
  * with `{ data: { ...GeoBoundaryData } }` and let the server

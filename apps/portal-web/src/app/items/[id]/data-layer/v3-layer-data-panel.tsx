@@ -36,7 +36,7 @@ const LayerAnalyzePanel = dynamic(
  * page. Lists each layer with an "Import features" button that POSTs
  * a spatial file to /items/:id/layers/:layerId/import. The server's
  * ingest controller parses via GDAL and bulk-inserts into the layer's
- * PostGIS table (Phase C).
+ * observation log, keyed by scope.
  *
  * Multi-layer archive (GDB, shapefile zip with multiple .shp) flow:
  * this component shows a single file picker per target layer. If the

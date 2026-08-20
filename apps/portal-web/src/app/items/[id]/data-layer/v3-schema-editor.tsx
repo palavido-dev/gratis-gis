@@ -20,10 +20,15 @@ import { V3LayerDataPanel } from './v3-layer-data-panel';
  * updated blob back to the API. Provides the "path back in" for
  * adjusting schema, coded-value domains, and constraints after create.
  *
- * Persistence note: until Phase C lands, the server stores the v3
- * blob opaquely. Saves here update item.data but don't yet reshape
- * real PostGIS tables. Once Phase C is wired, the same save path
- * will trigger column adds/drops on the materialized tables.
+ * Persistence: a save here takes effect immediately. Since the
+ * observation-log pivot a schema edit is pure metadata, because
+ * features are keyed by scope rather than living in per-layer tables
+ * with columns to alter. There is no DDL to run and no data to lose.
+ *
+ * This used to say the opposite, that saves were stored opaquely and
+ * would not reshape anything "until Phase C lands". Phase C was made
+ * unnecessary by the engine substrate rather than completed, and the
+ * note survived. See ItemsService for the authoritative version.
  */
 interface Props {
   itemId: string;

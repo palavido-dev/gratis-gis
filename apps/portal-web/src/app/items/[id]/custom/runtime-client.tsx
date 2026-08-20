@@ -4562,9 +4562,20 @@ function MarkdownLite({ text }: { text: string }) {
             </ul>
           );
         }
+        // Single newlines inside a paragraph collapse to spaces, which
+        // is what markdown means by them and what this renderer's own
+        // blank-line block split already assumes.
+        //
+        // `whitespace-pre-wrap` used to preserve them instead, so a
+        // paragraph written wrapped at 72 characters in the source
+        // rendered as a 72-character column no matter how wide the
+        // widget was. It looked like an invisible layout constraint;
+        // it was the author's own line breaks being taken literally.
+        // Anyone wanting a hard break inside a paragraph can still
+        // have one: a blank line makes a new paragraph.
         return (
-          <p key={i} className="mb-2 whitespace-pre-wrap">
-            {renderInline(t)}
+          <p key={i} className="mb-2">
+            {renderInline(t.replace(/[ \t]*\n[ \t]*/g, ' '))}
           </p>
         );
       })}
@@ -4986,6 +4997,9 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
                           ?.name
                       : activeValue
                 }
+                {...(cfg.categoryColors
+                  ? { categoryColors: cfg.categoryColors }
+                  : {})}
                 {...(cfg.referenceLines?.length
                   ? { referenceLines: cfg.referenceLines }
                   : {})}
@@ -5274,6 +5288,7 @@ function ChartPlot({
   yLabel,
   onPick,
   activeName,
+  categoryColors,
   referenceLines,
   binEdges,
 }: {
@@ -5293,6 +5308,8 @@ function ChartPlot({
    * string names a category.
    */
   activeName?: string | null | undefined;
+  /** Explicit colour per category label; falls back to the palette. */
+  categoryColors?: Record<string, string>;
   /** Limits and targets drawn across the plot. */
   referenceLines?: ChartReferenceLine[];
   /** Bin thresholds, when the category axis is a binned one. Only
@@ -5320,6 +5337,26 @@ function ChartPlot({
   // itself.
   const dim = (name: string): number =>
     activeName === undefined || activeName === name ? 1 : 0.28;
+
+  /**
+   * Bar colour.
+   *
+   * An author's explicit map wins, so a chart can carry the same
+   * meaning as the map beside it. Otherwise a CATEGORICAL chart
+   * cycles the palette, because a wall of one colour reads as a
+   * single undifferentiated measure and the bars are already
+   * distinguishable things.
+   *
+   * A BINNED chart deliberately does not cycle: its bars are an
+   * ordered axis, not a set of categories, and colouring them
+   * differently would imply a distinction between ranges that does
+   * not exist. Those stay one colour unless the author says
+   * otherwise, which is exactly what categoryColors is for on a
+   * histogram: shading the bars past a limit.
+   */
+  const barColor = (name: string, i: number): string =>
+    categoryColors?.[name] ??
+    (binEdges ? palette[0]! : palette[i % palette.length]!);
   // Click handlers key off the datum's INDEX rather than reading a
   // name off the event payload. Recharts hands bars and pie sectors
   // different payload shapes, and the index is the one thing both
@@ -5484,7 +5521,7 @@ function ChartPlot({
             {sliced.map((r, i) => (
               <Recharts.Cell
                 key={i}
-                fill={palette[i % palette.length]!}
+                fill={barColor(r.name, i)}
                 fillOpacity={dim(r.name)}
               />
             ))}
@@ -5618,7 +5655,11 @@ function ChartPlot({
             onClick={(_d, index) => pickAt(rows, index)}
           >
             {rows.map((r, i) => (
-              <Recharts.Cell key={i} fillOpacity={dim(r.name)} />
+              <Recharts.Cell
+                key={i}
+                fill={barColor(r.name, i)}
+                fillOpacity={dim(r.name)}
+              />
             ))}
             <Recharts.LabelList
               dataKey="value"
@@ -5667,7 +5708,11 @@ function ChartPlot({
           onClick={(_d, index) => pickAt(rows, index)}
         >
           {rows.map((r, i) => (
-            <Recharts.Cell key={i} fillOpacity={dim(r.name)} />
+            <Recharts.Cell
+              key={i}
+              fill={barColor(r.name, i)}
+              fillOpacity={dim(r.name)}
+            />
           ))}
           {/* The number on the bar. A dashboard is read at a glance
               and from across a room; making someone trace a bar back

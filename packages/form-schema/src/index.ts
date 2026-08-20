@@ -103,6 +103,40 @@ export const QUESTION_TYPES = [
 
 export type QuestionType = (typeof QUESTION_TYPES)[number];
 
+/**
+ * Question types the schema can express but no runtime can capture.
+ *
+ * These parse, validate, import from XLSForm and round-trip through a
+ * save; there is simply no control that lets a respondent answer one.
+ * The web runtime draws a placeholder and the field runtime does not
+ * handle them at all.
+ *
+ * One exported list because THREE places have to agree about it and
+ * did not: the designer palette offered them as ordinary question
+ * types, the runtime drew a placeholder, and the validator went on
+ * enforcing `required` on them, which made any form carrying a
+ * required one permanently unsubmittable. An author who dragged
+ * "Area" into a form and ticked Required shipped a dead end, and
+ * nothing anywhere said so.
+ *
+ * Delete an entry the moment its capture control lands; the palette
+ * and the validator both follow from this set.
+ */
+export const UNCAPTURABLE_QUESTION_TYPES: ReadonlySet<QuestionType> =
+  new Set<QuestionType>([
+    'signature',
+    'geotrace',
+    'geoshape',
+    'pick-feature',
+    'route',
+    'area-buffer',
+  ]);
+
+/** True when no runtime can collect an answer for this question. */
+export function isUncapturable(type: QuestionType): boolean {
+  return UNCAPTURABLE_QUESTION_TYPES.has(type);
+}
+
 // ---------------------------------------------------------------------------
 // Common shapes
 // ---------------------------------------------------------------------------
@@ -1603,7 +1637,16 @@ function validateQuestionList(
     if (!isVisible(q, response)) continue;
 
     const value = response[q.id];
-    if (isRequired(q, response) && isEmpty(value)) {
+    // A question nothing can answer cannot be required. Enforcing it
+    // does not protect the data, it just refuses the submission
+    // forever: there is no control on screen to satisfy the rule with,
+    // so the respondent is told to fill in a field that does not
+    // exist. Everything else about the question still validates.
+    if (
+      isRequired(q, response) &&
+      isEmpty(value) &&
+      !isUncapturable(q.type)
+    ) {
       errors.push({
         questionId: `${pathPrefix}${q.id}`,
         message: 'This field is required.',

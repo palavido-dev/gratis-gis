@@ -1019,6 +1019,21 @@ export interface ChartWidgetConfig {
   bin?: ChartBin;
   /** Fixed lines drawn across the chart: limits, targets, thresholds. */
   referenceLines?: ChartReferenceLine[];
+  /**
+   * Explicit colour per category, keyed by the label on the axis.
+   *
+   * Charts otherwise cycle a palette, which makes them legible but
+   * means the colours carry no information. This exists so they can:
+   * a bar chart of exceedances can paint the health-based limits in
+   * the same red the map uses for them and the aesthetic ones in the
+   * same ochre, and the reader learns the distinction from the chart
+   * instead of being told it in a caption.
+   *
+   * Categories with no entry fall back to the palette. On a binned
+   * chart the keys are the range labels ("0.3 to 1"), which is how a
+   * histogram can shade the bars past a limit.
+   */
+  categoryColors?: Record<string, string>;
 }
 
 export interface SearchWidgetConfig {
@@ -1182,10 +1197,10 @@ export interface BasemapGalleryWidgetConfig {
 // ---- Page-element widgets (#361) -------------------------------
 
 /**
- * Static image. Source is a URL the author pastes (a portal item's
- * thumbnail, an external CDN URL, etc.). Local upload is left for a
- * follow-up; for now authors paste a URL the same way they would in
- * a Markdown image.
+ * Static image. Authors pick a File item through the asset picker or
+ * paste an external URL; see AssetRef below for the discriminated
+ * shapes. The "paste a URL, local upload comes later" note this
+ * carried was written before the picker shipped.
  */
 export interface ImageWidgetConfig {
   kind: 'image';

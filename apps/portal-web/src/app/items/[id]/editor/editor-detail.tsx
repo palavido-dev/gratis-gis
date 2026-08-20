@@ -603,10 +603,16 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
           Snapping
         </h3>
         <p className="text-2xs text-muted">
-          Snap-to-vertex behavior shared across drawing tools.
-          Tolerance is screen-pixel based so behavior is consistent
-          across zooms.
+          Snap new vertices to nearby existing ones while drawing.
         </p>
+        {/* Self-snap and tolerance are NOT offered. terra-draw 1.28
+            exposes binary toLine / toCoordinate flags rather than a
+            configurable pixel tolerance, so the runtime can only turn
+            snapping on or off. The controls were rendered anyway,
+            complete with a live "18px" readout beside a slider that
+            changed nothing, which is a stronger claim than a missing
+            feature makes. Both values survive in EditorData for any
+            editor that has them saved. */}
         <div className="mt-2 space-y-2 text-xs">
           <label className="flex items-center gap-2">
             <input
@@ -618,44 +624,6 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
             />
             <span>Enable snap</span>
           </label>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={editor.snapping.selfSnap}
-              disabled={!canEdit || !editor.snapping.enabled}
-              onChange={(e) =>
-                patchSnapping({ selfSnap: e.target.checked })
-              }
-              className="h-3.5 w-3.5 cursor-pointer disabled:opacity-50"
-            />
-            <span className="text-ink-1">
-              Self-snap only
-              <span className="block text-2xs text-muted">
-                Snap only to vertices in the same layer.
-              </span>
-            </span>
-          </label>
-          <div className="flex items-center gap-2">
-            <label htmlFor="snap-tol" className="text-ink-1">
-              Tolerance
-            </label>
-            <input
-              id="snap-tol"
-              type="range"
-              min={2}
-              max={30}
-              step={1}
-              value={editor.snapping.tolerancePx}
-              disabled={!canEdit || !editor.snapping.enabled}
-              onChange={(e) =>
-                patchSnapping({ tolerancePx: Number(e.target.value) })
-              }
-              className="flex-1 cursor-pointer disabled:opacity-50"
-            />
-            <span className="font-mono text-2xs text-muted">
-              {editor.snapping.tolerancePx}px
-            </span>
-          </div>
         </div>
       </section>
     </div>
