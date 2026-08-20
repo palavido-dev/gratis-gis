@@ -98,6 +98,28 @@ import {
 /** The target shape the runtime renderers read. Mirrors the runtime's
  *  ResolvedAppTarget; kept local so the designer does not import a
  *  type that only exists to describe runtime internals. */
+/**
+ * A patch where an explicit `undefined` means "unset this key".
+ *
+ * `Partial<T>` cannot express that under exactOptionalPropertyTypes:
+ * an optional key accepts absence, not an undefined value. Restating
+ * each key as `| undefined` gives callers a way to say "clear it"
+ * that survives the type checker, and the appliers below delete
+ * rather than store the undefined.
+ */
+type Unsettable<T> = { [K in keyof T]?: T[K] | undefined };
+type AppPatch = Unsettable<CustomAppData>;
+type SourcePatch = Unsettable<AppDataSource>;
+
+/** Apply an Unsettable patch, deleting the keys set to undefined. */
+function applyPatch<T extends object>(base: T, patch: Unsettable<T>): T {
+  const next = { ...base, ...patch } as T;
+  for (const key of Object.keys(patch) as Array<keyof T>) {
+    if (patch[key] === undefined) delete next[key];
+  }
+  return next;
+}
+
 interface ResolvedTargetLite {
   /** Id of the AppDataSource this came from; the binding key. */
   sourceId: string;
@@ -426,21 +448,11 @@ export function CustomAppDetail({
   }, [app, itemTitle]);
 
   const updateApp = useCallback((patch: AppPatch) => {
-    setApp((cur) => {
-      const next = { ...cur, ...patch } as CustomAppData;
-      // An explicit undefined means "unset this", not "leave it
-      // alone". Spreading alone would store the key as undefined,
-      // which the workspace's exactOptionalPropertyTypes rejects and
-      // which JSON would drop anyway; deleting says what we mean.
-      //
-      // The alternative the refresh field used, sending `{}` to mean
-      // "clear", quietly could not clear at all: auto-refresh could
-      // be switched on and never off again.
-      for (const key of Object.keys(patch) as Array<keyof AppPatch>) {
-        if (patch[key] === undefined) delete next[key];
-      }
-      return next;
-    });
+    // An explicit undefined means "unset this", not "leave it alone".
+    // The alternative, sending `{}` to mean "clear", quietly could
+    // not clear at all: auto-refresh could be switched on and never
+    // off again.
+    setApp((cur) => applyPatch(cur, patch));
     setDirty(true);
   }, []);
 
@@ -3648,39 +3660,32 @@ function AppProperties({
           hint="What this app reads. Widgets pick one of these, and each carries its own scope."
         >
           {sources.length > 0 ? (
-            <ul className="mb-2 space-y-1">
+            <ul className="mb-2 space-y-2">
               {sources.map((src) => (
-                <li
+                <SourceRow
                   key={src.id}
-                  className="flex items-center gap-1.5 rounded-md bg-surface-2 px-2 py-1 text-2xs"
-                >
-                  <LayersIcon className="h-3.5 w-3.5 text-info" />
-                  <span className="flex-1 truncate">
-                    {src.label?.trim() || (
-                      <TargetLabel
-                        dataLayerId={src.layer.dataLayerId}
-                        layerKey={src.layer.layerKey}
-                      />
-                    )}
-                  </span>
-                  {canEdit && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onUpdateApp({
-                          sources: sources.filter((o) => o.id !== src.id),
-                          targets: sources
-                            .filter((o) => o.id !== src.id)
-                            .map((o) => o.layer),
-                        })
-                      }
-                      className="text-muted hover:text-danger"
-                      aria-label="Remove layer"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
+                  source={src}
+                  mapWidgets={(page.widgets ?? []).filter(
+                    (w) => w.kind === 'map',
                   )}
-                </li>
+                  canEdit={canEdit}
+                  onChange={(patch) => {
+                    const next = sources.map((o) =>
+                      o.id === src.id ? applyPatch(o, patch) : o,
+                    );
+                    onUpdateApp({
+                      sources: next,
+                      targets: next.map((o) => o.layer),
+                    });
+                  }}
+                  onRemove={() => {
+                    const next = sources.filter((o) => o.id !== src.id);
+                    onUpdateApp({
+                      sources: next,
+                      targets: next.map((o) => o.layer),
+                    });
+                  }}
+                />
               ))}
             </ul>
           ) : null}
@@ -3721,61 +3726,71 @@ function AppProperties({
 }
 
 /**
- * Per-widget "follow a map's view" picker.
+ * One data source in the app's Layers panel: its name, and what
+ * reading it means.
  *
- * Three states, and the middle one is the reason this is not a plain
- * `value ?? ''` select: unset inherits the app-level setting, the
- * empty string is an explicit "whole layer" that survives a page
- * which otherwise follows the map, and an id names a map. Collapsing
- * unset and empty into one option would make it impossible to pin a
- * single deliberate total on a view-scoped dashboard.
+ * Scope is edited here rather than on each widget because a source
+ * serves many widgets, and the alternative asks the author to make
+ * the same decision once per tile and get it identical every time.
  */
-const FOLLOW_INHERIT = '@inherit';
-
-function FollowMapSelect({
-  value,
+function SourceRow({
+  source,
   mapWidgets,
   canEdit,
   onChange,
+  onRemove,
 }: {
-  value: string | undefined;
+  source: AppDataSource;
   mapWidgets: CustomWidget[];
   canEdit: boolean;
-  onChange: (next: string | undefined) => void;
+  onChange: (patch: SourcePatch) => void;
+  onRemove: () => void;
 }) {
   return (
-    <select
-      value={value === undefined ? FOLLOW_INHERIT : value}
-      disabled={!canEdit}
-      onChange={(e) =>
-        onChange(
-          e.target.value === FOLLOW_INHERIT ? undefined : e.target.value,
-        )
-      }
-      className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
-    >
-      <option value={FOLLOW_INHERIT}>Use the app setting</option>
-      <option value="">Always the whole layer</option>
-      {mapWidgets.map((m) => (
-        <option key={m.id} value={m.id}>
-          Map · {m.id.slice(2, 10)}
-        </option>
-      ))}
-    </select>
+    <li className="rounded-md border border-border bg-surface-2 px-2 py-1.5">
+      <div className="flex items-center gap-1.5">
+        <LayersIcon className="h-3.5 w-3.5 shrink-0 text-info" />
+        <input
+          type="text"
+          value={source.label ?? ''}
+          disabled={!canEdit}
+          onChange={(e) => onChange({ label: e.target.value || undefined })}
+          placeholder={source.layer.layerKey}
+          className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-2xs text-ink-0 hover:border-border focus:border-ink-1 focus:outline-none"
+          aria-label="Layer name"
+        />
+        {canEdit && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="shrink-0 text-muted hover:text-danger"
+            aria-label="Remove layer"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        )}
+      </div>
+      <div className="mt-1 flex items-center gap-1.5 pl-5">
+        <span className="shrink-0 text-2xs text-muted">Shows</span>
+        <select
+          value={source.followMapWidgetId ?? ''}
+          disabled={!canEdit || mapWidgets.length === 0}
+          onChange={(e) =>
+            onChange({ followMapWidgetId: e.target.value || undefined })
+          }
+          className="min-w-0 flex-1 rounded border border-border bg-surface-1 px-1 py-0.5 text-2xs"
+        >
+          <option value="">every record</option>
+          {mapWidgets.map((w) => (
+            <option key={w.id} value={w.id}>
+              only what is on Map · {w.id.slice(2, 10)}
+            </option>
+          ))}
+        </select>
+      </div>
+    </li>
   );
 }
-
-/**
- * An app patch where an explicit `undefined` means "unset this key".
- *
- * `Partial<CustomAppData>` cannot express that under
- * exactOptionalPropertyTypes: an optional key accepts absence, not an
- * undefined value. Restating each key as `| undefined` gives callers
- * a way to say "clear it" that survives the type checker.
- */
-type AppPatch = {
-  [K in keyof CustomAppData]?: CustomAppData[K] | undefined;
-};
 
 function WidgetProperties({
   widget,
@@ -7870,17 +7885,6 @@ function ChartWidgetConfigEditor({
           </select>
         </Field>
       ) : null}
-      <Field
-        label="Follow a map's view"
-        hint="The chart then summarizes only what is on screen, and says so."
-      >
-        <FollowMapSelect
-          value={config.followMapWidgetId}
-          mapWidgets={mapWidgets}
-          canEdit={canEdit}
-          onChange={(next) => onChangeConfig({ followMapWidgetId: next })}
-        />
-      </Field>
       {config.chartType !== 'pie' ? (
         <div className="grid grid-cols-2 gap-2">
           <Field label="Category axis" hint="Blank uses the group-by field.">
@@ -8052,17 +8056,6 @@ function IndicatorWidgetConfigEditor({
         />
         Shorten large numbers (12.3K)
       </label>
-      <Field
-        label="Follow a map's view"
-        hint="The number then counts only what is on screen, and says so."
-      >
-        <FollowMapSelect
-          value={config.followMapWidgetId}
-          mapWidgets={mapWidgets}
-          canEdit={canEdit}
-          onChange={(next) => onChangeConfig({ followMapWidgetId: next })}
-        />
-      </Field>
       <Field
         label="Compare against"
         hint="Optional target value. Leave blank for no comparison."

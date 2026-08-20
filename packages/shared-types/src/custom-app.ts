@@ -862,16 +862,8 @@ export interface IndicatorWidgetConfig {
   label?: string;
   /** Number rendering. */
   format?: NumberFormat;
-  /**
-   * Restrict the value to a map's current viewport.
-   *
-   * Three states: absent inherits the app-level
-   * `followMapWidgetId`, the empty string pins this number to the
-   * whole layer even on a page that follows a map, and an id follows
-   * that map. The runtime labels whichever it is doing, because an
-   * indicator that silently changes when the user pans is a support
-   * ticket.
-   */
+  /** Superseded at v5 by the source's own scope; see the chart's
+   *  note. Kept so an older client's save still parses. */
   followMapWidgetId?: string;
   /**
    * Optional comparison. `value` is a fixed reference (a target, a
@@ -908,15 +900,17 @@ export interface ChartWidgetConfig {
   xAxisLabel?: string;
   yAxisLabel?: string;
   /**
-   * Recompute from whatever is inside the bound map's current view,
-   * so panning and zooming re-answers the chart for that area.
+   * Superseded at v5 by the source's own `followMapWidgetId`, and no
+   * longer read.
    *
-   * Three states, and they differ: absent inherits the app-level
-   * `followMapWidgetId`, the empty string pins this chart to the
-   * whole layer even on a page that follows a map, and an id follows
-   * that specific map. Either way the widget says which it is doing,
-   * because a chart that silently changes as the user pans is
-   * indistinguishable from one that is wrong.
+   * Scope belongs to the layer, not to each widget that reads it:
+   * a source serves many widgets, and a per-widget override asks the
+   * author to make the same decision once per tile and get it
+   * identical every time. An author who wants a whole-layer total
+   * beside a view-scoped one adds a second source on the same layer,
+   * which is at least visible in the Layers panel.
+   *
+   * Kept in the type so an app saved by an older client still parses.
    */
   followMapWidgetId?: string;
   /**
