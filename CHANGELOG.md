@@ -5,6 +5,16 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.48] - 2026-08-20
+
+### Fixed
+
+- **Custom apps failed to load in v0.9.47**, showing "Something went
+  wrong" instead of the app. v0.9.47 is the only release that carried
+  it and it was rolled back within the hour. The prod smoke checks
+  now load the published dashboards, so a crash like this fails a
+  build rather than a visit.
+
 ## [0.9.47] - 2026-08-20
 
 ### Added
