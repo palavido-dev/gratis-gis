@@ -351,19 +351,93 @@ const ATTR_NAME_RE = /^[^\x00-\x1f]{1,128}$/;
  *     match a numeric comparison. It is not zero and it is not an
  *     error; it is unknown, and unknown does not satisfy "> 5".
  */
-function compileAttrFilter(filter: {
-  combinator: 'all' | 'any';
-  clauses: Array<{ field: string; op: string; value: string }>;
-}): Prisma.Sql | null {
+/**
+ * Scope one layer to the rows whose key appears among another
+ * layer's in-scope rows: the relate, as a semi-join.
+ *
+ * The obvious alternative is to fetch the parent's key values and
+ * send them back as `IN (...)`. It does not survive real data: the
+ * filter vocabulary caps at 20 clauses, the aggregate that would
+ * harvest the keys caps at 1000 groups and returns top-N by count,
+ * and a short key set is a quietly wrong answer rather than an error.
+ * Both layers are rows in this same table keyed by `scope`, so the
+ * predicate pushes down instead and stays exact at any size.
+ *
+ * The parent's own content filters (its viewport, its author
+ * predicate, its share's geo limit) are applied AFTER the parent's
+ * collapse, for the same reason they are everywhere else: applied
+ * before, an old version of a parent that has since moved or been
+ * deleted wins the collapse, and a ghost parent drags real children
+ * into scope.
+ *
+ * Authorization is the caller's job and it is not optional. This
+ * reads a layer the child's widget never named, so without a read
+ * check on the parent it is a side channel: point a widget at a layer
+ * you may read, relate it through one you may not, and the counts
+ * describe the parent.
+ */
+function compileViaFilter(args: {
+  /** Field on the CHILD holding the shared key. */
+  myField: string;
+  /** Field on the PARENT holding the shared key. */
+  parentField: string;
+  /** Engine scope key of the parent layer. */
+  parentScope: string;
+  asOf: Date;
+  /** The parent's own content predicates, already compiled. */
+  parentContentFilters: Prisma.Sql[];
+}): Prisma.Sql {
+  for (const name of [args.myField, args.parentField]) {
+    if (!ATTR_NAME_RE.test(name)) {
+      throw new Error(`Invalid attribute name: ${name}`);
+    }
+  }
+  const parentExtras =
+    args.parentContentFilters.length > 0
+      ? Prisma.join(args.parentContentFilters, ' ')
+      : Prisma.empty;
+  // A NULL key on the child can never match a parent, and NOT IN
+  // against a set containing NULL is a trap, so the child side is
+  // guarded explicitly rather than left to three-valued logic.
+  return Prisma.sql`AND attrs->>${args.myField} IS NOT NULL
+    AND attrs->>${args.myField} IN (
+      SELECT p.attrs->>${args.parentField}
+      FROM (
+        SELECT DISTINCT ON (entity) entity, attrs, geom, kind
+        FROM observation
+        WHERE scope = ${args.parentScope}
+          AND valid_from <= ${args.asOf}
+        ORDER BY entity, valid_from DESC, tx_time DESC
+      ) p
+      WHERE p.kind <> 'delete'
+        AND p.attrs->>${args.parentField} IS NOT NULL
+        ${parentExtras}
+    )`;
+}
+
+function compileAttrFilter(
+  filter: {
+    combinator: 'all' | 'any';
+    clauses: Array<{ field: string; op: string; value: string }>;
+  },
+  /**
+   * Table alias to read `attrs` from. Defaults to unqualified, which
+   * is what every caller but the relate's semi-join wants; that one
+   * needs the parent's alias so its predicates do not silently bind
+   * to the child's row.
+   */
+  alias?: 'p',
+): Prisma.Sql | null {
+  const attrs = alias === 'p' ? Prisma.raw('p.attrs') : Prisma.raw('attrs');
   const parts: Prisma.Sql[] = [];
   for (const c of filter.clauses) {
     if (!ATTR_NAME_RE.test(c.field)) {
       throw new Error(`Invalid attribute name: ${c.field}`);
     }
-    const text = Prisma.sql`attrs->>${c.field}`;
+    const text = Prisma.sql`${attrs}->>${c.field}`;
     // A numeric comparison needs the raw JSON value twice: once to
     // ask whether it is a number at all, once to compare it.
-    const num = Prisma.sql`CASE WHEN pg_input_is_valid(attrs->>${c.field}, 'double precision') THEN (attrs->>${c.field})::double precision END`;
+    const num = Prisma.sql`CASE WHEN pg_input_is_valid(${attrs}->>${c.field}, 'double precision') THEN (${attrs}->>${c.field})::double precision END`;
     switch (c.op) {
       case '==':
         parts.push(Prisma.sql`(${text} = ${c.value})`);
@@ -1970,6 +2044,27 @@ export class DataLayerEngine {
       combinator: 'all' | 'any';
       clauses: Array<{ field: string; op: string; value: string }>;
     };
+    /**
+     * Relate: narrow to the rows whose `myField` appears among the
+     * parent layer's in-scope rows.
+     *
+     * The CALLER must have already checked read access on the parent
+     * layer and folded the parent's own geo limit and row scope into
+     * `parentContentFilters`. This reads a layer the request never
+     * named, so skipping that turns it into a side channel.
+     */
+    via?: {
+      myField: string;
+      parentField: string;
+      parentItemId: string;
+      parentLayerId: string;
+      parentBbox?: [number, number, number, number];
+      parentWhere?: {
+        combinator: 'all' | 'any';
+        clauses: Array<{ field: string; op: string; value: string }>;
+      };
+      parentGeoLimit?: GeoJsonGeometry;
+    };
     /** Max groups returned. Server clamps to AGG_GROUP_CAP. */
     limit?: number;
   }): Promise<{
@@ -2044,6 +2139,41 @@ export class DataLayerEngine {
     if (args.where !== undefined) {
       const sql = compileAttrFilter(args.where);
       if (sql) contentFilters.push(sql);
+    }
+    if (args.via !== undefined) {
+      validateGeoJson(args.via.parentGeoLimit);
+      const parentFilters: Prisma.Sql[] = [];
+      if (args.via.parentBbox !== undefined) {
+        const [w, s2, e, n2] = args.via.parentBbox;
+        parentFilters.push(
+          Prisma.sql`AND p.geom && ST_MakeEnvelope(${w}, ${s2}, ${e}, ${n2}, 4326)`,
+        );
+      }
+      if (args.via.parentGeoLimit !== undefined) {
+        const json = JSON.stringify(args.via.parentGeoLimit);
+        parentFilters.push(
+          Prisma.sql`AND (p.geom IS NULL OR ST_Intersects(p.geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
+        );
+      }
+      if (args.via.parentWhere !== undefined) {
+        // Compiled against the parent's alias. Rewriting the emitted
+        // SQL string instead would orphan the bound parameters, which
+        // is not a shortcut so much as a broken query.
+        const sql = compileAttrFilter(args.via.parentWhere, 'p');
+        if (sql) parentFilters.push(sql);
+      }
+      contentFilters.push(
+        compileViaFilter({
+          myField: args.via.myField,
+          parentField: args.via.parentField,
+          parentScope: this.scope(
+            args.via.parentItemId,
+            args.via.parentLayerId,
+          ),
+          asOf,
+          parentContentFilters: parentFilters,
+        }),
+      );
     }
     const collapseExtras =
       collapseFilters.length > 0

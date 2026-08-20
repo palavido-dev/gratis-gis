@@ -1237,6 +1237,321 @@ d('observation-log read paths against real PostGIS', () => {
       expect(out.groups[0]!.values.count).toBe(1);
     });
 
+    it('relate: scopes a child layer through its parent, and the parent\'s bbox', async () => {
+      // The point of the relate. Inspections have no geometry of
+      // their own; they are in view when the WELL they belong to is.
+      const wellsItem = uuidv7();
+      const inspItem = uuidv7();
+      const wellsScope = dataLayerScope(wellsItem, layerId);
+      const inspScope = dataLayerScope(inspItem, layerId);
+
+      const seedRow = async (
+        scope: string,
+        entity: string,
+        kind: 'create' | 'update' | 'delete',
+        attrs: Record<string, unknown> | null,
+        coords: [number, number] | null,
+      ) => {
+        const ts = nextTs();
+        await engineSvc.write({
+          scope,
+          entity,
+          kind,
+          validFrom: ts,
+          validTo: null,
+          txTime: ts,
+          attrs,
+          geom: coords ? { type: 'Point', coordinates: coords } : null,
+          author: ALICE,
+          source: { kind: 'itest' },
+          parents: [],
+        });
+      };
+
+      const wHere = uuidv7();
+      const wAway = uuidv7();
+      await seedRow(wellsScope, wHere, 'create', { WELL_ID: 'W1' }, HERE);
+      await seedRow(wellsScope, wAway, 'create', { WELL_ID: 'W2' }, AWAY);
+      // Two inspections on the in-view well, one on the far one, and
+      // one orphan whose key matches no well at all.
+      for (const [key, n] of [['W1', 2], ['W2', 1], ['W9', 1]] as const) {
+        for (let i = 0; i < n; i += 1) {
+          await seedRow(
+            inspScope,
+            uuidv7(),
+            'create',
+            { WELL_ID: key, RESULT: 'ok' },
+            null,
+          );
+        }
+      }
+
+      const engine = makeEngine();
+      const viaBase = {
+        myField: 'WELL_ID',
+        parentField: 'WELL_ID',
+        parentItemId: wellsItem,
+        parentLayerId: layerId,
+      };
+
+      // No parent scope: every inspection whose well exists.
+      const all = await engine.aggregateFeatures({
+        itemId: inspItem,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        via: viaBase,
+      });
+      expect(all.groups[0]!.values.count).toBe(3);
+
+      // Parent narrowed to the near bbox: only W1's inspections.
+      const near = await engine.aggregateFeatures({
+        itemId: inspItem,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        via: { ...viaBase, parentBbox: IN_BBOX },
+      });
+      expect(near.groups[0]!.values.count).toBe(2);
+
+      const far = await engine.aggregateFeatures({
+        itemId: inspItem,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        via: { ...viaBase, parentBbox: AWAY_BBOX },
+      });
+      expect(far.groups[0]!.values.count).toBe(1);
+    });
+
+    it('relate: a parent that moved away stops pulling its children in', async () => {
+      // The ghost-parent case, and the reason the parent's bbox is
+      // applied AFTER the parent's collapse. Applied before, the
+      // well's ORIGINAL position still matches the near bbox and its
+      // inspections stay in view forever.
+      const wellsItem = uuidv7();
+      const inspItem = uuidv7();
+      const wellsScope = dataLayerScope(wellsItem, layerId);
+      const inspScope = dataLayerScope(inspItem, layerId);
+      const well = uuidv7();
+
+      const seedRow = async (
+        scope: string,
+        entity: string,
+        kind: 'create' | 'update' | 'delete',
+        attrs: Record<string, unknown> | null,
+        coords: [number, number] | null,
+      ) => {
+        const ts = nextTs();
+        await engineSvc.write({
+          scope, entity, kind, validFrom: ts, validTo: null, txTime: ts,
+          attrs,
+          geom: coords ? { type: 'Point', coordinates: coords } : null,
+          author: ALICE, source: { kind: 'itest' }, parents: [],
+        });
+      };
+
+      await seedRow(wellsScope, well, 'create', { WELL_ID: 'W1' }, HERE);
+      await seedRow(wellsScope, well, 'update', { WELL_ID: 'W1' }, AWAY);
+      await seedRow(inspScope, uuidv7(), 'create', { WELL_ID: 'W1' }, null);
+
+      const engine = makeEngine();
+      const via = {
+        myField: 'WELL_ID',
+        parentField: 'WELL_ID',
+        parentItemId: wellsItem,
+        parentLayerId: layerId,
+      };
+
+      const near = await engine.aggregateFeatures({
+        itemId: inspItem, layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        via: { ...via, parentBbox: IN_BBOX },
+      });
+      expect(near.groups[0]?.values.count ?? 0).toBe(0);
+
+      const away = await engine.aggregateFeatures({
+        itemId: inspItem, layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        via: { ...via, parentBbox: AWAY_BBOX },
+      });
+      expect(away.groups[0]!.values.count).toBe(1);
+    });
+
+    it('relate: a deleted parent takes its children out of scope', async () => {
+      const wellsItem = uuidv7();
+      const inspItem = uuidv7();
+      const wellsScope = dataLayerScope(wellsItem, layerId);
+      const inspScope = dataLayerScope(inspItem, layerId);
+      const well = uuidv7();
+      const seedRow = async (
+        scope: string, entity: string,
+        kind: 'create' | 'update' | 'delete',
+        attrs: Record<string, unknown> | null,
+        coords: [number, number] | null,
+      ) => {
+        const ts = nextTs();
+        await engineSvc.write({
+          scope, entity, kind, validFrom: ts, validTo: null, txTime: ts,
+          attrs,
+          geom: coords ? { type: 'Point', coordinates: coords } : null,
+          author: ALICE, source: { kind: 'itest' }, parents: [],
+        });
+      };
+      await seedRow(wellsScope, well, 'create', { WELL_ID: 'W1' }, HERE);
+      await seedRow(inspScope, uuidv7(), 'create', { WELL_ID: 'W1' }, null);
+      const engine = makeEngine();
+      const via = {
+        myField: 'WELL_ID', parentField: 'WELL_ID',
+        parentItemId: wellsItem, parentLayerId: layerId,
+      };
+      const before = await engine.aggregateFeatures({
+        itemId: inspItem, layerId,
+        aggs: [{ op: 'count', as: 'count' }], via,
+      });
+      expect(before.groups[0]!.values.count).toBe(1);
+
+      await seedRow(wellsScope, well, 'delete', null, null);
+      const after = await engine.aggregateFeatures({
+        itemId: inspItem, layerId,
+        aggs: [{ op: 'count', as: 'count' }], via,
+      });
+      expect(after.groups[0]?.values.count ?? 0).toBe(0);
+    });
+
+    it('relate: the parent geo limit narrows the child too', async () => {
+      // A share's clip on the PARENT has to reach the child, or the
+      // relate becomes a way around it.
+      const wellsItem = uuidv7();
+      const inspItem = uuidv7();
+      const wellsScope = dataLayerScope(wellsItem, layerId);
+      const inspScope = dataLayerScope(inspItem, layerId);
+      const seedRow = async (
+        scope: string, entity: string,
+        attrs: Record<string, unknown>,
+        coords: [number, number] | null,
+      ) => {
+        const ts = nextTs();
+        await engineSvc.write({
+          scope, entity, kind: 'create', validFrom: ts, validTo: null,
+          txTime: ts, attrs,
+          geom: coords ? { type: 'Point', coordinates: coords } : null,
+          author: ALICE, source: { kind: 'itest' }, parents: [],
+        });
+      };
+      await seedRow(wellsScope, uuidv7(), { WELL_ID: 'W1' }, HERE);
+      await seedRow(wellsScope, uuidv7(), { WELL_ID: 'W2' }, AWAY);
+      await seedRow(inspScope, uuidv7(), { WELL_ID: 'W1' }, null);
+      await seedRow(inspScope, uuidv7(), { WELL_ID: 'W2' }, null);
+
+      const out = await makeEngine().aggregateFeatures({
+        itemId: inspItem,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        via: {
+          myField: 'WELL_ID',
+          parentField: 'WELL_ID',
+          parentItemId: wellsItem,
+          parentLayerId: layerId,
+          parentGeoLimit: {
+            type: 'Polygon',
+            coordinates: [
+              [
+                [AWAY_BBOX[0], AWAY_BBOX[1]],
+                [AWAY_BBOX[2], AWAY_BBOX[1]],
+                [AWAY_BBOX[2], AWAY_BBOX[3]],
+                [AWAY_BBOX[0], AWAY_BBOX[3]],
+                [AWAY_BBOX[0], AWAY_BBOX[1]],
+              ],
+            ],
+          },
+        },
+      });
+      expect(out.groups[0]!.values.count).toBe(1);
+    });
+
+    it('relate: a parent predicate binds to the parent, not the child', async () => {
+      // Both layers carry a STATUS column with different values. If
+      // the parent's predicate compiled against the child's row the
+      // answer would be silently wrong rather than an error.
+      const wellsItem = uuidv7();
+      const inspItem = uuidv7();
+      const wellsScope = dataLayerScope(wellsItem, layerId);
+      const inspScope = dataLayerScope(inspItem, layerId);
+      const seedRow = async (
+        scope: string, attrs: Record<string, unknown>,
+        coords: [number, number] | null,
+      ) => {
+        const ts = nextTs();
+        await engineSvc.write({
+          scope, entity: uuidv7(), kind: 'create', validFrom: ts,
+          validTo: null, txTime: ts, attrs,
+          geom: coords ? { type: 'Point', coordinates: coords } : null,
+          author: ALICE, source: { kind: 'itest' }, parents: [],
+        });
+      };
+      await seedRow(wellsScope, { WELL_ID: 'W1', STATUS: 'Active' }, HERE);
+      await seedRow(wellsScope, { WELL_ID: 'W2', STATUS: 'Plugged' }, HERE);
+      await seedRow(inspScope, { WELL_ID: 'W1', STATUS: 'Failed' }, null);
+      await seedRow(inspScope, { WELL_ID: 'W2', STATUS: 'Failed' }, null);
+
+      const out = await makeEngine().aggregateFeatures({
+        itemId: inspItem,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        via: {
+          myField: 'WELL_ID',
+          parentField: 'WELL_ID',
+          parentItemId: wellsItem,
+          parentLayerId: layerId,
+          parentWhere: {
+            combinator: 'all',
+            clauses: [{ field: 'STATUS', op: '==', value: 'Active' }],
+          },
+        },
+      });
+      // Only W1's inspection. Every child row has STATUS 'Failed', so
+      // a predicate that bound to the child would answer zero.
+      expect(out.groups[0]!.values.count).toBe(1);
+    });
+
+    it('relate: stacks with the child\'s own filter', async () => {
+      const wellsItem = uuidv7();
+      const inspItem = uuidv7();
+      const wellsScope = dataLayerScope(wellsItem, layerId);
+      const inspScope = dataLayerScope(inspItem, layerId);
+      const seedRow = async (
+        scope: string, attrs: Record<string, unknown>,
+        coords: [number, number] | null,
+      ) => {
+        const ts = nextTs();
+        await engineSvc.write({
+          scope, entity: uuidv7(), kind: 'create', validFrom: ts,
+          validTo: null, txTime: ts, attrs,
+          geom: coords ? { type: 'Point', coordinates: coords } : null,
+          author: ALICE, source: { kind: 'itest' }, parents: [],
+        });
+      };
+      await seedRow(wellsScope, { WELL_ID: 'W1' }, HERE);
+      await seedRow(inspScope, { WELL_ID: 'W1', RESULT: 'pass' }, null);
+      await seedRow(inspScope, { WELL_ID: 'W1', RESULT: 'fail' }, null);
+
+      const out = await makeEngine().aggregateFeatures({
+        itemId: inspItem,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        where: {
+          combinator: 'all',
+          clauses: [{ field: 'RESULT', op: '==', value: 'fail' }],
+        },
+        via: {
+          myField: 'WELL_ID',
+          parentField: 'WELL_ID',
+          parentItemId: wellsItem,
+          parentLayerId: layerId,
+          parentBbox: IN_BBOX,
+        },
+      });
+      expect(out.groups[0]!.values.count).toBe(1);
+    });
+
     it('a non-numeric column aggregates to null instead of failing the request', async () => {
       // STATUS is text. A dashboard asking for sum(STATUS) is a
       // configuration mistake, but a 500 tells the viewer nothing;
