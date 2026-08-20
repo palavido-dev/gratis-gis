@@ -5,6 +5,15 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.43] - 2026-08-20
+
+### Fixed
+
+- **Chart click filtering had no effect on the numbers.** The filter
+  was validated and then dropped before it reached the database, so
+  every panel kept showing its unfiltered total. v0.9.42 is the only
+  release that carried it.
+
 ## [0.9.42] - 2026-08-20
 
 ### Added
