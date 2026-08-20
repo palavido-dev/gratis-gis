@@ -121,6 +121,27 @@ export interface CustomAppData {
    */
   refreshSeconds?: number;
   /**
+   * Id of the map widget whose current view scopes every data-bound
+   * widget on the page that has not chosen otherwise.
+   *
+   * A dashboard is one answer to one question, and the pieces of it
+   * have to agree: a counter reading the whole layer beside a map
+   * showing one valley is two different answers presented as one
+   * page. Setting this once is what keeps them consistent, and it
+   * exists because doing it per widget is busywork an author will
+   * forget on the eighth tile (I did).
+   *
+   * A widget's own `followMapWidgetId` still wins, including the
+   * empty string, which is how an author pins one deliberate
+   * whole-layer total on an otherwise view-scoped page.
+   *
+   * Unset means every widget decides for itself, which is what apps
+   * saved before this existed do. Turning it on is always an explicit
+   * act, because a number that changes meaning without anyone asking
+   * is indistinguishable from a number that is wrong.
+   */
+  followMapWidgetId?: string;
+  /**
    * Theme reference.  Either:
    *   - a built-in starter kind ('default' / 'slate' / 'aurora' /
    *     'forest' / 'paper') matching seedKind on a seeded theme
@@ -726,10 +747,14 @@ export interface IndicatorWidgetConfig {
   /** Number rendering. */
   format?: NumberFormat;
   /**
-   * Restrict the value to the bound map's current viewport. Off by
-   * default: an indicator that silently changes when the user pans
-   * is a support ticket, so following the map is opt-in and the
-   * runtime labels it.
+   * Restrict the value to a map's current viewport.
+   *
+   * Three states: absent inherits the app-level
+   * `followMapWidgetId`, the empty string pins this number to the
+   * whole layer even on a page that follows a map, and an id follows
+   * that map. The runtime labels whichever it is doing, because an
+   * indicator that silently changes when the user pans is a support
+   * ticket.
    */
   followMapWidgetId?: string;
   /**
@@ -768,11 +793,14 @@ export interface ChartWidgetConfig {
   yAxisLabel?: string;
   /**
    * Recompute from whatever is inside the bound map's current view,
-   * so panning and zooming re-answers the chart for that area. Same
-   * opt-in as the indicator's, and opt-in for the same reason: a
-   * chart that silently changes as the user pans is indistinguishable
-   * from one that is wrong, so the widget says when it is following a
-   * view rather than summarising the whole layer.
+   * so panning and zooming re-answers the chart for that area.
+   *
+   * Three states, and they differ: absent inherits the app-level
+   * `followMapWidgetId`, the empty string pins this chart to the
+   * whole layer even on a page that follows a map, and an id follows
+   * that specific map. Either way the widget says which it is doing,
+   * because a chart that silently changes as the user pans is
+   * indistinguishable from one that is wrong.
    */
   followMapWidgetId?: string;
   /** Index into targets (one chart binds to one layer). */

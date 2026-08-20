@@ -60,6 +60,24 @@ export interface ViewerTarget {
 }
 
 /**
+ * The map-layer id a custom app gives one of its targets.
+ *
+ * Three files built this string by hand and a fourth needed to
+ * recognise it. Recognising it by its source shape instead is what
+ * broke cross-filtering on the map: an app target is published as a
+ * `geojson-url` layer, so a check for `source.kind === 'data-layer'`
+ * never matched and the map sat unfiltered beside charts that had
+ * already narrowed. The id is the only reliable key, so it gets one
+ * definition.
+ */
+export function customTargetLayerId(target: {
+  dataLayerId: string;
+  layerKey: string;
+}): string {
+  return `custom-target:${target.dataLayerId}:${target.layerKey}`;
+}
+
+/**
  * Tools available in the viewer's toolbar. The runtime only renders
  * tools listed in the active `tools` array. Adding a tool here costs
  * nothing if the runtime ignores unknown values, but every option

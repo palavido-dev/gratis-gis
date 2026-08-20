@@ -14,6 +14,7 @@ import type {
 } from '@gratis-gis/shared-types';
 import {
   APP_THEMES,
+  customTargetLayerId,
   DEFAULT_LAYER_ACCESS,
   DEFAULT_LAYER_INTERACTIONS,
   DEFAULT_LAYER_LABELS,
@@ -236,7 +237,7 @@ export default async function CustomAppRuntimePage(props: Props) {
     );
     if (!sub || !sub.geometryType) continue;
     targetItems.push(layerItem as unknown as { bbox?: unknown });
-    const id = `custom-target:${t.dataLayerId}:${t.layerKey}`;
+    const id = customTargetLayerId(t);
     const url = `/api/portal/items/${t.dataLayerId}/layers/${t.layerKey}/geojson`;
     resolvedTargets.push({
       dataLayerId: t.dataLayerId,

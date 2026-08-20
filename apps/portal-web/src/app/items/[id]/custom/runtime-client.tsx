@@ -72,6 +72,7 @@ import type {
   RecipeAction,
 } from '@gratis-gis/shared-types';
 import {
+  customTargetLayerId,
   DEFAULT_LAYER_ACCESS,
   DEFAULT_LAYER_INTERACTIONS,
   DEFAULT_LAYER_LABELS,
@@ -378,6 +379,29 @@ function useCrossFilterWhere(
       ],
     };
   }, [selection, targetIndex]);
+}
+
+/**
+ * App-level default for "which map's view scopes this widget", or ''
+ * when the app has not set one.
+ */
+const AppFollowMapContext = createContext<string>('');
+
+/**
+ * Resolve which map a data widget should follow.
+ *
+ * The widget's own setting wins, and the EMPTY STRING is a real
+ * answer rather than a missing one: it is how an author pins one
+ * deliberate whole-layer total on a page that otherwise follows the
+ * map. Only an absent value inherits the app default, which is why
+ * this reads `undefined` rather than falsiness.
+ */
+function useFollowMapWidgetId(
+  own: string | undefined,
+): string | undefined {
+  const appDefault = useContext(AppFollowMapContext);
+  const resolved = own !== undefined ? own : appDefault;
+  return resolved === '' ? undefined : resolved;
 }
 
 /**
@@ -777,6 +801,7 @@ export function CustomRuntimeClient({
 
   return (
     <AppRefreshContext.Provider value={app.refreshSeconds ?? 0}>
+    <AppFollowMapContext.Provider value={app.followMapWidgetId ?? ''}>
     <CrossFilterContext.Provider value={crossFilterCtx}>
     <AppTimeContext.Provider value={appTimeCtx}>
     <RuntimeInfoContext.Provider value={{ itemTitle }}>
@@ -1052,6 +1077,7 @@ export function CustomRuntimeClient({
     </RuntimeInfoContext.Provider>
     </AppTimeContext.Provider>
     </CrossFilterContext.Provider>
+    </AppFollowMapContext.Provider>
     </AppRefreshContext.Provider>
   );
 }
@@ -1911,15 +1937,13 @@ function MapWidgetRender({ widget }: { widget: CustomWidget }) {
         | '==',
       value: selection.value ?? '',
     };
+    // Match on the layer id, not the source shape. See
+    // customTargetLayerId for why that distinction cost a bug.
+    const targetLayerId = customTargetLayerId(target);
     return {
       ...state.mapData,
       layers: (state.mapData.layers ?? []).map((l) => {
-        const src = l.source;
-        if (
-          src.kind !== 'data-layer' ||
-          src.itemId !== target.dataLayerId ||
-          (src.layerKey ?? '') !== target.layerKey
-        ) {
+        if (l.id !== targetLayerId) {
           return l;
         }
         // Keep any filter the author already set on the layer: a
@@ -4400,7 +4424,7 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
   const valueField = cfg.valueField;
   const groupBy = cfg.groupBy;
   const chartType = cfg.chartType;
-  const followId = cfg.followMapWidgetId;
+  const followId = useFollowMapWidgetId(cfg.followMapWidgetId);
   const bboxKey = useMapViewportBbox(followId);
 
   // Cross-filter. A chart both publishes a selection (clicking a bar)
@@ -4664,7 +4688,7 @@ function IndicatorWidgetRender({ widget }: { widget: CustomWidget }) {
   const refreshTick = useWidgetRefresh(widget);
   const cfg = widget.config;
   const target = ctx?.resolvedTargets[cfg.targetIndex] ?? null;
-  const followId = cfg.followMapWidgetId;
+  const followId = useFollowMapWidgetId(cfg.followMapWidgetId);
   const bboxKey = useMapViewportBbox(followId);
   const { selection } = useContext(CrossFilterContext);
   const where = useCrossFilterWhere(cfg.targetIndex);

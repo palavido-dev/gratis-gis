@@ -67,6 +67,7 @@ import type {
 } from '@gratis-gis/shared-types';
 import {
   APP_THEMES,
+  customTargetLayerId,
   DEFAULT_LAYER_ACCESS,
   DEFAULT_LAYER_INTERACTIONS,
   DEFAULT_LAYER_LABELS,
@@ -420,8 +421,22 @@ export function CustomAppDetail({
     }
   }, [app, itemTitle]);
 
-  const updateApp = useCallback((patch: Partial<CustomAppData>) => {
-    setApp((cur) => ({ ...cur, ...patch }));
+  const updateApp = useCallback((patch: AppPatch) => {
+    setApp((cur) => {
+      const next = { ...cur, ...patch } as CustomAppData;
+      // An explicit undefined means "unset this", not "leave it
+      // alone". Spreading alone would store the key as undefined,
+      // which the workspace's exactOptionalPropertyTypes rejects and
+      // which JSON would drop anyway; deleting says what we mean.
+      //
+      // The alternative the refresh field used, sending `{}` to mean
+      // "clear", quietly could not clear at all: auto-refresh could
+      // be switched on and never off again.
+      for (const key of Object.keys(patch) as Array<keyof AppPatch>) {
+        if (patch[key] === undefined) delete next[key];
+      }
+      return next;
+    });
     setDirty(true);
   }, []);
 
@@ -2969,7 +2984,11 @@ function WidgetCard({
         </div>
       ) : (
         <div className="flex flex-1 items-center justify-center p-3 text-xs text-muted">
-          {widgetPlaceholderText(widget.kind, label)}
+          {widgetPlaceholderText(
+            widget.kind,
+            label,
+            resolvedTargets.length > 0,
+          )}
         </div>
       )}
         </>
@@ -3075,10 +3094,18 @@ function ResizeHandles({
 function widgetPlaceholderText(
   kind: CustomWidgetKind,
   label: string,
+  hasTargets = false,
 ): string {
   switch (kind) {
     case 'map':
-      return 'No map referenced. Pick one in the right rail to preview.';
+      // A map widget draws the app's layers whether or not it also
+      // references a saved map. Saying "no map referenced" on a
+      // dashboard that has layers is simply false: the map renders
+      // fine when the app runs, and the author is left hunting for a
+      // problem that is not there.
+      return hasTargets
+        ? 'Draws this app’s layers. Reference a saved map in the right rail to preview it here.'
+        : 'No layers yet. Add one in the right rail.';
     case 'search':
       return 'Address + attribute search';
     case 'print':
@@ -3129,9 +3156,13 @@ function widgetPlaceholderText(
 function summarizeWidget(w: CustomWidget): string {
   switch (w.config.kind) {
     case 'map':
+      // "no map bound" read as a fault on every dashboard, which
+      // never references a saved map and does not need to: the widget
+      // draws the app's own layers. Only the reference is optional
+      // here, so only the reference is what this reports.
       return w.config.mapId
-        ? `map: ${w.config.mapId.slice(0, 8)}`
-        : 'no map bound';
+        ? `saved map: ${w.config.mapId.slice(0, 8)}`
+        : 'app layers';
     case 'legend':
     case 'layer-list':
     case 'search':
@@ -3398,7 +3429,7 @@ function AppProperties({
     /** Stable starter id when this option is a seeded starter. */
     seedKind: string | null;
   }>;
-  onUpdateApp: (patch: Partial<CustomAppData>) => void;
+  onUpdateApp: (patch: AppPatch) => void;
   onUpdatePage: (patch: Partial<CustomPage>) => void;
   onClearMap: () => void;
   onPickMap: () => void;
@@ -3484,13 +3515,52 @@ function AppProperties({
             disabled={!canEdit}
             onChange={(e) => {
               const n = Math.max(0, Math.floor(Number(e.target.value) || 0));
-              // Omit rather than set undefined: the workspace runs
-              // exactOptionalPropertyTypes, and a saved `undefined`
-              // would also persist a null into the item's JSON.
-              onUpdateApp(n > 0 ? { refreshSeconds: n } : {});
+              onUpdateApp({
+                refreshSeconds: n > 0 ? n : undefined,
+              });
             }}
             className="w-28 rounded-md border border-border bg-surface-1 px-2.5 py-1.5 text-sm focus:border-ink-1 focus:outline-none focus:ring-0"
           />
+        </Field>
+        {/* One setting for the whole page, because a dashboard is one
+            answer to one question and its pieces have to agree: a
+            counter reading the whole layer next to a map showing one
+            valley is two answers presented as one page. Doing it per
+            widget is busywork an author forgets on the eighth tile. */}
+        <Field
+          label="Widgets follow this map's view"
+          hint={
+            (page.widgets ?? []).some((w) => w.kind === 'map')
+              ? 'Charts, counters and tables then answer for whatever is on screen, and each says so. A widget can still opt out on its own.'
+              : 'Add a map widget to this page first.'
+          }
+        >
+          <select
+            value={app.followMapWidgetId ?? ''}
+            disabled={
+              !canEdit || !(page.widgets ?? []).some((w) => w.kind === 'map')
+            }
+            onChange={(e) =>
+              // Omit rather than store an empty string: unset means
+              // "every widget decides for itself", which is what apps
+              // saved before this setting existed already do.
+              onUpdateApp(
+                e.target.value
+                  ? { followMapWidgetId: e.target.value }
+                  : { followMapWidgetId: undefined },
+              )
+            }
+            className="w-full rounded-md border border-border bg-surface-1 px-2.5 py-1.5 text-sm"
+          >
+            <option value="">No, each widget decides</option>
+            {(page.widgets ?? [])
+              .filter((w) => w.kind === 'map')
+              .map((w) => (
+                <option key={w.id} value={w.id}>
+                  Map · {w.id.slice(2, 10)}
+                </option>
+              ))}
+          </select>
         </Field>
         {/* Theme preset picker. Sets CSS variables at the app root
             (designer Canvas + runtime container) so every widget
@@ -3653,6 +3723,63 @@ function AppProperties({
     </div>
   );
 }
+
+/**
+ * Per-widget "follow a map's view" picker.
+ *
+ * Three states, and the middle one is the reason this is not a plain
+ * `value ?? ''` select: unset inherits the app-level setting, the
+ * empty string is an explicit "whole layer" that survives a page
+ * which otherwise follows the map, and an id names a map. Collapsing
+ * unset and empty into one option would make it impossible to pin a
+ * single deliberate total on a view-scoped dashboard.
+ */
+const FOLLOW_INHERIT = '@inherit';
+
+function FollowMapSelect({
+  value,
+  mapWidgets,
+  canEdit,
+  onChange,
+}: {
+  value: string | undefined;
+  mapWidgets: CustomWidget[];
+  canEdit: boolean;
+  onChange: (next: string | undefined) => void;
+}) {
+  return (
+    <select
+      value={value === undefined ? FOLLOW_INHERIT : value}
+      disabled={!canEdit}
+      onChange={(e) =>
+        onChange(
+          e.target.value === FOLLOW_INHERIT ? undefined : e.target.value,
+        )
+      }
+      className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+    >
+      <option value={FOLLOW_INHERIT}>Use the app setting</option>
+      <option value="">Always the whole layer</option>
+      {mapWidgets.map((m) => (
+        <option key={m.id} value={m.id}>
+          Map · {m.id.slice(2, 10)}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/**
+ * An app patch where an explicit `undefined` means "unset this key".
+ *
+ * `Partial<CustomAppData>` cannot express that under
+ * exactOptionalPropertyTypes: an optional key accepts absence, not an
+ * undefined value. Restating each key as `| undefined` gives callers
+ * a way to say "clear it" that survives the type checker.
+ */
+type AppPatch = {
+  [K in keyof CustomAppData]?: CustomAppData[K] | undefined;
+};
 
 function WidgetProperties({
   widget,
@@ -7429,7 +7556,7 @@ function useResolvedTargets(targets: ViewerTarget[]): ResolvedTargetLite[] {
             layerKey: t.layerKey,
             title,
             mapLayer: {
-              id: `custom-target:${t.dataLayerId}:${t.layerKey}`,
+              id: customTargetLayerId(t),
               title,
               visible: true,
               opacity: 1,
@@ -7554,12 +7681,18 @@ function TargetSelect({
   canEdit: boolean;
   onChange: (index: number) => void;
 }) {
+  // Resolve the layers' real names. The list used to read
+  // "#0 4d029569 / bridges", which asks an author to recognise a
+  // layer by eight characters of its item's UUID; nobody can, and it
+  // is the kind of database detail the UI is supposed to keep to
+  // itself.
+  const resolved = useResolvedTargets(appTargets);
   return (
     <Field
-      label="Target layer"
+      label="Layer"
       hint={
         appTargets.length === 0
-          ? 'No targets defined on the app yet. Add one via the Map widget.'
+          ? 'This app has no layers yet. Add one from the Map widget.'
           : 'The layer this widget summarizes.'
       }
     >
@@ -7570,11 +7703,11 @@ function TargetSelect({
         className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
       >
         {appTargets.length === 0 ? (
-          <option value={0}>(no targets)</option>
+          <option value={0}>(no layers)</option>
         ) : (
           appTargets.map((tg, i) => (
             <option key={`${tg.dataLayerId}:${tg.layerKey}`} value={i}>
-              #{i} {tg.dataLayerId.slice(0, 8)} / {tg.layerKey}
+              {resolved[i]?.title ?? tg.layerKey}
             </option>
           ))
         )}
@@ -7733,23 +7866,14 @@ function ChartWidgetConfigEditor({
       ) : null}
       <Field
         label="Follow a map's view"
-        hint="Optional. The chart then summarizes only what is on screen, and says so."
+        hint="The chart then summarizes only what is on screen, and says so."
       >
-        <select
-          value={config.followMapWidgetId ?? ''}
-          disabled={!canEdit}
-          onChange={(e) =>
-            onChangeConfig({ followMapWidgetId: e.target.value || undefined })
-          }
-          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
-        >
-          <option value="">Whole layer</option>
-          {mapWidgets.map((m) => (
-            <option key={m.id} value={m.id}>
-              Map · {m.id.slice(2, 10)}
-            </option>
-          ))}
-        </select>
+        <FollowMapSelect
+          value={config.followMapWidgetId}
+          mapWidgets={mapWidgets}
+          canEdit={canEdit}
+          onChange={(next) => onChangeConfig({ followMapWidgetId: next })}
+        />
       </Field>
       {config.chartType !== 'pie' ? (
         <div className="grid grid-cols-2 gap-2">
@@ -7920,23 +8044,14 @@ function IndicatorWidgetConfigEditor({
       </label>
       <Field
         label="Follow a map's view"
-        hint="Optional. The number then counts only what is on screen, and says so."
+        hint="The number then counts only what is on screen, and says so."
       >
-        <select
-          value={config.followMapWidgetId ?? ''}
-          disabled={!canEdit}
-          onChange={(e) =>
-            onChangeConfig({ followMapWidgetId: e.target.value || undefined })
-          }
-          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
-        >
-          <option value="">Whole layer</option>
-          {mapWidgets.map((m) => (
-            <option key={m.id} value={m.id}>
-              Map · {m.id.slice(2, 10)}
-            </option>
-          ))}
-        </select>
+        <FollowMapSelect
+          value={config.followMapWidgetId}
+          mapWidgets={mapWidgets}
+          canEdit={canEdit}
+          onChange={(next) => onChangeConfig({ followMapWidgetId: next })}
+        />
       </Field>
       <Field
         label="Compare against"
