@@ -5,6 +5,23 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.57] - 2026-08-20
+
+### Added
+
+- **A chart can filter the map even when it counts something else.**
+  A chart built from related records answers a question about the
+  things on the map: click "Iron" on a chart of measurements and the
+  map can now narrow to the sites where iron was over the limit.
+  Previously the click had nowhere to land, because the map's layer
+  had no such column.
+
+### Fixed
+
+- **Small bars are clickable again.** A category worth 1 against an
+  axis running to 1,000 was drawn thinner than a pixel, so the chart
+  invited a click it could not receive.
+
 ## [0.9.56] - 2026-08-20
 
 ### Fixed
