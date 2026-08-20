@@ -5,6 +5,37 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.55] - 2026-08-20
+
+### Fixed
+
+- **A form can no longer be made impossible to submit.** Six question
+  types were offered in the designer that nobody could actually
+  answer, and marking one required blocked the whole form with no way
+  out. They are greyed in the palette now, say so at the top of the
+  form, and never block a submission.
+- **Controls that did nothing are gone.** The viewer's Query tool
+  shipped switched on with no query control anywhere; the editor's
+  snapping panel had a self-snap checkbox and a tolerance slider that
+  changed nothing at any setting. Report template is no longer
+  offered when creating an item, because there is no editor for one.
+- **Importing related records into a table works.** A layer with no
+  geometry is a supported shape, and importing into one used to
+  insert nothing and report success.
+- **Emptying orphaned uploads reclaims what it should.** A finished
+  analysis job kept its input files alive forever, so every merge an
+  org ran permanently doubled its storage. One finished job on the
+  demo was holding 16 GB.
+
+### Changed
+
+- **Charts colour their bars per category**, and can be given an
+  explicit colour per category so a chart carries the same meaning as
+  the map beside it.
+- **Text widgets stop honouring the line breaks in your source.** A
+  paragraph typed wrapped at 72 characters rendered as a narrow
+  column no matter how wide the widget was.
+
 ## [0.9.54] - 2026-08-20
 
 ### Fixed
