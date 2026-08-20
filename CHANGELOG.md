@@ -5,6 +5,14 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.45] - 2026-08-20
+
+### Fixed
+
+- **A horizontal bar chart labels every bar.** Four of thirteen
+  decades came back blank, which defeats the point of the sideways
+  layout.
+
 ## [0.9.44] - 2026-08-20
 
 ### Fixed
