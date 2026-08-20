@@ -714,6 +714,29 @@ export function CustomRuntimeClient({
           </header>
         ) : null}
 
+        {/* The app's own header. Distinct from the owner-only chrome
+            bar above: that one is portal navigation and disappears
+            for the audience, while this belongs to the app and is
+            what a visitor arriving from a link, an iframe, or a wall
+            display reads first. Absent `show` means shown; the title
+            falls back to the item's own so an author gets a sensible
+            header without configuring one. */}
+        {app.header?.show !== false &&
+        (app.header?.title?.trim() ||
+          app.header?.subtitle?.trim() ||
+          app.header) ? (
+          <header className="shrink-0 border-b border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-4 py-3">
+            <h1 className="truncate text-lg font-semibold leading-tight text-[hsl(var(--app-ink-0))]">
+              {app.header?.title?.trim() || itemTitle}
+            </h1>
+            {app.header?.subtitle?.trim() ? (
+              <p className="mt-0.5 text-xs leading-snug text-[hsl(var(--app-muted))]">
+                {app.header.subtitle}
+              </p>
+            ) : null}
+          </header>
+        ) : null}
+
         {/* Page tabs (#342). Hidden when the app has only one page so
             single-page apps stay chrome-free. */}
         {app.pages.length > 1 && (
@@ -4226,8 +4249,26 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
     return () => controller.abort();
   }, [target, appAt, aggregate, valueField, groupBy, chartType, refreshTick]);
 
+  // A generated title beats "Chart": it names the measure and the
+  // grouping, which is exactly what the reader needs to interpret the
+  // bars. An author-supplied title wins.
+  const measureLabel =
+    aggregate === 'count'
+      ? 'Count'
+      : `${aggregate[0]!.toUpperCase()}${aggregate.slice(1)} of ${valueField}`;
+  const title =
+    cfg.title?.trim() ||
+    (groupBy ? `${measureLabel} by ${groupBy}` : measureLabel);
+  const xLabel = cfg.xAxisLabel?.trim() || groupBy || '';
+  const yLabel = cfg.yAxisLabel?.trim() || measureLabel;
+
   return (
-    <WidgetFrame icon={ChevronRight} title="Chart">
+    <WidgetFrame icon={ChevronRight} title={title}>
+      {cfg.description?.trim() ? (
+        <p className="shrink-0 px-3 pt-1 text-2xs leading-snug text-[hsl(var(--app-muted))]">
+          {cfg.description}
+        </p>
+      ) : null}
       {state.loading && state.rows.length === 0 ? (
         <p className="p-2 text-xs italic text-[hsl(var(--app-muted))]">Loading…</p>
       ) : state.error ? (
@@ -4251,7 +4292,12 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
               very short tile scrollable rather than illegible. */}
           <div className="relative min-h-[180px] flex-1">
             <div className="absolute inset-0 p-2">
-              <ChartPlot rows={state.rows} kind={chartType} />
+              <ChartPlot
+              rows={state.rows}
+              kind={chartType}
+              xLabel={xLabel}
+              yLabel={yLabel}
+            />
             </div>
           </div>
           {state.truncated ? (
@@ -4537,9 +4583,13 @@ function ChartCanvas({
 function ChartPlot({
   rows,
   kind,
+  xLabel,
+  yLabel,
 }: {
   rows: Array<{ name: string; value: number }>;
   kind: 'bar' | 'line' | 'pie';
+  xLabel?: string;
+  yLabel?: string;
 }) {
   // Imports stay top-level on the file (recharts is ESM, Next
   // bundlers handle it). The components are referenced only inside
@@ -4635,10 +4685,24 @@ function ChartPlot({
   if (kind === 'line') {
     return (
       <Recharts.ResponsiveContainer width="100%" height="100%">
-        <Recharts.LineChart data={rows}>
+        <Recharts.LineChart
+          data={rows}
+          margin={{ top: 12, right: 8, bottom: xLabel ? 22 : 4, left: yLabel ? 14 : 0 }}
+        >
           <Recharts.CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-          <Recharts.XAxis dataKey="name" tick={{ fontSize: 11 }} />
-          <Recharts.YAxis tick={{ fontSize: 11 }} />
+          <Recharts.XAxis
+            dataKey="name"
+            tick={{ fontSize: 11 }}
+            {...(xLabel
+              ? { label: { value: xLabel, position: 'insideBottom', offset: -14, fontSize: 11 } }
+              : {})}
+          />
+          <Recharts.YAxis
+            tick={{ fontSize: 11 }}
+            {...(yLabel
+              ? { label: { value: yLabel, angle: -90, position: 'insideLeft', style: { textAnchor: 'middle' }, fontSize: 11 } }
+              : {})}
+          />
           <Recharts.Tooltip />
           <Recharts.Line
             type="monotone"
@@ -4655,10 +4719,27 @@ function ChartPlot({
   // bar (default)
   return (
     <Recharts.ResponsiveContainer width="100%" height="100%">
-      <Recharts.BarChart data={rows}>
+      {/* Bottom and left margins exist to hold the axis captions; a
+          label with no room for it is clipped, which looks like a
+          rendering bug rather than a layout one. */}
+      <Recharts.BarChart
+        data={rows}
+        margin={{ top: 12, right: 8, bottom: xLabel ? 22 : 4, left: yLabel ? 14 : 0 }}
+      >
         <Recharts.CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-        <Recharts.XAxis dataKey="name" tick={{ fontSize: 11 }} />
-        <Recharts.YAxis tick={{ fontSize: 11 }} />
+        <Recharts.XAxis
+          dataKey="name"
+          tick={{ fontSize: 11 }}
+          {...(xLabel
+            ? { label: { value: xLabel, position: 'insideBottom', offset: -14, fontSize: 11 } }
+            : {})}
+        />
+        <Recharts.YAxis
+          tick={{ fontSize: 11 }}
+          {...(yLabel
+            ? { label: { value: yLabel, angle: -90, position: 'insideLeft', style: { textAnchor: 'middle' }, fontSize: 11 } }
+            : {})}
+        />
         <Recharts.Tooltip />
         <Recharts.Bar
           dataKey="value"

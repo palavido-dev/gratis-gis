@@ -3419,6 +3419,75 @@ function AppProperties({
         <p className="text-sm font-medium text-ink-0">App settings</p>
       </div>
       <div className="space-y-4 p-4 text-sm">
+        {/* Header bar. An app opened from a link, embedded, or left
+            on a wall display carries no other context: the browser
+            tab title is not visible and the portal chrome is hidden
+            for the audience. */}
+        <Field
+          label="Header title"
+          hint="Shown across the top of the app. Blank uses the item's title."
+        >
+          <input
+            value={app.header?.title ?? ''}
+            disabled={!canEdit}
+            onChange={(e) =>
+              onUpdateApp({
+                header: patchHeader(app.header, 'title', e.target.value),
+              })
+            }
+            className="w-full rounded-md border border-border bg-surface-1 px-2.5 py-1.5 text-sm focus:border-ink-1 focus:outline-none focus:ring-0"
+          />
+        </Field>
+        <Field
+          label="Header subtitle"
+          hint="Optional second line: scope, as-of date, who publishes it."
+        >
+          <input
+            value={app.header?.subtitle ?? ''}
+            disabled={!canEdit}
+            onChange={(e) =>
+              onUpdateApp({
+                header: patchHeader(app.header, 'subtitle', e.target.value),
+              })
+            }
+            className="w-full rounded-md border border-border bg-surface-1 px-2.5 py-1.5 text-sm focus:border-ink-1 focus:outline-none focus:ring-0"
+          />
+        </Field>
+        <label className="flex items-center gap-2 text-xs text-ink-1">
+          <input
+            type="checkbox"
+            checked={app.header?.show !== false}
+            disabled={!canEdit}
+            onChange={(e) =>
+              onUpdateApp({
+                header: { ...(app.header ?? {}), show: e.target.checked },
+              })
+            }
+          />
+          Show the header bar
+        </label>
+        {/* Auto-refresh had no control at all: the dashboard starters
+            set it and nobody else could. */}
+        <Field
+          label="Refresh data every"
+          hint="Seconds. 0 means never; anything under 15 is raised to 15. Pauses while the page is in a background tab."
+        >
+          <input
+            type="number"
+            min={0}
+            max={86400}
+            value={app.refreshSeconds ?? 0}
+            disabled={!canEdit}
+            onChange={(e) => {
+              const n = Math.max(0, Math.floor(Number(e.target.value) || 0));
+              // Omit rather than set undefined: the workspace runs
+              // exactOptionalPropertyTypes, and a saved `undefined`
+              // would also persist a null into the item's JSON.
+              onUpdateApp(n > 0 ? { refreshSeconds: n } : {});
+            }}
+            className="w-28 rounded-md border border-border bg-surface-1 px-2.5 py-1.5 text-sm focus:border-ink-1 focus:outline-none focus:ring-0"
+          />
+        </Field>
         {/* Theme preset picker. Sets CSS variables at the app root
             (designer Canvas + runtime container) so every widget
             inside picks up the preset's color / typography /
@@ -7279,6 +7348,24 @@ function MapBindingPicker({
 // ---- Generic field + number input -----------------------------------------
 
 /**
+ * Set or clear one header field without ever writing `undefined` as a
+ * value. The workspace runs exactOptionalPropertyTypes, and a
+ * persisted `"title": null` would also mean "titled null" rather than
+ * "no title" to every later reader.
+ */
+function patchHeader(
+  header: CustomAppData['header'],
+  key: 'title' | 'subtitle',
+  raw: string,
+): NonNullable<CustomAppData['header']> {
+  const next: NonNullable<CustomAppData['header']> = { ...(header ?? {}) };
+  const value = raw.trim();
+  if (value) next[key] = value;
+  else delete next[key];
+  return next;
+}
+
+/**
  * Resolve the app's targets into the shape the runtime renderers
  * expect, so the canvas can draw real widgets instead of placeholder
  * boxes.
@@ -7504,6 +7591,33 @@ function ChartWidgetConfigEditor({
   const numeric = numericCandidates(fields);
   return (
     <div className="space-y-3">
+      <Field
+        label="Title"
+        hint="Leave blank to describe the query automatically, e.g. 'Count by Status'."
+      >
+        <input
+          type="text"
+          value={config.title ?? ''}
+          disabled={!canEdit}
+          onChange={(e) =>
+            onChangeConfig({ title: e.target.value || undefined })
+          }
+          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+          placeholder="Bridges by condition"
+        />
+      </Field>
+      <Field label="Description" hint="Optional note under the title.">
+        <input
+          type="text"
+          value={config.description ?? ''}
+          disabled={!canEdit}
+          onChange={(e) =>
+            onChangeConfig({ description: e.target.value || undefined })
+          }
+          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+          placeholder="Excludes bridges with no rating"
+        />
+      </Field>
       <TargetSelect
         value={config.targetIndex}
         appTargets={appTargets}
@@ -7590,6 +7704,32 @@ function ChartWidgetConfigEditor({
             ))}
           </select>
         </Field>
+      ) : null}
+      {config.chartType !== 'pie' ? (
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Category axis" hint="Blank uses the group-by field.">
+            <input
+              type="text"
+              value={config.xAxisLabel ?? ''}
+              disabled={!canEdit}
+              onChange={(e) =>
+                onChangeConfig({ xAxisLabel: e.target.value || undefined })
+              }
+              className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+            />
+          </Field>
+          <Field label="Value axis" hint="Blank uses the measure.">
+            <input
+              type="text"
+              value={config.yAxisLabel ?? ''}
+              disabled={!canEdit}
+              onChange={(e) =>
+                onChangeConfig({ yAxisLabel: e.target.value || undefined })
+              }
+              className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+            />
+          </Field>
+        </div>
       ) : null}
     </div>
   );

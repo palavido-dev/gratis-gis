@@ -75,6 +75,24 @@ export interface CustomAppData {
     background?: string;
   };
   /**
+   * Optional header bar across the top of the app.
+   *
+   * A dashboard opened from a link, embedded in an intranet page, or
+   * left on a wall display arrives with no context: the browser tab
+   * title is not visible and the portal chrome is hidden for public
+   * apps. Without a header the reader sees four numbers and has to
+   * guess what they count and who published them.
+   */
+  header?: {
+    /** Shown large. Defaults to the item's own title when unset. */
+    title?: string;
+    /** Optional line under the title: scope, as-of date, owner. */
+    subtitle?: string;
+    /** Set false to hide the bar on an app that does not want one
+     *  (a map app inside an iframe, say). Absent means shown. */
+    show?: boolean;
+  };
+  /**
    * Cosmetic origin marker, set when the app was stamped from a
    * starter whose user-facing identity is worth preserving in lists.
    * Today the only value is 'dashboard'.
@@ -714,6 +732,23 @@ export interface IndicatorWidgetConfig {
 
 export interface ChartWidgetConfig {
   kind: 'chart';
+  /**
+   * Heading shown on the widget. Every chart used to be titled
+   * "Chart", which tells a reader nothing about what they are looking
+   * at; four of them on a page is four unlabelled pictures. Unset
+   * falls back to a generated description of the query ("Count by
+   * Status"), which is honest and usually enough.
+   */
+  title?: string;
+  /** Optional line under the title: a caveat, a unit, a source note. */
+  description?: string;
+  /**
+   * Axis captions. Unset falls back to the grouping field for the
+   * category axis and the measure for the value axis. A chart whose
+   * axes are unlabelled asks the reader to infer what "43" counts.
+   */
+  xAxisLabel?: string;
+  yAxisLabel?: string;
   /** Index into targets (one chart binds to one layer). */
   targetIndex: number;
   /** Chart geometry. v1 supports the most common three; bubble /
