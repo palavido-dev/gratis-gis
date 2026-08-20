@@ -5,6 +5,18 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.56] - 2026-08-20
+
+### Fixed
+
+- **The legend now explains the map.** It listed one entry per layer,
+  repeated once for every widget reading that layer, and drew
+  everything as a dot, so rivers and county boundaries looked like
+  points and a layer coloured into three classes appeared as a single
+  unexplained row. Classified layers now list each class with its own
+  label and colour, and each swatch is drawn as the shape the layer
+  actually draws.
+
 ## [0.9.55] - 2026-08-20
 
 ### Fixed
