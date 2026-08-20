@@ -5,6 +5,16 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.51] - 2026-08-20
+
+### Fixed
+
+- **"Auto fill" now works when symbolizing by category.** On portal
+  data layers it produced no categories and said nothing, which
+  looked like a broken button. It reads the field's distinct values
+  from the server, most common first, and tells you when a field is
+  empty or has more values than a map can carry.
+
 ## [0.9.50] - 2026-08-20
 
 ### Added
