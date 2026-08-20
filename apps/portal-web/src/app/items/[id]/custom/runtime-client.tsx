@@ -64,6 +64,7 @@ import type {
   Item,
   MapData,
   MapLayer,
+  MapLayerFilter,
   MapLayerStyle,
   PanelAnchor,
   PanelArrangement,
@@ -305,6 +306,79 @@ const AppTimeContext = createContext<AppTimeCtx>({
  * arbitrarily deep inside containers and tabs.
  */
 const AppRefreshContext = createContext<number>(0);
+
+/**
+ * Cross-filter selection: one predicate published by one widget, read
+ * by every other widget on the page that reads the same target.
+ *
+ * This is what makes clicking "Heavy Snow" on a chart narrow the map,
+ * the counters, and the other charts. Three decisions worth naming,
+ * all of them chosen to keep it comprehensible rather than powerful:
+ *
+ *   - **One selection at a time.** A second click replaces the first
+ *     rather than intersecting with it. A page where three charts
+ *     each hold a hidden term is a page where nobody can say what the
+ *     number on screen means, and an author who wants stacked
+ *     conditions has the filter widget for that.
+ *   - **Scoped to a target, not global.** A selection on the storm
+ *     layer says nothing about the bridges layer, so widgets reading a
+ *     different target are left alone rather than being narrowed to
+ *     nothing by a field they do not have.
+ *   - **Never persisted.** It is a reading gesture, like a map pan.
+ *     A reload returns the app the author published.
+ */
+export interface CrossFilterSelection {
+  /** Widget that published it, so that widget can show it as active. */
+  widgetId: string;
+  /** Index into the app's targets; only widgets on it are affected. */
+  targetIndex: number;
+  field: string;
+  /** Null selects the features with no value recorded for `field`. */
+  value: string | null;
+  /** What to print on the chip, e.g. "Event type: Heavy Snow". */
+  label: string;
+}
+
+interface CrossFilterCtx {
+  selection: CrossFilterSelection | null;
+  /** Passing a selection equal to the current one clears it. */
+  toggle: (next: CrossFilterSelection) => void;
+  clear: () => void;
+}
+
+const CrossFilterContext = createContext<CrossFilterCtx>({
+  selection: null,
+  toggle: () => {},
+  clear: () => {},
+});
+
+/**
+ * The predicate a widget on `targetIndex` should apply, or undefined.
+ *
+ * Returns the wire shape the aggregate endpoint takes, which is the
+ * same `MapLayerFilter` the map applies to its own layer, so a chart
+ * and the map beside it cannot disagree about what a selection means.
+ */
+function useCrossFilterWhere(
+  targetIndex: number,
+): MapLayerFilter | undefined {
+  const { selection } = useContext(CrossFilterContext);
+  return useMemo(() => {
+    if (!selection || selection.targetIndex !== targetIndex) return undefined;
+    return {
+      combinator: 'all' as const,
+      clauses: [
+        selection.value === null
+          ? { field: selection.field, op: 'is-null' as const, value: '' }
+          : {
+              field: selection.field,
+              op: '==' as const,
+              value: selection.value,
+            },
+      ],
+    };
+  }, [selection, targetIndex]);
+}
 
 /**
  * Track a bound map's viewport as a rounded bbox string, or '' when
@@ -679,8 +753,31 @@ export function CustomRuntimeClient({
     [appAt],
   );
 
+  // Cross-filter selection. Deliberately not in the URL: it is a
+  // reading gesture, and a shared link should open the app the author
+  // published rather than whatever the sender last clicked.
+  const [crossFilter, setCrossFilter] =
+    useState<CrossFilterSelection | null>(null);
+  const crossFilterCtx = useMemo<CrossFilterCtx>(
+    () => ({
+      selection: crossFilter,
+      toggle: (next) =>
+        setCrossFilter((cur) =>
+          cur &&
+          cur.widgetId === next.widgetId &&
+          cur.field === next.field &&
+          cur.value === next.value
+            ? null
+            : next,
+        ),
+      clear: () => setCrossFilter(null),
+    }),
+    [crossFilter],
+  );
+
   return (
     <AppRefreshContext.Provider value={app.refreshSeconds ?? 0}>
+    <CrossFilterContext.Provider value={crossFilterCtx}>
     <AppTimeContext.Provider value={appTimeCtx}>
     <RuntimeInfoContext.Provider value={{ itemTitle }}>
     <CustomMapsContext.Provider value={ctxValue}>
@@ -954,6 +1051,7 @@ export function CustomRuntimeClient({
     </CustomMapsContext.Provider>
     </RuntimeInfoContext.Provider>
     </AppTimeContext.Provider>
+    </CrossFilterContext.Provider>
     </AppRefreshContext.Provider>
   );
 }
@@ -1785,15 +1883,63 @@ function MapWidgetRender({ widget }: { widget: CustomWidget }) {
     if (ctx) ctx.registerRef(widget.id, ref as RefObject<MapCanvasHandle>);
   }, [ctx, widget.id]);
 
-  if (!ctx) return null;
-  const state = ctx.states[widget.id];
-  if (!state) return null;
+  const { selection } = useContext(CrossFilterContext);
+  const state = ctx?.states[widget.id];
+  const target =
+    selection && ctx ? ctx.resolvedTargets[selection.targetIndex] : undefined;
+
+  // Apply the page's cross-filter to whichever of this map's layers
+  // draw the selected target.
+  //
+  // This is a derived view rather than a write into map state, on
+  // purpose: map state also carries the user's own layer toggles and
+  // restyles, and a filter that wrote itself in would have to
+  // remember to unwrite itself on clear, which is the shape of bug
+  // that leaves a map stuck showing one category.
+  //
+  // The filter runs client-side as a MapLibre expression. The tile
+  // already carries every declared field, so the features are all
+  // there to hide, and re-cutting tiles per selection would throw
+  // away the tile cache and make a click feel slow.
+  const mapData = useMemo(() => {
+    if (!state) return null;
+    if (!selection || !target) return state.mapData;
+    const clause = {
+      field: selection.field,
+      op: (selection.value === null ? 'is-null' : '==') as
+        | 'is-null'
+        | '==',
+      value: selection.value ?? '',
+    };
+    return {
+      ...state.mapData,
+      layers: (state.mapData.layers ?? []).map((l) => {
+        const src = l.source;
+        if (
+          src.kind !== 'data-layer' ||
+          src.itemId !== target.dataLayerId ||
+          (src.layerKey ?? '') !== target.layerKey
+        ) {
+          return l;
+        }
+        // Keep any filter the author already set on the layer: a
+        // selection narrows what is on screen, it does not widen it.
+        const existing = l.filter?.clauses ?? [];
+        return {
+          ...l,
+          filter: { combinator: 'all' as const, clauses: [...existing, clause] },
+        };
+      }),
+    };
+  }, [state, selection, target]);
+
+  if (!ctx || !state || !mapData) return null;
 
   return (
     <div className="relative h-full w-full">
       <MapCanvas
         ref={ref}
-        map={state.mapData}
+        map={mapData}
         basemaps={ctx.basemaps}
         selection={state.selection}
         selectTool={state.selectTool}
@@ -4257,6 +4403,24 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
   const followId = cfg.followMapWidgetId;
   const bboxKey = useMapViewportBbox(followId);
 
+  // Cross-filter. A chart both publishes a selection (clicking a bar)
+  // and obeys one (someone else's click narrows it). The one it
+  // published is deliberately NOT applied to itself: a bar chart that
+  // filtered itself to the bar you clicked would collapse to a single
+  // bar and lose the context that made the click meaningful.
+  const { selection, toggle } = useContext(CrossFilterContext);
+  const inheritedWhere = useCrossFilterWhere(cfg.targetIndex);
+  const where =
+    selection && selection.widgetId === widget.id ? undefined : inheritedWhere;
+  const whereKey = where ? JSON.stringify(where) : '';
+  const selectable = Boolean(groupBy);
+  const activeValue =
+    selection &&
+    selection.widgetId === widget.id &&
+    selection.field === groupBy
+      ? selection.value
+      : undefined;
+
   useEffect(() => {
     if (!target) {
       setState({
@@ -4308,6 +4472,7 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
                   .map(Number) as [number, number, number, number],
               }
             : {}),
+          ...(where ? { where } : {}),
           ...(appAt ? { asOf: appAt } : {}),
           signal: controller.signal,
         });
@@ -4343,8 +4508,11 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
       }
     })();
     return () => controller.abort();
+    // whereKey rather than the object: a fresh object identity on
+    // every render would re-fetch forever.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target, appAt, aggregate, valueField, groupBy, chartType, bboxKey,
-      refreshTick]);
+      whereKey, refreshTick]);
 
   // A generated title beats "Chart": it names the measure and the
   // grouping, which is exactly what the reader needs to interpret the
@@ -4359,14 +4527,42 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
   const xLabel = cfg.xAxisLabel?.trim() || groupBy || '';
   const yLabel = cfg.yAxisLabel?.trim() || measureLabel;
 
+  // Clicking a category publishes it as the page's selection. The
+  // "(no value)" bucket is a real category to a reader, so it selects
+  // too, as the features with nothing recorded for that field.
+  const onPick = useCallback(
+    (name: string) => {
+      if (!groupBy) return;
+      const value = name === '(no value)' ? null : name;
+      toggle({
+        widgetId: widget.id,
+        targetIndex: cfg.targetIndex,
+        field: groupBy,
+        value,
+        label: `${xLabel || groupBy}: ${name}`,
+      });
+    },
+    [groupBy, toggle, widget.id, cfg.targetIndex, xLabel],
+  );
+
   return (
     <WidgetFrame icon={ChevronRight} title={title}>
-      {cfg.description?.trim() || followId ? (
+      {cfg.description?.trim() || followId || where ? (
         <p className="shrink-0 px-3 pt-1 text-2xs leading-snug text-[hsl(var(--app-muted))]">
           {cfg.description}
-          {cfg.description?.trim() && followId ? ' ' : ''}
+          {cfg.description?.trim() && (followId || where) ? ' ' : ''}
           {followId ? (
             <span className="italic">Current map view.</span>
+          ) : null}
+          {/* Say when a number on screen is narrowed by someone
+              else's click. A chart that silently answered a different
+              question than its title claims is the failure this whole
+              feature has to avoid. */}
+          {where && selection ? (
+            <span className="italic">
+              {followId ? ' ' : ''}
+              Filtered to {selection.label}.
+            </span>
           ) : null}
         </p>
       ) : null}
@@ -4403,13 +4599,31 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
           <div className="relative min-h-0 flex-1">
             <div className="absolute inset-0 p-2">
               <ChartPlot
-              rows={state.rows}
-              kind={chartType}
-              xLabel={xLabel}
-              yLabel={yLabel}
-            />
+                rows={state.rows}
+                kind={chartType}
+                xLabel={xLabel}
+                yLabel={yLabel}
+                {...(selectable ? { onPick } : {})}
+                activeName={activeValue === null ? '(no value)' : activeValue}
+              />
             </div>
           </div>
+          {activeValue !== undefined ? (
+            <button
+              type="button"
+              onClick={() => toggle({
+                widgetId: widget.id,
+                targetIndex: cfg.targetIndex,
+                field: groupBy!,
+                value: activeValue,
+                label: '',
+              })}
+              className="mx-2 mb-1 shrink-0 self-start rounded-full border border-[hsl(var(--app-accent))] px-2 py-0.5 text-2xs text-[hsl(var(--app-accent))] hover:bg-[hsl(var(--app-accent)/0.1)]"
+            >
+              Showing only {activeValue === null ? '(no value)' : activeValue}
+              {' ×'}
+            </button>
+          ) : null}
           {state.truncated ? (
             <p className="px-2 pb-1 text-2xs text-[hsl(var(--app-muted))]">
               Showing the 50 largest groups.
@@ -4441,6 +4655,9 @@ function IndicatorWidgetRender({ widget }: { widget: CustomWidget }) {
   const target = ctx?.resolvedTargets[cfg.targetIndex] ?? null;
   const followId = cfg.followMapWidgetId;
   const bboxKey = useMapViewportBbox(followId);
+  const { selection } = useContext(CrossFilterContext);
+  const where = useCrossFilterWhere(cfg.targetIndex);
+  const whereKey = where ? JSON.stringify(where) : '';
 
   const [state, setState] = useState<{
     loading: boolean;
@@ -4477,6 +4694,7 @@ function IndicatorWidgetRender({ widget }: { widget: CustomWidget }) {
             valueField ? { op: aggregate, field: valueField } : { op: 'count' },
           ],
           ...(bbox ? { bbox } : {}),
+          ...(where ? { where } : {}),
           ...(appAt ? { asOf: appAt } : {}),
           signal: controller.signal,
         });
@@ -4503,7 +4721,8 @@ function IndicatorWidgetRender({ widget }: { widget: CustomWidget }) {
       }
     })();
     return () => controller.abort();
-  }, [target, appAt, aggregate, valueField, bboxKey, refreshTick]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target, appAt, aggregate, valueField, bboxKey, whereKey, refreshTick]);
 
   const label =
     cfg.label?.trim() ||
@@ -4557,6 +4776,15 @@ function IndicatorWidgetRender({ widget }: { widget: CustomWidget }) {
             {followId ? (
               <span className="text-2xs italic text-[hsl(var(--app-muted))]">
                 current map view
+              </span>
+            ) : null}
+            {/* A number narrowed by a click elsewhere on the page has
+                to say so on the tile. "7" under "Injuries" means
+                something different when it is only counting Heavy
+                Snow, and the tile is where the reader is looking. */}
+            {where && selection ? (
+              <span className="text-2xs italic text-[hsl(var(--app-accent))]">
+                {selection.label}
               </span>
             ) : null}
           </>
@@ -4670,11 +4898,25 @@ function ChartPlot({
   kind,
   xLabel,
   yLabel,
+  onPick,
+  activeName,
 }: {
   rows: Array<{ name: string; value: number }>;
   kind: 'bar' | 'bar-horizontal' | 'line' | 'pie';
   xLabel?: string;
   yLabel?: string;
+  /** Called with the category name when a bar or slice is clicked. */
+  onPick?: (name: string) => void;
+  /**
+   * The category currently driving the page's filter, if this chart
+   * is the one that published it. Drawn full strength while the rest
+   * fade, so the selection is visible on the chart that made it.
+   *
+   * Three states, and they differ: `undefined` means nothing is
+   * selected, `null` means the "(no value)" bucket is selected, and a
+   * string names a category.
+   */
+  activeName?: string | null | undefined;
 }) {
   // Imports stay top-level on the file (recharts is ESM, Next
   // bundlers handle it). The components are referenced only inside
@@ -4689,6 +4931,24 @@ function ChartPlot({
     '#2563eb', '#16a34a', '#d97706', '#9333ea', '#dc2626',
     '#0891b2', '#ca8a04', '#0d9488', '#7c3aed', '#e11d48',
   ];
+
+  // A selected category stays full strength and everything else
+  // fades, rather than the selected one changing colour. Fading keeps
+  // the unselected categories readable as context, which is the whole
+  // reason the chart that published the filter does not filter
+  // itself.
+  const dim = (name: string): number =>
+    activeName === undefined || activeName === name ? 1 : 0.28;
+  // Click handlers key off the datum's INDEX rather than reading a
+  // name off the event payload. Recharts hands bars and pie sectors
+  // different payload shapes, and the index is the one thing both
+  // agree on and both get right; the caller already has the array the
+  // index points into.
+  const pickAt = (list: Array<{ name: string }>, index: number): void => {
+    const name = list[index]?.name;
+    if (onPick && name !== undefined) onPick(name);
+  };
+  const cursor = onPick ? 'pointer' : 'default';
 
   if (kind === 'pie') {
     // A pie is only readable while its slices are distinguishable, and
@@ -4731,9 +4991,15 @@ function ChartPlot({
               return share >= 8 ? `${Math.round(share)}%` : '';
             }}
             labelLine={false}
+            cursor={cursor}
+            onClick={(_d, index) => pickAt(sliced, index)}
           >
-            {sliced.map((_, i) => (
-              <Recharts.Cell key={i} fill={palette[i % palette.length]!} />
+            {sliced.map((r, i) => (
+              <Recharts.Cell
+                key={i}
+                fill={palette[i % palette.length]!}
+                fillOpacity={dim(r.name)}
+              />
             ))}
           </Recharts.Pie>
           <Recharts.Tooltip
@@ -4848,7 +5114,12 @@ function ChartPlot({
             dataKey="value"
             fill={palette[0]!}
             isAnimationActive={false}
+            cursor={cursor}
+            onClick={(_d, index) => pickAt(rows, index)}
           >
+            {rows.map((r, i) => (
+              <Recharts.Cell key={i} fillOpacity={dim(r.name)} />
+            ))}
             <Recharts.LabelList
               dataKey="value"
               position="right"
@@ -4888,7 +5159,12 @@ function ChartPlot({
           dataKey="value"
           fill={palette[0]!}
           isAnimationActive={false}
+          cursor={cursor}
+          onClick={(_d, index) => pickAt(rows, index)}
         >
+          {rows.map((r, i) => (
+            <Recharts.Cell key={i} fillOpacity={dim(r.name)} />
+          ))}
           {/* The number on the bar. A dashboard is read at a glance
               and from across a room; making someone trace a bar back
               to the axis defeats the point of the tile. */}

@@ -1099,6 +1099,144 @@ d('observation-log read paths against real PostGIS', () => {
       expect(out.groups[0]!.values.count).toBe(1);
     });
 
+    it('an attribute filter matches the latest version, never a ghost', async () => {
+      // The single most important property of this filter. `edited`
+      // was Open and is now Closed; `doomed` was Open and is deleted.
+      // Both still have an Open row in the log, so a predicate applied
+      // before the latest-per-entity collapse reports two Open
+      // features that do not exist. The answer is zero.
+      const engine = makeEngine();
+      const open = await engine.aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        where: {
+          combinator: 'all',
+          clauses: [{ field: 'STATUS', op: '==', value: 'Open' }],
+        },
+      });
+      expect(open.groups[0]?.values.count ?? 0).toBe(0);
+
+      const closed = await engine.aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        where: {
+          combinator: 'all',
+          clauses: [{ field: 'STATUS', op: '==', value: 'Closed' }],
+        },
+      });
+      expect(closed.groups[0]!.values.count).toBe(3);
+    });
+
+    it('filters the measure as well as the count', async () => {
+      // ACRES on the live rows: edited 12, steady 8, moved 5.
+      const out = await makeEngine().aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [{ op: 'sum', field: 'ACRES', as: 'sum' }],
+        where: {
+          combinator: 'all',
+          clauses: [{ field: 'ACRES', op: '>', value: '6' }],
+        },
+      });
+      expect(out.groups[0]!.values.sum).toBe(20);
+    });
+
+    it('combines clauses with all and any', async () => {
+      const engine = makeEngine();
+      const both = await engine.aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        where: {
+          combinator: 'all',
+          clauses: [
+            { field: 'STATUS', op: '==', value: 'Closed' },
+            { field: 'ACRES', op: '<', value: '9' },
+          ],
+        },
+      });
+      expect(both.groups[0]!.values.count).toBe(2);
+
+      const either = await engine.aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        where: {
+          combinator: 'any',
+          clauses: [
+            { field: 'ACRES', op: '>=', value: '12' },
+            { field: 'ACRES', op: '<=', value: '5' },
+          ],
+        },
+      });
+      expect(either.groups[0]!.values.count).toBe(2);
+    });
+
+    it('a numeric comparison skips rows whose value is not a number', async () => {
+      // STATUS is text everywhere. Casting it would raise 22P02 and
+      // fail the whole request; the guard makes those rows unknown,
+      // and unknown does not satisfy a comparison.
+      const out = await makeEngine().aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        where: {
+          combinator: 'all',
+          clauses: [{ field: 'STATUS', op: '>', value: '0' }],
+        },
+      });
+      expect(out.groups[0]?.values.count ?? 0).toBe(0);
+    });
+
+    it('!= keeps rows with no value recorded', async () => {
+      // A reader asking for "not Open" means every row that is not
+      // Open, including the ones with nothing recorded. Plain <> drops
+      // them, because NULL <> 'Open' is NULL rather than true.
+      const out = await makeEngine().aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        where: {
+          combinator: 'all',
+          clauses: [{ field: 'MISSING_COL', op: '!=', value: 'Open' }],
+        },
+      });
+      expect(out.groups[0]!.values.count).toBe(3);
+    });
+
+    it('contains treats a literal percent as a character, not a wildcard', async () => {
+      const out = await makeEngine().aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        where: {
+          combinator: 'all',
+          clauses: [{ field: 'STATUS', op: 'contains', value: '%' }],
+        },
+      });
+      expect(out.groups[0]?.values.count ?? 0).toBe(0);
+    });
+
+    it('stacks with bbox and row scope rather than replacing them', async () => {
+      // A filtered dashboard on a share-limited layer has to apply
+      // both. Alice owns `edited` (Closed, HERE) and `moved` (Closed,
+      // AWAY); only `edited` is inside IN_BBOX.
+      const out = await makeEngine().aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        bbox: IN_BBOX,
+        ownRowsOnly: { userId: ALICE.sub },
+        where: {
+          combinator: 'all',
+          clauses: [{ field: 'STATUS', op: '==', value: 'Closed' }],
+        },
+      });
+      expect(out.groups[0]!.values.count).toBe(1);
+    });
+
     it('a non-numeric column aggregates to null instead of failing the request', async () => {
       // STATUS is text. A dashboard asking for sum(STATUS) is a
       // configuration mistake, but a 500 tells the viewer nothing;

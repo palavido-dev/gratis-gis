@@ -327,6 +327,96 @@ const AGG_MAX_AGGS = 8;
 const ATTR_NAME_RE = /^[^\x00-\x1f]{1,128}$/;
 
 /**
+ * Compile an attribute predicate into content-filter SQL.
+ *
+ * Returns a single parenthesised fragment (or null when the filter
+ * says nothing), which the caller pushes into `contentFilters`. It
+ * belongs there and nowhere else: a predicate on row CONTENT applied
+ * before the latest-per-entity collapse resurrects ghosts, because an
+ * old version that matches can win the collapse for an entity whose
+ * real latest version is deleted or no longer matches.
+ *
+ * Field names are bound as JSONB path PARAMETERS, never interpolated
+ * as identifiers, so a hostile name is a lookup miss rather than an
+ * injection point.
+ *
+ * Two coercion decisions worth naming, both inherited from how the
+ * aggregates already behave:
+ *
+ *   - Numeric comparisons guard the cast with `pg_input_is_valid`.
+ *     Without it one non-numeric row in a mostly-numeric column
+ *     raises 22P02 and fails the whole query, which reads as an
+ *     outage rather than as one bad row.
+ *   - A row whose value does not parse as a number simply does not
+ *     match a numeric comparison. It is not zero and it is not an
+ *     error; it is unknown, and unknown does not satisfy "> 5".
+ */
+function compileAttrFilter(filter: {
+  combinator: 'all' | 'any';
+  clauses: Array<{ field: string; op: string; value: string }>;
+}): Prisma.Sql | null {
+  const parts: Prisma.Sql[] = [];
+  for (const c of filter.clauses) {
+    if (!ATTR_NAME_RE.test(c.field)) {
+      throw new Error(`Invalid attribute name: ${c.field}`);
+    }
+    const text = Prisma.sql`attrs->>${c.field}`;
+    // A numeric comparison needs the raw JSON value twice: once to
+    // ask whether it is a number at all, once to compare it.
+    const num = Prisma.sql`CASE WHEN pg_input_is_valid(attrs->>${c.field}, 'double precision') THEN (attrs->>${c.field})::double precision END`;
+    switch (c.op) {
+      case '==':
+        parts.push(Prisma.sql`(${text} = ${c.value})`);
+        break;
+      case '!=':
+        // A missing value is not equal to "open", and readers expect
+        // "not open" to include the rows with nothing recorded.
+        // IS DISTINCT FROM says that; `<>` would drop them silently.
+        parts.push(Prisma.sql`(${text} IS DISTINCT FROM ${c.value})`);
+        break;
+      case '>':
+        parts.push(Prisma.sql`(${num} > ${Number(c.value)})`);
+        break;
+      case '>=':
+        parts.push(Prisma.sql`(${num} >= ${Number(c.value)})`);
+        break;
+      case '<':
+        parts.push(Prisma.sql`(${num} < ${Number(c.value)})`);
+        break;
+      case '<=':
+        parts.push(Prisma.sql`(${num} <= ${Number(c.value)})`);
+        break;
+      case 'contains': {
+        // Escape the LIKE metacharacters so a literal % in the
+        // value matches a percent sign rather than everything.
+        const escaped = c.value
+          .replace(/\\/g, '\\\\')
+          .replace(/%/g, '\\%')
+          .replace(/_/g, '\\_');
+        parts.push(Prisma.sql`(${text} ILIKE ${`%${escaped}%`})`);
+        break;
+      }
+      case 'is-null':
+        // Absent and JSON null are the same thing to a reader asking
+        // for "no value recorded", and ->> flattens both to SQL NULL.
+        parts.push(Prisma.sql`(${text} IS NULL)`);
+        break;
+      case 'is-not-null':
+        parts.push(Prisma.sql`(${text} IS NOT NULL)`);
+        break;
+      default:
+        throw new Error(`Unsupported filter op: ${c.op}`);
+    }
+  }
+  if (parts.length === 0) return null;
+  const joined = Prisma.join(
+    parts,
+    filter.combinator === 'any' ? ' OR ' : ' AND ',
+  );
+  return Prisma.sql`AND (${joined})`;
+}
+
+/**
  * Encode a `(itemId, layerId)` pair as the canonical engine scope
  * for a data_layer sublayer. Every adapter call uses this; no other
  * surface should construct scopes by hand.
@@ -1871,6 +1961,15 @@ export class DataLayerEngine {
     geoLimit?: GeoJsonGeometry;
     boundaryClip?: GeoJsonGeometry;
     ownRowsOnly?: { userId: string };
+    /**
+     * Attribute predicate. The caller has already checked every field
+     * against the layer schema; this applies it as a content filter,
+     * which is the only place a predicate on row content is safe.
+     */
+    where?: {
+      combinator: 'all' | 'any';
+      clauses: Array<{ field: string; op: string; value: string }>;
+    };
     /** Max groups returned. Server clamps to AGG_GROUP_CAP. */
     limit?: number;
   }): Promise<{
@@ -1941,6 +2040,10 @@ export class DataLayerEngine {
             AND author_sub = ${args.ownRowsOnly.userId}
         )`,
       );
+    }
+    if (args.where !== undefined) {
+      const sql = compileAttrFilter(args.where);
+      if (sql) contentFilters.push(sql);
     }
     const collapseExtras =
       collapseFilters.length > 0

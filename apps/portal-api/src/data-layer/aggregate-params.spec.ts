@@ -3,6 +3,7 @@ import { BadRequestException } from '@nestjs/common';
 
 import {
   parseAggregateQuery,
+  parseWhere,
   rejectUnknownAggregateParams,
 } from './aggregate-params.js';
 
@@ -90,6 +91,111 @@ describe('parseAggregateQuery', () => {
   });
 });
 
+/**
+ * `where` is what makes a chart click filter the rest of the page, so
+ * a malformed one has to fail loudly. Every case here pins a refusal
+ * that stops a filtered dashboard from showing an unfiltered number.
+ */
+describe('parseWhere', () => {
+  it('is absent when the parameter is', () => {
+    expect(parseWhere(undefined)).toBeUndefined();
+    expect(parseWhere('')).toBeUndefined();
+  });
+
+  it('parses a single equality and defaults the combinator to all', () => {
+    const f = parseWhere(
+      JSON.stringify({ clauses: [{ field: 'event_type', op: '==', value: 'Heavy Snow' }] }),
+    );
+    expect(f).toEqual({
+      combinator: 'all',
+      clauses: [{ field: 'event_type', op: '==', value: 'Heavy Snow' }],
+    });
+  });
+
+  it('keeps values that would break a punctuated encoding', () => {
+    // The reason the transport is JSON rather than field:op:value.
+    // These are real category names and a real timestamp, and every
+    // separator character appears inside one of them.
+    const f = parseWhere(
+      JSON.stringify({
+        combinator: 'any',
+        clauses: [
+          { field: 'event_type', op: '==', value: 'Cold/Wind Chill' },
+          { field: 'begin', op: '>=', value: '1' },
+          { field: 'note', op: 'contains', value: 'a,b:c' },
+        ],
+      }),
+    );
+    expect(f?.clauses[0]!.value).toBe('Cold/Wind Chill');
+    expect(f?.clauses[2]!.value).toBe('a,b:c');
+    expect(f?.combinator).toBe('any');
+  });
+
+  it('drops the value requirement only for the null checks', () => {
+    const f = parseWhere(
+      JSON.stringify({ clauses: [{ field: 'rating', op: 'is-null' }] }),
+    );
+    expect(f?.clauses[0]).toEqual({ field: 'rating', op: 'is-null', value: '' });
+    expect(() =>
+      parseWhere(JSON.stringify({ clauses: [{ field: 'a', op: '==' }] })),
+    ).toThrow(BadRequestException);
+  });
+
+  it('refuses a non-numeric value for a numeric comparison', () => {
+    // Postgres accepts "abc" as the float NaN, which sorts above
+    // everything: "> abc" would match nothing and "< abc" would match
+    // the whole layer, both silently.
+    expect(() =>
+      parseWhere(JSON.stringify({ clauses: [{ field: 'len', op: '>', value: 'abc' }] })),
+    ).toThrow(/must be a number/);
+    expect(
+      parseWhere(JSON.stringify({ clauses: [{ field: 'len', op: '>', value: '12.5' }] })),
+    ).toBeTruthy();
+  });
+
+  it('refuses an unknown operator instead of ignoring the clause', () => {
+    expect(() =>
+      parseWhere(JSON.stringify({ clauses: [{ field: 'a', op: 'like', value: 'b' }] })),
+    ).toThrow(BadRequestException);
+  });
+
+  it('refuses an empty clause list rather than guessing', () => {
+    // Ambiguous between "match everything" and "I built my filter
+    // wrong", and the two differ by the entire dataset.
+    expect(() => parseWhere(JSON.stringify({ clauses: [] }))).toThrow(
+      /omit where/,
+    );
+  });
+
+  it('refuses malformed JSON, a non-object, and a repeated parameter', () => {
+    expect(() => parseWhere('not json')).toThrow(BadRequestException);
+    expect(() => parseWhere('[1,2]')).toThrow(/clauses/);
+    expect(() => parseWhere(['{}', '{}'])).toThrow(/once/);
+  });
+
+  it('caps the clause count', () => {
+    const many = {
+      clauses: Array.from({ length: 21 }, (_, i) => ({
+        field: `f${i}`,
+        op: '==',
+        value: 'x',
+      })),
+    };
+    expect(() => parseWhere(JSON.stringify(many))).toThrow(/at most/);
+  });
+
+  it('flows through parseAggregateQuery', () => {
+    const p = parseAggregateQuery({
+      agg: 'count',
+      groupBy: 'month',
+      where: JSON.stringify({
+        clauses: [{ field: 'event_type', op: '==', value: 'Flood' }],
+      }),
+    });
+    expect(p.where?.clauses).toHaveLength(1);
+  });
+});
+
 describe('rejectUnknownAggregateParams', () => {
   it('accepts the declared set', () => {
     expect(() =>
@@ -97,18 +203,23 @@ describe('rejectUnknownAggregateParams', () => {
     ).not.toThrow();
   });
 
-  it('refuses an unimplemented filter by name rather than ignoring it', () => {
-    // `where` is deliberately not implemented until the phase 2
-    // filter widget. Ignoring it would render a filtered dashboard
-    // showing unfiltered numbers, with nothing on screen to say so.
+  it('accepts where, which the filter widget now implements', () => {
     expect(() =>
       rejectUnknownAggregateParams(['agg', 'where']),
-    ).toThrow(/where/);
+    ).not.toThrow();
+  });
+
+  it('refuses an unimplemented filter by name rather than ignoring it', () => {
+    // Ignoring an unsupported filter renders a filtered dashboard
+    // showing unfiltered numbers, with nothing on screen to say so.
+    expect(() =>
+      rejectUnknownAggregateParams(['agg', 'having']),
+    ).toThrow(/having/);
   });
 
   it('names every offender at once', () => {
     expect(() =>
-      rejectUnknownAggregateParams(['agg', 'where', 'having']),
-    ).toThrow(/where, having/);
+      rejectUnknownAggregateParams(['agg', 'having', 'orderBy']),
+    ).toThrow(/having, orderBy/);
   });
 });

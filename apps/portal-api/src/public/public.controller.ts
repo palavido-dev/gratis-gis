@@ -582,6 +582,7 @@ export class PublicController {
     for (const name of [
       ...parsed.groupBy,
       ...parsed.aggs.map((a) => a.field).filter((f): f is string => !!f),
+      ...(parsed.where?.clauses ?? []).map((c) => c.field),
     ]) {
       if (!allowed.has(name)) {
         throw new BadRequestException(
@@ -595,11 +596,13 @@ export class PublicController {
       aggs: typeof parsed.aggs;
       bbox?: [number, number, number, number];
       geoLimit?: unknown;
+      where?: typeof parsed.where;
       limit?: number;
       asOf?: Date;
     } = { aggs: parsed.aggs };
     if (parsed.groupBy.length > 0) opts.groupBy = parsed.groupBy;
     if (parsed.bbox) opts.bbox = parsed.bbox;
+    if (parsed.where) opts.where = parsed.where;
     if (parsed.limit !== undefined) opts.limit = parsed.limit;
     if (parsed.asOf !== undefined) opts.asOf = parsed.asOf;
     const tierClip = await publicTierGeoLimit(

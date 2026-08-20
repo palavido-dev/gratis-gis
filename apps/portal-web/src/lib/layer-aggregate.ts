@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type { NumberFormat } from '@gratis-gis/shared-types';
+import type { MapLayerFilter, NumberFormat } from '@gratis-gis/shared-types';
 
 /**
  * Client for the server-side aggregate endpoint, shared by the
@@ -25,6 +25,24 @@ export interface AggregateRequest {
   aggs: Array<{ op: AggOp; field?: string }>;
   groupBy?: string[];
   bbox?: [number, number, number, number];
+  /**
+   * Attribute predicate, sent as JSON in one parameter.
+   *
+   * Same `MapLayerFilter` the map applies to its own layer, so a
+   * chart and the map beside it cannot disagree about what a
+   * cross-filter selection means.
+   */
+  where?: MapLayerFilter;
+  /**
+   * Bitemporal read instant, from the app's time slider.
+   *
+   * Callers were already passing this and it was being dropped on
+   * the floor: the field was missing from this interface, and an
+   * object spread bypasses TypeScript's excess-property check, so a
+   * scrubbed dashboard showed today's numbers next to a historical
+   * map with nothing on screen to say so.
+   */
+  asOf?: string;
   limit?: number;
   signal?: AbortSignal;
 }
@@ -55,6 +73,8 @@ export async function fetchAggregate(
     params.set('groupBy', req.groupBy.join(','));
   }
   if (req.bbox) params.set('bbox', req.bbox.join(','));
+  if (req.where) params.set('where', JSON.stringify(req.where));
+  if (req.asOf) params.set('at', req.asOf);
   if (req.limit !== undefined) params.set('limit', String(req.limit));
 
   const res = await fetch(

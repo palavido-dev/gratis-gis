@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { BadRequestException } from '@nestjs/common';
+import type {
+  MapFilterOp,
+  MapLayerFilter,
+  MapLayerFilterClause,
+} from '@gratis-gis/shared-types';
 
 /**
  * Query-string parsing for the aggregate endpoint, shared by the
@@ -34,9 +39,137 @@ export interface ParsedAggregateQuery {
   limit?: number;
   /** Bitemporal read instant, from `?at=`. */
   asOf?: Date;
+  /** Attribute predicate, from `?where=`. */
+  where?: MapLayerFilter;
 }
 
 const OPS = new Set<AggOp>(['count', 'sum', 'avg', 'min', 'max']);
+
+const FILTER_OPS = new Set<MapFilterOp>([
+  '==',
+  '!=',
+  '>',
+  '>=',
+  '<',
+  '<=',
+  'contains',
+  'is-null',
+  'is-not-null',
+]);
+
+/**
+ * A cap on clause count. Each clause is a separate JSONB extraction
+ * over the candidate set, and a request carrying two hundred of them
+ * is a denial-of-service dressed as a filter, not a dashboard.
+ */
+const MAX_FILTER_CLAUSES = 20;
+
+/**
+ * Parse `?where=` into the same `MapLayerFilter` the map layer and
+ * the live-PostGIS service already speak.
+ *
+ * The transport is JSON in one parameter rather than a punctuated
+ * mini-language like `field:op:value`, because the values a filter
+ * carries contain the punctuation: a timestamp has colons, a category
+ * has commas and slashes ("Cold/Wind Chill"), and every separator
+ * choice makes some legitimate value unexpressible. JSON costs one
+ * `JSON.stringify` on the client and removes the whole class of
+ * quoting bugs.
+ *
+ * Reusing MapLayerFilter is deliberate: the same predicate a chart
+ * click sends to this endpoint is the one the map applies to its own
+ * layer, so a chart and the map beside it cannot disagree about what
+ * "Heavy Snow" selects.
+ */
+export function parseWhere(raw: unknown): MapLayerFilter | undefined {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  if (Array.isArray(raw)) {
+    throw new BadRequestException(
+      'where must appear once; combine predicates in its clauses array.',
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(String(raw));
+  } catch {
+    throw new BadRequestException(
+      'where must be JSON, e.g. ' +
+        '{"combinator":"all","clauses":[{"field":"status","op":"==","value":"open"}]}.',
+    );
+  }
+  if (typeof parsed !== 'object' || parsed === null) {
+    throw new BadRequestException('where must be a JSON object.');
+  }
+  const obj = parsed as { combinator?: unknown; clauses?: unknown };
+  const combinator = obj.combinator ?? 'all';
+  if (combinator !== 'all' && combinator !== 'any') {
+    throw new BadRequestException(
+      'where.combinator must be "all" or "any".',
+    );
+  }
+  if (!Array.isArray(obj.clauses)) {
+    throw new BadRequestException('where.clauses must be an array.');
+  }
+  if (obj.clauses.length === 0) {
+    // An empty clause list is ambiguous between "match everything"
+    // and "the caller meant to send a filter and built it wrong".
+    // Refusing costs a caller one line and removes the guess.
+    throw new BadRequestException(
+      'where.clauses is empty; omit where entirely to aggregate ' +
+        'the whole layer.',
+    );
+  }
+  if (obj.clauses.length > MAX_FILTER_CLAUSES) {
+    throw new BadRequestException(
+      `where.clauses may hold at most ${MAX_FILTER_CLAUSES} clauses.`,
+    );
+  }
+  const clauses: MapLayerFilterClause[] = obj.clauses.map((c, i) => {
+    if (typeof c !== 'object' || c === null) {
+      throw new BadRequestException(`where.clauses[${i}] must be an object.`);
+    }
+    const { field, op, value } = c as {
+      field?: unknown;
+      op?: unknown;
+      value?: unknown;
+    };
+    if (typeof field !== 'string' || field.length === 0) {
+      throw new BadRequestException(
+        `where.clauses[${i}].field must be a non-empty string.`,
+      );
+    }
+    if (typeof op !== 'string' || !FILTER_OPS.has(op as MapFilterOp)) {
+      throw new BadRequestException(
+        `where.clauses[${i}].op must be one of: ${[...FILTER_OPS].join(', ')}.`,
+      );
+    }
+    const needsValue = op !== 'is-null' && op !== 'is-not-null';
+    if (needsValue && typeof value !== 'string') {
+      throw new BadRequestException(
+        `where.clauses[${i}].value must be a string for "${op}".`,
+      );
+    }
+    // A comparison operator needs a number to compare against.
+    // Postgres would accept the string "abc" as the float NaN and
+    // then sort it above everything, so "> abc" would quietly match
+    // nothing while "< abc" matched the entire layer. Refuse instead.
+    if (
+      (op === '>' || op === '>=' || op === '<' || op === '<=') &&
+      !Number.isFinite(Number(value))
+    ) {
+      throw new BadRequestException(
+        `where.clauses[${i}].value must be a number for "${op}"; ` +
+          `got "${String(value)}".`,
+      );
+    }
+    return {
+      field,
+      op: op as MapFilterOp,
+      value: needsValue ? (value as string) : '',
+    };
+  });
+  return { combinator, clauses };
+}
 
 /** Accept both `?agg=a&agg=b` (array) and `?agg=a,b` (comma). */
 function toList(value: unknown): string[] {
@@ -51,6 +184,7 @@ export function parseAggregateQuery(query: {
   bbox?: unknown;
   limit?: unknown;
   at?: unknown;
+  where?: unknown;
 }): ParsedAggregateQuery {
   const rawAggs = toList(query.agg);
   if (rawAggs.length === 0) {
@@ -125,6 +259,9 @@ export function parseAggregateQuery(query: {
     out.limit = n;
   }
 
+  const where = parseWhere(query.where);
+  if (where) out.where = where;
+
   return out;
 }
 
@@ -134,11 +271,18 @@ export function parseAggregateQuery(query: {
  * Same rule the OGC surface adopted in #28: silently ignoring a
  * filter returns a wrong answer, and a dashboard number that quietly
  * ignored its filter is worse than an error, because nobody reading
- * the dashboard can tell. `where` lives here deliberately until the
- * phase 2 filter widget implements it.
+ * the dashboard can tell.
  */
 export function rejectUnknownAggregateParams(keys: Iterable<string>): void {
-  const allowed = new Set(['agg', 'groupBy', 'bbox', 'limit', 'clip', 'at']);
+  const allowed = new Set([
+    'agg',
+    'groupBy',
+    'bbox',
+    'limit',
+    'clip',
+    'at',
+    'where',
+  ]);
   const unknown = [...keys].filter((k) => !allowed.has(k));
   if (unknown.length > 0) {
     throw new BadRequestException(

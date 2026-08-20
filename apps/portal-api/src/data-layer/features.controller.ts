@@ -737,6 +737,10 @@ export class DataLayerFeaturesController {
     for (const name of [
       ...parsed.groupBy,
       ...parsed.aggs.map((a) => a.field).filter((f): f is string => !!f),
+      // Filter fields get the same treatment. A predicate on a
+      // misspelled column matches nothing, and "0 of 625" reads as a
+      // finding rather than as a typo.
+      ...(parsed.where?.clauses ?? []).map((c) => c.field),
     ]) {
       if (!schemaHasField(layer, name)) {
         throw new BadRequestException(
@@ -751,11 +755,13 @@ export class DataLayerFeaturesController {
       geoLimit?: unknown;
       boundaryClip?: unknown;
       ownRowsOnly?: { userId: string };
+      where?: typeof parsed.where;
       limit?: number;
       asOf?: Date;
     } = { aggs: parsed.aggs };
     if (parsed.groupBy.length > 0) opts.groupBy = parsed.groupBy;
     if (parsed.bbox) opts.bbox = parsed.bbox;
+    if (parsed.where) opts.where = parsed.where;
     if (parsed.limit !== undefined) opts.limit = parsed.limit;
     if (parsed.asOf !== undefined) opts.asOf = parsed.asOf;
     if (geoLimit) opts.geoLimit = geoLimit;
