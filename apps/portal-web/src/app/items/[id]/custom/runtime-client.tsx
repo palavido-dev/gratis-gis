@@ -5157,6 +5157,13 @@ function ChartPlot({
             type="category"
             dataKey="name"
             width={nameGutter}
+            // Draw every category name. Recharts drops names that
+            // would collide, which is right for a dense numeric axis
+            // and wrong here: readable category names are the entire
+            // reason to turn the chart on its side, and a chart
+            // labelling nine of its thirteen bars is worse than one
+            // whose labels sit close together.
+            interval={0}
             tick={{ fontSize: 11 }}
             {...(xLabel
               ? { label: { value: xLabel, angle: -90, position: 'insideLeft', style: { textAnchor: 'middle' }, fontSize: 11 } }
