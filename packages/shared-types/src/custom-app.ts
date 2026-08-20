@@ -28,7 +28,7 @@
  */
 
 import type { ViewerTarget } from './viewer';
-import type { MapLayerFilter } from './map';
+import type { MapFilterOp, MapLayerFilter } from './map';
 import type { AssetRef } from './asset-ref';
 
 export interface CustomAppData {
@@ -1034,6 +1034,34 @@ export interface ChartWidgetConfig {
    * histogram can shade the bars past a limit.
    */
   categoryColors?: Record<string, string>;
+  /**
+   * Publish this chart's clicks against a DIFFERENT source.
+   *
+   * A chart of a child layer answers a question about the parent. "862
+   * sites are over the iron limit" is counted from measurements, but
+   * the thing a reader wants to see when they click that bar is those
+   * 862 SITES on the map. The selection has to be expressed in the
+   * parent's own terms to do that, because the parent has no
+   * `parameter` column to filter on and a selection published against
+   * the child leaves the map untouched.
+   *
+   * `sourceId` names the source to filter, and `field` / `op` say how
+   * the clicked category reads in that source's schema. Clicking
+   * "Iron" on a chart configured with
+   * `{sourceId: 's_sites', field: 'secondary_list', op: 'contains'}`
+   * narrows the map to sites whose exceedance list contains Iron.
+   *
+   * This only works where the parent carries a denormalised summary of
+   * the child; a portal cannot invent a subquery for a client-side map
+   * filter. When it does not, leave this unset and the click filters
+   * the chart's own source as before.
+   */
+  selectionTarget?: {
+    sourceId: string;
+    field: string;
+    /** Defaults to '=='. 'contains' suits a delimited summary column. */
+    op?: MapFilterOp;
+  };
 }
 
 export interface SearchWidgetConfig {

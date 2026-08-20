@@ -4837,10 +4837,12 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
   // A binned chart is selectable too: its category is the bucket.
   const selectable = Boolean(groupBy || binField);
   const selectField = binField ?? groupBy;
+  // A widget's own published selection is identified by widgetId
+  // alone. It used to also require the selection's field to match this
+  // chart's grouping, which stopped being true once a chart could
+  // publish against another source in that source's own vocabulary.
   const activeValue =
-    selection &&
-    selection.widgetId === widget.id &&
-    selection.field === selectField
+    selection && selection.widgetId === widget.id
       ? selection.value
       : undefined;
 
@@ -4988,10 +4990,36 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
   // Clicking a category publishes it as the page's selection. The
   // "(no value)" bucket is a real category to a reader, so it selects
   // too, as the features with nothing recorded for that field.
+  const target2 = cfg.selectionTarget;
   const onPick = useCallback(
     (name: string) => {
       if (!selectField || !source) return;
       const row = state.rows.find((r) => r.name === name);
+      // Publishing against another source: the clicked category is
+      // re-expressed in THAT source's schema. This is how a chart
+      // counted from a child layer filters the parent map, which the
+      // chart's own predicate cannot do because the parent has no such
+      // column. See ChartWidgetConfig.selectionTarget.
+      if (target2) {
+        const value = name === '(no value)' ? null : name;
+        toggle({
+          widgetId: widget.id,
+          sourceId: target2.sourceId,
+          field: target2.field,
+          value,
+          label: `${xLabel || selectField}: ${name}`,
+          clauses: [
+            value === null
+              ? { field: target2.field, op: 'is-null', value: '' }
+              : {
+                  field: target2.field,
+                  op: target2.op ?? '==',
+                  value,
+                },
+          ],
+        });
+        return;
+      }
       // A histogram bar carries its own predicate, because a bucket is
       // a range and no single value expresses one. The categorical
       // path keeps its old behaviour: the label IS the value, and
@@ -5014,7 +5042,8 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
         ...(row?.clauses ? { clauses: row.clauses } : {}),
       });
     },
-    [selectField, binField, toggle, widget.id, source, xLabel, state.rows],
+    [selectField, binField, toggle, widget.id, source, xLabel, state.rows,
+     target2],
   );
 
   return (
@@ -5774,6 +5803,13 @@ function ChartPlot({
             fill={palette[0]!}
             isAnimationActive={false}
             cursor={cursor}
+            // A category worth 1 against an axis that runs to 1,000 is
+            // sub-pixel: invisible, and impossible to click even though
+            // the chart invites you to. A floor of four pixels keeps
+            // the small categories selectable and visible. The exact
+            // figure is printed on the bar either way, so nothing is
+            // overstated by the length.
+            minPointSize={4}
             onClick={(_d, index) => pickAt(rows, index)}
           >
             {rows.map((r, i) => (
@@ -5827,6 +5863,9 @@ function ChartPlot({
           fill={palette[0]!}
           isAnimationActive={false}
           cursor={cursor}
+          // See the horizontal chart: a floor so small categories stay
+          // clickable rather than collapsing below one pixel.
+          minPointSize={4}
           onClick={(_d, index) => pickAt(rows, index)}
         >
           {rows.map((r, i) => (
