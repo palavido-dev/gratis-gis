@@ -61,7 +61,10 @@ import { ItemsService } from '../items/items.service.js';
 import { SharingService } from '../items/sharing.service.js';
 import { EditorPolicyService } from '../items/editor-policy.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { DataLayerFeaturesService } from './features.service.js';
+import {
+  DataLayerFeaturesService,
+  type EngineVia,
+} from './features.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import {
   csvColumnPlan,
@@ -138,20 +141,6 @@ function assertFeatureIdShape(featureId: string): void {
  * enforce visibility (throws 403/404 as needed); sharing rights drive
  * read vs write gating via canEdit().
  */
-
-/**
- * The relate as the engine takes it: the parent's identity plus the
- * parent's own scope, already authorized by the controller.
- */
-interface EngineVia {
-  myField: string;
-  parentField: string;
-  parentItemId: string;
-  parentLayerId: string;
-  parentBbox?: [number, number, number, number];
-  parentWhere?: MapLayerFilter;
-  parentGeoLimit?: GeoJsonGeometry;
-}
 
 @ApiTags('features', 'v3')
 @ApiBearerAuth()
@@ -758,6 +747,10 @@ export class DataLayerFeaturesController {
       // finding rather than as a typo.
       ...(parsed.where?.clauses ?? []).map((c) => c.field),
       ...(parsed.via ? [parsed.via.myField] : []),
+      // The binned field too. A misspelled one would produce a single
+      // NULL bucket, which renders as one unlabelled bar: a histogram
+      // that looks like a finding rather than like a typo.
+      ...(parsed.bin ? [parsed.bin.field] : []),
     ]) {
       if (!schemaHasField(layer, name)) {
         throw new BadRequestException(
@@ -828,6 +821,7 @@ export class DataLayerFeaturesController {
       ownRowsOnly?: { userId: string };
       where?: typeof parsed.where;
       via?: EngineVia;
+      bin?: typeof parsed.bin;
       limit?: number;
       asOf?: Date;
     } = { aggs: parsed.aggs };
@@ -835,6 +829,7 @@ export class DataLayerFeaturesController {
     if (parsed.bbox) opts.bbox = parsed.bbox;
     if (parsed.where) opts.where = parsed.where;
     if (via) opts.via = via;
+    if (parsed.bin) opts.bin = parsed.bin;
     if (parsed.limit !== undefined) opts.limit = parsed.limit;
     if (parsed.asOf !== undefined) opts.asOf = parsed.asOf;
     if (geoLimit) opts.geoLimit = geoLimit;

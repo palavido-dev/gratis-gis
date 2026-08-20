@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type { MapLayerFilter, NumberFormat } from '@gratis-gis/shared-types';
+import type {
+  ChartBin,
+  MapLayerFilter,
+  NumberFormat,
+} from '@gratis-gis/shared-types';
 
 /**
  * Client for the server-side aggregate endpoint, shared by the
@@ -63,6 +67,16 @@ export interface AggregateRequest {
    * map with nothing on screen to say so.
    */
   asOf?: string;
+  /**
+   * Bin a numeric field into ranges, adding one group level so the
+   * result describes a distribution rather than one group per distinct
+   * reading.
+   *
+   * `count` and `width` modes let the server measure the field's range
+   * against the same scope the bars come from, which is the only way
+   * the axis can be guaranteed to match its own data.
+   */
+  bin?: ChartBin;
   limit?: number;
   signal?: AbortSignal;
 }
@@ -70,11 +84,64 @@ export interface AggregateRequest {
 export interface AggregateGroup {
   key: Record<string, string | null>;
   values: Record<string, number | null>;
+  /**
+   * Present on a binned request. Half-open `[lower, upper)`, with null
+   * on an open side: `{lower: null, upper: 0.3}` is "under 0.3", not
+   * "unknown". On a censored measurement column that bucket is
+   * routinely the biggest one, so rendering null as a blank label
+   * throws away the tallest bar.
+   */
+  bin?: { lower: number | null; upper: number | null };
 }
 
 export interface AggregateResult {
   groups: AggregateGroup[];
   truncated: boolean;
+  /** Thresholds the server used, ascending. Binned requests only. */
+  binEdges?: number[];
+}
+
+/**
+ * Label one bucket for an axis.
+ *
+ * Open-ended buckets read as "under x" / "x and up" rather than as a
+ * range with a blank end, because a reader scanning an axis should not
+ * have to work out that an empty bound means infinity.
+ */
+export function formatBinLabel(
+  bin: { lower: number | null; upper: number | null } | undefined,
+): string {
+  if (!bin) return '—';
+  const n = (v: number): string =>
+    new Intl.NumberFormat(undefined, { maximumSignificantDigits: 3 }).format(v);
+  if (bin.lower === null && bin.upper === null) return 'No value';
+  if (bin.lower === null) return `under ${n(bin.upper!)}`;
+  if (bin.upper === null) return `${n(bin.lower)} and up`;
+  return `${n(bin.lower)} to ${n(bin.upper)}`;
+}
+
+/**
+ * The filter a click on one histogram bar means.
+ *
+ * Half-open on purpose, matching how the bucket was computed: a
+ * closed range would double-count every value that sits exactly on an
+ * edge, so the selection would not sum back to the bar it came from.
+ * Returns null for the no-value bucket, which is not expressible as a
+ * range and should not silently select everything.
+ */
+export function binFilterFor(
+  field: string,
+  bin: { lower: number | null; upper: number | null } | undefined,
+): MapLayerFilter | null {
+  if (!bin || (bin.lower === null && bin.upper === null)) return null;
+  const clauses: MapLayerFilter['clauses'] = [];
+  if (bin.lower !== null) {
+    clauses.push({ field, op: '>=', value: String(bin.lower) });
+  }
+  if (bin.upper !== null) {
+    clauses.push({ field, op: '<', value: String(bin.upper) });
+  }
+  return { combinator: 'all', clauses };
 }
 
 /** The result key the server assigns a spec: `count`, `sum:acres`. */
@@ -103,6 +170,7 @@ export async function fetchAggregate(
   if (req.bbox) params.set('bbox', req.bbox.join(','));
   if (req.where) params.set('where', JSON.stringify(req.where));
   if (req.via) params.set('via', JSON.stringify(req.via));
+  if (req.bin) params.set('bin', JSON.stringify(req.bin));
   if (req.asOf) params.set('at', req.asOf);
   if (req.limit !== undefined) params.set('limit', String(req.limit));
 

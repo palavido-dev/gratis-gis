@@ -196,6 +196,40 @@ describe('DataLayerFeaturesService.aggregateFeatures option forwarding', () => {
     const sent = aggregateFeatures.mock.calls[0]![0];
     expect(Object.keys(sent).sort()).toEqual(['aggs', 'itemId', 'layerId']);
   });
+
+  // #27. Third time on this wrapper, after #83's entityIds and the
+  // `where` incident: a new option is only actually wired once it is
+  // named in BOTH the arg type and the spread. Dropped, the request
+  // still returns 200, and the chart draws one bar per distinct
+  // reading while the author believes they asked for a histogram.
+  it('passes bin through to the engine', async () => {
+    const { service, aggregateFeatures } = makeAggService();
+    const bin = { field: 'iron', mode: 'count' as const, count: 20 };
+
+    await service.aggregateFeatures(ITEM_ID, LAYER_ID, {
+      aggs: [{ op: 'count', as: 'count' }],
+      bin,
+    });
+
+    expect(aggregateFeatures.mock.calls[0]![0]).toMatchObject({ bin });
+  });
+
+  it('passes via through to the engine', async () => {
+    const { service, aggregateFeatures } = makeAggService();
+    const via = {
+      myField: 'site_id',
+      parentField: 'site_id',
+      parentItemId: ITEM_ID,
+      parentLayerId: LAYER_ID,
+    };
+
+    await service.aggregateFeatures(ITEM_ID, LAYER_ID, {
+      aggs: [{ op: 'count', as: 'count' }],
+      via,
+    });
+
+    expect(aggregateFeatures.mock.calls[0]![0]).toMatchObject({ via });
+  });
 });
 
 describe('DataLayerFeaturesService.calculateField scope', () => {

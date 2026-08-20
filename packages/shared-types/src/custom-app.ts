@@ -880,6 +880,62 @@ export interface IndicatorWidgetConfig {
   };
 }
 
+/**
+ * Numeric binning for a chart's category axis (#27).
+ *
+ * `groupBy` alone is categorical: it groups on the literal value of an
+ * attribute. On a measurement column that produces one group per
+ * distinct reading, which is a scatter of one-tall bars, not a
+ * distribution. Binning collapses a numeric field into ranges so the
+ * chart shows shape.
+ *
+ * This is the single biggest gap for a scientific reader, who wants
+ * the distribution rather than the average. Water quality data is
+ * strongly right-skewed; a mean of iron concentration says almost
+ * nothing that the histogram does not say better.
+ *
+ * Three modes, because three different things are known at authoring
+ * time:
+ *
+ *   - `count`: "about twenty bars, whatever the data range is". The
+ *     server measures the range and derives the edges. The default,
+ *     and the only one an author can pick without knowing the data.
+ *   - `width`: "one bar per 0.5 mg/L". For a field with a meaningful
+ *     natural unit, where round edges matter more than bar count.
+ *   - `edges`: explicit thresholds. Use this to make a histogram's
+ *     bars line up with a map's class breaks, so the chart and the
+ *     legend beside it are cutting at the same numbers.
+ */
+export type ChartBin =
+  | { field: string; mode: 'count'; count: number }
+  | { field: string; mode: 'width'; width: number }
+  | { field: string; mode: 'edges'; edges: number[] };
+
+/**
+ * A line drawn across a chart at a fixed value (#27).
+ *
+ * A limit line is how you read a water quality chart: the series is
+ * only meaningful against the standard it is being compared to, and a
+ * reader forced to hold "0.3 mg/L" in their head while scanning a
+ * y-axis is being asked to do the chart's job.
+ *
+ * `axis` says which way the line runs. 'value' is the usual case: a
+ * horizontal rule across a bar or line chart at that measure. On a
+ * binned chart 'category' draws it vertically at that position along
+ * the binned axis, which is how you show where a limit falls inside a
+ * distribution.
+ */
+export interface ChartReferenceLine {
+  value: number;
+  /** Caption drawn beside the line, e.g. "EPA limit 0.3 mg/L". */
+  label?: string;
+  /** Defaults to 'value'. 'category' requires a binned chart. */
+  axis?: 'value' | 'category';
+  /** Which side of the line is the good side. Drives colour only; a
+   *  neutral choice is 'none', which is also the default. */
+  goodWhen?: 'above' | 'below' | 'none';
+}
+
 export interface ChartWidgetConfig {
   kind: 'chart';
   /**
@@ -952,6 +1008,17 @@ export interface ChartWidgetConfig {
   aggregate?: 'count' | 'countDistinct' | 'sum' | 'avg' | 'min' | 'max';
   /** Numeric field for non-count aggregates. */
   valueField?: string;
+  /**
+   * Bin a numeric field into ranges instead of grouping on its literal
+   * value, turning the chart into a distribution. Adds one category
+   * level, so `bin` alone gives a histogram and `groupBy` + `bin`
+   * gives one histogram per category.
+   *
+   * Ignored by pie charts, where a range axis has no meaning.
+   */
+  bin?: ChartBin;
+  /** Fixed lines drawn across the chart: limits, targets, thresholds. */
+  referenceLines?: ChartReferenceLine[];
 }
 
 export interface SearchWidgetConfig {

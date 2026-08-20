@@ -58,7 +58,33 @@ export interface ParsedAggregateQuery {
   where?: MapLayerFilter;
   /** Relate scope, from `?via=`. */
   via?: ParsedVia;
+  /** Numeric binning, from `?bin=`. Adds one group level. */
+  bin?: ParsedBin;
 }
+
+/**
+ * Numeric binning: collapse a measurement column into ranges so the
+ * result describes a distribution rather than one group per distinct
+ * reading.
+ *
+ * Three modes because three different things are known when the
+ * request is built. `count` needs nothing but a bar count and lets the
+ * server measure the range; `width` fixes the bar size in the field's
+ * own unit; `edges` names the thresholds outright, which is how a
+ * histogram is made to cut at the same numbers as a map's class
+ * breaks.
+ */
+export type ParsedBin =
+  | { field: string; mode: 'count'; count: number }
+  | { field: string; mode: 'width'; width: number }
+  | { field: string; mode: 'edges'; edges: number[] };
+
+/**
+ * Ceiling on bars. Past a couple of hundred a histogram has more bars
+ * than the tile has pixels, and the cost is paid server-side either
+ * way, so the cap is on the request rather than on the render.
+ */
+export const MAX_BINS = 200;
 
 /**
  * Relate scope: narrow this layer to the rows whose `myField` appears
@@ -146,6 +172,95 @@ export function parseVia(raw: unknown): ParsedVia | undefined {
     );
   }
   return out;
+}
+
+/**
+ * Parse `?bin=` into a numeric binning spec.
+ *
+ * JSON in one parameter, same as `where` and `via`: the shape is a
+ * discriminated union whose `edges` arm carries an array, and every
+ * separator a flat encoding could use is a character a number can
+ * legitimately contain (`-`, `.`, `e`).
+ *
+ * Every arm is validated to the point where the engine can trust it,
+ * because the engine turns these numbers into SQL bucket boundaries. A
+ * non-finite edge would silently swallow a whole tail of the data into
+ * one bar.
+ */
+export function parseBin(raw: unknown): ParsedBin | undefined {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  if (Array.isArray(raw)) {
+    throw new BadRequestException('bin must appear once.');
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(String(raw));
+  } catch {
+    throw new BadRequestException(
+      'bin must be JSON, e.g. {"field":"iron","mode":"count","count":20}.',
+    );
+  }
+  if (typeof parsed !== 'object' || parsed === null) {
+    throw new BadRequestException('bin must be a JSON object.');
+  }
+  const o = parsed as Record<string, unknown>;
+  const field = o.field;
+  if (typeof field !== 'string' || field.length === 0) {
+    throw new BadRequestException('bin.field must be a non-empty string.');
+  }
+  const mode = o.mode;
+  if (mode === 'count') {
+    const n = Number(o.count);
+    if (!Number.isInteger(n) || n < 2 || n > MAX_BINS) {
+      throw new BadRequestException(
+        `bin.count must be a whole number between 2 and ${MAX_BINS}.`,
+      );
+    }
+    return { field, mode: 'count', count: n };
+  }
+  if (mode === 'width') {
+    const w = Number(o.width);
+    if (!Number.isFinite(w) || w <= 0) {
+      throw new BadRequestException('bin.width must be a positive number.');
+    }
+    return { field, mode: 'width', width: w };
+  }
+  if (mode === 'edges') {
+    if (!Array.isArray(o.edges)) {
+      throw new BadRequestException('bin.edges must be an array of numbers.');
+    }
+    if (o.edges.length < 1 || o.edges.length > MAX_BINS - 1) {
+      throw new BadRequestException(
+        `bin.edges must hold between 1 and ${MAX_BINS - 1} thresholds.`,
+      );
+    }
+    const edges = o.edges.map((e, i) => {
+      const n = Number(e);
+      if (!Number.isFinite(n)) {
+        throw new BadRequestException(
+          `bin.edges[${i}] must be a finite number.`,
+        );
+      }
+      return n;
+    });
+    // width_bucket requires ascending thresholds and raises on a
+    // duplicate. Sorting a caller's list silently would relabel their
+    // buckets; refusing tells them their class breaks are wrong, which
+    // is a thing they want to know.
+    for (let i = 1; i < edges.length; i += 1) {
+      if (edges[i]! <= edges[i - 1]!) {
+        throw new BadRequestException(
+          'bin.edges must be strictly ascending; ' +
+            `edges[${i}] (${edges[i]}) is not greater than edges[${i - 1}] ` +
+            `(${edges[i - 1]}).`,
+        );
+      }
+    }
+    return { field, mode: 'edges', edges };
+  }
+  throw new BadRequestException(
+    'bin.mode must be "count", "width", or "edges".',
+  );
 }
 
 const OPS = new Set<AggOp>([
@@ -298,6 +413,7 @@ export function parseAggregateQuery(query: {
   at?: unknown;
   where?: unknown;
   via?: unknown;
+  bin?: unknown;
 }): ParsedAggregateQuery {
   const rawAggs = toList(query.agg);
   if (rawAggs.length === 0) {
@@ -379,6 +495,21 @@ export function parseAggregateQuery(query: {
   const via = parseVia(query.via);
   if (via) out.via = via;
 
+  const bin = parseBin(query.bin);
+  if (bin) {
+    // The binned field becomes a group level, so a request that also
+    // names it in groupBy would produce two axes on the same column:
+    // one categorical, one binned. That is never what was meant, and
+    // the categorical one is a one-bar-per-reading scatter.
+    if (groupBy.includes(bin.field)) {
+      throw new BadRequestException(
+        `bin.field "${bin.field}" is already in groupBy. Binning adds ` +
+          'its own group level; drop it from groupBy.',
+      );
+    }
+    out.bin = bin;
+  }
+
   return out;
 }
 
@@ -400,6 +531,7 @@ export function rejectUnknownAggregateParams(keys: Iterable<string>): void {
     'at',
     'where',
     'via',
+    'bin',
   ]);
   const unknown = [...keys].filter((k) => !allowed.has(k));
   if (unknown.length > 0) {

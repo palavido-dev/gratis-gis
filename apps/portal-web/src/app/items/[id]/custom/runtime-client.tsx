@@ -59,6 +59,7 @@ import maplibregl from 'maplibre-gl';
 import * as ReactRecharts from 'recharts';
 import type {
   AppDataSource,
+  ChartReferenceLine,
   CustomAppData,
   CustomWidget,
   CustomWidgetKind,
@@ -108,9 +109,11 @@ import {
 } from '@/lib/use-auto-refresh';
 import {
   aggKey,
+  binFilterFor,
   defaultIndicatorLabel,
   fetchAggregate,
   formatAggregateValue,
+  formatBinLabel,
 } from '@/lib/layer-aggregate';
 import type { SelectToolMode } from '../map/select-tool';
 import { AttributeTable } from '../map/attribute-table';
@@ -344,10 +347,47 @@ export interface CrossFilterSelection {
   /** Source it applies to; only widgets on that source are affected. */
   sourceId: string;
   field: string;
-  /** Null selects the features with no value recorded for `field`. */
+  /**
+   * Identity of the selected thing, used both for display and to
+   * decide whether a second click on the same bar clears it. For a
+   * category it is that category (null = the features with no value
+   * recorded). For a histogram bar it is the bucket index, which is
+   * stable while the bar's numeric bounds are not.
+   */
   value: string | null;
   /** What to print on the chip, e.g. "Event type: Heavy Snow". */
   label: string;
+  /**
+   * The predicate this selection MEANS, when it is not a plain
+   * equality on `value`.
+   *
+   * A histogram bar selects a half-open range, not a value, and there
+   * is no single `value` that expresses `>= 0.3 AND < 1.0`. Set by
+   * the publisher so every consumer applies the same predicate; a
+   * consumer that re-derived it from `field` and `value` would filter
+   * on the bucket index and select nothing.
+   */
+  clauses?: MapLayerFilter['clauses'];
+}
+
+/**
+ * The filter clauses a selection stands for.
+ *
+ * One helper because three call sites need it (a source's scope, its
+ * parent's scope inside a relate, and the map's client-side
+ * expression) and they must not drift: a map showing a different
+ * subset than the chart that filtered it is the exact failure
+ * cross-filtering exists to avoid.
+ */
+function selectionClauses(
+  sel: Pick<CrossFilterSelection, 'field' | 'value' | 'clauses'>,
+): MapLayerFilter['clauses'] {
+  if (sel.clauses && sel.clauses.length > 0) return sel.clauses;
+  return [
+    sel.value === null
+      ? { field: sel.field, op: 'is-null', value: '' }
+      : { field: sel.field, op: '==', value: sel.value },
+  ];
 }
 
 interface CrossFilterCtx {
@@ -503,11 +543,7 @@ function useSourceScope(source: AppDataSource | undefined): SourceScope {
       ...(authorWhere?.clauses ?? []),
     ];
     if (selecting) {
-      clauses.push(
-        selecting.value === null
-          ? { field: selecting.field, op: 'is-null', value: '' }
-          : { field: selecting.field, op: '==', value: selecting.value },
-      );
+      clauses.push(...selectionClauses(selecting));
     }
     const out: SourceScope = { spatial: Boolean(bboxKey) };
     if (bboxKey) {
@@ -529,15 +565,7 @@ function useSourceScope(source: AppDataSource | undefined): SourceScope {
         ...(parent.where?.clauses ?? []),
       ];
       if (parentSelecting) {
-        parentClauses.push(
-          parentSelecting.value === null
-            ? { field: parentSelecting.field, op: 'is-null', value: '' }
-            : {
-                field: parentSelecting.field,
-                op: '==',
-                value: parentSelecting.value,
-              },
-        );
+        parentClauses.push(...selectionClauses(parentSelecting));
       }
       out.via = {
         myField: source.via.myField,
@@ -2125,13 +2153,11 @@ function MapWidgetRender({ widget }: { widget: CustomWidget }) {
   const mapData = useMemo(() => {
     if (!state) return null;
     if (!selection || !target) return state.mapData;
-    const clause = {
-      field: selection.field,
-      op: (selection.value === null ? 'is-null' : '==') as
-        | 'is-null'
-        | '==',
-      value: selection.value ?? '',
-    };
+    // The same clauses every other consumer applies. A histogram bar
+    // contributes two (>= lower, < upper) rather than one equality,
+    // which is why this asks the selection what it means instead of
+    // rebuilding a predicate from its field and value.
+    const clauses = selectionClauses(selection);
     // Match on the layer id, not the source shape. See
     // customTargetLayerId for why that distinction cost a bug.
     const targetLayerId = customTargetLayerId(target);
@@ -2146,7 +2172,10 @@ function MapWidgetRender({ widget }: { widget: CustomWidget }) {
         const existing = l.filter?.clauses ?? [];
         return {
           ...l,
-          filter: { combinator: 'all' as const, clauses: [...existing, clause] },
+          filter: {
+            combinator: 'all' as const,
+            clauses: [...existing, ...clauses],
+          },
         };
       }),
     };
@@ -4200,6 +4229,24 @@ interface FetchedFeatures {
 }
 
 /**
+ * One plotted category.
+ *
+ * `name` is what the axis prints and what a click reports back, so it
+ * doubles as the row's identity within the chart. A binned row carries
+ * three more things, because a range is not addressable by its label:
+ * `selectValue` is the bucket index a selection is keyed on,
+ * `clauses` is the predicate that bucket actually means, and `bin` is
+ * the numeric range a reference line is placed against.
+ */
+interface ChartRow {
+  name: string;
+  value: number;
+  selectValue?: string | null;
+  clauses?: MapLayerFilter['clauses'];
+  bin?: { lower: number | null; upper: number | null };
+}
+
+/**
  * Custom Web App's attribute-table widget. Phase 2 swaps the previous
  * minimal HTML table for the rich AttributeTable component from the
  * map item, so the panel that opens when the user clicks the
@@ -4616,8 +4663,11 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
   const scope = useSourceScope(source);
   const [state, setState] = useState<{
     loading: boolean;
-    rows: Array<{ name: string; value: number }>;
+    rows: ChartRow[];
     truncated: boolean;
+    /** Bin thresholds the server used, for placing a category-axis
+     *  reference line. Absent on a categorical chart. */
+    binEdges?: number[];
     error: string | null;
   }>({ loading: true, rows: [], truncated: false, error: null });
 
@@ -4625,6 +4675,12 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
   const valueField = cfg.valueField;
   const groupBy = cfg.groupBy;
   const chartType = cfg.chartType;
+  // A pie of ranges is a pie of a continuum, which reads as
+  // proportions of something that has none. Bar and line take bins;
+  // pie ignores them, and the designer says so.
+  const bin = chartType === 'pie' ? undefined : cfg.bin;
+  const binField = bin?.field;
+  const binKey = bin ? JSON.stringify(bin) : '';
   const followId = source?.followMapWidgetId || undefined;
   const bboxKey = scope.bbox ? scope.bbox.join(',') : '';
 
@@ -4642,11 +4698,13 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
     ? (source?.where ?? undefined)
     : scope.where;
   const whereKey = where ? JSON.stringify(where) : '';
-  const selectable = Boolean(groupBy);
+  // A binned chart is selectable too: its category is the bucket.
+  const selectable = Boolean(groupBy || binField);
+  const selectField = binField ?? groupBy;
   const activeValue =
     selection &&
     selection.widgetId === widget.id &&
-    selection.field === groupBy
+    selection.field === selectField
       ? selection.value
       : undefined;
 
@@ -4690,10 +4748,15 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
               : { op: 'count' },
           ],
           ...(groupBy ? { groupBy: [groupBy] } : {}),
+          ...(bin ? { bin } : {}),
           // Charts read a category axis; past a few dozen slices a
           // pie is unreadable anyway, and the server returns the top
-          // groups so the truncation is meaningful.
-          limit: 50,
+          // groups so the truncation is meaningful. A histogram gets
+          // more room because its bars are ordered along an axis
+          // rather than ranked, so dropping the tail would cut the
+          // distribution off rather than trim its least interesting
+          // groups.
+          limit: bin ? 250 : 50,
           ...(bboxKey
             ? {
                 bbox: bboxKey
@@ -4710,21 +4773,46 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
           valueField ? aggregate : 'count',
           valueField,
         );
-        const rows = res.groups.map((g) => ({
-          // Features with no value for the grouping field are a real
-          // category, not an error: "(no value)" says so without
-          // implying something went wrong.
-          name: groupBy ? (g.key[groupBy] ?? '(no value)') : 'All',
-          value: g.values[key] ?? 0,
-        }));
-        // Bars and pies read best largest-first; a line chart is
-        // usually ordinal, so it keeps the server's order.
-        if (chartType !== 'line') rows.sort((a, b) => b.value - a.value);
-        else rows.sort((a, b) => a.name.localeCompare(b.name));
+        const rows: ChartRow[] = res.groups.map((g) => {
+          const value = g.values[key] ?? 0;
+          if (binField) {
+            // The bucket's range is the label; its index is the
+            // identity a click publishes. Both come from the server so
+            // the axis cannot disagree with the bars.
+            const row: ChartRow = {
+              name: formatBinLabel(g.bin),
+              value,
+              selectValue: g.key[binField] ?? null,
+            };
+            const clauses = binFilterFor(binField, g.bin);
+            if (clauses) row.clauses = clauses.clauses;
+            if (g.bin) row.bin = g.bin;
+            return row;
+          }
+          return {
+            // Features with no value for the grouping field are a real
+            // category, not an error: "(no value)" says so without
+            // implying something went wrong.
+            name: groupBy ? (g.key[groupBy] ?? '(no value)') : 'All',
+            value,
+          };
+        });
+        // A histogram keeps the server's order, which is bin
+        // ascending: sorting it by height would destroy the shape that
+        // is the entire point. Bars and pies otherwise read best
+        // largest-first; a line chart is usually ordinal.
+        if (binField) {
+          /* server order is the axis order */
+        } else if (chartType !== 'line') {
+          rows.sort((a, b) => b.value - a.value);
+        } else {
+          rows.sort((a, b) => a.name.localeCompare(b.name));
+        }
         setState({
           loading: false,
           rows,
           truncated: res.truncated,
+          ...(res.binEdges ? { binEdges: res.binEdges } : {}),
           error: null,
         });
       } catch (err) {
@@ -4742,7 +4830,7 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
     // every render would re-fetch forever.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target, appAt, aggregate, valueField, groupBy, chartType, bboxKey,
-      whereKey, refreshTick]);
+      whereKey, binKey, refreshTick]);
 
   // A generated title beats "Chart": it names the measure and the
   // grouping, which is exactly what the reader needs to interpret the
@@ -4753,8 +4841,12 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
       : `${aggregate[0]!.toUpperCase()}${aggregate.slice(1)} of ${valueField}`;
   const title =
     cfg.title?.trim() ||
-    (groupBy ? `${measureLabel} by ${groupBy}` : measureLabel);
-  const xLabel = cfg.xAxisLabel?.trim() || groupBy || '';
+    (binField
+      ? `${measureLabel} by ${binField}`
+      : groupBy
+        ? `${measureLabel} by ${groupBy}`
+        : measureLabel);
+  const xLabel = cfg.xAxisLabel?.trim() || binField || groupBy || '';
   const yLabel = cfg.yAxisLabel?.trim() || measureLabel;
 
   // Clicking a category publishes it as the page's selection. The
@@ -4762,18 +4854,31 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
   // too, as the features with nothing recorded for that field.
   const onPick = useCallback(
     (name: string) => {
-      if (!groupBy) return;
-      const value = name === '(no value)' ? null : name;
-      if (!source) return;
+      if (!selectField || !source) return;
+      const row = state.rows.find((r) => r.name === name);
+      // A histogram bar carries its own predicate, because a bucket is
+      // a range and no single value expresses one. The categorical
+      // path keeps its old behaviour: the label IS the value, and
+      // "(no value)" selects the features with nothing recorded.
+      const value = binField
+        ? (row?.selectValue ?? null)
+        : name === '(no value)'
+          ? null
+          : name;
+      // The no-value bucket of a binned axis has no range to select,
+      // so clicking it would otherwise publish a filter that matches
+      // everything.
+      if (binField && !row?.clauses) return;
       toggle({
         widgetId: widget.id,
         sourceId: source.id,
-        field: groupBy,
+        field: selectField,
         value,
-        label: `${xLabel || groupBy}: ${name}`,
+        label: `${xLabel || selectField}: ${name}`,
+        ...(row?.clauses ? { clauses: row.clauses } : {}),
       });
     },
-    [groupBy, toggle, widget.id, source, xLabel],
+    [selectField, binField, toggle, widget.id, source, xLabel, state.rows],
   );
 
   return (
@@ -4810,7 +4915,7 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
                 toggle({
                   widgetId: widget.id,
                   sourceId: source!.id,
-                  field: groupBy!,
+                  field: selectField!,
                   value: activeValue,
                   label: '',
                 })
@@ -4818,7 +4923,15 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
               className="ml-1 rounded-full border border-[hsl(var(--app-accent))] px-1.5 align-middle text-[hsl(var(--app-accent))] hover:bg-[hsl(var(--app-accent)/0.1)]"
             >
               Showing only{' '}
-              {activeValue === null ? '(no value)' : activeValue}
+              {/* On a binned axis the selection's value is a bucket
+                  index, which means nothing to a reader. Print the
+                  bar's own range label instead. */}
+              {activeValue === null
+                ? '(no value)'
+                : (binField
+                    ? state.rows.find((r) => r.selectValue === activeValue)
+                        ?.name
+                    : undefined) || activeValue}
               {' ×'}
             </button>
           ) : null}
@@ -4862,13 +4975,26 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
                 xLabel={xLabel}
                 yLabel={yLabel}
                 {...(selectable ? { onPick } : {})}
-                activeName={activeValue === null ? '(no value)' : activeValue}
+                activeName={
+                  activeValue === null
+                    ? '(no value)'
+                    : binField
+                      ? state.rows.find((r) => r.selectValue === activeValue)
+                          ?.name
+                      : activeValue
+                }
+                {...(cfg.referenceLines?.length
+                  ? { referenceLines: cfg.referenceLines }
+                  : {})}
+                {...(state.binEdges ? { binEdges: state.binEdges } : {})}
               />
             </div>
           </div>
           {state.truncated ? (
             <p className="px-2 pb-1 text-2xs text-[hsl(var(--app-muted))]">
-              Showing the 50 largest groups.
+              {binField
+                ? 'Showing the first 250 ranges.'
+                : 'Showing the 50 largest groups.'}
             </p>
           ) : null}
         </div>
@@ -5145,8 +5271,10 @@ function ChartPlot({
   yLabel,
   onPick,
   activeName,
+  referenceLines,
+  binEdges,
 }: {
-  rows: Array<{ name: string; value: number }>;
+  rows: ChartRow[];
   kind: 'bar' | 'bar-horizontal' | 'line' | 'pie';
   xLabel?: string;
   yLabel?: string;
@@ -5162,6 +5290,11 @@ function ChartPlot({
    * string names a category.
    */
   activeName?: string | null | undefined;
+  /** Limits and targets drawn across the plot. */
+  referenceLines?: ChartReferenceLine[];
+  /** Bin thresholds, when the category axis is a binned one. Only
+   *  needed to place a category-axis reference line. */
+  binEdges?: number[];
 }) {
   // Imports stay top-level on the file (recharts is ESM, Next
   // bundlers handle it). The components are referenced only inside
@@ -5228,6 +5361,74 @@ function ChartPlot({
   // axis's own width, so a default-width axis prints the caption on
   // top of its numbers.
   const valueAxisWidth = compact ? 56 : 48;
+
+  /**
+   * Reference lines, as recharts elements for the given orientation.
+   *
+   * `orient` is which screen direction the VALUE axis runs, so the
+   * caller says how its chart is laid out rather than this having to
+   * infer it: a horizontal bar chart measures along x, everything else
+   * along y.
+   *
+   * A 'category' line on a binned axis snaps to the bucket that
+   * CONTAINS the value, because a recharts category axis is discrete
+   * and has no fractional position. The line therefore lands at that
+   * bar's centre rather than at the exact number, and the label says
+   * the number so the reader is not asked to infer it from the
+   * position. A truly positioned line needs a numeric x-axis, which is
+   * the proper shape for a histogram and a larger change than this.
+   */
+  const refLines = (orient: 'x' | 'y'): React.ReactNode[] =>
+    (referenceLines ?? []).flatMap((r, i) => {
+      if (!Number.isFinite(r.value)) return [];
+      const stroke =
+        r.goodWhen === 'above'
+          ? '#dc2626'
+          : r.goodWhen === 'below'
+            ? '#dc2626'
+            : 'hsl(var(--app-muted))';
+      const label = {
+        value: r.label?.trim() || fmt(r.value),
+        position: 'insideTopRight' as const,
+        fontSize: 10,
+        fill: stroke,
+      };
+      if ((r.axis ?? 'value') === 'value') {
+        const props =
+          orient === 'x' ? { x: r.value } : { y: r.value };
+        return [
+          <Recharts.ReferenceLine
+            key={`ref-${i}`}
+            {...props}
+            stroke={stroke}
+            strokeDasharray="4 3"
+            strokeWidth={1.5}
+            label={label}
+          />,
+        ];
+      }
+      // Category axis: only meaningful on a binned chart.
+      if (!binEdges) return [];
+      const bucket = rows.find(
+        (row) =>
+          row.bin &&
+          (row.bin.lower === null || r.value >= row.bin.lower) &&
+          (row.bin.upper === null || r.value < row.bin.upper),
+      );
+      if (!bucket) return [];
+      const props =
+        orient === 'x' ? { y: bucket.name } : { x: bucket.name };
+      return [
+        <Recharts.ReferenceLine
+          key={`ref-${i}`}
+          {...props}
+          stroke={stroke}
+          strokeDasharray="4 3"
+          strokeWidth={1.5}
+          label={label}
+        />,
+      ];
+    });
 
   if (kind === 'pie') {
     // A pie is only readable while its slices are distinguishable, and
@@ -5340,6 +5541,7 @@ function ChartPlot({
               : {})}
           />
           <Recharts.Tooltip />
+          {refLines('y')}
           <Recharts.Line
             type="monotone"
             dataKey="value"
@@ -5404,6 +5606,7 @@ function ChartPlot({
               : {})}
           />
           <Recharts.Tooltip />
+          {refLines('x')}
           <Recharts.Bar
             dataKey="value"
             fill={palette[0]!}
@@ -5452,6 +5655,7 @@ function ChartPlot({
             : {})}
         />
         <Recharts.Tooltip />
+        {refLines('y')}
         <Recharts.Bar
           dataKey="value"
           fill={palette[0]!}

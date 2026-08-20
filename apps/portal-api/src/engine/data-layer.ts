@@ -316,6 +316,102 @@ const AGG_MAX_GROUP_KEYS = 4;
 const AGG_MAX_AGGS = 8;
 
 /**
+ * Ceiling on histogram bars (#27). Mirrors MAX_BINS in
+ * aggregate-params so the HTTP surface and the engine agree; the
+ * engine re-clamps because a caller that is not the controller (a
+ * derived-layer tool, a future MCP surface) still must not be able to
+ * ask for fifty thousand buckets.
+ */
+const AGG_MAX_BINS = 200;
+
+/**
+ * Numeric binning for `aggregateFeatures`. See ParsedBin in
+ * aggregate-params for what each mode is for.
+ */
+export type AggregateBin =
+  | { field: string; mode: 'count'; count: number }
+  | { field: string; mode: 'width'; width: number }
+  | { field: string; mode: 'edges'; edges: number[] };
+
+/**
+ * One bucket of a binned axis, half-open `[lower, upper)`.
+ *
+ * The outermost buckets are unbounded and report null on their open
+ * side, which is not the same as "no data": `{lower: null, upper: 0.3}`
+ * means everything below the first threshold, and on a censored
+ * measurement column that bucket is usually the biggest one. A client
+ * that renders null as an empty label rather than "under 0.3" throws
+ * away the most populated bar.
+ */
+export interface AggregateBinRange {
+  lower: number | null;
+  upper: number | null;
+}
+
+/**
+ * Turn a bin spec into the ascending threshold list the SQL uses.
+ *
+ * `edges` is already that list. `count` and `width` are relative to
+ * the data, so they need the field's observed range, which the caller
+ * supplies by measuring it through the same scoped, ghost-safe read
+ * the aggregate itself uses. Deriving the range any other way would
+ * let a histogram's axis disagree with its own bars.
+ *
+ * Returns null when the range cannot support bins at all: no numeric
+ * values, or every value identical. A single-valued column has no
+ * distribution to show, and inventing one bucket around it says less
+ * than reporting nothing.
+ */
+export function resolveBinEdges(
+  bin: AggregateBin,
+  bounds: { min: number | null; max: number | null },
+): number[] | null {
+  if (bin.mode === 'edges') return bin.edges;
+  const { min, max } = bounds;
+  if (min === null || max === null || !Number.isFinite(min) || !Number.isFinite(max)) {
+    return null;
+  }
+  if (max <= min) return null;
+  if (bin.mode === 'count') {
+    const n = Math.min(Math.max(Math.floor(bin.count), 2), AGG_MAX_BINS);
+    const width = (max - min) / n;
+    // n buckets need n-1 interior thresholds: bucket 0 is everything
+    // below the first, bucket n-1 everything from the last up. The
+    // outer two absorb min and max without a separate clamp, which is
+    // why this builds edges rather than calling width_bucket's
+    // four-argument form (that form emits n+2 buckets and puts the
+    // maximum value alone in the overflow one).
+    return Array.from({ length: n - 1 }, (_, i) => min + width * (i + 1));
+  }
+  // width mode: round edges in the field's own unit, anchored at a
+  // multiple of the width rather than at the observed minimum, so two
+  // charts of the same field over different filters line up.
+  const start = Math.floor(min / bin.width) * bin.width;
+  const span = max - start;
+  const needed = Math.ceil(span / bin.width);
+  if (!Number.isFinite(needed) || needed < 1) return null;
+  const n = Math.min(needed, AGG_MAX_BINS);
+  return Array.from({ length: n }, (_, i) => start + bin.width * (i + 1));
+}
+
+/**
+ * Bucket index to its half-open range, given the thresholds.
+ *
+ * width_bucket returns 0 for "below the first threshold" and
+ * `edges.length` for "at or above the last", so both ends are
+ * unbounded by construction.
+ */
+export function binRangeFor(
+  index: number,
+  edges: readonly number[],
+): AggregateBinRange {
+  return {
+    lower: index === 0 ? null : (edges[index - 1] ?? null),
+    upper: index >= edges.length ? null : (edges[index] ?? null),
+  };
+}
+
+/**
  * Attribute names are bound as JSONB path PARAMETERS
  * (`attrs->>$1`), never interpolated as identifiers, so this shape
  * check is for error legibility rather than injection safety. Keep
@@ -2065,14 +2161,32 @@ export class DataLayerEngine {
       };
       parentGeoLimit?: GeoJsonGeometry;
     };
+    /**
+     * Bin a numeric attribute into ranges and add it as the LAST group
+     * level, turning the result into a distribution. `count` and
+     * `width` modes measure the field's range first, through this same
+     * method, so the axis can never disagree with the bars it labels.
+     */
+    bin?: AggregateBin;
     /** Max groups returned. Server clamps to AGG_GROUP_CAP. */
     limit?: number;
   }): Promise<{
     groups: Array<{
       key: Record<string, string | null>;
       values: Record<string, number | null>;
+      /** Present only on a binned request. Half-open [lower, upper). */
+      bin?: AggregateBinRange;
     }>;
     truncated: boolean;
+    /**
+     * The thresholds actually used, ascending. Present on a binned
+     * request so a client can label an axis, place a reference line, or
+     * build a cross-filter without re-deriving edges the server already
+     * computed from the data. Absent when the range could not support
+     * bins; `groups` is then empty and the widget should say why rather
+     * than draw an empty chart.
+     */
+    binEdges?: number[];
   }> {
     validateGeoJson(args.geoLimit);
     validateGeoJson(args.boundaryClip);
@@ -2096,9 +2210,59 @@ export class DataLayerEngine {
     for (const name of [
       ...groupBy,
       ...args.aggs.map((a) => a.field).filter((f): f is string => !!f),
+      ...(args.bin ? [args.bin.field] : []),
     ]) {
       if (!ATTR_NAME_RE.test(name)) {
         throw new Error(`Invalid attribute name: ${name}`);
+      }
+    }
+
+    // Resolve the bin thresholds BEFORE building the query, because
+    // 'count' and 'width' need the field's observed range and the only
+    // honest source of that range is the same scoped read the bars
+    // come from. Recursing rather than hand-writing a bounds query is
+    // deliberate: geo limits, own-rows-only, where, via and the
+    // ghost-safe collapse all have to apply identically, and a second
+    // copy of that logic would drift.
+    let binEdges: number[] | null = null;
+    if (args.bin) {
+      if (args.bin.mode === 'edges') {
+        binEdges = args.bin.edges.slice(0, AGG_MAX_BINS - 1);
+      } else {
+        const bounds = await this.aggregateFeatures({
+          itemId: args.itemId,
+          layerId: args.layerId,
+          // The resolved instant, not args.asOf: an unset asOf defaults
+          // to now independently in each call, and a histogram whose
+          // axis was measured a millisecond apart from its bars is the
+          // kind of inconsistency this endpoint exists to prevent.
+          asOf,
+          ...(args.bbox !== undefined ? { bbox: args.bbox } : {}),
+          ...(args.geoLimit !== undefined ? { geoLimit: args.geoLimit } : {}),
+          ...(args.boundaryClip !== undefined
+            ? { boundaryClip: args.boundaryClip }
+            : {}),
+          ...(args.ownRowsOnly !== undefined
+            ? { ownRowsOnly: args.ownRowsOnly }
+            : {}),
+          ...(args.where !== undefined ? { where: args.where } : {}),
+          ...(args.via !== undefined ? { via: args.via } : {}),
+          aggs: [
+            { op: 'min', field: args.bin.field, as: 'lo' },
+            { op: 'max', field: args.bin.field, as: 'hi' },
+          ],
+        });
+        const row = bounds.groups[0]?.values ?? {};
+        binEdges = resolveBinEdges(args.bin, {
+          min: row.lo ?? null,
+          max: row.hi ?? null,
+        });
+      }
+      if (binEdges === null || binEdges.length === 0) {
+        // No usable range: no numeric values, or every value the same.
+        // Returning an empty result with no edges is the honest answer;
+        // a single bucket spanning one value would look like a finding.
+        return { groups: [], truncated: false };
       }
     }
 
@@ -2192,6 +2356,30 @@ export class DataLayerEngine {
       (name, i) => Prisma.sql`attrs->>${name} AS ${Prisma.raw(`g${i}`)}`,
     );
     const groupRefs = groupBy.map((_, i) => Prisma.raw(`g${i}`));
+    // The binned axis is one more group level, appended last so an
+    // existing categorical groupBy keeps its positions and the result
+    // reads as "per category, the distribution".
+    //
+    // width_bucket over an explicit threshold array gives edges.length
+    // + 1 buckets: 0 for below the first, edges.length for at or above
+    // the last. Both ends are therefore unbounded, which is what a real
+    // measurement column needs; a censored or outlier-heavy field would
+    // otherwise silently drop its tails.
+    //
+    // The same pg_input_is_valid guard the numeric aggregates use: a
+    // non-numeric value bins to NULL rather than raising 22P02 and
+    // taking down the whole panel.
+    const binAlias = `g${groupBy.length}`;
+    if (binEdges) {
+      groupSelect.push(
+        Prisma.sql`width_bucket(
+          CASE WHEN pg_input_is_valid(attrs->>${args.bin!.field}, 'double precision')
+            THEN (attrs->>${args.bin!.field})::double precision END,
+          ${binEdges}::double precision[]
+        ) AS ${Prisma.raw(binAlias)}`,
+      );
+      groupRefs.push(Prisma.raw(binAlias));
+    }
     const aggSelect = args.aggs.map((a, i) => {
       const alias = Prisma.raw(`a${i}`);
       if (a.op === 'count') return Prisma.sql`COUNT(*)::double precision AS ${alias}`;
@@ -2237,8 +2425,14 @@ export class DataLayerEngine {
     // truncated result is the TOP N rather than an arbitrary N. That
     // is what makes the cap defensible: the interesting groups are
     // the big ones, and the widget can honestly say "top N".
-    const orderClause =
-      groupRefs.length > 0
+    //
+    // A binned result orders by bucket instead. A histogram sorted by
+    // height is not a histogram, and sorting by count would also make
+    // truncation drop scattered buckets out of the middle of the
+    // distribution rather than off one end.
+    const orderClause = binEdges
+      ? Prisma.sql`ORDER BY ${Prisma.join(groupRefs, ', ')} ASC NULLS LAST`
+      : groupRefs.length > 0
         ? Prisma.sql`ORDER BY ${Prisma.raw('a0')} DESC NULLS LAST`
         : Prisma.empty;
     const fetchN = cap + 1;
@@ -2304,9 +2498,30 @@ export class DataLayerEngine {
           values[a.as] =
             v === null || v === undefined ? null : Number(v);
         });
-        return { key, values };
+        if (!binEdges) return { key, values };
+        // The bucket INDEX is the key, not a formatted range: it is
+        // stable, it sorts, and it is what a cross-filter needs to
+        // address a bar. The numbers travel beside it so the client can
+        // format the label in its own locale and units. A row whose
+        // value was not numeric bins to NULL and is reported as such
+        // rather than folded into a neighbouring bar.
+        const rawIndex = r[binAlias];
+        const idx =
+          rawIndex === null || rawIndex === undefined
+            ? null
+            : Number(rawIndex);
+        key[args.bin!.field] = idx === null ? null : String(idx);
+        return {
+          key,
+          values,
+          bin:
+            idx === null
+              ? { lower: null, upper: null }
+              : binRangeFor(idx, binEdges),
+        };
       }),
       truncated,
+      ...(binEdges ? { binEdges } : {}),
     };
   }
 

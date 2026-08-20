@@ -15,9 +15,40 @@ import { DerivedLayerCacheRefreshService } from '../derived-layers/cache-refresh
 import { ItemBboxRefreshService } from '../items/item-bbox-refresh.service.js';
 import {
   DataLayerEngine,
+  type AggregateBin,
   type CreateFeatureArgs,
   type TileResult,
 } from '../engine/data-layer.js';
+
+/**
+ * A relate as the engine takes it: the parent layer's identity plus
+ * the parent's own scope, already authorized by whichever controller
+ * built it.
+ *
+ * Exported and shared rather than redeclared per controller. The
+ * authenticated endpoint and the anonymous mirror have to agree about
+ * this shape exactly, and the one time they did not, `via` parsed
+ * cleanly on the anonymous side and was then dropped, so the endpoint
+ * answered 200 with whole-layer numbers for a request that believed
+ * it was scoped.
+ *
+ * The caller MUST have checked read access on the parent and folded
+ * the parent's geo limit into `parentGeoLimit` before handing this
+ * over. The engine reads a layer the request never named; skipping
+ * that check turns a relate into a side channel.
+ */
+export interface EngineVia {
+  myField: string;
+  parentField: string;
+  parentItemId: string;
+  parentLayerId: string;
+  parentBbox?: [number, number, number, number];
+  parentWhere?: {
+    combinator: 'all' | 'any';
+    clauses: Array<{ field: string; op: string; value: string }>;
+  };
+  parentGeoLimit?: GeoJsonGeometry;
+}
 
 /**
  * Per-layer feature CRUD for v3 data_layer items.
@@ -453,18 +484,13 @@ export class DataLayerFeaturesService {
        * key has to exist in BOTH this type and the spread below or
        * it is silently dropped.
        */
-      via?: {
-        myField: string;
-        parentField: string;
-        parentItemId: string;
-        parentLayerId: string;
-        parentBbox?: [number, number, number, number];
-        parentWhere?: {
-          combinator: 'all' | 'any';
-          clauses: Array<{ field: string; op: string; value: string }>;
-        };
-        parentGeoLimit?: GeoJsonGeometry;
-      };
+      via?: EngineVia;
+      /**
+       * Numeric binning. Same rule as `where` and `via` above: named
+       * in this type AND spread below, or it vanishes and the chart
+       * draws one bar per distinct reading while reporting success.
+       */
+      bin?: AggregateBin;
       limit?: number;
       asOf?: Date;
     },
@@ -478,6 +504,7 @@ export class DataLayerFeaturesService {
       ...(args.bbox !== undefined ? { bbox: args.bbox } : {}),
       ...(args.where !== undefined ? { where: args.where } : {}),
       ...(args.via !== undefined ? { via: args.via } : {}),
+      ...(args.bin !== undefined ? { bin: args.bin } : {}),
       ...(args.geoLimit !== undefined
         ? { geoLimit: args.geoLimit as GeoJsonGeometry }
         : {}),

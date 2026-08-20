@@ -53,6 +53,7 @@ import type { LucideIcon } from 'lucide-react';
 import type {
   AppDataSource,
   BasemapData,
+  ChartReferenceLine,
   CustomAppData,
   CustomLayout,
   CustomPage,
@@ -7863,6 +7864,299 @@ function measureFieldLabel(op: string): { label: string; hint: string } | null {
 }
 
 /**
+ * Distribution controls (#27).
+ *
+ * Binning is a second, alternative category axis, so it sits under
+ * "Group by" and says plainly that turning it on replaces it. An
+ * author who set both would otherwise get an error from the server,
+ * which is a worse way to learn that the two mean the same slot.
+ *
+ * Only numeric fields are offered. Binning a text column produces one
+ * bucket holding everything, which looks like a broken chart rather
+ * than like the wrong field.
+ */
+function ChartBinEditor({
+  config,
+  canEdit,
+  fields,
+  onChangeConfig,
+}: {
+  config: Extract<CustomWidget['config'], { kind: 'chart' }>;
+  canEdit: boolean;
+  fields: Array<{ name: string }>;
+  onChangeConfig: (patch: Record<string, unknown>) => void;
+}) {
+  const bin = config.bin;
+  const mode = bin?.mode ?? 'count';
+  return (
+    <div className="rounded-md border border-border p-2">
+      <Field
+        label="Distribution (bin a number)"
+        hint={
+          fields.length === 0
+            ? 'This layer has no numeric fields to bin.'
+            : 'Groups a measurement into ranges so the chart shows its shape. Replaces Group by.'
+        }
+      >
+        <select
+          value={bin?.field ?? ''}
+          disabled={!canEdit || fields.length === 0}
+          onChange={(e) => {
+            const field = e.target.value;
+            if (!field) {
+              onChangeConfig({ bin: undefined });
+              return;
+            }
+            // Binning owns the category axis. Clearing groupBy here
+            // rather than letting the request fail keeps the two from
+            // ever being set at once.
+            onChangeConfig({
+              bin: { field, mode: 'count', count: 20 },
+              groupBy: undefined,
+            });
+          }}
+          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+        >
+          <option value="">(off, group by a category instead)</option>
+          {fields.map((f) => (
+            <option key={f.name} value={f.name}>
+              {f.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {bin ? (
+        <div className="mt-2 space-y-2">
+          <Field label="Ranges">
+            <select
+              value={mode}
+              disabled={!canEdit}
+              onChange={(e) => {
+                const next = e.target.value;
+                if (next === 'count') {
+                  onChangeConfig({
+                    bin: { field: bin.field, mode: 'count', count: 20 },
+                  });
+                } else if (next === 'width') {
+                  onChangeConfig({
+                    bin: { field: bin.field, mode: 'width', width: 1 },
+                  });
+                } else {
+                  onChangeConfig({
+                    bin: { field: bin.field, mode: 'edges', edges: [1, 5, 10] },
+                  });
+                }
+              }}
+              className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+            >
+              <option value="count">A number of equal ranges</option>
+              <option value="width">A fixed range size</option>
+              <option value="edges">Ranges I choose</option>
+            </select>
+          </Field>
+          {bin.mode === 'count' ? (
+            <Field
+              label="How many ranges"
+              hint="The portal measures the field and splits its range evenly."
+            >
+              <input
+                type="number"
+                min={2}
+                max={200}
+                value={bin.count}
+                disabled={!canEdit}
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  if (!Number.isFinite(n)) return;
+                  onChangeConfig({
+                    bin: {
+                      field: bin.field,
+                      mode: 'count',
+                      count: Math.min(200, Math.max(2, Math.round(n))),
+                    },
+                  });
+                }}
+                className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+              />
+            </Field>
+          ) : bin.mode === 'width' ? (
+            <Field
+              label="Range size"
+              hint="In the field's own units, e.g. 0.5 for half a milligram per litre."
+            >
+              <input
+                type="number"
+                min={0}
+                step="any"
+                value={bin.width}
+                disabled={!canEdit}
+                onChange={(e) => {
+                  const w = Number(e.target.value);
+                  if (!Number.isFinite(w) || w <= 0) return;
+                  onChangeConfig({
+                    bin: { field: bin.field, mode: 'width', width: w },
+                  });
+                }}
+                className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+              />
+            </Field>
+          ) : (
+            <Field
+              label="Range edges"
+              hint="Ascending, comma separated. Use the same numbers as your map's classes and the chart will cut where the legend does."
+            >
+              <input
+                type="text"
+                defaultValue={bin.edges.join(', ')}
+                disabled={!canEdit}
+                onBlur={(e) => {
+                  const edges = e.target.value
+                    .split(',')
+                    .map((s) => Number(s.trim()))
+                    .filter((n) => Number.isFinite(n));
+                  // Ascending and de-duplicated, because the server
+                  // refuses anything else and an author typing a list
+                  // out of order should get a working chart, not an
+                  // error about thresholds.
+                  const sorted = [...new Set(edges)].sort((a, b) => a - b);
+                  if (sorted.length === 0) return;
+                  onChangeConfig({
+                    bin: { field: bin.field, mode: 'edges', edges: sorted },
+                  });
+                }}
+                className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+                placeholder="0.3, 1, 5, 10"
+              />
+            </Field>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Reference-line editor (#27).
+ *
+ * A limit line is how a reader interprets a measurement chart: the
+ * series only means something against the standard it is compared to.
+ * The label is deliberately free text rather than a generated
+ * "Reference 0.3", because what matters is whose limit it is.
+ */
+function ChartReferenceLinesEditor({
+  config,
+  canEdit,
+  onChangeConfig,
+}: {
+  config: Extract<CustomWidget['config'], { kind: 'chart' }>;
+  canEdit: boolean;
+  onChangeConfig: (patch: Record<string, unknown>) => void;
+}) {
+  const lines = config.referenceLines ?? [];
+  const update = (next: ChartReferenceLine[]): void => {
+    onChangeConfig({ referenceLines: next.length > 0 ? next : undefined });
+  };
+  if (config.chartType === 'pie') return null;
+  return (
+    <div className="rounded-md border border-border p-2">
+      <div className="mb-1 flex items-center justify-between">
+        <p className="text-xs font-medium text-ink-1">Reference lines</p>
+        <button
+          type="button"
+          disabled={!canEdit}
+          onClick={() =>
+            update([...lines, { value: 0, label: '', axis: 'value' }])
+          }
+          className="rounded border border-border px-1.5 py-0.5 text-2xs hover:bg-surface-2 disabled:opacity-50"
+        >
+          Add
+        </button>
+      </div>
+      {lines.length === 0 ? (
+        <p className="text-2xs text-muted">
+          Draw a limit, target, or threshold across the chart so a
+          reader can see at a glance which values clear it.
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {lines.map((line, i) => (
+            <li key={i} className="space-y-1 rounded border border-border/60 p-1.5">
+              <div className="flex gap-1">
+                <input
+                  type="number"
+                  step="any"
+                  value={line.value}
+                  disabled={!canEdit}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    if (!Number.isFinite(v)) return;
+                    update(
+                      lines.map((l, j) => (j === i ? { ...l, value: v } : l)),
+                    );
+                  }}
+                  className="w-20 rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+                  placeholder="0.3"
+                />
+                <input
+                  type="text"
+                  value={line.label ?? ''}
+                  disabled={!canEdit}
+                  onChange={(e) => {
+                    const text = e.target.value;
+                    update(
+                      lines.map((l, j) => {
+                        if (j !== i) return l;
+                        // Under exactOptionalPropertyTypes an absent
+                        // `label` and a `label: undefined` are
+                        // different types, so an empty box has to
+                        // DELETE the key rather than blank it.
+                        const { label: _drop, ...rest } = l;
+                        return text ? { ...rest, label: text } : rest;
+                      }),
+                    );
+                  }}
+                  className="min-w-0 flex-1 rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+                  placeholder="EPA limit"
+                />
+                <button
+                  type="button"
+                  disabled={!canEdit}
+                  onClick={() => update(lines.filter((_, j) => j !== i))}
+                  className="rounded border border-border px-1.5 text-2xs hover:bg-surface-2 disabled:opacity-50"
+                >
+                  Remove
+                </button>
+              </div>
+              {config.bin ? (
+                <select
+                  value={line.axis ?? 'value'}
+                  disabled={!canEdit}
+                  onChange={(e) =>
+                    update(
+                      lines.map((l, j) =>
+                        j === i
+                          ? { ...l, axis: e.target.value as 'value' | 'category' }
+                          : l,
+                      ),
+                    )
+                  }
+                  className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-2xs"
+                >
+                  <option value="value">Across the measure axis</option>
+                  <option value="category">
+                    At this point along the ranges
+                  </option>
+                </select>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
  * Chart inspector. Replaces the "ships after the runtime" placeholder
  * that shipped with the chart widget: without a group-by picker the
  * widget could only ever render one bar, which is why no dashboard
@@ -7944,16 +8238,18 @@ function ChartWidgetConfigEditor({
             ? 'Reading the layer schema…'
             : fields.length === 0
               ? 'Bind a target layer to choose a field.'
-              : 'One bar or slice per distinct value of this field.'
+              : config.bin
+                ? `Turned off: the chart is binning ${config.bin.field} into ranges instead.`
+                : 'One bar or slice per distinct value of this field.'
         }
       >
         <select
-          value={config.groupBy ?? ''}
-          disabled={!canEdit || fields.length === 0}
+          value={config.bin ? '' : (config.groupBy ?? '')}
+          disabled={!canEdit || fields.length === 0 || Boolean(config.bin)}
           onChange={(e) =>
             onChangeConfig({ groupBy: e.target.value || undefined })
           }
-          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs disabled:opacity-60"
         >
           <option value="">(everything in one group)</option>
           {fields.map((f) => (
@@ -8006,6 +8302,19 @@ function ChartWidgetConfigEditor({
           </select>
         </Field>
       ) : null}
+      {config.chartType !== 'pie' ? (
+        <ChartBinEditor
+          config={config}
+          canEdit={canEdit}
+          fields={numeric}
+          onChangeConfig={onChangeConfig}
+        />
+      ) : null}
+      <ChartReferenceLinesEditor
+        config={config}
+        canEdit={canEdit}
+        onChangeConfig={onChangeConfig}
+      />
       {config.chartType !== 'pie' ? (
         <div className="grid grid-cols-2 gap-2">
           <Field label="Category axis" hint="Blank uses the group-by field.">

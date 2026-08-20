@@ -14,7 +14,11 @@ import type { Request, Response } from 'express';
 
 import { Public } from '../auth/public.decorator.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { DataLayerFeaturesService } from '../data-layer/features.service.js';
+import {
+  DataLayerFeaturesService,
+  type EngineVia,
+} from '../data-layer/features.service.js';
+import type { GeoJsonGeometry } from '@gratis-gis/engine';
 import { parsePagingParams } from '../data-layer/feature-paging.js';
 import {
   parseAggregateQuery,
@@ -583,6 +587,8 @@ export class PublicController {
       ...parsed.groupBy,
       ...parsed.aggs.map((a) => a.field).filter((f): f is string => !!f),
       ...(parsed.where?.clauses ?? []).map((c) => c.field),
+      ...(parsed.via ? [parsed.via.myField] : []),
+      ...(parsed.bin ? [parsed.bin.field] : []),
     ]) {
       if (!allowed.has(name)) {
         throw new BadRequestException(
@@ -591,18 +597,80 @@ export class PublicController {
       }
     }
 
+    // A relate reads a SECOND layer this request never named in its
+    // path, so anonymously it is only allowed when that layer is
+    // itself public. Until this branch existed, `via` parsed cleanly
+    // here and was then dropped on the floor: the endpoint answered
+    // 200 with numbers for the WHOLE child layer while the caller
+    // believed they were scoped to a parent selection. The auth'd
+    // controller has carried this check since the relate shipped; the
+    // mirror is what was missing.
+    let via: EngineVia | undefined;
+    if (parsed.via) {
+      if (!isUuidShape(parsed.via.parentItemId)) {
+        throw new NotFoundException('Related layer not found');
+      }
+      const parentItem = await this.prisma.item.findFirst({
+        where: {
+          id: parsed.via.parentItemId,
+          type: 'data_layer',
+          access: 'public',
+          deletedAt: null,
+        },
+        select: { id: true, data: true, ...PUBLIC_TIER_SELECT },
+      });
+      if (!parentItem) throw new NotFoundException('Related layer not found');
+      const parentLayer = pickV3Layer(
+        parentItem.data,
+        parsed.via.parentLayerId,
+      );
+      if (!parentLayer) throw new NotFoundException('Related layer not found');
+      const parentAllowed = new Set(parentLayer.fields.map((f) => f.name));
+      for (const name of [
+        parsed.via.parentField,
+        ...(parsed.via.parentWhere?.clauses ?? []).map((c) => c.field),
+      ]) {
+        if (!parentAllowed.has(name)) {
+          throw new BadRequestException(
+            `"${name}" is not a field on the related layer.`,
+          );
+        }
+      }
+      const parentTierClip = await publicTierGeoLimit(
+        this.prisma,
+        parentItem.publicGeoBoundaryId,
+      );
+      via = {
+        myField: parsed.via.myField,
+        parentField: parsed.via.parentField,
+        parentItemId: parsed.via.parentItemId,
+        parentLayerId: parsed.via.parentLayerId,
+        ...(parsed.via.parentBbox ? { parentBbox: parsed.via.parentBbox } : {}),
+        ...(parsed.via.parentWhere
+          ? { parentWhere: parsed.via.parentWhere }
+          : {}),
+        ...(parentTierClip
+          ? { parentGeoLimit: parentTierClip as GeoJsonGeometry }
+          : {}),
+      };
+    }
+
     const opts: {
       groupBy?: string[];
       aggs: typeof parsed.aggs;
       bbox?: [number, number, number, number];
       geoLimit?: unknown;
       where?: typeof parsed.where;
+      via?: EngineVia;
+      bin?: typeof parsed.bin;
       limit?: number;
       asOf?: Date;
     } = { aggs: parsed.aggs };
     if (parsed.groupBy.length > 0) opts.groupBy = parsed.groupBy;
     if (parsed.bbox) opts.bbox = parsed.bbox;
     if (parsed.where) opts.where = parsed.where;
+    if (via) opts.via = via;
+    if (parsed.bin) opts.bin = parsed.bin;
     if (parsed.limit !== undefined) opts.limit = parsed.limit;
     if (parsed.asOf !== undefined) opts.asOf = parsed.asOf;
     const tierClip = await publicTierGeoLimit(

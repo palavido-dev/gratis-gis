@@ -1693,6 +1693,258 @@ d('observation-log read paths against real PostGIS', () => {
     });
   });
 
+  /**
+   * #27 numeric binning. The SQL is `width_bucket` over a bound
+   * `double precision[]`, so these run against a real Postgres or not
+   * at all: the array parameter, the pg_input_is_valid guard around a
+   * non-numeric value, and the recursive bounds pass all behave
+   * differently under a mock than they do in the database.
+   *
+   * The bar that matters throughout: the bars must SUM to the rows
+   * the same query would count unbinned. A histogram that quietly
+   * dropped its tails would look completely normal.
+   */
+  describe('scenario 9: numeric binning (#27)', () => {
+    const itemId = uuidv7();
+    const layerId = 'layer-bin';
+    const scope = dataLayerScope(itemId, layerId);
+    const ALICE = { sub: 'bin-alice', displayName: 'Alice' };
+
+    const seedRow = async (
+      attrs: Record<string, unknown>,
+      coords: [number, number] | null = HERE,
+    ): Promise<void> => {
+      const ts = nextTs();
+      await engineSvc.write({
+        scope,
+        entity: uuidv7(),
+        kind: 'create',
+        validFrom: ts,
+        validTo: null,
+        txTime: ts,
+        attrs,
+        geom: coords ? { type: 'Point', coordinates: coords } : null,
+        author: ALICE,
+        source: { kind: 'itest' },
+        parents: [],
+      });
+    };
+
+    beforeAll(async () => {
+      // 0, 10, 20 ... 90, plus one row whose value is text and one
+      // with the field missing entirely. Both of the last two are
+      // real shapes in imported data and both must land in the
+      // no-value bucket rather than raising 22P02.
+      for (let i = 0; i < 10; i += 1) {
+        await seedRow({ IRON: i * 10, NAME: `r${i}` });
+      }
+      await seedRow({ IRON: 'below detection', NAME: 'text' });
+      await seedRow({ NAME: 'missing' });
+    });
+
+    it('splits the observed range into the requested number of bars', async () => {
+      const out = await makeEngine().aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        bin: { field: 'IRON', mode: 'count', count: 5 },
+      });
+      // Values run 0..90, so five equal bars are 18 wide.
+      expect(out.binEdges).toEqual([18, 36, 54, 72]);
+      const numbered = out.groups.filter((g) => g.bin?.lower !== null || g.bin?.upper !== null);
+      const total = numbered.reduce(
+        (sum, g) => sum + (g.values.count ?? 0),
+        0,
+      );
+      expect(total).toBe(10);
+    });
+
+    it('reports the ranges rather than making the client re-derive them', async () => {
+      const out = await makeEngine().aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        bin: { field: 'IRON', mode: 'edges', edges: [25, 50, 75] },
+      });
+      const ranges = out.groups
+        .filter((g) => g.bin && !(g.bin.lower === null && g.bin.upper === null))
+        .map((g) => [g.bin!.lower, g.bin!.upper, g.values.count]);
+      // Both ends open: 0,10,20 below 25 and 75,80,90 at or above 75.
+      expect(ranges).toEqual([
+        [null, 25, 3],
+        [25, 50, 2],
+        [50, 75, 2],
+        [75, null, 3],
+      ]);
+    });
+
+    it('bins ascending, not by height', async () => {
+      const out = await makeEngine().aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        bin: { field: 'IRON', mode: 'edges', edges: [5, 50] },
+      });
+      // Sorting a histogram by count would put the middle bar first
+      // and destroy the shape that is the whole point.
+      const lowers = out.groups.map((g) => g.bin?.lower ?? -Infinity);
+      const sorted = [...lowers].sort((a, b) => a - b);
+      expect(lowers).toEqual(sorted);
+    });
+
+    it('a non-numeric value bins to no-value instead of erroring', async () => {
+      const out = await makeEngine().aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        bin: { field: 'IRON', mode: 'count', count: 4 },
+      });
+      const noValue = out.groups.find(
+        (g) => g.bin?.lower === null && g.bin?.upper === null,
+      );
+      // 'below detection' and the row with no IRON at all.
+      expect(noValue?.values.count).toBe(2);
+    });
+
+    it('crosses a category with the distribution', async () => {
+      const catItem = uuidv7();
+      const catScope = dataLayerScope(catItem, layerId);
+      for (const [county, value] of [
+        ['A', 1], ['A', 2], ['A', 90], ['B', 1], ['B', 95],
+      ] as const) {
+        const ts = nextTs();
+        await engineSvc.write({
+          scope: catScope, entity: uuidv7(), kind: 'create',
+          validFrom: ts, validTo: null, txTime: ts,
+          attrs: { COUNTY: county, IRON: value },
+          geom: { type: 'Point', coordinates: HERE },
+          author: ALICE, source: { kind: 'itest' }, parents: [],
+        });
+      }
+      const out = await makeEngine().aggregateFeatures({
+        itemId: catItem,
+        layerId,
+        groupBy: ['COUNTY'],
+        aggs: [{ op: 'count', as: 'count' }],
+        bin: { field: 'IRON', mode: 'edges', edges: [50] },
+      });
+      const seen = out.groups.map((g) => [
+        g.key.COUNTY,
+        g.bin?.lower,
+        g.values.count,
+      ]);
+      expect(seen).toEqual(
+        expect.arrayContaining([
+          ['A', null, 2],
+          ['A', 50, 1],
+          ['B', null, 1],
+          ['B', 50, 1],
+        ]),
+      );
+    });
+
+    it('measures its range against the SAME scope the bars come from', async () => {
+      // The bounds pass runs through this method recursively, so a
+      // bbox on the request has to narrow the axis as well as the
+      // bars. If it did not, a zoomed-in histogram would be drawn on
+      // the whole layer's axis and read as almost empty.
+      const scopedItem = uuidv7();
+      const scopedScope = dataLayerScope(scopedItem, layerId);
+      const seedAt = async (value: number, coords: [number, number]) => {
+        const ts = nextTs();
+        await engineSvc.write({
+          scope: scopedScope, entity: uuidv7(), kind: 'create',
+          validFrom: ts, validTo: null, txTime: ts,
+          attrs: { IRON: value },
+          geom: { type: 'Point', coordinates: coords },
+          author: ALICE, source: { kind: 'itest' }, parents: [],
+        });
+      };
+      await seedAt(0, HERE);
+      await seedAt(10, HERE);
+      await seedAt(1000, AWAY);
+
+      const out = await makeEngine().aggregateFeatures({
+        itemId: scopedItem,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        bbox: IN_BBOX,
+        bin: { field: 'IRON', mode: 'count', count: 2 },
+      });
+      // Range measured over the two in-view rows (0..10), not over
+      // the far one at 1000.
+      expect(out.binEdges).toEqual([5]);
+    });
+
+    it('a filtered histogram bins only the filtered rows', async () => {
+      const out = await makeEngine().aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        where: {
+          combinator: 'all',
+          clauses: [{ field: 'IRON', op: '>=', value: '50' }],
+        },
+        bin: { field: 'IRON', mode: 'count', count: 5 },
+      });
+      const total = out.groups.reduce(
+        (sum, g) => sum + (g.values.count ?? 0),
+        0,
+      );
+      expect(total).toBe(5);
+      // 50..90 measured, so the axis starts at 50 rather than 0.
+      expect(out.binEdges![0]!).toBeGreaterThan(50);
+    });
+
+    it('reports nothing rather than one bar when there is no range', async () => {
+      const flatItem = uuidv7();
+      const flatScope = dataLayerScope(flatItem, layerId);
+      for (let i = 0; i < 3; i += 1) {
+        const ts = nextTs();
+        await engineSvc.write({
+          scope: flatScope, entity: uuidv7(), kind: 'create',
+          validFrom: ts, validTo: null, txTime: ts,
+          attrs: { IRON: 7 },
+          geom: { type: 'Point', coordinates: HERE },
+          author: ALICE, source: { kind: 'itest' }, parents: [],
+        });
+      }
+      const out = await makeEngine().aggregateFeatures({
+        itemId: flatItem,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        bin: { field: 'IRON', mode: 'count', count: 10 },
+      });
+      // Every value identical: a single full-height bar would read as
+      // a distribution, and there is none to show.
+      expect(out.groups).toEqual([]);
+      expect(out.binEdges).toBeUndefined();
+    });
+
+    it('the bars sum to the same count the unbinned query gives', async () => {
+      const engine = makeEngine();
+      const plain = await engine.aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+      });
+      const binned = await engine.aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        bin: { field: 'IRON', mode: 'count', count: 7 },
+      });
+      const total = binned.groups.reduce(
+        (sum, g) => sum + (g.values.count ?? 0),
+        0,
+      );
+      // Including the no-value bucket. A histogram whose bars do not
+      // add back up to the layer has dropped rows somewhere, and
+      // nothing on screen would say so.
+      expect(total).toBe(plain.groups[0]!.values.count);
+    });
+  });
+
   describe('scenario 5: globalId create idempotency', () => {
     const itemId = uuidv7();
     const layerId = 'layer-1';
