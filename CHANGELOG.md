@@ -5,6 +5,38 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.41] - 2026-08-20
+
+### Added
+
+- **Horizontal bar charts.** A category axis with long names ran out
+  of room on a vertical chart and rotated or dropped its labels. The
+  same chart on its side reads them left to right at full size.
+- **Panels can be expanded to fill the page**, with a second press or
+  Escape to put them back. Off by default and set per widget in the
+  builder, because a single number gains nothing from a full page
+  while a wide table gains a great deal. Expanding is a viewing
+  state: a reload returns the layout the app's author published.
+
+### Fixed
+
+- **Charts no longer inherit a scrollbar** from the panel around
+  them. A chart always fits its panel, so there was nothing to
+  scroll to.
+
+## [0.9.40] - 2026-08-20
+
+### Fixed
+
+- **An app now opens on its own data.** An app built on data layers
+  without a saved map behind it inherited the national default
+  viewport, so a county dashboard opened at continental zoom and the
+  reader's first act was to zoom in. The map now starts framed on the
+  layers the app uses. An app that points at a saved map still opens
+  where that map says, because that viewport was a deliberate choice.
+- **Charts squeezed beside a tall map no longer offer a scrollbar.**
+  They shrink to the room they have.
+
 ## [0.9.39] - 2026-08-19
 
 ### Fixed
