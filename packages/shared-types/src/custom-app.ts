@@ -196,6 +196,23 @@ export interface CustomWidget {
    * expensive table still while the KPI row ticks.
    */
   refreshSeconds?: number;
+  /**
+   * Show an expand control that grows this widget to fill the page,
+   * with a second press to put it back.
+   *
+   * Off by default, and a per-widget choice rather than a blanket
+   * app setting, because expanding is not always sensible: a KPI tile
+   * has nothing more to show at four times the size, and a toolbar
+   * button covering the map is a trap rather than a feature. It earns
+   * its place on the widgets that genuinely run out of room in a
+   * dashboard tile: a table with twenty columns, a chart with a long
+   * category axis, a map the reader wants to work in.
+   *
+   * Expanding is a viewing state only. It is never persisted, so a
+   * reader who expands a panel and reloads is back to the layout the
+   * author published.
+   */
+  allowMaximize?: boolean;
   /** Free-form per-widget config; shape depends on `kind`. */
   config: CustomWidgetConfig;
 }
@@ -760,9 +777,17 @@ export interface ChartWidgetConfig {
   followMapWidgetId?: string;
   /** Index into targets (one chart binds to one layer). */
   targetIndex: number;
-  /** Chart geometry. v1 supports the most common three; bubble /
-   *  scatter land in a follow-up slice. */
-  chartType: 'bar' | 'line' | 'pie';
+  /**
+   * Chart geometry. Bubble / scatter land in a follow-up slice.
+   *
+   * `bar-horizontal` is the same measure as `bar` turned on its
+   * side, and it exists because vertical bars have to rotate or drop
+   * their category names once the labels are longer than the bar is
+   * wide. Category names read left to right at full size on a
+   * horizontal chart, so a field like "Excessive Heat" stays legible
+   * in a narrow tile.
+   */
+  chartType: 'bar' | 'bar-horizontal' | 'line' | 'pie';
   /** Field name to group by (categorical for bar/pie, ordinal for
    *  line). The designer's field picker reads the layer's schema
    *  and offers compatible columns. */

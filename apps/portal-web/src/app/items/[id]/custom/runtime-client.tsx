@@ -30,6 +30,8 @@ import {
   ListTree,
   Loader2,
   Locate as LocateIcon,
+  Maximize2,
+  Minimize2,
   Map as MapIcon,
   MoreVertical,
   MousePointer2,
@@ -1001,20 +1003,69 @@ function WidgetSlot({ widget }: { widget: CustomWidget }) {
   // z-index to take effect on grid items.
   const isContainer = widget.kind === 'map' || widget.kind === 'tabs';
   const zIndex = isToolMode ? 10 : isContainer ? 0 : 5;
+
+  // Expanding is a viewing state, never saved: the reader gets a
+  // closer look and a reload returns the author's layout.
+  const [expanded, setExpanded] = useState(false);
+  const canExpand = widget.allowMaximize === true && !isToolMode;
+
+  // Escape restores. An expanded panel covers the whole page, so
+  // without this a reader who expanded a map has to find a small
+  // button to get back to the app.
+  useEffect(() => {
+    if (!expanded) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setExpanded(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [expanded]);
+
   return (
     <section
-      style={{
-        gridColumn: `${widget.layout.col} / span ${widget.layout.colSpan}`,
-        gridRow: `${widget.layout.row} / span ${widget.layout.rowSpan}`,
-        position: 'relative',
-        zIndex,
-      }}
+      style={
+        expanded
+          ? {
+              // Absolute against the page grid, which is positioned,
+              // so an expanded panel fills the canvas and leaves any
+              // app header and docked bars visible. Staying the same
+              // element means the widget never unmounts: a map keeps
+              // its camera and a chart keeps its data instead of
+              // re-querying on every expand.
+              position: 'absolute',
+              inset: 0,
+              zIndex: 40,
+            }
+          : {
+              gridColumn: `${widget.layout.col} / span ${widget.layout.colSpan}`,
+              gridRow: `${widget.layout.row} / span ${widget.layout.rowSpan}`,
+              position: 'relative',
+              zIndex,
+            }
+      }
       className={
         isToolMode
           ? 'flex h-full w-full items-stretch'
-          : 'flex h-full w-full flex-col overflow-hidden rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))]'
+          : 'flex h-full w-full flex-col overflow-hidden rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))]' +
+            (expanded ? ' shadow-2xl' : '')
       }
     >
+      {canExpand ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          title={expanded ? 'Shrink back (Esc)' : 'Expand to fill the page'}
+          aria-label={expanded ? 'Shrink back' : 'Expand to fill the page'}
+          aria-pressed={expanded}
+          className="absolute right-1 top-1 z-30 rounded border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))]/90 p-1 text-[hsl(var(--app-muted))] shadow-sm hover:text-[hsl(var(--app-ink-0))]"
+        >
+          {expanded ? (
+            <Minimize2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+          ) : (
+            <Maximize2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+          )}
+        </button>
+      ) : null}
       {isToolMode ? (
         <ToolWidgetSlot widget={widget} />
       ) : (
@@ -4329,7 +4380,12 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
           and pick a group-by field.
         </p>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col">
+        // overflow-hidden because the frame body scrolls by default,
+        // and a chart has nothing to scroll to: the plot always sizes
+        // itself to the box it is given. Without this a tile one or
+        // two pixels short of its content grew a scrollbar that moved
+        // nothing.
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {/* The plot is absolutely positioned inside a relative,
               flex-sized box on purpose. ResponsiveContainer measures
               its parent, and in a flex column whose height comes from
@@ -4616,7 +4672,7 @@ function ChartPlot({
   yLabel,
 }: {
   rows: Array<{ name: string; value: number }>;
-  kind: 'bar' | 'line' | 'pie';
+  kind: 'bar' | 'bar-horizontal' | 'line' | 'pie';
   xLabel?: string;
   yLabel?: string;
 }) {
@@ -4742,6 +4798,64 @@ function ChartPlot({
             isAnimationActive={false}
           />
         </Recharts.LineChart>
+      </Recharts.ResponsiveContainer>
+    );
+  }
+  if (kind === 'bar-horizontal') {
+    // Category names sit on the vertical axis, so they read left to
+    // right at full size instead of being rotated or dropped. The
+    // gutter that holds them is sized from the longest name rather
+    // than fixed: a fixed gutter either clips "Cold/Wind Chill" or
+    // wastes a third of a narrow tile on "May".
+    const longest = rows.reduce((n, r) => Math.max(n, r.name.length), 0);
+    const nameGutter = Math.min(140, Math.max(52, longest * 6 + 8));
+    return (
+      <Recharts.ResponsiveContainer width="100%" height="100%">
+        <Recharts.BarChart
+          data={rows}
+          layout="vertical"
+          margin={{
+            top: 8,
+            // Room on the right for the value label, which would
+            // otherwise be clipped by the plot edge on the longest bar.
+            right: 30,
+            bottom: yLabel ? 22 : 4,
+            left: xLabel ? 14 : 0,
+          }}
+        >
+          <Recharts.CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+          {/* The axes swap roles with the layout, but the captions
+              stay attached to their measure: the value axis is
+              horizontal here, so yLabel is what goes underneath. */}
+          <Recharts.XAxis
+            type="number"
+            tick={{ fontSize: 11 }}
+            {...(yLabel
+              ? { label: { value: yLabel, position: 'insideBottom', offset: -14, fontSize: 11 } }
+              : {})}
+          />
+          <Recharts.YAxis
+            type="category"
+            dataKey="name"
+            width={nameGutter}
+            tick={{ fontSize: 11 }}
+            {...(xLabel
+              ? { label: { value: xLabel, angle: -90, position: 'insideLeft', style: { textAnchor: 'middle' }, fontSize: 11 } }
+              : {})}
+          />
+          <Recharts.Tooltip />
+          <Recharts.Bar
+            dataKey="value"
+            fill={palette[0]!}
+            isAnimationActive={false}
+          >
+            <Recharts.LabelList
+              dataKey="value"
+              position="right"
+              style={{ fontSize: 11, fill: 'hsl(var(--app-muted))' }}
+            />
+          </Recharts.Bar>
+        </Recharts.BarChart>
       </Recharts.ResponsiveContainer>
     );
   }

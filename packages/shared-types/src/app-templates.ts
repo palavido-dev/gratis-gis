@@ -669,10 +669,14 @@ function kpiDashboardSeed(): CustomAppData {
           indicator('count', 'Records', 49),
           indicator('count', 'Records', 97),
           indicator('count', 'Records', 145),
+          // The charts and the map can be expanded; the indicators
+          // cannot, because a single number gains nothing from a
+          // full page.
           {
             id: wid(),
             kind: 'chart',
             layout: { col: 1, row: 41, colSpan: 96, rowSpan: 110 },
+            allowMaximize: true,
             config: {
               kind: 'chart',
               targetIndex: 0,
@@ -684,6 +688,7 @@ function kpiDashboardSeed(): CustomAppData {
             id: wid(),
             kind: 'chart',
             layout: { col: 97, row: 41, colSpan: 96, rowSpan: 110 },
+            allowMaximize: true,
             config: {
               kind: 'chart',
               targetIndex: 0,
@@ -695,6 +700,7 @@ function kpiDashboardSeed(): CustomAppData {
             id: mapId,
             kind: 'map',
             layout: { col: 1, row: 151, colSpan: 192, rowSpan: 120 },
+            allowMaximize: true,
             config: {
               kind: 'map',
               // showTargets is a target-index subset; omitting it
@@ -751,6 +757,7 @@ function opsBoardSeed(): CustomAppData {
             id: mapId,
             kind: 'map',
             layout: { col: 49, row: 1, colSpan: 144, rowSpan: 160 },
+            allowMaximize: true,
             config: {
               kind: 'map',
               // showTargets is a target-index subset; omitting it
@@ -763,6 +770,10 @@ function opsBoardSeed(): CustomAppData {
             id: wid(),
             kind: 'attribute-table',
             layout: { col: 1, row: 161, colSpan: 192, rowSpan: 90 },
+            // The table is the widget most likely to need the whole
+            // page: a strip 90 rows tall shows three records of a
+            // twenty-column layer.
+            allowMaximize: true,
             config: {
               kind: 'attribute-table',
               targetIndex: 0,

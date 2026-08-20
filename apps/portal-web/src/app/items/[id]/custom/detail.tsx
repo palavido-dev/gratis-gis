@@ -3147,7 +3147,11 @@ function summarizeWidget(w: CustomWidget): string {
     case 'text':
       return w.config.preset ?? 'body';
     case 'chart':
-      return `${w.config.chartType} of #${w.config.targetIndex}`;
+      return `${
+        w.config.chartType === 'bar-horizontal'
+          ? 'horizontal bar'
+          : w.config.chartType
+      } of #${w.config.targetIndex}`;
     case 'indicator':
       return w.config.aggregate === 'count'
         ? `count of #${w.config.targetIndex}`
@@ -3771,6 +3775,24 @@ function WidgetProperties({
           Drag the widget on the canvas to move; drag the right,
           bottom, or corner handles to resize. Or enter cells here.
         </p>
+        <label className="flex items-start gap-2 text-xs text-ink-1">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={widget.allowMaximize === true}
+            disabled={!canEdit}
+            onChange={(e) => onChange({ allowMaximize: e.target.checked })}
+          />
+          <span>
+            Let viewers expand this panel
+            <span className="mt-0.5 block text-muted">
+              Adds a button that grows the panel to fill the page.
+              Worth it for tables, charts, and maps that run out of
+              room in a tile; not for a single number or a toolbar
+              button.
+            </span>
+          </span>
+        </label>
         <div className="-mx-4 border-t border-border" />
         <p className="text-sm font-medium text-ink-0">Configuration</p>
         <WidgetConfigForm
@@ -7634,7 +7656,8 @@ function ChartWidgetConfigEditor({
           onChange={(e) => onChangeConfig({ chartType: e.target.value })}
           className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
         >
-          <option value="bar">Bar</option>
+          <option value="bar">Bar (vertical)</option>
+          <option value="bar-horizontal">Bar (horizontal)</option>
           <option value="line">Line</option>
           <option value="pie">Pie</option>
         </select>
