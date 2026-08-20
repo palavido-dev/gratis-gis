@@ -5,6 +5,15 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.49] - 2026-08-20
+
+### Fixed
+
+- **Housekeeping no longer reports the built-in catalog as stale.**
+  Basemaps, themes, and templates that ship with every org are meant
+  to sit unused until someone picks one, so they satisfied every
+  staleness signal forever and buried anything real.
+
 ## [0.9.48] - 2026-08-20
 
 ### Fixed
