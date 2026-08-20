@@ -2457,6 +2457,19 @@ function LayerListWidgetRender({ widget }: { widget: CustomWidget }) {
  */
 function LegendSwatch({ layer }: { layer: MapLayer }) {
   const r = layer.renderer;
+  // A declared geometry beats the heuristic below. The style-branch
+  // guess reaches for `polygon` first and every layer carries a full
+  // polygon block whether or not it will ever draw one, so a point
+  // layer with a declared geometry was rendering as a square.
+  if (layer.legendGeometry === 'point' && r?.kind === 'simple') {
+    return (
+      <span
+        aria-hidden
+        className="inline-block h-3 w-3 shrink-0 rounded-full border border-[hsl(var(--app-border))]"
+        style={{ backgroundColor: layer.style?.point?.color ?? '#6366f1' }}
+      />
+    );
+  }
   // Multi-category renderers: render a small palette of stops.
   if (r?.kind === 'unique-values' && r.categories.length > 0) {
     const cats = r.categories.slice(0, 3);
@@ -3142,38 +3155,147 @@ function describeSourceKind(kind: string): string {
 
 // ---- Legend widget ---------------------------------------------------------
 
+/**
+ * One legend swatch, drawn as the shape the layer actually draws.
+ *
+ * A dot for everything told readers that county boundaries and rivers
+ * were points. Lines get a stroke, polygons a filled rectangle with
+ * its outline, and anything whose geometry is genuinely unknown keeps
+ * the dot rather than guessing wrong in a new way.
+ */
+function LegendKeySwatch({
+  geometry,
+  color,
+  stroke,
+}: {
+  geometry: 'point' | 'line' | 'polygon' | undefined;
+  color: string;
+  stroke?: string;
+}) {
+  if (geometry === 'line') {
+    return (
+      <span className="inline-flex h-3 w-3 shrink-0 items-center">
+        <span
+          className="block h-[2px] w-full rounded-full"
+          style={{ backgroundColor: color }}
+        />
+      </span>
+    );
+  }
+  if (geometry === 'polygon') {
+    return (
+      <span
+        className="inline-block h-3 w-3 shrink-0 rounded-[2px] border"
+        style={{
+          backgroundColor: color,
+          borderColor: stroke ?? color,
+        }}
+      />
+    );
+  }
+  return (
+    <span
+      className="inline-block h-3 w-3 shrink-0 rounded-full border border-[hsl(var(--app-border))]"
+      style={{ backgroundColor: color }}
+    />
+  );
+}
+
 function LegendWidgetRender({ widget }: { widget: CustomWidget }) {
   if (widget.config.kind !== 'legend') return null;
   const { state } = useBoundMap(widget.config.mapWidgetId);
+
+  /**
+   * Rows for one layer.
+   *
+   * A classified layer contributes one row PER CLASS, labelled with
+   * the class, which is the only thing that answers "what do the
+   * colours mean". The old legend printed the layer's title beside a
+   * single swatch, so a layer split into three exceedance classes
+   * appeared as one meaningless entry and the map's three colours
+   * went unexplained.
+   */
+  const rowsFor = (l: MapLayer): React.ReactNode[] => {
+    const geom = l.legendGeometry;
+    const stroke =
+      geom === 'polygon' ? l.style?.polygon?.strokeColor : undefined;
+    const base =
+      (geom === 'line'
+        ? l.style?.line?.color
+        : geom === 'polygon'
+          ? l.style?.polygon?.fillColor
+          : l.style?.point?.color) ??
+      l.style?.point?.color ??
+      l.style?.line?.color ??
+      l.style?.polygon?.fillColor ??
+      '#6366f1';
+    const r = l.renderer;
+    const swatch = (key: string, color: string, label: string) => (
+      <li
+        key={key}
+        className="flex items-center gap-2 text-xs text-[hsl(var(--app-ink-1))]"
+      >
+        <LegendKeySwatch
+          geometry={geom}
+          color={color}
+          {...(stroke ? { stroke } : {})}
+        />
+        <span className="truncate" title={label}>
+          {label}
+        </span>
+      </li>
+    );
+    if (r?.kind === 'unique-values' && r.categories.length > 0) {
+      return [
+        <li
+          key={`${l.id}-h`}
+          className="pt-1 text-2xs font-medium uppercase tracking-wide text-[hsl(var(--app-muted))]"
+        >
+          {l.title}
+        </li>,
+        ...r.categories.map((c) =>
+          swatch(`${l.id}-${c.value}`, c.color, c.value),
+        ),
+      ];
+    }
+    if (r?.kind === 'class-breaks' && r.colors.length > 0) {
+      return [
+        <li
+          key={`${l.id}-h`}
+          className="pt-1 text-2xs font-medium uppercase tracking-wide text-[hsl(var(--app-muted))]"
+        >
+          {l.title}
+        </li>,
+        ...r.colors.map((color, i) => {
+          const lo = i === 0 ? null : r.stops[i - 1];
+          const hi = i < r.stops.length ? r.stops[i] : null;
+          const label =
+            lo === null || lo === undefined
+              ? `under ${hi}`
+              : hi === null || hi === undefined
+                ? `${lo} and up`
+                : `${lo} to ${hi}`;
+          return swatch(`${l.id}-cb${i}`, color, label);
+        }),
+      ];
+    }
+    return [swatch(l.id, base, l.title)];
+  };
+
+  const layers = (state?.mapData.layers ?? []).filter(
+    (l) => l.visible !== false && l.source?.kind !== 'group',
+  );
+
   return (
     <WidgetFrame icon={ListTree} title="Legend">
       {!state ? (
         <p className="p-2 text-xs italic text-[hsl(var(--app-muted))]">No bound map.</p>
+      ) : layers.length === 0 ? (
+        <p className="p-2 text-xs italic text-[hsl(var(--app-muted))]">
+          Nothing visible to describe.
+        </p>
       ) : (
-        <ul className="space-y-1 p-2">
-          {(state.mapData.layers ?? [])
-            .filter((l) => l.visible !== false)
-            .map((l) => (
-              <li
-                key={l.id}
-                className="flex items-center gap-2 text-xs text-[hsl(var(--app-ink-1))]"
-              >
-                <span
-                  className="inline-block h-3 w-3 shrink-0 rounded-full border border-[hsl(var(--app-border))]"
-                  style={{
-                    backgroundColor:
-                      l.style?.point?.color ??
-                      l.style?.line?.color ??
-                      l.style?.polygon?.fillColor ??
-                      '#6366f1',
-                  }}
-                />
-                <span className="truncate" title={l.title}>
-                  {l.title}
-                </span>
-              </li>
-            ))}
-        </ul>
+        <ul className="space-y-1 p-2">{layers.flatMap(rowsFor)}</ul>
       )}
     </WidgetFrame>
   );

@@ -270,6 +270,22 @@ export interface MapLayer {
   opacity: number;
   source: MapLayerSource;
   /**
+   * What shape this layer draws, for anything that has to DESCRIBE the
+   * layer rather than render it.
+   *
+   * The canvas never needs this: it learns the geometry from the data
+   * as it arrives. A legend does, and had no way to find out, so it
+   * drew every layer as a dot and told readers that county boundaries
+   * and rivers were points. `style` cannot stand in for it either,
+   * since every layer carries a full point/line/polygon style block
+   * whether or not it will ever use one.
+   *
+   * Populated where it is known for free (a v3 sublayer's declared
+   * geometryType) and left unset otherwise; an unset layer falls back
+   * to the old dot rather than guessing.
+   */
+  legendGeometry?: 'point' | 'line' | 'polygon';
+  /**
    * Optional pointer at a sibling layer whose `source.kind === 'group'`.
    * When set, this layer renders nested under that group header in the
    * layer panel. The map canvas ignores groupId entirely -- it just

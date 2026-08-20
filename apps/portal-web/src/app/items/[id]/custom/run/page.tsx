@@ -309,6 +309,9 @@ export default async function CustomAppRuntimePage(props: Props) {
         title: `${layerItem.title} / ${sub.label}`,
         visible: true,
         opacity: 1,
+        // The sublayer declares its geometry, so the legend never has
+        // to guess. Free here; unknowable later.
+        legendGeometry: sub.geometryType,
         source: { kind: 'geojson-url', url },
         style: DEFAULT_LAYER_STYLE,
         renderer: DEFAULT_LAYER_RENDERER,
@@ -414,10 +417,32 @@ export default async function CustomAppRuntimePage(props: Props) {
           [number, number, number, number]
         >,
       );
+  /**
+   * Layers for a map widget: the app's sources first, then the map's
+   * own, DE-DUPLICATED by id.
+   *
+   * Since a source whose layer is already on the map adopts that
+   * layer rather than publishing a copy, several sources reading one
+   * layer all resolve to the same entry, and the map's own copy
+   * follows it. Without the dedupe the array carried the sites layer
+   * four times, which the canvas tolerated and the legend did not:
+   * it listed "Monitoring sites" once per source.
+   */
+  const mergeLayers = (own: MapLayer[]): MapLayer[] => {
+    const seen = new Set<string>();
+    const out: MapLayer[] = [];
+    for (const l of [...resolvedTargets.map((t) => t.mapLayer), ...own]) {
+      if (seen.has(l.id)) continue;
+      seen.add(l.id);
+      out.push(l);
+    }
+    return out;
+  };
+
   const baseMapData: MapData = {
     ...(referencedMapData ?? DEFAULT_MAP),
     ...(targetExtent ?? {}),
-    layers: [...resolvedTargets.map((t) => t.mapLayer), ...baseLayers],
+    layers: mergeLayers(baseLayers),
   };
 
   // #363: per-Map-widget MapData. When a Map widget has its own
@@ -434,13 +459,9 @@ export default async function CustomAppRuntimePage(props: Props) {
       if (!overrideId) continue;
       const overrideData = mapDataById.get(overrideId);
       if (!overrideData) continue;
-      const overrideLayers = overrideData.layers ?? [];
       widgetMapData[w.id] = {
         ...overrideData,
-        layers: [
-          ...resolvedTargets.map((t) => t.mapLayer),
-          ...overrideLayers,
-        ],
+        layers: mergeLayers(overrideData.layers ?? []),
       };
     }
   }
