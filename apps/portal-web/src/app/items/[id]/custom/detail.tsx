@@ -4051,6 +4051,7 @@ function WidgetConfigForm({
           config={widget.config}
           canEdit={canEdit}
           appTargets={appTargets}
+          mapWidgets={mapWidgets}
           onChangeConfig={onChangeConfig}
         />
       );
@@ -7578,11 +7579,13 @@ function ChartWidgetConfigEditor({
   config,
   canEdit,
   appTargets,
+  mapWidgets,
   onChangeConfig,
 }: {
   config: Extract<CustomWidget['config'], { kind: 'chart' }>;
   canEdit: boolean;
   appTargets: ViewerTarget[];
+  mapWidgets: CustomWidget[];
   onChangeConfig: (patch: Record<string, unknown>) => void;
 }) {
   const target = appTargets[config.targetIndex];
@@ -7705,6 +7708,26 @@ function ChartWidgetConfigEditor({
           </select>
         </Field>
       ) : null}
+      <Field
+        label="Follow a map's view"
+        hint="Optional. The chart then summarizes only what is on screen, and says so."
+      >
+        <select
+          value={config.followMapWidgetId ?? ''}
+          disabled={!canEdit}
+          onChange={(e) =>
+            onChangeConfig({ followMapWidgetId: e.target.value || undefined })
+          }
+          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+        >
+          <option value="">Whole layer</option>
+          {mapWidgets.map((m) => (
+            <option key={m.id} value={m.id}>
+              Map · {m.id.slice(2, 10)}
+            </option>
+          ))}
+        </select>
+      </Field>
       {config.chartType !== 'pie' ? (
         <div className="grid grid-cols-2 gap-2">
           <Field label="Category axis" hint="Blank uses the group-by field.">

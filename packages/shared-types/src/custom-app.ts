@@ -749,6 +749,15 @@ export interface ChartWidgetConfig {
    */
   xAxisLabel?: string;
   yAxisLabel?: string;
+  /**
+   * Recompute from whatever is inside the bound map's current view,
+   * so panning and zooming re-answers the chart for that area. Same
+   * opt-in as the indicator's, and opt-in for the same reason: a
+   * chart that silently changes as the user pans is indistinguishable
+   * from one that is wrong, so the widget says when it is following a
+   * view rather than summarising the whole layer.
+   */
+  followMapWidgetId?: string;
   /** Index into targets (one chart binds to one layer). */
   targetIndex: number;
   /** Chart geometry. v1 supports the most common three; bubble /

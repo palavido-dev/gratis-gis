@@ -305,6 +305,42 @@ const AppTimeContext = createContext<AppTimeCtx>({
 const AppRefreshContext = createContext<number>(0);
 
 /**
+ * Track a bound map's viewport as a rounded bbox string, or '' when
+ * the widget is not following a map.
+ *
+ * Shared by the indicator and the chart so "follow the map" means the
+ * same thing in both: settle on moveend rather than churn per frame,
+ * and round to four decimals (~11m) so a one-pixel nudge does not
+ * re-query. Returning a string rather than a tuple keeps it usable
+ * directly as an effect dependency.
+ */
+function useMapViewportBbox(mapWidgetId: string | undefined): string {
+  const ctx = useContext(CustomMapsContext);
+  const map = mapWidgetId ? (ctx?.maps[mapWidgetId] ?? null) : null;
+  const [bboxKey, setBboxKey] = useState('');
+  useEffect(() => {
+    if (!map) {
+      setBboxKey('');
+      return;
+    }
+    const update = () => {
+      const b = map.getBounds();
+      setBboxKey(
+        [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]
+          .map((n) => n.toFixed(4))
+          .join(','),
+      );
+    };
+    update();
+    map.on('moveend', update);
+    return () => {
+      map.off('moveend', update);
+    };
+  }, [map]);
+  return bboxKey;
+}
+
+/**
  * Resolve this widget's effective refresh cadence and subscribe to
  * it. Returns a counter that changes when the widget is due for a
  * re-fetch; callers put it in their effect's dependency list.
@@ -4167,6 +4203,8 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
   const valueField = cfg.valueField;
   const groupBy = cfg.groupBy;
   const chartType = cfg.chartType;
+  const followId = cfg.followMapWidgetId;
+  const bboxKey = useMapViewportBbox(followId);
 
   useEffect(() => {
     if (!target) {
@@ -4212,6 +4250,13 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
           // pie is unreadable anyway, and the server returns the top
           // groups so the truncation is meaningful.
           limit: 50,
+          ...(bboxKey
+            ? {
+                bbox: bboxKey
+                  .split(',')
+                  .map(Number) as [number, number, number, number],
+              }
+            : {}),
           ...(appAt ? { asOf: appAt } : {}),
           signal: controller.signal,
         });
@@ -4247,7 +4292,8 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
       }
     })();
     return () => controller.abort();
-  }, [target, appAt, aggregate, valueField, groupBy, chartType, refreshTick]);
+  }, [target, appAt, aggregate, valueField, groupBy, chartType, bboxKey,
+      refreshTick]);
 
   // A generated title beats "Chart": it names the measure and the
   // grouping, which is exactly what the reader needs to interpret the
@@ -4264,9 +4310,13 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
 
   return (
     <WidgetFrame icon={ChevronRight} title={title}>
-      {cfg.description?.trim() ? (
+      {cfg.description?.trim() || followId ? (
         <p className="shrink-0 px-3 pt-1 text-2xs leading-snug text-[hsl(var(--app-muted))]">
           {cfg.description}
+          {cfg.description?.trim() && followId ? ' ' : ''}
+          {followId ? (
+            <span className="italic">Current map view.</span>
+          ) : null}
         </p>
       ) : null}
       {state.loading && state.rows.length === 0 ? (
@@ -4330,32 +4380,7 @@ function IndicatorWidgetRender({ widget }: { widget: CustomWidget }) {
   const cfg = widget.config;
   const target = ctx?.resolvedTargets[cfg.targetIndex] ?? null;
   const followId = cfg.followMapWidgetId;
-  // Live viewport from the bound map instance, tracked on moveend so
-  // the value settles after the pan rather than churning per frame.
-  // Same source the attribute table uses for its extent-only mode.
-  const boundMapInstance = followId ? (ctx?.maps[followId] ?? null) : null;
-  const [bboxKey, setBboxKey] = useState('');
-  useEffect(() => {
-    if (!boundMapInstance) {
-      setBboxKey('');
-      return;
-    }
-    const update = () => {
-      const b = boundMapInstance.getBounds();
-      // Rounded so a one-pixel nudge does not re-fetch; four decimals
-      // is ~11m, far finer than any indicator cares about.
-      setBboxKey(
-        [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]
-          .map((n) => n.toFixed(4))
-          .join(','),
-      );
-    };
-    update();
-    boundMapInstance.on('moveend', update);
-    return () => {
-      boundMapInstance.off('moveend', update);
-    };
-  }, [boundMapInstance]);
+  const bboxKey = useMapViewportBbox(followId);
 
   const [state, setState] = useState<{
     loading: boolean;
