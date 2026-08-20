@@ -34,6 +34,20 @@ export interface AggregateRequest {
    */
   where?: MapLayerFilter;
   /**
+   * Relate scope: narrow to rows whose key appears among a parent
+   * layer's in-scope rows. Compiled server-side as a semi-join, so
+   * the parent's scope travels here rather than a harvested list of
+   * its keys, which would cap out and go quietly short.
+   */
+  via?: {
+    myField: string;
+    parentField: string;
+    parentItemId: string;
+    parentLayerId: string;
+    parentBbox?: [number, number, number, number];
+    parentWhere?: MapLayerFilter;
+  };
+  /**
    * Bitemporal read instant, from the app's time slider.
    *
    * Callers were already passing this and it was being dropped on
@@ -74,6 +88,7 @@ export async function fetchAggregate(
   }
   if (req.bbox) params.set('bbox', req.bbox.join(','));
   if (req.where) params.set('where', JSON.stringify(req.where));
+  if (req.via) params.set('via', JSON.stringify(req.via));
   if (req.asOf) params.set('at', req.asOf);
   if (req.limit !== undefined) params.set('limit', String(req.limit));
 

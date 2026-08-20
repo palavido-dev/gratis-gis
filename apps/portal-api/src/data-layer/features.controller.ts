@@ -51,7 +51,9 @@ import {
   isEditorItem,
   type FeatureField,
   type FeatureRecord,
+  type MapLayerFilter,
 } from '@gratis-gis/shared-types';
+import type { GeoJsonGeometry } from '@gratis-gis/engine';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
@@ -136,6 +138,20 @@ function assertFeatureIdShape(featureId: string): void {
  * enforce visibility (throws 403/404 as needed); sharing rights drive
  * read vs write gating via canEdit().
  */
+
+/**
+ * The relate as the engine takes it: the parent's identity plus the
+ * parent's own scope, already authorized by the controller.
+ */
+interface EngineVia {
+  myField: string;
+  parentField: string;
+  parentItemId: string;
+  parentLayerId: string;
+  parentBbox?: [number, number, number, number];
+  parentWhere?: MapLayerFilter;
+  parentGeoLimit?: GeoJsonGeometry;
+}
 
 @ApiTags('features', 'v3')
 @ApiBearerAuth()
@@ -741,10 +757,65 @@ export class DataLayerFeaturesController {
       // misspelled column matches nothing, and "0 of 625" reads as a
       // finding rather than as a typo.
       ...(parsed.where?.clauses ?? []).map((c) => c.field),
+      ...(parsed.via ? [parsed.via.myField] : []),
     ]) {
       if (!schemaHasField(layer, name)) {
         throw new BadRequestException(
           `"${name}" is not a field on this layer.`,
+        );
+      }
+    }
+
+    // A relate reads a SECOND layer, one this request never named in
+    // its path. Without its own read check it is a side channel:
+    // point a widget at a layer you may read, relate it through one
+    // you may not, and the counts describe the parent. So the parent
+    // goes through the same assertion as the child, which also hands
+    // back the parent's geo limit and row scope to apply INSIDE the
+    // semi-join. A parent the caller cannot read 404s exactly as a
+    // direct read of it would, so the relate leaks no more than
+    // asking about the parent directly.
+    let via: EngineVia | undefined;
+    if (parsed.via) {
+      const parent = await this.assertV3Layer(
+        user,
+        parsed.via.parentItemId,
+        parsed.via.parentLayerId,
+        'read',
+      );
+      for (const name of [
+        parsed.via.parentField,
+        ...(parsed.via.parentWhere?.clauses ?? []).map((c) => c.field),
+      ]) {
+        if (!schemaHasField(parent.layer, name)) {
+          throw new BadRequestException(
+            `"${name}" is not a field on the related layer.`,
+          );
+        }
+      }
+      via = {
+        myField: parsed.via.myField,
+        parentField: parsed.via.parentField,
+        parentItemId: parsed.via.parentItemId,
+        parentLayerId: parsed.via.parentLayerId,
+        ...(parsed.via.parentBbox
+          ? { parentBbox: parsed.via.parentBbox }
+          : {}),
+        ...(parsed.via.parentWhere
+          ? { parentWhere: parsed.via.parentWhere }
+          : {}),
+        ...(parent.geoLimit
+          ? { parentGeoLimit: parent.geoLimit as GeoJsonGeometry }
+          : {}),
+      };
+      // Row scope on the parent has no expression inside the
+      // semi-join yet, and a relate that ignored it would hand a
+      // row-scoped viewer counts derived from rows they cannot see.
+      // Refuse rather than answer.
+      if (parent.rowScope === 'own') {
+        throw new BadRequestException(
+          'The related layer is shared to you one row at a time, ' +
+            'which a relate cannot honour yet.',
         );
       }
     }
@@ -756,12 +827,14 @@ export class DataLayerFeaturesController {
       boundaryClip?: unknown;
       ownRowsOnly?: { userId: string };
       where?: typeof parsed.where;
+      via?: EngineVia;
       limit?: number;
       asOf?: Date;
     } = { aggs: parsed.aggs };
     if (parsed.groupBy.length > 0) opts.groupBy = parsed.groupBy;
     if (parsed.bbox) opts.bbox = parsed.bbox;
     if (parsed.where) opts.where = parsed.where;
+    if (via) opts.via = via;
     if (parsed.limit !== undefined) opts.limit = parsed.limit;
     if (parsed.asOf !== undefined) opts.asOf = parsed.asOf;
     if (geoLimit) opts.geoLimit = geoLimit;

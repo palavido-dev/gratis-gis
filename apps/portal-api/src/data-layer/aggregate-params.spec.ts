@@ -3,6 +3,7 @@ import { BadRequestException } from '@nestjs/common';
 
 import {
   parseAggregateQuery,
+  parseVia,
   parseWhere,
   rejectUnknownAggregateParams,
 } from './aggregate-params.js';
@@ -196,6 +197,94 @@ describe('parseWhere', () => {
   });
 });
 
+/**
+ * `via` reads a layer the request never named in its path, so its
+ * parsing is the first of two gates; the second is the controller's
+ * read check on that parent, which no parser can stand in for.
+ */
+describe('parseVia', () => {
+  const ok = {
+    myField: 'well_id',
+    parentField: 'well_id',
+    parentItemId: 'item-parent',
+    parentLayerId: 'wells',
+  };
+
+  it('is absent when the parameter is', () => {
+    expect(parseVia(undefined)).toBeUndefined();
+    expect(parseVia('')).toBeUndefined();
+  });
+
+  it('parses the four required fields', () => {
+    expect(parseVia(JSON.stringify(ok))).toEqual(ok);
+  });
+
+  it('carries the parent scope through', () => {
+    const f = parseVia(
+      JSON.stringify({
+        ...ok,
+        parentBbox: '-81,38,-79,40',
+        parentWhere: {
+          clauses: [{ field: 'status', op: '==', value: 'Active' }],
+        },
+      }),
+    );
+    expect(f?.parentBbox).toEqual([-81, 38, -79, 40]);
+    expect(f?.parentWhere?.clauses).toHaveLength(1);
+  });
+
+  it('refuses a missing or empty required field', () => {
+    for (const key of [
+      'myField',
+      'parentField',
+      'parentItemId',
+      'parentLayerId',
+    ]) {
+      const bad = { ...ok, [key]: '' };
+      expect(() => parseVia(JSON.stringify(bad))).toThrow(
+        new RegExp(key),
+      );
+      const missing = { ...ok } as Record<string, unknown>;
+      delete missing[key];
+      expect(() => parseVia(JSON.stringify(missing))).toThrow(
+        new RegExp(key),
+      );
+    }
+  });
+
+  it('refuses a nested via rather than walking a chain', () => {
+    // A chain is where a hand-edited item turns into an unbounded
+    // query, so it is refused by name instead of depth-counted.
+    expect(() =>
+      parseVia(JSON.stringify({ ...ok, via: { ...ok } })),
+    ).toThrow(/one hop/);
+  });
+
+  it('refuses malformed JSON, a non-object, and a repeated parameter', () => {
+    expect(() => parseVia('not json')).toThrow(BadRequestException);
+    expect(() => parseVia('42')).toThrow(/must be a JSON object/);
+    expect(() => parseVia(['{}', '{}'])).toThrow(/once/);
+  });
+
+  it('refuses a malformed parent bbox', () => {
+    expect(() =>
+      parseVia(JSON.stringify({ ...ok, parentBbox: '1,2,3' })),
+    ).toThrow(/via.parentBbox/);
+    expect(() =>
+      parseVia(JSON.stringify({ ...ok, parentBbox: '0,50,10,40' })),
+    ).toThrow(/south is greater/);
+  });
+
+  it('flows through parseAggregateQuery', () => {
+    const p = parseAggregateQuery({
+      agg: 'count',
+      via: JSON.stringify(ok),
+    });
+    expect(p.via?.parentLayerId).toBe('wells');
+  });
+});
+
+
 describe('rejectUnknownAggregateParams', () => {
   it('accepts the declared set', () => {
     expect(() =>
@@ -203,9 +292,9 @@ describe('rejectUnknownAggregateParams', () => {
     ).not.toThrow();
   });
 
-  it('accepts where, which the filter widget now implements', () => {
+  it('accepts where and via, which the data-source model implements', () => {
     expect(() =>
-      rejectUnknownAggregateParams(['agg', 'where']),
+      rejectUnknownAggregateParams(['agg', 'where', 'via']),
     ).not.toThrow();
   });
 

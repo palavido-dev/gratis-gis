@@ -446,6 +446,25 @@ export class DataLayerFeaturesService {
         combinator: 'all' | 'any';
         clauses: Array<{ field: string; op: string; value: string }>;
       };
+      /**
+       * Relate scope. The caller has already checked read access on
+       * the parent layer and folded its geo limit in; this only
+       * forwards. Listed here for the same reason `where` is: the
+       * key has to exist in BOTH this type and the spread below or
+       * it is silently dropped.
+       */
+      via?: {
+        myField: string;
+        parentField: string;
+        parentItemId: string;
+        parentLayerId: string;
+        parentBbox?: [number, number, number, number];
+        parentWhere?: {
+          combinator: 'all' | 'any';
+          clauses: Array<{ field: string; op: string; value: string }>;
+        };
+        parentGeoLimit?: GeoJsonGeometry;
+      };
       limit?: number;
       asOf?: Date;
     },
@@ -458,6 +477,7 @@ export class DataLayerFeaturesService {
       ...(args.groupBy !== undefined ? { groupBy: args.groupBy } : {}),
       ...(args.bbox !== undefined ? { bbox: args.bbox } : {}),
       ...(args.where !== undefined ? { where: args.where } : {}),
+      ...(args.via !== undefined ? { via: args.via } : {}),
       ...(args.geoLimit !== undefined
         ? { geoLimit: args.geoLimit as GeoJsonGeometry }
         : {}),

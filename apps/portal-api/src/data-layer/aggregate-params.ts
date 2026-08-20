@@ -41,6 +41,96 @@ export interface ParsedAggregateQuery {
   asOf?: Date;
   /** Attribute predicate, from `?where=`. */
   where?: MapLayerFilter;
+  /** Relate scope, from `?via=`. */
+  via?: ParsedVia;
+}
+
+/**
+ * Relate scope: narrow this layer to the rows whose `myField` appears
+ * among a PARENT layer's in-scope rows.
+ *
+ * The parent's scope travels in the same parameter rather than being
+ * resolved server-side from saved config, because the parent's scope
+ * is a live thing: it is whatever the reader currently has on screen.
+ * The server still decides whether the caller may read that parent.
+ */
+export interface ParsedVia {
+  myField: string;
+  parentField: string;
+  parentItemId: string;
+  parentLayerId: string;
+  parentBbox?: [number, number, number, number];
+  parentWhere?: MapLayerFilter;
+}
+
+function parseBbox(raw: unknown, label: string): [number, number, number, number] {
+  const parts = String(raw).split(',').map(Number);
+  if (parts.length !== 4 || !parts.every((x) => Number.isFinite(x))) {
+    throw new BadRequestException(
+      `${label} must be four comma-separated numbers: west,south,east,north.`,
+    );
+  }
+  const [w, s, e, n] = parts as [number, number, number, number];
+  if (s > n) {
+    throw new BadRequestException(`${label} south is greater than its north.`);
+  }
+  return [w, s, e, n];
+}
+
+/**
+ * Parse `?via=` into a relate scope.
+ *
+ * JSON in one parameter for the same reason `where` is: the field
+ * names and values it carries contain every punctuation character a
+ * separator could use.
+ */
+export function parseVia(raw: unknown): ParsedVia | undefined {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  if (Array.isArray(raw)) {
+    throw new BadRequestException('via must appear once.');
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(String(raw));
+  } catch {
+    throw new BadRequestException(
+      'via must be JSON, e.g. {"parentItemId":"...","parentLayerId":"...",' +
+        '"parentField":"well_id","myField":"well_id"}.',
+    );
+  }
+  if (typeof parsed !== 'object' || parsed === null) {
+    throw new BadRequestException('via must be a JSON object.');
+  }
+  const o = parsed as Record<string, unknown>;
+  const str = (key: string): string => {
+    const v = o[key];
+    if (typeof v !== 'string' || v.length === 0) {
+      throw new BadRequestException(`via.${key} must be a non-empty string.`);
+    }
+    return v;
+  };
+  const out: ParsedVia = {
+    myField: str('myField'),
+    parentField: str('parentField'),
+    parentItemId: str('parentItemId'),
+    parentLayerId: str('parentLayerId'),
+  };
+  if (o.parentBbox !== undefined) {
+    out.parentBbox = parseBbox(o.parentBbox, 'via.parentBbox');
+  }
+  if (o.parentWhere !== undefined) {
+    const w = parseWhere(JSON.stringify(o.parentWhere));
+    if (w) out.parentWhere = w;
+  }
+  // One hop. A chain is expressible by nesting, and nesting is how a
+  // hand-edited item turns into an unbounded query, so it is refused
+  // by name rather than depth-counted.
+  if (o.via !== undefined) {
+    throw new BadRequestException(
+      'via.via is not supported; a relate is one hop.',
+    );
+  }
+  return out;
 }
 
 const OPS = new Set<AggOp>(['count', 'sum', 'avg', 'min', 'max']);
@@ -185,6 +275,7 @@ export function parseAggregateQuery(query: {
   limit?: unknown;
   at?: unknown;
   where?: unknown;
+  via?: unknown;
 }): ParsedAggregateQuery {
   const rawAggs = toList(query.agg);
   if (rawAggs.length === 0) {
@@ -262,6 +353,9 @@ export function parseAggregateQuery(query: {
   const where = parseWhere(query.where);
   if (where) out.where = where;
 
+  const via = parseVia(query.via);
+  if (via) out.via = via;
+
   return out;
 }
 
@@ -282,6 +376,7 @@ export function rejectUnknownAggregateParams(keys: Iterable<string>): void {
     'clip',
     'at',
     'where',
+    'via',
   ]);
   const unknown = [...keys].filter((k) => !allowed.has(k));
   if (unknown.length > 0) {

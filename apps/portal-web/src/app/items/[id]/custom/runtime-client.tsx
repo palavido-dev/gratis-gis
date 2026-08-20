@@ -446,6 +446,19 @@ interface SourceScope {
   bbox?: [number, number, number, number];
   /** Author predicate AND reader selection, already merged. */
   where?: MapLayerFilter;
+  /**
+   * Relate, carrying the PARENT's live scope rather than a snapshot.
+   * That is what makes filtering a parent filter its children with
+   * nothing further declared.
+   */
+  via?: {
+    myField: string;
+    parentField: string;
+    parentItemId: string;
+    parentLayerId: string;
+    parentBbox?: [number, number, number, number];
+    parentWhere?: MapLayerFilter;
+  };
   /** What to tell the reader this widget is narrowed by, if anything. */
   note?: string;
   /** True when the scope is spatial, so unlocated rows drop out. */
@@ -454,9 +467,23 @@ interface SourceScope {
 
 function useSourceScope(source: AppDataSource | undefined): SourceScope {
   const { selection } = useContext(CrossFilterContext);
+  const byId = useContext(AppSourcesContext);
   const followId =
     source?.followMapWidgetId === '' ? undefined : source?.followMapWidgetId;
   const bboxKey = useMapViewportBbox(followId);
+  // The parent's scope, resolved the same way and at the same time.
+  // Hooks cannot be called conditionally, so the parent's viewport is
+  // subscribed to whether or not this source relates to it; the cost
+  // is one no-op subscription and the alternative is a hook order
+  // that changes when an author edits a relate.
+  const parent = source?.via ? byId[source.via.sourceId] : undefined;
+  const parentFollowId =
+    parent?.followMapWidgetId === '' ? undefined : parent?.followMapWidgetId;
+  const parentBboxKey = useMapViewportBbox(parentFollowId);
+  const parentSelecting =
+    selection && parent && selection.sourceId === parent.id
+      ? selection
+      : null;
   const selecting =
     selection && source && selection.sourceId === source.id
       ? selection
@@ -466,6 +493,11 @@ function useSourceScope(source: AppDataSource | undefined): SourceScope {
     ? `${selecting.field} ${String(selecting.value)}`
     : '';
   const authorKey = authorWhere ? JSON.stringify(authorWhere) : '';
+  const viaKey = source?.via ? JSON.stringify(source.via) : '';
+  const parentSelKey = parentSelecting
+    ? `${parentSelecting.field} ${String(parentSelecting.value)}`
+    : '';
+  const parentWhereKey = parent?.where ? JSON.stringify(parent.where) : '';
   return useMemo(() => {
     const clauses: MapLayerFilter['clauses'] = [
       ...(authorWhere?.clauses ?? []),
@@ -492,10 +524,55 @@ function useSourceScope(source: AppDataSource | undefined): SourceScope {
       // click narrows what the author published; it never widens it.
       out.where = { combinator: 'all', clauses };
     }
+    if (source?.via && parent) {
+      const parentClauses: MapLayerFilter['clauses'] = [
+        ...(parent.where?.clauses ?? []),
+      ];
+      if (parentSelecting) {
+        parentClauses.push(
+          parentSelecting.value === null
+            ? { field: parentSelecting.field, op: 'is-null', value: '' }
+            : {
+                field: parentSelecting.field,
+                op: '==',
+                value: parentSelecting.value,
+              },
+        );
+      }
+      out.via = {
+        myField: source.via.myField,
+        parentField: source.via.parentField,
+        parentItemId: parent.layer.dataLayerId,
+        parentLayerId: parent.layer.layerKey,
+        ...(parentBboxKey
+          ? {
+              parentBbox: parentBboxKey.split(',').map(Number) as [
+                number,
+                number,
+                number,
+                number,
+              ],
+            }
+          : {}),
+        ...(parentClauses.length > 0
+          ? { parentWhere: { combinator: 'all' as const, clauses: parentClauses } }
+          : {}),
+      };
+      if (parentSelecting && !selecting) out.note = parentSelecting.label;
+    }
     if (selecting) out.note = selecting.label;
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bboxKey, authorKey, selKey]);
+  }, [
+    bboxKey,
+    authorKey,
+    selKey,
+    viaKey,
+    parentBboxKey,
+    parentWhereKey,
+    parentSelKey,
+    parent?.id,
+  ]);
 }
 
 /**
@@ -4618,6 +4695,7 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
               }
             : {}),
           ...(where ? { where } : {}),
+          ...(scope.via ? { via: scope.via } : {}),
           ...(appAt ? { asOf: appAt } : {}),
           signal: controller.signal,
         });
@@ -4854,6 +4932,7 @@ function IndicatorWidgetRender({ widget }: { widget: CustomWidget }) {
           ],
           ...(bbox ? { bbox } : {}),
           ...(where ? { where } : {}),
+          ...(scope.via ? { via: scope.via } : {}),
           ...(appAt ? { asOf: appAt } : {}),
           signal: controller.signal,
         });

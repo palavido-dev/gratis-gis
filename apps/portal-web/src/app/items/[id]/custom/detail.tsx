@@ -3665,6 +3665,7 @@ function AppProperties({
                 <SourceRow
                   key={src.id}
                   source={src}
+                  siblings={sources.filter((o) => o.id !== src.id)}
                   mapWidgets={(page.widgets ?? []).filter(
                     (w) => w.kind === 'map',
                   )}
@@ -3735,17 +3736,22 @@ function AppProperties({
  */
 function SourceRow({
   source,
+  siblings,
   mapWidgets,
   canEdit,
   onChange,
   onRemove,
 }: {
   source: AppDataSource;
+  siblings: AppDataSource[];
   mapWidgets: CustomWidget[];
   canEdit: boolean;
   onChange: (patch: SourcePatch) => void;
   onRemove: () => void;
 }) {
+  const myFields = useTargetFields(source.layer);
+  const parent = siblings.find((o) => o.id === source.via?.sourceId);
+  const parentFields = useTargetFields(parent?.layer);
   return (
     <li className="rounded-md border border-border bg-surface-2 px-2 py-1.5">
       <div className="flex items-center gap-1.5">
@@ -3773,11 +3779,27 @@ function SourceRow({
       <div className="mt-1 flex items-center gap-1.5 pl-5">
         <span className="shrink-0 text-2xs text-muted">Shows</span>
         <select
-          value={source.followMapWidgetId ?? ''}
-          disabled={!canEdit || mapWidgets.length === 0}
-          onChange={(e) =>
-            onChange({ followMapWidgetId: e.target.value || undefined })
-          }
+          value={source.via ? '@via' : (source.followMapWidgetId ?? '')}
+          disabled={!canEdit}
+          onChange={(e) => {
+            if (e.target.value === '@via') {
+              const first = siblings[0];
+              if (!first) return;
+              onChange({
+                followMapWidgetId: undefined,
+                via: {
+                  sourceId: first.id,
+                  parentField: '',
+                  myField: '',
+                },
+              });
+              return;
+            }
+            onChange({
+              via: undefined,
+              followMapWidgetId: e.target.value || undefined,
+            });
+          }}
           className="min-w-0 flex-1 rounded border border-border bg-surface-1 px-1 py-0.5 text-2xs"
         >
           <option value="">every record</option>
@@ -3786,8 +3808,81 @@ function SourceRow({
               only what is on Map · {w.id.slice(2, 10)}
             </option>
           ))}
+          {siblings.length > 0 ? (
+            <option value="@via">only rows linked to another layer</option>
+          ) : null}
         </select>
       </div>
+      {/* The relate. This is what lets a table with no geometry
+          follow a map: it has no location of its own, but its parent
+          does, so it is in view when its parent is. Whatever narrows
+          the parent narrows this too, with nothing else declared. */}
+      {source.via ? (
+        <div className="mt-1 space-y-1 rounded border border-border bg-surface-1 px-1.5 py-1 pl-5">
+          <div className="flex items-center gap-1.5">
+            <span className="shrink-0 text-2xs text-muted">Linked to</span>
+            <select
+              value={source.via.sourceId}
+              disabled={!canEdit}
+              onChange={(e) =>
+                onChange({
+                  via: { ...source.via!, sourceId: e.target.value },
+                })
+              }
+              className="min-w-0 flex-1 rounded border border-border bg-surface-2 px-1 py-0.5 text-2xs"
+            >
+              {siblings.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label?.trim() || o.layer.layerKey}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="shrink-0 text-2xs text-muted">matching</span>
+            <select
+              value={source.via.myField}
+              disabled={!canEdit || myFields.loading}
+              onChange={(e) =>
+                onChange({
+                  via: { ...source.via!, myField: e.target.value },
+                })
+              }
+              className="min-w-0 flex-1 rounded border border-border bg-surface-2 px-1 py-0.5 text-2xs"
+            >
+              <option value="">(pick a field)</option>
+              {myFields.fields.map((f) => (
+                <option key={f.name} value={f.name}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+            <span className="shrink-0 text-2xs text-muted">to</span>
+            <select
+              value={source.via.parentField}
+              disabled={!canEdit || parentFields.loading}
+              onChange={(e) =>
+                onChange({
+                  via: { ...source.via!, parentField: e.target.value },
+                })
+              }
+              className="min-w-0 flex-1 rounded border border-border bg-surface-2 px-1 py-0.5 text-2xs"
+            >
+              <option value="">(pick a field)</option>
+              {parentFields.fields.map((f) => (
+                <option key={f.name} value={f.name}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          {!source.via.myField || !source.via.parentField ? (
+            <p className="text-2xs text-warn">
+              Pick both fields, or this layer shows nothing.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
     </li>
   );
 }
