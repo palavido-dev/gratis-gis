@@ -5,6 +5,33 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.47] - 2026-08-20
+
+### Added
+
+- **An app's layers are now data sources that carry their own scope.**
+  A layer says what it shows: every record, or only what is on a
+  given map. Widgets pick a layer and inherit that, so a dashboard's
+  pieces agree without setting it on every tile. Managed in a Layers
+  panel in the builder.
+- **A layer can be scoped through a related one.** A table with no
+  location of its own follows a map through its parent: inspections
+  are in view when their well is. Whatever narrows the parent narrows
+  the child, including a chart click on it.
+
+### Changed
+
+- Widgets bind to a layer by a stable id instead of by position. This
+  fixes wrong numbers, not just untidiness: removing a layer, or
+  having one fail to load, used to shift every later binding so
+  widgets silently answered about a different layer. Existing apps
+  convert on open.
+
+### Fixed
+
+- **Auto-refresh can be turned back off**, and the layer picker shows
+  layer names rather than a fragment of an internal id.
+
 ## [0.9.46] - 2026-08-20
 
 ### Added
