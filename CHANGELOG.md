@@ -5,6 +5,32 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.53] - 2026-08-20
+
+### Added
+
+- **Charts can show a distribution.** Point one at a measurement
+  column and it used to draw one bar per distinct reading. Now it can
+  group the numbers into ranges: a set number of bars, a fixed range
+  size, or ranges you name yourself so the chart cuts where your map's
+  classes do. Clicking a bar filters the page to that range.
+- **Reference lines on charts.** Draw a limit, a target, or a
+  threshold across a chart, with a caption. A measurement chart is
+  only readable against the standard it is being compared to.
+
+### Fixed
+
+- **Public apps no longer get whole-layer numbers from a related
+  chart.** A chart scoped through a related layer sent that scope
+  correctly and the anonymous endpoint quietly ignored it, so the
+  numbers described everything instead of the selection. Nothing on
+  screen said so.
+- **The landing page centres what you feature.** Two or three items
+  sat hard left in a four-wide grid with a third of the page empty
+  beside them. The layout now follows how many items there are and
+  how much room the screen has, and cards stay the same size either
+  way.
+
 ## [0.9.52] - 2026-08-20
 
 ### Fixed
