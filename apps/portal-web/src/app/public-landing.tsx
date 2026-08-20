@@ -177,31 +177,23 @@ export function PublicLanding({
         heroImageUrl={org.heroImageUrl}
       />
 
-      {/* #255: open-source project section. Renders when the
-          deployment opts in via NEXT_PUBLIC_PROJECT_LANDING=1, OR
-          when the parent forces it via the forceProjectSection
-          prop (?preview=project URL override). Per-tenant
-          deployments leave both off so their landing reads as a
-          tenant page (datasets + sign-in), not a "what is GratisGIS"
-          marketing page. The canonical gratisgis.org deployment
-          flips the flag on for the public alpha. */}
-      {process.env.NEXT_PUBLIC_PROJECT_LANDING === '1' ||
-      forceProjectSection ? (
-        <ProjectAboutSection />
-      ) : null}
-
-      {whatsNew && whatsNew.length > 0 ? (
-        <WhatsNewSection entries={whatsNew} />
-      ) : null}
-
+      {/* The public items sit directly under the hero, ahead of
+          the marketing copy and the changelog.
+          
+          They were last on the page, below both, which meant a
+          visitor had to scroll past everything we say about
+          ourselves to reach the only things that prove any of it.
+          Working apps someone can click are the most persuasive
+          content here and they were the least likely to be seen. */}
       {org.showPublicItems ? (
         <section className="mx-auto w-full max-w-6xl flex-1 px-6 py-12">
           <div className="mb-6">
             <h2 className="text-xl font-semibold tracking-tight text-ink-0">
-              Explore public content
+              See it running
             </h2>
             <p className="mt-1 text-sm text-muted">
-              Datasets, maps, and apps {org.name} has shared publicly.
+              Live dashboards, maps, and data {org.name} has shared
+              publicly. No account needed.
             </p>
           </div>
 
@@ -242,7 +234,25 @@ export function PublicLanding({
       )}
 
       <footer className="border-t border-border bg-surface-1 py-6 text-center text-xs text-muted">
-        {/* Bare version string on purpose (locale-neutral, stays out
+  
+      {/* #255: open-source project section. Renders when the
+          deployment opts in via NEXT_PUBLIC_PROJECT_LANDING=1, OR
+          when the parent forces it via the forceProjectSection
+          prop (?preview=project URL override). Per-tenant
+          deployments leave both off so their landing reads as a
+          tenant page (datasets + sign-in), not a "what is GratisGIS"
+          marketing page. The canonical gratisgis.org deployment
+          flips the flag on for the public alpha. */}
+      {process.env.NEXT_PUBLIC_PROJECT_LANDING === '1' ||
+      forceProjectSection ? (
+        <ProjectAboutSection />
+      ) : null}
+
+      {whatsNew && whatsNew.length > 0 ? (
+        <WhatsNewSection entries={whatsNew} />
+      ) : null}
+
+      {/* Bare version string on purpose (locale-neutral, stays out
             of the i18n catalogs). Release builds link to their notes;
             between-releases builds render as plain text. */}
         {versionReleaseUrl() ? (
