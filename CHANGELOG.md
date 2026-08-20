@@ -5,6 +5,28 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.46] - 2026-08-20
+
+### Added
+
+- **One setting scopes a whole page to a map.** Charts and counters
+  inherit it, so a dashboard's pieces agree without setting
+  "follow a map's view" on every tile. A widget can still overrule
+  it either way. Dashboard starters ship with it on; existing apps
+  are unchanged.
+
+### Fixed
+
+- **Clicking a chart now filters the map too.** It narrowed the
+  counters and the other charts and left the map showing everything.
+- **Auto-refresh can be turned back off.** Setting it to 0 silently
+  kept the previous value.
+- **The designer no longer calls a working dashboard broken.** A map
+  widget said "no map bound" when it was drawing the app's own layers,
+  which is how every dashboard is built.
+- **The layer picker shows layer names** instead of a fragment of the
+  item's internal id.
+
 ## [0.9.45] - 2026-08-20
 
 ### Fixed
