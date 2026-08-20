@@ -24,7 +24,10 @@ import {
   extractDependencies,
   normalizeArcgisUrl,
 } from '../items/dependency-extractor.js';
-import { groupDanglingRefs } from './dangling-refs.js';
+import {
+  groupDanglingRefs,
+  type DanglingRefCandidate,
+} from './dangling-refs.js';
 import { StorageService } from '../storage/storage.service.js';
 
 /**
@@ -161,6 +164,12 @@ export class HousekeepingService {
    * URL references (arcgis-rest layers pointing at external
    * services) are intentionally out of scope: an external URL has
    * no portal row whose absence would mean breakage.
+   *
+   * #238: item.data is not the only place an item id is stored, and
+   * a scan that only walks it reports a clean bill of health while
+   * /admin/branding is visibly rendering "Unknown item ...". The
+   * settings scan below covers the holders that live outside the
+   * item table entirely.
    */
   async danglingReferences(orgId: string) {
     const rows = await this.prisma.item.findMany({
@@ -174,14 +183,17 @@ export class HousekeepingService {
         orgGeoBoundaryId: true,
       },
     });
-    const referrers = rows
+    const referrers: DanglingRefCandidate[] = rows
       .map((r) => ({
         id: r.id,
         type: r.type as string,
         title: r.title,
+        scope: 'item' as const,
+        href: `/items/${r.id}`,
         refs: extractDependencies(r).itemIds,
       }))
       .filter((r) => r.refs.length > 0);
+    referrers.push(...(await this.settingsReferrers(orgId)));
     const allRefs = [...new Set(referrers.flatMap((r) => r.refs))];
     if (allRefs.length === 0) {
       return { referrers: [] };
@@ -200,6 +212,86 @@ export class HousekeepingService {
       found.filter((f) => f.deletedAt !== null).map((f) => f.id),
     );
     return { referrers: groupDanglingRefs(referrers, liveIds, trashedIds) };
+  }
+
+  /**
+   * Item references held OUTSIDE the item table (#238). Every one of
+   * these fails the same way: the dereferencing code treats a missing
+   * target as "nothing there" and carries on, so the only signal is a
+   * human noticing something absent.
+   *
+   * Covered here:
+   *
+   *   - organization.landingFeaturedItemIds. A purged item leaves its
+   *     uuid pinned to the landing config forever, because purge only
+   *     spliced folder membership. The landing page skips what it
+   *     cannot resolve and /admin/branding renders "Unknown item ...".
+   *     This is how the demo grew two ghosts: snapshot-golden.sh
+   *     purges every non-admin item before it dumps, and the featured
+   *     picks pointed at two of them.
+   *   - item_share.geoBoundaryId. Deliberately not a foreign key (the
+   *     boundary and its item share one table, so Postgres cannot
+   *     enforce a partial FK on type), and SharingService resolves a
+   *     missing target to "no clip". A share that was scoped to one
+   *     county silently becomes org-wide. That is the one entry here
+   *     with a security consequence, so it carries a note.
+   *
+   * Deliberately NOT covered: analysis_job and import_job provenance
+   * columns (a finished job pointing at a deleted output is ordinary
+   * history, not breakage), print_render_token (rows expire in
+   * minutes), and orphaned form_submission rows (real drift, but
+   * there is no admin surface on which to act, so a row here would be
+   * a finding with no fix).
+   */
+  private async settingsReferrers(
+    orgId: string,
+  ): Promise<DanglingRefCandidate[]> {
+    const out: DanglingRefCandidate[] = [];
+
+    const org = await this.prisma.organization.findUnique({
+      where: { id: orgId },
+      select: { landingFeaturedItemIds: true },
+    });
+    const featured = org?.landingFeaturedItemIds ?? [];
+    if (featured.length > 0) {
+      out.push({
+        id: 'org:landing-featured',
+        type: 'Landing page',
+        title: 'Featured items',
+        scope: 'settings',
+        href: '/admin/branding',
+        note: 'The landing page silently skips featured items it cannot resolve.',
+        refs: [...featured],
+      });
+    }
+
+    // Group by the shared item, because that is where the admin fixes
+    // it (the item's Sharing tab), and one item can carry several
+    // shares pointing at the same dead boundary.
+    const shares = await this.prisma.itemShare.findMany({
+      where: { geoBoundaryId: { not: null }, item: { orgId } },
+      select: { geoBoundaryId: true, item: { select: { id: true, title: true } } },
+    });
+    const byItem = new Map<string, { title: string; refs: string[] }>();
+    for (const s of shares) {
+      if (!s.geoBoundaryId) continue;
+      const entry = byItem.get(s.item.id) ?? { title: s.item.title, refs: [] };
+      entry.refs.push(s.geoBoundaryId);
+      byItem.set(s.item.id, entry);
+    }
+    for (const [itemId, entry] of byItem) {
+      out.push({
+        id: `share-geo:${itemId}`,
+        type: 'Share geo limit',
+        title: entry.title,
+        scope: 'settings',
+        href: `/items/${itemId}`,
+        note: 'A share whose boundary is gone falls back to no clip, so the grant is wider than it was set up to be.',
+        refs: entry.refs,
+      });
+    }
+
+    return out;
   }
 
   /**

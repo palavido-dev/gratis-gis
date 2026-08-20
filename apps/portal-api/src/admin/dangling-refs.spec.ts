@@ -1,10 +1,29 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { groupDanglingRefs } from './dangling-refs.js';
+import {
+  groupDanglingRefs,
+  type DanglingRefCandidate,
+} from './dangling-refs.js';
 
-const referrer = (id: string, title: string, refs: string[]) => ({
+const referrer = (
+  id: string,
+  title: string,
+  refs: string[],
+): DanglingRefCandidate => ({
   id,
   type: 'map',
   title,
+  scope: 'item',
+  href: `/items/${id}`,
+  refs,
+});
+
+const settingsReferrer = (refs: string[]): DanglingRefCandidate => ({
+  id: 'org:landing-featured',
+  type: 'Landing page',
+  title: 'Featured items',
+  scope: 'settings',
+  href: '/admin/branding',
+  note: 'The landing page silently skips featured items it cannot resolve.',
   refs,
 });
 
@@ -57,5 +76,43 @@ describe('groupDanglingRefs', () => {
     expect(
       groupDanglingRefs([referrer('m1', 'Fine', ['ok-1'])], live, trash),
     ).toEqual([]);
+  });
+
+  // #238: the settings scope is the reason this takes a descriptor at
+  // all. The client branches on `scope` to decide whether `type` is an
+  // ItemType to look up or a label to print, and follows `href`
+  // instead of deriving /items/<id> from the row id.
+  it('carries the settings descriptor through to the row', () => {
+    const out = groupDanglingRefs(
+      [settingsReferrer(['gone-1', 'ok-1'])],
+      live,
+      trash,
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({
+      id: 'org:landing-featured',
+      type: 'Landing page',
+      scope: 'settings',
+      href: '/admin/branding',
+      missing: ['gone-1'],
+    });
+    expect(out[0]!.note).toMatch(/silently skips/);
+  });
+
+  it('leaves note absent (not undefined) on rows without one', () => {
+    const out = groupDanglingRefs([referrer('m1', 'M', ['gone-1'])], live, trash);
+    // A present-but-undefined key serializes as `"note": undefined`
+    // dropped by JSON, but breaks exactOptionalPropertyTypes callers
+    // that spread the row. Assert absence, not falsiness.
+    expect(Object.hasOwn(out[0]!, 'note')).toBe(false);
+  });
+
+  it('reports item and settings referrers together', () => {
+    const out = groupDanglingRefs(
+      [referrer('m1', 'A broken map', ['gone-1']), settingsReferrer(['gone-2'])],
+      live,
+      trash,
+    );
+    expect(out.map((r) => r.scope).sort()).toEqual(['item', 'settings']);
   });
 });

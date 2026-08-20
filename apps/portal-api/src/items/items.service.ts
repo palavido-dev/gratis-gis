@@ -2125,12 +2125,7 @@ export class ItemsService {
       throw new ForbiddenException('Only the owner or an org admin can purge an item');
     }
     await this.tearDownItemBackingStorage(item.id, item.type, item.data);
-    // Cascade folder cleanup: any folder whose data.childItemIds
-    // references the now-purged UUID gets that UUID spliced out.
-    // Soft-delete deliberately does NOT do this (so trash restoration
-    // restores folder membership too); cleanup only runs at hard-delete
-    // when the item is gone for good. See docs/folders.md.
-    await this.spliceFromFolders(id);
+    await this.detachPurgedItemReferences(id);
     await this.prisma.item.delete({ where: { id } });
   }
 
@@ -2260,10 +2255,61 @@ export class ItemsService {
   }
 
   /**
+   * Remove a now-purged item id from every list that still names it.
+   *
+   * Soft-delete deliberately does NOT do this, so restoring from the
+   * trash restores folder membership and landing pins along with the
+   * item; cleanup only runs at hard-delete, when the id is gone for
+   * good.
+   *
+   * Public because there are two hard-delete paths and both need it:
+   * `purge()` here, and TrashPurgeService's nightly sweep, which
+   * deletes the row directly. That sweep called only
+   * tearDownItemBackingStorage, so every item that aged out of the
+   * trash left its uuid behind in whatever referenced it. Adding a
+   * new holder means adding a splice here and nowhere else.
+   *
+   * Holders that are real foreign keys (shares, credentials,
+   * snapshots, comment threads, attachments) cascade in Postgres and
+   * need nothing. This method is only for the ones Prisma cannot
+   * model: JSON arrays, and columns that point into `item` without a
+   * constraint.
+   */
+  async detachPurgedItemReferences(deletedItemId: string): Promise<void> {
+    await this.spliceFromFolders(deletedItemId);
+    await this.spliceFromLandingFeatured(deletedItemId);
+  }
+
+  /**
+   * Drop a purged id from every org's landing-page featured list
+   * (#238). Not org-scoped on purpose: the id is globally unique, the
+   * caller does not always have the org handy, and a stale pin in a
+   * neighbouring org would be just as wrong.
+   *
+   * array_remove rather than read-modify-write so concurrent branding
+   * saves cannot lose an edit, and so an id repeated in the array is
+   * fully removed in one statement.
+   *
+   * item_share.geoBoundaryId is NOT nulled here. A dangling boundary
+   * already resolves to "no clip" in SharingService, so rewriting the
+   * column changes no behaviour and destroys the only evidence that
+   * the share was ever scoped. Housekeeping reports those instead, so
+   * an admin can repoint the share rather than discover later that it
+   * quietly went org-wide.
+   */
+  private async spliceFromLandingFeatured(deletedItemId: string): Promise<void> {
+    await this.prisma.$executeRaw`
+      UPDATE "organization"
+      SET landing_featured_item_ids =
+        array_remove(landing_featured_item_ids, ${deletedItemId}::uuid)
+      WHERE landing_featured_item_ids @> ARRAY[${deletedItemId}::uuid]
+    `;
+  }
+
+  /**
    * Remove a now-purged item id from every folder's childItemIds list.
-   * Runs inside the purge path; not exposed publicly. Uses a JSONB
-   * filter to find candidate folders so we don't have to load every
-   * folder in the org. See docs/folders.md.
+   * Uses a JSONB filter to find candidate folders so we don't have to
+   * load every folder in the org. See docs/folders.md.
    */
   private async spliceFromFolders(deletedItemId: string): Promise<void> {
     const candidates = await this.prisma.$queryRaw<

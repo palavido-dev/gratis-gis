@@ -79,6 +79,14 @@ export class TrashPurgeService {
           it.type as ItemType,
           it.data,
         );
+        // #238: the interactive purge path has always spliced the id
+        // out of the lists that name it; this sweep did not, so an
+        // item that simply aged out of the trash left a dead uuid in
+        // every folder that held it and in the landing-page featured
+        // pins. Same call, same place in the order: detach before the
+        // row goes, so a failure leaves the item rather than a
+        // half-detached graph.
+        await this.items.detachPurgedItemReferences(it.id);
         await this.prisma.item.delete({ where: { id: it.id } });
         itemsPurged += 1;
       } catch (err) {
