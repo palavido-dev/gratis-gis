@@ -430,6 +430,22 @@ export class DataLayerFeaturesService {
       geoLimit?: unknown;
       boundaryClip?: unknown;
       ownRowsOnly?: { userId: string };
+      /**
+       * Attribute predicate. Forwarded, not interpreted: the caller
+       * has already checked every field against the layer schema.
+       *
+       * This wrapper forwards by naming each key, so a key missing
+       * from the type above is silently dropped rather than rejected.
+       * Excess-property checking does not save you either, because
+       * the controllers pass a variable rather than an object
+       * literal. That is exactly how `where` shipped once as a filter
+       * that validated correctly, returned 200, and answered with
+       * unfiltered numbers. Add the key in both places.
+       */
+      where?: {
+        combinator: 'all' | 'any';
+        clauses: Array<{ field: string; op: string; value: string }>;
+      };
       limit?: number;
       asOf?: Date;
     },
@@ -441,6 +457,7 @@ export class DataLayerFeaturesService {
       ...(args.asOf !== undefined ? { asOf: args.asOf } : {}),
       ...(args.groupBy !== undefined ? { groupBy: args.groupBy } : {}),
       ...(args.bbox !== undefined ? { bbox: args.bbox } : {}),
+      ...(args.where !== undefined ? { where: args.where } : {}),
       ...(args.geoLimit !== undefined
         ? { geoLimit: args.geoLimit as GeoJsonGeometry }
         : {}),

@@ -117,6 +117,87 @@ function calcArgs(
   };
 }
 
+/**
+ * Aggregate option forwarding.
+ *
+ * This wrapper forwards to the engine by naming each key, so a key it
+ * does not know about is silently dropped. TypeScript does not catch
+ * it: the controllers pass a variable rather than an object literal,
+ * so excess-property checking never runs. That is how `where` first
+ * shipped as a filter that validated its input correctly, returned
+ * 200, and answered with unfiltered numbers, and it is the same shape
+ * as the #83 `entityIds` bug pinned above.
+ *
+ * Asserting on the object the engine RECEIVED, rather than on a
+ * returned figure, is the point: a dropped option is invisible in the
+ * result.
+ */
+describe('DataLayerFeaturesService.aggregateFeatures option forwarding', () => {
+  function makeAggService() {
+    // The parameter is declared even though the fake ignores it:
+    // without it jest types mock.calls as an empty tuple and the
+    // assertions below cannot reach the argument, which is the only
+    // thing worth asserting on here.
+    const aggregateFeatures = jest.fn(
+      async (_args: Record<string, unknown>) => ({
+        groups: [] as Array<never>,
+        truncated: false,
+      }),
+    );
+    const service = new DataLayerFeaturesService(
+      {} as unknown as PrismaService,
+      { notifySourceWrite: jest.fn() } as unknown as DerivedLayerCacheRefreshService,
+      { aggregateFeatures } as unknown as DataLayerEngine,
+      { refreshItemBbox: jest.fn() } as unknown as ItemBboxRefreshService,
+    );
+    return { service, aggregateFeatures };
+  }
+
+  const WHERE = {
+    combinator: 'all' as const,
+    clauses: [{ field: 'status', op: '==', value: 'open' }],
+  };
+
+  it('passes every option through to the engine, including where', async () => {
+    const { service, aggregateFeatures } = makeAggService();
+    const asOf = new Date('2026-01-01T00:00:00.000Z');
+
+    await service.aggregateFeatures(ITEM_ID, LAYER_ID, {
+      aggs: [{ op: 'count', as: 'count' }],
+      groupBy: ['status'],
+      bbox: [-81, 38, -79, 40],
+      where: WHERE,
+      ownRowsOnly: { userId: 'user-1' },
+      limit: 25,
+      asOf,
+    });
+
+    expect(aggregateFeatures).toHaveBeenCalledTimes(1);
+    expect(aggregateFeatures.mock.calls[0]![0]).toEqual({
+      itemId: ITEM_ID,
+      layerId: LAYER_ID,
+      aggs: [{ op: 'count', as: 'count' }],
+      groupBy: ['status'],
+      bbox: [-81, 38, -79, 40],
+      where: WHERE,
+      ownRowsOnly: { userId: 'user-1' },
+      limit: 25,
+      asOf,
+    });
+  });
+
+  it('omits the options the caller did not set rather than sending undefined', async () => {
+    const { service, aggregateFeatures } = makeAggService();
+
+    await service.aggregateFeatures(ITEM_ID, LAYER_ID, {
+      aggs: [{ op: 'count', as: 'count' }],
+    });
+
+    const sent = aggregateFeatures.mock.calls[0]![0];
+    expect(Object.keys(sent).sort()).toEqual(['aggs', 'itemId', 'layerId']);
+  });
+});
+
 describe('DataLayerFeaturesService.calculateField scope', () => {
   it('selection scope threads entityIds into the engine read and only writes the selected entities', async () => {
     const { service, listFeatures, writeFeaturesUpdate } = makeService();
