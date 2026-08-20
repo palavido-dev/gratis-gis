@@ -5,6 +5,20 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.50] - 2026-08-20
+
+### Added
+
+- **Counters and charts can count distinct values**, not just
+  records. "1,480 acidic samples" might be one creek measured
+  monthly for a decade; "392 acidic sites" is a map.
+
+### Changed
+
+- **The landing page leads with the live apps.** They were below the
+  marketing copy and the whole changelog, so almost nobody reached
+  them.
+
 ## [0.9.49] - 2026-08-20
 
 ### Fixed
