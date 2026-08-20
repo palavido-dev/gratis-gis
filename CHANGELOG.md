@@ -5,6 +5,18 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.54] - 2026-08-20
+
+### Fixed
+
+- **An app no longer draws its own unstyled copy over your map.**
+  When a dashboard's data source pointed at a layer the bound map
+  already showed, the app added a second copy on top with default
+  styling, so carefully classed symbology rendered as one flat
+  colour. The copy also downloaded the whole layer instead of
+  streaming tiles, which is what made a large dashboard slow to
+  settle.
+
 ## [0.9.53] - 2026-08-20
 
 ### Added
