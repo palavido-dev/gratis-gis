@@ -893,6 +893,25 @@ export function CustomRuntimeClient({
     () => app.pages.map((p) => ({ id: p.id, title: p.title })),
     [app.pages],
   );
+  // The app's sources, indexed once. `sourceOrder` exists only to
+  // resolve a legacy `targetIndex`, and goes when that does.
+  //
+  // Declared ABOVE ctxValue on purpose. useMemo runs its callback
+  // during render, so a memo that closes over a const declared below
+  // it reads that const before initialization and throws. TypeScript
+  // cannot see it: block scoping is a runtime property, so the
+  // reference typechecks and the page dies on load. That is how this
+  // shipped to prod once.
+  const sourcesById = useMemo(() => {
+    const out: Record<string, AppDataSource> = {};
+    for (const src of app.sources ?? []) out[src.id] = src;
+    return out;
+  }, [app.sources]);
+  const sourceOrder = useMemo(
+    () => (app.sources ?? []).map((src) => src.id),
+    [app.sources],
+  );
+
 
   const ctxValue: CustomMapsCtx = useMemo(
     () => ({
@@ -947,18 +966,6 @@ export function CustomRuntimeClient({
   const appTimeCtx = useMemo(
     () => ({ at: appAt, setAt: setAppAt }),
     [appAt],
-  );
-
-  // The app's sources, indexed once. `sourceOrder` exists only to
-  // resolve a legacy `targetIndex`, and goes when that does.
-  const sourcesById = useMemo(() => {
-    const out: Record<string, AppDataSource> = {};
-    for (const src of app.sources ?? []) out[src.id] = src;
-    return out;
-  }, [app.sources]);
-  const sourceOrder = useMemo(
-    () => (app.sources ?? []).map((src) => src.id),
-    [app.sources],
   );
 
   // Cross-filter selection. Deliberately not in the URL: it is a
