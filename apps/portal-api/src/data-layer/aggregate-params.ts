@@ -24,7 +24,22 @@ import type {
  * response never has to correlate by position.
  */
 
-export type AggOp = 'count' | 'sum' | 'avg' | 'min' | 'max';
+/**
+ * `countDistinct` counts distinct values of a field, not rows.
+ *
+ * It exists because on real monitoring data the two answer different
+ * questions and only one of them is a finding. "1,480 samples below
+ * pH 5" could be a single creek measured monthly for a decade;
+ * "392 sites below pH 5" is a map. Every other aggregate here
+ * summarises a measurement; this one summarises coverage.
+ */
+export type AggOp =
+  | 'count'
+  | 'countDistinct'
+  | 'sum'
+  | 'avg'
+  | 'min'
+  | 'max';
 
 export interface AggSpec {
   op: AggOp;
@@ -133,7 +148,14 @@ export function parseVia(raw: unknown): ParsedVia | undefined {
   return out;
 }
 
-const OPS = new Set<AggOp>(['count', 'sum', 'avg', 'min', 'max']);
+const OPS = new Set<AggOp>([
+  'count',
+  'countDistinct',
+  'sum',
+  'avg',
+  'min',
+  'max',
+]);
 
 const FILTER_OPS = new Set<MapFilterOp>([
   '==',
@@ -298,7 +320,8 @@ export function parseAggregateQuery(query: {
         // question with a different answer. Refuse rather than
         // silently answering the one we do support.
         throw new BadRequestException(
-          'count does not take a field; use ?agg=count.',
+          'count does not take a field; use ?agg=count, or ' +
+            '?agg=countDistinct:field to count distinct values.',
         );
       }
       return { op, as: 'count' };

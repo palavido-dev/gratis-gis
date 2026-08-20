@@ -17,7 +17,13 @@ import type { MapLayerFilter, NumberFormat } from '@gratis-gis/shared-types';
  * URL works signed in and signed out.
  */
 
-export type AggOp = 'count' | 'sum' | 'avg' | 'min' | 'max';
+export type AggOp =
+  | 'count'
+  | 'countDistinct'
+  | 'sum'
+  | 'avg'
+  | 'min'
+  | 'max';
 
 export interface AggregateRequest {
   itemId: string;
@@ -75,6 +81,14 @@ export interface AggregateResult {
 export function aggKey(op: AggOp, field?: string): string {
   return op === 'count' ? 'count' : `${op}:${field ?? ''}`;
 }
+
+/** Ops that summarise a measurement, and so need a numeric field. */
+export const NUMERIC_AGG_OPS: ReadonlySet<AggOp> = new Set<AggOp>([
+  'sum',
+  'avg',
+  'min',
+  'max',
+]);
 
 export async function fetchAggregate(
   req: AggregateRequest,
@@ -161,6 +175,9 @@ export function defaultIndicatorLabel(
   const subject = layerName?.trim() || 'records';
   if (aggregate === 'count') return `Count of ${subject}`;
   const field = valueField?.trim();
+  if (aggregate === 'countDistinct') {
+    return field ? `Distinct ${field}` : `Distinct values`;
+  }
   const verb =
     aggregate === 'sum'
       ? 'Total'

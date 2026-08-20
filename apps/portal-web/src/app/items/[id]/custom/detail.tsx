@@ -7829,12 +7829,38 @@ function TargetSelect({
 }
 
 const AGGREGATE_OPTIONS = [
-  { value: 'count', label: 'Count of features' },
+  { value: 'count', label: 'Count of records' },
+  // Counts distinct values, not records. On monitoring data the two
+  // answer different questions: 1,480 acidic samples could be one
+  // creek measured monthly for a decade, while 392 acidic sites is a
+  // map.
+  { value: 'countDistinct', label: 'Count of distinct values in a field' },
   { value: 'sum', label: 'Sum of a field' },
   { value: 'avg', label: 'Average of a field' },
   { value: 'min', label: 'Smallest value' },
   { value: 'max', label: 'Largest value' },
 ] as const;
+
+/**
+ * Which aggregates need a field, and what to call it.
+ *
+ * `count` needs none. `countDistinct` needs one but it need not be
+ * numeric: the thing being counted is as likely to be a site name as
+ * a measurement. The rest need a number.
+ */
+function measureFieldLabel(op: string): { label: string; hint: string } | null {
+  if (op === 'count') return null;
+  if (op === 'countDistinct') {
+    return {
+      label: 'Field to count distinct values of',
+      hint: 'Any field. A site id or name counts places; a category counts kinds.',
+    };
+  }
+  return {
+    label: 'Number field',
+    hint: 'The field to measure. Text values are ignored.',
+  };
+}
 
 /**
  * Chart inspector. Replaces the "ships after the runtime" placeholder
@@ -7958,21 +7984,21 @@ function ChartWidgetConfigEditor({
           ))}
         </select>
       </Field>
-      {aggregate !== 'count' ? (
+      {measureFieldLabel(aggregate) ? (
         <Field
-          label="Number field"
-          hint="The field to add up. Text values are ignored."
+          label={measureFieldLabel(aggregate)!.label}
+          hint={measureFieldLabel(aggregate)!.hint}
         >
           <select
             value={config.valueField ?? ''}
-            disabled={!canEdit || numeric.length === 0}
+            disabled={!canEdit}
             onChange={(e) =>
               onChangeConfig({ valueField: e.target.value || undefined })
             }
             className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
           >
             <option value="">(pick a field)</option>
-            {numeric.map((f) => (
+            {(aggregate === 'countDistinct' ? fields : numeric).map((f) => (
               <option key={f.name} value={f.name}>
                 {f.name}
               </option>
@@ -8064,27 +8090,29 @@ function IndicatorWidgetConfigEditor({
       </Field>
       {config.aggregate !== 'count' ? (
         <Field
-          label="Number field"
+          label={measureFieldLabel(config.aggregate)?.label ?? 'Field'}
           hint={
             loading
               ? 'Reading the layer schema…'
-              : 'The field to summarize. Text values are ignored.'
+              : (measureFieldLabel(config.aggregate)?.hint ?? '')
           }
         >
           <select
             value={config.valueField ?? ''}
-            disabled={!canEdit || numeric.length === 0}
+            disabled={!canEdit}
             onChange={(e) =>
               onChangeConfig({ valueField: e.target.value || undefined })
             }
             className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
           >
             <option value="">(pick a field)</option>
-            {numeric.map((f) => (
-              <option key={f.name} value={f.name}>
-                {f.name}
-              </option>
-            ))}
+            {(config.aggregate === 'countDistinct' ? fields : numeric).map(
+              (f) => (
+                <option key={f.name} value={f.name}>
+                  {f.name}
+                </option>
+              ),
+            )}
           </select>
         </Field>
       ) : null}

@@ -2026,7 +2026,7 @@ export class DataLayerEngine {
     groupBy?: string[];
     /** Requested aggregates. `count` needs no field. */
     aggs: Array<{
-      op: 'count' | 'sum' | 'avg' | 'min' | 'max';
+      op: 'count' | 'countDistinct' | 'sum' | 'avg' | 'min' | 'max';
       field?: string;
       /** Result key. Caller-supplied so the widget can address it. */
       as: string;
@@ -2195,6 +2195,14 @@ export class DataLayerEngine {
     const aggSelect = args.aggs.map((a, i) => {
       const alias = Prisma.raw(`a${i}`);
       if (a.op === 'count') return Prisma.sql`COUNT(*)::double precision AS ${alias}`;
+      if (a.op === 'countDistinct') {
+        // Distinct VALUES of the field, not rows. No numeric coercion:
+        // the point is coverage, and the thing being counted is as
+        // likely to be a site name or a coordinate string as a number.
+        // NULLs are excluded by COUNT's own semantics, which is right:
+        // "no value recorded" is not a distinct value.
+        return Prisma.sql`COUNT(DISTINCT attrs->>${a.field!})::double precision AS ${alias}`;
+      }
       // Non-numeric values become NULL rather than erroring the whole
       // request: a column that is numeric for 99% of rows still gives
       // a useful sum, and a fully non-numeric one gives NULL, which

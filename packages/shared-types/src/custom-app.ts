@@ -854,7 +854,7 @@ export interface IndicatorWidgetConfig {
   /** Index into the app's `targets` (one indicator, one layer). */
   targetIndex: number;
   /** Aggregate to compute. 'count' needs no field. */
-  aggregate: 'count' | 'sum' | 'avg' | 'min' | 'max';
+  aggregate: 'count' | 'countDistinct' | 'sum' | 'avg' | 'min' | 'max';
   /** Numeric field for non-count aggregates. */
   valueField?: string;
   /** Caption under the number. Defaults to a generated description
@@ -940,10 +940,16 @@ export interface ChartWidgetConfig {
    *  and offers compatible columns. */
   groupBy?: string;
   /**
-   * Aggregation to render per group. 'count' is universally
-   * supported; others require `valueField`.
+   * Aggregation to render per group. 'count' needs no field; every
+   * other op requires `valueField`.
+   *
+   * `countDistinct` counts distinct VALUES of that field rather than
+   * records, and its field need not be numeric. On monitoring data
+   * that distinction is the difference between a statistic and a
+   * finding: "1,480 acidic samples" could be one creek measured
+   * monthly for a decade, where "392 acidic sites" is a map.
    */
-  aggregate?: 'count' | 'sum' | 'avg' | 'min' | 'max';
+  aggregate?: 'count' | 'countDistinct' | 'sum' | 'avg' | 'min' | 'max';
   /** Numeric field for non-count aggregates. */
   valueField?: string;
 }

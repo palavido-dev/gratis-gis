@@ -81,6 +81,25 @@ describe('parseAggregateQuery', () => {
     ).toThrow(/south is greater/);
   });
 
+  it('parses countDistinct, which needs a field', () => {
+    const p = parseAggregateQuery({ agg: 'countDistinct:site_id' });
+    expect(p.aggs).toEqual([
+      { op: 'countDistinct', field: 'site_id', as: 'countDistinct:site_id' },
+    ]);
+    expect(() => parseAggregateQuery({ agg: 'countDistinct' })).toThrow(
+      /needs a field/,
+    );
+  });
+
+  it('still refuses count with a field, and says what to use instead', () => {
+    // count(field) would mean "count non-null", a third question. The
+    // message now names countDistinct because that is what someone
+    // reaching for count:field usually wanted.
+    expect(() => parseAggregateQuery({ agg: 'count:site_id' })).toThrow(
+      /countDistinct/,
+    );
+  });
+
   it('validates limit', () => {
     expect(parseAggregateQuery({ agg: 'count', limit: '50' }).limit).toBe(50);
     expect(() =>

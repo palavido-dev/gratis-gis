@@ -422,7 +422,7 @@ export class DataLayerFeaturesService {
     args: {
       groupBy?: string[];
       aggs: Array<{
-        op: 'count' | 'sum' | 'avg' | 'min' | 'max';
+        op: 'count' | 'countDistinct' | 'sum' | 'avg' | 'min' | 'max';
         field?: string;
         as: string;
       }>;

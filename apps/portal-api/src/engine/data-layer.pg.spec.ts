@@ -1099,6 +1099,67 @@ d('observation-log read paths against real PostGIS', () => {
       expect(out.groups[0]!.values.count).toBe(1);
     });
 
+    it('countDistinct counts values, not rows, and skips nulls', async () => {
+      // The distinction this aggregate exists for. The seeded layer
+      // has four live entities: edited (Closed), steady (Closed),
+      // moved (Closed), and doomed (deleted). Three rows survive, and
+      // they carry ONE distinct STATUS between them.
+      const engine = makeEngine();
+      const out = await engine.aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [
+          { op: 'count', as: 'rows' },
+          { op: 'countDistinct', field: 'STATUS', as: 'statuses' },
+          { op: 'countDistinct', field: 'ACRES', as: 'acreages' },
+        ],
+      });
+      const v = out.groups[0]!.values;
+      expect(v.rows).toBe(3);
+      // Three rows, one distinct status. A count would say three and
+      // mean something else entirely.
+      expect(v.statuses).toBe(1);
+      // ACRES: 12, 8, 5 on the live rows.
+      expect(v.acreages).toBe(3);
+    });
+
+    it('countDistinct ignores rows with no value for the field', async () => {
+      // "No value recorded" is not a distinct value. Counting it as
+      // one would inflate every coverage figure by exactly one.
+      const out = await makeEngine().aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [{ op: 'countDistinct', field: 'NOT_A_COLUMN', as: 'n' }],
+      });
+      expect(out.groups[0]!.values.n).toBe(0);
+    });
+
+    it('countDistinct respects the collapse, the bbox and the filter', async () => {
+      // It has to obey scope like every other aggregate, or a
+      // "distinct sites in view" figure silently counts the whole
+      // layer. `moved` is the only live entity inside AWAY_BBOX.
+      const engine = makeEngine();
+      const away = await engine.aggregateFeatures({
+        itemId,
+        layerId,
+        bbox: AWAY_BBOX,
+        aggs: [{ op: 'countDistinct', field: 'ACRES', as: 'n' }],
+      });
+      expect(away.groups[0]!.values.n).toBe(1);
+
+      const filtered = await engine.aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [{ op: 'countDistinct', field: 'ACRES', as: 'n' }],
+        where: {
+          combinator: 'all',
+          clauses: [{ field: 'ACRES', op: '>', value: '6' }],
+        },
+      });
+      // 12 and 8 clear the filter; 5 does not.
+      expect(filtered.groups[0]!.values.n).toBe(2);
+    });
+
     it('an attribute filter matches the latest version, never a ghost', async () => {
       // The single most important property of this filter. `edited`
       // was Open and is now Closed; `doomed` was Open and is deleted.
