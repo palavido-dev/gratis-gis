@@ -5,6 +5,23 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.52] - 2026-08-20
+
+### Fixed
+
+- **Housekeeping now checks the pointers that live in your portal
+  settings**, not just the ones inside items. It reported a clean
+  bill of health while the Branding page was openly showing two
+  "Unknown item" rows in the featured list.
+- **A share that lost its boundary is now reported.** When the
+  boundary an area-limited share pointed at is deleted, the share
+  falls back to no limit, so it quietly grants more than it was set
+  up to grant. That was invisible until now.
+- **Deleting an item for good cleans up after itself properly.**
+  Permanently deleting an item removed it from folders but left it
+  pinned to the landing page forever, and emptying the recycle bin
+  on schedule cleaned up neither.
+
 ## [0.9.51] - 2026-08-20
 
 ### Fixed
