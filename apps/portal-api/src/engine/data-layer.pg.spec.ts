@@ -1769,16 +1769,17 @@ d('observation-log read paths against real PostGIS', () => {
       const ranges = out.groups
         .filter((g) => g.bin && !(g.bin.lower === null && g.bin.upper === null))
         .map((g) => [g.bin!.lower, g.bin!.upper, g.values.count]);
-      // Both ends open: 0,10,20 below 25 and 75,80,90 at or above 75.
+      // Values are 0,10..90. Both ends open: 0,10,20 fall below 25 and
+      // 80,90 sit at or above 75 (nothing is exactly 75).
       expect(ranges).toEqual([
         [null, 25, 3],
         [25, 50, 2],
-        [50, 75, 2],
-        [75, null, 3],
+        [50, 75, 3],
+        [75, null, 2],
       ]);
     });
 
-    it('bins ascending, not by height', async () => {
+    it('bins ascending, with the no-value bar last', async () => {
       const out = await makeEngine().aggregateFeatures({
         itemId,
         layerId,
@@ -1787,9 +1788,16 @@ d('observation-log read paths against real PostGIS', () => {
       });
       // Sorting a histogram by count would put the middle bar first
       // and destroy the shape that is the whole point.
-      const lowers = out.groups.map((g) => g.bin?.lower ?? -Infinity);
-      const sorted = [...lowers].sort((a, b) => a - b);
-      expect(lowers).toEqual(sorted);
+      const numbered = out.groups.filter(
+        (g) => !(g.bin?.lower === null && g.bin?.upper === null),
+      );
+      const uppers = numbered.map((g) => g.bin?.upper ?? Infinity);
+      expect(uppers).toEqual([...uppers].sort((a, b) => a - b));
+      // The rows with nothing recorded are a real bar, but they belong
+      // at the end of an ordered axis rather than in front of the
+      // smallest range, where they would read as its neighbour.
+      const last = out.groups[out.groups.length - 1];
+      expect(last!.bin).toEqual({ lower: null, upper: null });
     });
 
     it('a non-numeric value bins to no-value instead of erroring', async () => {

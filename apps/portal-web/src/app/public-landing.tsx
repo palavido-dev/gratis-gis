@@ -212,7 +212,24 @@ export function PublicLanding({
               </Link>
             </div>
           ) : (
-            <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            /* Track-sized and centred rather than a fixed 2/3/4
+               column grid.
+
+               A fixed grid only looks right when the item count fills
+               the last row. A curated landing page usually shows two
+               or three things, and those sat hard left in a four-wide
+               grid with a third of the page empty beside them.
+
+               `auto-fit` collapses the tracks that have nothing in
+               them, so the number of columns follows the number of
+               items AND the width available, and `justify-center`
+               centres whatever is left. The track max keeps a card the
+               same size whether there are two of them or twelve, which
+               is the other half of the problem: two cards stretched to
+               half the page each would be balanced and still wrong.
+               The `min(100%,...)` floor stops a narrow phone
+               overflowing. */
+            <ul className="grid justify-center gap-4 grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),17.5rem))]">
               {items.map((item) => (
                 <ItemCard key={item.id} item={item} />
               ))}
