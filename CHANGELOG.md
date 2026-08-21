@@ -5,6 +5,14 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.67] - 2026-08-21
+
+### Changed
+
+- **The labels zoom range moved to the Labels tab**, where you would
+  look for it. It was sitting under Style with the layer's own zoom
+  range, because the two are stored together.
+
 ## [0.9.66] - 2026-08-21
 
 ### Changed
