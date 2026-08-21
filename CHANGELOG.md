@@ -5,6 +5,14 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.64] - 2026-08-21
+
+### Fixed
+
+- **Reverted the aggregate change from v0.9.63**, which made counters
+  on related records slower rather than faster. Anyone on v0.9.63
+  should take this one. The speedup from v0.9.62 is unaffected.
+
 ## [0.9.63] - 2026-08-21
 
 ### Fixed
