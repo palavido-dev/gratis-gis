@@ -1528,20 +1528,33 @@ function LayerRow({
                     <p className="mb-1.5 text-2xs font-medium uppercase tracking-wide text-muted">
                       Visible zoom range
                     </p>
-                  <ScaleEditor
-                    value={layer.scale ?? DEFAULT_LAYER_SCALE}
-                    currentZoom={currentZoom}
-                    onChange={(scale) => onPatch({ scale })}
-                  />
+                    {/* The layer's own range only. The labels range
+                        lives on the same object but belongs beside
+                        the labels, which is where an author looks
+                        for it. */}
+                    <ScaleEditor
+                      value={layer.scale ?? DEFAULT_LAYER_SCALE}
+                      currentZoom={currentZoom}
+                      onChange={(scale) => onPatch({ scale })}
+                      show="layer"
+                    />
                   </div>
                 </LayerTabPanel>
-  
+
                 <LayerTabPanel tab="labels" active={tab}>
                   <LabelsEditor
                     value={layer.labels}
                     metadata={metadata}
                     onChange={(labels) => onPatch({ labels })}
                   />
+                  <div className="mt-3 border-t border-border pt-3">
+                    <ScaleEditor
+                      value={layer.scale ?? DEFAULT_LAYER_SCALE}
+                      currentZoom={currentZoom}
+                      onChange={(scale) => onPatch({ scale })}
+                      show="labels"
+                    />
+                  </div>
                 </LayerTabPanel>
   
                 <LayerTabPanel tab="filter" active={tab}>
@@ -2560,13 +2573,38 @@ function ScaleEditor({
   value,
   currentZoom,
   onChange,
+  /**
+   * Which of the two ranges to draw.
+   *
+   * Both live on the same `scale` object, but they answer to
+   * different tabs: how far out the LAYER draws is a style question,
+   * how far out its LABELS draw is a labels question, and that is
+   * where an author goes looking for it. One component with a
+   * selector rather than two, because they share the slider, the
+   * patch helper and the current-zoom tick.
+   */
+  show = 'all',
 }: {
   value: MapLayerScale;
   currentZoom: number;
   onChange: (next: MapLayerScale) => void;
+  show?: 'all' | 'layer' | 'labels';
 }) {
   function patch(p: Partial<MapLayerScale>) {
     onChange({ ...value, ...p });
+  }
+
+  if (show === 'labels') {
+    return (
+      <ZoomRange
+        label="Labels visible"
+        minZoom={value.labelsMinZoom}
+        maxZoom={value.labelsMaxZoom}
+        currentZoom={currentZoom}
+        onMin={(z) => patch({ labelsMinZoom: z })}
+        onMax={(z) => patch({ labelsMaxZoom: z })}
+      />
+    );
   }
 
   return (
@@ -2579,14 +2617,16 @@ function ScaleEditor({
         onMin={(z) => patch({ minZoom: z })}
         onMax={(z) => patch({ maxZoom: z })}
       />
-      <ZoomRange
-        label="Labels visible"
-        minZoom={value.labelsMinZoom}
-        maxZoom={value.labelsMaxZoom}
-        currentZoom={currentZoom}
-        onMin={(z) => patch({ labelsMinZoom: z })}
-        onMax={(z) => patch({ labelsMaxZoom: z })}
-      />
+      {show === 'all' ? (
+        <ZoomRange
+          label="Labels visible"
+          minZoom={value.labelsMinZoom}
+          maxZoom={value.labelsMaxZoom}
+          currentZoom={currentZoom}
+          onMin={(z) => patch({ labelsMinZoom: z })}
+          onMax={(z) => patch({ labelsMaxZoom: z })}
+        />
+      ) : null}
       <label className="flex cursor-pointer items-center gap-2 text-xs">
         <input
           type="checkbox"
