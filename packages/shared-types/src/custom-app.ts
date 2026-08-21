@@ -881,6 +881,38 @@ export interface IndicatorWidgetConfig {
 }
 
 /**
+ * One reader's cross-filter click, live for the session only.
+ *
+ * Lives here rather than in the runtime because resolveSourceScope
+ * composes it, and that has to be testable outside a React tree.
+ * Never persisted: it is a reading gesture, like a map pan, and a
+ * reload returns the app the author published.
+ */
+export interface CrossFilterSelection {
+  /** Widget that published it, so that widget can show it as active. */
+  widgetId: string;
+  /** Source it applies to; only widgets on that source are affected. */
+  sourceId: string;
+  field: string;
+  /**
+   * Identity of the selected thing, for display and for deciding
+   * whether a second click clears it. A category for a categorical
+   * axis (null = the rows with nothing recorded); a bucket index for a
+   * histogram bar, whose numeric bounds are not stable.
+   */
+  value: string | null;
+  /** What to print on the chip, e.g. "Event type: Heavy Snow". */
+  label: string;
+  /**
+   * The predicate this selection MEANS, when it is not a plain
+   * equality on `value`. A histogram bar selects a half-open range,
+   * and a chart publishing against another source expresses itself in
+   * that source's vocabulary.
+   */
+  clauses?: MapLayerFilter['clauses'];
+}
+
+/**
  * Numeric binning for a chart's category axis (#27).
  *
  * `groupBy` alone is categorical: it groups on the literal value of an

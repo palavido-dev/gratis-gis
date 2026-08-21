@@ -59,7 +59,9 @@ import maplibregl from 'maplibre-gl';
 import * as ReactRecharts from 'recharts';
 import type {
   AppDataSource,
+  Bbox,
   ChartReferenceLine,
+  CrossFilterSelection,
   CustomAppData,
   CustomWidget,
   CustomWidgetKind,
@@ -72,9 +74,12 @@ import type {
   PanelArrangement,
   PrintTemplateData,
   RecipeAction,
+  SourceScope,
 } from '@gratis-gis/shared-types';
 import {
+  applySelectionToLayers,
   customTargetLayerId,
+  resolveSourceScope,
   DEFAULT_LAYER_ACCESS,
   DEFAULT_LAYER_INTERACTIONS,
   DEFAULT_LAYER_LABELS,
@@ -322,12 +327,12 @@ const AppTimeContext = createContext<AppTimeCtx>({
 const AppRefreshContext = createContext<number>(0);
 
 /**
- * Cross-filter selection: one predicate published by one widget, read
- * by every other widget on the page that reads the same target.
+ * Cross-filter: one predicate published by one widget, read by every
+ * other widget on the page that reads the same source.
  *
- * This is what makes clicking "Heavy Snow" on a chart narrow the map,
- * the counters, and the other charts. Three decisions worth naming,
- * all of them chosen to keep it comprehensible rather than powerful:
+ * `CrossFilterSelection` itself lives in shared-types beside
+ * `resolveSourceScope`, which composes it. Two decisions are worth
+ * naming here, where the clicking happens:
  *
  *   - **One selection at a time.** A second click replaces the first
  *     rather than intersecting with it. A page where three charts
@@ -338,58 +343,7 @@ const AppRefreshContext = createContext<number>(0);
  *     layer says nothing about the bridges layer, so widgets reading a
  *     different source are left alone rather than being narrowed to
  *     nothing by a field they do not have.
- *   - **Never persisted.** It is a reading gesture, like a map pan.
- *     A reload returns the app the author published.
  */
-export interface CrossFilterSelection {
-  /** Widget that published it, so that widget can show it as active. */
-  widgetId: string;
-  /** Source it applies to; only widgets on that source are affected. */
-  sourceId: string;
-  field: string;
-  /**
-   * Identity of the selected thing, used both for display and to
-   * decide whether a second click on the same bar clears it. For a
-   * category it is that category (null = the features with no value
-   * recorded). For a histogram bar it is the bucket index, which is
-   * stable while the bar's numeric bounds are not.
-   */
-  value: string | null;
-  /** What to print on the chip, e.g. "Event type: Heavy Snow". */
-  label: string;
-  /**
-   * The predicate this selection MEANS, when it is not a plain
-   * equality on `value`.
-   *
-   * A histogram bar selects a half-open range, not a value, and there
-   * is no single `value` that expresses `>= 0.3 AND < 1.0`. Set by
-   * the publisher so every consumer applies the same predicate; a
-   * consumer that re-derived it from `field` and `value` would filter
-   * on the bucket index and select nothing.
-   */
-  clauses?: MapLayerFilter['clauses'];
-}
-
-/**
- * The filter clauses a selection stands for.
- *
- * One helper because three call sites need it (a source's scope, its
- * parent's scope inside a relate, and the map's client-side
- * expression) and they must not drift: a map showing a different
- * subset than the chart that filtered it is the exact failure
- * cross-filtering exists to avoid.
- */
-function selectionClauses(
-  sel: Pick<CrossFilterSelection, 'field' | 'value' | 'clauses'>,
-): MapLayerFilter['clauses'] {
-  if (sel.clauses && sel.clauses.length > 0) return sel.clauses;
-  return [
-    sel.value === null
-      ? { field: sel.field, op: 'is-null', value: '' }
-      : { field: sel.field, op: '==', value: sel.value },
-  ];
-}
-
 interface CrossFilterCtx {
   selection: CrossFilterSelection | null;
   /** Passing a selection equal to the current one clears it. */
@@ -472,39 +426,6 @@ function useWidgetTarget(cfg: {
   );
 }
 
-/**
- * Everything that narrows a source, resolved in one place.
- *
- * This is the point of the data-source model: two widgets reading one
- * source cannot disagree about what it means, because neither of them
- * decides. The author's fixed predicate and the reader's cross-filter
- * selection are composed here, in that order, and a widget just gets
- * the answer.
- */
-interface SourceScope {
-  /** Viewport, when the source follows a map. */
-  bbox?: [number, number, number, number];
-  /** Author predicate AND reader selection, already merged. */
-  where?: MapLayerFilter;
-  /**
-   * Relate, carrying the PARENT's live scope rather than a snapshot.
-   * That is what makes filtering a parent filter its children with
-   * nothing further declared.
-   */
-  via?: {
-    myField: string;
-    parentField: string;
-    parentItemId: string;
-    parentLayerId: string;
-    parentBbox?: [number, number, number, number];
-    parentWhere?: MapLayerFilter;
-  };
-  /** What to tell the reader this widget is narrowed by, if anything. */
-  note?: string;
-  /** True when the scope is spatial, so unlocated rows drop out. */
-  spatial: boolean;
-}
-
 function useSourceScope(
   source: AppDataSource | undefined,
   opts: {
@@ -542,87 +463,45 @@ function useSourceScope(
   const parentFollowId =
     parent?.followMapWidgetId === '' ? undefined : parent?.followMapWidgetId;
   const parentBboxKey = useMapViewportBbox(parentFollowId);
-  const parentSelecting =
-    selection && parent && selection.sourceId === parent.id
-      ? selection
-      : null;
-  const selecting =
-    selection && source && selection.sourceId === source.id
-      ? selection
-      : null;
-  const authorWhere = source?.where;
-  const selKey = selecting
-    ? `${selecting.field} ${String(selecting.value)}`
-    : '';
-  const authorKey = authorWhere ? JSON.stringify(authorWhere) : '';
+  // The composition itself lives in shared-types as a pure function
+  // with an exhaustive spec table beside it. This hook is now only
+  // the React part: subscribe to the viewports, look the parent up,
+  // and hand the pieces over.
+  const selKey = selection ? JSON.stringify(selection) : '';
+  const authorKey = source?.where ? JSON.stringify(source.where) : '';
   const viaKey = source?.via ? JSON.stringify(source.via) : '';
-  const parentSelKey = parentSelecting
-    ? `${parentSelecting.field} ${String(parentSelecting.value)}`
-    : '';
   const parentWhereKey = parent?.where ? JSON.stringify(parent.where) : '';
-  return useMemo(() => {
-    const clauses: MapLayerFilter['clauses'] = [
-      ...(authorWhere?.clauses ?? []),
-    ];
-    if (selecting) {
-      clauses.push(...selectionClauses(selecting));
-    }
-    const out: SourceScope = { spatial: Boolean(bboxKey) };
-    if (bboxKey) {
-      out.bbox = bboxKey.split(',').map(Number) as [
-        number,
-        number,
-        number,
-        number,
-      ];
-    }
-    if (clauses.length > 0) {
-      // The author's clauses are ANDed with the reader's selection
-      // regardless of the author's own combinator, because a reader's
-      // click narrows what the author published; it never widens it.
-      out.where = { combinator: 'all', clauses };
-    }
-    if (source?.via && parent) {
-      const parentClauses: MapLayerFilter['clauses'] = [
-        ...(parent.where?.clauses ?? []),
-      ];
-      if (parentSelecting) {
-        parentClauses.push(...selectionClauses(parentSelecting));
-      }
-      out.via = {
-        myField: source.via.myField,
-        parentField: source.via.parentField,
-        parentItemId: parent.layer.dataLayerId,
-        parentLayerId: parent.layer.layerKey,
+  return useMemo(
+    () =>
+      resolveSourceScope({
+        source,
+        parent,
+        ...(bboxKey
+          ? { bbox: bboxKey.split(',').map(Number) as Bbox }
+          : {}),
         ...(parentBboxKey
-          ? {
-              parentBbox: parentBboxKey.split(',').map(Number) as [
-                number,
-                number,
-                number,
-                number,
-              ],
-            }
+          ? { parentBbox: parentBboxKey.split(',').map(Number) as Bbox }
           : {}),
-        ...(parentClauses.length > 0
-          ? { parentWhere: { combinator: 'all' as const, clauses: parentClauses } }
+        selection,
+        ...(opts.ignoreSelectionFrom !== undefined
+          ? { ignoreSelectionFrom: opts.ignoreSelectionFrom }
           : {}),
-      };
-      if (parentSelecting && !selecting) out.note = parentSelecting.label;
-    }
-    if (selecting) out.note = selecting.label;
-    return out;
+      }),
+    // Keys rather than objects: a fresh object identity every render
+    // would re-resolve, and every consumer re-fetches on a new scope.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    bboxKey,
-    authorKey,
-    selKey,
-    viaKey,
-    parentBboxKey,
-    parentWhereKey,
-    parentSelKey,
-    parent?.id,
-  ]);
+    [
+      bboxKey,
+      authorKey,
+      selKey,
+      viaKey,
+      parentBboxKey,
+      parentWhereKey,
+      parent?.id,
+      source?.id,
+      opts.ignoreSelectionFrom,
+    ],
+  );
 }
 
 /**
@@ -2174,36 +2053,17 @@ function MapWidgetRender({ widget }: { widget: CustomWidget }) {
   // away the tile cache and make a click feel slow.
   const mapData = useMemo(() => {
     if (!state) return null;
-    if (!selection || !target) return state.mapData;
-    // The same clauses every other consumer applies. A histogram bar
-    // contributes two (>= lower, < upper) rather than one equality,
-    // which is why this asks the selection what it means instead of
-    // rebuilding a predicate from its field and value.
-    const clauses = selectionClauses(selection);
-    // The RESOLVED layer's own id, not one rebuilt from the target's
-    // shape. Since #25 a source whose layer the map already draws
-    // reuses that layer rather than publishing a copy, so its id is
-    // the map author's, not the synthetic `custom-target:` one, and
-    // recomputing it here would filter a layer that is not on the map.
-    const targetLayerId = target.mapLayer.id;
-    return {
-      ...state.mapData,
-      layers: (state.mapData.layers ?? []).map((l) => {
-        if (l.id !== targetLayerId) {
-          return l;
-        }
-        // Keep any filter the author already set on the layer: a
-        // selection narrows what is on screen, it does not widen it.
-        const existing = l.filter?.clauses ?? [];
-        return {
-          ...l,
-          filter: {
-            combinator: 'all' as const,
-            clauses: [...existing, ...clauses],
-          },
-        };
-      }),
-    };
+    const base = state.mapData.layers ?? [];
+    const layers = applySelectionToLayers({
+      layers: base,
+      targetLayerId: target?.mapLayer.id,
+      selection,
+    });
+    // Identity is the signal that nothing applied; returning the
+    // original object keeps MapCanvas from remounting its sources on
+    // every pan.
+    if (layers === base) return state.mapData;
+    return { ...state.mapData, layers: layers as MapLayer[] };
   }, [state, selection, target]);
 
   if (!ctx || !state || !mapData) return null;
@@ -4438,19 +4298,51 @@ function AttributeTableWidgetRender({ widget }: { widget: CustomWidget }) {
   const boundMapState = mapWidgetId ? ctx?.states[mapWidgetId] ?? null : null;
   const boundMapInstance = mapWidgetId ? ctx?.maps[mapWidgetId] ?? null : null;
 
+  // The page's cross-filter, so the table narrows with the map rather
+  // than beside it.
+  //
+  // The map widget derives its filtered layers in a local memo and
+  // deliberately does not write them back into map state, because
+  // that state also holds the user's own layer toggles and restyles.
+  // The consequence was that this table, which reads map state, kept
+  // listing the rows the map had just hidden, with no caption saying
+  // so. Both surfaces now project the selection the same way.
+  const { selection: crossFilter } = useContext(CrossFilterContext);
+  const selectionTarget =
+    crossFilter && ctx
+      ? ctx.resolvedTargets.find((t) => t.sourceId === crossFilter.sourceId)
+      : undefined;
+
   // Layers shown in the table's layer-picker dropdown. Bound to a
   // map: all the map's layers (the rich AttributeTable filters down
   // to queryable ones internally). Unbound: just the configured
   // target as a synthetic single-layer array.
   const layers = useMemo<MapLayer[]>(() => {
-    if (boundMapState?.mapData.layers) return boundMapState.mapData.layers;
+    if (boundMapState?.mapData.layers) {
+      return applySelectionToLayers({
+        layers: boundMapState.mapData.layers,
+        targetLayerId: selectionTarget?.mapLayer.id,
+        selection: crossFilter,
+      }) as MapLayer[];
+    }
     if (!ctx) return [];
     const target = ctx.resolvedTargets.find(
       (t) => t.sourceId === sourceIdOf(ctx, cfg),
     );
     if (!target) return [];
-    return [target.mapLayer];
-  }, [boundMapState, ctx, cfg.sourceId, cfg.targetIndex]);
+    return applySelectionToLayers({
+      layers: [target.mapLayer],
+      targetLayerId: selectionTarget?.mapLayer.id,
+      selection: crossFilter,
+    }) as MapLayer[];
+  }, [
+    boundMapState,
+    ctx,
+    cfg.sourceId,
+    cfg.targetIndex,
+    crossFilter,
+    selectionTarget,
+  ]);
 
   // Selection state. Shared with the bound map when present; the
   // table updates `MapState.selection` via the context's `update`
