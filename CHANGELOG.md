@@ -5,6 +5,15 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.60] - 2026-08-21
+
+### Fixed
+
+- **The map really does narrow on related records now.** v0.9.59 said
+  it did. The filter was read, checked and then dropped one layer
+  short of the database, so the map drew every feature and reported
+  success. Anyone on v0.9.59 should take this one.
+
 ## [0.9.59] - 2026-08-21
 
 ### Fixed
