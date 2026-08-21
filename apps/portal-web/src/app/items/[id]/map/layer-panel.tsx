@@ -18,7 +18,6 @@ import {
   MoreVertical,
   Mountain,
   MousePointerClick,
-  Palette,
   Pencil,
   Plus,
   Search,
@@ -895,13 +894,133 @@ interface RowProps {
   onMoveToNewGroup: () => void;
 }
 
-type SectionKey =
-  | 'symbology'
-  | 'labels'
-  | 'filters'
-  | 'popups'
-  | 'interactions'
-  | 'scale';
+/**
+ * The groups of layer settings, as tabs.
+ *
+ * They were six stacked collapsible sections in one column, so
+ * reaching Popups meant scrolling past the whole of Symbology, and
+ * comparing a label setting against a filter meant opening two and
+ * scrolling between them. Tabs make each group a fixed, shallow
+ * surface. The cost is never seeing two groups at once, which is the
+ * right trade here because they are genuinely independent: nobody
+ * tunes a colour ramp and a popup template together.
+ *
+ * Six became four by folding the two smallest into the group they
+ * belong to. Scale is when a style draws, so it lives under Style.
+ * Interactions is mostly popup triggers and hover behaviour, so it
+ * lives under Popup, which also repairs an older split that put the
+ * popup on/off switch in a different section from the popup's own
+ * content.
+ */
+type LayerTab = 'style' | 'labels' | 'filter' | 'popup';
+
+const LAYER_TABS: ReadonlyArray<{ id: LayerTab; label: string }> = [
+  { id: 'style', label: 'Style' },
+  { id: 'labels', label: 'Labels' },
+  { id: 'filter', label: 'Filter' },
+  { id: 'popup', label: 'Popup' },
+];
+
+/**
+ * Tab strip for the layer settings.
+ *
+ * Roving tabindex: only the selected tab is in the tab order and the
+ * arrows move between them. That is the ARIA tablist pattern, and it
+ * earns its keep here because the panel is dense with focusable
+ * controls; without it, tabbing through the layer list costs three
+ * extra presses per expanded layer.
+ */
+function LayerTabStrip({
+  value,
+  onChange,
+}: {
+  value: LayerTab;
+  onChange: (next: LayerTab) => void;
+}) {
+  const refs = useRef<Array<HTMLButtonElement | null>>([]);
+  const move = (dir: 1 | -1 | 'first' | 'last') => {
+    const i = LAYER_TABS.findIndex((t) => t.id === value);
+    const next =
+      dir === 'first'
+        ? 0
+        : dir === 'last'
+          ? LAYER_TABS.length - 1
+          : (i + dir + LAYER_TABS.length) % LAYER_TABS.length;
+    onChange(LAYER_TABS[next]!.id);
+    refs.current[next]?.focus();
+  };
+  return (
+    <div
+      role="tablist"
+      aria-label="Layer settings"
+      className="flex border-t border-border"
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          move(1);
+        } else if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          move(-1);
+        } else if (e.key === 'Home') {
+          e.preventDefault();
+          move('first');
+        } else if (e.key === 'End') {
+          e.preventDefault();
+          move('last');
+        }
+      }}
+    >
+      {LAYER_TABS.map((t, i) => {
+        const active = t.id === value;
+        return (
+          <button
+            key={t.id}
+            ref={(el) => {
+              refs.current[i] = el;
+            }}
+            type="button"
+            role="tab"
+            id={`layer-tab-${t.id}`}
+            aria-selected={active}
+            aria-controls={`layer-tabpanel-${t.id}`}
+            tabIndex={active ? 0 : -1}
+            onClick={() => onChange(t.id)}
+            className={`flex-1 border-b-2 px-2 py-2 text-xs font-medium transition ${
+              active
+                ? 'border-accent text-ink-0'
+                : 'border-transparent text-muted hover:text-ink-1'
+            }`}
+          >
+            {t.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Content area for one tab. */
+function LayerTabPanel({
+  tab,
+  active,
+  children,
+}: {
+  tab: LayerTab;
+  active: LayerTab;
+  children: React.ReactNode;
+}) {
+  if (tab !== active) return null;
+  return (
+    <div
+      role="tabpanel"
+      id={`layer-tabpanel-${tab}`}
+      aria-labelledby={`layer-tab-${tab}`}
+      className="px-3 pb-3 pt-3"
+    >
+      {children}
+    </div>
+  );
+}
 
 function LayerRow({
   layer,
@@ -947,17 +1066,11 @@ function LayerRow({
   // onChange closures, so spreads there see the wide union without
   // this.
   const pcSource = layer.source.kind === 'point-cloud' ? layer.source : null;
-  const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>({
-    symbology: true,
-    labels: false,
-    filters: false,
-    popups: false,
-    interactions: false,
-    scale: false,
-  });
-  function toggle(k: SectionKey) {
-    setOpenSections((s) => ({ ...s, [k]: !s[k] }));
-  }
+  // Which group of layer settings is showing. Per row, and it
+  // deliberately survives collapsing and re-expanding the row: an
+  // author working through popups on several layers should not be
+  // sent back to Style each time.
+  const [tab, setTab] = useState<LayerTab>('style');
   // Inline rename (#72). Click the title or the kebab's Rename
   // item to start; commit on blur or Enter, cancel on Escape.
   // Same pattern as GroupHeaderRow so the two row types feel
@@ -1541,12 +1654,9 @@ function LayerRow({
 
           {canEdit && !isTable && !isPointCloud && !isTileOverlay ? (
             <>
-              <Section
-                Icon={Palette}
-                label="Symbology"
-                open={openSections.symbology}
-                onToggle={() => toggle('symbology')}
-              >
+              <LayerTabStrip value={tab} onChange={setTab} />
+
+              <LayerTabPanel tab="style" active={tab}>
                 <RendererEditor
                   value={layer.renderer}
                   metadata={metadata}
@@ -1573,53 +1683,41 @@ function LayerRow({
                       : {})}
                   />
                 </div>
-              </Section>
+                <div className="mt-3 border-t border-border pt-3">
+                  <p className="mb-1.5 text-2xs font-medium uppercase tracking-wide text-muted">
+                    Visible zoom range
+                  </p>
+                <ScaleEditor
+                  value={layer.scale ?? DEFAULT_LAYER_SCALE}
+                  currentZoom={currentZoom}
+                  onChange={(scale) => onPatch({ scale })}
+                />
+                </div>
+              </LayerTabPanel>
 
-              <Section
-                Icon={Tag}
-                label="Labels"
-                open={openSections.labels}
-                onToggle={() => toggle('labels')}
-              >
+              <LayerTabPanel tab="labels" active={tab}>
                 <LabelsEditor
                   value={layer.labels}
                   metadata={metadata}
                   onChange={(labels) => onPatch({ labels })}
                 />
-              </Section>
+              </LayerTabPanel>
 
-              <Section
-                Icon={Filter}
-                label="Filters"
-                open={openSections.filters}
-                onToggle={() => toggle('filters')}
-              >
+              <LayerTabPanel tab="filter" active={tab}>
                 <FilterEditor
                   value={layer.filter}
                   metadata={metadata}
                   onChange={(filter) => onPatch({ filter })}
                 />
-              </Section>
+              </LayerTabPanel>
 
-              <Section
-                Icon={MousePointerClick}
-                label="Popups"
-                open={openSections.popups}
-                onToggle={() => toggle('popups')}
-              >
+              <LayerTabPanel tab="popup" active={tab}>
                 <PopupEditor
                   value={layer.popup}
                   metadata={metadata}
                   onChange={(popup) => onPatch({ popup })}
                 />
-              </Section>
-
-              <Section
-                Icon={Sparkles}
-                label="Interactions"
-                open={openSections.interactions}
-                onToggle={() => toggle('interactions')}
-              >
+                <div className="mt-3 border-t border-border pt-3">
                 <div className="space-y-1.5 text-sm">
                   {/* Popup triggers (#74 follow-up): moved here from
                       the POPUPS section so all per-layer behavior
@@ -1705,20 +1803,8 @@ function LayerRow({
                   Feature editing unlocks when the layer&apos;s source
                   supports writes.
                 </p>
-              </Section>
-
-              <Section
-                Icon={Telescope}
-                label="Scale"
-                open={openSections.scale}
-                onToggle={() => toggle('scale')}
-              >
-                <ScaleEditor
-                  value={layer.scale ?? DEFAULT_LAYER_SCALE}
-                  currentZoom={currentZoom}
-                  onChange={(scale) => onPatch({ scale })}
-                />
-              </Section>
+                </div>
+              </LayerTabPanel>
             </>
           ) : null}
         </div>
@@ -2017,39 +2103,6 @@ function ScaledSymbologyEditor({
   );
 }
 
-function Section({
-  Icon,
-  label,
-  open,
-  onToggle,
-  children,
-}: {
-  Icon: typeof Palette;
-  label: string;
-  open: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="border-t border-border">
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        className="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted hover:bg-surface-1"
-      >
-        {open ? (
-          <ChevronDown className="h-3.5 w-3.5" />
-        ) : (
-          <ChevronRight className="h-3.5 w-3.5" />
-        )}
-        <Icon className="h-3.5 w-3.5" />
-        {label}
-      </button>
-      {open ? <div className="px-3 pb-3">{children}</div> : null}
-    </div>
-  );
-}
 
 /**
  * Single item inside the per-layer kebab menu (#72). Thin wrapper

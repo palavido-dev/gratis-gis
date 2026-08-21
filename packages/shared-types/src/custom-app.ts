@@ -746,6 +746,19 @@ export interface LegendWidgetConfig {
    *  Required: a free-floating legend with no map reference is
    *  meaningless. */
   mapWidgetId: string;
+  /**
+   * What this legend is a legend OF, in the author's words.
+   *
+   * A legend with no name is a key; a legend with one is a caption.
+   * "Construction era" over a colour ramp says what the reader is
+   * looking at, where the ramp alone only says which colour is which.
+   * The layer titles underneath answer a narrower question.
+   *
+   * Optional, and when it is absent the widget falls back to the
+   * generic "Legend" rather than inventing something from the layer
+   * list: a guessed title that is wrong is worse than none.
+   */
+  title?: string;
   /** #364: tool-mode display. */
   displayMode?: DisplayMode;
   panelArrangement?: PanelArrangement;

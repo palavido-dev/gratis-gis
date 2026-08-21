@@ -3180,6 +3180,17 @@ function LegendWidgetRender({ widget }: { widget: CustomWidget }) {
     (l) => l.visible !== false && l.source?.kind !== 'group',
   );
 
+  // The author's name for what the legend is a legend OF.
+  //
+  // A legend with no name is a key: it says which colour is which. A
+  // legend with one is a caption: "Construction era" tells the reader
+  // what they are looking at before they read a single swatch. The
+  // layer titles underneath answer a narrower question and cannot
+  // stand in for it, which is why this is authored rather than
+  // derived. Absent, the frame keeps the generic word, because a
+  // guessed title that is wrong is worse than none.
+  const authored = widget.config.title?.trim();
+
   return (
     <WidgetFrame icon={ListTree} title="Legend">
       {!state ? (
@@ -3189,7 +3200,14 @@ function LegendWidgetRender({ widget }: { widget: CustomWidget }) {
           Nothing visible to describe.
         </p>
       ) : (
-        <ul className="space-y-1 p-2">{layers.flatMap(rowsFor)}</ul>
+        <>
+          {authored ? (
+            <p className="px-2 pt-2 text-xs font-semibold text-[hsl(var(--app-ink-0))]">
+              {authored}
+            </p>
+          ) : null}
+          <ul className="space-y-1 p-2">{layers.flatMap(rowsFor)}</ul>
+        </>
       )}
     </WidgetFrame>
   );

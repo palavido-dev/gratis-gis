@@ -4217,7 +4217,26 @@ function WidgetConfigForm({
           canEdit={canEdit}
           onChange={(mapWidgetId) => onChangeConfig({ mapWidgetId })}
           extra={
-            widget.config.kind === 'layer-list' ? (
+            widget.config.kind === 'legend' ? (
+              <Field label="Title">
+                <input
+                  type="text"
+                  value={widget.config.title ?? ''}
+                  disabled={!canEdit}
+                  placeholder="e.g. Construction era"
+                  onChange={(e) =>
+                    onChangeConfig({
+                      title: e.target.value.trim() ? e.target.value : undefined,
+                    })
+                  }
+                  className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+                />
+                <p className="mt-1 text-2xs text-muted">
+                  What the colours are showing, in your words. Left
+                  blank, the panel is just headed &ldquo;Legend&rdquo;.
+                </p>
+              </Field>
+            ) : widget.config.kind === 'layer-list' ? (
               <Field label="Allow toggling layers">
                 <select
                   value={widget.config.allowToggle === false ? 'no' : 'yes'}
