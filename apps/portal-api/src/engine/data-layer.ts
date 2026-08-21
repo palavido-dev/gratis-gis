@@ -498,6 +498,38 @@ const ATTR_NAME_RE = /^[^\x00-\x1f]{1,128}$/;
  * you may read, relate it through one you may not, and the counts
  * describe the parent.
  */
+/** Name of the CTE the relate puts the parent's surviving keys in. */
+const VIA_KEYS_CTE = 'via_parent_keys';
+
+/**
+ * A relate, as a CTE plus the predicate that reads it.
+ *
+ * It used to be one WHERE fragment holding `IN (SELECT ...)`, which
+ * was correct and unusably slow. Postgres cannot estimate selectivity
+ * through `attrs->>'field'` on a JSONB column, so it guessed two rows
+ * for the parent set, got 862, and on that guess chose a nested loop:
+ * `Nested Loop Semi Join` over `Materialize (actual rows=235,
+ * loops=285788)`. It re-scanned the parent set once per child row,
+ * about 67 million comparisons, for a query whose right shape is one
+ * hash probe per row.
+ *
+ * Measured on the water quality layers, 285,788 children against
+ * 1,175 parents: 28.7 seconds and then a 500 at the statement
+ * timeout, against 0.68 seconds this way, for the same 273,212 rows.
+ * Even with no parent predicate the old shape took 23 seconds, so
+ * every map move on a dashboard with a related source paid it.
+ *
+ * `MATERIALIZED` is the load-bearing word. It stops the planner
+ * flattening the subquery back into the outer join and gives it a
+ * real row count to plan against, which is what flips it to a `Hash
+ * Semi Join`. An `OFFSET 0` optimisation fence was tried first
+ * because it would have kept this a single fragment with no
+ * plumbing; it does not work, the plan stays a nested loop at 22.5
+ * seconds.
+ *
+ * Callers put `cte` in their `WITH` list and `predicate` where the
+ * old fragment went.
+ */
 function compileViaFilter(args: {
   /** Field on the CHILD holding the shared key. */
   myField: string;
@@ -508,7 +540,7 @@ function compileViaFilter(args: {
   asOf: Date;
   /** The parent's own content predicates, already compiled. */
   parentContentFilters: Prisma.Sql[];
-}): Prisma.Sql {
+}): { cte: Prisma.Sql; predicate: Prisma.Sql } {
   for (const name of [args.myField, args.parentField]) {
     if (!ATTR_NAME_RE.test(name)) {
       throw new Error(`Invalid attribute name: ${name}`);
@@ -518,12 +550,8 @@ function compileViaFilter(args: {
     args.parentContentFilters.length > 0
       ? Prisma.join(args.parentContentFilters, ' ')
       : Prisma.empty;
-  // A NULL key on the child can never match a parent, and NOT IN
-  // against a set containing NULL is a trap, so the child side is
-  // guarded explicitly rather than left to three-valued logic.
-  return Prisma.sql`AND attrs->>${args.myField} IS NOT NULL
-    AND attrs->>${args.myField} IN (
-      SELECT p.attrs->>${args.parentField}
+  const cte = Prisma.sql`${Prisma.raw(VIA_KEYS_CTE)} AS MATERIALIZED (
+      SELECT DISTINCT p.attrs->>${args.parentField} AS k
       FROM (
         SELECT DISTINCT ON (entity) entity, attrs, geom, kind
         FROM observation
@@ -535,6 +563,12 @@ function compileViaFilter(args: {
         AND p.attrs->>${args.parentField} IS NOT NULL
         ${parentExtras}
     )`;
+  // A NULL key on the child can never match a parent, and NOT IN
+  // against a set containing NULL is a trap, so the child side is
+  // guarded explicitly rather than left to three-valued logic.
+  const predicate = Prisma.sql`AND attrs->>${args.myField} IS NOT NULL
+    AND attrs->>${args.myField} IN (SELECT k FROM ${Prisma.raw(VIA_KEYS_CTE)})`;
+  return { cte, predicate };
 }
 
 function compileAttrFilter(
@@ -2303,6 +2337,8 @@ export class DataLayerEngine {
 
     const collapseFilters: Prisma.Sql[] = [];
     const contentFilters: Prisma.Sql[] = [];
+    // Set when a relate is present; goes in the WITH list below.
+    let viaCte: Prisma.Sql | null = null;
     if (args.bbox !== undefined) {
       const [w, s, e, n] = args.bbox;
       contentFilters.push(
@@ -2361,18 +2397,18 @@ export class DataLayerEngine {
         const sql = compileAttrFilter(args.via.parentWhere, 'p');
         if (sql) parentFilters.push(sql);
       }
-      contentFilters.push(
-        compileViaFilter({
-          myField: args.via.myField,
-          parentField: args.via.parentField,
-          parentScope: this.scope(
-            args.via.parentItemId,
-            args.via.parentLayerId,
-          ),
-          asOf,
-          parentContentFilters: parentFilters,
-        }),
-      );
+      const compiled = compileViaFilter({
+        myField: args.via.myField,
+        parentField: args.via.parentField,
+        parentScope: this.scope(
+          args.via.parentItemId,
+          args.via.parentLayerId,
+        ),
+        asOf,
+        parentContentFilters: parentFilters,
+      });
+      viaCte = compiled.cte;
+      contentFilters.push(compiled.predicate);
     }
     const collapseExtras =
       collapseFilters.length > 0
@@ -2492,7 +2528,8 @@ export class DataLayerEngine {
       LIMIT ${fetchN}
     `
         : await this.prisma.$queryRaw<AggRow[]>`
-      WITH content_candidates AS (
+      WITH ${viaCte ? Prisma.sql`${viaCte},` : Prisma.empty}
+      content_candidates AS (
         SELECT DISTINCT entity
         FROM observation
         WHERE scope = ${scope}
@@ -3044,6 +3081,8 @@ export class DataLayerEngine {
     scope: string,
   ): Promise<Buffer> {
     const filters: Prisma.Sql[] = [];
+    // Set when a relate is present; joins the WITH list below.
+    let viaCte: Prisma.Sql | null = null;
 
     if (args.geoLimit !== undefined) {
       const json = JSON.stringify(args.geoLimit);
@@ -3080,22 +3119,22 @@ export class DataLayerEngine {
         const sql = compileAttrFilter(args.via.parentWhere, 'p');
         if (sql) parentFilters.push(sql);
       }
-      filters.push(
-        compileViaFilter({
-          myField: args.via.myField,
-          parentField: args.via.parentField,
-          parentScope: this.scope(
-            args.via.parentItemId,
-            args.via.parentLayerId,
-          ),
-          // A tile is always "now". The bitemporal read is the
-          // aggregate's concern; the map has no time control that
-          // reaches this endpoint, and inventing one here would let
-          // the tile and the widgets above it disagree about when.
-          asOf: new Date(),
-          parentContentFilters: parentFilters,
-        }),
-      );
+      const compiledVia = compileViaFilter({
+        myField: args.via.myField,
+        parentField: args.via.parentField,
+        parentScope: this.scope(
+          args.via.parentItemId,
+          args.via.parentLayerId,
+        ),
+        // A tile is always "now". The bitemporal read is the
+        // aggregate's concern; the map has no time control that
+        // reaches this endpoint, and inventing one here would let
+        // the tile and the widgets above it disagree about when.
+        asOf: new Date(),
+        parentContentFilters: parentFilters,
+      });
+      viaCte = compiledVia.cte;
+      filters.push(compiledVia.predicate);
     }
     const filterExtras =
       filters.length > 0 ? Prisma.join(filters, ' ') : Prisma.empty;
@@ -3232,7 +3271,7 @@ export class DataLayerEngine {
         ? Prisma.sql`AND entity IN (SELECT entity FROM candidate_entities)`
         : Prisma.empty;
     const rows = await this.prisma.$queryRaw<TileRow[]>`
-      WITH ${ownerCte}
+      WITH ${viaCte ? Prisma.sql`${viaCte},` : Prisma.empty} ${ownerCte}
       tile_candidates AS (
         SELECT entity
         FROM observation
