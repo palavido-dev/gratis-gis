@@ -341,10 +341,25 @@ export function tileCacheKey(args: {
 }
 
 /**
- * Compute a stable fingerprint over the per-tile options that
- * change output bytes (fields list, geoLimit, boundaryClip,
- * isTable, ownRowsOnly). Used as part of the cache key so a request
- * with different options stores under a separate slot.
+ * Keys that are already part of the cache key by other means, and so
+ * must not also feed the fingerprint. Everything else in the options
+ * object does, whether or not this file has heard of it.
+ */
+const FINGERPRINT_IGNORED = new Set(['itemId', 'layerId', 'z', 'x', 'y']);
+
+/**
+ * Compute a stable fingerprint over the per-tile options that change
+ * output bytes. Used as part of the cache key so a request with
+ * different options stores under a separate slot.
+ *
+ * **This hashes every option it is given, not a hand written list.**
+ * The list version was a cache-poisoning bug waiting for its third
+ * option: adding an argument that changes the bytes, and forgetting
+ * to add it here, means two different tiles share one slot and the
+ * first request to arrive decides what everyone sees. TypeScript
+ * cannot catch that, and the failure is invisible, because a wrong
+ * tile still renders. Hashing by default inverts it: a new option
+ * costs at worst a cache miss, never a wrong answer.
  *
  * `ownRowsOnly` carries a user id and therefore PARTITIONS the cache
  * per viewer. That is deliberate and it is load-bearing: a row-scoped
@@ -352,40 +367,39 @@ export function tileCacheKey(args: {
  * unscoped request to warm a tile would serve every row to the scoped
  * viewer afterwards. Only row-scoped shares pay the extra slots; the
  * common unscoped tile keeps the empty fingerprint and one shared
- * entry.
+ * entry. `where` and `via` partition it the same way and for the same
+ * reason.
  */
-export function optsFingerprint(opts: {
-  fields?: ReadonlyArray<{ name: string; type?: string }>;
-  geoLimit?: unknown;
-  boundaryClip?: unknown;
-  isTable?: boolean;
-  ownRowsOnly?: { userId: string } | undefined;
-}): string {
-  // Sort fields by name so caller order doesn't fragment the
-  // cache. The portal always emits field arrays in schema order
-  // today, but a renderer that reshuffles them shouldn't lose
-  // the cache hit.
-  const fields = (opts.fields ?? [])
-    .map((f) => `${f.name}:${f.type ?? ''}`)
-    .sort()
-    .join(',');
-  const geoLimit = opts.geoLimit ? stableJson(opts.geoLimit) : '';
-  const boundaryClip = opts.boundaryClip ? stableJson(opts.boundaryClip) : '';
-  const isTable = opts.isTable ? '1' : '';
-  const ownRows = opts.ownRowsOnly ? `own:${opts.ownRowsOnly.userId}` : '';
-  // Short-circuit the all-empty case so the cache key for a
-  // bare /items/.../tile request stays human-readable in logs.
-  if (
-    fields === '' &&
-    geoLimit === '' &&
-    boundaryClip === '' &&
-    isTable === '' &&
-    ownRows === ''
-  ) {
-    return '';
+export function optsFingerprint(opts: Record<string, unknown>): string {
+  const parts: string[] = [];
+  for (const key of Object.keys(opts).sort()) {
+    if (FINGERPRINT_IGNORED.has(key)) continue;
+    const value = opts[key];
+    // An absent option and an option explicitly set to its default
+    // have to fingerprint alike, or every caller that spreads
+    // `{ ...maybeUndefined }` fragments the cache for nothing.
+    if (value === undefined || value === null || value === false) continue;
+    if (key === 'fields' && Array.isArray(value)) {
+      // Sort fields by name so caller order does not fragment the
+      // cache. The portal always emits field arrays in schema order
+      // today, but a renderer that reshuffles them should not lose
+      // the cache hit.
+      const fields = (value as ReadonlyArray<{ name: string; type?: string }>)
+        .map((f) => `${f.name}:${f.type ?? ''}`)
+        .sort()
+        .join(',');
+      if (fields !== '') parts.push(`fields=${fields}`);
+      continue;
+    }
+    parts.push(`${key}=${stableJson(value)}`);
   }
-  const raw = `${fields}|${geoLimit}|${boundaryClip}|${isTable}|${ownRows}`;
-  return createHash('sha1').update(raw).digest('base64url').slice(0, 16);
+  // Short-circuit the all-empty case so the cache key for a bare
+  // /items/.../tile request stays human-readable in logs.
+  if (parts.length === 0) return '';
+  return createHash('sha1')
+    .update(parts.join('|'))
+    .digest('base64url')
+    .slice(0, 16);
 }
 
 interface CacheEntry {

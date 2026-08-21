@@ -22,8 +22,12 @@ import type { GeoJsonGeometry } from '@gratis-gis/engine';
 import { parsePagingParams } from '../data-layer/feature-paging.js';
 import {
   parseAggregateQuery,
+  parseVia,
+  parseWhere,
   rejectUnknownAggregateParams,
+  type ParsedVia,
 } from '../data-layer/aggregate-params.js';
+import type { MapLayerFilter } from '@gratis-gis/shared-types';
 import { streamFeatureCollection } from '../data-layer/feature-stream.js';
 import { loadOsmPresetCatalog } from '../osm/preset-catalog.js';
 import {
@@ -597,63 +601,7 @@ export class PublicController {
       }
     }
 
-    // A relate reads a SECOND layer this request never named in its
-    // path, so anonymously it is only allowed when that layer is
-    // itself public. Until this branch existed, `via` parsed cleanly
-    // here and was then dropped on the floor: the endpoint answered
-    // 200 with numbers for the WHOLE child layer while the caller
-    // believed they were scoped to a parent selection. The auth'd
-    // controller has carried this check since the relate shipped; the
-    // mirror is what was missing.
-    let via: EngineVia | undefined;
-    if (parsed.via) {
-      if (!isUuidShape(parsed.via.parentItemId)) {
-        throw new NotFoundException('Related layer not found');
-      }
-      const parentItem = await this.prisma.item.findFirst({
-        where: {
-          id: parsed.via.parentItemId,
-          type: 'data_layer',
-          access: 'public',
-          deletedAt: null,
-        },
-        select: { id: true, data: true, ...PUBLIC_TIER_SELECT },
-      });
-      if (!parentItem) throw new NotFoundException('Related layer not found');
-      const parentLayer = pickV3Layer(
-        parentItem.data,
-        parsed.via.parentLayerId,
-      );
-      if (!parentLayer) throw new NotFoundException('Related layer not found');
-      const parentAllowed = new Set(parentLayer.fields.map((f) => f.name));
-      for (const name of [
-        parsed.via.parentField,
-        ...(parsed.via.parentWhere?.clauses ?? []).map((c) => c.field),
-      ]) {
-        if (!parentAllowed.has(name)) {
-          throw new BadRequestException(
-            `"${name}" is not a field on the related layer.`,
-          );
-        }
-      }
-      const parentTierClip = await publicTierGeoLimit(
-        this.prisma,
-        parentItem.publicGeoBoundaryId,
-      );
-      via = {
-        myField: parsed.via.myField,
-        parentField: parsed.via.parentField,
-        parentItemId: parsed.via.parentItemId,
-        parentLayerId: parsed.via.parentLayerId,
-        ...(parsed.via.parentBbox ? { parentBbox: parsed.via.parentBbox } : {}),
-        ...(parsed.via.parentWhere
-          ? { parentWhere: parsed.via.parentWhere }
-          : {}),
-        ...(parentTierClip
-          ? { parentGeoLimit: parentTierClip as GeoJsonGeometry }
-          : {}),
-      };
-    }
+    const via = await this.resolvePublicVia(parsed.via);
 
     const opts: {
       groupBy?: string[];
@@ -682,6 +630,72 @@ export class PublicController {
   }
 
   /**
+   * Authorize a relate for an ANONYMOUS caller and turn it into the
+   * engine's shape.
+   *
+   * A relate reads a SECOND layer this request never named in its
+   * path, so anonymously it is only allowed when that layer is itself
+   * public. Until this existed, `via` parsed cleanly on the aggregate
+   * mirror and was then dropped on the floor: the endpoint answered
+   * 200 with numbers for the WHOLE child layer while the caller
+   * believed they were scoped to a parent selection.
+   *
+   * One method rather than one copy per endpoint. Two anonymous reads
+   * take a relate now, the aggregate and the tile, and the second one
+   * exists because a map layer drawn from a related source has to
+   * narrow the same way the charts above it do. An authorization
+   * check written twice is one that will be written once after the
+   * next edit, and this is the mirror, which is historically where
+   * the check goes missing.
+   */
+  private async resolvePublicVia(
+    parsed: ParsedVia | undefined,
+  ): Promise<EngineVia | undefined> {
+    if (!parsed) return undefined;
+    if (!isUuidShape(parsed.parentItemId)) {
+      throw new NotFoundException('Related layer not found');
+    }
+    const parentItem = await this.prisma.item.findFirst({
+      where: {
+        id: parsed.parentItemId,
+        type: 'data_layer',
+        access: 'public',
+        deletedAt: null,
+      },
+      select: { id: true, data: true, ...PUBLIC_TIER_SELECT },
+    });
+    if (!parentItem) throw new NotFoundException('Related layer not found');
+    const parentLayer = pickV3Layer(parentItem.data, parsed.parentLayerId);
+    if (!parentLayer) throw new NotFoundException('Related layer not found');
+    const parentAllowed = new Set(parentLayer.fields.map((f) => f.name));
+    for (const name of [
+      parsed.parentField,
+      ...(parsed.parentWhere?.clauses ?? []).map((c) => c.field),
+    ]) {
+      if (!parentAllowed.has(name)) {
+        throw new BadRequestException(
+          `"${name}" is not a field on the related layer.`,
+        );
+      }
+    }
+    const parentTierClip = await publicTierGeoLimit(
+      this.prisma,
+      parentItem.publicGeoBoundaryId,
+    );
+    return {
+      myField: parsed.myField,
+      parentField: parsed.parentField,
+      parentItemId: parsed.parentItemId,
+      parentLayerId: parsed.parentLayerId,
+      ...(parsed.parentBbox ? { parentBbox: parsed.parentBbox } : {}),
+      ...(parsed.parentWhere ? { parentWhere: parsed.parentWhere } : {}),
+      ...(parentTierClip
+        ? { parentGeoLimit: parentTierClip as GeoJsonGeometry }
+        : {}),
+    };
+  }
+
+  /**
    * Anonymous MVT tile for a layer of a public data_layer item.
    * Mirrors the auth'd /api/items/:id/layers/:layerId/tile/:z/:x/:y
    * .mvt endpoint but gated to `access='public'`.
@@ -706,6 +720,8 @@ export class PublicController {
     @Param('z') zStr: string,
     @Param('x') xStr: string,
     @Param('y') yStr: string,
+    @Query('where') whereRaw?: string,
+    @Query('via') viaRaw?: string,
   ) {
     if (!isUuidShape(itemId)) {
       throw new NotFoundException('Item not found');
@@ -747,9 +763,30 @@ export class PublicController {
       fields?: Array<{ name: string; type?: string }>;
       isTable?: boolean;
       geoLimit?: unknown;
+      where?: MapLayerFilter;
+      via?: EngineVia;
     } = {};
     if (layer.fields.length > 0) opts.fields = layer.fields;
     if (layer.geometryType === null) opts.isTable = true;
+    // The predicate an anonymous viewer's map sends. A relate is the
+    // one that matters: without it the map layer drawn from a related
+    // source draws every row while every chart above it is narrowed,
+    // and the demo dashboards are public, so anonymous is the path
+    // most people actually take.
+    const where = parseWhere(whereRaw);
+    if (where) {
+      const allowed = new Set(layer.fields.map((f) => f.name));
+      for (const c of where.clauses) {
+        if (!allowed.has(c.field)) {
+          throw new BadRequestException(
+            `"${c.field}" is not a field on this layer.`,
+          );
+        }
+      }
+      opts.where = where;
+    }
+    const via = await this.resolvePublicVia(parseVia(viaRaw));
+    if (via) opts.via = via;
     // Safe against the tile cache: optsFingerprint() already hashes
     // geoLimit into the cache key, so a clipped tile stores under its
     // own slot rather than overwriting the unclipped one.

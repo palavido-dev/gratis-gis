@@ -403,6 +403,107 @@ describe('applySelectionToLayers: what the map and the table both draw', () => {
   });
 });
 
+describe('applySelectionToLayers: layers that relate to the selection', () => {
+  type L = {
+    id: string;
+    filter?: MapLayerFilter | null;
+    source?: {
+      kind: string;
+      via?: { parentField?: string; parentWhere?: MapLayerFilter };
+    };
+  };
+
+  const child = (parentWhere?: MapLayerFilter): L => ({
+    id: 'child',
+    source: {
+      kind: 'data-layer',
+      via: { parentField: 'key', ...(parentWhere ? { parentWhere } : {}) },
+    },
+  });
+
+  it('puts the predicate on the relate, not on the layer filter', () => {
+    // The child's tile has no column to test: the selection is a fact
+    // about the PARENT. Narrowing l.filter here would filter on a
+    // field the child does not have and hide everything.
+    const layers = [child()];
+    const out = applySelectionToLayers({
+      layers,
+      targetLayerId: null,
+      relatedLayerIds: ['child'],
+      selection: sel(),
+    });
+    expect(out[0]!.filter).toBeUndefined();
+    expect(out[0]!.source?.via?.parentWhere?.clauses).toEqual([
+      { field: 'status', op: '==', value: 'open' },
+    ]);
+  });
+
+  it("stacks onto the parent's author predicate, keeping both", () => {
+    const layers = [child(where('county', 'Marion'))];
+    const out = applySelectionToLayers({
+      layers,
+      targetLayerId: null,
+      relatedLayerIds: ['child'],
+      selection: sel(),
+    });
+    expect(out[0]!.source?.via?.parentWhere?.clauses).toEqual([
+      { field: 'county', op: '==', value: 'Marion' },
+      { field: 'status', op: '==', value: 'open' },
+    ]);
+    // The relate's own fields survive the rewrite.
+    expect(out[0]!.source?.via?.parentField).toBe('key');
+  });
+
+  it('leaves a related layer that carries no relate alone', () => {
+    // Named as related but the layer has no via to hang it on. Adding
+    // one here would invent a join the author never declared.
+    const layers: L[] = [{ id: 'child', source: { kind: 'data-layer' } }];
+    expect(
+      applySelectionToLayers({
+        layers,
+        targetLayerId: null,
+        relatedLayerIds: ['child'],
+        selection: sel(),
+      }),
+    ).toBe(layers);
+  });
+
+  it('narrows the direct layer and the related one in the same pass', () => {
+    const layers: L[] = [{ id: 'sites' }, child()];
+    const out = applySelectionToLayers({
+      layers,
+      targetLayerId: 'sites',
+      relatedLayerIds: ['child'],
+      selection: sel(),
+    });
+    expect(out[0]!.filter?.clauses).toHaveLength(1);
+    expect(out[1]!.source?.via?.parentWhere?.clauses).toHaveLength(1);
+  });
+
+  it('does not mutate the input relate', () => {
+    const layers = [child()];
+    applySelectionToLayers({
+      layers,
+      targetLayerId: null,
+      relatedLayerIds: ['child'],
+      selection: sel(),
+    });
+    expect(layers[0]!.source?.via?.parentWhere).toBeUndefined();
+  });
+
+  it('a selection the relate does not point at leaves it whole', () => {
+    const layers = [child()];
+    expect(
+      applySelectionToLayers({
+        layers,
+        targetLayerId: null,
+        relatedLayerIds: [],
+        selection: sel(),
+      }),
+    ).toBe(layers);
+  });
+});
+
 describe('selectionClauses', () => {
   it('prefers the selection own clauses', () => {
     expect(

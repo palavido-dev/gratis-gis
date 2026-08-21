@@ -2032,11 +2032,22 @@ function MapWidgetRender({ widget }: { widget: CustomWidget }) {
   }, [ctx, widget.id]);
 
   const { selection } = useContext(CrossFilterContext);
+  const sourcesById = useContext(AppSourcesContext);
   const state = ctx?.states[widget.id];
   const target =
     selection && ctx
       ? ctx.resolvedTargets.find((t) => t.sourceId === selection.sourceId)
       : undefined;
+  // Layers drawn from a source that RELATES to the selection's
+  // source. They cannot be narrowed by an expression over the tile,
+  // so the predicate goes onto their relate and travels with the tile
+  // request instead. See applySelectionToLayers.
+  const relatedLayerIds = useMemo(() => {
+    if (!selection || !ctx) return [];
+    return ctx.resolvedTargets
+      .filter((t) => sourcesById[t.sourceId]?.via?.sourceId === selection.sourceId)
+      .map((t) => t.mapLayer.id);
+  }, [selection, ctx, sourcesById]);
 
   // Apply the page's cross-filter to whichever of this map's layers
   // draw the selected target.
@@ -2057,6 +2068,7 @@ function MapWidgetRender({ widget }: { widget: CustomWidget }) {
     const layers = applySelectionToLayers({
       layers: base,
       targetLayerId: target?.mapLayer.id,
+      relatedLayerIds,
       selection,
     });
     // Identity is the signal that nothing applied; returning the
@@ -2064,7 +2076,7 @@ function MapWidgetRender({ widget }: { widget: CustomWidget }) {
     // every pan.
     if (layers === base) return state.mapData;
     return { ...state.mapData, layers: layers as MapLayer[] };
-  }, [state, selection, target]);
+  }, [state, selection, target, relatedLayerIds]);
 
   if (!ctx || !state || !mapData) return null;
 

@@ -301,6 +301,32 @@ export interface TileResult {
   etag: string;
 }
 
+/**
+ * Relate: narrow to the rows whose `myField` appears among the parent
+ * layer's in-scope rows.
+ *
+ * The CALLER must have already checked read access on the parent
+ * layer and folded the parent's own geo limit and row scope in. This
+ * reads a layer the request never named, so skipping that turns it
+ * into a side channel. `FeaturesController.resolveVia` is the one
+ * place that does it; do not build this shape by hand.
+ *
+ * Named rather than inlined because two reads take it now, the
+ * aggregate and the tile, and they have to mean the same thing.
+ */
+export interface AggregateVia {
+  myField: string;
+  parentField: string;
+  parentItemId: string;
+  parentLayerId: string;
+  parentBbox?: [number, number, number, number];
+  parentWhere?: {
+    combinator: 'all' | 'any';
+    clauses: Array<{ field: string; op: string; value: string }>;
+  };
+  parentGeoLimit?: GeoJsonGeometry;
+}
+
 const DEFAULT_SOURCE: SourceRef = { kind: 'data_layer:write' };
 
 /**
@@ -2169,27 +2195,7 @@ export class DataLayerEngine {
       combinator: 'all' | 'any';
       clauses: Array<{ field: string; op: string; value: string }>;
     };
-    /**
-     * Relate: narrow to the rows whose `myField` appears among the
-     * parent layer's in-scope rows.
-     *
-     * The CALLER must have already checked read access on the parent
-     * layer and folded the parent's own geo limit and row scope into
-     * `parentContentFilters`. This reads a layer the request never
-     * named, so skipping that turns it into a side channel.
-     */
-    via?: {
-      myField: string;
-      parentField: string;
-      parentItemId: string;
-      parentLayerId: string;
-      parentBbox?: [number, number, number, number];
-      parentWhere?: {
-        combinator: 'all' | 'any';
-        clauses: Array<{ field: string; op: string; value: string }>;
-      };
-      parentGeoLimit?: GeoJsonGeometry;
-    };
+    via?: AggregateVia;
     /**
      * Bin a numeric attribute into ranges and add it as the LAST group
      * level, turning the result into a distribution. `count` and
@@ -2954,6 +2960,28 @@ export class DataLayerEngine {
      * regex prevents SQL identifier injection).
      */
     fields?: Array<{ name: string; type?: string }>;
+    /**
+     * Attribute predicate applied server side, so the tile carries
+     * only the rows the layer draws. The map can already express a
+     * plain clause as a MapLibre expression over a cached tile; this
+     * is for pushing an author's static filter down, where the saving
+     * is bytes on the wire rather than correctness.
+     */
+    where?: {
+      combinator: 'all' | 'any';
+      clauses: Array<{ field: string; op: string; value: string }>;
+    };
+    /**
+     * Relate. This one IS correctness: a semi-join against the keys
+     * surviving on a parent layer cannot be expressed client side,
+     * because the browser does not have them. Without it a map layer
+     * drawn from a related source stayed whole while every chart
+     * reading that source narrowed.
+     *
+     * The caller must have authorized the parent as a read in its own
+     * right; see FeaturesController.resolveVia.
+     */
+    via?: AggregateVia;
   }): Promise<TileResult> {
     if (args.isTable === true) {
       // Empty MVT is stable (always Buffer.alloc(0)); compute the
@@ -3007,6 +3035,11 @@ export class DataLayerEngine {
       ownRowsOnly?: { userId: string };
       fields?: Array<{ name: string; type?: string }>;
       maxFeaturesPerTile?: number;
+      where?: {
+        combinator: 'all' | 'any';
+        clauses: Array<{ field: string; op: string; value: string }>;
+      };
+      via?: AggregateVia;
     },
     scope: string,
   ): Promise<Buffer> {
@@ -3024,8 +3057,55 @@ export class DataLayerEngine {
         Prisma.sql`AND ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326))`,
       );
     }
+    if (args.where !== undefined) {
+      const sql = compileAttrFilter(args.where);
+      if (sql) filters.push(sql);
+    }
+    if (args.via !== undefined) {
+      validateGeoJson(args.via.parentGeoLimit);
+      const parentFilters: Prisma.Sql[] = [];
+      if (args.via.parentBbox !== undefined) {
+        const [w, s2, e, n2] = args.via.parentBbox;
+        parentFilters.push(
+          Prisma.sql`AND p.geom && ST_MakeEnvelope(${w}, ${s2}, ${e}, ${n2}, 4326)`,
+        );
+      }
+      if (args.via.parentGeoLimit !== undefined) {
+        const json = JSON.stringify(args.via.parentGeoLimit);
+        parentFilters.push(
+          Prisma.sql`AND (p.geom IS NULL OR ST_Intersects(p.geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
+        );
+      }
+      if (args.via.parentWhere !== undefined) {
+        const sql = compileAttrFilter(args.via.parentWhere, 'p');
+        if (sql) parentFilters.push(sql);
+      }
+      filters.push(
+        compileViaFilter({
+          myField: args.via.myField,
+          parentField: args.via.parentField,
+          parentScope: this.scope(
+            args.via.parentItemId,
+            args.via.parentLayerId,
+          ),
+          // A tile is always "now". The bitemporal read is the
+          // aggregate's concern; the map has no time control that
+          // reaches this endpoint, and inventing one here would let
+          // the tile and the widgets above it disagree about when.
+          asOf: new Date(),
+          parentContentFilters: parentFilters,
+        }),
+      );
+    }
     const filterExtras =
       filters.length > 0 ? Prisma.join(filters, ' ') : Prisma.empty;
+    // `where` and `via` read `attrs`, and the collapse below only
+    // carries that column when there are fields to project. Without
+    // this the predicate compiles fine and the query fails at
+    // planning with "column attrs does not exist", but only for a
+    // layer with no declared fields, which is the shape least likely
+    // to be exercised before it reaches someone.
+    const needsAttrs = args.where !== undefined || args.via !== undefined;
 
     // Build the per-field projection list. Each declared field gets
     // a `(attrs->>'name')::cast AS "name"` projection so it lands in
@@ -3063,7 +3143,9 @@ export class DataLayerEngine {
     // least one field to project, to keep the row narrower in the
     // (rare) no-fields case.
     const currentsAttrs =
-      fieldProjections.length > 0 ? Prisma.sql`, attrs` : Prisma.empty;
+      fieldProjections.length > 0 || needsAttrs
+        ? Prisma.sql`, attrs`
+        : Prisma.empty;
 
     // ST_TileEnvelope(z, x, y) returns the tile bbox in EPSG:3857
     // (Web Mercator). We bbox-filter on the geom column in 4326 by

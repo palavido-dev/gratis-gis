@@ -19,6 +19,7 @@ import type {
   MapData,
   MapLayer,
   MapLayerFilter,
+  MapLayerVia,
   MapLayerFilterClause,
 } from '@gratis-gis/shared-types';
 
@@ -2799,7 +2800,7 @@ function styleSheetReady(m: maplibregl.Map): boolean {
  * changed (stale data) or flush the tile cache it exists to protect.
  */
 function dataLayerTileUrl(
-  source: { itemId: string; layerKey?: string },
+  source: { itemId: string; layerKey?: string; via?: MapLayerVia },
   boundaryFilterItemId: string | null | undefined,
   mapClipBoundaryId: string | undefined,
   asOfTime: string | null | undefined,
@@ -2816,6 +2817,15 @@ function dataLayerTileUrl(
   }
   if (asOfTime) {
     tileParams.push(`at=${encodeURIComponent(asOfTime)}`);
+  }
+  // A relate cannot be a MapLibre expression: it is a semi-join
+  // against keys the tile does not carry. So it goes to the server
+  // and lands in the URL, which means MapLibre re-fetches when the
+  // relate changes. That is correct and it is also why only a
+  // slow-moving scope belongs here; a reader's per-click filter stays
+  // an expression over the tile already in cache.
+  if (source.via) {
+    tileParams.push(`via=${encodeURIComponent(JSON.stringify(source.via))}`);
   }
   return tileParams.length > 0 ? `${base}?${tileParams.join('&')}` : base;
 }

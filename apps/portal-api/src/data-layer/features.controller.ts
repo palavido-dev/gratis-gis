@@ -43,8 +43,10 @@ import {
 import { onceDrain, streamFeatureCollection } from './feature-stream.js';
 import {
   parseAggregateQuery,
+  parseVia,
   parseWhere,
   rejectUnknownAggregateParams,
+  type ParsedVia,
 } from './aggregate-params.js';
 
 import type { ItemShare } from '@prisma/client';
@@ -510,6 +512,8 @@ export class DataLayerFeaturesController {
     @Param('x') xStr: string,
     @Param('y') yStr: string,
     @Query('clip') clip?: string,
+    @Query('where') whereRaw?: string,
+    @Query('via') viaRaw?: string,
   ) {
     const { geoLimit, rowScope, isTable, layer } = await this.assertV3Layer(
       user,
@@ -537,9 +541,44 @@ export class DataLayerFeaturesController {
       isTable?: boolean;
       ownRowsOnly?: { userId: string };
       fields?: Array<{ name: string; type?: string }>;
+      where?: MapLayerFilter;
+      via?: EngineVia;
     } = {};
     if (isTable) opts.isTable = true;
     if (geoLimit) opts.geoLimit = geoLimit;
+    // A predicate on the tile itself, so the map can draw a subset a
+    // MapLibre expression cannot express.
+    //
+    // A relate is the case that forced this: it is a semi-join
+    // against the keys surviving on a parent layer, and the browser
+    // does not have them. Before this, a chart filtering its parent
+    // narrowed every widget reading a related source while the map
+    // layer drawn from that same source kept every feature, with
+    // nothing on screen to say the two disagreed.
+    //
+    // `where` rides along because the same query gains it for free,
+    // and pushing an author's static filter down means the tile
+    // carries only the rows the layer actually draws. The reader's
+    // transient cross-filter deliberately does NOT come through here:
+    // it stays a client-side expression over an already-cached tile,
+    // because changing the tile URL on every click would throw the
+    // tile cache away and make a click feel slow.
+    //
+    // Both partition the tile cache, via optsFingerprint. That is the
+    // point: two predicates must never share a slot.
+    const where = parseWhere(whereRaw);
+    if (where) {
+      for (const c of where.clauses) {
+        if (!schemaHasField(layer, c.field)) {
+          throw new BadRequestException(
+            `"${c.field}" is not a field on this layer.`,
+          );
+        }
+      }
+      opts.where = where;
+    }
+    const via = await this.resolveVia(user, parseVia(viaRaw));
+    if (via) opts.via = via;
     // #40: the tile has to honour row-scope like /features does. This
     // is the endpoint the map renders from, and it projects every
     // declared field below, so without it a share configured
@@ -775,59 +814,7 @@ export class DataLayerFeaturesController {
       }
     }
 
-    // A relate reads a SECOND layer, one this request never named in
-    // its path. Without its own read check it is a side channel:
-    // point a widget at a layer you may read, relate it through one
-    // you may not, and the counts describe the parent. So the parent
-    // goes through the same assertion as the child, which also hands
-    // back the parent's geo limit and row scope to apply INSIDE the
-    // semi-join. A parent the caller cannot read 404s exactly as a
-    // direct read of it would, so the relate leaks no more than
-    // asking about the parent directly.
-    let via: EngineVia | undefined;
-    if (parsed.via) {
-      const parent = await this.assertV3Layer(
-        user,
-        parsed.via.parentItemId,
-        parsed.via.parentLayerId,
-        'read',
-      );
-      for (const name of [
-        parsed.via.parentField,
-        ...(parsed.via.parentWhere?.clauses ?? []).map((c) => c.field),
-      ]) {
-        if (!schemaHasField(parent.layer, name)) {
-          throw new BadRequestException(
-            `"${name}" is not a field on the related layer.`,
-          );
-        }
-      }
-      via = {
-        myField: parsed.via.myField,
-        parentField: parsed.via.parentField,
-        parentItemId: parsed.via.parentItemId,
-        parentLayerId: parsed.via.parentLayerId,
-        ...(parsed.via.parentBbox
-          ? { parentBbox: parsed.via.parentBbox }
-          : {}),
-        ...(parsed.via.parentWhere
-          ? { parentWhere: parsed.via.parentWhere }
-          : {}),
-        ...(parent.geoLimit
-          ? { parentGeoLimit: parent.geoLimit as GeoJsonGeometry }
-          : {}),
-      };
-      // Row scope on the parent has no expression inside the
-      // semi-join yet, and a relate that ignored it would hand a
-      // row-scoped viewer counts derived from rows they cannot see.
-      // Refuse rather than answer.
-      if (parent.rowScope === 'own') {
-        throw new BadRequestException(
-          'The related layer is shared to you one row at a time, ' +
-            'which a relate cannot honour yet.',
-        );
-      }
-    }
+    const via = await this.resolveVia(user, parsed.via);
     const opts: {
       groupBy?: string[];
       aggs: typeof parsed.aggs;
@@ -1704,6 +1691,68 @@ export class DataLayerFeaturesController {
     await this.v3.deleteFeature(itemId, layerId, featureId, user, {
       ownRowsOnly: rowScope === 'own',
     });
+  }
+
+  /**
+   * Authorize a relate and turn it into the engine's shape.
+   *
+   * A relate reads a SECOND layer, one the request never named in its
+   * path. Without its own read check it is a side channel: point a
+   * widget at a layer you may read, relate it through one you may
+   * not, and the answer describes the parent. So the parent goes
+   * through the same assertion as the child, which also hands back
+   * the parent's geo limit and row scope to apply INSIDE the
+   * semi-join. A parent the caller cannot read 404s exactly as a
+   * direct read of it would, so the relate leaks no more than asking
+   * about the parent directly.
+   *
+   * One method rather than one copy per endpoint. Two endpoints take
+   * a relate now (aggregate and tile), and an authorization check
+   * that exists in two places is an authorization check that will
+   * exist in one place after the next edit.
+   */
+  private async resolveVia(
+    user: AuthUser,
+    parsed: ParsedVia | undefined,
+  ): Promise<EngineVia | undefined> {
+    if (!parsed) return undefined;
+    const parent = await this.assertV3Layer(
+      user,
+      parsed.parentItemId,
+      parsed.parentLayerId,
+      'read',
+    );
+    for (const name of [
+      parsed.parentField,
+      ...(parsed.parentWhere?.clauses ?? []).map((c) => c.field),
+    ]) {
+      if (!schemaHasField(parent.layer, name)) {
+        throw new BadRequestException(
+          `"${name}" is not a field on the related layer.`,
+        );
+      }
+    }
+    // Row scope on the parent has no expression inside the semi-join
+    // yet, and a relate that ignored it would hand a row-scoped
+    // viewer an answer derived from rows they cannot see. Refuse
+    // rather than answer.
+    if (parent.rowScope === 'own') {
+      throw new BadRequestException(
+        'The related layer is shared to you one row at a time, ' +
+          'which a relate cannot honour yet.',
+      );
+    }
+    return {
+      myField: parsed.myField,
+      parentField: parsed.parentField,
+      parentItemId: parsed.parentItemId,
+      parentLayerId: parsed.parentLayerId,
+      ...(parsed.parentBbox ? { parentBbox: parsed.parentBbox } : {}),
+      ...(parsed.parentWhere ? { parentWhere: parsed.parentWhere } : {}),
+      ...(parent.geoLimit
+        ? { parentGeoLimit: parent.geoLimit as GeoJsonGeometry }
+        : {}),
+    };
   }
 
   /** Verify the item exists, is a v3 data_layer, the caller can

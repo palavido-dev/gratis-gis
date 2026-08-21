@@ -554,6 +554,28 @@ export interface MapLayerTimeFilter {
 }
 
 /**
+ * A relate carried on a map layer: draw only the rows whose `myField`
+ * matches a row surviving on a parent layer.
+ *
+ * Named separately from the source union so the tile-URL builder can
+ * take it as a parameter. It is the one narrowing a map cannot do in
+ * the browser, which is why it exists as its own concept rather than
+ * as more clauses on `filter`: a `filter` is a MapLibre expression
+ * over a tile already fetched, and a relate is a semi-join against
+ * keys that tile does not carry.
+ */
+export interface MapLayerVia {
+  /** Field on THIS layer holding the shared key. */
+  myField: string;
+  /** Field on the parent layer holding the shared key. */
+  parentField: string;
+  parentItemId: string;
+  parentLayerId: string;
+  /** Predicate narrowing which parent rows qualify. */
+  parentWhere?: MapLayerFilter;
+}
+
+/**
  * Layer data sources.
  *   - `geojson-url`: pulls from a public URL at load time.
  *   - `geojson-inline`: stores the GeoJSON body directly in the item
@@ -585,6 +607,22 @@ export type MapLayerSource =
        * to hit the item-level endpoint.
        */
       layerKey?: string;
+      /**
+       * Relate: draw only the rows whose `myField` matches a row
+       * surviving on a parent layer.
+       *
+       * Unlike `filter`, which the renderer evaluates as a MapLibre
+       * expression over an already-fetched tile, this CANNOT be done
+       * in the browser: it is a semi-join against keys that live in
+       * the parent layer, and the tile does not carry them. So it
+       * rides on the tile request and the server applies it.
+       *
+       * Set by the app runtime from a data source's own relate, not
+       * by a map author today. It partitions the tile cache, so it is
+       * for a scope that changes rarely (which parent rows qualify),
+       * not for a reader's transient click.
+       */
+      via?: MapLayerVia;
     }
   | {
       kind: 'arcgis-rest';

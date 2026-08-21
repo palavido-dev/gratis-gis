@@ -697,6 +697,204 @@ d('observation-log read paths against real PostGIS', () => {
     });
   });
 
+  /**
+   * The tile takes a predicate.
+   *
+   * A relate is the reason. It is a semi-join against the keys
+   * surviving on a parent layer, and the browser does not have them,
+   * so a map layer drawn from a related source could not narrow when
+   * a chart filtered its parent. Every widget reading that source
+   * moved and the map did not, with nothing on screen to say so.
+   *
+   * `where` rides along for pushdown. The cases below care about two
+   * things a wrong implementation gets wrong quietly: the predicate
+   * must apply to the COLLAPSED latest row (or an edit resurrects an
+   * old version into the tile), and two predicates must never share a
+   * cache slot.
+   */
+  describe('scenario 3b: the tile takes where and via', () => {
+    const itemId = uuidv7();
+    const layerId = 'layer-tile-pred';
+    const scope = dataLayerScope(itemId, layerId);
+    const parentItemId = uuidv7();
+    const parentLayerId = 'layer-tile-parent';
+    const parentScope = dataLayerScope(parentItemId, parentLayerId);
+
+    // Two children, each keyed to a parent site. Only site-1 is
+    // "over" on the parent, so a relate through it must keep kid1 and
+    // drop kid2.
+    const kid1 = uuidv7();
+    const kid2 = uuidv7();
+    const site1 = uuidv7();
+    const site2 = uuidv7();
+    const NEAR: [number, number] = [HERE[0] + 0.0005, HERE[1] + 0.0005];
+
+    beforeAll(async () => {
+      await seed(scope, kid1, 'create', { SITE: 's1', METAL: 'Iron' }, HERE);
+      await seed(scope, kid2, 'create', { SITE: 's2', METAL: 'Iron' }, NEAR);
+      await seed(parentScope, site1, 'create', { KEY: 's1', OVER: 'yes' }, HERE);
+      await seed(parentScope, site2, 'create', { KEY: 's2', OVER: 'no' }, NEAR);
+    });
+
+    const viaSite = {
+      myField: 'SITE',
+      parentField: 'KEY',
+      parentItemId,
+      parentLayerId,
+    };
+
+    it('without a predicate the tile carries both features', async () => {
+      // The control. Every assertion below is a difference from this.
+      const { x, y } = tileFor(14, HERE[0], HERE[1]);
+      const { mvt } = await makeEngine().mvtTile({ itemId, layerId, z: 14, x, y });
+      expect(tileContains(mvt, kid1)).toBe(true);
+      expect(tileContains(mvt, kid2)).toBe(true);
+    });
+
+    it('where narrows the tile', async () => {
+      const { x, y } = tileFor(14, HERE[0], HERE[1]);
+      const { mvt } = await makeEngine().mvtTile({
+        itemId,
+        layerId,
+        z: 14,
+        x,
+        y,
+        where: {
+          combinator: 'all',
+          clauses: [{ field: 'SITE', op: '==', value: 's1' }],
+        },
+      });
+      expect(tileContains(mvt, kid1)).toBe(true);
+      expect(tileContains(mvt, kid2)).toBe(false);
+    });
+
+    it('where applies to the latest version, not to any version', async () => {
+      // Move kid2 from s2 to s1, then ask for s2. A predicate applied
+      // before the collapse would find the superseded row and put a
+      // feature in the tile that no longer matches.
+      await seed(scope, kid2, 'update', { SITE: 's1', METAL: 'Iron' }, NEAR);
+      const { x, y } = tileFor(14, HERE[0], HERE[1]);
+      const { mvt } = await makeEngine().mvtTile({
+        itemId,
+        layerId,
+        z: 14,
+        x,
+        y,
+        where: {
+          combinator: 'all',
+          clauses: [{ field: 'SITE', op: '==', value: 's2' }],
+        },
+      });
+      expect(tileContains(mvt, kid2)).toBe(false);
+      // ...and it is now found under its NEW key.
+      const { mvt: moved } = await makeEngine().mvtTile({
+        itemId,
+        layerId,
+        z: 14,
+        x,
+        y,
+        where: {
+          combinator: 'all',
+          clauses: [{ field: 'SITE', op: '==', value: 's1' }],
+        },
+      });
+      expect(tileContains(moved, kid2)).toBe(true);
+    });
+
+    it('via narrows to the rows whose parent survives the parent filter', async () => {
+      const { x, y } = tileFor(14, HERE[0], HERE[1]);
+      const { mvt } = await makeEngine().mvtTile({
+        itemId,
+        layerId,
+        z: 14,
+        x,
+        y,
+        via: {
+          ...viaSite,
+          parentWhere: {
+            combinator: 'all',
+            clauses: [{ field: 'OVER', op: '==', value: 'yes' }],
+          },
+        },
+      });
+      // kid1 keys to s1, which is over. kid2 was moved to s1 by the
+      // case above, so it comes through too; what matters is that the
+      // parent predicate reached the tile at all.
+      expect(tileContains(mvt, kid1)).toBe(true);
+      const { mvt: none } = await makeEngine().mvtTile({
+        itemId,
+        layerId,
+        z: 14,
+        x,
+        y,
+        via: {
+          ...viaSite,
+          parentWhere: {
+            combinator: 'all',
+            clauses: [{ field: 'OVER', op: '==', value: 'never' }],
+          },
+        },
+      });
+      // No parent survives, so no child does. An unfiltered tile here
+      // is the exact bug this endpoint changed to fix.
+      expect(tileContains(none, kid1)).toBe(false);
+      expect(tileContains(none, kid2)).toBe(false);
+    });
+
+    it('a warmed unfiltered tile is never served to a filtered request', async () => {
+      // The cache-poisoning case for predicates, and the reason
+      // optsFingerprint hashes every option it is given rather than a
+      // hand written list. ONE engine, so both reads share a cache,
+      // and the unfiltered request warms the slot first.
+      const engine = makeEngine();
+      const { x, y } = tileFor(14, HERE[0], HERE[1]);
+      const { mvt: all } = await engine.mvtTile({ itemId, layerId, z: 14, x, y });
+      expect(tileContains(all, kid1)).toBe(true);
+      const { mvt: filtered } = await engine.mvtTile({
+        itemId,
+        layerId,
+        z: 14,
+        x,
+        y,
+        where: {
+          combinator: 'all',
+          clauses: [{ field: 'METAL', op: '==', value: 'Lead' }],
+        },
+      });
+      expect(tileContains(filtered, kid1)).toBe(false);
+    });
+
+    it('two different predicates do not share a slot either', async () => {
+      const engine = makeEngine();
+      const { x, y } = tileFor(14, HERE[0], HERE[1]);
+      const iron = await engine.mvtTile({
+        itemId,
+        layerId,
+        z: 14,
+        x,
+        y,
+        where: {
+          combinator: 'all',
+          clauses: [{ field: 'METAL', op: '==', value: 'Iron' }],
+        },
+      });
+      const lead = await engine.mvtTile({
+        itemId,
+        layerId,
+        z: 14,
+        x,
+        y,
+        where: {
+          combinator: 'all',
+          clauses: [{ field: 'METAL', op: '==', value: 'Lead' }],
+        },
+      });
+      expect(tileContains(iron.mvt, kid1)).toBe(true);
+      expect(tileContains(lead.mvt, kid1)).toBe(false);
+      expect(iron.etag).not.toBe(lead.etag);
+    });
+  });
+
   describe('scenario 3: MVT budget applies after the collapse', () => {
     const itemId = uuidv7();
     const layerId = 'layer-1';

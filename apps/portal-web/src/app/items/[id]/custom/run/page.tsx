@@ -10,6 +10,7 @@ import type {
   Item,
   MapData,
   MapLayer,
+  MapLayerVia,
   ThemeItemData,
 } from '@gratis-gis/shared-types';
 import {
@@ -293,10 +294,36 @@ export default async function CustomAppRuntimePage(props: Props) {
     );
     if (!sub || !sub.geometryType) continue;
     targetItems.push(layerItem as unknown as { bbox?: unknown });
+    // A source that relates to a parent draws only the rows whose key
+    // survives on that parent, and the map cannot work that out for
+    // itself: it is a semi-join against keys the tile does not carry.
+    // So the relate rides on the layer's source and the tile request
+    // applies it server side. Without this the map drew every row of
+    // a related layer while every chart reading it was narrowed.
+    const parentSrc = src.via
+      ? (app.sources ?? []).find((s) => s.id === src.via!.sourceId)
+      : undefined;
+    const layerVia: MapLayerVia | undefined =
+      src.via && parentSrc
+        ? {
+            myField: src.via.myField,
+            parentField: src.via.parentField,
+            parentItemId: parentSrc.layer.dataLayerId,
+            parentLayerId: parentSrc.layer.layerKey,
+            ...(parentSrc.where ? { parentWhere: parentSrc.where } : {}),
+          }
+        : undefined;
     // Prefer the layer the map already draws. Its id is what the
     // canvas knows, and its style, renderer and popup are the author's
     // rather than a default.
-    const existing = mapLayerByTarget.get(`${t.dataLayerId}:${t.layerKey}`);
+    const existingRaw = mapLayerByTarget.get(`${t.dataLayerId}:${t.layerKey}`);
+    const existing =
+      existingRaw && layerVia && existingRaw.source.kind === 'data-layer'
+        ? {
+            ...existingRaw,
+            source: { ...existingRaw.source, via: layerVia },
+          }
+        : existingRaw;
     const id = customTargetLayerId(t);
     const url = `/api/portal/items/${t.dataLayerId}/layers/${t.layerKey}/geojson`;
     resolvedTargets.push({

@@ -99,30 +99,77 @@ export function selectionClauses(
  */
 export function applySelectionToLayers<
   // `MapLayer.filter` is `MapLayerFilter | null`, not optional, and
-  // the two callers pass real MapLayers. Accept both spellings rather
+  // the callers pass real MapLayers. Accept both spellings rather
   // than making them cast, since a cast at the call site is how a
   // shape mismatch gets hidden instead of noticed.
-  L extends { id: string; filter?: MapLayerFilter | null },
+  L extends {
+    id: string;
+    filter?: MapLayerFilter | null;
+    // `kind` is here so this is not a weak type. Without a property
+    // every source member shares, TypeScript rejects the whole union
+    // as having nothing in common with `{ via?: ... }`.
+    source?: { kind: string; via?: { parentWhere?: MapLayerFilter } } | null;
+  },
 >(args: {
   layers: readonly L[];
+  /** Layer drawing the selection's OWN source. Narrowed client side. */
   targetLayerId: string | null | undefined;
+  /**
+   * Layers whose relate points AT the selection's source.
+   *
+   * These are the ones a MapLibre expression cannot narrow: the
+   * selection is a fact about the parent, and the child's tile does
+   * not carry the parent's rows. The predicate goes onto the relate
+   * instead, which travels to the server on the tile request.
+   *
+   * Without this, clicking a bar narrowed every chart reading a
+   * related source while the map layer drawn from that same source
+   * kept every feature.
+   */
+  relatedLayerIds?: readonly string[];
   selection: Pick<CrossFilterSelection, 'field' | 'value' | 'clauses'> | null;
 }): readonly L[] {
   const { layers, targetLayerId, selection } = args;
-  if (!selection || !targetLayerId) return layers;
+  const related = new Set(args.relatedLayerIds ?? []);
+  if (!selection || (!targetLayerId && related.size === 0)) return layers;
   const clauses = selectionClauses(selection);
   if (clauses.length === 0) return layers;
   let hit = false;
   const next = layers.map((l) => {
-    if (l.id !== targetLayerId) return l;
-    hit = true;
-    // Keep any filter the author already set: a selection narrows
-    // what is on screen, it never widens it.
-    const existing = l.filter?.clauses ?? [];
-    return {
-      ...l,
-      filter: { combinator: 'all' as const, clauses: [...existing, ...clauses] },
-    };
+    if (l.id === targetLayerId) {
+      hit = true;
+      // Keep any filter the author already set: a selection narrows
+      // what is on screen, it never widens it.
+      const existing = l.filter?.clauses ?? [];
+      return {
+        ...l,
+        filter: {
+          combinator: 'all' as const,
+          clauses: [...existing, ...clauses],
+        },
+      };
+    }
+    // A layer can be both, in principle. Order does not matter: the
+    // two narrowings compose, and `else if` here would silently drop
+    // one of them.
+    if (related.has(l.id) && l.source?.via) {
+      hit = true;
+      const existing = l.source.via.parentWhere?.clauses ?? [];
+      return {
+        ...l,
+        source: {
+          ...l.source,
+          via: {
+            ...l.source.via,
+            parentWhere: {
+              combinator: 'all' as const,
+              clauses: [...existing, ...clauses],
+            },
+          },
+        },
+      };
+    }
+    return l;
   });
   return hit ? next : layers;
 }
