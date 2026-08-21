@@ -250,8 +250,6 @@ export function PublicLanding({
         </section>
       )}
 
-      <footer className="border-t border-border bg-surface-1 py-6 text-center text-xs text-muted">
-  
       {/* #255: open-source project section. Renders when the
           deployment opts in via NEXT_PUBLIC_PROJECT_LANDING=1, OR
           when the parent forces it via the forceProjectSection
@@ -269,7 +267,13 @@ export function PublicLanding({
         <WhatsNewSection entries={whatsNew} />
       ) : null}
 
-      {/* Bare version string on purpose (locale-neutral, stays out
+      {/* The footer opens HERE, after the content sections.
+          It carries `text-center`, and for one release its opening
+          tag sat above them instead, so every paragraph on the
+          landing page inherited centred body text. Keep the sections
+          outside it. */}
+      <footer className="border-t border-border bg-surface-1 py-6 text-center text-xs text-muted">
+        {/* Bare version string on purpose (locale-neutral, stays out
             of the i18n catalogs). Release builds link to their notes;
             between-releases builds render as plain text. */}
         {versionReleaseUrl() ? (
