@@ -192,13 +192,22 @@ export function LayerPanel({
       setAnchor(null);
       return;
     }
+    // Measure the whole PANEL, not this list.
+    //
+    // The list is mounted inside the shell's aside, below its title
+    // bar, so anchoring to the list starts the settings column a
+    // header's height down the screen and the two columns visibly
+    // fail to line up. The aside is the thing a reader sees as "the
+    // left column", so that is the box to match. Falling back to the
+    // list keeps this working in any host that has no aside.
+    const box = el.closest('aside') ?? el;
     const measure = () => {
-      const r = el.getBoundingClientRect();
+      const r = box.getBoundingClientRect();
       setAnchor({ left: r.right, top: r.top, height: r.height });
     };
     measure();
     const ro = new ResizeObserver(measure);
-    ro.observe(el);
+    ro.observe(box);
     window.addEventListener('resize', measure);
     return () => {
       ro.disconnect();
@@ -1042,13 +1051,24 @@ interface RowProps {
  * popup on/off switch in a different section from the popup's own
  * content.
  */
-type LayerTab = 'style' | 'labels' | 'filter' | 'popup';
+type LayerTab =
+  | 'style'
+  | 'labels'
+  | 'filter'
+  | 'popup'
+  | 'interactions';
 
 const LAYER_TABS: ReadonlyArray<{ id: LayerTab; label: string }> = [
   { id: 'style', label: 'Style' },
   { id: 'labels', label: 'Labels' },
   { id: 'filter', label: 'Filter' },
   { id: 'popup', label: 'Popup' },
+  // The id follows the field it edits, `layer.interactions`. The
+  // label does not, because "Interactions" is twice the width of
+  // every other tab and five of them share one narrow column.
+  // "Actions" says the same thing from the reader's side: what you
+  // can do with this layer.
+  { id: 'interactions', label: 'Actions' },
 ];
 
 /**
@@ -1115,7 +1135,7 @@ function LayerTabStrip({
             aria-controls={`layer-tabpanel-${t.id}`}
             tabIndex={active ? 0 : -1}
             onClick={() => onChange(t.id)}
-            className={`flex-1 border-b-2 px-2 py-2 text-xs font-medium transition ${
+            className={`min-w-0 flex-1 truncate border-b-2 px-1 py-2 text-xs font-medium transition ${
               active
                 ? 'border-accent text-ink-0'
                 : 'border-transparent text-muted hover:text-ink-1'
@@ -1307,8 +1327,11 @@ function LayerRow({
             : undefined
         }
       >
-        <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-          <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink-0">
+        {/* Matches BuilderShell's PanelHeader exactly (h-9, surface-2,
+            px-2) so the two columns share one title-bar line rather
+            than stepping down beside each other. */}
+        <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border bg-surface-2 px-2">
+          <span className="min-w-0 flex-1 truncate text-2xs font-semibold uppercase tracking-wide text-ink-0">
             {layer.title}
           </span>
           {geometryLabel ? (
@@ -1530,18 +1553,12 @@ function LayerRow({
                 </LayerTabPanel>
   
                 <LayerTabPanel tab="popup" active={tab}>
-                  <PopupEditor
-                    value={layer.popup}
-                    metadata={metadata}
-                    onChange={(popup) => onPatch({ popup })}
-                  />
-                  <div className="mt-3 border-t border-border pt-3">
-                  <div className="space-y-1.5 text-sm">
-                    {/* Popup triggers (#74 follow-up): moved here from
-                        the POPUPS section so all per-layer behavior
-                        toggles live together. The POPUPS section
-                        stays for content configuration (title /
-                        body templates) but the on/off live here. */}
+                  {/* The two triggers sit ABOVE the content they
+                      turn on, because "does a popup appear at all"
+                      has to be answered before "what does it say",
+                      and a reader who leaves both off should not
+                      have to scroll a field list to find that out. */}
+                  <div className="space-y-1.5 pb-3 text-sm">
                     <Toggle
                       Icon={MousePointerClick}
                       label="Click shows popup"
@@ -1562,6 +1579,26 @@ function LayerRow({
                         })
                       }
                     />
+                  </div>
+                  <div className="border-t border-border pt-3">
+                    <PopupEditor
+                      value={layer.popup}
+                      metadata={metadata}
+                      onChange={(popup) => onPatch({ popup })}
+                    />
+                  </div>
+                </LayerTabPanel>
+
+                {/* Everything a reader can DO with the layer, which
+                    is not the same question as what a popup says.
+                    These four lived at the bottom of the Popup tab,
+                    below a field list long enough to hide them: a
+                    layer's selectability and its searchability are
+                    not popup settings and nobody would look there.
+                    The layer's own data model already calls this
+                    group `interactions`. */}
+                <LayerTabPanel tab="interactions" active={tab}>
+                  <div className="space-y-1.5 text-sm">
                     <Toggle
                       Icon={Sparkles}
                       label="Highlight on hover"
@@ -1612,16 +1649,17 @@ function LayerRow({
                       />
                     ) : null}
                   </div>
-                  <SearchConfig
-                    value={layer.search}
-                    metadata={metadata}
-                    onChange={(search) => onPatch({ search })}
-                  />
+                  <div className="mt-3 border-t border-border pt-3">
+                    <SearchConfig
+                      value={layer.search}
+                      metadata={metadata}
+                      onChange={(search) => onPatch({ search })}
+                    />
+                  </div>
                   <p className="mt-2 text-2xs text-muted">
                     Feature editing unlocks when the layer&apos;s source
                     supports writes.
                   </p>
-                  </div>
                 </LayerTabPanel>
               </>
             ) : null}
