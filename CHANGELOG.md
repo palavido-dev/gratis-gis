@@ -5,6 +5,29 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.61] - 2026-08-21
+
+### Changed
+
+- **Layer settings are tabs.** Style, Labels, Filter and Popup,
+  instead of six collapsible sections stacked in one column where
+  reaching the last one meant scrolling past all of the first. Zoom
+  range moved under Style, and the popup on/off switches moved back
+  beside the popup content they belong to.
+- **A legend can carry a title.** Give it one and it says what the
+  colours are showing before the reader gets to a single swatch.
+  Leave it blank and the panel is headed "Legend" as before.
+
+### Fixed
+
+- **The app designer shows your widgets instead of errors.** Counters
+  read "No layer bound" in red and charts read "No target" on apps
+  that were correctly set up and ran fine, because the canvas gave
+  each widget only half of what it needs to find its data. Legends
+  and layer lists drew grey boxes rather than their real contents.
+  All of them now render on the canvas the way they will on the page,
+  which is the whole point of laying a dashboard out visually.
+
 ## [0.9.60] - 2026-08-21
 
 ### Fixed
