@@ -5,6 +5,20 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.58] - 2026-08-20
+
+### Fixed
+
+- **A tile only says "filtered" when it is.** Clicking a chart marked
+  every counter on the page as narrowed, including ones reading data
+  the click never touched, so a correct number was captioned as
+  something it was not. The caption now follows whether the filter
+  actually reached that data.
+- **The chart you click keeps its own context.** A chart that
+  published a filter against another part of the page could end up
+  re-filtering itself through the relationship between them, so every
+  bar moved when you clicked one.
+
 ## [0.9.57] - 2026-08-20
 
 ### Added
