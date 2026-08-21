@@ -5,6 +5,28 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.59] - 2026-08-21
+
+### Fixed
+
+- **The attribute table shows what the map is showing.** It listed
+  every row regardless of the filter on the layer, so a filtered map
+  sat next to a table that disagreed with it, and the table's own "Use
+  selection as filter" button narrowed the map while leaving the table
+  alone. Filtering now reaches the table on every kind of layer.
+- **A table on a dashboard narrows when you click a chart.** It was
+  reading the map's unfiltered layers, so it kept listing rows the map
+  beside it had just hidden.
+- **The map narrows on related records too.** Click a chart built from
+  related records and the map layer drawn from those records now
+  narrows with everything else. It used to keep every feature while
+  the counters and charts moved, with nothing on screen to say the two
+  disagreed.
+- **Reading is easier on the landing page.** Every heading and
+  paragraph below the top of the page was centred, which makes long
+  copy hard to follow because the eye loses the left edge on each
+  line. It reads left aligned now.
+
 ## [0.9.58] - 2026-08-20
 
 ### Fixed
