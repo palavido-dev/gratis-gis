@@ -9591,23 +9591,77 @@ export const DESIGN_TIME_KINDS: ReadonlySet<CustomWidgetKind> = new Set([
   'indicator',
   'chart',
   'attribute-table',
+  // These two read a bound map's LAYER LIST, not its MapLibre
+  // instance, so they render at design time as soon as the canvas
+  // hands over the map data it already resolved for the Map widget's
+  // own preview. Before that they drew a grey "Legend content" box,
+  // which on a page whose other widgets read "No layer bound" made a
+  // working app look broken.
+  'legend',
+  'layer-list',
 ]);
+
+/** Stable empties, so an omitted prop does not remake the context. */
+const NO_MAP_DATA: Record<string, MapData> = {};
+const NO_BASEMAPS: CustomBasemap[] = [];
 
 export function DesignTimeWidgetPreview({
   widget,
   resolvedTargets,
+  sources,
+  mapDataByWidget = NO_MAP_DATA,
+  basemaps = NO_BASEMAPS,
 }: {
   widget: CustomWidget;
   resolvedTargets: ResolvedAppTarget[];
+  /**
+   * The app's data sources, exactly as the runtime receives them.
+   *
+   * Not optional, and not derivable from `resolvedTargets`. A widget
+   * finds its data in two steps: `useWidgetSource` looks the source
+   * up in AppSourcesContext, then `useWidgetTarget` matches that
+   * source's id against the resolved list. Providing only the second
+   * half means step one returns undefined for every widget, and each
+   * one renders its own "nothing bound" message: four indicators
+   * reading "No layer bound" in red, a chart reading "No target", on
+   * an app that is correctly configured and runs fine.
+   *
+   * That is worse than a placeholder. A placeholder says "not built
+   * yet"; a red error says "you did this wrong", about something the
+   * author did right.
+   */
+  sources: AppDataSource[];
+  /**
+   * Map data per map widget id, so a widget that follows a map can
+   * read its layer list. The canvas already resolves this for the
+   * Map widget's own preview; sharing it is what lets the legend and
+   * the layer list render rather than sit as grey boxes.
+   *
+   * Deliberately NOT a MapLibre instance. Anything that steers a
+   * camera still keeps its static preview, because hosting live map
+   * canvases inside a drag-and-resize surface is its own problem.
+   */
+  mapDataByWidget?: Record<string, MapData>;
+  basemaps?: CustomBasemap[];
 }) {
   const noop = () => undefined;
   const containerRef = useRef<HTMLDivElement>(null);
+  const states = useMemo<Record<string, MapState>>(
+    () =>
+      Object.fromEntries(
+        Object.entries(mapDataByWidget).map(([id, mapData]) => [
+          id,
+          { mapData, selection: {}, selectTool: 'off' as SelectToolMode },
+        ]),
+      ),
+    [mapDataByWidget],
+  );
   const ctx = useMemo<CustomMapsCtx>(
     () => ({
-      states: {},
+      states,
       update: noop,
       registerRef: noop,
-      basemaps: [],
+      basemaps,
       resolvedTargets,
       sourceOrder: resolvedTargets.map((t) => t.sourceId),
       flyTo: noop,
@@ -9622,15 +9676,27 @@ export function DesignTimeWidgetPreview({
       popupSuppressed: {},
       setPopupSuppressed: noop,
     }),
-    [resolvedTargets],
+    [resolvedTargets, states, basemaps],
   );
+  const sourcesById = useMemo(
+    () => Object.fromEntries(sources.map((s) => [s.id, s])),
+    [sources],
+  );
+  // Author order, for an app saved before sources had stable ids.
+  // The canvas has to honour the same legacy fallback the runtime
+  // does or an older app previews blank while running correctly.
+  const sourceOrder = useMemo(() => sources.map((s) => s.id), [sources]);
   return (
     <AppRefreshContext.Provider value={0}>
-      <CustomMapsContext.Provider value={ctx}>
-        <div ref={containerRef} className="flex h-full w-full flex-col">
-          {renderWidget(widget)}
-        </div>
-      </CustomMapsContext.Provider>
+      <AppSourcesContext.Provider value={sourcesById}>
+        <AppSourceOrderContext.Provider value={sourceOrder}>
+          <CustomMapsContext.Provider value={ctx}>
+            <div ref={containerRef} className="flex h-full w-full flex-col">
+              {renderWidget(widget)}
+            </div>
+          </CustomMapsContext.Provider>
+        </AppSourceOrderContext.Provider>
+      </AppSourcesContext.Provider>
     </AppRefreshContext.Provider>
   );
 }

@@ -263,9 +263,13 @@ export function CustomAppDetail({
   // that interim window.
   const [previewBasemaps, setPreviewBasemaps] = useState<CustomBasemap[]>([]);
   // Canvas widgets render live (see DesignTimeWidgetPreview), which
-  // needs the app's targets in the same shape the runtime resolves
-  // them into.
-  const resolvedTargets = useResolvedTargets(app.sources ?? []);
+  // needs BOTH halves of the lookup a widget does: the sources it
+  // binds to by id, and those sources resolved into the runtime's
+  // shape. Passing only the resolved half is what made every
+  // indicator on a correctly configured app render "No layer bound"
+  // in red, so they travel together and are declared together.
+  const appSources = useMemo(() => app.sources ?? [], [app.sources]);
+  const resolvedTargets = useResolvedTargets(appSources);
   // #363: per-Map-widget MapData when the widget has its own
   // config.mapId override. Without this the canvas preview shows
   // the app default for EVERY map widget, ignoring overrides.
@@ -878,6 +882,32 @@ export function CustomAppDetail({
   );
 
   const activePage = app.pages[activePageIdx] ?? app.pages[0]!;
+
+  // Map data keyed by MAP WIDGET id, for the whole page.
+  //
+  // A legend or layer list names the map widget it follows, which is
+  // a different widget from itself, so a per-card value cannot answer
+  // it: the lookup has to be able to reach any map on the page. Each
+  // entry prefers that widget's own map override and falls back to
+  // the app default, which is the same precedence the canvas already
+  // uses to draw the Map widget.
+  const previewStatesByMapWidget = useMemo<Record<string, MapData>>(() => {
+    const out: Record<string, MapData> = {};
+    const walk = (list: CustomWidget[]) => {
+      for (const w of list) {
+        if (w.kind === 'map') {
+          const md = widgetMapData[w.id] ?? previewMapData;
+          if (md) out[w.id] = md;
+        }
+        // Containers nest, and a map inside a tab is still a map the
+        // legend beside it can follow.
+        const kids = (w as { children?: CustomWidget[] }).children;
+        if (Array.isArray(kids)) walk(kids);
+      }
+    };
+    walk(activePage?.widgets ?? []);
+    return out;
+  }, [activePage?.widgets, widgetMapData, previewMapData]);
   // #22 WYSIWYG: deep-find the selected widget so clicking a tool
   // icon inside an app-bar (or any nested child) resolves to the
   // child's config in the right-rail properties panel.  The legacy
@@ -1036,6 +1066,8 @@ export function CustomAppDetail({
               previewMapData={previewMapData}
               previewBasemaps={previewBasemaps}
               resolvedTargets={resolvedTargets}
+              sources={appSources}
+              previewStatesByMapWidget={previewStatesByMapWidget}
               widgetMapData={widgetMapData}
               activeTabIdxByWidget={activeTabIdxByWidget}
               themePresetId={app.themePresetId}
@@ -1905,6 +1937,8 @@ function Canvas({
   previewMapData,
   previewBasemaps,
   resolvedTargets,
+  sources,
+  previewStatesByMapWidget,
   widgetMapData,
   activeTabIdxByWidget,
   themePresetId,
@@ -1924,6 +1958,11 @@ function Canvas({
   /** Targets resolved to the runtime's shape so canvas widgets can
    *  render live rather than as placeholders. */
   resolvedTargets: ResolvedTargetLite[];
+  /** Forwarded to each widget's live preview; see WidgetCard. */
+  sources: AppDataSource[];
+  /** Map data by MAP WIDGET id, so a legend can reach the map it
+   *  follows rather than only its own card's value. */
+  previewStatesByMapWidget: Record<string, MapData>;
   widgetMapData: Record<string, MapData>;
   activeTabIdxByWidget: Record<string, number>;
   /**
@@ -2561,6 +2600,8 @@ function Canvas({
       previewMapData={widgetMapData[w.id] ?? previewMapData}
       previewBasemaps={previewBasemaps}
       resolvedTargets={resolvedTargets}
+      sources={sources}
+      previewStatesByMapWidget={previewStatesByMapWidget}
       activeTabIdx={activeTabIdxByWidget[w.id] ?? 0}
       itemTitle={itemTitle}
       selectedChildId={selectedId}
@@ -2678,6 +2719,8 @@ function WidgetCard({
   previewMapData,
   previewBasemaps,
   resolvedTargets,
+  sources,
+  previewStatesByMapWidget,
   activeTabIdx,
   itemTitle,
   selectedChildId,
@@ -2715,6 +2758,12 @@ function WidgetCard({
   /** Targets resolved to the runtime's shape so canvas widgets can
    *  render live rather than as placeholders. */
   resolvedTargets: ResolvedTargetLite[];
+  /** The app's sources. A widget resolves its data in two steps and
+   *  the resolved list is only the second; without these every
+   *  canvas widget reports itself unbound. */
+  sources: AppDataSource[];
+  /** Map data by map widget id; see Canvas. */
+  previewStatesByMapWidget: Record<string, MapData>;
   activeTabIdx: number;
   /**
    * #22 WYSIWYG: forwarded to inline-rendered children of container
@@ -2997,6 +3046,9 @@ function WidgetCard({
           <DesignTimeWidgetPreview
             widget={widget}
             resolvedTargets={resolvedTargets}
+            sources={sources}
+            mapDataByWidget={previewStatesByMapWidget}
+            basemaps={previewBasemaps}
           />
         </div>
       ) : (
