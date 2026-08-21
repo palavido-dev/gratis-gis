@@ -2509,44 +2509,48 @@ export class DataLayerEngine {
     const fetchN = cap + 1;
 
     type AggRow = Record<string, string | number | null>;
-    const rows =
-      contentFilters.length === 0
-        ? await this.prisma.$queryRaw<AggRow[]>`
+    // ONE query shape, filtered or not: collapse the scope to the
+    // latest row per entity, then apply the content predicates to
+    // that collapsed row.
+    //
+    // The filtered path used to discover candidate entities first and
+    // then collapse each one with its own indexed lookup. That is the
+    // right plan when the filter is selective and a catastrophe when
+    // it is not, because the per-entity lookup costs a Merge Append
+    // across every partition and it runs once per candidate. Measured
+    // on 285,788 measurements related to 1,175 sites: 14,167ms for
+    // the relate against 786ms this way, and 8,045ms against 1,748ms
+    // once a map viewport was added, which did not rescue it because
+    // 168,910 candidates still survived the bbox. A genuinely
+    // selective filter is the only case that loses, 501ms against
+    // 255ms.
+    //
+    // Matt's call, on those numbers: take a flat half to two seconds
+    // over a range that runs from a quarter second to a 500 at the
+    // statement timeout. A predictable ceiling is worth more to a
+    // dashboard than a fast best case, and the widget that used to
+    // time out kept showing its previous number with no caption
+    // saying it had failed.
+    //
+    // The tile path deliberately KEEPS the candidate shape: its
+    // candidate scan is narrowed to one tile's envelope, which is
+    // exactly the selective case this is bad at.
+    //
+    // Ghost safety is unchanged and is the reason the predicates sit
+    // outside the collapse: inside it, "latest" would quietly mean
+    // "latest row that still matches", and editing a feature out of
+    // the filter would resurrect its previous version.
+    const rows = await this.prisma.$queryRaw<AggRow[]>`
+      ${viaCte ? Prisma.sql`WITH ${viaCte}` : Prisma.empty}
       SELECT ${selectList}
       FROM (
         SELECT DISTINCT ON (entity)
-          entity, attrs, kind
+          entity, attrs, geom, kind
         FROM observation
         WHERE scope = ${scope}
           AND valid_from <= ${asOf}
           ${collapseExtras}
         ORDER BY entity, valid_from DESC, tx_time DESC
-      ) latest
-      WHERE kind <> 'delete'
-      ${groupClause}
-      ${orderClause}
-      LIMIT ${fetchN}
-    `
-        : await this.prisma.$queryRaw<AggRow[]>`
-      WITH ${viaCte ? Prisma.sql`${viaCte},` : Prisma.empty}
-      content_candidates AS (
-        SELECT DISTINCT entity
-        FROM observation
-        WHERE scope = ${scope}
-          AND valid_from <= ${asOf}
-          ${collapseExtras}
-          ${contentExtras}
-      )
-      SELECT ${selectList}
-      FROM (SELECT entity FROM content_candidates) cand
-      CROSS JOIN LATERAL (
-        SELECT entity, attrs, geom, kind
-        FROM observation
-        WHERE scope = ${scope}
-          AND entity = cand.entity
-          AND valid_from <= ${asOf}
-        ORDER BY valid_from DESC, tx_time DESC
-        LIMIT 1
       ) l
       WHERE l.kind <> 'delete'
         ${contentExtras}
