@@ -162,6 +162,49 @@ export function LayerPanel({
 }: Props) {
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
+  // Whose settings are open in the column beside the list. One at a
+  // time, because the column is the point: settings used to expand
+  // under the row, which pushed every layer below it down the page
+  // and meant scrolling between the list and the thing you were
+  // editing.
+  const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
+  // Where to put that column.
+  //
+  // It has to be `fixed`, measured off this panel's box, because
+  // every container this panel is mounted in clips: BuilderShell's
+  // aside is `overflow-hidden` and its inner scroller is
+  // `overflow-y-auto`, and the editor's drawer is `overflow-auto`.
+  // An absolutely positioned sibling escaping with `left-full` would
+  // be laid out correctly and then cropped away to nothing.
+  //
+  // Tracked with a ResizeObserver rather than measured once, because
+  // the shell lets the user drag this panel wider and the settings
+  // have to follow the edge they are attached to.
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const [anchor, setAnchor] = useState<{
+    left: number;
+    top: number;
+    height: number;
+  } | null>(null);
+  useEffect(() => {
+    const el = panelRef.current;
+    if (!el || !selectedLayerId) {
+      setAnchor(null);
+      return;
+    }
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      setAnchor({ left: r.right, top: r.top, height: r.height });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    window.addEventListener('resize', measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [selectedLayerId]);
   // Split-button menu (#70). Open when the user clicks the chevron
   // half of the Add button; closes on outside click. The primary
   // half still does the most-common thing (Add layer) without
@@ -417,8 +460,20 @@ export function LayerPanel({
     );
   }
 
+  // The layer whose settings are open, resolved from the flat list so
+  // the column can render it. A selection pointing at a layer that
+  // was since removed resolves to nothing and the column closes,
+  // rather than the panel holding a stale id.
+  const selectedLayer = selectedLayerId
+    ? layers.find((l) => l.id === selectedLayerId) ?? null
+    : null;
+
   return (
-    <div className="flex h-full flex-col border-r border-border bg-surface-1">
+    <>
+    <div
+      ref={panelRef}
+      className="flex h-full flex-col border-r border-border bg-surface-1"
+    >
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
           Layers
@@ -630,6 +685,12 @@ export function LayerPanel({
                       onMoveToNewGroup={() =>
                         createGroupAndMoveLayer(layer.id)
                       }
+                      selected={selectedLayerId === layer.id}
+                      onSelect={() =>
+                        setSelectedLayerId((cur) =>
+                          cur === layer.id ? null : layer.id,
+                        )
+                      }
                     />
                   </div>,
                 );
@@ -648,6 +709,58 @@ export function LayerPanel({
       )}
       {terrain ? <TerrainSection terrain={terrain} /> : null}
     </div>
+    {/* The settings column. Rendered from the same LayerRow so the
+        two cannot describe the layer differently; see its `renderAs`
+        prop for why it is one component and not two. */}
+    {selectedLayer && anchor ? (
+      <LayerRow
+        anchor={anchor}
+        key={selectedLayer.id}
+        renderAs="config"
+        layer={selectedLayer}
+        index={layers.indexOf(selectedLayer)}
+        metadata={
+          metadata[selectedLayer.id] ?? {
+            fields: [],
+            valuesByField: {},
+            sampleProperties: null,
+            featureCollection: null,
+            geometryTypes: new Set(),
+            isTable: false,
+            error: null,
+            loading: true,
+          }
+        }
+        canEdit={canEdit}
+        currentZoom={currentZoom}
+        dragging={false}
+        dropTarget={false}
+        onDragStart={() => undefined}
+        onDragEnd={() => undefined}
+        onDragEnter={() => undefined}
+        onDrop={() => undefined}
+        onToggle={() =>
+          updateLayer(selectedLayer.id, { visible: !selectedLayer.visible })
+        }
+        onOpacity={(v) => updateLayer(selectedLayer.id, { opacity: v })}
+        onRemove={() => removeLayer(selectedLayer.id)}
+        onPatch={(patch) => updateLayer(selectedLayer.id, patch)}
+        onOpenAttributeTable={() => onOpenAttributeTable(selectedLayer.id)}
+        onZoomToExtent={() => onZoomToLayer(selectedLayer.id)}
+        {...(onUseLayerElevation
+          ? {
+              onUseLayerElevation: () =>
+                onUseLayerElevation(selectedLayer.id),
+            }
+          : {})}
+        groupOptions={[]}
+        onMoveToGroup={() => undefined}
+        onMoveToNewGroup={() => undefined}
+        selected
+        onSelect={() => setSelectedLayerId(null)}
+      />
+    ) : null}
+    </>
   );
 }
 
@@ -892,6 +1005,23 @@ interface RowProps {
   /** Create a new group and move this layer into it as its sole
    *  child. Used by the "+ New group" submenu item. (#72) */
   onMoveToNewGroup: () => void;
+  /** True when this layer's settings are the ones open beside the
+   *  list. Only affects the row's appearance. */
+  selected?: boolean;
+  /** Open (or close) this layer's settings column. */
+  onSelect?: () => void;
+  /**
+   * Which half to draw: the compact row for the list, or the settings
+   * for the column beside it. Defaults to the row.
+   */
+  renderAs?: 'row' | 'config';
+  /**
+   * Viewport box of the list this settings column attaches to, when
+   * `renderAs` is 'config'. It positions `fixed`, because every
+   * container the panel is mounted in clips overflow; see the
+   * measurement in LayerPanel.
+   */
+  anchor?: { left: number; top: number; height: number };
 }
 
 /**
@@ -1044,8 +1174,22 @@ function LayerRow({
   groupOptions,
   onMoveToGroup,
   onMoveToNewGroup,
+  selected = false,
+  onSelect,
+  renderAs,
+  anchor,
 }: RowProps) {
-  const [expanded, setExpanded] = useState(false);
+  // Which half of itself to draw. The settings live in their own
+  // column beside the list rather than expanding under the row, so
+  // this component renders twice for the selected layer: once as a
+  // compact row in the list, once as the config panel.
+  //
+  // Two renders of one component rather than two components, because
+  // the config body reads about a dozen locals derived up here (the
+  // source narrowings, the patch helpers, the tab). Splitting it
+  // would mean recreating all of them in a second place and keeping
+  // the two in step.
+  const mode = renderAs ?? 'row';
   // Table layers (non-spatial sublayers from arcgis services) carry
   // attribute data but no geometry, so the cartographic editors
   // (symbology, labels, filters, popups, interactions, scale) and
@@ -1066,6 +1210,20 @@ function LayerRow({
   // onChange closures, so spreads there see the wide union without
   // this.
   const pcSource = layer.source.kind === 'point-cloud' ? layer.source : null;
+  // Shown as a pill in the settings header. Now that the settings sit
+  // in their own column rather than under the row, the header has to
+  // say what kind of thing it is editing; "polygon" vs "table" is the
+  // first question anyone asks of an unfamiliar layer, and it decides
+  // which of the tabs will be useful.
+  const geometryLabel = isTable
+    ? 'table'
+    : isPointCloud
+      ? 'point cloud'
+      : isTileOverlay
+        ? 'imagery'
+        : metadata.geometryTypes && metadata.geometryTypes.size > 0
+          ? [...metadata.geometryTypes].sort().join(' + ')
+          : null;
   // Which group of layer settings is showing. Per row, and it
   // deliberately survives collapsing and re-expanding the row: an
   // author working through popups on several layers should not be
@@ -1135,6 +1293,344 @@ function LayerRow({
     onDragEnd();
   }
 
+  // The settings column. Its own header, because once the panel
+  // is no longer physically under the row it has to say which
+  // layer it belongs to, and the geometry pill answers the first
+  // question anyone asks of an unfamiliar layer.
+  if (mode === 'config') {
+    return (
+      <div
+        className="fixed z-30 flex min-h-0 w-[22rem] flex-col border-r border-border bg-surface-1 shadow-xl"
+        style={
+          anchor
+            ? { left: anchor.left, top: anchor.top, height: anchor.height }
+            : undefined
+        }
+      >
+        <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+          <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink-0">
+            {layer.title}
+          </span>
+          {geometryLabel ? (
+            <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-muted">
+              {geometryLabel}
+            </span>
+          ) : null}
+          <button
+            type="button"
+            onClick={onSelect}
+            aria-label="Close layer settings"
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-1"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="space-y-0 border-t border-border bg-surface-2">
+            {/* Tables (no geometry) skip the cartographic editors:
+                opacity / symbology / labels / filters / popups /
+                interactions / scale all manipulate something visual,
+                and a table never renders. Show an unobtrusive hint
+                instead so the user knows where to look. (#73) */}
+            {pcSource ? (
+              /* #179 unit 3: compact 3D style options. Persisted on
+                 the layer source. Each point-cloud layer drives its
+                 own overlay control, so these are honestly per-layer
+                 (user feedback). */
+              <div className="space-y-2 px-3 py-3">
+                <label className="flex items-center justify-between gap-2 text-2xs uppercase tracking-wide text-muted">
+                  <span>Color by</span>
+                  <select
+                    value={
+                      pcSource.colorScheme ??
+                      (pcSource.hasRgb ? 'rgb' : 'elevation')
+                    }
+                    disabled={!canEdit}
+                    onChange={(e) =>
+                      onPatch({
+                        source: {
+                          ...pcSource,
+                          colorScheme: e.target.value as
+                            | 'elevation'
+                            | 'intensity'
+                            | 'classification'
+                            | 'rgb',
+                        },
+                      })
+                    }
+                    className="rounded border border-border bg-surface-0 px-1.5 py-1 text-xs normal-case text-ink-0 disabled:opacity-50"
+                  >
+                    <option value="elevation">Elevation</option>
+                    <option value="intensity">Intensity</option>
+                    <option value="classification">Classification</option>
+                    <option value="rgb" disabled={!pcSource.hasRgb}>
+                      RGB {pcSource.hasRgb ? '' : '(not in file)'}
+                    </option>
+                  </select>
+                </label>
+                {/* Colormap only shapes elevation / intensity ramps;
+                    classification and RGB bring their own colors. */}
+                {(pcSource.colorScheme ?? 'elevation') === 'elevation' ||
+                pcSource.colorScheme === 'intensity' ? (
+                  <label className="flex items-center justify-between gap-2 text-2xs uppercase tracking-wide text-muted">
+                    <span>Color ramp</span>
+                    <select
+                      value={pcSource.colormap ?? 'viridis'}
+                      disabled={!canEdit}
+                      onChange={(e) =>
+                        onPatch({
+                          source: {
+                            ...pcSource,
+                            colormap: e.target
+                              .value as NonNullable<typeof pcSource.colormap>,
+                          },
+                        })
+                      }
+                      className="rounded border border-border bg-surface-0 px-1.5 py-1 text-xs normal-case text-ink-0 disabled:opacity-50"
+                    >
+                      <option value="viridis">Viridis</option>
+                      <option value="plasma">Plasma</option>
+                      <option value="inferno">Inferno</option>
+                      <option value="magma">Magma</option>
+                      <option value="cividis">Cividis</option>
+                      <option value="turbo">Turbo</option>
+                      <option value="terrain">Terrain</option>
+                      <option value="coolwarm">Cool-warm</option>
+                      <option value="gray">Grayscale</option>
+                    </select>
+                  </label>
+                ) : null}
+                <label className="flex items-center justify-between text-2xs uppercase tracking-wide text-muted">
+                  <span>Point size</span>
+                  <span className="tabular-nums">
+                    {(pcSource.pointSize ?? 2).toFixed(1)}
+                  </span>
+                </label>
+                <input
+                  type="range"
+                  min={0.5}
+                  max={6}
+                  step={0.5}
+                  value={pcSource.pointSize ?? 2}
+                  disabled={!canEdit}
+                  onChange={(e) =>
+                    onPatch({
+                      source: {
+                        ...pcSource,
+                        pointSize: Number(e.target.value),
+                      },
+                    })
+                  }
+                  className="w-full accent-accent disabled:opacity-50"
+                />
+                <label className="flex items-center justify-between text-2xs uppercase tracking-wide text-muted">
+                  <span>Opacity</span>
+                  <span className="tabular-nums">
+                    {Math.round(layer.opacity * 100)}%
+                  </span>
+                </label>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={layer.opacity}
+                  disabled={!canEdit}
+                  onChange={(e) => onOpacity(Number(e.target.value))}
+                  className="w-full accent-accent disabled:opacity-50"
+                />
+                <p className="text-2xs leading-relaxed text-muted">
+                  Streams by viewport in 3D. Tilt the map to look
+                  across the terrain.
+                </p>
+              </div>
+            ) : isTable ? (
+              <div className="px-3 py-3 text-xs text-muted">
+                This is a non-spatial table. Open the attribute table
+                from the kebab menu to view its records.
+              </div>
+            ) : (
+              <div className="px-3 py-3">
+                <label className="flex items-center justify-between text-2xs uppercase tracking-wide text-muted">
+                  <span>Opacity</span>
+                  <span className="tabular-nums">
+                    {Math.round(layer.opacity * 100)}%
+                  </span>
+                </label>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={layer.opacity}
+                  disabled={!canEdit}
+                  onChange={(e) => onOpacity(Number(e.target.value))}
+                  className="mt-1 w-full accent-accent disabled:opacity-50"
+                />
+              </div>
+            )}
+  
+            {canEdit && !isTable && !isPointCloud && !isTileOverlay ? (
+              <>
+                <LayerTabStrip value={tab} onChange={setTab} />
+  
+                <LayerTabPanel tab="style" active={tab}>
+                  <RendererEditor
+                    value={layer.renderer}
+                    metadata={metadata}
+                    layer={layer}
+                    onChange={(renderer) => onPatch({ renderer })}
+                  />
+                  <div className="mt-3 border-t border-border pt-3">
+                    <StyleEditor
+                      value={layer.style}
+                      onChange={(style) => onPatch({ style })}
+                      {...(metadata.geometryTypes
+                        ? { geometryTypes: metadata.geometryTypes }
+                        : {})}
+                      fields={metadata.fields}
+                    />
+                  </div>
+                  <div className="mt-3 border-t border-border pt-3">
+                    <ScaledSymbologyEditor
+                      layer={layer}
+                      onPatch={onPatch}
+                      currentZoom={currentZoom}
+                      {...(metadata.geometryTypes
+                        ? { geometryTypes: metadata.geometryTypes }
+                        : {})}
+                    />
+                  </div>
+                  <div className="mt-3 border-t border-border pt-3">
+                    <p className="mb-1.5 text-2xs font-medium uppercase tracking-wide text-muted">
+                      Visible zoom range
+                    </p>
+                  <ScaleEditor
+                    value={layer.scale ?? DEFAULT_LAYER_SCALE}
+                    currentZoom={currentZoom}
+                    onChange={(scale) => onPatch({ scale })}
+                  />
+                  </div>
+                </LayerTabPanel>
+  
+                <LayerTabPanel tab="labels" active={tab}>
+                  <LabelsEditor
+                    value={layer.labels}
+                    metadata={metadata}
+                    onChange={(labels) => onPatch({ labels })}
+                  />
+                </LayerTabPanel>
+  
+                <LayerTabPanel tab="filter" active={tab}>
+                  <FilterEditor
+                    value={layer.filter}
+                    metadata={metadata}
+                    onChange={(filter) => onPatch({ filter })}
+                  />
+                </LayerTabPanel>
+  
+                <LayerTabPanel tab="popup" active={tab}>
+                  <PopupEditor
+                    value={layer.popup}
+                    metadata={metadata}
+                    onChange={(popup) => onPatch({ popup })}
+                  />
+                  <div className="mt-3 border-t border-border pt-3">
+                  <div className="space-y-1.5 text-sm">
+                    {/* Popup triggers (#74 follow-up): moved here from
+                        the POPUPS section so all per-layer behavior
+                        toggles live together. The POPUPS section
+                        stays for content configuration (title /
+                        body templates) but the on/off live here. */}
+                    <Toggle
+                      Icon={MousePointerClick}
+                      label="Click shows popup"
+                      checked={layer.popup.enabled}
+                      onChange={(v) =>
+                        onPatch({
+                          popup: { ...layer.popup, enabled: v },
+                        })
+                      }
+                    />
+                    <Toggle
+                      Icon={Sparkles}
+                      label="Popup on hover"
+                      checked={layer.popup.showOnHover === true}
+                      onChange={(v) =>
+                        onPatch({
+                          popup: { ...layer.popup, showOnHover: v },
+                        })
+                      }
+                    />
+                    <Toggle
+                      Icon={Sparkles}
+                      label="Highlight on hover"
+                      checked={layer.interactions.hoverHighlight}
+                      onChange={(v) =>
+                        onPatch({
+                          interactions: {
+                            ...layer.interactions,
+                            hoverHighlight: v,
+                          },
+                        })
+                      }
+                    />
+                    <Toggle
+                      Icon={MousePointerClick}
+                      label="Selectable"
+                      checked={layer.interactions.selectable !== false}
+                      onChange={(v) =>
+                        onPatch({
+                          interactions: {
+                            ...layer.interactions,
+                            selectable: v,
+                          },
+                        })
+                      }
+                    />
+                    {/* Per-map editability override for the field PWA.
+                        The underlying data_layer's `editingEnabled`
+                        flag still governs whether the layer is
+                        editable at all; this toggle narrows further
+                        so a single map can include a layer for
+                        reference without offering it in the field
+                        Add picker. Only shown for data-layer
+                        sources where field editing is possible. */}
+                    {layer.source.kind === 'data-layer' ? (
+                      <Toggle
+                        Icon={Pencil}
+                        label="Editable in field deployments"
+                        checked={layer.interactions.editingEnabled !== false}
+                        onChange={(v) =>
+                          onPatch({
+                            interactions: {
+                              ...layer.interactions,
+                              editingEnabled: v,
+                            },
+                          })
+                        }
+                      />
+                    ) : null}
+                  </div>
+                  <SearchConfig
+                    value={layer.search}
+                    metadata={metadata}
+                    onChange={(search) => onPatch({ search })}
+                  />
+                  <p className="mt-2 text-2xs text-muted">
+                    Feature editing unlocks when the layer&apos;s source
+                    supports writes.
+                  </p>
+                  </div>
+                </LayerTabPanel>
+              </>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <li
       onDragOver={canEdit ? handleDragOver : undefined}
@@ -1158,15 +1654,19 @@ function LayerRow({
         ) : (
           <span className="inline-block h-6 w-5 shrink-0" />
         )}
+        {/* The settings now open in their own column rather than
+            below the row, so this is a selection affordance, not a
+            disclosure. It points RIGHT at the panel it opens. */}
         <button
           type="button"
-          onClick={() => setExpanded((v) => !v)}
-          aria-label={expanded ? 'Collapse' : 'Expand'}
-          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted hover:bg-surface-2"
+          onClick={onSelect}
+          aria-label={selected ? 'Settings open' : 'Open settings'}
+          aria-pressed={selected}
+          className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-surface-2 ${
+            selected ? 'text-accent' : 'text-muted'
+          }`}
         >
-          <ChevronRight
-            className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`}
-          />
+          <ChevronRight className="h-3.5 w-3.5" />
         </button>
         {/* Visibility eye is meaningless for table-mode sublayers
             (#77): tables don't render on the map, so hiding them
@@ -1271,7 +1771,7 @@ function LayerRow({
         ) : (
           <div
             className="min-w-0 flex-1 cursor-pointer truncate text-sm"
-            onClick={() => setExpanded((v) => !v)}
+            onClick={onSelect}
             onDoubleClick={() => canEdit && setEditingTitle(true)}
             title={
               canEdit ? `${layer.title} (double-click to rename)` : layer.title
@@ -1507,308 +2007,6 @@ function LayerRow({
           </div>
       </div>
 
-      {expanded ? (
-        <div className="space-y-0 border-t border-border bg-surface-2">
-          {/* Tables (no geometry) skip the cartographic editors:
-              opacity / symbology / labels / filters / popups /
-              interactions / scale all manipulate something visual,
-              and a table never renders. Show an unobtrusive hint
-              instead so the user knows where to look. (#73) */}
-          {pcSource ? (
-            /* #179 unit 3: compact 3D style options. Persisted on
-               the layer source. Each point-cloud layer drives its
-               own overlay control, so these are honestly per-layer
-               (user feedback). */
-            <div className="space-y-2 px-3 py-3">
-              <label className="flex items-center justify-between gap-2 text-2xs uppercase tracking-wide text-muted">
-                <span>Color by</span>
-                <select
-                  value={
-                    pcSource.colorScheme ??
-                    (pcSource.hasRgb ? 'rgb' : 'elevation')
-                  }
-                  disabled={!canEdit}
-                  onChange={(e) =>
-                    onPatch({
-                      source: {
-                        ...pcSource,
-                        colorScheme: e.target.value as
-                          | 'elevation'
-                          | 'intensity'
-                          | 'classification'
-                          | 'rgb',
-                      },
-                    })
-                  }
-                  className="rounded border border-border bg-surface-0 px-1.5 py-1 text-xs normal-case text-ink-0 disabled:opacity-50"
-                >
-                  <option value="elevation">Elevation</option>
-                  <option value="intensity">Intensity</option>
-                  <option value="classification">Classification</option>
-                  <option value="rgb" disabled={!pcSource.hasRgb}>
-                    RGB {pcSource.hasRgb ? '' : '(not in file)'}
-                  </option>
-                </select>
-              </label>
-              {/* Colormap only shapes elevation / intensity ramps;
-                  classification and RGB bring their own colors. */}
-              {(pcSource.colorScheme ?? 'elevation') === 'elevation' ||
-              pcSource.colorScheme === 'intensity' ? (
-                <label className="flex items-center justify-between gap-2 text-2xs uppercase tracking-wide text-muted">
-                  <span>Color ramp</span>
-                  <select
-                    value={pcSource.colormap ?? 'viridis'}
-                    disabled={!canEdit}
-                    onChange={(e) =>
-                      onPatch({
-                        source: {
-                          ...pcSource,
-                          colormap: e.target
-                            .value as NonNullable<typeof pcSource.colormap>,
-                        },
-                      })
-                    }
-                    className="rounded border border-border bg-surface-0 px-1.5 py-1 text-xs normal-case text-ink-0 disabled:opacity-50"
-                  >
-                    <option value="viridis">Viridis</option>
-                    <option value="plasma">Plasma</option>
-                    <option value="inferno">Inferno</option>
-                    <option value="magma">Magma</option>
-                    <option value="cividis">Cividis</option>
-                    <option value="turbo">Turbo</option>
-                    <option value="terrain">Terrain</option>
-                    <option value="coolwarm">Cool-warm</option>
-                    <option value="gray">Grayscale</option>
-                  </select>
-                </label>
-              ) : null}
-              <label className="flex items-center justify-between text-2xs uppercase tracking-wide text-muted">
-                <span>Point size</span>
-                <span className="tabular-nums">
-                  {(pcSource.pointSize ?? 2).toFixed(1)}
-                </span>
-              </label>
-              <input
-                type="range"
-                min={0.5}
-                max={6}
-                step={0.5}
-                value={pcSource.pointSize ?? 2}
-                disabled={!canEdit}
-                onChange={(e) =>
-                  onPatch({
-                    source: {
-                      ...pcSource,
-                      pointSize: Number(e.target.value),
-                    },
-                  })
-                }
-                className="w-full accent-accent disabled:opacity-50"
-              />
-              <label className="flex items-center justify-between text-2xs uppercase tracking-wide text-muted">
-                <span>Opacity</span>
-                <span className="tabular-nums">
-                  {Math.round(layer.opacity * 100)}%
-                </span>
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={layer.opacity}
-                disabled={!canEdit}
-                onChange={(e) => onOpacity(Number(e.target.value))}
-                className="w-full accent-accent disabled:opacity-50"
-              />
-              <p className="text-2xs leading-relaxed text-muted">
-                Streams by viewport in 3D. Tilt the map to look
-                across the terrain.
-              </p>
-            </div>
-          ) : isTable ? (
-            <div className="px-3 py-3 text-xs text-muted">
-              This is a non-spatial table. Open the attribute table
-              from the kebab menu to view its records.
-            </div>
-          ) : (
-            <div className="px-3 py-3">
-              <label className="flex items-center justify-between text-2xs uppercase tracking-wide text-muted">
-                <span>Opacity</span>
-                <span className="tabular-nums">
-                  {Math.round(layer.opacity * 100)}%
-                </span>
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={layer.opacity}
-                disabled={!canEdit}
-                onChange={(e) => onOpacity(Number(e.target.value))}
-                className="mt-1 w-full accent-accent disabled:opacity-50"
-              />
-            </div>
-          )}
-
-          {canEdit && !isTable && !isPointCloud && !isTileOverlay ? (
-            <>
-              <LayerTabStrip value={tab} onChange={setTab} />
-
-              <LayerTabPanel tab="style" active={tab}>
-                <RendererEditor
-                  value={layer.renderer}
-                  metadata={metadata}
-                  layer={layer}
-                  onChange={(renderer) => onPatch({ renderer })}
-                />
-                <div className="mt-3 border-t border-border pt-3">
-                  <StyleEditor
-                    value={layer.style}
-                    onChange={(style) => onPatch({ style })}
-                    {...(metadata.geometryTypes
-                      ? { geometryTypes: metadata.geometryTypes }
-                      : {})}
-                    fields={metadata.fields}
-                  />
-                </div>
-                <div className="mt-3 border-t border-border pt-3">
-                  <ScaledSymbologyEditor
-                    layer={layer}
-                    onPatch={onPatch}
-                    currentZoom={currentZoom}
-                    {...(metadata.geometryTypes
-                      ? { geometryTypes: metadata.geometryTypes }
-                      : {})}
-                  />
-                </div>
-                <div className="mt-3 border-t border-border pt-3">
-                  <p className="mb-1.5 text-2xs font-medium uppercase tracking-wide text-muted">
-                    Visible zoom range
-                  </p>
-                <ScaleEditor
-                  value={layer.scale ?? DEFAULT_LAYER_SCALE}
-                  currentZoom={currentZoom}
-                  onChange={(scale) => onPatch({ scale })}
-                />
-                </div>
-              </LayerTabPanel>
-
-              <LayerTabPanel tab="labels" active={tab}>
-                <LabelsEditor
-                  value={layer.labels}
-                  metadata={metadata}
-                  onChange={(labels) => onPatch({ labels })}
-                />
-              </LayerTabPanel>
-
-              <LayerTabPanel tab="filter" active={tab}>
-                <FilterEditor
-                  value={layer.filter}
-                  metadata={metadata}
-                  onChange={(filter) => onPatch({ filter })}
-                />
-              </LayerTabPanel>
-
-              <LayerTabPanel tab="popup" active={tab}>
-                <PopupEditor
-                  value={layer.popup}
-                  metadata={metadata}
-                  onChange={(popup) => onPatch({ popup })}
-                />
-                <div className="mt-3 border-t border-border pt-3">
-                <div className="space-y-1.5 text-sm">
-                  {/* Popup triggers (#74 follow-up): moved here from
-                      the POPUPS section so all per-layer behavior
-                      toggles live together. The POPUPS section
-                      stays for content configuration (title /
-                      body templates) but the on/off live here. */}
-                  <Toggle
-                    Icon={MousePointerClick}
-                    label="Click shows popup"
-                    checked={layer.popup.enabled}
-                    onChange={(v) =>
-                      onPatch({
-                        popup: { ...layer.popup, enabled: v },
-                      })
-                    }
-                  />
-                  <Toggle
-                    Icon={Sparkles}
-                    label="Popup on hover"
-                    checked={layer.popup.showOnHover === true}
-                    onChange={(v) =>
-                      onPatch({
-                        popup: { ...layer.popup, showOnHover: v },
-                      })
-                    }
-                  />
-                  <Toggle
-                    Icon={Sparkles}
-                    label="Highlight on hover"
-                    checked={layer.interactions.hoverHighlight}
-                    onChange={(v) =>
-                      onPatch({
-                        interactions: {
-                          ...layer.interactions,
-                          hoverHighlight: v,
-                        },
-                      })
-                    }
-                  />
-                  <Toggle
-                    Icon={MousePointerClick}
-                    label="Selectable"
-                    checked={layer.interactions.selectable !== false}
-                    onChange={(v) =>
-                      onPatch({
-                        interactions: {
-                          ...layer.interactions,
-                          selectable: v,
-                        },
-                      })
-                    }
-                  />
-                  {/* Per-map editability override for the field PWA.
-                      The underlying data_layer's `editingEnabled`
-                      flag still governs whether the layer is
-                      editable at all; this toggle narrows further
-                      so a single map can include a layer for
-                      reference without offering it in the field
-                      Add picker. Only shown for data-layer
-                      sources where field editing is possible. */}
-                  {layer.source.kind === 'data-layer' ? (
-                    <Toggle
-                      Icon={Pencil}
-                      label="Editable in field deployments"
-                      checked={layer.interactions.editingEnabled !== false}
-                      onChange={(v) =>
-                        onPatch({
-                          interactions: {
-                            ...layer.interactions,
-                            editingEnabled: v,
-                          },
-                        })
-                      }
-                    />
-                  ) : null}
-                </div>
-                <SearchConfig
-                  value={layer.search}
-                  metadata={metadata}
-                  onChange={(search) => onPatch({ search })}
-                />
-                <p className="mt-2 text-2xs text-muted">
-                  Feature editing unlocks when the layer&apos;s source
-                  supports writes.
-                </p>
-                </div>
-              </LayerTabPanel>
-            </>
-          ) : null}
-        </div>
-      ) : null}
     </li>
   );
 }
