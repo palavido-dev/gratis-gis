@@ -5,6 +5,24 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.66] - 2026-08-21
+
+### Changed
+
+- **A layer's actions get their own tab.** Whether people can select
+  a layer, highlight it on hover, search it, or edit it in the field
+  were all sitting at the bottom of the Popup tab, below a list of
+  popup fields long enough to hide them. They are their own tab now.
+  Popup keeps its two on/off switches, moved above the field list so
+  you can answer "does a popup appear" without scrolling past what it
+  would say.
+
+### Fixed
+
+- **The settings column lines up with the layer list.** It started a
+  header's height too low, so the two columns stepped down beside
+  each other instead of sharing a top edge.
+
 ## [0.9.65] - 2026-08-21
 
 ### Changed
