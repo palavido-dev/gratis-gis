@@ -399,3 +399,95 @@ describe('pageFeatures forwards every option to the engine', () => {
     });
   });
 });
+
+/**
+ * The same forwarding contract for mvtTile.
+ *
+ * This one is not hypothetical. `where` and `via` were threaded
+ * through both controllers, both validated the input and both set
+ * `opts.where`, and the tile still came back byte-for-byte identical
+ * to the unfiltered one, because this method rebuilds the engine's
+ * argument object key by key and the new keys were not in the list.
+ *
+ * TypeScript cannot catch it: `opts` reaches the method as a variable
+ * rather than a fresh object literal, so excess property checking
+ * does not apply and the extra keys are simply ignored. Nothing
+ * throws, the endpoint answers 200, and the map draws a tile that is
+ * quietly wrong.
+ *
+ * It was caught by comparing the byte count of a filtered tile
+ * against an unfiltered one over an area that actually has features.
+ * A zero-byte tile compares equal to a zero-byte tile, so the first
+ * version of that check proved nothing either.
+ */
+describe('mvtTile forwards every option to the engine', () => {
+  function makeTiler() {
+    const mvtTile = jest.fn(async (_args: Record<string, unknown>) => ({
+      mvt: Buffer.alloc(0),
+      etag: '"x"',
+    }));
+    const service = new DataLayerFeaturesService(
+      {} as unknown as PrismaService,
+      { notifySourceWrite: jest.fn() } as unknown as DerivedLayerCacheRefreshService,
+      { mvtTile } as unknown as DataLayerEngine,
+      { refreshItemBbox: jest.fn() } as unknown as ItemBboxRefreshService,
+    );
+    return { service, mvtTile };
+  }
+
+  const WHERE = {
+    combinator: 'all' as const,
+    clauses: [{ field: 'status', op: '==' as const, value: 'open' }],
+  };
+  const VIA = {
+    myField: 'site',
+    parentField: 'key',
+    parentItemId: ITEM_ID,
+    parentLayerId: 'sites',
+  };
+
+  it('passes the attribute predicate through', async () => {
+    const { service, mvtTile } = makeTiler();
+    await service.mvtTile(ITEM_ID, LAYER_ID, 9, 141, 194, { where: WHERE });
+    expect(mvtTile.mock.calls[0]![0]).toMatchObject({ where: WHERE });
+  });
+
+  it('passes the relate through', async () => {
+    const { service, mvtTile } = makeTiler();
+    await service.mvtTile(ITEM_ID, LAYER_ID, 9, 141, 194, { via: VIA });
+    expect(mvtTile.mock.calls[0]![0]).toMatchObject({ via: VIA });
+  });
+
+  it('omits both keys entirely when neither is given', async () => {
+    // exactOptionalPropertyTypes: an explicit `undefined` is not the
+    // same as an absent key, and the engine branches on `!== undefined`.
+    const { service, mvtTile } = makeTiler();
+    await service.mvtTile(ITEM_ID, LAYER_ID, 9, 141, 194, {});
+    const args = mvtTile.mock.calls[0]![0] as object;
+    expect('where' in args).toBe(false);
+    expect('via' in args).toBe(false);
+  });
+
+  it('carries every option in the same call', async () => {
+    const { service, mvtTile } = makeTiler();
+    await service.mvtTile(ITEM_ID, LAYER_ID, 9, 141, 194, {
+      isTable: true,
+      fields: [{ name: 'status', type: 'text' }],
+      ownRowsOnly: { userId: 'user-1' },
+      where: WHERE,
+      via: VIA,
+    });
+    expect(mvtTile.mock.calls[0]![0]).toEqual({
+      itemId: ITEM_ID,
+      layerId: LAYER_ID,
+      z: 9,
+      x: 141,
+      y: 194,
+      isTable: true,
+      fields: [{ name: 'status', type: 'text' }],
+      ownRowsOnly: { userId: 'user-1' },
+      where: WHERE,
+      via: VIA,
+    });
+  });
+});

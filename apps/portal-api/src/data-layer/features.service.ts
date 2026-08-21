@@ -17,6 +17,7 @@ import { ItemBboxRefreshService } from '../items/item-bbox-refresh.service.js';
 import {
   DataLayerEngine,
   type AggregateBin,
+  type AggregateVia,
   type CreateFeatureArgs,
   type TileResult,
 } from '../engine/data-layer.js';
@@ -625,6 +626,19 @@ export class DataLayerFeaturesService {
        * have it anyway; they short-circuit to an empty tile).
        */
       fields?: Array<{ name: string; type?: string }>;
+      /**
+       * Attribute predicate and relate, applied server side.
+       *
+       * These reached the controllers before they reached here, and
+       * the tile came back byte-identical to the unfiltered one: this
+       * method rebuilds the engine's arguments key by key, so an
+       * option missing from the list below is dropped in silence.
+       * TypeScript does not catch it, because `opts` arrives as a
+       * variable rather than a fresh object literal and excess
+       * property checking does not apply.
+       */
+      where?: MapLayerFilter;
+      via?: AggregateVia;
     } = {},
   ): Promise<TileResult> {
     return this.dataLayer.mvtTile({
@@ -644,6 +658,8 @@ export class DataLayerFeaturesService {
         ? { ownRowsOnly: opts.ownRowsOnly }
         : {}),
       ...(opts.fields ? { fields: opts.fields } : {}),
+      ...(opts.where !== undefined ? { where: opts.where } : {}),
+      ...(opts.via !== undefined ? { via: opts.via } : {}),
     });
   }
 
