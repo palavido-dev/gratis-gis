@@ -5,6 +5,16 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.65] - 2026-08-21
+
+### Changed
+
+- **Layer settings open in a column beside the list.** Click a layer
+  and its settings appear to the right, with the layer's name and
+  what kind of layer it is at the top. They used to expand underneath
+  the row, which pushed every layer below it down the page and put
+  the list and the thing you were editing in different places.
+
 ## [0.9.64] - 2026-08-21
 
 ### Fixed
