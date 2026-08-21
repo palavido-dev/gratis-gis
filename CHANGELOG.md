@@ -5,6 +5,19 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.62] - 2026-08-21
+
+### Fixed
+
+- **Counters built on related records are fast now, and correct.**
+  A widget that counts one layer through its relationship to another
+  took twenty-three seconds on every map move, and clicking a chart
+  pushed it past the server's limit, at which point it quietly kept
+  showing its previous number. The same reading now takes under a
+  second. On the water quality dashboard that is "Measurements taken
+  there", which used to sit unchanged while everything around it
+  filtered.
+
 ## [0.9.61] - 2026-08-21
 
 ### Changed
