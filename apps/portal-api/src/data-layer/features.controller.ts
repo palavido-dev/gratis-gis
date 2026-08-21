@@ -43,6 +43,7 @@ import {
 import { onceDrain, streamFeatureCollection } from './feature-stream.js';
 import {
   parseAggregateQuery,
+  parseWhere,
   rejectUnknownAggregateParams,
 } from './aggregate-params.js';
 
@@ -624,6 +625,13 @@ export class DataLayerFeaturesController {
    * `entityIds`: optional explicit set; powers the "Show selected
    * only" toggle. Capped at 1000.
    *
+   * `where`: attribute predicate as JSON, the same `MapLayerFilter`
+   * the map layer and `/aggregate` take, parsed by the same
+   * `parseWhere`. The table sends the active layer's own filter here
+   * so it lists what the map draws; without it the two disagreed
+   * silently, which is how "Use selection as filter" ended up
+   * narrowing the map and leaving the table alone.
+   *
    * Response shape:
    *   { features: Array<{ id, properties }>, count, truncated }
    *
@@ -643,6 +651,7 @@ export class DataLayerFeaturesController {
     @Query('limit') limit?: string,
     @Query('entityIds') entityIds?: string,
     @Query('clip') clip?: string,
+    @Query('where') where?: string,
   ) {
     const { geoLimit, rowScope, isTable, layer } = await this.assertV3Layer(
       user,
@@ -661,8 +670,15 @@ export class DataLayerFeaturesController {
       geoLimit?: unknown;
       boundaryClip?: unknown;
       isTable?: boolean;
+      where?: MapLayerFilter;
       ownRowsOnly?: { userId: string };
     } = {};
+    // Rejects a malformed predicate with a 400 rather than dropping
+    // it. A silently ignored filter is the failure this endpoint is
+    // being changed to fix, so failing to parse one must not
+    // reintroduce it by a different route.
+    const parsedWhere = parseWhere(where);
+    if (parsedWhere) opts.where = parsedWhere;
     if (isTable) opts.isTable = true;
     if (rowScope === 'own') opts.ownRowsOnly = { userId: user.id };
     if (bbox) {

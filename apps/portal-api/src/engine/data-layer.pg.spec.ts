@@ -255,6 +255,90 @@ d('observation-log read paths against real PostGIS', () => {
       expect(out.features[0]!.properties.STATUS).toBe('Closed');
     });
 
+    // The `where` predicate is version dependent, so it has to sit
+    // OUTSIDE the DISTINCT ON collapse. Inside it, "latest" would
+    // silently mean "latest row that still matches", and editing a
+    // feature out of the filter would bring its previous version
+    // back rather than removing the row. Same trap the free-text
+    // search above pins; this pins it for the attribute predicate the
+    // attribute table now sends.
+    it('pageFeatures where STATUS=Open returns NOTHING (no ghost)', async () => {
+      const out = await makeEngine().pageFeatures({
+        itemId,
+        layerId,
+        limit: 100,
+        where: {
+          combinator: 'all',
+          clauses: [{ field: 'STATUS', op: '==', value: 'Open' }],
+        },
+      });
+      expect(out.features).toHaveLength(0);
+    });
+
+    it('pageFeatures where STATUS=Closed returns the live version', async () => {
+      const out = await makeEngine().pageFeatures({
+        itemId,
+        layerId,
+        limit: 100,
+        where: {
+          combinator: 'all',
+          clauses: [{ field: 'STATUS', op: '==', value: 'Closed' }],
+        },
+      });
+      expect(out.features.map((f) => f.id)).toEqual([entity]);
+    });
+
+    it('pageFeatures where != Closed excludes it, and != Open keeps it', async () => {
+      const engine = makeEngine();
+      const notClosed = await engine.pageFeatures({
+        itemId,
+        layerId,
+        limit: 100,
+        where: {
+          combinator: 'all',
+          clauses: [{ field: 'STATUS', op: '!=', value: 'Closed' }],
+        },
+      });
+      expect(notClosed.features).toHaveLength(0);
+      const notOpen = await engine.pageFeatures({
+        itemId,
+        layerId,
+        limit: 100,
+        where: {
+          combinator: 'all',
+          clauses: [{ field: 'STATUS', op: '!=', value: 'Open' }],
+        },
+      });
+      expect(notOpen.features.map((f) => f.id)).toEqual([entity]);
+    });
+
+    it('pageFeatures where on an absent field matches nothing, and its null test matches', async () => {
+      // JSONB has no schema, so a filter naming a column this layer
+      // does not have has to read as "no value recorded" rather than
+      // as an error or as a match.
+      const engine = makeEngine();
+      const eq = await engine.pageFeatures({
+        itemId,
+        layerId,
+        limit: 100,
+        where: {
+          combinator: 'all',
+          clauses: [{ field: 'NOPE', op: '==', value: 'x' }],
+        },
+      });
+      expect(eq.features).toHaveLength(0);
+      const isNull = await engine.pageFeatures({
+        itemId,
+        layerId,
+        limit: 100,
+        where: {
+          combinator: 'all',
+          clauses: [{ field: 'NOPE', op: 'is-null', value: '' }],
+        },
+      });
+      expect(isNull.features.map((f) => f.id)).toEqual([entity]);
+    });
+
     it('searchFeatures q=Open returns NOTHING; q=Closed hits with latest geometry', async () => {
       const engine = makeEngine();
       const miss = await engine.searchFeatures({

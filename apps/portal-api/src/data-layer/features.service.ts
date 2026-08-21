@@ -7,6 +7,7 @@ import {
   evaluateExpression,
   parseExpression,
   validateExpression,
+  type MapLayerFilter,
 } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -416,9 +417,14 @@ export class DataLayerFeaturesService {
       geoLimit?: unknown;
       boundaryClip?: unknown;
       isTable?: boolean;
+      where?: MapLayerFilter;
       ownRowsOnly?: { userId: string };
     } = {},
   ) {
+    // Key-by-key forwarding. Adding an option means adding it in two
+    // places, and the spec below asserts on the object the engine
+    // RECEIVED rather than on the rows, because a dropped key here
+    // returns a plausible answer to the wrong question.
     return this.dataLayer.pageFeatures({
       itemId,
       layerId,
@@ -435,6 +441,7 @@ export class DataLayerFeaturesService {
         ? { boundaryClip: args.boundaryClip as GeoJsonGeometry }
         : {}),
       ...(args.isTable === true ? { isTable: true } : {}),
+      ...(args.where !== undefined ? { where: args.where } : {}),
       ...(args.ownRowsOnly !== undefined
         ? { ownRowsOnly: args.ownRowsOnly }
         : {}),

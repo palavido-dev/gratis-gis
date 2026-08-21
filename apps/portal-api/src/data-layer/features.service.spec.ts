@@ -315,3 +315,87 @@ describe('DataLayerFeaturesService.calculateField scope', () => {
     expect(out.sample).toEqual([{ id: E3, oldValue: undefined, newValue: 6 }]);
   });
 });
+
+/**
+ * The forwarding contract for pageFeatures.
+ *
+ * `DataLayerFeaturesService.pageFeatures` rebuilds the engine's
+ * argument object key by key, so an option can be added to the
+ * signature and never reach the engine. That has happened three
+ * times, and it does not fail loudly: the query runs, returns rows,
+ * and answers a slightly different question than the caller asked.
+ * TypeScript cannot catch it, because dropping an optional key still
+ * type checks.
+ *
+ * So these assert on the object the ENGINE RECEIVED, not on the rows
+ * that came back. A test that checked the rows would pass against a
+ * stub that ignores its arguments entirely.
+ */
+describe('pageFeatures forwards every option to the engine', () => {
+  function makePager() {
+    // The parameter is typed so `mock.calls[0][0]` is inspectable:
+    // asserting on the object the engine RECEIVED is the entire point
+    // of these cases, and an untyped mock records `never[]`.
+    const pageFeatures = jest.fn(async (_args: Record<string, unknown>) => ({
+      features: [] as Array<{ id: string; properties: Record<string, unknown> }>,
+      count: 0,
+      truncated: false,
+    }));
+    const service = new DataLayerFeaturesService(
+      {} as unknown as PrismaService,
+      { notifySourceWrite: jest.fn() } as unknown as DerivedLayerCacheRefreshService,
+      { pageFeatures } as unknown as DataLayerEngine,
+      { refreshItemBbox: jest.fn() } as unknown as ItemBboxRefreshService,
+    );
+    return { service, pageFeatures };
+  }
+
+  const WHERE = {
+    combinator: 'all' as const,
+    clauses: [{ field: 'status', op: '==' as const, value: 'open' }],
+  };
+
+  it('passes the attribute predicate through', async () => {
+    const { service, pageFeatures } = makePager();
+    await service.pageFeatures(ITEM_ID, LAYER_ID, { where: WHERE });
+    expect(pageFeatures.mock.calls[0]![0]).toMatchObject({ where: WHERE });
+    expect(pageFeatures).toHaveBeenCalledTimes(1);
+  });
+
+  it('omits the key entirely when there is no predicate', async () => {
+    // exactOptionalPropertyTypes: an explicit `where: undefined` is
+    // not the same as an absent key, and the engine branches on
+    // `!== undefined`.
+    const { service, pageFeatures } = makePager();
+    await service.pageFeatures(ITEM_ID, LAYER_ID, {});
+    expect('where' in (pageFeatures.mock.calls[0]![0] as object)).toBe(false);
+  });
+
+  it('carries every other option in the same call', async () => {
+    const { service, pageFeatures } = makePager();
+    await service.pageFeatures(ITEM_ID, LAYER_ID, {
+      bbox: [-81, 38, -79, 40],
+      q: 'creek',
+      sort: 'name',
+      dir: 'desc',
+      limit: 250,
+      entityIds: [E1],
+      isTable: true,
+      where: WHERE,
+      ownRowsOnly: { userId: 'user-1' },
+    });
+    expect(pageFeatures.mock.calls[0]![0]).toEqual({
+      itemId: ITEM_ID,
+      layerId: LAYER_ID,
+      bbox: [-81, 38, -79, 40],
+      q: 'creek',
+      sort: 'name',
+      dir: 'desc',
+      limit: 250,
+      entityIds: [E1],
+      isTable: true,
+      where: WHERE,
+      ownRowsOnly: { userId: 'user-1' },
+    });
+  });
+});

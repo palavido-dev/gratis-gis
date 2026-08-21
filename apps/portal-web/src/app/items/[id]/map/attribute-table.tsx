@@ -25,6 +25,7 @@ import {
 // layer detail page's export menu.
 import { exportFeatures, type ClientExportFormat } from '@/lib/layer-export';
 import { exportBundle } from '@/lib/bundle-export';
+import { matchesFilter } from '@gratis-gis/shared-types';
 import type {
   FeatureField,
   MapLayer,
@@ -473,11 +474,35 @@ export function AttributeTable({
   }, [serverMode, showOnlySelected, activeSelection]);
 
   /**
+   * The active layer's own attribute filter, serialized for the
+   * server-paged fetch.
+   *
+   * The table listed unfiltered rows for a long time, which read as a
+   * different bug depending on where you met it: an author filters a
+   * layer to "active wells" and the map draws active wells while the
+   * table lists all of them; a dashboard cross-filter narrows the map
+   * and the chart while the table beside them does not move. The
+   * sharpest version was the toolbar's own "Use as filter" button,
+   * which writes this exact filter onto the layer and then had no
+   * effect on the rows in front of you.
+   *
+   * Stringified rather than passed by reference because it is a fetch
+   * dependency, and the layer object is rebuilt on every map state
+   * change; comparing the JSON keeps a pan from re-fetching.
+   */
+  const whereForServer = useMemo<string | null>(() => {
+    const f = activeLayer?.filter;
+    if (!f || !f.clauses || f.clauses.length === 0) return null;
+    return JSON.stringify(f);
+  }, [activeLayer?.filter]);
+
+  /**
    * Drive the server-paged fetch. Re-runs whenever any URL input
    * changes: active layer, debounced query, sort col/dir,
-   * extent-only toggle + bbox (when on), or the entityIds slice
-   * for show-selected. Aborts the previous in-flight request so
-   * a rapid pan or sort flip doesn't paint stale rows.
+   * extent-only toggle + bbox (when on), the active layer's filter,
+   * or the entityIds slice for show-selected. Aborts the previous
+   * in-flight request so a rapid pan or sort flip doesn't paint
+   * stale rows.
    *
    * The +1-row LIMIT trick on the server returns `truncated:true`
    * without a separate COUNT scan; we surface that as the banner
@@ -509,6 +534,7 @@ export function AttributeTable({
       params.set('dir', sortDir);
     }
     if (entityIdsForServer) params.set('entityIds', entityIdsForServer);
+    if (whereForServer) params.set('where', whereForServer);
     // #87 -- bitemporal "as of" pass-through.  When the host runtime
     // is in time-travel mode, fetch the snapshot at the chosen
     // moment so the table matches what the map is rendering.
@@ -557,6 +583,7 @@ export function AttributeTable({
     sortBy,
     sortDir,
     entityIdsForServer,
+    whereForServer,
     asOfTime,
   ]);
 
@@ -686,8 +713,17 @@ export function AttributeTable({
         }),
       );
     }
-    return (
-      (activeLayer ? featuresByLayer[activeLayer.id] : null)?.features ?? []
+    const cached =
+      (activeLayer ? featuresByLayer[activeLayer.id] : null)?.features ?? [];
+    // Client-fed layers (geojson-url, arcgis-rest, inline) are cached
+    // unfiltered, because the map applies the layer's filter as a
+    // MapLibre expression on what is already loaded. The table has to
+    // apply the same predicate itself or it lists rows the map is
+    // hiding. Server mode is filtered by `where` on the request above.
+    const filter = activeLayer?.filter;
+    if (!filter || filter.clauses.length === 0) return cached;
+    return cached.filter((feat) =>
+      matchesFilter(feat.properties as Record<string, unknown> | null, filter),
     );
   }, [serverMode, serverPage, activeLayer, featuresByLayer]);
 

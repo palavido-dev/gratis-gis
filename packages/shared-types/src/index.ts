@@ -29,6 +29,7 @@ export * from './editor';
 export * from './viewer';
 export * from './custom-app';
 export * from './source-scope';
+export * from './filter-match';
 export * from './app-themes';
 export * from './app-templates';
 export * from './print-template';

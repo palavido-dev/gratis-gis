@@ -1864,6 +1864,22 @@ export class DataLayerEngine {
     geoLimit?: GeoJsonGeometry;
     boundaryClip?: GeoJsonGeometry;
     isTable?: boolean;
+    /**
+     * Attribute predicate, the same `MapLayerFilter` shape the map
+     * layer and the aggregate endpoint use.
+     *
+     * The table went without one for a long time and it read as a
+     * different bug every time it surfaced: an author filters a layer
+     * to "active wells only", the map draws active wells, and the
+     * table beside it lists all of them with no indication why the
+     * counts disagree. The table's own "Use selection as filter"
+     * button was the sharpest version, since it wrote a filter the
+     * table then ignored.
+     */
+    where?: {
+      combinator: 'all' | 'any';
+      clauses: Array<{ field: string; op: string; value: string }>;
+    };
     /** Share row-scope (#40). See the collapseFilters push below for
      *  why this is entity-level rather than a content predicate. */
     ownRowsOnly?: { userId: string };
@@ -1954,6 +1970,19 @@ export class DataLayerEngine {
       // acceptable -- the user is doing a free-text search, they
       // expect "contains" semantics.
       contentFilters.push(Prisma.sql`AND attrs::text ILIKE ${pattern}`);
+    }
+    if (args.where !== undefined && args.where.clauses.length > 0) {
+      // A CONTENT filter, never a collapse filter. An attribute
+      // predicate is version dependent: pushed inside the DISTINCT ON
+      // it would redefine "latest" as "latest row that still matches",
+      // so editing a feature out of the filter would resurrect its
+      // previous version instead of removing the row. Same reasoning
+      // as the bbox and the free-text search directly above.
+      // compileAttrFilter already emits its own leading AND, so this
+      // pushes the fragment as-is. Wrapping it in another one is
+      // `AND AND (...)`, which the pg specs caught on the first run.
+      const sql = compileAttrFilter(args.where);
+      if (sql) contentFilters.push(sql);
     }
     const collapseExtras =
       collapseFilters.length > 0
