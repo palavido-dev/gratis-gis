@@ -505,8 +505,30 @@ interface SourceScope {
   spatial: boolean;
 }
 
-function useSourceScope(source: AppDataSource | undefined): SourceScope {
-  const { selection } = useContext(CrossFilterContext);
+function useSourceScope(
+  source: AppDataSource | undefined,
+  opts: {
+    /**
+     * Resolve as if the selection published by this widget did not
+     * exist.
+     *
+     * The widget that published a filter keeps its own context: a bar
+     * chart that filtered itself to the bar you just clicked would
+     * collapse to that one bar and throw away what made the click
+     * mean anything. That used to be handled by the chart swapping
+     * its `where`, which stopped working once a chart could publish
+     * against ANOTHER source: the selection then came back through
+     * the relate as a parent predicate, and the chart quietly
+     * re-filtered itself after all.
+     */
+    ignoreSelectionFrom?: string;
+  } = {},
+): SourceScope {
+  const ctx = useContext(CrossFilterContext);
+  const selection =
+    ctx.selection && ctx.selection.widgetId === opts.ignoreSelectionFrom
+      ? null
+      : ctx.selection;
   const byId = useContext(AppSourcesContext);
   const followId =
     source?.followMapWidgetId === '' ? undefined : source?.followMapWidgetId;
@@ -4796,7 +4818,7 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
   const cfg = widget.config;
   const source = useWidgetSource(cfg);
   const target = useWidgetTarget(cfg);
-  const scope = useSourceScope(source);
+  const scope = useSourceScope(source, { ignoreSelectionFrom: widget.id });
   const [state, setState] = useState<{
     loading: boolean;
     rows: ChartRow[];
@@ -4827,12 +4849,12 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
   // bar and lose the context that made the click meaningful. The
   // author's own predicate on the source still applies either way.
   const { selection, toggle } = useContext(CrossFilterContext);
-  const publishedHere = Boolean(
-    selection && selection.widgetId === widget.id,
-  );
-  const where = publishedHere
-    ? (source?.where ?? undefined)
-    : scope.where;
+  // `scope` already resolves as if this widget's own selection did not
+  // exist (ignoreSelectionFrom above), so there is nothing left to
+  // swap out here: the author's predicate, the viewport and the
+  // relate all apply, and only the reader's click on THIS chart is
+  // left out.
+  const where = scope.where;
   const whereKey = where ? JSON.stringify(where) : '';
   // A binned chart is selectable too: its category is the bucket.
   const selectable = Boolean(groupBy || binField);
@@ -5066,11 +5088,19 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
           {/* Say when a number on screen is narrowed by someone
               else's click. A chart that silently answered a different
               question than its title claims is the failure this whole
-              feature has to avoid. */}
-          {where && selection ? (
+              feature has to avoid.
+
+              `scope.note` and not `where && selection`: the old test
+              fired whenever the page had ANY selection and this widget
+              had ANY predicate, including the author's own fixed one,
+              so a tile reading a source the selection does not touch
+              still announced itself as filtered. The scope knows
+              whether the selection actually reached this source; the
+              widget does not. */}
+          {scope.note ? (
             <span className="italic">
               {followId ? ' ' : ''}
-              Filtered to {selection.label}.
+              Filtered to {scope.note}.
             </span>
           ) : null}
           {activeValue !== undefined ? (
@@ -5320,10 +5350,17 @@ function IndicatorWidgetRender({ widget }: { widget: CustomWidget }) {
             {/* A number narrowed by a click elsewhere on the page has
                 to say so on the tile. "7" under "Injuries" means
                 something different when it is only counting Heavy
-                Snow, and the tile is where the reader is looking. */}
-            {where && selection ? (
+                Snow, and the tile is where the reader is looking.
+
+                It has to say so only when it IS narrowed. The old test
+                fired on any selection anywhere plus any predicate on
+                this widget, so a counter reading an untouched source
+                printed "Measured: Iron" beside a number that had not
+                moved. A caption claiming a filter that was never
+                applied is worse than no caption. */}
+            {scope.note ? (
               <span className="text-2xs italic text-[hsl(var(--app-accent))]">
-                {selection.label}
+                {scope.note}
               </span>
             ) : null}
           </>
