@@ -5,6 +5,25 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.70] - 2026-08-22
+
+### Fixed
+
+- **Visitor stats had recorded nothing since 19 August**, bot traffic
+  included, and the three missing days are now recovered rather than
+  lost. The collector bookmarked each access log by inode. Log
+  rotation hands the same inode straight back out to the next file, so
+  a new log arrived carrying the previous one's bookmark: usually a
+  read position past its own end, which made it look permanently
+  caught up. Logs are now identified by their contents, so a reused
+  inode is recognised as a different file.
+- **Traffic totals before that date were roughly a fifth too high.**
+  The same bookmark confusion, in the other direction, re-read a log
+  the collector had already stored and counted every line in it twice.
+  35,849 duplicated requests have been removed, and a request already
+  recorded can no longer be recorded a second time, so re-reading a
+  log is now free.
+
 ## [0.9.69] - 2026-08-22
 
 ### Fixed
