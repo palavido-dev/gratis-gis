@@ -88,12 +88,24 @@ export function ItemMapPreview({ itemId, layers, className }: Props) {
   const spatial = layers.filter((l) => Boolean(l.geometryType));
   const bbox = unionBbox(spatial);
 
+  // What the map is actually built from, as a primitive. `layers`
+  // arrives from a server component, so it is a fresh array on every
+  // RSC payload even when nothing about it changed, and
+  // ImportJobsBanner calls router.refresh() on this same page while
+  // an import runs. Depending on the array identity would therefore
+  // tear the map down and rebuild it every few seconds mid-import,
+  // throwing away wherever the reader had panned to.
+  const layerKey = spatial
+    .map((l) => `${l.id}:${l.geometryType}`)
+    .join('|');
+
   useEffect(() => {
-    if (!containerRef.current || spatial.length === 0) return;
+    const container = containerRef.current;
+    if (!container || spatial.length === 0) return;
     let map: maplibregl.Map;
     try {
       map = new maplibregl.Map({
-        container: containerRef.current,
+        container,
         style: OSM_STYLE,
         center: bbox
           ? [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2]
@@ -178,11 +190,20 @@ export function ItemMapPreview({ itemId, layers, className }: Props) {
       }
     });
 
-    return () => map.remove();
-    // `spatial` and `bbox` are derived from `layers` each render, so
-    // depending on them directly would tear the map down every time.
+    // The container is `w-full` inside a collapsible shell, so it can
+    // change width without the window doing so. MapLibre only listens
+    // for window resize, and would otherwise keep a stale canvas size.
+    const observer = new ResizeObserver(() => map.resize());
+    observer.observe(container);
+
+    return () => {
+      observer.disconnect();
+      map.remove();
+    };
+    // `spatial` and `bbox` are derived from `layers` on every render;
+    // `layerKey` is the stable primitive that stands in for both.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [itemId, layers]);
+  }, [itemId, layerKey]);
 
   if (spatial.length === 0) {
     return (
