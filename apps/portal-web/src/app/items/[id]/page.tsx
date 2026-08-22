@@ -437,7 +437,7 @@ export default async function ItemDetailPage(props: Props) {
           actions. Description / owner / updated / tags collapse into
           a `<details>` disclosure below so they're one click away
           without eating the fold. */}
-      <header className="mb-4 flex items-center gap-3">
+      <header className="mb-4 flex items-start gap-3">
         {/* Thumbnail: user-uploaded image wins; otherwise a per-type
             icon tile so the header visually matches the card on the
             list page instead of showing letter-initials. */}
@@ -453,11 +453,18 @@ export default async function ItemDetailPage(props: Props) {
           <ItemTypeBadge type={item.type} size="md" />
         )}
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
-            <h1 className="truncate text-xl font-semibold tracking-tight">
+          {/* Title owns its line. It used to sit in a flex row beside
+              the pills under `truncate`, so a long name lost its tail
+              to an ellipsis while the pills kept their width: the
+              title, the one thing that identifies the item, was the
+              part that got cut. Pills drop underneath and the title
+              wraps instead. */}
+          <div className="min-w-0">
+            <h1 className="text-xl font-semibold leading-tight tracking-tight">
               {item.title}
             </h1>
             <ItemPills
+              className="mt-1.5"
               type={item.type}
               access={item.access}
               license={item.license}

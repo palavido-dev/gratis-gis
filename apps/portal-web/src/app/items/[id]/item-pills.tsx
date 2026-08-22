@@ -98,16 +98,25 @@ interface Props {
    *  on, so an absent key and an undefined value are not the same
    *  thing and callers pass the latter. */
   geometryTypes?: Array<LayerGeometryType | null | undefined> | undefined;
+  className?: string | undefined;
 }
 
-export function ItemPills({ type, access, license, geometryTypes }: Props) {
+export function ItemPills({
+  type,
+  access,
+  license,
+  geometryTypes,
+  className,
+}: Props) {
   const meta = ACCESS_META[access];
   const AccessIcon = meta.icon;
   const geometry = geometryTypes ? geometryLabel(geometryTypes) : null;
   const trimmedLicense = license?.trim();
 
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+    <div
+      className={`flex min-w-0 flex-wrap items-center gap-1.5 ${className ?? ''}`}
+    >
       <span
         className={`shrink-0 rounded px-1.5 py-0.5 text-2xs font-medium tracking-wide ${TYPE_PILL[type] ?? 'bg-surface-2 text-ink-1'}`}
       >
