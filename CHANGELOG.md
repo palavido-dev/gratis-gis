@@ -5,6 +5,15 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.74] - 2026-08-22
+
+### Fixed
+
+- **The back arrow now leaves the builder.** In the viewer, app
+  designer, editor, form designer, map editor and print template, the
+  arrow at the top left pointed at the page you were already on, so
+  clicking it did nothing. It goes back to your items.
+
 ## [0.9.73] - 2026-08-22
 
 ### Fixed
