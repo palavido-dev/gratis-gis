@@ -5,6 +5,27 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.71] - 2026-08-22
+
+### Added
+
+- **A dataset page now opens with a live map of the data instead of
+  nothing.** Multi-layer datasets, which are what the importer has
+  produced for months, had no map and no numbers anywhere on the page:
+  the preview and the feature count only ever existed on the older
+  single-layer path, so the newer datasets were the poorer ones. The
+  preview is pannable and draws the same tiles the map editor draws,
+  which means it shows exactly the rows you are allowed to see.
+- **Six figures under the preview**: features, shape, coordinate
+  system, fields, layers, and when it last changed. The feature count
+  is counted at the moment you look, not read from a number stamped at
+  import time, so it stays right after edits and is correct for
+  viewers limited to part of the data. If the count cannot be reached
+  it says so rather than showing a number that might be wrong.
+- **The pills under a title now say what the dataset is made of**,
+  adding shape and license next to the type and who can reach it, and
+  spelling out access in words rather than showing the stored value.
+
 ## [0.9.70] - 2026-08-22
 
 ### Fixed
