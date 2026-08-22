@@ -3,14 +3,11 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import {
   ArrowLeft,
-  Building2,
   Calendar,
   ChevronDown,
   ClipboardList,
   ExternalLink,
   FlaskConical,
-  Globe2,
-  Lock,
   Pencil,
   User,
   Users,
@@ -27,6 +24,7 @@ import type {
   User as UserT,
   ArcgisServiceData,
   DataLayerData,
+  DataLayerDataV3,
   EditorData,
   GeoBoundaryData,
   PickListData,
@@ -58,7 +56,7 @@ import {
   readViewerData,
 } from '@gratis-gis/shared-types';
 import { EntityBadge } from '@gratis-gis/ui';
-import { ItemTypeBadge, getItemTypeLabel } from '@/lib/item-type-icon';
+import { ItemTypeBadge } from '@/lib/item-type-icon';
 import type { CustomBasemap } from '@/lib/custom-basemap';
 import { apiFetch } from '@/lib/api';
 
@@ -115,6 +113,9 @@ function basemapItemToCustomBasemap(
     isDefault: false,
   };
 }
+import { ItemPills } from './item-pills';
+import { ItemStatsStrip } from './item-stats-strip';
+import { ItemMapPreview } from './item-map-preview';
 import { SharingPanel } from './sharing-panel';
 import { ItemDependencies } from './item-dependencies';
 import { DeleteItemButton } from './delete-button';
@@ -162,24 +163,8 @@ interface Props {
 
 type ItemWithShares = Item & { shares: ItemShare[] };
 
-const typeBadge: Record<string, string> = {
-  map: 'bg-success/15 text-success',
-  data_layer: 'bg-info/15 text-info',
-  arcgis_service: 'bg-cyan-100 dark:bg-cyan-950 text-cyan-800 dark:text-cyan-300',
-  form: 'bg-violet-100 dark:bg-violet-950 text-violet-800 dark:text-violet-300',
-  web_app: 'bg-warn/15 text-warn',
-  report_template: 'bg-danger/15 text-danger',
-  dashboard: 'bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300',
-  file: 'bg-surface-2 text-ink-1',
-  tool: 'bg-teal-100 dark:bg-teal-950 text-teal-800 dark:text-teal-300',
-  editor: 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300',
-};
-
-const accessIcon = {
-  private: <Lock className="h-3.5 w-3.5" />,
-  org: <Building2 className="h-3.5 w-3.5" />,
-  public: <Globe2 className="h-3.5 w-3.5" />,
-};
+// The type-pill palette and the access icons moved into ItemPills,
+// which is the only thing that rendered them.
 
 export default async function ItemDetailPage(props: Props) {
   const searchParams = await props.searchParams;
@@ -409,7 +394,16 @@ export default async function ItemDetailPage(props: Props) {
     }
   }
 
-  const badgeClass = typeBadge[item.type] ?? 'bg-surface-2 text-ink-1';
+  // v3 data_layer sublayers, when this item is one. Read once here
+  // because the header pills, the preview and the stats strip all
+  // want the same list, and three separate casts of `item.data` would
+  // be three places to get the version gate wrong.
+  const v3Data =
+    item.type === 'data_layer' &&
+    (item.data as DataLayerData | null)?.version === 3
+      ? (item.data as unknown as DataLayerDataV3)
+      : null;
+  const v3Layers = v3Data?.layers ?? null;
   // "Workspace" item types are content-heavy (map, feature service,
   // arcgis service). For those, we collapse the metadata header so the
   // actual editor is the first thing the user sees. Other types keep
@@ -463,15 +457,12 @@ export default async function ItemDetailPage(props: Props) {
             <h1 className="truncate text-xl font-semibold tracking-tight">
               {item.title}
             </h1>
-            <span
-              className={`shrink-0 rounded px-1.5 py-0.5 text-2xs font-medium tracking-wide ${badgeClass}`}
-            >
-              {getItemTypeLabel(item.type)}
-            </span>
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border bg-surface-2 px-1.5 py-0.5 text-2xs text-muted">
-              {accessIcon[item.access]}
-              {item.access}
-            </span>
+            <ItemPills
+              type={item.type}
+              access={item.access}
+              license={item.license}
+              geometryTypes={v3Layers?.map((l) => l.geometryType)}
+            />
           </div>
         </div>
         {/* #323: forms get a prominent Open (respondent runtime) +
@@ -690,6 +681,27 @@ export default async function ItemDetailPage(props: Props) {
               drains so the SSR feature counts re-render with the
               freshly-imported rows. */}
           <ImportJobsBanner itemId={item.id} />
+          {/* #52: the hero. A v3 data_layer previously showed no map
+              and no statistics anywhere on this page (the count card
+              and bbox preview live in the v1/v2 editor, which v3 does
+              not mount), so the modern path was the poorer one. The
+              preview draws the same MVT tiles the map editor draws,
+              which is what keeps it honest under row scoping. */}
+          {v3Layers ? (
+            <section className="mb-4 space-y-3">
+              <ItemMapPreview itemId={item.id} layers={v3Layers} />
+              <ItemStatsStrip
+                itemId={item.id}
+                layers={v3Layers.map((l) => ({
+                  id: l.id,
+                  geometryType: l.geometryType,
+                  fieldCount: l.fields.length,
+                }))}
+                updatedAt={item.updatedAt}
+                sourceSrs={v3Layers.find((l) => l.source?.sourceSrs)?.source?.sourceSrs}
+              />
+            </section>
+          ) : null}
           {/* Provenance panel runs above the schema editor so 'where
               did this come from?' is answered before 'here's the
               field list.' Silent when the item has no source block
@@ -711,13 +723,11 @@ export default async function ItemDetailPage(props: Props) {
           {/* v3 items route to the new multi-layer schema editor. v1/v2
               continue to use the legacy single-layer editor so existing
               items keep working exactly as before. */}
-          {(item.data as DataLayerData | null)?.version === 3 ? (
+          {v3Data ? (
             <section className="mb-6">
               <DataLayerV3SchemaEditor
                 itemId={item.id}
-                initial={
-                  item.data as unknown as import('@gratis-gis/shared-types').DataLayerDataV3
-                }
+                initial={v3Data}
                 canEdit={canManage}
                 canDownload={canDownload}
               />

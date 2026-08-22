@@ -212,6 +212,45 @@ export const en = {
     trashFailedTitle: 'Could not move to trash',
     trashFailedMessage: 'Move to trash failed: {status}',
   },
+  itemDetail: {
+    // Access pills. Plain English rather than the stored enum value:
+    // "org" is not a word a reader should have to decode.
+    accessPrivate: 'Private',
+    accessOrg: 'Organization',
+    accessPublic: 'Public',
+    accessPrivateTitle: 'Only you and people you share it with',
+    accessOrgTitle: 'Everyone signed in to this portal',
+    accessPublicTitle: 'Anyone on the internet, no sign-in needed',
+    licenseTitle: 'License: {license}',
+    // Stats strip.
+    statFeatures: 'Features',
+    statGeometry: 'Shape',
+    statCoordinates: 'Coordinates',
+    statFields: 'Fields',
+    statLayers: 'Layers',
+    statUpdated: 'Updated',
+    statFeaturesTitle:
+      'Counted live, and limited to what you have access to, so it can be lower than the published total.',
+    statCoordinatesTitle:
+      'Stored as latitude and longitude (EPSG:4326). {source}',
+    statCoordinatesFrom: 'Converted from {srs} when it was imported.',
+    statCoordinatesNative: 'That is how it arrived.',
+    statCoordinatesUnknown:
+      'The source file did not say, so it was assumed to already be latitude and longitude.',
+    statUnavailable: 'Not available',
+    statMixed: 'Mixed',
+    geometryPoint: 'Points',
+    geometryLine: 'Lines',
+    geometryPolygon: 'Areas',
+    geometryNone: 'Table, no shapes',
+    // Live preview.
+    previewTitle: 'Preview',
+    previewEmpty: 'Nothing to draw yet',
+    previewEmptyHint:
+      'This layer has no features with a location, so there is nothing to show on a map.',
+    previewFailed: 'The preview could not be loaded',
+    previewLoading: 'Loading the preview',
+  },
   itemMenu: {
     actions: 'Item actions',
     open: 'Open',
