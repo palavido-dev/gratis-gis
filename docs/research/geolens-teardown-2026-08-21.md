@@ -40,15 +40,26 @@ every README. Their entries are the insight, not the mechanism:
 - `admin/admin on a fresh` is banned because the install generates a
   password.
 
-Every one of those is a sentence that was true once. We have exactly
-this rot and worse: CLAUDE.md carried a wrong item-type list for
-three months, `docs/feature-services.md`, `web-maps.md`,
-`sharing-granularity.md` and `data-model.md` still use the retired
-vocabulary a rename removed from the code in May, and
-`docs/app-builder.md` says "Not implemented" about a shipped feature.
-A forbidden list containing `feature_service`, `web_map`,
-`publisher`, and `Not implemented` would have caught all of it on the
-commit that caused it.
+Every one of those is a sentence that was true once.
+
+**Checked 2026-08-22, and half of this section was wrong.** The claim
+above that `docs/feature-services.md`, `web-maps.md`,
+`sharing-granularity.md` and `data-model.md` "still use the retired
+vocabulary" is false: all four contain zero instances. It was inherited
+from a CLAUDE.md caveat that had itself gone stale after the docs were
+cleaned. The retired terms survive only in `docs/handoff/` (gitignored),
+`docs/marketing/` and `docs/research/`, which are quoting history, so a
+naive forbidden-list scan over all markdown would be close to pure
+noise and would need those scoped out.
+
+The case for a contract is still real, but the evidence is different
+and better: **two false claims surfaced in CLAUDE.md in a single
+session** (the retired-vocabulary caveat above, and a line asserting
+one workspace defines a `test` script when three do). Both were true
+once. Neither is the kind of thing a forbidden regex catches; both are
+facts that need validating against a real source. That argues for the
+version/port/command half of GeoLens's contract rather than the
+`forbidden` half that first looked like the prize.
 
 ### 1.2 An authorization test that walks the route table
 
@@ -111,8 +122,15 @@ Two things to take even though we have no second worktree:
   disabled the guard.
 - `E2E_ALLOW_WORKTREE=0` does **not** bypass. Only values in an
   affirmative set do. Setting a variable to zero to mean "off" is a
-  bug this rule kills, and it applies directly to our
-  `REQUIRE_PG_SPECS`, which today is truthy on any non-empty value.
+  bug this rule kills.
+
+**Checked 2026-08-22: we already do this everywhere, so there is
+nothing to borrow.** The claim above that `REQUIRE_PG_SPECS` "is truthy
+on any non-empty value" is wrong; it is `=== '1'`. Every other boolean
+gate uses an explicit affirmative set: `isScriptsEnabled()` and
+`isAdminTierLocked()` both accept only `'1' | 'true' | 'yes' | 'on'`,
+and `docker-entrypoint.sh` tests `SKIP_MIGRATE == "true"`. The rule is
+worth keeping in mind for the next flag; it is not outstanding work.
 
 ### 1.5 SSRF re-checked at connect time
 
