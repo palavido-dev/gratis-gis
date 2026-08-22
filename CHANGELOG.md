@@ -5,6 +5,18 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.69] - 2026-08-22
+
+### Fixed
+
+- **Counters and charts on related records now answer in under a
+  second**, down from twelve. Together with v0.9.68 that takes the
+  water quality dashboard's "Measurements taken there" from a request
+  that timed out to one that lands before you notice. A filter that
+  matches only a handful of records is a couple of hundred
+  milliseconds slower, which is the trade: a predictable ceiling
+  instead of a fast best case and no ceiling at all.
+
 ## [0.9.68] - 2026-08-22
 
 ### Fixed
