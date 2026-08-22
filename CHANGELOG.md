@@ -5,6 +5,17 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.72] - 2026-08-22
+
+### Fixed
+
+- **The new dataset preview no longer resets while an import is
+  running.** The page reloads itself every few seconds to update the
+  import progress, and each reload was rebuilding the map from
+  scratch, throwing away wherever you had panned or zoomed to. It also
+  now follows its container when the surrounding panels change width
+  instead of waiting for the whole window to be resized.
+
 ## [0.9.71] - 2026-08-22
 
 ### Added
