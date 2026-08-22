@@ -5,6 +5,15 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.73] - 2026-08-22
+
+### Fixed
+
+- **Long item titles are no longer cut off.** The title shared a line
+  with the labels beside it and lost its ending to an ellipsis, so the
+  one thing that tells you which item you are looking at was the part
+  that got shortened. It now has the line to itself and wraps.
+
 ## [0.9.72] - 2026-08-22
 
 ### Fixed
