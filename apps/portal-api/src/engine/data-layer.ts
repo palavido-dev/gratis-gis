@@ -2509,21 +2509,57 @@ export class DataLayerEngine {
     const fetchN = cap + 1;
 
     type AggRow = Record<string, string | number | null>;
+    // The aggregation goes in a MATERIALIZED CTE and the ORDER BY
+    // and LIMIT sit outside it.
+    //
+    // Not tidiness: the LIMIT was the entire performance problem.
+    // Left inline, the planner sees a small row target and picks a
+    // fast-start plan that produces rows in order, which over a
+    // 285,788-row DISTINCT ON collapse is catastrophic. The
+    // aggregate above it consumes every row anyway, so the fast
+    // start buys nothing and costs everything.
+    //
+    // Measured on the demo THROUGH BIND PARAMETERS, the way this
+    // actually runs, relating measurements to sites:
+    //
+    //   grouped, LIMIT inline      41,432ms
+    //   grouped, LIMIT outside        896ms
+    //   ungrouped, LIMIT inline    40,560ms
+    //   ungrouped, no LIMIT           697ms
+    //
+    // MATERIALIZED is a hard optimisation barrier, so the LIMIT
+    // cannot reach back into how the rows underneath are produced.
+    // An OFFSET 0 fence measured the same (965ms) and is the more
+    // usual trick, but it reads like a typo; this says what it is.
+    //
+    // Ordering outside the CTE is safe because the clause names
+    // output aliases (g0..gN, a0), which are columns of `agg`.
+    //
+    // Worth recording how long this took to find. The same 40s
+    // reproduced with scope inlined, with field names inlined, with
+    // geom dropped from the collapse, and under both custom and
+    // generic plans, before the LIMIT was the only thing left. An
+    // earlier attempt measured this query in psql WITHOUT a LIMIT,
+    // got 786ms, blamed the query shape, and shipped a rewrite that
+    // made production slower.
     const rows =
       contentFilters.length === 0
         ? await this.prisma.$queryRaw<AggRow[]>`
-      SELECT ${selectList}
-      FROM (
-        SELECT DISTINCT ON (entity)
-          entity, attrs, kind
-        FROM observation
-        WHERE scope = ${scope}
-          AND valid_from <= ${asOf}
-          ${collapseExtras}
-        ORDER BY entity, valid_from DESC, tx_time DESC
-      ) latest
-      WHERE kind <> 'delete'
-      ${groupClause}
+      WITH agg AS MATERIALIZED (
+        SELECT ${selectList}
+        FROM (
+          SELECT DISTINCT ON (entity)
+            entity, attrs, kind
+          FROM observation
+          WHERE scope = ${scope}
+            AND valid_from <= ${asOf}
+            ${collapseExtras}
+          ORDER BY entity, valid_from DESC, tx_time DESC
+        ) latest
+        WHERE kind <> 'delete'
+        ${groupClause}
+      )
+      SELECT * FROM agg
       ${orderClause}
       LIMIT ${fetchN}
     `
@@ -2536,21 +2572,24 @@ export class DataLayerEngine {
           AND valid_from <= ${asOf}
           ${collapseExtras}
           ${contentExtras}
+      ),
+      agg AS MATERIALIZED (
+        SELECT ${selectList}
+        FROM (SELECT entity FROM content_candidates) cand
+        CROSS JOIN LATERAL (
+          SELECT entity, attrs, geom, kind
+          FROM observation
+          WHERE scope = ${scope}
+            AND entity = cand.entity
+            AND valid_from <= ${asOf}
+          ORDER BY valid_from DESC, tx_time DESC
+          LIMIT 1
+        ) l
+        WHERE l.kind <> 'delete'
+          ${contentExtras}
+        ${groupClause}
       )
-      SELECT ${selectList}
-      FROM (SELECT entity FROM content_candidates) cand
-      CROSS JOIN LATERAL (
-        SELECT entity, attrs, geom, kind
-        FROM observation
-        WHERE scope = ${scope}
-          AND entity = cand.entity
-          AND valid_from <= ${asOf}
-        ORDER BY valid_from DESC, tx_time DESC
-        LIMIT 1
-      ) l
-      WHERE l.kind <> 'delete'
-        ${contentExtras}
-      ${groupClause}
+      SELECT * FROM agg
       ${orderClause}
       LIMIT ${fetchN}
     `;
