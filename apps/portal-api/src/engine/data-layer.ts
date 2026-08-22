@@ -2542,48 +2542,55 @@ export class DataLayerEngine {
     // earlier attempt measured this query in psql WITHOUT a LIMIT,
     // got 786ms, blamed the query shape, and shipped a rewrite that
     // made production slower.
-    const rows =
-      contentFilters.length === 0
-        ? await this.prisma.$queryRaw<AggRow[]>`
-      WITH agg AS MATERIALIZED (
+    // ONE collapse shape, filtered or not.
+    //
+    // The filtered path used to discover candidate entities first
+    // and then collapse each one with its own indexed lookup. That
+    // wins when the filter is selective and loses badly when it is
+    // not, because the per-entity lookup costs a Merge Append over
+    // every partition and it runs once per candidate.
+    //
+    // Measured with the LIMIT already fenced, through bind
+    // parameters, relating measurements to sites:
+    //
+    //                          candidates+LATERAL   one collapse
+    //   relate, 285,788 rows        12,358ms            883ms
+    //   selective attribute            254ms            518ms
+    //
+    // Matt's call on those numbers: a flat half to one second beats
+    // a quarter second that becomes twelve whenever a filter fails
+    // to be selective. A dashboard needs a ceiling more than it
+    // needs a best case.
+    //
+    // The first attempt at this changed the shape WITHOUT fencing
+    // the LIMIT, so the new shape lost the candidate narrowing and
+    // picked up the fast-start plan at the same time, came out
+    // slower, and was reverted. Both halves are needed; neither is
+    // sufficient.
+    //
+    // The tile path deliberately keeps the candidate shape: its scan
+    // is narrowed to one tile's envelope, which is exactly the
+    // selective case this is worse at.
+    //
+    // `geom` is projected only when there are content predicates,
+    // since a bbox or geo limit is the only thing that reads it and
+    // carrying a geometry column through the collapse is not free.
+    const collapseCols =
+      contentFilters.length > 0
+        ? Prisma.sql`entity, attrs, geom, kind`
+        : Prisma.sql`entity, attrs, kind`;
+    const rows = await this.prisma.$queryRaw<AggRow[]>`
+      WITH ${viaCte ? Prisma.sql`${viaCte},` : Prisma.empty}
+      agg AS MATERIALIZED (
         SELECT ${selectList}
         FROM (
           SELECT DISTINCT ON (entity)
-            entity, attrs, kind
+            ${collapseCols}
           FROM observation
           WHERE scope = ${scope}
             AND valid_from <= ${asOf}
             ${collapseExtras}
           ORDER BY entity, valid_from DESC, tx_time DESC
-        ) latest
-        WHERE kind <> 'delete'
-        ${groupClause}
-      )
-      SELECT * FROM agg
-      ${orderClause}
-      LIMIT ${fetchN}
-    `
-        : await this.prisma.$queryRaw<AggRow[]>`
-      WITH ${viaCte ? Prisma.sql`${viaCte},` : Prisma.empty}
-      content_candidates AS (
-        SELECT DISTINCT entity
-        FROM observation
-        WHERE scope = ${scope}
-          AND valid_from <= ${asOf}
-          ${collapseExtras}
-          ${contentExtras}
-      ),
-      agg AS MATERIALIZED (
-        SELECT ${selectList}
-        FROM (SELECT entity FROM content_candidates) cand
-        CROSS JOIN LATERAL (
-          SELECT entity, attrs, geom, kind
-          FROM observation
-          WHERE scope = ${scope}
-            AND entity = cand.entity
-            AND valid_from <= ${asOf}
-          ORDER BY valid_from DESC, tx_time DESC
-          LIMIT 1
         ) l
         WHERE l.kind <> 'delete'
           ${contentExtras}
