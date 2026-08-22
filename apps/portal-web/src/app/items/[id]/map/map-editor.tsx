@@ -1647,11 +1647,14 @@ export function MapEditor({
     />
   ) : null;
 
+  // `/items` for a saved map too, not just a scratch one: a saved
+  // map's builder IS its detail page, so the old non-scratch branch
+  // pointed the back arrow at the page it was already on.
   return (
     <>
       <BuilderShell
         storageKey="builder-shell:map"
-        backHref={scratch ? '/items' : `/items/${itemId}`}
+        backHref="/items"
         title={itemTitle}
         icon={<MapBaseIcon className="h-4 w-4 text-muted" />}
         toolbarRight={toolbarRight}

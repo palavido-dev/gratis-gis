@@ -525,7 +525,7 @@ export function PrintTemplateDetail({
   return (
     <BuilderShell
       storageKey="builder-shell:print-template"
-      backHref={`/items/${itemId}`}
+      backHref="/items"
       title={titleSummary}
       icon={<Printer className="h-4 w-4 text-ink-1" strokeWidth={1.75} />}
       toolbarRight={toolbarRight}

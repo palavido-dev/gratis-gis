@@ -633,7 +633,7 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
     <>
       <BuilderShell
         storageKey="builder-shell:editor"
-        backHref={`/items/${itemId}`}
+        backHref="/items"
         title="Editor configuration"
         icon={<PencilRuler className="h-4 w-4 text-purple-600 dark:text-purple-400" />}
         toolbarRight={toolbarRight}

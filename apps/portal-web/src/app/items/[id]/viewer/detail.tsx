@@ -559,7 +559,7 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
     <>
       <BuilderShell
         storageKey="builder-shell:viewer"
-        backHref={`/items/${itemId}`}
+        backHref="/items"
         title="Viewer configuration"
         icon={<Eye className="h-4 w-4 text-purple-600 dark:text-purple-400" />}
         toolbarRight={toolbarRight}

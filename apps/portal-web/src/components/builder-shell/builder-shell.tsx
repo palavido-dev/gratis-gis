@@ -61,9 +61,17 @@ interface Props {
    */
   storageKey: string;
   /**
-   * Destination of the back arrow in the top bar. Typically the item
-   * detail page (`/items/<id>`) so closing the builder returns the
-   * user to the metadata view they came from.
+   * Destination of the back arrow in the top bar.
+   *
+   * NOT `/items/<id>`. Every builder that uses this shell is mounted
+   * BY `/items/[id]/page.tsx`, so the builder and the item detail
+   * page are the same URL and that href renders a back arrow that
+   * navigates to the page you are already on. It looks like a dead
+   * button, which is exactly how it was reported. All six callers
+   * pointed there until 2026-08-22.
+   *
+   * `/items` is the honest destination: leaving a builder means
+   * leaving the item.
    */
   backHref: string;
   /** Title rendered next to the back arrow in the top bar. */

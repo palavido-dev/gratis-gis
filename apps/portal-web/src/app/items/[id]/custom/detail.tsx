@@ -1026,7 +1026,7 @@ export function CustomAppDetail({
     <>
       <BuilderShell
         storageKey="builder-shell:web-app-custom"
-        backHref={`/items/${itemId}`}
+        backHref="/items"
         title={titleSummary}
         icon={<Sparkles className="h-4 w-4 text-warn" strokeWidth={1.75} />}
         toolbarRight={toolbarRight}

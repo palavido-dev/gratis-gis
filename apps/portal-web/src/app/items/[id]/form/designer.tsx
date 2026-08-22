@@ -780,7 +780,7 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
     <>
       <BuilderShell
         storageKey="builder-shell:form"
-        backHref={`/items/${itemId}`}
+        backHref="/items"
         title="Form designer"
         icon={<FileText className="h-4 w-4 text-orange-600 dark:text-orange-400" />}
         toolbarRight={toolbarRight}
