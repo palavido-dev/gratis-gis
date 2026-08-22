@@ -15,8 +15,11 @@
 PRAGMA journal_mode = WAL;
 
 -- Ingest bookmarks. One row per source so a re-run picks up exactly
--- where the last one stopped: 'caddy:<inode>' holds a byte offset,
--- 'keycloak' holds the last event_time seen (ms since epoch).
+-- where the last one stopped: 'caddy:<inode>' holds
+-- '<head fingerprint>:<byte offset>', 'keycloak' holds the last
+-- event_time seen (ms since epoch). The fingerprint is load bearing,
+-- not decoration: rotation recycles inodes, so the offset is only
+-- meaningful once the file's head confirms it is the same file.
 CREATE TABLE IF NOT EXISTS ingest_state (
   source     TEXT PRIMARY KEY,
   position   TEXT NOT NULL,
@@ -42,6 +45,16 @@ CREATE TABLE IF NOT EXISTS request (
 );
 CREATE INDEX IF NOT EXISTS request_ts_idx ON request (ts);
 CREATE INDEX IF NOT EXISTS request_ip_idx ON request (ip, ts);
+-- Makes re-reading a log line a no-op instead of a second row, so a
+-- bookmark that has to be reset can backfill without inflating the
+-- counts. Caddy's `ts` is epoch seconds to the microsecond, so a
+-- collision here means the same request seen twice, not two requests.
+-- coalesce() because SQLite treats NULLs as distinct in a UNIQUE
+-- index, which would quietly exempt any column that ever goes null.
+CREATE UNIQUE INDEX IF NOT EXISTS request_dedupe_idx ON request (
+  ts, ip, coalesce(method,''), coalesce(path,''),
+  coalesce(status,-1), coalesce(bytes,-1)
+);
 
 -- Visits, derived from `request` by grouping on (ip, user agent) and
 -- cutting a new session after SESSION_GAP_MINUTES of silence.

@@ -187,6 +187,29 @@ def connect() -> sqlite3.Connection:
     ANALYTICS_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    # request_dedupe_idx is UNIQUE, so it cannot be built over a table
+    # that already holds duplicates, and the whole executescript below
+    # would raise. Clear them first. This only ever fires once: the
+    # rows exist because the pre-fingerprint bookmark re-read a log it
+    # had already stored, and the index it unblocks is what stops that
+    # from happening again.
+    tables = {
+        r["name"]
+        for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+    }
+    indexes = {
+        r["name"]
+        for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'")
+    }
+    if "request" in tables and "request_dedupe_idx" not in indexes:
+        removed = conn.execute(
+            "DELETE FROM request WHERE id NOT IN ("
+            " SELECT min(id) FROM request GROUP BY ts, ip, coalesce(method,''),"
+            " coalesce(path,''), coalesce(status,-1), coalesce(bytes,-1))"
+        ).rowcount
+        conn.commit()
+        if removed:
+            print(f"deduped {removed} repeated request rows", file=sys.stderr)
     schema = (Path(__file__).parent / "schema.sql").read_text()
     conn.executescript(schema)
     # schema.sql only creates what is missing, so a column added to an
@@ -249,12 +272,39 @@ def client_address(req: dict) -> str | None:
     return addr.compressed
 
 
+def head_fingerprint(path: Path, gz: bool) -> str:
+    """Hash the first bytes of a log file, as its identity.
+
+    The first access line carries a microsecond `ts`, so two different
+    files effectively never share a fingerprint, and a file that is
+    merely appended to keeps its own across runs.
+    """
+    opener = gzip.open if gz else open
+    try:
+        with opener(path, "rb") as fh:  # type: ignore[operator]
+            head = fh.read(512)
+    except OSError:
+        return ""
+    return hashlib.sha1(head).hexdigest()[:16]
+
+
 def ingest_caddy(conn: sqlite3.Connection) -> int:
     """Read new lines from every access log file.
 
-    Bookmarks are keyed by inode rather than filename: lumberjack
-    renames the live file when it rolls, so a name-keyed offset would
-    re-read the whole rotated file under its new name.
+    Bookmarks are keyed by inode, because lumberjack renames the live
+    file when it rolls and a name-keyed offset would re-read the whole
+    rotated file under its new name. The inode alone is not enough
+    though: lumberjack unlinks the renamed file once it has gzipped a
+    copy, so the freed inodes get handed straight back out to the next
+    access.log and the next .gz. A recycled inode arrives carrying its
+    predecessor's bookmark, which silently breaks ingestion in both
+    directions. It skipped the live log for three days (a ~20MB offset
+    against a fresh, smaller file, so `offset >= size` held forever)
+    and separately re-read one whole file it had already stored.
+
+    So the offset is stored against a fingerprint of the file's head
+    and only honoured when that still matches. A mismatch means this
+    inode now holds a different file, and it is read from the start.
     """
     if not CADDY_LOG_DIR.is_dir():
         print(f"no caddy log dir at {CADDY_LOG_DIR}, skipping", file=sys.stderr)
@@ -266,7 +316,12 @@ def ingest_caddy(conn: sqlite3.Connection) -> int:
             continue
         gz = path.suffix == ".gz"
         key = f"caddy:{path.stat().st_ino}"
-        offset = int(get_state(conn, key) or 0)
+        fingerprint = head_fingerprint(path, gz)
+        # Stored as "<fingerprint>:<offset>". A bare integer is the old
+        # inode-only format, which is exactly the state we cannot trust.
+        stored = get_state(conn, key) or ""
+        seen_fp, _, seen_off = stored.rpartition(":")
+        offset = int(seen_off) if seen_fp and seen_fp == fingerprint else 0
         size = path.stat().st_size
         if not gz and offset >= size:
             continue  # nothing new
@@ -301,9 +356,12 @@ def ingest_caddy(conn: sqlite3.Connection) -> int:
                 referer = (headers.get("Referer") or [""])[0]
                 path_only = (req.get("uri") or "").split("?")[0]
                 is_bot, is_asset, activity = classify(path_only, ua)
-                conn.execute(
-                    "INSERT INTO request (ts, ip, method, path, status, duration,"
-                    " bytes, ua, referer, host, is_bot, is_asset, activity)"
+                # OR IGNORE against request_dedupe_idx. Re-reading a log
+                # is then free, which is what lets a bookmark reset
+                # backfill a gap without inflating the counts.
+                cur = conn.execute(
+                    "INSERT OR IGNORE INTO request (ts, ip, method, path, status,"
+                    " duration, bytes, ua, referer, host, is_bot, is_asset, activity)"
                     " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         rec.get("ts"),
@@ -321,9 +379,9 @@ def ingest_caddy(conn: sqlite3.Connection) -> int:
                         activity,
                     ),
                 )
-                inserted += 1
+                inserted += cur.rowcount
             new_offset = size if gz else fh.tell()
-        set_state(conn, key, str(new_offset if not gz else 1))
+        set_state(conn, key, f"{fingerprint}:{new_offset if not gz else 1}")
     conn.commit()
     return inserted
 
