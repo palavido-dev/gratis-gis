@@ -5,6 +5,21 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.75] - 2026-08-23
+
+### Added
+
+- **Field deployments are now findable.** There is a "Field" entry in
+  the sidebar, opening the list of everything set up for field
+  collection, with what each one has cached offline and how many edits
+  are waiting to sync. The page already existed; nothing linked to it,
+  so you had to know the address.
+- **Point your phone at the screen to open a deployment on it.** A
+  deployment's page now shows a QR code alongside its link, because
+  field collection is the one thing you set up at a desk and need in
+  your hand outdoors. The link is also there to copy if you would
+  rather send it.
+
 ## [0.9.74] - 2026-08-22
 
 ### Fixed
