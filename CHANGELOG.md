@@ -5,6 +5,17 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.77] - 2026-08-23
+
+### Fixed
+
+- **The Add button in the field no longer appears when there is
+  nothing to add.** In a deployment whose layers are all view-only,
+  the round + button still appeared and did nothing when tapped. It
+  now only appears when something can actually be collected, and when
+  nothing can, the map says so and points at the setting that
+  controls it.
+
 ## [0.9.76] - 2026-08-23
 
 ### Fixed
