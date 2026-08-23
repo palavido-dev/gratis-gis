@@ -212,6 +212,17 @@ export const en = {
     trashFailedTitle: 'Could not move to trash',
     trashFailedMessage: 'Move to trash failed: {status}',
   },
+  field: {
+    // Sidebar entry for the field catalog.
+    nav: 'Field',
+    qrAlt: 'QR code linking to this deployment',
+    qrHint:
+      'Point a phone camera at this to open the deployment on that device.',
+    qrSignIn: 'You will be asked to sign in on the phone the first time.',
+    copyLink: 'Copy link',
+    copied: 'Copied',
+    openOnPhone: 'Open on a phone',
+  },
   itemDetail: {
     // Access pills. Plain English rather than the stored enum value:
     // "org" is not a word a reader should have to decode.

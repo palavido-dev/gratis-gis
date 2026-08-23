@@ -273,13 +273,23 @@ function NavList({
       <NavLink href="/groups" icon={<Users className="h-4 w-4" />} onNavigate={cb}>
         {t('nav.groups')}
       </NavLink>
-      {/* The /field landing is intentionally hidden from the
-          sidebar.  The route stays valid so a mobile user who
-          scans a deployment QR code or shares a direct link still
-          lands on it, but other users reach field deployments
-          more naturally through the items list + the "Field"
-          item-type filter.  Don't reintroduce a top-level entry
-          here without a redesign. */}
+      {/* This entry used to be omitted, on the reasoning that people
+          would reach deployments "through the items list + the Field
+          item-type filter". Checked 2026-08-23: there is no such
+          filter. `data_collection` is not offered anywhere in the
+          items list UI, so the alternative path the old note pointed
+          at did not exist and /field was reachable only by typing the
+          URL. The same note also assumed "a mobile user who scans a
+          deployment QR code", which nothing generated either.
+          Both halves are now true instead of assumed: the entry is
+          here, and the deployment page renders a QR. */}
+      <NavLink
+        href="/field"
+        icon={<ClipboardList className="h-4 w-4" />}
+        onNavigate={cb}
+      >
+        {t('field.nav')}
+      </NavLink>
       <NavLink
         href="/recently-deleted"
         icon={<Trash2 className="h-4 w-4" />}

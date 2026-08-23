@@ -10,6 +10,7 @@ import {
   Map as MapIcon,
 } from 'lucide-react';
 import type { DataCollectionData, Item } from '@gratis-gis/shared-types';
+import { FieldHandoff } from '@/components/field-handoff';
 
 /**
  * Detail body for a `data_collection` item (Slice 1, #141).
@@ -153,7 +154,13 @@ export function DataCollectionDetail({
         >
           Open field-mode runtime
         </Link>
-        <p className="mt-2 text-2xs text-muted">
+        {/* The button above only helps on the device you are already
+            on, and field collection is the one thing nobody wants on
+            a desktop. */}
+        <div className="mt-4 border-t border-border pt-4">
+          <FieldHandoff path={`/items/${itemId}/field`} />
+        </div>
+        <p className="mt-3 text-2xs text-muted">
           Offline collection (download an area, queue edits, sync) lands
           in a follow-up slice.
         </p>
