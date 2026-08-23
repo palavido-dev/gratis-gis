@@ -2106,12 +2106,18 @@ export function FieldRuntime({
             in one tap (Slice 2 behaviour). Hidden during active
             collect (#249 chrome rules) so it doesn't compete with
             the Cancel/Submit header. */}
+        {/* Gate on templates, NOT editableLayers. editableLayers
+            deliberately retains layers the collector may not add to
+            (see EditableLayer.addable) so the visibility panel can
+            still list them, so testing it here rendered a FAB with
+            nothing behind it: `disabled` then greyed it to 50% on a
+            dark FAB, which reads as an enabled button that ignores
+            you. Reported as "I press this and nothing happens". */}
         {formModal === null &&
         activeTemplate === null &&
-        editableLayers.length > 0 ? (
+        templates.length > 0 ? (
           <button
             type="button"
-            disabled={templates.length === 0}
             onClick={() => {
               // #249: single-template deployments skip the picker.
               // Field Maps does the same: with one feature type to
@@ -2145,6 +2151,29 @@ export function FieldRuntime({
           >
             <Plus className="h-7 w-7" />
           </button>
+        ) : null}
+
+        {/* Someone who opened a field deployment came here to collect.
+            Removing the dead button without saying anything just moves
+            the confusion, so say what is wrong and where it is fixed.
+            Only in the idle state, and only when the deployment really
+            has nothing to add to. */}
+        {formModal === null &&
+        activeTemplate === null &&
+        templates.length === 0 ? (
+          <div
+            className="absolute inset-x-3 z-10 rounded-md border border-border bg-surface-1/95 p-2.5 shadow-overlay"
+            style={{ bottom: 'calc(1.25rem + env(safe-area-inset-bottom, 0px))' }}
+          >
+            <p className="text-xs font-medium text-ink-0">
+              Nothing to collect in this deployment
+            </p>
+            <p className="mt-0.5 text-2xs text-muted">
+              {editableLayers.length > 0
+                ? 'Its layers are set to view-only. Turn on "Editable in field deployments" for a layer on the map, and make sure editing is enabled on the data layer itself.'
+                : 'Its map has no layers you can add to.'}
+            </p>
+          </div>
         ) : null}
 
         {layerPanelOpen ? (
