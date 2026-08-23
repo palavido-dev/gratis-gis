@@ -5,6 +5,20 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.76] - 2026-08-23
+
+### Fixed
+
+- **Offline downloads no longer pre-fetch basemaps that forbid it.**
+  Downloading an area used to pull every basemap tile in view at
+  every zoom, and most basemap providers, including OpenStreetMap and
+  Carto, explicitly prohibit that and block deployments that do it.
+  Your data, forms and any basemap you host yourself still download
+  as before; when a basemap cannot come along, the download panel now
+  says which provider and why instead of leaving you with a blank map
+  in the field. Tiles you have actually looked at are still cached,
+  which is both allowed and expected.
+
 ## [0.9.75] - 2026-08-23
 
 ### Added
