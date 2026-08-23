@@ -35,7 +35,16 @@
  *     fetches to a handful per origin anyway; a 6-deep pool gets us
  *     close to the practical max without burning through provider
  *     rate limits. Tunable per call.
+ *
+ * NOT a trade-off, a hard rule: this only pre-fetches sources whose
+ * provider permits it. See `splitByPrefetchPolicy`. Caching a tile
+ * the reader is looking at is a different act and stays untouched in
+ * sw.js; OSM's policy requires that one and forbids this one.
  */
+import {
+  splitByPrefetchPolicy,
+  type TilePrefetchSplit,
+} from '@gratis-gis/shared-types';
 
 /**
  * Standard slippy-map tile coordinate. Used internally and exported
@@ -73,6 +82,14 @@ export interface TileWarmProgress {
   /** Approximate bytes downloaded. Rough estimate when Content-
    *  Length is missing from the response headers. */
   bytes: number;
+  /**
+   * Sources skipped because their provider does not permit
+   * pre-fetching, with the reason. Surfaced rather than swallowed:
+   * "your map is blank offline" with no explanation is the worst
+   * version of this, and the fix (host the basemap yourself) is
+   * something only the reader can act on.
+   */
+  refused?: TilePrefetchSplit['refused'];
 }
 
 // #272: default upper zoom bumped from 17 to 19. z17 (~300 m/tile)
@@ -111,9 +128,27 @@ export async function warmTiles(
   const zoomRange = input.zoomRange ?? DEFAULT_ZOOM;
   const maxTiles = input.maxTiles ?? DEFAULT_MAX_TILES;
   const concurrency = input.concurrency ?? DEFAULT_CONCURRENCY;
+
+  // Providers first. Pre-fetching is a different act from caching
+  // what someone is looking at, and several of the basemaps we ship
+  // forbid it outright: OSM's policy names "download for offline
+  // use" as prohibited bulk downloading. The gate lives HERE rather
+  // than at the call site so a future caller cannot reintroduce the
+  // problem by forgetting it.
+  const { allowed: permittedTemplates, refused } = splitByPrefetchPolicy(
+    input.urlTemplates,
+    typeof window !== 'undefined' ? window.location.origin : undefined,
+  );
+
   const tiles = enumerateTiles(input.bbox, zoomRange, maxTiles);
-  const total = tiles.length * input.urlTemplates.length;
-  const progress: TileWarmProgress = { total, fetched: 0, failed: 0, bytes: 0 };
+  const total = tiles.length * permittedTemplates.length;
+  const progress: TileWarmProgress = {
+    total,
+    fetched: 0,
+    failed: 0,
+    bytes: 0,
+    refused,
+  };
   if (total === 0) {
     onProgress?.(progress);
     return progress;
@@ -124,7 +159,7 @@ export async function warmTiles(
   // skipped silently -- a misconfigured basemap shouldn't take down
   // the warm pass.
   const urls: string[] = [];
-  for (const tpl of input.urlTemplates) {
+  for (const tpl of permittedTemplates) {
     for (const tile of tiles) {
       const url = expand(tpl, tile);
       if (url) urls.push(url);

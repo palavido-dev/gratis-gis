@@ -76,6 +76,16 @@ export interface DownloadProgress {
    *  0 and the UI hides the tile progress row. */
   tilesFetched: number;
   tilesTotal: number;
+  /**
+   * Tile sources skipped because the provider forbids pre-fetching,
+   * with a reason per source. Distinct from `error`: the download
+   * succeeded, the basemap just is not coming with it.
+   */
+  blockedTileSources?: Array<{
+    template: string;
+    host: string;
+    reason: string;
+  }>;
   /** Set on 'failed'. */
   error?: string;
 }
@@ -309,7 +319,21 @@ export async function downloadDeployment(
       // slice. This is what users want to see when deciding which
       // areas to keep cached vs free up.
       totalFeatureBytes += warmResult.bytes;
-      progress.message = `Cached ${warmResult.fetched} tiles (${warmResult.failed} failed)`;
+      // A refusal is not a failure, and must not read like one. If
+      // every source was refused the map will be blank offline, and
+      // the reader needs to know that is the provider's rule rather
+      // than a broken download, because the fix (self-host the
+      // basemap) is theirs to make.
+      const refused = warmResult.refused ?? [];
+      if (refused.length > 0 && warmResult.total === 0) {
+        progress.blockedTileSources = refused;
+        progress.message =
+          refused[0]?.reason ??
+          'The basemap provider does not allow offline downloads.';
+      } else {
+        if (refused.length > 0) progress.blockedTileSources = refused;
+        progress.message = `Cached ${warmResult.fetched} tiles (${warmResult.failed} failed)`;
+      }
       onProgress({ ...progress });
     } catch (err) {
       // Tile-warming is best-effort; a failure here doesn't void

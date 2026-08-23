@@ -37,6 +37,7 @@ import type {
   MapLayerRenderer,
   PickListData,
 } from '@gratis-gis/shared-types';
+import { splitByPrefetchPolicy } from '@gratis-gis/shared-types';
 import {
   generateFormFromLayer,
   type FormSchema,
@@ -2212,6 +2213,20 @@ export function FieldRuntime({
                 [tileZoomMin, tileZoomMax],
               );
             })()}
+            blockedTileSources={(() => {
+              // The estimate above counts tile coordinates, not tiles
+              // we are allowed to fetch. Quoting a number the warmer
+              // will then refuse to honour is worse than quoting
+              // none, so the panel needs to know which sources are
+              // off limits before the download runs, not after.
+              const { refused } = splitByPrefetchPolicy(
+                collectTileTemplates(mapRef.current),
+                typeof window !== 'undefined'
+                  ? window.location.origin
+                  : undefined,
+              );
+              return refused;
+            })()}
             centerLat={(() => {
               const map = mapRef.current;
               if (!map) return 0;
@@ -3000,6 +3015,7 @@ function LayerVisibilityPanel({
   onTileZoomMinChange,
   onTileZoomMaxChange,
   estimatedTileCount,
+  blockedTileSources,
   centerLat,
 }: {
   layers: MapLayer[];
@@ -3046,6 +3062,8 @@ function LayerVisibilityPanel({
    *  current viewport. Updated as the user adjusts the pickers
    *  so they see the storage consequence before tapping Download. */
   estimatedTileCount: number;
+  /** Tile sources the provider will not let us pre-fetch. */
+  blockedTileSources: Array<{ template: string; host: string; reason: string }>;
   /** #272: center latitude of the viewport. Drives the zoom-to-
    *  scale conversion so "1:1,128" reflects what the worker is
    *  actually looking at, not the equator-baseline. */
@@ -3198,10 +3216,32 @@ function LayerVisibilityPanel({
             </select>
           </label>
         </div>
-        <p className="mt-1.5 text-2xs text-muted">
-          ~{estimatedTileCount.toLocaleString('en-US')} tiles at the
-          current viewport. Cap is 200,000.
-        </p>
+        {blockedTileSources.length > 0 ? (
+          <div className="mt-1.5 rounded-md border border-warn/30 bg-warn/10 p-2">
+            <p className="text-2xs font-medium text-warn">
+              The basemap will not be available offline
+            </p>
+            {/* One line per distinct provider, not per template: a
+                style can pull several URLs off one host and three
+                identical sentences reads like a bug. */}
+            {[...new Map(blockedTileSources.map((s) => [s.host, s])).values()].map(
+              (s) => (
+                <p key={s.host} className="mt-0.5 text-2xs text-muted">
+                  {s.reason}
+                </p>
+              ),
+            )}
+            <p className="mt-1 text-2xs text-muted">
+              Your data, forms and any self-hosted layers still download
+              normally.
+            </p>
+          </div>
+        ) : (
+          <p className="mt-1.5 text-2xs text-muted">
+            ~{estimatedTileCount.toLocaleString('en-US')} tiles at the
+            current viewport. Cap is 200,000.
+          </p>
+        )}
       </div>
       <div className="border-b border-border px-3 py-2">
         <button

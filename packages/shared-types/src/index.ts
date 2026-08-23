@@ -49,3 +49,4 @@ export * from './expression';
 export * from './portal-info';
 export * from './merge-cost';
 export * from './qr';
+export * from './tile-prefetch-policy';
