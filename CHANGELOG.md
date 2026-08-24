@@ -5,6 +5,17 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.78] - 2026-08-24
+
+### Fixed
+
+- **A basemap that failed to load could stay blank permanently.** If a
+  basemap provider refused a request, for instance after rate
+  limiting a large offline download, the refusal was stored as though
+  it were a map tile and served from then on, leaving a blank map with
+  nothing to indicate why. Failed responses are no longer stored, and
+  this update clears any that were already saved on your device.
+
 ## [0.9.77] - 2026-08-23
 
 ### Fixed
