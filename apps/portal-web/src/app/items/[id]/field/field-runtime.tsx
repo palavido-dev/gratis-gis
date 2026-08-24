@@ -3220,6 +3220,124 @@ function LayerVisibilityPanel({
           <X className="h-5 w-5" />
         </button>
       </div>
+      {/* One scroll container for the whole body, with the layer
+          list FIRST. The panel is called Layers, and the list is
+          what a collector opens it for; it used to sit below five
+          fixed sections (basemap, detail pickers, download, prepared
+          maps, storage) as the only scrollable child, so once those
+          sections outgrew the sheet's 60dvh the list collapsed to
+          zero height and the panel appeared to have no layers at
+          all. Sections accrete; a shared scroller cannot be
+          squeezed out by them (2026-08-24, found in field testing).
+          */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <ul className="border-b border-border p-1">
+        {(() => {
+          // #249.21: filter the layer list for the field collection
+          // context. Per request:
+          //   - Table sublayers (geometryType === null on the
+          //     underlying data_layer) are always-on and have no
+          //     symbol; surfacing them here is noise and the toggle
+          //     would be misleading anyway. Hide them outright.
+          //   - Group headers whose every child got filtered are also
+          //     hidden (an empty section header is just visual debt).
+          // Compute the visible set once so we can both render and
+          // know whether to render the empty state.
+          const layerInfo = layers.map((l) => {
+            const isGroup = l.source?.kind === 'group';
+            let geometryType: LayerGeometryType = null;
+            if (l.source?.kind === 'data-layer') {
+              const src = l.source;
+              const dl = editableLayers.find(
+                (e) =>
+                  e.dataLayerId === src.itemId &&
+                  e.layerKey === src.layerKey,
+              );
+              geometryType = dl?.geometryType ?? null;
+            } else if (!isGroup) {
+              // Non-data-layer overlays (arcgis-rest, geojson-url):
+              // we don't have a strict geometryType, but they're
+              // always renderable -- treat them as polygon for
+              // swatch purposes.
+              geometryType = 'polygon';
+            }
+            const isTable =
+              !isGroup &&
+              l.source?.kind === 'data-layer' &&
+              geometryType === null;
+            return { layer: l, isGroup, isTable, geometryType };
+          });
+          // Drop tables entirely. Then drop group headers that have
+          // no surviving children below them in the list. Walk
+          // backwards so a group header at position i counts only
+          // children at i+1+ that aren't another group header.
+          const kept = layerInfo.filter((entry) => !entry.isTable);
+          const finalSet: typeof kept = [];
+          for (let i = 0; i < kept.length; i += 1) {
+            const entry = kept[i]!;
+            if (entry.isGroup) {
+              // Look ahead: is there at least one non-group entry
+              // before the next group header?
+              let hasChild = false;
+              for (let j = i + 1; j < kept.length; j += 1) {
+                if (kept[j]!.isGroup) break;
+                hasChild = true;
+                break;
+              }
+              if (!hasChild) continue;
+            }
+            finalSet.push(entry);
+          }
+          if (finalSet.length === 0) {
+            return (
+              <li className="p-3 text-center text-sm text-muted">
+                No layers in this map.
+              </li>
+            );
+          }
+          return finalSet.map(({ layer: l, isGroup, geometryType }) => {
+            if (isGroup) {
+              return (
+                <li
+                  key={l.id}
+                  className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted"
+                >
+                  {l.title}
+                </li>
+              );
+            }
+            const visible = l.visible && !hiddenLayerIds.has(l.id);
+            return (
+              <li key={l.id}>
+                <button
+                  type="button"
+                  onClick={() => onToggle(l.id)}
+                  className="flex min-h-[44px] w-full items-center gap-3 rounded px-2 py-2 text-left text-base hover:bg-surface-2"
+                  aria-pressed={visible}
+                >
+                  {visible ? (
+                    <Eye className="h-5 w-5 shrink-0 text-accent" />
+                  ) : (
+                    <EyeOff className="h-5 w-5 shrink-0 text-muted" />
+                  )}
+                  <LayerSwatch
+                    layer={l}
+                    dimmed={!visible}
+                    geometryType={geometryType}
+                  />
+                  <span
+                    className={`min-w-0 flex-1 truncate ${
+                      visible ? 'text-ink-0' : 'text-muted line-through'
+                    }`}
+                  >
+                    {l.title}
+                  </span>
+                </button>
+              </li>
+            );
+          });
+        })()}
+        </ul>
       {/* Basemap chip at the top of the layer list (#223.8). Field
           workers reach for "swap to satellite" all the time; baking
           it into the layer panel keeps it one tap away without a
@@ -3471,113 +3589,7 @@ function LayerVisibilityPanel({
           ) : null}
         </div>
       ) : null}
-      <ul className="min-h-0 flex-1 overflow-y-auto p-1">
-        {(() => {
-          // #249.21: filter the layer list for the field collection
-          // context. Per request:
-          //   - Table sublayers (geometryType === null on the
-          //     underlying data_layer) are always-on and have no
-          //     symbol; surfacing them here is noise and the toggle
-          //     would be misleading anyway. Hide them outright.
-          //   - Group headers whose every child got filtered are also
-          //     hidden (an empty section header is just visual debt).
-          // Compute the visible set once so we can both render and
-          // know whether to render the empty state.
-          const layerInfo = layers.map((l) => {
-            const isGroup = l.source?.kind === 'group';
-            let geometryType: LayerGeometryType = null;
-            if (l.source?.kind === 'data-layer') {
-              const src = l.source;
-              const dl = editableLayers.find(
-                (e) =>
-                  e.dataLayerId === src.itemId &&
-                  e.layerKey === src.layerKey,
-              );
-              geometryType = dl?.geometryType ?? null;
-            } else if (!isGroup) {
-              // Non-data-layer overlays (arcgis-rest, geojson-url):
-              // we don't have a strict geometryType, but they're
-              // always renderable -- treat them as polygon for
-              // swatch purposes.
-              geometryType = 'polygon';
-            }
-            const isTable =
-              !isGroup &&
-              l.source?.kind === 'data-layer' &&
-              geometryType === null;
-            return { layer: l, isGroup, isTable, geometryType };
-          });
-          // Drop tables entirely. Then drop group headers that have
-          // no surviving children below them in the list. Walk
-          // backwards so a group header at position i counts only
-          // children at i+1+ that aren't another group header.
-          const kept = layerInfo.filter((entry) => !entry.isTable);
-          const finalSet: typeof kept = [];
-          for (let i = 0; i < kept.length; i += 1) {
-            const entry = kept[i]!;
-            if (entry.isGroup) {
-              // Look ahead: is there at least one non-group entry
-              // before the next group header?
-              let hasChild = false;
-              for (let j = i + 1; j < kept.length; j += 1) {
-                if (kept[j]!.isGroup) break;
-                hasChild = true;
-                break;
-              }
-              if (!hasChild) continue;
-            }
-            finalSet.push(entry);
-          }
-          if (finalSet.length === 0) {
-            return (
-              <li className="p-3 text-center text-sm text-muted">
-                No layers in this map.
-              </li>
-            );
-          }
-          return finalSet.map(({ layer: l, isGroup, geometryType }) => {
-            if (isGroup) {
-              return (
-                <li
-                  key={l.id}
-                  className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted"
-                >
-                  {l.title}
-                </li>
-              );
-            }
-            const visible = l.visible && !hiddenLayerIds.has(l.id);
-            return (
-              <li key={l.id}>
-                <button
-                  type="button"
-                  onClick={() => onToggle(l.id)}
-                  className="flex min-h-[44px] w-full items-center gap-3 rounded px-2 py-2 text-left text-base hover:bg-surface-2"
-                  aria-pressed={visible}
-                >
-                  {visible ? (
-                    <Eye className="h-5 w-5 shrink-0 text-accent" />
-                  ) : (
-                    <EyeOff className="h-5 w-5 shrink-0 text-muted" />
-                  )}
-                  <LayerSwatch
-                    layer={l}
-                    dimmed={!visible}
-                    geometryType={geometryType}
-                  />
-                  <span
-                    className={`min-w-0 flex-1 truncate ${
-                      visible ? 'text-ink-0' : 'text-muted line-through'
-                    }`}
-                  >
-                    {l.title}
-                  </span>
-                </button>
-              </li>
-            );
-          });
-        })()}
-      </ul>
+      </div>
     </div>
   );
 }
