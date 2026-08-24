@@ -5,6 +5,23 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.84] - 2026-08-24
+
+### Fixed
+
+- **The downloaded offline map could go blank on maps that also carry
+  an imagery or tile overlay.** Toggling a layer was enough to
+  disconnect the map from the downloaded file. Found in the weekly
+  code review before it was ever hit in the field.
+- **Every prepared area now downloads, not just the first.** A
+  deployment split into areas for different crews previously claimed
+  all areas were included while only fetching one.
+- **The offline panel no longer warns that the basemap will not work
+  offline when a prepared map is about to make it work offline.**
+- **Server error messages from a failed map build no longer include
+  the address the server fetched from**, which for self-hosted
+  installs can contain access credentials. Only the hostname is kept.
+
 ## [0.9.83] - 2026-08-24
 
 ### Fixed
