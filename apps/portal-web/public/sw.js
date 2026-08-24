@@ -53,7 +53,13 @@
 // deploymentId-based asset URLs: Turbopack reuses chunk filenames
 // across builds, so the ?dpl= query on asset URLs is what keeps each
 // deploy's entries distinct.)
-const CACHE_VERSION = 'v6';
+// (v7 stopped caching opaque tile responses. An opaque response hides
+// its status, so a 429 from a rate-limiting basemap provider was
+// cached as though it were a tile and then served forever by the
+// cache-first path: a permanently blank basemap with no network
+// requests and no error to see. The bump also evicts entries already
+// poisoned that way on devices in the field.)
+const CACHE_VERSION = 'v7';
 const STATIC_CACHE = `gratis-static-${CACHE_VERSION}`;
 const GEOJSON_CACHE = `gratis-geojson-${CACHE_VERSION}`;
 // Slice 10: basemap + reference tiles. Keyed separately from static
@@ -1074,10 +1080,13 @@ async function cacheFirst(request, cacheName) {
  * return a 504 so MapLibre paints the missing-tile placeholder
  * rather than waiting indefinitely.
  *
- * Cross-origin tiles require special care: we must not throw away
- * opaque responses (response.ok is false for cross-origin no-cors,
- * but the response is still cacheable + usable by MapLibre). We
- * cache any non-error response we receive.
+ * Cross-origin tiles used to get special care here: opaque responses
+ * were cached on the reasoning that `response.ok` is false for
+ * no-cors yet the body is still usable by MapLibre. Both halves are
+ * true and the conclusion was still wrong, because an opaque response
+ * reports status 0 whether it carries a tile or a 429, so "any
+ * non-error response" could not actually tell the difference. See
+ * the note in the body: we now cache only what we can verify.
  *
  * Every successful write also logs a write-time row and pokes the
  * (throttled) eviction sweep; see "Tile cache cap" above.
@@ -1088,9 +1097,28 @@ async function tileCacheFirst(request) {
   if (cached) return cached;
   try {
     const response = await fetch(request);
-    // Cache 200s and opaque (cross-origin no-cors) responses. Don't
-    // cache 4xx/5xx; a 404 tile shouldn't poison the cache.
-    if (response && (response.ok || response.type === 'opaque')) {
+    // Cache only responses whose status we can actually read.
+    //
+    // This used to accept `response.type === 'opaque'` as well, right
+    // under a comment saying "don't cache 4xx/5xx; a 404 tile
+    // shouldn't poison the cache". Those two statements contradict
+    // each other: an opaque response has status 0 and hides the real
+    // one, so a 429 from a rate-limiting provider, or a 403 from one
+    // that has blocked you, is indistinguishable from a tile and was
+    // cached as if it were. Cache-first then serves that error for
+    // the life of the cache. It presents as a permanently blank
+    // basemap with no network requests and nothing in the console,
+    // and it is most likely to happen straight after a large prefetch,
+    // which is exactly what the old offline download did.
+    //
+    // The cost is that a provider serving tiles without CORS headers
+    // is no longer cached, because we cannot tell success from
+    // failure there. That is the right trade: unverifiable caching is
+    // how the cache got poisoned. OSM and Carto both send
+    // `Access-Control-Allow-Origin: *`, so the providers that matter
+    // are unaffected, and the ones that are not are also the ones
+    // whose terms we now refuse to prefetch anyway.
+    if (response && response.ok) {
       // Clone before put: response body can only be consumed once.
       cache
         .put(request, response.clone())
