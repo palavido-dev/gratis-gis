@@ -1248,7 +1248,27 @@ export function FieldRuntime({
     } finally {
       downloadAbortRef.current = null;
     }
-  }, [downloadProgress, editableLayers, dataCollectionId, title]);
+    // `boundForms` and the zoom pickers were already missing here,
+    // and #71 added a third omission that made the bug visible: the
+    // prepared areas. A memoized callback keeps whatever it captured
+    // until a listed dep changes, so this one held an empty area list
+    // and warmed tiles, then silently started working after some
+    // unrelated `downloadProgress` change happened to rebuild it.
+    // The same button did different things depending on what the
+    // user had tapped earlier, which is the worst kind of bug to be
+    // told about, because neither report is wrong.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    downloadProgress,
+    editableLayers,
+    dataCollectionId,
+    title,
+    offlineBasemap.areas,
+    offlineBasemap.reload,
+    boundForms,
+    tileZoomMin,
+    tileZoomMax,
+  ]);
 
   // Remove this deployment from the device. Cascades through every
   // IDB store keyed on dataCollectionId (features, queue, forms,
