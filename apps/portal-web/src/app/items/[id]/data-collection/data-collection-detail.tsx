@@ -11,36 +11,30 @@ import {
 } from 'lucide-react';
 import type { DataCollectionData, Item } from '@gratis-gis/shared-types';
 import { FieldHandoff } from '@/components/field-handoff';
+import { OfflineAreasPanel } from './offline-areas-panel';
 
 /**
- * Detail body for a `data_collection` item (Slice 1, #141).
+ * Detail body for a `data_collection` item (#141).
  *
- * Slice 1 surface is intentionally small: confirm the deployment
- * exists, show which map it deploys, and signpost the field-mode
- * runtime + form-binding UI as future slices. The data_collection's
- * actual value (collectors opening it on a phone) lands in Slice 2
- * (#25 follow-on) which adds the runtime route and the auto-form
- * generator wiring on top of the schema-to-form helper that ships
- * with this slice.
+ * Sections, in the order an author reads them: which map is
+ * deployed, which layers have custom forms bound, how to get the
+ * runtime onto a phone, and which areas are prepared for offline
+ * use.
  *
- * Behaviour today:
- *   - Render the bound map's title and link to its detail page.
- *   - Show a stub "Open in field mode" affordance that links to the
- *     planned `/items/<id>/field` route. The route 404s until
- *     Slice 2; the link sits ghosted with a tooltip so authors see
- *     the planned destination without expecting it to work.
- *   - When form bindings exist (Slice 2+ feature), surface them
- *     as a list. Until then this section stays hidden.
- *
- * Form bindings, offline configuration, and field-mode UI presets
- * land in later slices and add their own sections to this body.
+ * This docstring used to describe a Slice 1 surface where the field
+ * route "404s until Slice 2" and the link "sits ghosted". Both the
+ * runtime and offline collection have shipped since; the note
+ * outlived them and was describing a page nobody had seen for
+ * months.
  */
 export function DataCollectionDetail({
   itemId,
   initial,
+  canEdit,
 }: {
   itemId: string;
   initial: DataCollectionData;
+  canEdit: boolean;
 }) {
   const [mapItem, setMapItem] = useState<Item | null | undefined>(undefined);
 
@@ -160,11 +154,9 @@ export function DataCollectionDetail({
         <div className="mt-4 border-t border-border pt-4">
           <FieldHandoff path={`/items/${itemId}/field`} />
         </div>
-        <p className="mt-3 text-2xs text-muted">
-          Offline collection (download an area, queue edits, sync) lands
-          in a follow-up slice.
-        </p>
       </section>
+
+      <OfflineAreasPanel itemId={itemId} data={initial} canEdit={canEdit} />
     </div>
   );
 }

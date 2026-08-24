@@ -34,6 +34,7 @@ function build(opts: {
   iconKeys?: string[];
   storageRefs?: string[];
   jsonKeys?: string[];
+  offlinePackageKeys?: string[];
   listThrows?: boolean;
   deleteFails?: Set<string>;
 }) {
@@ -51,6 +52,11 @@ function build(opts: {
     item: {
       findMany: jest.fn(async () =>
         (opts.storageRefs ?? []).map((k) => ({ storageRef: k })),
+      ),
+    },
+    offlinePackage: {
+      findMany: jest.fn(async () =>
+        (opts.offlinePackageKeys ?? []).map((k) => ({ storageKey: k })),
       ),
     },
     $queryRaw: jest.fn(async () =>
@@ -143,6 +149,7 @@ describe('HousekeepingService orphaned uploads', () => {
       'item-point-cloud/',
       'item-tile-layer/',
       'map-icon/',
+      'offline-package/',
     ]);
     // Public image prefixes are out of scope by design: their
     // references live in loose URL fields, not rows.
@@ -171,6 +178,29 @@ describe('HousekeepingService orphaned uploads', () => {
     expect(result.deletedCount).toBe(1);
     expect(result.freedBytes).toBe(30);
     expect(result.failedCount).toBe(1);
+  });
+
+  it('never treats a live offline package as an orphan', async () => {
+    // The archive is referenced by offline_package.storage_key, a
+    // real column rather than JSON, so it needs its own source in
+    // the reference scan. Miss it and the sweep deletes the basemap
+    // out from under every deployment that has one, 48 hours after
+    // it was built. The superseded row's archive is kept too:
+    // collectors may still be carrying it.
+    const { svc } = build({
+      objectsByPrefix: {
+        'offline-package': [
+          { key: 'offline-package/live', sizeBytes: 900, lastModified: OLD },
+          { key: 'offline-package/prev', sizeBytes: 800, lastModified: OLD },
+          { key: 'offline-package/gone', sizeBytes: 700, lastModified: OLD },
+        ],
+      },
+      offlinePackageKeys: ['offline-package/live', 'offline-package/prev'],
+    });
+
+    const report = await svc.orphanedUploadsReport();
+    expect(report.sample.map((o) => o.key)).toEqual(['offline-package/gone']);
+    expect(report.orphanCount).toBe(1);
   });
 
   it('reports unavailable (and deletes nothing) when listing fails', async () => {

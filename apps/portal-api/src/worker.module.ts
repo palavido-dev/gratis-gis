@@ -5,6 +5,7 @@ import { ConfigModule } from '@nestjs/config';
 import { ImportJobsWorkerModule } from './import-jobs/import-jobs-worker.module.js';
 import { LeaderElectionModule } from './cron/leader-election.module.js';
 import { TileLayerWorkerModule } from './tile-layer/tile-layer-worker.module.js';
+import { OfflinePackageWorkerModule } from './offline-package/offline-package-worker.module.js';
 import { AnalysisBridgeModule } from './analysis/analysis-bridge.module.js';
 import { ScriptsModule } from './scripts/scripts.module.js';
 
@@ -32,6 +33,12 @@ import { ScriptsModule } from './scripts/scripts.module.js';
     // raster pyramid from the COG via gdal2tiles.py + pmtiles
     // convert.  See pyramid.worker.ts for the state machine.
     TileLayerWorkerModule,
+    // #70: cuts one vector basemap archive per author-defined
+    // offline area, so a field crew downloads a file instead of
+    // each collector enumerating tiles for themselves. Also runs
+    // the automatic-rebuild sweep for areas with a refresh
+    // interval. See offline-package.worker.ts.
+    OfflinePackageWorkerModule,
     // Analysis-to-import bridge: stages vector analysis outputs
     // (contours) from MinIO into the async import pipeline above.
     AnalysisBridgeModule,

@@ -1002,6 +1002,7 @@ export default async function ItemDetailPage(props: Props) {
         <section className="mb-6">
           <DataCollectionDetail
             itemId={item.id}
+            canEdit={canManage}
             initial={
               // The wizard always writes a complete DataCollectionData,
               // but tolerate partial shapes the same way the other

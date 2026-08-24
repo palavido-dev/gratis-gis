@@ -1754,3 +1754,83 @@ model Feedback {
   @@index([ipHash, createdAt])
   @@map("feedback")
 }
+
+/// Lifecycle of one offline basemap package build.
+///
+/// `superseded` is what makes "which package should a collector
+/// download?" have exactly one answer at all times. A rebuild
+/// inserts a fresh row and only demotes the incumbent once the new
+/// archive is on disk, so a failed rebuild leaves the package
+/// collectors are using in place rather than opening a gap.
+enum OfflinePackageStatus {
+  queued
+  building
+  ready
+  failed
+  superseded
+}
+
+/// One build of an offline basemap package for an area on a
+/// data_collection (#70).
+///
+/// The area itself lives on the item's data JSON (see OfflineArea in
+/// packages/shared-types). Builds live here instead because they are
+/// a work queue: claimed with FOR UPDATE SKIP LOCKED, heartbeated,
+/// and swept when a worker dies mid-build.
+///
+/// The bbox and zoom range are copied onto the row at queue time
+/// rather than read from the item when the build runs. An author who
+/// redraws the area while a build is in flight would otherwise get a
+/// package whose contents match neither the old definition nor the
+/// new one, and no field on it would say so.
+///
+/// A partial unique index in the migration allows at most one
+/// queued-or-building row per (item, area); Prisma has no syntax for
+/// partial indexes, so it lives in raw SQL and is not represented
+/// below. It is what makes "build now" idempotent under a double
+/// click and under the automatic-refresh sweep firing concurrently.
+model OfflinePackage {
+  id        String @id @default(uuid()) @db.Uuid
+  orgId     String @map("org_id") @db.Uuid
+  /// The data_collection this package belongs to.
+  itemId    String @map("item_id") @db.Uuid
+  /// OfflineArea.id within that item's data. Not a foreign key:
+  /// the area is a JSON element, so the database cannot enforce it.
+  /// A package whose area has been deleted is swept by housekeeping.
+  areaId    String @map("area_id")
+  createdBy String @map("created_by") @db.Uuid
+
+  status OfflinePackageStatus @default(queued)
+
+  /// [west, south, east, north] in EPSG:4326.
+  bbox    Float[]
+  minZoom Int     @map("min_zoom")
+  maxZoom Int     @map("max_zoom")
+
+  /// Upstream vector basemap archive this was cut from. Recorded so
+  /// a package can be traced to the day's planet build it came from.
+  sourceUrl String @map("source_url")
+
+  /// Tiles the region needs, from the builder's dry run. Populated
+  /// before a single tile is downloaded, which is what lets an
+  /// oversized area fail in seconds instead of filling a disk.
+  tileCount Int? @map("tile_count")
+
+  /// Object-storage key of the finished archive, under the private
+  /// `offline-package/` prefix. Null until the build succeeds.
+  storageKey String? @map("storage_key")
+  sizeBytes  Int?    @map("size_bytes")
+
+  errorMessage String? @map("error_message")
+
+  createdAt       DateTime  @default(now()) @map("created_at")
+  startedAt       DateTime? @map("started_at")
+  finishedAt      DateTime? @map("finished_at")
+  lastHeartbeatAt DateTime? @map("last_heartbeat_at")
+
+  /// Serves the claim poll.
+  @@index([status, createdAt], map: "offline_package_status_created_idx")
+  /// Serves "the current package for this area".
+  @@index([itemId, areaId, status], map: "offline_package_item_area_status_idx")
+  @@map("offline_package")
+}

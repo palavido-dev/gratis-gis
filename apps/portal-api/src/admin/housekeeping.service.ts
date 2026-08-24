@@ -1171,6 +1171,7 @@ export class HousekeepingService {
    *   item-point-cloud/    -> item.data storageKey + sources[] keys
    *                           (+ analysis_job params for merges)
    *   map-icon/            -> map_icon_upload.storage_key
+   *   offline-package/     -> offline_package.storage_key
    *
    * Deliberately NOT swept: the public image prefixes (item-thumb,
    * group-thumb, user-avatar, org-hero). Those are referenced only
@@ -1189,6 +1190,11 @@ export class HousekeepingService {
     'item-tile-layer',
     'item-point-cloud',
     'map-icon',
+    // #70: offline basemap packages. Referenced by a real column
+    // rather than by JSON, and the row is deleted outright when its
+    // area is, so an unreferenced archive here is exactly the leak
+    // this sweep exists for.
+    'offline-package',
   ] as const;
 
   /**
@@ -1210,6 +1216,12 @@ export class HousekeepingService {
    *     attachment registry, including AGO-import and form
    *     submission attachments which register here too)
    *   - map_icon_upload.storage_key
+   *   - offline_package.storage_key, for every row that still has
+   *     one. Superseded packages are included: an author who rebuilt
+   *     an area an hour ago may still have collectors carrying the
+   *     previous archive, and the row is what an operator would
+   *     restore from. They stop being referenced when the row is
+   *     deleted, which happens when the area is.
    *   - item.storage_ref (file-shaped items persist the raw key
    *     here as well as in data.storageKey; the private-read
    *     controller honors both, so the sweep must too)
@@ -1241,20 +1253,28 @@ export class HousekeepingService {
   private async referencedStorageKeys(): Promise<Set<string>> {
     const referenced = new Set<string>();
 
-    const [attachments, icons, storageRefs] = await Promise.all([
-      this.prisma.featureAttachment.findMany({
-        select: { storageKey: true },
-      }),
-      this.prisma.mapIconUpload.findMany({ select: { storageKey: true } }),
-      this.prisma.item.findMany({
-        where: { storageRef: { not: null } },
-        select: { storageRef: true },
-      }),
-    ]);
+    const [attachments, icons, storageRefs, offlinePackages] =
+      await Promise.all([
+        this.prisma.featureAttachment.findMany({
+          select: { storageKey: true },
+        }),
+        this.prisma.mapIconUpload.findMany({ select: { storageKey: true } }),
+        this.prisma.item.findMany({
+          where: { storageRef: { not: null } },
+          select: { storageRef: true },
+        }),
+        this.prisma.offlinePackage.findMany({
+          where: { storageKey: { not: null } },
+          select: { storageKey: true },
+        }),
+      ]);
     for (const a of attachments) referenced.add(a.storageKey);
     for (const i of icons) referenced.add(i.storageKey);
     for (const r of storageRefs) {
       if (r.storageRef) referenced.add(r.storageRef);
+    }
+    for (const p of offlinePackages) {
+      if (p.storageKey) referenced.add(p.storageKey);
     }
 
     // One statement for all four JSON surfaces. The pattern matches

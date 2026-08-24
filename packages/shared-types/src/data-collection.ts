@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import type { OfflineArea } from './offline-package';
+
 /**
  * Canonical shape stored in an Item's dataJson when
  * `type = 'data_collection'`.
@@ -67,6 +69,17 @@ export interface DataCollectionData {
    * extent. Slice 4 work in the field-mode arc.
    */
   offline?: DataCollectionOfflineConfig;
+  /**
+   * Author-defined areas the portal pre-builds basemap packages for.
+   * Separate from `offline` above, which describes how the runtime
+   * should behave when a collector takes an area offline themselves.
+   * These describe areas the author knows about in advance, so the
+   * archive is cut once on the server instead of once per collector.
+   *
+   * The builds are rows in `offline_package`, not fields here; see
+   * OfflineArea in offline-package.ts for why they are split.
+   */
+  offlineAreas?: OfflineArea[];
 }
 
 /**

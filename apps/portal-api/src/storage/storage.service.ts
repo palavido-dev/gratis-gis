@@ -51,7 +51,14 @@ export type AssetKind =
   // readable only by an admin through the triage view, so it must
   // never appear in the bucket policy's public-read prefixes. Small
   // (a screen capture), sniffed as a real image before it is stored.
-  | 'feedback-screenshot';
+  | 'feedback-screenshot'
+  // #70: pre-built vector basemap archive for one offline area on a
+  // data_collection. Private, and served through the offline-package
+  // controller rather than the generic storage route, because the
+  // item it belongs to is found through the offline_package table
+  // rather than through a key stored on the item itself. Written
+  // only by the build worker; there is no presigned upload path.
+  | 'offline-package';
 
 const ALLOWED_CONTENT_TYPES = new Set([
   'image/png',
@@ -497,6 +504,7 @@ export class StorageService implements OnModuleInit {
     'item-tile-layer',
     'item-point-cloud',
     'feedback-screenshot',
+    'offline-package',
   ]);
 
   /**

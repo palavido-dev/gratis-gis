@@ -38,6 +38,7 @@ export * from './tool';
 export * from './asset-ref';
 export * from './web-app';
 export * from './data-collection';
+export * from './offline-package';
 export * from './file';
 export * from './service';
 export * from './geocoding-service';
