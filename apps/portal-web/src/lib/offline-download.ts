@@ -118,16 +118,18 @@ export interface DownloadInput {
    *  mid-detail field work) when caller omits it. */
   tileZoomRange?: [number, number];
   /**
-   * #71: a basemap package the portal has already built for this
-   * deployment. When present it replaces tile warming outright: one
-   * download of a few megabytes instead of enumerating a million
-   * tiles, and it is the only path that produces a map which draws
-   * with no signal at all.
+   * #71: basemap packages the portal has already built for this
+   * deployment, one per prepared area. When present they replace
+   * tile warming outright: a few single-file downloads of megabytes
+   * each instead of enumerating a million tiles, and it is the only
+   * path that produces a map which draws with no signal at all.
+   * Every ready area downloads, so a deployment split into crew
+   * areas works from either end.
    *
    * The warmer stays as the fallback for deployments whose author
    * has not prepared an area.
    */
-  preparedPackage?: { areaId: string; packageId: string };
+  preparedPackages?: Array<{ areaId: string; packageId: string }>;
 }
 
 /** Best-effort byte estimate per cached feature. Used by the
@@ -307,42 +309,50 @@ export async function downloadDeployment(
   // has no tile templates (vector-style basemap, MVT-only,
   // unconfigured, etc) -- the runtime degrades to blank tiles
   // offline as it did before, but feature data + forms still work.
-  if (input.preparedPackage) {
-    // #71: the author prepared this area, so there is one file to
+  if (input.preparedPackages && input.preparedPackages.length > 0) {
+    // #71: the author prepared areas, so there are single files to
     // fetch. Takes precedence over tile warming unconditionally: a
     // prepared package is both smaller and the only version that
     // renders with no signal, so warming as well would be pure
     // waste against somebody else's tile server.
     progress.phase = 'caching-tiles';
-    progress.message = 'Downloading the map...';
     onProgress({ ...progress });
-    try {
-      await downloadOfflineBasemap(
-        input.dataCollectionId,
-        input.preparedPackage.areaId,
-        input.preparedPackage.packageId,
-        (p) => {
-          progress.message = p.totalBytes
-            ? `Downloading the map: ${Math.round((p.receivedBytes / p.totalBytes) * 100)}%`
-            : `Downloading the map: ${(p.receivedBytes / 1024 / 1024).toFixed(1)} MB`;
-          onProgress({ ...progress });
-        },
-        signal,
-      );
-      const stored = await storedBasemapSize(
-        input.dataCollectionId,
-        input.preparedPackage.areaId,
-      );
-      if (stored) totalFeatureBytes += stored;
-    } catch (err) {
-      if (signal?.aborted) throw err;
-      // The data above is already cached and useful on its own, so a
-      // failed map download degrades to "offline without a basemap"
-      // rather than losing the whole run.
-      progress.message = `Map download failed: ${
-        err instanceof Error ? err.message : String(err)
-      }`;
+    const count = input.preparedPackages.length;
+    for (let i = 0; i < count; i += 1) {
+      const pkg = input.preparedPackages[i]!;
+      const label =
+        count === 1 ? 'Downloading the map' : `Downloading map ${i + 1} of ${count}`;
+      progress.message = `${label}...`;
       onProgress({ ...progress });
+      try {
+        await downloadOfflineBasemap(
+          input.dataCollectionId,
+          pkg.areaId,
+          pkg.packageId,
+          (p) => {
+            progress.message = p.totalBytes
+              ? `${label}: ${Math.round((p.receivedBytes / p.totalBytes) * 100)}%`
+              : `${label}: ${(p.receivedBytes / 1024 / 1024).toFixed(1)} MB`;
+            onProgress({ ...progress });
+          },
+          signal,
+        );
+        const stored = await storedBasemapSize(
+          input.dataCollectionId,
+          pkg.areaId,
+        );
+        if (stored) totalFeatureBytes += stored;
+      } catch (err) {
+        if (signal?.aborted) throw err;
+        // The data above is already cached and useful on its own,
+        // and the remaining areas may still succeed, so one failed
+        // map degrades to "that area stays online-only" rather than
+        // losing the whole run.
+        progress.message = `Map download failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`;
+        onProgress({ ...progress });
+      }
     }
   } else if (
     input.tileUrlTemplates &&

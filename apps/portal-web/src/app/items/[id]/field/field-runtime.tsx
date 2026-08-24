@@ -1178,11 +1178,12 @@ export function FieldRuntime({
           ] as [number, number, number, number];
         })()
       : undefined;
-    // #71: a prepared area beats warming tiles, so find one before
-    // bothering to collect templates. The author declared where the
-    // crew works; that is a better answer than the viewport, and it
-    // is one download instead of a million.
-    const preparedArea = offlineBasemapRef.current.areas.find(
+    // #71: prepared areas beat warming tiles. The author declared
+    // where the crews work; that is a better answer than the
+    // viewport, and it is a handful of single-file downloads instead
+    // of a million tile fetches. ALL ready areas download, so a
+    // deployment split into crew areas works from either end.
+    const preparedAreas = offlineBasemapRef.current.areas.filter(
       (a) => a.current,
     );
     const controller = new AbortController();
@@ -1196,15 +1197,15 @@ export function FieldRuntime({
           layers: downloadLayers,
           pickListIds: Array.from(pickListIdSet),
           ...(viewportBbox !== undefined ? { bbox: viewportBbox } : {}),
-          ...(preparedArea?.current
+          ...(preparedAreas.length > 0
             ? {
-                preparedPackage: {
-                  areaId: preparedArea.area.id,
-                  packageId: preparedArea.current.id,
-                },
+                preparedPackages: preparedAreas.map((a) => ({
+                  areaId: a.area.id,
+                  packageId: a.current!.id,
+                })),
               }
             : {}),
-          ...(!preparedArea && tileUrlTemplates.length > 0
+          ...(preparedAreas.length === 0 && tileUrlTemplates.length > 0
             ? {
                 tileUrlTemplates,
                 // #272: user-chosen range from the layer-panel
@@ -1229,7 +1230,7 @@ export function FieldRuntime({
       setCachedDeployment(manifest);
       // The archive just landed; re-read it so the map swaps to the
       // local copy without the collector having to reload.
-      if (preparedArea) await offlineBasemapRef.current.reload();
+      if (preparedAreas.length > 0) await offlineBasemapRef.current.reload();
       // Tile-cache stats jumped during the warm phase; refresh so
       // the panel's "Map tiles: X (Y MB)" line catches up without
       // forcing the user to reopen the layer panel.
@@ -3332,7 +3333,19 @@ function LayerVisibilityPanel({
             </select>
           </label>
         </div>
-        {blockedTileSources.length > 0 ? (
+        {/* #71 review: the prepared-area branch comes FIRST. Before an
+            archive is adopted, the live style is still the online
+            basemap, so blockedTileSources is non-empty for exactly the
+            deployments a prepared package rescues, and putting the
+            warning first told the user their basemap would not work
+            offline moments before a download made it work offline. */}
+        {offlineBasemap.areas.some((a) => a.current) ? (
+          <p className="mt-1.5 text-2xs text-muted">
+            {offlineBasemap.areas.filter((a) => a.current).length === 1
+              ? 'The map for this deployment is already prepared, so it comes down as one file.'
+              : 'The maps for this deployment are already prepared, so they come down as single files.'}
+          </p>
+        ) : blockedTileSources.length > 0 ? (
           <div className="mt-1.5 rounded-md border border-warn/30 bg-warn/10 p-2">
             <p className="text-2xs font-medium text-warn">
               The basemap will not be available offline
@@ -3352,15 +3365,6 @@ function LayerVisibilityPanel({
               normally.
             </p>
           </div>
-        ) : offlineBasemap.areas.some((a) => a.current) ? (
-          // #71: with a prepared area the tile estimate is not just
-          // irrelevant, it is wrong: the download will not warm a
-          // single one of those tiles. Saying "600,000" next to a
-          // button that fetches 10 MB is worse than saying nothing.
-          <p className="mt-1.5 text-2xs text-muted">
-            The map for this deployment is already prepared, so it
-            comes down as one file.
-          </p>
         ) : (
           <p className="mt-1.5 text-2xs text-muted">
             ~{estimatedTileCount.toLocaleString('en-US')} tiles at the

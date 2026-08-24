@@ -636,7 +636,9 @@ export class HousekeepingScheduleService {
 function readV3Layers(data: unknown): DataLayerLayerShape[] | null {
   if (!data || typeof data !== 'object') return null;
   const v = (data as { version?: unknown }).version;
-  if (v !== 3 && v !== '3') return null;
+  // Numeric 3 only, matching items.service. See the note on the
+  // housekeeping.service copy (2026-08-24 review).
+  if (v !== 3) return null;
   const layers = (data as { layers?: unknown }).layers;
   if (!Array.isArray(layers)) return null;
   const out: DataLayerLayerShape[] = [];

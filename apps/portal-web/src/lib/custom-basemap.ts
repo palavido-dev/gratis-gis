@@ -2,6 +2,7 @@
 import type { StyleSpecification } from 'maplibre-gl';
 import maplibregl from 'maplibre-gl';
 import { Protocol } from 'pmtiles';
+import type { PMTiles } from 'pmtiles';
 // maplibre-cog-protocol 0.8 (the maplibre-gl@5 build) switched from
 // a default export to a named export; the function itself is the
 // same shape.
@@ -70,6 +71,25 @@ export function ensureRasterProtocols(): void {
     // eslint-disable-next-line no-console
     console.error('failed to register the cog:// map protocol', err);
   }
+}
+
+/**
+ * Register a local PMTiles archive on the shared protocol instance,
+ * so `pmtiles://<archive name>` in a style resolves to it.
+ *
+ * This exists because there must be exactly ONE Protocol instance
+ * behind the scheme. The 2026-08-24 review found three writers: this
+ * module, a private twin inside map-canvas, and the offline-basemap
+ * module swapping in a fresh instance per call. Only the fresh one
+ * knew about the local archive, and map-canvas re-asserts its own on
+ * every overlay sync, so the offline basemap went blank the moment a
+ * map with a tile overlay synced its layers. Adding archives to the
+ * one shared instance, instead of replacing the handler, is the fix:
+ * re-assertion by any caller keeps serving everyone's archives.
+ */
+export function registerPmtilesArchive(archive: PMTiles): void {
+  ensureRasterProtocols();
+  pmtilesProtocol?.add(archive);
 }
 
 // Best-effort registration at module load for any importer that

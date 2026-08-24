@@ -12,8 +12,6 @@ import {
   useState,
 } from 'react';
 import maplibregl from 'maplibre-gl';
-import { Protocol as PMTilesProtocol } from 'pmtiles';
-import { cogProtocol } from '@geomatico/maplibre-cog-protocol';
 import type {
   DrawingSet,
   MapData,
@@ -42,6 +40,7 @@ import {
 } from '@gratis-gis/shared-types';
 import {
   customBasemapToStyle,
+  ensureRasterProtocols,
   type CustomBasemap,
 } from '@/lib/custom-basemap';
 import { getCachedUserName } from '@/lib/user-name-cache';
@@ -63,23 +62,19 @@ import { getCachedUserName } from '@/lib/user-name-cache';
 // the bug always looked like "preview fine, map broken".
 //
 // So: never trust a cached flag for state we do not exclusively own.
-// Re-assert on every call instead. Both calls are plain dictionary
-// writes, so re-asserting is effectively free; the PMTiles instance is
-// kept module-level so its archive header cache survives the repeats.
-let pmtilesProtocol: PMTilesProtocol | null = null;
+// Re-assert on every call instead.
+//
+// The Protocol INSTANCE, though, must be the one shared instance in
+// custom-basemap. This file used to hold its own, which meant two
+// competing header caches for the same scheme and, worse, an instance
+// that had never seen the offline field basemap's local archive: this
+// function fires on every overlay sync, so a field map with a tile
+// overlay swapped the archive-aware instance out moments after the
+// offline style loaded, and the basemap went blank exactly when the
+// device was offline. One instance, archives added to it, re-asserted
+// freely by anyone (2026-08-24 review).
 function registerMapProtocols(): void {
-  if (typeof window === 'undefined') return;
-  try {
-    if (!pmtilesProtocol) pmtilesProtocol = new PMTilesProtocol();
-    maplibregl.addProtocol('pmtiles', pmtilesProtocol.tile);
-    maplibregl.addProtocol(
-      'cog',
-      cogProtocol as unknown as Parameters<typeof maplibregl.addProtocol>[1],
-    );
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error('map raster protocol registration failed', err);
-  }
+  ensureRasterProtocols();
 }
 registerMapProtocols();
 

@@ -1787,7 +1787,13 @@ function bboxEqual(
 function readV3Layers(data: unknown): DataLayerLayerShape[] | null {
   if (!data || typeof data !== 'object') return null;
   const v = (data as { version?: unknown; layers?: unknown }).version;
-  if (v !== 3 && v !== '3') return null;
+  // Numeric 3 only, matching the canonical items.service copy. This
+  // copy used to also accept the string '3', which items.service
+  // never did: any row carrying a stringified version is already
+  // broken on every user-facing path, and quietly reconciling it
+  // here while the item page ignored it hid the real invariant
+  // (2026-08-24 review).
+  if (v !== 3) return null;
   const layers = (data as { layers?: unknown }).layers;
   if (!Array.isArray(layers)) return null;
   const out: DataLayerLayerShape[] = [];

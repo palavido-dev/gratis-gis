@@ -451,8 +451,8 @@ export class DataLayerSearchIndexService {
  * Local narrowing of a data_layer item's v3 payload down to what
  * indexing needs (layer ids + field names + searchable flags).
  * Duplicated from items.service.readV3Layers on purpose, the same
- * way housekeeping.service and housekeeping-schedule.service carry
- * their own copies: importing ItemsService here would create a DI
+ * way housekeeping.service, housekeeping-schedule.service and
+ * item-bbox-refresh.service carry their own copies: importing ItemsService here would create a DI
  * cycle (ItemsModule imports DataLayerTablesModule).
  */
 export function readSearchableLayers(
@@ -460,7 +460,9 @@ export function readSearchableLayers(
 ): DataLayerLayerShape[] | null {
   if (!data || typeof data !== 'object') return null;
   const v = (data as { version?: unknown }).version;
-  if (v !== 3 && v !== '3') return null;
+  // Numeric 3 only, matching items.service. See the note on the
+  // housekeeping.service copy (2026-08-24 review).
+  if (v !== 3) return null;
   const layers = (data as { layers?: unknown }).layers;
   if (!Array.isArray(layers)) return null;
   const out: DataLayerLayerShape[] = [];

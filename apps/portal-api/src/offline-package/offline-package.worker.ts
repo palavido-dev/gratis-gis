@@ -168,8 +168,18 @@ export class OfflinePackageWorker implements OnModuleInit {
           `${tileCount} tiles, ${(size / 1024 / 1024).toFixed(1)} MB.`,
       );
     } catch (err) {
-      await this.packages.markFailed(job.id, msg(err));
-      this.log.warn(`Offline package ${job.id} failed: ${msg(err)}`);
+      // Redacted at the single choke point every failure passes
+      // through. The pmtiles CLI echoes the archive URL in its
+      // errors, the URL is an operator-configured mirror that can
+      // carry presigned-S3 credentials, and errorMessage is returned
+      // to anyone who can READ the deployment, which is every org
+      // member on an org-shared item. The URL's host is diagnostic
+      // enough; the rest of it is nobody's business (2026-08-24
+      // review, H1).
+      await this.packages.markFailed(job.id, redactUrls(msg(err)));
+      this.log.warn(
+        `Offline package ${job.id} failed: ${redactUrls(msg(err))}`,
+      );
     } finally {
       await rm(workDir, { recursive: true, force: true }).catch(() => {});
     }
@@ -188,8 +198,10 @@ export class OfflinePackageWorker implements OnModuleInit {
   private async sourceFor(job: OfflinePackage): Promise<string> {
     if (await isReachable(job.sourceUrl)) return job.sourceUrl;
     const fresh = await resolveBasemapSource();
+    // Hosts only: an operator mirror URL can carry credentials, and
+    // container logs are not the place for them.
     this.log.log(
-      `Basemap source ${job.sourceUrl} is gone; using ${fresh} for package ${job.id}.`,
+      `Basemap source at ${hostOf(job.sourceUrl)} is gone; using ${hostOf(fresh)} for package ${job.id}.`,
     );
     await this.prisma.offlinePackage.update({
       where: { id: job.id },
@@ -309,6 +321,29 @@ export class OfflinePackageWorker implements OnModuleInit {
 
 function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/** Hostname of a URL, or the input when it does not parse. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * Replace every URL in a string with just its host.
+ *
+ * Applied to anything derived from CLI output before it is persisted
+ * or logged. The pmtiles CLI echoes the archive URL it was fetching
+ * in its error and progress lines, and that URL is the operator's
+ * configured basemap source, which can be a presigned or
+ * basic-auth-bearing mirror address. Query strings and paths carry
+ * the credentials; the host carries the diagnosis.
+ */
+export function redactUrls(text: string): string {
+  return text.replace(/https?:\/\/[^\s"'`)\]]+/gi, (m) => hostOf(m));
 }
 
 /**

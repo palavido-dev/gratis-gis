@@ -42,6 +42,7 @@
  * sw.js; OSM's policy requires that one and forbids this one.
  */
 import {
+  estimateTileCount as estimateTileCountForRange,
   splitByPrefetchPolicy,
   type TilePrefetchSplit,
 } from '@gratis-gis/shared-types';
@@ -215,30 +216,23 @@ export async function warmTiles(
  * Exposed for tests and for future polygon-clipping refinement.
  */
 /**
- * Cheap tile-count estimate for a bbox + zoom range. Same math
- * enumerateTiles uses, but sums per-zoom counts instead of
- * allocating coordinate objects. Used by the per-download zoom
- * slider (#272) so the user sees a live count without blocking
- * the UI on a million-element array allocation at the upper
- * end of the zoom range.
+ * Cheap tile-count estimate for a bbox + zoom range.
+ *
+ * Delegates to the shared implementation in shared-types, which is
+ * the one with the Web Mercator latitude clamp and the per-axis
+ * range clamps. This module used to carry its own copy with neither:
+ * a bbox touching the poles produced negative row indices and a
+ * count of tiles that cannot exist, latent only because the sole
+ * caller feeds it map.getBounds(), which never leaves Mercator
+ * range (2026-08-24 review). One implementation now; this wrapper
+ * survives only to keep the `[min, max]` tuple signature its caller
+ * uses.
  */
 export function estimateTileCount(
   bbox: [number, number, number, number],
   zoomRange: [number, number],
 ): number {
-  const [w, s, e, n] = bbox;
-  const [zMin, zMax] = zoomRange;
-  let total = 0;
-  for (let z = zMin; z <= zMax; z += 1) {
-    const xMin = lonToTileX(w, z);
-    const xMax = lonToTileX(e, z);
-    const yMin = latToTileY(n, z);
-    const yMax = latToTileY(s, z);
-    const xs = Math.max(0, xMax - xMin + 1);
-    const ys = Math.max(0, yMax - yMin + 1);
-    total += xs * ys;
-  }
-  return total;
+  return estimateTileCountForRange(bbox, zoomRange[0], zoomRange[1]);
 }
 
 export function enumerateTiles(
@@ -246,15 +240,27 @@ export function enumerateTiles(
   zoomRange: [number, number],
   maxTiles: number,
 ): TileCoord[] {
-  const [w, s, e, n] = bbox;
+  // Clamp exactly the way the shared estimate does, so the number
+  // shown to the user and the tiles actually fetched stay the same
+  // arithmetic. Latitudes past the Web Mercator limit produced
+  // negative row indices here before, and every one of those
+  // coordinates became a real fetch guaranteed to 404.
+  const latLimit = 85.0511287798066;
+  const w = bbox[0];
+  const e = bbox[2];
+  const s = Math.max(bbox[1], -latLimit);
+  const n = Math.min(bbox[3], latLimit);
+  if (w >= e || s >= n) return [];
   const [zMin, zMax] = zoomRange;
   const out: TileCoord[] = [];
   for (let z = zMin; z <= zMax; z += 1) {
-    const xMin = lonToTileX(w, z);
-    const xMax = lonToTileX(e, z);
+    const span = Math.pow(2, z);
+    const clampTo = (v: number) => Math.max(0, Math.min(span - 1, v));
+    const xMin = clampTo(lonToTileX(w, z));
+    const xMax = clampTo(lonToTileX(e, z));
     // Note: y is inverted in slippy-map convention (y=0 is north).
-    const yMin = latToTileY(n, z);
-    const yMax = latToTileY(s, z);
+    const yMin = clampTo(latToTileY(n, z));
+    const yMax = clampTo(latToTileY(s, z));
     for (let x = xMin; x <= xMax; x += 1) {
       for (let y = yMin; y <= yMax; y += 1) {
         if (out.length >= maxTiles) return out;

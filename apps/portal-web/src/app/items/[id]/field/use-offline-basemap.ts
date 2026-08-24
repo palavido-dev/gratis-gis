@@ -6,7 +6,6 @@ import type maplibregl from 'maplibre-gl';
 import type { OfflineAreaWithPackage } from '@gratis-gis/shared-types';
 import {
   canStoreOfflineBasemap,
-  downloadOfflineBasemap,
   offlineBasemapStyle,
   removeOfflineBasemap,
   storedBasemapSize,
@@ -20,25 +19,31 @@ import {
  * no prepared area, gets exactly the behaviour they had before: the
  * ordinary online basemap. Nothing in this hook is allowed to be the
  * reason a field map does not draw.
+ *
+ * All prepared areas are treated together: the download fetches every
+ * ready archive and the style draws every stored one, so a
+ * deployment split into north-crew and south-crew areas works from
+ * either end. The archives are disjoint ground, so drawing them all
+ * costs nothing where a device only ever visits one.
+ *
+ * The actual downloading happens in offline-download.ts as part of
+ * the one "Download for offline" flow; this hook owns discovery,
+ * adoption of whatever is already on the device, and removal.
  */
 
 export interface OfflineBasemapState {
   /** Areas the author has prepared, with their current build. */
   areas: OfflineAreaWithPackage[];
-  /** Area id whose archive is on this device, if any. */
-  storedAreaId: string | null;
-  /** Size of the stored archive in bytes. */
+  /** Area ids whose archives are on this device. */
+  storedAreaIds: string[];
+  /** Combined size of the stored archives, in bytes. */
   storedBytes: number | null;
   /** Style to hand MapCanvas, or null to leave the basemap alone. */
   styleOverride: {
     tag: string;
     style: maplibregl.StyleSpecification;
   } | null;
-  /** Bytes received so far while a download is running. */
-  downloading: { areaId: string; received: number; total: number | null } | null;
-  error: string | null;
   supported: boolean;
-  download: (areaId: string, packageId: string) => Promise<void>;
   remove: (areaId: string) => Promise<void>;
   /** Re-read the areas and adopt whatever is now on the device. */
   reload: () => Promise<void>;
@@ -46,13 +51,10 @@ export interface OfflineBasemapState {
 
 export function useOfflineBasemap(itemId: string): OfflineBasemapState {
   const [areas, setAreas] = useState<OfflineAreaWithPackage[]>([]);
-  const [storedAreaId, setStoredAreaId] = useState<string | null>(null);
+  const [storedAreaIds, setStoredAreaIds] = useState<string[]>([]);
   const [storedBytes, setStoredBytes] = useState<number | null>(null);
   const [styleOverride, setStyleOverride] =
     useState<OfflineBasemapState['styleOverride']>(null);
-  const [downloading, setDownloading] =
-    useState<OfflineBasemapState['downloading']>(null);
-  const [error, setError] = useState<string | null>(null);
   /**
    * Whether this device can hold an archive.
    *
@@ -63,9 +65,7 @@ export function useOfflineBasemap(itemId: string): OfflineBasemapState {
    * data fetch. The result was a panel that rendered nothing, with
    * no request in any log to explain it. The fetch below is
    * deliberately NOT gated on this: knowing what the author
-   * prepared is useful even on a device that cannot store it, and a
-   * capability check has no business deciding whether to ask the
-   * server a question.
+   * prepared is useful even on a device that cannot store it.
    */
   const [supported, setSupported] = useState(false);
   useEffect(() => {
@@ -73,35 +73,55 @@ export function useOfflineBasemap(itemId: string): OfflineBasemapState {
   }, []);
 
   /**
-   * Adopt whichever archive is already on the device.
+   * Adopt whichever archives are already on the device.
    *
    * Runs against the areas the server just described, so an archive
    * whose area the author has since deleted is not adopted: it would
-   * render a basemap the deployment no longer claims, with no way for
+   * render coverage the deployment no longer claims, with no way for
    * the collector to tell why it looked different from a colleague's.
    */
   const adoptStored = useCallback(
     async (known: OfflineAreaWithPackage[]) => {
-      for (const entry of known) {
-        const size = await storedBasemapSize(itemId, entry.area.id);
-        if (size === null) continue;
-        try {
-          const style = await offlineBasemapStyle(itemId, entry.area.id);
-          if (!style) continue;
-          setStoredAreaId(entry.area.id);
-          setStoredBytes(size);
-          setStyleOverride({ tag: `${itemId}:${entry.area.id}`, style });
-        } catch {
-          // A corrupt archive should not take the map down with it.
-          // Drop it and fall through to the online basemap; the
-          // collector can download again when they have signal.
-          await removeOfflineBasemap(itemId, entry.area.id);
-        }
+      const candidateIds = known.map((k) => k.area.id);
+      const sizes = await Promise.all(
+        candidateIds.map((id) => storedBasemapSize(itemId, id)),
+      );
+      const stored = candidateIds.filter((_, i) => sizes[i] !== null);
+      if (stored.length === 0) {
+        setStoredAreaIds([]);
+        setStoredBytes(null);
+        setStyleOverride(null);
         return;
       }
-      setStoredAreaId(null);
-      setStoredBytes(null);
-      setStyleOverride(null);
+      try {
+        const built = await offlineBasemapStyle(itemId, stored);
+        if (!built) {
+          setStoredAreaIds([]);
+          setStoredBytes(null);
+          setStyleOverride(null);
+          return;
+        }
+        setStoredAreaIds(built.includedAreaIds);
+        setStoredBytes(
+          sizes.reduce<number>((sum, s) => sum + (s ?? 0), 0) || null,
+        );
+        setStyleOverride({
+          // Joined ids so adding or removing an area changes the tag
+          // and MapCanvas knows to swap styles.
+          tag: `${itemId}:${built.includedAreaIds.join('+')}`,
+          style: built.style,
+        });
+      } catch {
+        // A corrupt archive should not take the map down with it.
+        // Drop the stored set and fall through to the online
+        // basemap; the collector can download again with signal.
+        await Promise.all(
+          stored.map((id) => removeOfflineBasemap(itemId, id)),
+        );
+        setStoredAreaIds([]);
+        setStoredBytes(null);
+        setStyleOverride(null);
+      }
     },
     [itemId],
   );
@@ -127,59 +147,20 @@ export function useOfflineBasemap(itemId: string): OfflineBasemapState {
     void load();
   }, [load]);
 
-  const download = useCallback(
-    async (areaId: string, packageId: string) => {
-      setError(null);
-      setDownloading({ areaId, received: 0, total: null });
-      try {
-        await downloadOfflineBasemap(itemId, areaId, packageId, (p) =>
-          setDownloading({
-            areaId,
-            received: p.receivedBytes,
-            total: p.totalBytes,
-          }),
-        );
-        const style = await offlineBasemapStyle(itemId, areaId);
-        const size = await storedBasemapSize(itemId, areaId);
-        if (style) {
-          setStoredAreaId(areaId);
-          setStoredBytes(size);
-          setStyleOverride({ tag: `${itemId}:${areaId}`, style });
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'The download failed.');
-        // Leave nothing half-stored: a partial archive that survives
-        // reads as "downloaded" on the next open and then fails to
-        // draw, in the field, with no network to fix it.
-        await removeOfflineBasemap(itemId, areaId);
-      } finally {
-        setDownloading(null);
-      }
-    },
-    [itemId],
-  );
-
   const remove = useCallback(
     async (areaId: string) => {
       await removeOfflineBasemap(itemId, areaId);
-      if (storedAreaId === areaId) {
-        setStoredAreaId(null);
-        setStoredBytes(null);
-        setStyleOverride(null);
-      }
+      await load();
     },
-    [itemId, storedAreaId],
+    [itemId, load],
   );
 
   return {
     areas,
-    storedAreaId,
+    storedAreaIds,
     storedBytes,
     styleOverride,
-    downloading,
-    error,
     supported,
-    download,
     remove,
     reload: load,
   };

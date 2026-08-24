@@ -1,25 +1,27 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { Check, Loader2, Trash2 } from 'lucide-react';
+import { Check, Trash2 } from 'lucide-react';
 import type { OfflineBasemapState } from './use-offline-basemap';
 
 /**
- * What the prepared map is, and whether it is on this device (#71).
+ * What the prepared maps are, and whether they are on this device
+ * (#71).
  *
  * Status only. It used to carry its own Download button, which was
  * a mistake: the runtime already has "Download for offline" in two
  * places (the overflow menu and this panel), and adding a third
  * control meant the obvious button still ran the old tile-by-tile
  * warm while the good path sat somewhere the user never looked.
- * The prepared package is now part of that one download, and this
- * row just says what happened.
+ * Every ready area is part of that one download now, so "included
+ * in the download above" is true of each row, not just the first.
  *
  * Renders nothing when the author has prepared no areas, rather than
  * an empty state explaining a feature nobody can act on.
  */
 
 function formatBytes(n: number): string {
+  if (n < 1024) return `${Math.round(n)} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
@@ -35,18 +37,11 @@ export function OfflineBasemapRow({ state }: { state: OfflineBasemapState }) {
   return (
     <div className="mt-3 border-t border-border pt-3">
       <p className="mb-2 text-2xs font-medium uppercase tracking-wide text-muted">
-        Prepared map
+        {ready.length === 1 ? 'Prepared map' : 'Prepared maps'}
       </p>
       <ul className="space-y-1.5">
         {ready.map(({ area, current }) => {
-          const stored = state.storedAreaId === area.id;
-          const busy = state.downloading?.areaId === area.id;
-          const pct =
-            busy && state.downloading?.total
-              ? Math.round(
-                  (state.downloading.received / state.downloading.total) * 100,
-                )
-              : null;
+          const stored = state.storedAreaIds.includes(area.id);
           return (
             <li
               key={area.id}
@@ -55,19 +50,8 @@ export function OfflineBasemapRow({ state }: { state: OfflineBasemapState }) {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm text-ink-0">{area.name}</p>
                 <p className="text-2xs text-muted">
-                  {busy ? (
-                    pct === null ? (
-                      `Downloading, ${formatBytes(state.downloading?.received ?? 0)} so far`
-                    ) : (
-                      `Downloading, ${pct}%`
-                    )
-                  ) : stored ? (
-                    <span className="text-success">
-                      On this device
-                      {state.storedBytes
-                        ? `, ${formatBytes(state.storedBytes)}`
-                        : ''}
-                    </span>
+                  {stored ? (
+                    <span className="text-success">On this device</span>
                   ) : current?.sizeBytes ? (
                     `${formatBytes(current.sizeBytes)}, included in the download above`
                   ) : (
@@ -75,9 +59,7 @@ export function OfflineBasemapRow({ state }: { state: OfflineBasemapState }) {
                   )}
                 </p>
               </div>
-              {busy ? (
-                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-accent" />
-              ) : stored ? (
+              {stored ? (
                 <>
                   <Check className="h-4 w-4 shrink-0 text-success" />
                   <button
@@ -95,12 +77,9 @@ export function OfflineBasemapRow({ state }: { state: OfflineBasemapState }) {
           );
         })}
       </ul>
-      {state.error ? (
-        <p className="mt-1.5 text-2xs text-danger">{state.error}</p>
-      ) : null}
       <p className="mt-1.5 text-2xs text-muted">
         {state.supported
-          ? 'Your team lead prepared this map, so it comes down as one file rather than piece by piece, and it draws with no signal at all.'
+          ? 'Your team lead prepared these maps, so they come down as single files rather than piece by piece, and they draw with no signal at all.'
           : 'This browser cannot store maps offline. Try adding the app to your home screen.'}
       </p>
     </div>

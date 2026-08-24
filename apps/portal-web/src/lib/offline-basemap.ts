@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import maplibregl from 'maplibre-gl';
-import { FileSource, PMTiles, Protocol } from 'pmtiles';
+import type maplibregl from 'maplibre-gl';
+import { FileSource, PMTiles } from 'pmtiles';
 import { layers, namedFlavor } from '@protomaps/basemaps';
+import { registerPmtilesArchive } from './custom-basemap';
 
 /**
  * The offline basemap: one prepared archive, held on the device,
@@ -168,56 +169,90 @@ export async function removeOfflineBasemap(
 }
 
 /**
- * Register a stored archive with the pmtiles protocol and return the
- * style that draws it, or null when nothing is stored.
+ * Register every stored archive among `areaIds` with the shared
+ * pmtiles protocol and return one style that draws them all, or null
+ * when nothing is stored.
  *
- * The protocol instance is re-created and re-registered on every
- * call rather than cached behind a flag. The registry is global
- * state on the maplibregl singleton that any other map surface can
- * overwrite, and #209 was a whole outage caused by a cached
- * "already registered" flag outliving the registration it described.
+ * Archives are added onto the SINGLE shared Protocol instance in
+ * custom-basemap, never a fresh one. The first version of this
+ * function created its own instance and swapped the global handler,
+ * which meant any other surface re-asserting the scheme (map-canvas
+ * does so on every overlay sync) replaced it with an instance that
+ * had never heard of the local archive, and the offline basemap went
+ * blank exactly when the device was offline (2026-08-24 review).
+ * Adding to the shared instance makes re-assertion by anyone
+ * harmless.
+ *
+ * Multiple areas render as one source-plus-layer stack per archive.
+ * Areas are disjoint by construction (different crews, different
+ * ground), so stacking full basemap layer sets does not interleave
+ * badly: where one archive has no coverage it simply contributes no
+ * tiles. Layer ids are prefixed per area to keep them unique; only
+ * the first stack keeps its background layer, because `background`
+ * is not source-bound and duplicates would just repaint the canvas.
  */
 export async function offlineBasemapStyle(
   itemId: string,
-  areaId: string,
-): Promise<maplibregl.StyleSpecification | null> {
-  if (typeof caches === 'undefined') return null;
+  areaIds: string[],
+): Promise<{
+  style: maplibregl.StyleSpecification;
+  includedAreaIds: string[];
+} | null> {
+  if (typeof caches === 'undefined' || areaIds.length === 0) return null;
   const cache = await caches.open(OFFLINE_BASEMAP_CACHE);
-  const hit = await cache.match(cacheKeyFor(itemId, areaId));
-  if (!hit) return null;
-  const blob = await hit.blob();
 
-  const name = archiveNameFor(itemId, areaId);
-  const file = new File([blob], name, { type: 'application/vnd.pmtiles' });
-  const archive = new PMTiles(new FileSource(file));
+  const archives: Array<{ areaId: string; name: string; archive: PMTiles }> =
+    [];
+  for (const areaId of areaIds) {
+    const hit = await cache.match(cacheKeyFor(itemId, areaId));
+    if (!hit) continue;
+    const blob = await hit.blob();
+    const name = archiveNameFor(itemId, areaId);
+    const file = new File([blob], name, { type: 'application/vnd.pmtiles' });
+    const archive = new PMTiles(new FileSource(file));
+    registerPmtilesArchive(archive);
+    archives.push({ areaId, name, archive });
+  }
+  if (archives.length === 0) return null;
 
-  const protocol = new Protocol();
-  protocol.add(archive);
-  maplibregl.removeProtocol('pmtiles');
-  maplibregl.addProtocol('pmtiles', protocol.tile);
+  const sources: Record<string, unknown> = {};
+  const styleLayers: unknown[] = [];
+  archives.forEach(({ areaId, name }, index) => {
+    const sourceName = `${SOURCE_NAME}-${areaId}`;
+    sources[sourceName] = {
+      type: 'vector',
+      // Resolved through the shared protocol's registry by file
+      // name, not fetched. Nothing here touches the network.
+      url: `pmtiles://${name}`,
+      attribution: OFFLINE_BASEMAP_ATTRIBUTION,
+    };
+    for (const layer of layers(sourceName, namedFlavor('light'), {
+      lang: 'en',
+    })) {
+      if (index > 0 && layer.type === 'background') continue;
+      styleLayers.push(
+        index === 0 ? layer : { ...layer, id: `${areaId}:${layer.id}` },
+      );
+    }
+  });
 
-  const header = await archive.getHeader();
+  const header = await archives[0]!.archive.getHeader();
 
   return {
-    version: 8,
-    glyphs: GLYPHS,
-    sprite: SPRITE,
-    sources: {
-      [SOURCE_NAME]: {
-        type: 'vector',
-        // Resolved through the protocol's registry by file name, not
-        // fetched. Nothing here touches the network.
-        url: `pmtiles://${name}`,
-        attribution: OFFLINE_BASEMAP_ATTRIBUTION,
-      },
-    },
-    layers: layers(SOURCE_NAME, namedFlavor('light'), { lang: 'en' }),
-    // Centre on what the archive actually holds, so a collector who
-    // opens the deployment with no stored viewport lands on their
-    // own area rather than in the ocean.
-    center: [header.centerLon, header.centerLat],
-    zoom: header.centerZoom,
-  } as maplibregl.StyleSpecification;
+    includedAreaIds: archives.map((a) => a.areaId),
+    style: {
+      version: 8,
+      glyphs: GLYPHS,
+      sprite: SPRITE,
+      sources,
+      layers: styleLayers,
+      // Centre on what the first archive actually holds, so a
+      // collector who opens the deployment with no stored viewport
+      // lands on real coverage rather than in the ocean.
+      center: [header.centerLon, header.centerLat],
+      zoom: header.centerZoom,
+    } as maplibregl.StyleSpecification,
+  };
 }
 
 /**

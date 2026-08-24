@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { parseRegionTiles, readAreas } from './offline-package.worker.js';
+import {
+  parseRegionTiles,
+  readAreas,
+  redactUrls,
+} from './offline-package.worker.js';
 
 /**
  * The size guard is only as good as this parse. If the upstream CLI
@@ -39,6 +43,34 @@ describe('parseRegionTiles', () => {
     // caller treats the latter as a buildable answer.
     expect(parseRegionTiles('some other output entirely')).toBeNull();
     expect(parseRegionTiles('')).toBeNull();
+  });
+});
+
+describe('redactUrls', () => {
+  it('strips a presigned mirror URL down to its host', () => {
+    // The exact leak the 2026-08-24 review found: the pmtiles CLI
+    // echoes the archive URL in its errors, the URL is the
+    // operator's mirror, and errorMessage goes to every org reader.
+    const cliError =
+      'pmtiles exited with code 1\n' +
+      'fetching https://mirror.example.com/planet.pmtiles?X-Amz-Signature=SECRET&X-Amz-Credential=AKIA123: 403';
+    const redacted = redactUrls(cliError);
+    expect(redacted).toContain('mirror.example.com');
+    expect(redacted).not.toContain('X-Amz-Signature');
+    expect(redacted).not.toContain('SECRET');
+    expect(redacted).not.toContain('planet.pmtiles');
+  });
+
+  it('strips basic-auth credentials embedded in the URL', () => {
+    // `host` excludes userinfo by definition, which is the point.
+    expect(redactUrls('failed: https://user:hunter2@minio.internal:9000/x')).toBe(
+      'failed: minio.internal:9000',
+    );
+  });
+
+  it('leaves text without URLs untouched', () => {
+    const plain = 'This area needs 30,001 tiles, over the limit of 25,000.';
+    expect(redactUrls(plain)).toBe(plain);
   });
 });
 

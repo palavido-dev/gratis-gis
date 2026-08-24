@@ -266,16 +266,16 @@ function readV3Layers(data: unknown): DataLayerLayerShape[] | null {
   for (const l of layers) {
     if (!l || typeof l !== 'object') continue;
     const id = (l as { id?: unknown }).id;
-    if (typeof id !== 'string') continue;
-    const geometryType =
-      (l as { geometryType?: unknown }).geometryType ?? null;
-    out.push({
-      id,
-      geometryType:
-        typeof geometryType === 'string'
-          ? (geometryType as DataLayerLayerShape['geometryType'])
-          : null,
-    } as DataLayerLayerShape);
+    // Same filters as every other copy of this helper. This one had
+    // drifted: it accepted empty-string ids and cast unknown
+    // geometry types straight through, both invisible to typecheck
+    // because the output is already the typed shape (2026-08-24
+    // review).
+    if (typeof id !== 'string' || id.length === 0) continue;
+    const gt = (l as { geometryType?: unknown }).geometryType;
+    const geometryType: DataLayerLayerShape['geometryType'] =
+      gt === 'point' || gt === 'line' || gt === 'polygon' ? gt : null;
+    out.push({ id, geometryType });
   }
   return out;
 }
