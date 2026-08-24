@@ -54,6 +54,7 @@ import {
   type LayerMetadata,
 } from './layer-metadata';
 import { LayerSwatch } from './layer-swatch';
+import { TabPanel, TabStrip } from '@/components/ui/tab-strip';
 
 interface Props {
   layers: MapLayer[];
@@ -1074,11 +1075,12 @@ const LAYER_TABS: ReadonlyArray<{ id: LayerTab; label: string }> = [
 /**
  * Tab strip for the layer settings.
  *
- * Roving tabindex: only the selected tab is in the tab order and the
- * arrows move between them. That is the ARIA tablist pattern, and it
- * earns its keep here because the panel is dense with focusable
- * controls; without it, tabbing through the layer list costs three
- * extra presses per expanded layer.
+ * The roving-tabindex implementation this used to carry inline now
+ * lives in `@/components/ui/tab-strip`, because the item detail page
+ * needed the same behaviour and a second hand-rolled copy would have
+ * been a second chance to forget the keyboard handling. The wrapper
+ * survives so the layer-panel call sites keep their narrow, typed
+ * signature instead of repeating the tab list and the id prefix.
  */
 function LayerTabStrip({
   value,
@@ -1087,65 +1089,15 @@ function LayerTabStrip({
   value: LayerTab;
   onChange: (next: LayerTab) => void;
 }) {
-  const refs = useRef<Array<HTMLButtonElement | null>>([]);
-  const move = (dir: 1 | -1 | 'first' | 'last') => {
-    const i = LAYER_TABS.findIndex((t) => t.id === value);
-    const next =
-      dir === 'first'
-        ? 0
-        : dir === 'last'
-          ? LAYER_TABS.length - 1
-          : (i + dir + LAYER_TABS.length) % LAYER_TABS.length;
-    onChange(LAYER_TABS[next]!.id);
-    refs.current[next]?.focus();
-  };
   return (
-    <div
-      role="tablist"
-      aria-label="Layer settings"
-      className="flex border-t border-border"
-      onKeyDown={(e) => {
-        if (e.key === 'ArrowRight') {
-          e.preventDefault();
-          move(1);
-        } else if (e.key === 'ArrowLeft') {
-          e.preventDefault();
-          move(-1);
-        } else if (e.key === 'Home') {
-          e.preventDefault();
-          move('first');
-        } else if (e.key === 'End') {
-          e.preventDefault();
-          move('last');
-        }
-      }}
-    >
-      {LAYER_TABS.map((t, i) => {
-        const active = t.id === value;
-        return (
-          <button
-            key={t.id}
-            ref={(el) => {
-              refs.current[i] = el;
-            }}
-            type="button"
-            role="tab"
-            id={`layer-tab-${t.id}`}
-            aria-selected={active}
-            aria-controls={`layer-tabpanel-${t.id}`}
-            tabIndex={active ? 0 : -1}
-            onClick={() => onChange(t.id)}
-            className={`min-w-0 flex-1 truncate border-b-2 px-1 py-2 text-xs font-medium transition ${
-              active
-                ? 'border-accent text-ink-0'
-                : 'border-transparent text-muted hover:text-ink-1'
-            }`}
-          >
-            {t.label}
-          </button>
-        );
-      })}
-    </div>
+    <TabStrip
+      tabs={LAYER_TABS}
+      value={value}
+      onChange={onChange}
+      ariaLabel="Layer settings"
+      idPrefix="layer"
+      variant="fill"
+    />
   );
 }
 
@@ -1159,16 +1111,15 @@ function LayerTabPanel({
   active: LayerTab;
   children: React.ReactNode;
 }) {
-  if (tab !== active) return null;
   return (
-    <div
-      role="tabpanel"
-      id={`layer-tabpanel-${tab}`}
-      aria-labelledby={`layer-tab-${tab}`}
+    <TabPanel
+      tab={tab}
+      active={active}
+      idPrefix="layer"
       className="px-3 pb-3 pt-3"
     >
       {children}
-    </div>
+    </TabPanel>
   );
 }
 

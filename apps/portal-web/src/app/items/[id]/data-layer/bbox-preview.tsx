@@ -211,8 +211,18 @@ export function DataLayerBboxPreview({ bbox, featureSources }: Props) {
       }
     });
 
+    // The preview can be mounted inside a hidden tab panel, where the
+    // container is 0x0 at construction time and MapLibre sizes its
+    // canvas to nothing. Nothing prompts it to re-measure when the
+    // panel is later revealed, so without this the user tabs to Data
+    // and finds a blank rectangle. Observing the container covers the
+    // reveal and ordinary window resizes with one mechanism.
+    const ro = new ResizeObserver(() => map.resize());
+    ro.observe(containerRef.current);
+
     return () => {
       cancelled = true;
+      ro.disconnect();
       map.remove();
       mapRef.current = null;
     };

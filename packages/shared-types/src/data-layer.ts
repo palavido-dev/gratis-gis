@@ -200,11 +200,22 @@ export interface DataLayerDataV2 {
  * and may participate in zero or more parent/child relationships with
  * other layers in the same item.
  *
- * Persistence (Phase C: not yet wired):
- * - Each layer maps to a PostGIS table `fs_<itemIdNoDashes>_<layerId>`.
+ * Persistence:
+ * - There are no per-layer tables. Every read and write goes through
+ *   the append-only `observation` table, keyed by the engine scope
+ *   `data_layer:<itemId>:<layerId>` (see `dataLayerScope` in
+ *   apps/portal-api/src/engine/data-layer.ts, the only place that
+ *   string should be constructed).
  * - Per-layer feature CRUD lives at `/items/:id/layers/:layerId/features`.
- * - Relationships are enforced by a FK column on the child layer's
- *   table pointing at the parent layer's global_id UUID.
+ * - Relationships are carried by the child layer's `parentFkColumn`
+ *   attribute holding the parent's global_id UUID.
+ *
+ * This block used to describe a "Phase C: not yet wired" plan for a
+ * PostGIS table per layer named `fs_<itemIdNoDashes>_<layerId>`. The
+ * observation-log pivot made that phase unnecessary rather than
+ * finishing it, and the note outlived the plan. No such table has
+ * ever existed for a v3 layer; the `fs_<itemIdNoDashes>` form is real
+ * but belongs to v2 items only.
  */
 export type LayerGeometryType = 'point' | 'line' | 'polygon' | null;
 

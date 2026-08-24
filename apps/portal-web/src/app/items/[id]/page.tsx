@@ -4,7 +4,6 @@ import { notFound } from 'next/navigation';
 import {
   ArrowLeft,
   Calendar,
-  ChevronDown,
   ClipboardList,
   ExternalLink,
   FlaskConical,
@@ -116,6 +115,9 @@ function basemapItemToCustomBasemap(
 import { ItemPills } from './item-pills';
 import { ItemStatsStrip } from './item-stats-strip';
 import { ItemMapPreview } from './item-map-preview';
+import { ItemTabs } from './item-tabs';
+import type { ItemTabSpec } from './item-tabs';
+import { ItemMetadataPanel } from './item-metadata-panel';
 import { SharingPanel } from './sharing-panel';
 import { ItemDependencies } from './item-dependencies';
 import { DeleteItemButton } from './delete-button';
@@ -424,6 +426,181 @@ export default async function ItemDetailPage(props: Props) {
   const containerWidth =
     isWorkspace || isAppBuilder ? 'max-w-screen-2xl' : 'max-w-6xl';
 
+  // Owner label, resolved once for the header line and the Metadata
+  // tab. The API's `owner` relation is optional and older rows may
+  // not carry it, so this falls all the way through to a short id
+  // rather than rendering an empty string where a name should be.
+  const ownerLabel =
+    item.ownerId === me.id
+      ? 'you'
+      : (
+          item as unknown as {
+            owner?: { fullName?: string; username?: string } | null;
+          }
+        ).owner?.fullName?.trim() ||
+        (item as unknown as { owner?: { username?: string } | null }).owner
+          ?.username ||
+        item.ownerId.slice(0, 8);
+
+  // data_layer panels are built here rather than inline in the body
+  // because where they belong depends on the storage version. A v3
+  // item gets Data and Source tabs of their own; a v1/v2 item keeps
+  // them stacked in Overview, because legacy items have no live
+  // preview or stats strip and splitting them would leave Overview
+  // holding nothing but an import banner.
+  const dataLayerSourcePanels =
+    item.type === 'data_layer' ? (
+      <>
+        {/* Provenance runs above version history: 'where did this
+            come from?' before 'what did it used to look like?'. Both
+            self-hide when there is nothing recorded. */}
+        <DataLayerProvenance
+          data={item.data as DataLayerData | null}
+          userNames={userNamesForProvenance}
+        />
+        <VersionHistoryPanel itemId={item.id} canEdit={canManage} />
+      </>
+    ) : null;
+  const dataLayerDataPanels =
+    item.type === 'data_layer' ? (
+      <>
+        {/* Read-only schema inspector above the editor: the field
+            table as the server currently has it, plus a raw JSON
+            disclosure, so an author comparing against an unsaved
+            edit has the committed truth on the same screen. */}
+        <DataLayerSchema data={item.data as DataLayerData | null} />
+        {v3Data ? (
+          <section className="mb-6">
+            <DataLayerV3SchemaEditor
+              itemId={item.id}
+              initial={v3Data}
+              canEdit={canManage}
+              canDownload={canDownload}
+            />
+          </section>
+        ) : (
+          <section className="mb-6">
+            <DataLayerEditor
+              itemId={item.id}
+              initial={
+                (item.data as DataLayerData | null)?.version === 2
+                  ? (item.data as DataLayerData)
+                  : ({
+                      ...DEFAULT_DATA_LAYER,
+                      ...((item.data ?? {}) as Partial<DataLayerData>),
+                    } as DataLayerData)
+              }
+              canEdit={canManage}
+            />
+          </section>
+        )}
+      </>
+    ) : null;
+
+  // Dependencies and sharing share a tab: "what else points at this"
+  // and "who can see this" are the same question from two sides, and
+  // both are things you check before you change or share something.
+  const accessBody = (
+    <>
+      {/* Dependency panel runs above Sharing for everyone: knowing
+          what else will break if you touch this item is the same
+          shape of question whether you're the owner or a viewer. */}
+      <section className="mb-8">
+        <ItemDependencies itemId={item.id} />
+      </section>
+      {canManage ? (
+        <section id="sharing" className="mb-8">
+          <h2 className="mb-4 flex items-center gap-2 text-sm font-medium text-muted">
+            <Users className="h-4 w-4" />
+            Sharing
+          </h2>
+          {/* #91: forms have a paired data_layer where every
+              submission lands; the form's own ACL controls who can
+              SUBMIT, the layer's ACL controls who can VIEW
+              responses. Surface the paired layer's current tier
+              + deep-link so authors don't have to discover the
+              dual-ACL model the hard way. */}
+          {item.type === 'form' ? (
+            <PairedLayerSharingNotice
+              formId={item.id}
+              linkedLayerId={
+                item.data &&
+                typeof item.data === 'object' &&
+                'linkedLayerId' in (item.data as object) &&
+                typeof (item.data as { linkedLayerId?: unknown })
+                  .linkedLayerId === 'string'
+                  ? (item.data as { linkedLayerId: string }).linkedLayerId
+                  : null
+              }
+            />
+          ) : null}
+          <SharingPanel
+            itemId={item.id}
+            itemTitle={item.title}
+            // #258: editor-templated web_apps need the same
+            // dep-chain pre-share audit the legacy 'editor' type
+            // gets. Pass 'editor' for either shape so SharingPanel's
+            // internal `'editor'` branches fire correctly without
+            // having to plumb the WebAppData shape into it. Rename
+            // the prop to something less type-shaped (like
+            // `dependencyChainKind`) when the deprecation window
+            // closes and the literal 'editor' type goes away.
+            itemType={isEditorItem(item) ? 'editor' : item.type}
+            initialAccess={item.access}
+            initialShares={item.shares}
+            // #80: tier-level geo-boundary refs surface in
+            // SharingPanel's tier-scope picker. The fields are
+            // optional on the Item type since slice 1 added them as
+            // nullable columns; defaulting to null keeps callers
+            // pre-#80 deploy compatible during the rolling deploy.
+            initialPublicGeoBoundaryId={
+              (item as { publicGeoBoundaryId?: string | null })
+                .publicGeoBoundaryId ?? null
+            }
+            initialOrgGeoBoundaryId={
+              (item as { orgGeoBoundaryId?: string | null })
+                .orgGeoBoundaryId ?? null
+            }
+            geoBoundaryItems={geoBoundaries.map((b) => ({
+              id: b.id,
+              title: b.title,
+            }))}
+            groups={groups}
+            orgLabel="Your organization"
+          />
+        </section>
+      ) : null}
+    </>
+  );
+
+  // Tabs after Overview, which ItemTabs supplies from its children.
+  const sideTabs: ItemTabSpec[] = [
+    ...(v3Data
+      ? [
+          { id: 'data', label: 'Data', content: dataLayerDataPanels },
+          { id: 'source', label: 'Source', content: dataLayerSourcePanels },
+        ]
+      : []),
+    {
+      id: 'metadata',
+      label: 'Metadata',
+      content: (
+        <ItemMetadataPanel
+          itemId={item.id}
+          itemType={item.type}
+          description={item.description}
+          tags={item.tags}
+          license={item.license}
+          createdAt={item.createdAt}
+          updatedAt={item.updatedAt}
+          ownerLabel={ownerLabel}
+          data={item.data}
+        />
+      ),
+    },
+    { id: 'access', label: 'Access', content: accessBody },
+  ];
+
   return (
     <div className={`mx-auto w-full ${containerWidth} px-6 py-6`}>
       <Link
@@ -571,73 +748,33 @@ export default async function ItemDetailPage(props: Props) {
           </div>
         ) : null}
       </header>
-      {/* Collapsed details: description + owner + updated + tags.
-          Uses the native <details> element so it works without any
-          client-side JS and stays accessible. Shown only when the
-          user has something worth seeing (description OR tags). */}
-      {item.description || item.tags.length > 0 ? (
-        <details className="group mb-4 rounded-md border border-border bg-surface-1">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-xs text-muted hover:text-ink-1">
-            <span className="inline-flex items-center gap-3">
-              <span className="inline-flex items-center gap-1">
-                <Calendar className="h-3 w-3" />
-                Updated {new Date(item.updatedAt).toLocaleString()}
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <User className="h-3 w-3" />
-                Owner:{' '}
-                {item.ownerId === me.id
-                  ? 'you'
-                  : (item as unknown as { owner?: { fullName?: string; username?: string } | null }).owner?.fullName?.trim() ||
-                    (item as unknown as { owner?: { username?: string } | null }).owner?.username ||
-                    item.ownerId.slice(0, 8)}
-              </span>
-              {item.tags.length > 0 ? (
-                <span className="text-muted">
-                  · {item.tags.length}{' '}
-                  {item.tags.length === 1 ? 'tag' : 'tags'}
-                </span>
-              ) : null}
-            </span>
-            <ChevronDown className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-180" />
-          </summary>
-          <div className="space-y-3 border-t border-border px-3 py-3">
-            {item.description ? (
-              <p className="text-sm text-ink-1">{item.description}</p>
-            ) : null}
-            {item.tags.length > 0 ? (
-              <div className="flex flex-wrap gap-1.5">
-                {item.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="rounded-full border border-border bg-surface-2 px-2 py-0.5 text-2xs text-muted"
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        </details>
-      ) : (
-        // No description/tags: still show the updated + owner line
-        // so users have at least the audit trail visible.
-        (<div className="mb-4 flex items-center gap-3 text-xs text-muted">
-          <span className="inline-flex items-center gap-1">
-            <Calendar className="h-3 w-3" />
-            Updated {new Date(item.updatedAt).toLocaleString()}
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <User className="h-3 w-3" />
-            Owner:{' '}
-            {item.ownerId === me.id
-              ? 'you'
-              : (item as unknown as { owner?: { fullName?: string; username?: string } | null }).owner?.fullName?.trim() ||
-                (item as unknown as { owner?: { username?: string } | null }).owner?.username ||
-                item.ownerId.slice(0, 8)}
-          </span>
-        </div>)
-      )}
+      {/* Lede + audit line. This used to be a `<details>` disclosure
+          holding description, owner, updated and tags, which meant the
+          description was one click away on every item and the tags,
+          license and identifiers had nowhere to live at all. The
+          description now leads (clamped, so a long one cannot push the
+          content below the fold) and the rest is the Metadata tab. */}
+      {/* `description` is typed as a plain string but legacy rows can
+          still arrive null, so this tests truthiness before trimming.
+          The disclosure this replaced was null-safe by accident; a
+          bare .trim() here would 500 the whole page. */}
+      {item.description && item.description.trim() ? (
+        <p className="mb-3 line-clamp-2 max-w-3xl text-sm leading-relaxed text-ink-1">
+          {item.description}
+        </p>
+      ) : null}
+      <div className="mb-4 flex flex-wrap items-center gap-3 text-xs text-muted">
+        <span className="inline-flex items-center gap-1">
+          <Calendar className="h-3 w-3" />
+          Updated {new Date(item.updatedAt).toLocaleString()}
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <User className="h-3 w-3" />
+          Owner: {ownerLabel}
+        </span>
+      </div>
+      <ItemTabs tabs={sideTabs}>
+        {/* Overview: the item type's own detail surface. */}
       {item.type === 'map' && isBuilderView ? (
         <MapEditor
           itemId={item.id}
@@ -709,51 +846,15 @@ export default async function ItemDetailPage(props: Props) {
               />
             </section>
           ) : null}
-          {/* Provenance panel runs above the schema editor so 'where
-              did this come from?' is answered before 'here's the
-              field list.' Silent when the item has no source block
-              recorded (legacy / hand-seeded). */}
-          <DataLayerProvenance
-            data={item.data as DataLayerData | null}
-            userNames={userNamesForProvenance}
-          />
-          {/* Schema inspector collapses by default (the editor below
-              is the primary surface); opens to show the field table
-              and a raw JSON disclosure for debugging. */}
-          <DataLayerSchema
-            data={item.data as DataLayerData | null}
-          />
-          {/* Version history: prior snapshots of item.data with
-              point-in-time revert. Editors / admins only; the panel
-              itself guards on canEdit so the mount here is cheap. */}
-          <VersionHistoryPanel itemId={item.id} canEdit={canManage} />
-          {/* v3 items route to the new multi-layer schema editor. v1/v2
-              continue to use the legacy single-layer editor so existing
-              items keep working exactly as before. */}
-          {v3Data ? (
-            <section className="mb-6">
-              <DataLayerV3SchemaEditor
-                itemId={item.id}
-                initial={v3Data}
-                canEdit={canManage}
-                canDownload={canDownload}
-              />
-            </section>
-          ) : (
-            <section className="mb-6">
-              <DataLayerEditor
-                itemId={item.id}
-                initial={
-                  (item.data as DataLayerData | null)?.version === 2
-                    ? (item.data as DataLayerData)
-                    : ({
-                        ...DEFAULT_DATA_LAYER,
-                        ...((item.data ?? {}) as Partial<DataLayerData>),
-                      } as DataLayerData)
-                }
-                canEdit={canManage}
-              />
-            </section>
+          {/* v3 items put these on their own Data and Source tabs.
+              v1/v2 items have no preview or stats above, so leaving
+              Overview holding only the import banner would be worse
+              than a longer single column: they keep the stack. */}
+          {v3Data ? null : (
+            <>
+              {dataLayerSourcePanels}
+              {dataLayerDataPanels}
+            </>
           )}
         </>
       ) : item.type === 'arcgis_service' ? (
@@ -1214,74 +1315,7 @@ export default async function ItemDetailPage(props: Props) {
           <ComingSoon type={item.type} data={item.data} />
         </section>
       )}
-      {/* Dependency panel runs above Sharing for everyone: knowing
-          what else will break if you touch this item is the same
-          shape of question whether you're the owner or a viewer. */}
-      <section className="mb-8">
-        <ItemDependencies itemId={item.id} />
-      </section>
-      {canManage ? (
-        <section id="sharing" className="mb-8">
-          <h2 className="mb-4 flex items-center gap-2 text-sm font-medium text-muted">
-            <Users className="h-4 w-4" />
-            Sharing
-          </h2>
-          {/* #91: forms have a paired data_layer where every
-              submission lands; the form's own ACL controls who can
-              SUBMIT, the layer's ACL controls who can VIEW
-              responses. Surface the paired layer's current tier
-              + deep-link so authors don't have to discover the
-              dual-ACL model the hard way. */}
-          {item.type === 'form' ? (
-            <PairedLayerSharingNotice
-              formId={item.id}
-              linkedLayerId={
-                item.data &&
-                typeof item.data === 'object' &&
-                'linkedLayerId' in (item.data as object) &&
-                typeof (item.data as { linkedLayerId?: unknown })
-                  .linkedLayerId === 'string'
-                  ? ((item.data as { linkedLayerId: string }).linkedLayerId)
-                  : null
-              }
-            />
-          ) : null}
-          <SharingPanel
-            itemId={item.id}
-            itemTitle={item.title}
-            // #258: editor-templated web_apps need the same
-            // dep-chain pre-share audit the legacy 'editor' type
-            // gets. Pass 'editor' for either shape so SharingPanel's
-            // internal `'editor'` branches fire correctly without
-            // having to plumb the WebAppData shape into it. Rename
-            // the prop to something less type-shaped (like
-            // `dependencyChainKind`) when the deprecation window
-            // closes and the literal 'editor' type goes away.
-            itemType={isEditorItem(item) ? 'editor' : item.type}
-            initialAccess={item.access}
-            initialShares={item.shares}
-            // #80: tier-level geo-boundary refs surface in
-            // SharingPanel's tier-scope picker. The fields are
-            // optional on the Item type since slice 1 added them as
-            // nullable columns; defaulting to null keeps callers
-            // pre-#80 deploy compatible during the rolling deploy.
-            initialPublicGeoBoundaryId={
-              (item as { publicGeoBoundaryId?: string | null })
-                .publicGeoBoundaryId ?? null
-            }
-            initialOrgGeoBoundaryId={
-              (item as { orgGeoBoundaryId?: string | null })
-                .orgGeoBoundaryId ?? null
-            }
-            geoBoundaryItems={geoBoundaries.map((b) => ({
-              id: b.id,
-              title: b.title,
-            }))}
-            groups={groups}
-            orgLabel="Your organization"
-          />
-        </section>
-      ) : null}
+      </ItemTabs>
     </div>
   );
 }
