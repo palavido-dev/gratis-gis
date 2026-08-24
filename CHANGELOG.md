@@ -5,6 +5,17 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.85] - 2026-08-24
+
+### Fixed
+
+- **The Layers panel in the field now actually shows the layers.**
+  The list had been squeezed out of view by the sections above it
+  (basemap, detail pickers, download, prepared maps) as those grew;
+  on a phone the panel could show everything except the thing it is
+  named after. The layer list now comes first and the whole panel
+  scrolls as one.
+
 ## [0.9.84] - 2026-08-24
 
 ### Fixed
