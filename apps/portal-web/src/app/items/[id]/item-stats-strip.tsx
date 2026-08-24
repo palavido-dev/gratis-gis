@@ -95,6 +95,17 @@ export function ItemStatsStrip({
   const t = useT();
   const [count, setCount] = useState<CountState>({ status: 'loading' });
 
+  // Primitive key, same reason the map preview beside this strip has
+  // one: `layers` is built inline by the server component with .map(),
+  // so it is a fresh array identity on every render, and
+  // ImportJobsBanner calls router.refresh() every 2.5s while an
+  // import runs. Depending on the array re-ran this effect, and each
+  // run is one count aggregate PER LAYER, so a multi-layer import
+  // burst-fired aggregates for its whole duration (2026-08-24
+  // review). The joined string only changes when a layer actually
+  // appears, disappears, or changes shape.
+  const layerKey = layers.map((l) => `${l.id}:${l.fieldCount}`).join('|');
+
   useEffect(() => {
     let cancelled = false;
     const spatial = layers;
@@ -133,7 +144,13 @@ export function ItemStatsStrip({
     return () => {
       cancelled = true;
     };
-  }, [itemId, layers]);
+    // `updatedAt` is in the deps so the ONE refresh that matters
+    // still lands: the importer stamps the item when its queue
+    // drains, updatedAt bumps, and the counts refetch once. Without
+    // it the primitive key would leave the strip showing pre-import
+    // counts forever.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemId, layerKey, updatedAt]);
 
   const geometries = new Set(
     layers.map((l) => l.geometryType).filter((g): g is LayerGeometryType => !!g),

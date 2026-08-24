@@ -22,8 +22,10 @@ import {
   estimateTileCount,
   validateOfflineArea,
 } from '@gratis-gis/shared-types';
+import { formatBytes } from '@/lib/format-bytes';
 import { toast } from '@/lib/toast';
 import { useConfirm } from '@/components/dialog-provider';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Offline areas on a field deployment (#70).
@@ -51,56 +53,55 @@ interface Props {
  * Detail levels, labelled by what you can make out at each. The
  * numbers are zoom levels; nobody outside GIS thinks in those, and
  * the size difference between them is what the author actually
- * cares about.
+ * cares about. Keys, not strings, so the catalog owns the words.
  */
 const DETAIL_LEVELS: ReadonlyArray<{
   zoom: number;
-  label: string;
-  hint: string;
+  labelKey: string;
+  hintKey: string | null;
 }> = [
-  { zoom: 12, label: 'Roads and towns', hint: 'Smallest download' },
-  { zoom: 13, label: 'Local streets', hint: '' },
-  {
-    zoom: 14,
-    label: 'Street names and paths',
-    hint: 'Recommended for field work',
-  },
-  { zoom: 15, label: 'Building outlines', hint: 'Largest download' },
+  { zoom: 12, labelKey: 'offlineAreas.detailRoads', hintKey: 'offlineAreas.detailRoadsHint' },
+  { zoom: 13, labelKey: 'offlineAreas.detailStreets', hintKey: null },
+  { zoom: 14, labelKey: 'offlineAreas.detailPaths', hintKey: 'offlineAreas.detailPathsHint' },
+  { zoom: 15, labelKey: 'offlineAreas.detailBuildings', hintKey: 'offlineAreas.detailBuildingsHint' },
 ];
 
-const REFRESH_OPTIONS: ReadonlyArray<{ days: number | undefined; label: string }> =
-  [
-    { days: undefined, label: 'Only when I ask' },
-    { days: 7, label: 'Weekly' },
-    { days: 30, label: 'Monthly' },
-    { days: 90, label: 'Every three months' },
-  ];
+const REFRESH_OPTIONS: ReadonlyArray<{
+  days: number | undefined;
+  labelKey: string;
+}> = [
+  { days: undefined, labelKey: 'offlineAreas.refreshManual' },
+  { days: 7, labelKey: 'offlineAreas.refreshWeekly' },
+  { days: 30, labelKey: 'offlineAreas.refreshMonthly' },
+  { days: 90, labelKey: 'offlineAreas.refreshQuarterly' },
+];
 
 /** ~5 KB per tile, measured against real extracts. */
 function estimateBytes(tiles: number): number {
   return tiles * 5_200;
 }
 
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
-
-/** Rough width and height of an extent, for a human sanity check. */
-function describeExtent(bbox: [number, number, number, number]): string {
+/** Rough width and height of an extent in miles, for the catalog's
+ *  extent-summary string. */
+function extentMiles(
+  bbox: [number, number, number, number],
+): { width: number; height: number } {
   const [w, s, e, n] = bbox;
   const midLat = ((s + n) / 2) * (Math.PI / 180);
   const kmPerDegLat = 111.32;
   const widthKm = (e - w) * kmPerDegLat * Math.cos(midLat);
   const heightKm = (n - s) * kmPerDegLat;
   const mi = (km: number) => Math.round(km * 0.621371);
-  return `about ${mi(widthKm)} by ${mi(heightKm)} miles`;
+  return { width: mi(widthKm), height: mi(heightKm) };
 }
 
 export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
+  const t = useT();
   const confirm = useConfirm();
+  const describeExtent = (bbox: [number, number, number, number]) => {
+    const { width, height } = extentMiles(bbox);
+    return t('offlineAreas.extentSummary', { width, height });
+  };
   const [areas, setAreas] = useState<OfflineAreaWithPackage[]>([]);
   const [loading, setLoading] = useState(true);
   const [mapBbox, setMapBbox] = useState<
@@ -183,7 +184,7 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
       body: JSON.stringify({ data: { ...data, offlineAreas: next } }),
     });
     if (!res.ok) {
-      toast.error(`Could not save the area: ${res.status}`);
+      toast.error(t('offlineAreas.saveFailed', { status: res.status }));
       return false;
     }
     return true;
@@ -232,7 +233,9 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
       );
       if (!res.ok) {
         const text = await res.text();
-        toast.error(text || `Could not start the build: ${res.status}`);
+        toast.error(
+          text || t('offlineAreas.buildStartFailed', { status: res.status }),
+        );
         return;
       }
       await load();
@@ -243,9 +246,9 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
 
   async function remove(areaId: string, areaName: string) {
     const ok = await confirm({
-      title: 'Delete this area?',
-      message: `Collectors will no longer be able to download "${areaName}". Anything already on a device stays there.`,
-      confirmLabel: 'Delete',
+      title: t('offlineAreas.deleteTitle'),
+      message: t('offlineAreas.deleteBody', { name: areaName }),
+      confirmLabel: t('common.delete'),
       variant: 'danger',
     });
     if (!ok) return;
@@ -267,13 +270,9 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
         <div className="min-w-0">
           <h3 className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted">
             <Download className="h-3.5 w-3.5" />
-            Offline areas
+            {t('offlineAreas.title')}
           </h3>
-          <p className="mt-1 text-xs text-muted">
-            The portal prepares one map file per area, so a whole
-            county is a single download of a few megabytes rather
-            than a million separate requests.
-          </p>
+          <p className="mt-1 text-xs text-muted">{t('offlineAreas.intro')}</p>
         </div>
         {canEdit && !adding && mapBbox ? (
           <button
@@ -282,7 +281,7 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
             className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 text-xs font-medium text-ink-1 hover:bg-surface-2"
           >
             <Plus className="h-3.5 w-3.5" />
-            Add area
+            {t('offlineAreas.addArea')}
           </button>
         ) : null}
       </div>
@@ -290,16 +289,16 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
       {loading ? (
         <div className="flex items-center gap-2 py-2 text-xs text-muted">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          Loading areas...
+          {t('offlineAreas.loading')}
         </div>
       ) : null}
 
       {!loading && areas.length === 0 && !adding ? (
         <p className="py-2 text-xs text-muted">
-          No areas yet.{' '}
+          {t('offlineAreas.noneYet')}{' '}
           {mapBbox === null
-            ? 'Add some data to the deployed map first, so there is an extent to prepare.'
-            : 'Add one and collectors will be able to take this deployment offline.'}
+            ? t('offlineAreas.noneYetNoExtent')
+            : t('offlineAreas.noneYetHint')}
         </p>
       ) : null}
 
@@ -313,10 +312,14 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
                 </p>
                 <p className="mt-0.5 text-2xs text-muted">
                   {describeExtent(area.bbox)} &middot;{' '}
-                  {DETAIL_LEVELS.find((d) => d.zoom === area.maxZoom)?.label ??
-                    `detail level ${area.maxZoom}`}
+                  {(() => {
+                    const level = DETAIL_LEVELS.find(
+                      (l) => l.zoom === area.maxZoom,
+                    );
+                    return level ? t(level.labelKey) : `z${area.maxZoom}`;
+                  })()}
                   {area.refreshDays
-                    ? ` · rebuilds every ${area.refreshDays} days`
+                    ? ` · ${t('offlineAreas.rebuildsEvery', { days: area.refreshDays })}`
                     : ''}
                 </p>
                 <p className="mt-1 flex items-center gap-1.5 text-2xs">
@@ -325,22 +328,24 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
                       <Loader2 className="h-3 w-3 animate-spin text-accent" />
                       <span className="text-muted">
                         {pending.status === 'queued'
-                          ? 'Waiting to start...'
+                          ? t('offlineAreas.waiting')
                           : pending.tileCount
-                            ? `Preparing ${pending.tileCount.toLocaleString()} tiles...`
-                            : 'Preparing...'}
+                            ? t('offlineAreas.preparingCount', {
+                                count: pending.tileCount.toLocaleString(),
+                              })
+                            : t('offlineAreas.preparing')}
                       </span>
                     </>
                   ) : current ? (
                     <>
                       <CheckCircle2 className="h-3 w-3 text-success" />
                       <span className="text-muted">
-                        Ready
+                        {t('offlineAreas.ready')}
                         {current.sizeBytes
                           ? `, ${formatBytes(current.sizeBytes)}`
                           : ''}
                         {current.finishedAt
-                          ? ` · built ${new Date(current.finishedAt).toLocaleDateString()}`
+                          ? ` · ${t('offlineAreas.builtOn', { date: new Date(current.finishedAt).toLocaleDateString() })}`
                           : ''}
                       </span>
                     </>
@@ -348,11 +353,13 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
                     <>
                       <AlertTriangle className="h-3 w-3 text-danger" />
                       <span className="text-danger">
-                        {lastFailure.error ?? 'Could not be prepared.'}
+                        {lastFailure.error ?? t('offlineAreas.buildFailed')}
                       </span>
                     </>
                   ) : (
-                    <span className="text-muted">Not prepared yet.</span>
+                    <span className="text-muted">
+                      {t('offlineAreas.notPrepared')}
+                    </span>
                   )}
                 </p>
               </div>
@@ -362,7 +369,11 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
                     type="button"
                     onClick={() => void rebuild(area.id)}
                     disabled={!!pending || busy === area.id}
-                    title={current ? 'Prepare again' : 'Prepare now'}
+                    title={
+                      current
+                        ? t('offlineAreas.prepareAgain')
+                        : t('offlineAreas.prepareNow')
+                    }
                     className="inline-flex h-7 w-7 items-center justify-center rounded border border-border bg-surface-1 text-muted transition-colors hover:bg-surface-2 hover:text-ink-1 disabled:opacity-40"
                   >
                     <RefreshCw className="h-3.5 w-3.5" />
@@ -371,7 +382,7 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
                     type="button"
                     onClick={() => void remove(area.id, area.name)}
                     disabled={busy === area.id}
-                    title="Delete area"
+                    title={t('offlineAreas.deleteArea')}
                     className="inline-flex h-7 w-7 items-center justify-center rounded border border-border bg-surface-1 text-muted transition-colors hover:bg-surface-2 hover:text-danger disabled:opacity-40"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -397,7 +408,7 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Summer survey, north crew..."
+              placeholder={t('offlineAreas.namePlaceholder')}
               maxLength={120}
               className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
             />
@@ -407,7 +418,7 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
               htmlFor="offline-area-detail"
               className="mb-1 block text-2xs font-medium uppercase tracking-wide text-muted"
             >
-              How much detail
+              {t('offlineAreas.detailLabel')}
             </label>
             <select
               id="offline-area-detail"
@@ -415,16 +426,15 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
               onChange={(e) => setMaxZoom(Number(e.target.value))}
               className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
             >
-              {DETAIL_LEVELS.map((d) => (
-                <option key={d.zoom} value={d.zoom}>
-                  {d.label}
-                  {d.hint ? ` (${d.hint})` : ''}
+              {DETAIL_LEVELS.map((l) => (
+                <option key={l.zoom} value={l.zoom}>
+                  {t(l.labelKey)}
+                  {l.hintKey ? ` (${t(l.hintKey)})` : ''}
                 </option>
               ))}
             </select>
             <p className="mt-1 text-2xs text-muted">
-              Collectors can always zoom in further than this. Past a
-              point the map just stops adding new labels.
+              {t('offlineAreas.detailHint')}
             </p>
           </div>
           <div>
@@ -432,7 +442,7 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
               htmlFor="offline-area-refresh"
               className="mb-1 block text-2xs font-medium uppercase tracking-wide text-muted"
             >
-              Keep it up to date
+              {t('offlineAreas.refreshLabel')}
             </label>
             <select
               id="offline-area-refresh"
@@ -445,8 +455,8 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
               className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
             >
               {REFRESH_OPTIONS.map((o) => (
-                <option key={o.label} value={o.days ?? ''}>
-                  {o.label}
+                <option key={o.labelKey} value={o.days ?? ''}>
+                  {t(o.labelKey)}
                 </option>
               ))}
             </select>
@@ -458,18 +468,12 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
                 : 'border-border bg-surface-1 text-muted'
             }`}
           >
-            {overCap ? (
-              <>
-                This area is too big at that detail level. Choose less
-                detail, or split the deployment into more than one area.
-              </>
-            ) : (
-              <>
-                Covers {describeExtent(mapBbox)}. Roughly{' '}
-                {formatBytes(estimateBytes(estimate))} to download. The
-                exact figure is measured before anything is prepared.
-              </>
-            )}
+            {overCap
+              ? t('offlineAreas.tooBig')
+              : t('offlineAreas.sizeEstimate', {
+                  extent: describeExtent(mapBbox),
+                  size: formatBytes(estimateBytes(estimate)),
+                })}
           </div>
           <div className="flex justify-end gap-2">
             <button
@@ -480,7 +484,7 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
               }}
               className="inline-flex h-8 items-center rounded-md border border-border bg-surface-1 px-3 text-xs font-medium text-ink-1 hover:bg-surface-2"
             >
-              Cancel
+              {t('offlineAreas.cancel')}
             </button>
             <button
               type="button"
@@ -493,7 +497,7 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
               ) : (
                 <Plus className="h-3.5 w-3.5" />
               )}
-              Add and prepare
+              {t('offlineAreas.addAndPrepare')}
             </button>
           </div>
         </div>

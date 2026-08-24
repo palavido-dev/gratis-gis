@@ -118,6 +118,8 @@ import { ItemMapPreview } from './item-map-preview';
 import { ItemTabs } from './item-tabs';
 import type { ItemTabSpec } from './item-tabs';
 import { ItemMetadataPanel } from './item-metadata-panel';
+import { t } from '@/lib/i18n';
+import { getServerLocale } from '@/lib/i18n/server';
 import { SharingPanel } from './sharing-panel';
 import { ItemDependencies } from './item-dependencies';
 import { DeleteItemButton } from './delete-button';
@@ -574,16 +576,25 @@ export default async function ItemDetailPage(props: Props) {
   );
 
   // Tabs after Overview, which ItemTabs supplies from its children.
+  const locale = await getServerLocale();
   const sideTabs: ItemTabSpec[] = [
     ...(v3Data
       ? [
-          { id: 'data', label: 'Data', content: dataLayerDataPanels },
-          { id: 'source', label: 'Source', content: dataLayerSourcePanels },
+          {
+            id: 'data',
+            label: t('itemTabs.data', undefined, locale),
+            content: dataLayerDataPanels,
+          },
+          {
+            id: 'source',
+            label: t('itemTabs.source', undefined, locale),
+            content: dataLayerSourcePanels,
+          },
         ]
       : []),
     {
       id: 'metadata',
-      label: 'Metadata',
+      label: t('itemTabs.metadata', undefined, locale),
       content: (
         <ItemMetadataPanel
           itemId={item.id}
@@ -598,7 +609,11 @@ export default async function ItemDetailPage(props: Props) {
         />
       ),
     },
-    { id: 'access', label: 'Access', content: accessBody },
+    {
+      id: 'access',
+      label: t('itemTabs.access', undefined, locale),
+      content: accessBody,
+    },
   ];
 
   return (

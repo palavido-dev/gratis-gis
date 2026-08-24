@@ -3,6 +3,7 @@
 
 import { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Copy-to-clipboard button.
@@ -17,7 +18,7 @@ import { Check, Copy } from 'lucide-react';
 export function CopyButton({
   value,
   label,
-  copiedLabel = 'Copied',
+  copiedLabel,
   title,
   iconOnly = false,
   className,
@@ -30,7 +31,10 @@ export function CopyButton({
   iconOnly?: boolean;
   className?: string;
 }) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
+  const copiedText = copiedLabel ?? t('copyButton.copied');
+  const copyTitle = title ?? t('copyButton.copy');
 
   async function onCopy() {
     const flash = () => {
@@ -63,8 +67,8 @@ export function CopyButton({
       type="button"
       onClick={onCopy}
       aria-live="polite"
-      aria-label={iconOnly ? (title ?? 'Copy') : undefined}
-      title={title ?? 'Copy'}
+      aria-label={iconOnly ? copyTitle : undefined}
+      title={copyTitle}
       className={
         className ??
         (iconOnly
@@ -75,7 +79,7 @@ export function CopyButton({
       {copied ? (
         <>
           <Check className="h-3.5 w-3.5 text-success" />
-          {iconOnly ? null : copiedLabel}
+          {iconOnly ? null : copiedText}
         </>
       ) : (
         <>

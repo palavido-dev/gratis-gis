@@ -2,6 +2,8 @@
 'use client';
 
 import { Check, Trash2 } from 'lucide-react';
+import { formatBytes } from '@/lib/format-bytes';
+import { useT } from '@/lib/i18n/locale-context';
 import type { OfflineBasemapState } from './use-offline-basemap';
 
 /**
@@ -20,13 +22,8 @@ import type { OfflineBasemapState } from './use-offline-basemap';
  * an empty state explaining a feature nobody can act on.
  */
 
-function formatBytes(n: number): string {
-  if (n < 1024) return `${Math.round(n)} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
-}
-
 export function OfflineBasemapRow({ state }: { state: OfflineBasemapState }) {
+  const t = useT();
   const ready = state.areas.filter((a) => a.current);
   // Not gated on `state.supported`. A device that cannot store an
   // archive should still be told the area exists; hiding it made a
@@ -37,7 +34,9 @@ export function OfflineBasemapRow({ state }: { state: OfflineBasemapState }) {
   return (
     <div className="mt-3 border-t border-border pt-3">
       <p className="mb-2 text-2xs font-medium uppercase tracking-wide text-muted">
-        {ready.length === 1 ? 'Prepared map' : 'Prepared maps'}
+        {ready.length === 1
+          ? t('offlineBasemap.preparedMap')
+          : t('offlineBasemap.preparedMaps')}
       </p>
       <ul className="space-y-1.5">
         {ready.map(({ area, current }) => {
@@ -51,11 +50,15 @@ export function OfflineBasemapRow({ state }: { state: OfflineBasemapState }) {
                 <p className="truncate text-sm text-ink-0">{area.name}</p>
                 <p className="text-2xs text-muted">
                   {stored ? (
-                    <span className="text-success">On this device</span>
+                    <span className="text-success">
+                      {t('offlineBasemap.onThisDevice')}
+                    </span>
                   ) : current?.sizeBytes ? (
-                    `${formatBytes(current.sizeBytes)}, included in the download above`
+                    t('offlineBasemap.includedWithSize', {
+                      size: formatBytes(current.sizeBytes),
+                    })
                   ) : (
-                    'Included in the download above'
+                    t('offlineBasemap.included')
                   )}
                 </p>
               </div>
@@ -65,8 +68,10 @@ export function OfflineBasemapRow({ state }: { state: OfflineBasemapState }) {
                   <button
                     type="button"
                     onClick={() => void state.remove(area.id)}
-                    title="Remove from this device"
-                    aria-label={`Remove ${area.name} from this device`}
+                    title={t('offlineBasemap.removeFromDevice')}
+                    aria-label={t('offlineBasemap.removeAria', {
+                      name: area.name,
+                    })}
                     className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-border text-muted hover:bg-surface-2 hover:text-danger"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -79,8 +84,8 @@ export function OfflineBasemapRow({ state }: { state: OfflineBasemapState }) {
       </ul>
       <p className="mt-1.5 text-2xs text-muted">
         {state.supported
-          ? 'Your team lead prepared these maps, so they come down as single files rather than piece by piece, and they draw with no signal at all.'
-          : 'This browser cannot store maps offline. Try adding the app to your home screen.'}
+          ? t('offlineBasemap.explainer')
+          : t('offlineBasemap.unsupported')}
       </p>
     </div>
   );

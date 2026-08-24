@@ -147,6 +147,18 @@ export async function storedBasemapSize(
     const cache = await caches.open(OFFLINE_BASEMAP_CACHE);
     const hit = await cache.match(cacheKeyFor(itemId, areaId));
     if (!hit) return null;
+    // The download stores an explicit content-length header, so the
+    // size is a header read. The first version materialized the
+    // whole blob for `.size`, which on a 10 MB archive, called from
+    // three places per open, moved tens of megabytes through the
+    // heap to answer a number the Response already carried
+    // (2026-08-24 review). The blob fallback covers entries written
+    // before the header existed.
+    const declared = Number.parseInt(
+      hit.headers.get('content-length') ?? '',
+      10,
+    );
+    if (Number.isFinite(declared) && declared > 0) return declared;
     const blob = await hit.blob();
     return blob.size;
   } catch {

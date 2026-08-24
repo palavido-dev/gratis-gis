@@ -7,6 +7,9 @@ import type {
   ItemType,
 } from '@gratis-gis/shared-types';
 import { CopyButton } from '@/components/ui/copy-button';
+import { t } from '@/lib/i18n';
+import { getServerLocale } from '@/lib/i18n/server';
+import type { SupportedLocale } from '@/lib/i18n/locales';
 
 /**
  * The Metadata tab of the item detail page.
@@ -25,17 +28,17 @@ import { CopyButton } from '@/components/ui/copy-button';
  * blank.
  */
 
-const FORMAT_LABELS: Record<DataLayerSource['format'], string> = {
-  geojson: 'GeoJSON',
-  geoparquet: 'GeoParquet',
-  kml: 'KML',
-  kmz: 'KMZ',
-  shapefile: 'Shapefile',
-  gdb: 'File geodatabase',
-  xlsx: 'Excel workbook',
-  csv: 'CSV',
-  manual: 'Entered by hand',
-  api: 'Loaded through the API',
+const FORMAT_KEYS: Record<DataLayerSource['format'], string> = {
+  geojson: 'metadataPanel.formatGeojson',
+  geoparquet: 'metadataPanel.formatGeoparquet',
+  kml: 'metadataPanel.formatKml',
+  kmz: 'metadataPanel.formatKmz',
+  shapefile: 'metadataPanel.formatShapefile',
+  gdb: 'metadataPanel.formatGdb',
+  xlsx: 'metadataPanel.formatXlsx',
+  csv: 'metadataPanel.formatCsv',
+  manual: 'metadataPanel.formatManual',
+  api: 'metadataPanel.formatApi',
 };
 
 function Row({
@@ -55,25 +58,41 @@ function Row({
   );
 }
 
-function NotRecorded() {
-  return <span className="text-muted">Not recorded</span>;
+function NotRecorded({ locale }: { locale: SupportedLocale }) {
+  return (
+    <span className="text-muted">
+      {t('metadataPanel.notRecorded', undefined, locale)}
+    </span>
+  );
 }
 
 /** A copyable identifier: monospace value plus an icon-only copy button. */
-function IdRow({ label, value }: { label: string; value: string }) {
+function IdRow({
+  label,
+  value,
+  locale,
+}: {
+  label: string;
+  value: string;
+  locale: SupportedLocale;
+}) {
   return (
     <Row label={label}>
       <span className="flex items-start gap-1.5">
         <code className="min-w-0 flex-1 break-all font-mono text-xs text-ink-1">
           {value}
         </code>
-        <CopyButton value={value} iconOnly title={`Copy ${label}`} />
+        <CopyButton
+          value={value}
+          iconOnly
+          title={t('metadataPanel.copyTitle', { label }, locale)}
+        />
       </span>
     </Row>
   );
 }
 
-export function ItemMetadataPanel({
+export async function ItemMetadataPanel({
   itemId,
   itemType,
   description,
@@ -95,6 +114,9 @@ export function ItemMetadataPanel({
   /** Raw item.data. Only read for data_layer provenance / identifiers. */
   data: unknown;
 }) {
+  const locale = await getServerLocale();
+  const tr = (key: string, params?: Record<string, string | number>) =>
+    t(key, params, locale);
   const dl =
     itemType === 'data_layer' ? (data as DataLayerData | null) : null;
   // Provenance is per-layer on v3 and item-level on v1/v2. Take the
@@ -115,13 +137,16 @@ export function ItemMetadataPanel({
   const scopes: Array<{ label: string; value: string }> =
     dl?.version === 3
       ? dl.layers.map((l) => ({
-          label: dl.layers.length === 1 ? 'Storage scope' : `Scope: ${l.label}`,
+          label:
+            dl.layers.length === 1
+              ? tr('metadataPanel.storageScope')
+              : tr('metadataPanel.storageScopeFor', { layer: l.label }),
           value: `data_layer:${itemId}:${l.id}`,
         }))
       : dl?.version === 2
         ? [
             {
-              label: 'Storage table',
+              label: tr('metadataPanel.storageTable'),
               value: `fs_${itemId.replace(/-/g, '')}`,
             },
           ]
@@ -134,23 +159,19 @@ export function ItemMetadataPanel({
       <div className="space-y-4">
         <section>
           <h3 className="mb-1.5 text-2xs font-medium uppercase tracking-wide text-muted">
-            Description
+            {tr('metadataPanel.description')}
           </h3>
           {description && description.trim() ? (
             <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-1">
               {description}
             </p>
           ) : (
-            <p className="text-sm text-muted">
-              No description yet. A sentence about what this is and where
-              it came from is the difference between an item someone
-              reuses and one they re-create.
-            </p>
+            <p className="text-sm text-muted">{tr('metadataPanel.noDescription')}</p>
           )}
         </section>
         <section>
           <h3 className="mb-1.5 text-2xs font-medium uppercase tracking-wide text-muted">
-            Tags
+            {tr('metadataPanel.tags')}
           </h3>
           {tags.length > 0 ? (
             <div className="flex flex-wrap gap-1.5">
@@ -165,21 +186,29 @@ export function ItemMetadataPanel({
               ))}
             </div>
           ) : (
-            <p className="text-sm text-muted">No tags.</p>
+            <p className="text-sm text-muted">{tr('metadataPanel.noTags')}</p>
           )}
         </section>
       </div>
 
       <dl className="h-fit rounded-lg border border-border bg-surface-1 text-sm shadow-card">
-        <Row label="Type">{getItemTypeLabel(itemType)}</Row>
-        <Row label="Owner">{ownerLabel}</Row>
-        <Row label="Created">
-          {createdAt ? new Date(createdAt).toLocaleString() : <NotRecorded />}
+        <Row label={tr('metadataPanel.type')}>{getItemTypeLabel(itemType)}</Row>
+        <Row label={tr('metadataPanel.owner')}>{ownerLabel}</Row>
+        <Row label={tr('metadataPanel.created')}>
+          {createdAt ? (
+            new Date(createdAt).toLocaleString()
+          ) : (
+            <NotRecorded locale={locale} />
+          )}
         </Row>
-        <Row label="Updated">
-          {updatedAt ? new Date(updatedAt).toLocaleString() : <NotRecorded />}
+        <Row label={tr('metadataPanel.updated')}>
+          {updatedAt ? (
+            new Date(updatedAt).toLocaleString()
+          ) : (
+            <NotRecorded locale={locale} />
+          )}
         </Row>
-        <Row label="License">
+        <Row label={tr('metadataPanel.license')}>
           {license ? (
             licenseIsUrl ? (
               <a
@@ -194,31 +223,37 @@ export function ItemMetadataPanel({
               license
             )
           ) : (
-            <NotRecorded />
+            <NotRecorded locale={locale} />
           )}
         </Row>
         {dl ? (
           <>
-            <Row label="Source">
+            <Row label={tr('metadataPanel.source')}>
               {source?.fileName ? (
                 source.fileName
               ) : source ? (
-                FORMAT_LABELS[source.format]
+                tr(FORMAT_KEYS[source.format])
               ) : (
-                <NotRecorded />
+                <NotRecorded locale={locale} />
               )}
             </Row>
-            <Row label="Source format">
-              {source ? FORMAT_LABELS[source.format] : <NotRecorded />}
+            <Row label={tr('metadataPanel.sourceFormat')}>
+              {source ? (
+                tr(FORMAT_KEYS[source.format])
+              ) : (
+                <NotRecorded locale={locale} />
+              )}
             </Row>
             {source?.sourceSrs ? (
-              <Row label="Original projection">{source.sourceSrs}</Row>
+              <Row label={tr('metadataPanel.originalProjection')}>
+                {source.sourceSrs}
+              </Row>
             ) : null}
           </>
         ) : null}
-        <IdRow label="Item ID" value={itemId} />
+        <IdRow label={tr('metadataPanel.itemId')} value={itemId} locale={locale} />
         {scopes.map((s) => (
-          <IdRow key={s.value} label={s.label} value={s.value} />
+          <IdRow key={s.value} label={s.label} value={s.value} locale={locale} />
         ))}
       </dl>
     </div>

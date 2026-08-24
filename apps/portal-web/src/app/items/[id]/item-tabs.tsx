@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { TabPanel, TabStrip } from '@/components/ui/tab-strip';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Tabbed body for the item detail page.
@@ -58,8 +59,9 @@ export function ItemTabs({
   tabs: ItemTabSpec[];
   children: React.ReactNode;
 }) {
+  const t = useT();
   const all: ItemTabSpec[] = [
-    { id: 'overview', label: 'Overview', content: children },
+    { id: 'overview', label: t('itemTabs.overview'), content: children },
     ...tabs,
   ];
   // Server renders the first tab. The hash is read after mount
@@ -108,7 +110,7 @@ export function ItemTabs({
         tabs={all.map((t) => ({ id: t.id, label: t.label }))}
         value={active}
         onChange={select}
-        ariaLabel="Item sections"
+        ariaLabel={t('itemTabs.sections')}
         idPrefix="item"
         variant="inline"
         className="mb-5 border-b border-border"

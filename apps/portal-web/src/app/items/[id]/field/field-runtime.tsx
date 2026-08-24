@@ -102,6 +102,7 @@ import { createGpsMarker, type GpsMarkerHandle } from './gps-map-marker';
 import { stampGpsMetadata } from './gps-metadata-stamp';
 import { V3FeatureAttachments } from '../data-layer/v3-feature-attachments';
 import { describeZoom } from '@/lib/map-scale';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Per-layer descriptor the field runtime consumes. Server-built (see
@@ -1005,6 +1006,7 @@ export function FieldRuntime({
     'unknown' | 'persistent' | 'best-effort'
   >('unknown');
   const [storage, setStorage] = useState<StorageEstimate | null>(null);
+  const t = useT();
   // Lets the user stop a download. Held in a ref rather than state
   // because the modal's Cancel needs the CURRENT controller, and a
   // state update would hand it whichever one the closure captured.
@@ -1245,7 +1247,7 @@ export function FieldRuntime({
         // the data they already have is trustworthy.
         phase: aborted ? 'done' : 'failed',
         message: aborted
-          ? 'Download stopped. Anything already saved is still on this device.'
+          ? t('offlineBasemap.downloadStopped')
           : 'Download failed',
         estimatedSize: 0,
         layerCount: editableLayers.length,
@@ -3191,6 +3193,7 @@ function LayerVisibilityPanel({
   // tree. Per-row visibility only applies to leaf layers; toggling a
   // group is a polish item for later.
   const [basemapPickerOpen, setBasemapPickerOpen] = useState(false);
+  const panelT = useT();
   const activeBasemap = basemaps.find((b) => b.id === currentBasemapId);
   return (
     // #257: layer panel converted to a bottom sheet (was a small
@@ -3414,6 +3417,14 @@ function LayerVisibilityPanel({
           can see "this'll be 24,500 tiles" before tapping
           Download. */}
       <div className="border-b border-border px-3 py-2">
+        {/* #74: the pickers only drive the tile-warm fallback. On
+            the prepared path they wrote state that never left the
+            component, which is a control that lies about doing
+            something. Hidden rather than disabled: a disabled pair
+            of selects begs the question of what would enable them,
+            and the answer (delete the prepared area) is nothing a
+            collector should be steered toward. */}
+        {offlineBasemap.areas.some((a) => a.current) ? null : (<>
         <p className="mb-1.5 text-2xs font-semibold uppercase tracking-wide text-muted">
           Map detail to cache
         </p>
@@ -3451,6 +3462,7 @@ function LayerVisibilityPanel({
             </select>
           </label>
         </div>
+        </>)}
         {/* #71 review: the prepared-area branch comes FIRST. Before an
             archive is adopted, the live style is still the online
             basemap, so blockedTileSources is non-empty for exactly the
@@ -3460,8 +3472,8 @@ function LayerVisibilityPanel({
         {offlineBasemap.areas.some((a) => a.current) ? (
           <p className="mt-1.5 text-2xs text-muted">
             {offlineBasemap.areas.filter((a) => a.current).length === 1
-              ? 'The map for this deployment is already prepared, so it comes down as one file.'
-              : 'The maps for this deployment are already prepared, so they come down as single files.'}
+              ? panelT('offlineBasemap.preparedNoticeOne')
+              : panelT('offlineBasemap.preparedNoticeMany')}
           </p>
         ) : blockedTileSources.length > 0 ? (
           <div className="mt-1.5 rounded-md border border-warn/30 bg-warn/10 p-2">
