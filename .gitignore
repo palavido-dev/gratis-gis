@@ -160,3 +160,15 @@ page-head.tsx
   
 # Personal preparation notes, not project documentation. Kept locally.  
 OSGEO-SUBMISSION.md  
+
+# Session scratch files in the repo root: throwaway command wrappers,
+# working notes and one-off payloads written by tooling. Root-anchored
+# so real dotfiles inside packages are unaffected.
+/.*.cmd
+/.*.ps1
+/.*.py
+/.notes_*.md
+/.msg_*.txt
+/.m1.txt
+/.relnotes.md
+/.page.html

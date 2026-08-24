@@ -1,5 +1,14 @@
 # Field offline: catalog, areas, and resilience
 
+> **Superseded (2026-08-24).** This is a pre-implementation sketch.
+> Offline areas shipped in v0.9.81 through v0.9.85 with a different
+> shape: server-built PMTiles packages (one archive per area, built
+> by a queue worker, `offline_package` table) downloaded into Cache
+> Storage, not the client-side tile prefetch described below. The
+> code is the reference: `apps/portal-api/src/offline-package/` and
+> `apps/portal-web/src/lib/offline-basemap.ts`. Kept for the design
+> reasoning; do not build from it.
+
 Companion to `docs/field-offline-recovery.md`. That doc covered the
 queue + sync + manual recovery story. This one covers the surfaces
 above and below it: how a user finds the deployments they care about,
