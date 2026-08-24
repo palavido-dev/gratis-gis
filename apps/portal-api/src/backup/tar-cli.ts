@@ -58,8 +58,16 @@ function runTar(
     // stderr is always piped (see stdio setup above), so the
     // possibly-null shape here is a TS conservatism we can ignore
     // safely. Same for stdout when the caller asked for it.
+    // Capped like every other runCommand copy in the repo: only the
+    // last 5 lines are ever surfaced, and an uncapped buffer let a
+    // chatty tar over a large archive pin memory for output nobody
+    // reads. This was the one copy without the cap (2026-08-24
+    // review). Keep the TAIL, since tar prints its fatal line last.
     proc.stderr?.on('data', (c: Buffer) => {
       stderr += c.toString('utf8');
+      if (stderr.length > 32 * 1024) {
+        stderr = `...${stderr.slice(-16 * 1024)}`;
+      }
     });
     if (options.onStdout) {
       proc.stdout?.on('data', options.onStdout);

@@ -3,7 +3,7 @@ import { Module } from '@nestjs/common';
 
 import { PrismaModule } from '../prisma/prisma.module.js';
 import { StorageModule } from '../storage/storage.module.js';
-import { OfflinePackageService } from './offline-package.service.js';
+import { OfflinePackageCoreModule } from './offline-package-core.module.js';
 import { OfflinePackageWorker } from './offline-package.worker.js';
 
 /**
@@ -16,8 +16,7 @@ import { OfflinePackageWorker } from './offline-package.worker.js';
  * worker at one.
  */
 @Module({
-  imports: [PrismaModule, StorageModule],
-  providers: [OfflinePackageService, OfflinePackageWorker],
-  exports: [OfflinePackageService],
+  imports: [PrismaModule, StorageModule, OfflinePackageCoreModule],
+  providers: [OfflinePackageWorker],
 })
 export class OfflinePackageWorkerModule {}

@@ -3,8 +3,8 @@ import { Module } from '@nestjs/common';
 
 import { ItemsModule } from '../items/items.module.js';
 import { StorageModule } from '../storage/storage.module.js';
+import { OfflinePackageCoreModule } from './offline-package-core.module.js';
 import { OfflinePackageController } from './offline-package.controller.js';
-import { OfflinePackageService } from './offline-package.service.js';
 
 /**
  * API side of offline basemap packages (#70): list areas, queue a
@@ -16,9 +16,7 @@ import { OfflinePackageService } from './offline-package.service.js';
  * twice over.
  */
 @Module({
-  imports: [ItemsModule, StorageModule],
+  imports: [ItemsModule, StorageModule, OfflinePackageCoreModule],
   controllers: [OfflinePackageController],
-  providers: [OfflinePackageService],
-  exports: [OfflinePackageService],
 })
 export class OfflinePackageModule {}

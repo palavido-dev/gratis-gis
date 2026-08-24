@@ -522,6 +522,11 @@ model Item {
   /// #155: threaded comments scoped to this item. Cascade-deletes
   /// every thread + reply when the item is permanently deleted.
   commentThreads CommentThread[]
+  /// #70/#74: offline basemap package builds for this item.
+  /// Cascade so deleting the item can never strand rows whose
+  /// storage keys the orphan sweep would then treat as live
+  /// references forever.
+  offlinePackages OfflinePackage[]
 
   @@index([orgId, access])
   @@index([ownerId])
@@ -1795,8 +1800,10 @@ model OfflinePackage {
   /// The data_collection this package belongs to.
   itemId    String @map("item_id") @db.Uuid
   /// OfflineArea.id within that item's data. Not a foreign key:
-  /// the area is a JSON element, so the database cannot enforce it.
-  /// A package whose area has been deleted is swept by housekeeping.
+  /// the area is a JSON element, so the database cannot enforce
+  /// it. Deleting an AREA prunes its rows on the item-save path
+  /// (ItemsService.update -> pruneMissingAreas); deleting the ITEM
+  /// cascades via the relation below (2026-08-24 review).
   areaId    String @map("area_id")
   createdBy String @map("created_by") @db.Uuid
 
@@ -1827,6 +1834,8 @@ model OfflinePackage {
   startedAt       DateTime? @map("started_at")
   finishedAt      DateTime? @map("finished_at")
   lastHeartbeatAt DateTime? @map("last_heartbeat_at")
+
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   /// Serves the claim poll.
   @@index([status, createdAt], map: "offline_package_status_created_idx")

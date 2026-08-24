@@ -55,6 +55,7 @@ import {
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { DerivedLayersService } from '../derived-layers/derived-layers.service.js';
 import { StorageService } from '../storage/storage.service.js';
+import { OfflinePackageService } from '../offline-package/offline-package.service.js';
 import { ITEM_ASSET_KIND, assetKeyFor, isValidAssetKey } from '../storage/asset-keys.js';
 
 // Optional fields use `| undefined` explicitly so class-validator DTOs
@@ -422,6 +423,10 @@ export class ItemsService {
     private readonly notifications: NotificationsService,
     private readonly derivedLayers: DerivedLayersService,
     private readonly storage: StorageService,
+    // #74: prunes offline_package rows whose area an author removed
+    // from a data_collection. Lives in OfflinePackageCoreModule
+    // (Prisma-only) precisely so this import is not a cycle.
+    private readonly offlinePackages: OfflinePackageService,
   ) {}
 
   async list(user: AuthUser, opts: ItemsListOptions = {}) {
@@ -1764,6 +1769,37 @@ export class ItemsService {
         });
       }
     }
+    // #74: a data_collection save is the only place an offline area
+    // can be deleted (areas live on data.offlineAreas), so this is
+    // where their build rows are pruned. Without it the rows leak,
+    // and a leaked row pins its archive in MinIO forever because
+    // the orphan sweep counts any row with a storage key as a live
+    // reference. Object deletion is best-effort: a missed delete is
+    // a 48-hour wait for the sweep, not a leak.
+    if (updated.type === 'data_collection' && nextData !== undefined) {
+      const areas = (updated.data as { offlineAreas?: Array<{ id?: unknown }> } | null)
+        ?.offlineAreas;
+      const keepIds = Array.isArray(areas)
+        ? areas
+            .map((a) => (typeof a?.id === 'string' ? a.id : null))
+            .filter((a): a is string => a !== null)
+        : [];
+      try {
+        const orphanedKeys = await this.offlinePackages.pruneMissingAreas(
+          id,
+          keepIds,
+        );
+        for (const key of orphanedKeys) {
+          await this.storage.deleteObject(key).catch(() => {});
+        }
+      } catch (err) {
+        this.log.warn(
+          `offline package prune for ${id} failed: ${
+            err instanceof Error ? err.message : err
+          }`,
+        );
+      }
+    }
     return updated;
   }
 
@@ -2154,6 +2190,23 @@ export class ItemsService {
     itemType: ItemType,
     itemData: unknown,
   ): Promise<void> {
+    if (itemType === 'data_collection') {
+      // #74: delete the offline basemap archives before the item row
+      // goes. The rows themselves die by FK cascade with the item,
+      // which happens AFTER this runs, so the keys must be read now.
+      // Best-effort like every other teardown branch: a missed
+      // object is unreferenced once the row cascades and the orphan
+      // sweep reclaims it.
+      const rows = await this.prisma.offlinePackage.findMany({
+        where: { itemId, storageKey: { not: null } },
+        select: { storageKey: true },
+      });
+      for (const row of rows) {
+        if (row.storageKey) {
+          await this.storage.deleteObject(row.storageKey).catch(() => {});
+        }
+      }
+    }
     if (itemType === 'data_layer') {
       const data = itemData as
         | { version?: number; storageType?: string }

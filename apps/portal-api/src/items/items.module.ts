@@ -21,6 +21,7 @@ import { NotificationsModule } from '../notifications/notifications.module.js';
 import { DerivedLayersModule } from '../derived-layers/derived-layers.module.js';
 import { PolicyModule } from '../policy/policy.module.js';
 import { StorageModule } from '../storage/storage.module.js';
+import { OfflinePackageCoreModule } from '../offline-package/offline-package-core.module.js';
 
 @Module({
   imports: [
@@ -32,6 +33,10 @@ import { StorageModule } from '../storage/storage.module.js';
     // storage.deleteObject when a file item is permanently
     // deleted. Without this import the constructor DI fails.
     StorageModule,
+    // #74: ItemsService prunes offline_package rows when a
+    // data_collection's areas are saved. The Prisma-only core
+    // module avoids the ItemsModule <-> OfflinePackageModule cycle.
+    OfflinePackageCoreModule,
   ],
   controllers: [
     ItemsController,

@@ -76,6 +76,7 @@ function makeService(prisma: FakePrisma): ItemsService {
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
   );
 }
 

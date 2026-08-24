@@ -179,6 +179,25 @@ export class OfflinePackageService {
         },
         data: { status: 'superseded' },
       });
+      // Keep the newest superseded generation and delete the rest.
+      // One generation stays because collectors may still be
+      // carrying its archive; keeping ALL of them meant a weekly
+      // refresh accumulated ~520 MB per area per year that the
+      // orphan sweep could never reclaim, since a row with a
+      // storage key counts as a live reference (2026-08-24 review).
+      // Deleting the rows here is enough: their keys become
+      // unreferenced and the existing sweep collects the bytes.
+      const stale = await tx.offlinePackage.findMany({
+        where: { itemId: row.itemId, areaId: row.areaId, status: 'superseded' },
+        orderBy: { createdAt: 'desc' },
+        skip: 1,
+        select: { id: true },
+      });
+      if (stale.length > 0) {
+        await tx.offlinePackage.deleteMany({
+          where: { id: { in: stale.map((s) => s.id) } },
+        });
+      }
     });
   }
 
@@ -252,10 +271,22 @@ export class OfflinePackageService {
     return rows.map((r) => r.itemId);
   }
 
-  /** Every package for an item, newest first. */
+  /**
+   * Packages for an item, newest first, superseded excluded.
+   *
+   * Superseded rows exist so a rebuild can demote its predecessor
+   * without a gap, and so one prior generation's archive survives
+   * for collectors still carrying it. No reader ever renders them,
+   * and this list sits on a 4-second poll while a build runs, so
+   * hauling an item's whole build history across the wire per poll
+   * was pure waste (2026-08-24 review).
+   */
   async listForItem(itemId: string): Promise<OfflinePackage[]> {
     return this.prisma.offlinePackage.findMany({
-      where: { itemId },
+      where: {
+        itemId,
+        status: { in: ['queued', 'building', 'ready', 'failed'] },
+      },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -265,11 +296,15 @@ export class OfflinePackageService {
   }
 
   /**
-   * Drop rows for areas the author has deleted, and demote the
-   * archives they point at so the orphan sweep can reclaim them.
+   * Drop rows for areas the author has deleted, so the orphan sweep
+   * can reclaim their archives.
    *
-   * Called when a data_collection's areas are saved. Returns the
-   * storage keys that are now unreferenced.
+   * Called from ItemsService.update whenever a data_collection's
+   * data is saved (wired 2026-08-24; this method existed unreferenced
+   * for a day, during which deleting an area leaked its rows and
+   * archives permanently). Returns the storage keys that are now
+   * unreferenced so the caller can delete the objects immediately
+   * rather than waiting out the sweep's 48-hour age floor.
    */
   async pruneMissingAreas(
     itemId: string,

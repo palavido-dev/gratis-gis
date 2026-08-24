@@ -6,7 +6,10 @@ import { join } from 'node:path';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import type { OfflinePackage } from '@prisma/client';
 import type { DataCollectionData, OfflineArea } from '@gratis-gis/shared-types';
-import { OFFLINE_PACKAGE_MAX_TILES } from '@gratis-gis/shared-types';
+import {
+  OFFLINE_PACKAGE_MAX_TILES,
+  validateOfflineArea,
+} from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageService } from '../storage/storage.service.js';
@@ -226,12 +229,42 @@ export class OfflinePackageWorker implements OnModuleInit {
       where: { id: { in: itemIds }, deletedAt: null },
       select: { id: true, orgId: true, ownerId: true, data: true },
     });
+    // One query for every item's live rows, grouped in memory. The
+    // first version called listForItem inside the loop: an N+1 that
+    // also pulled each item's full build history, once a minute,
+    // forever (2026-08-24 review). Only the statuses the loop reads
+    // are fetched.
+    const allRows = await this.prisma.offlinePackage.findMany({
+      where: {
+        itemId: { in: items.map((i) => i.id) },
+        status: { in: ['queued', 'building', 'ready'] },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    const rowsByItem = new Map<string, typeof allRows>();
+    for (const row of allRows) {
+      const list = rowsByItem.get(row.itemId) ?? [];
+      list.push(row);
+      rowsByItem.set(row.itemId, list);
+    }
+    // Resolved lazily, once per sweep. Eager resolution would HEAD
+    // the upstream every minute even with nothing due; per-area
+    // resolution (the first version) could stall the whole worker
+    // for two minutes per area when the upstream was down, during
+    // which claimNext never ran.
+    let sourceUrl: string | null = null;
     for (const item of items) {
       const areas = readAreas(item.data);
       if (areas.length === 0) continue;
-      const rows = await this.packages.listForItem(item.id);
+      const rows = rowsByItem.get(item.id) ?? [];
       for (const area of areas) {
         if (!area.refreshDays) continue;
+        // The manual path validates in the controller; this path has
+        // nobody watching, and an author can PATCH the area wider
+        // after its first validated build. The tile-count dry run
+        // still backstops disk, but a nonsense extent should be
+        // skipped here, not discovered as a build failure.
+        if (validateOfflineArea(area) !== null) continue;
         // A build already in flight, or a failure the author has not
         // dealt with, both mean hands off.
         if (
@@ -249,7 +282,7 @@ export class OfflinePackageWorker implements OnModuleInit {
         if (!current?.finishedAt) continue;
         const ageMs = Date.now() - current.finishedAt.getTime();
         if (ageMs < area.refreshDays * 24 * 60 * 60 * 1000) continue;
-        const sourceUrl = await resolveBasemapSource();
+        sourceUrl ??= await resolveBasemapSource();
         await this.packages.enqueue({
           orgId: item.orgId,
           itemId: item.id,
