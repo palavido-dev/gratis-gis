@@ -74,15 +74,21 @@ export function TabStrip<T extends string>({
     refs.current[next]?.focus();
   };
 
-  return (
+  const list = (
     <div
       role="tablist"
       aria-label={ariaLabel}
       className={
-        className ??
-        (variant === 'fill'
+        variant === 'fill'
           ? 'flex border-t border-border'
-          : 'flex items-center gap-1 overflow-x-auto border-b border-border')
+          : // -mb-px pulls the row down so an active tab's 2px accent
+            // covers the wrapper's 1px rule instead of stacking above
+            // it. overflow-y is pinned to hidden because that 1px is
+            // vertical overflow, and CSS promotes the other axis to
+            // auto whenever one axis scrolls, so `overflow-x-auto`
+            // alone rendered a permanent vertical scrollbar over the
+            // last tab.
+            '-mb-px flex items-center gap-1 overflow-x-auto overflow-y-hidden'
       }
       onKeyDown={(e) => {
         if (e.key === 'ArrowRight') {
@@ -122,7 +128,7 @@ export function TabStrip<T extends string>({
                       ? 'border-accent text-ink-0'
                       : 'border-transparent text-muted hover:text-ink-1'
                   }`
-                : `-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition ${
+                : `shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition ${
                     active
                       ? 'border-accent text-ink-0'
                       : 'border-transparent text-muted hover:text-ink-1'
@@ -140,6 +146,13 @@ export function TabStrip<T extends string>({
       })}
     </div>
   );
+
+  // `fill` sits flush inside a rail that already draws its own edges,
+  // so it stays a single element. `inline` needs a wrapper to own the
+  // rule: the scrolling row cannot also draw it without clipping the
+  // active tab's accent.
+  if (variant === 'fill') return list;
+  return <div className={className ?? 'border-b border-border'}>{list}</div>;
 }
 
 interface TabPanelProps<T extends string> {

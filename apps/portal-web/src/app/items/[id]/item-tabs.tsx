@@ -111,7 +111,7 @@ export function ItemTabs({
         ariaLabel="Item sections"
         idPrefix="item"
         variant="inline"
-        className="mb-5 flex items-center gap-1 overflow-x-auto border-b border-border"
+        className="mb-5 border-b border-border"
       />
       {all.map((t) => (
         <TabPanel
