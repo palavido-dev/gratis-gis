@@ -1005,6 +1005,10 @@ export function FieldRuntime({
     'unknown' | 'persistent' | 'best-effort'
   >('unknown');
   const [storage, setStorage] = useState<StorageEstimate | null>(null);
+  // Lets the user stop a download. Held in a ref rather than state
+  // because the modal's Cancel needs the CURRENT controller, and a
+  // state update would hand it whichever one the closure captured.
+  const downloadAbortRef = useRef<AbortController | null>(null);
   // #71: prepared offline basemaps for this deployment. Held at this
   // level because two places need it: the layer panel renders the
   // download row, and MapCanvas takes the resulting style.
@@ -1164,6 +1168,13 @@ export function FieldRuntime({
           ] as [number, number, number, number];
         })()
       : undefined;
+    // #71: a prepared area beats warming tiles, so find one before
+    // bothering to collect templates. The author declared where the
+    // crew works; that is a better answer than the viewport, and it
+    // is one download instead of a million.
+    const preparedArea = offlineBasemap.areas.find((a) => a.current);
+    const controller = new AbortController();
+    downloadAbortRef.current = controller;
     try {
       const manifest = await downloadDeployment(
         {
@@ -1173,7 +1184,15 @@ export function FieldRuntime({
           layers: downloadLayers,
           pickListIds: Array.from(pickListIdSet),
           ...(viewportBbox !== undefined ? { bbox: viewportBbox } : {}),
-          ...(tileUrlTemplates.length > 0
+          ...(preparedArea?.current
+            ? {
+                preparedPackage: {
+                  areaId: preparedArea.area.id,
+                  packageId: preparedArea.current.id,
+                },
+              }
+            : {}),
+          ...(!preparedArea && tileUrlTemplates.length > 0
             ? {
                 tileUrlTemplates,
                 // #272: user-chosen range from the layer-panel
@@ -1193,16 +1212,28 @@ export function FieldRuntime({
             : {}),
         },
         (p) => setDownloadProgress({ ...p }),
+        controller.signal,
       );
       setCachedDeployment(manifest);
+      // The archive just landed; re-read it so the map swaps to the
+      // local copy without the collector having to reload.
+      if (preparedArea) await offlineBasemap.reload();
       // Tile-cache stats jumped during the warm phase; refresh so
       // the panel's "Map tiles: X (Y MB)" line catches up without
       // forcing the user to reopen the layer panel.
       void refreshTileCacheStats();
     } catch (err) {
+      const aborted =
+        controller.signal.aborted ||
+        (err instanceof DOMException && err.name === 'AbortError');
       setDownloadProgress({
-        phase: 'failed',
-        message: 'Download failed',
+        // A cancel is a completed action, not a failure. Reporting
+        // it as one leaves the user wondering what broke and whether
+        // the data they already have is trustworthy.
+        phase: aborted ? 'done' : 'failed',
+        message: aborted
+          ? 'Download stopped. Anything already saved is still on this device.'
+          : 'Download failed',
         estimatedSize: 0,
         layerCount: editableLayers.length,
         featuresFetched: 0,
@@ -1210,8 +1241,12 @@ export function FieldRuntime({
         pickListsFetched: 0,
         tilesFetched: 0,
         tilesTotal: 0,
-        error: err instanceof Error ? err.message : String(err),
+        ...(aborted
+          ? {}
+          : { error: err instanceof Error ? err.message : String(err) }),
       });
+    } finally {
+      downloadAbortRef.current = null;
     }
   }, [downloadProgress, editableLayers, dataCollectionId, title]);
 
@@ -2653,6 +2688,7 @@ export function FieldRuntime({
         <DownloadProgressModal
           progress={downloadProgress}
           onClose={() => setDownloadProgress(null)}
+          onCancel={() => downloadAbortRef.current?.abort()}
         />
       ) : null}
     </div>
@@ -3284,6 +3320,15 @@ function LayerVisibilityPanel({
               normally.
             </p>
           </div>
+        ) : offlineBasemap.areas.some((a) => a.current) ? (
+          // #71: with a prepared area the tile estimate is not just
+          // irrelevant, it is wrong: the download will not warm a
+          // single one of those tiles. Saying "600,000" next to a
+          // button that fetches 10 MB is worse than saying nothing.
+          <p className="mt-1.5 text-2xs text-muted">
+            The map for this deployment is already prepared, so it
+            comes down as one file.
+          </p>
         ) : (
           <p className="mt-1.5 text-2xs text-muted">
             ~{estimatedTileCount.toLocaleString('en-US')} tiles at the
@@ -5387,9 +5432,11 @@ function QueueBadge({
 function DownloadProgressModal({
   progress,
   onClose,
+  onCancel,
 }: {
   progress: DownloadProgress;
   onClose: () => void;
+  onCancel: () => void;
 }) {
   const finished = progress.phase === 'done' || progress.phase === 'failed';
   return (
@@ -5457,14 +5504,18 @@ function DownloadProgressModal({
             {progress.error}
           </p>
         ) : null}
+        {/* A running download must be stoppable. This button used to
+            read "Working..." and be disabled, which left a user who
+            had accidentally started a large download with no way out
+            short of killing the tab, and on a phone in the field that
+            is a genuinely bad place to be. */}
         <div className="mt-4 flex justify-end">
           <button
             type="button"
-            onClick={onClose}
-            disabled={!finished}
-            className="h-9 rounded-md border border-border bg-surface-1 px-3 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+            onClick={finished ? onClose : onCancel}
+            className="h-9 rounded-md border border-border bg-surface-1 px-3 text-xs font-medium text-ink-1 hover:bg-surface-2"
           >
-            {finished ? 'Close' : 'Working...'}
+            {finished ? 'Close' : 'Cancel'}
           </button>
         </div>
       </div>

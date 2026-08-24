@@ -40,6 +40,8 @@ export interface OfflineBasemapState {
   supported: boolean;
   download: (areaId: string, packageId: string) => Promise<void>;
   remove: (areaId: string) => Promise<void>;
+  /** Re-read the areas and adopt whatever is now on the device. */
+  reload: () => Promise<void>;
 }
 
 export function useOfflineBasemap(itemId: string): OfflineBasemapState {
@@ -51,7 +53,24 @@ export function useOfflineBasemap(itemId: string): OfflineBasemapState {
   const [downloading, setDownloading] =
     useState<OfflineBasemapState['downloading']>(null);
   const [error, setError] = useState<string | null>(null);
-  const supported = canStoreOfflineBasemap();
+  /**
+   * Whether this device can hold an archive.
+   *
+   * Resolved in an effect rather than during render. Computing it
+   * inline reads the `caches` global while the component is also
+   * being rendered on the server, where it does not exist, and the
+   * first version of this hook then used that value to gate its own
+   * data fetch. The result was a panel that rendered nothing, with
+   * no request in any log to explain it. The fetch below is
+   * deliberately NOT gated on this: knowing what the author
+   * prepared is useful even on a device that cannot store it, and a
+   * capability check has no business deciding whether to ask the
+   * server a question.
+   */
+  const [supported, setSupported] = useState(false);
+  useEffect(() => {
+    setSupported(canStoreOfflineBasemap());
+  }, []);
 
   /**
    * Adopt whichever archive is already on the device.
@@ -87,31 +106,26 @@ export function useOfflineBasemap(itemId: string): OfflineBasemapState {
     [itemId],
   );
 
-  useEffect(() => {
-    if (!supported) return;
-    let cancelled = false;
-    void (async () => {
-      let known: OfflineAreaWithPackage[] = [];
-      try {
-        const res = await fetch(`/api/portal/items/${itemId}/offline-areas`);
-        if (res.ok) {
-          const body = (await res.json()) as { areas: OfflineAreaWithPackage[] };
-          known = body.areas;
-        }
-      } catch {
-        // Offline, which is the normal case for a collector opening a
-        // deployment they already downloaded. Fall through with an
-        // empty list; adoptStored below has nothing to match against,
-        // so try the one area we might have.
+  const load = useCallback(async () => {
+    let known: OfflineAreaWithPackage[] = [];
+    try {
+      const res = await fetch(`/api/portal/items/${itemId}/offline-areas`);
+      if (res.ok) {
+        const body = (await res.json()) as { areas: OfflineAreaWithPackage[] };
+        known = body.areas;
       }
-      if (cancelled) return;
-      setAreas(known);
-      await adoptStored(known);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [itemId, supported, adoptStored]);
+    } catch {
+      // Offline, which is the normal case for a collector opening a
+      // deployment they already downloaded. Fall through with an
+      // empty list.
+    }
+    setAreas(known);
+    await adoptStored(known);
+  }, [itemId, adoptStored]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   const download = useCallback(
     async (areaId: string, packageId: string) => {
@@ -167,5 +181,6 @@ export function useOfflineBasemap(itemId: string): OfflineBasemapState {
     supported,
     download,
     remove,
+    reload: load,
   };
 }

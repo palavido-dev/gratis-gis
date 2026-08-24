@@ -1,19 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { Check, Download, Loader2, Trash2 } from 'lucide-react';
+import { Check, Loader2, Trash2 } from 'lucide-react';
 import type { OfflineBasemapState } from './use-offline-basemap';
 
 /**
- * The offline-map control in the field runtime's layer panel (#71).
+ * What the prepared map is, and whether it is on this device (#71).
  *
- * Deliberately one row. A collector standing in a parking lot about
- * to lose signal wants a size, a button, and a tick, and every extra
- * control is one more thing to get wrong with gloves on.
+ * Status only. It used to carry its own Download button, which was
+ * a mistake: the runtime already has "Download for offline" in two
+ * places (the overflow menu and this panel), and adding a third
+ * control meant the obvious button still ran the old tile-by-tile
+ * warm while the good path sat somewhere the user never looked.
+ * The prepared package is now part of that one download, and this
+ * row just says what happened.
  *
- * Renders nothing at all when the author has prepared no areas,
- * rather than an empty state explaining a feature the collector
- * cannot act on.
+ * Renders nothing when the author has prepared no areas, rather than
+ * an empty state explaining a feature nobody can act on.
  */
 
 function formatBytes(n: number): string {
@@ -23,12 +26,16 @@ function formatBytes(n: number): string {
 
 export function OfflineBasemapRow({ state }: { state: OfflineBasemapState }) {
   const ready = state.areas.filter((a) => a.current);
-  if (!state.supported || ready.length === 0) return null;
+  // Not gated on `state.supported`. A device that cannot store an
+  // archive should still be told the area exists; hiding it made a
+  // capability check indistinguishable from the feature being
+  // absent, which cost an afternoon.
+  if (ready.length === 0) return null;
 
   return (
-    <div className="border-t border-border pt-3">
+    <div className="mt-3 border-t border-border pt-3">
       <p className="mb-2 text-2xs font-medium uppercase tracking-wide text-muted">
-        Map for offline use
+        Prepared map
       </p>
       <ul className="space-y-1.5">
         {ready.map(({ area, current }) => {
@@ -62,9 +69,9 @@ export function OfflineBasemapRow({ state }: { state: OfflineBasemapState }) {
                         : ''}
                     </span>
                   ) : current?.sizeBytes ? (
-                    formatBytes(current.sizeBytes)
+                    `${formatBytes(current.sizeBytes)}, included in the download above`
                   ) : (
-                    'Ready to download'
+                    'Included in the download above'
                   )}
                 </p>
               </div>
@@ -83,19 +90,7 @@ export function OfflineBasemapRow({ state }: { state: OfflineBasemapState }) {
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() =>
-                    current && void state.download(area.id, current.id)
-                  }
-                  disabled={!!state.downloading}
-                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-accent px-2.5 text-xs font-medium text-accent-foreground hover:opacity-90 disabled:opacity-50"
-                >
-                  <Download className="h-3.5 w-3.5" />
-                  Download
-                </button>
-              )}
+              ) : null}
             </li>
           );
         })}
@@ -104,8 +99,9 @@ export function OfflineBasemapRow({ state }: { state: OfflineBasemapState }) {
         <p className="mt-1.5 text-2xs text-danger">{state.error}</p>
       ) : null}
       <p className="mt-1.5 text-2xs text-muted">
-        Downloading the map once means it draws with no signal at all,
-        and it is the same file for everyone on the crew.
+        {state.supported
+          ? 'Your team lead prepared this map, so it comes down as one file rather than piece by piece, and it draws with no signal at all.'
+          : 'This browser cannot store maps offline. Try adding the app to your home screen.'}
       </p>
     </div>
   );

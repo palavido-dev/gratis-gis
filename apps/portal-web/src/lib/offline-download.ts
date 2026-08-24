@@ -31,6 +31,10 @@ import {
 } from './offline-store';
 import { formatBytes } from './format-bytes';
 import { warmTiles } from './offline-tile-warmer';
+import {
+  downloadOfflineBasemap,
+  storedBasemapSize,
+} from './offline-basemap';
 
 /** One editable layer the manager should fetch features for. Same
  *  shape as field-runtime's EditableLayer minus the things this
@@ -113,6 +117,17 @@ export interface DownloadInput {
   /** Inclusive zoom range to warm. Defaults to [12, 17] (urban /
    *  mid-detail field work) when caller omits it. */
   tileZoomRange?: [number, number];
+  /**
+   * #71: a basemap package the portal has already built for this
+   * deployment. When present it replaces tile warming outright: one
+   * download of a few megabytes instead of enumerating a million
+   * tiles, and it is the only path that produces a map which draws
+   * with no signal at all.
+   *
+   * The warmer stays as the fallback for deployments whose author
+   * has not prepared an area.
+   */
+  preparedPackage?: { areaId: string; packageId: string };
 }
 
 /** Best-effort byte estimate per cached feature. Used by the
@@ -133,6 +148,7 @@ const ESTIMATED_BYTES_PER_FEATURE = 800;
 export async function downloadDeployment(
   input: DownloadInput,
   onProgress: (p: DownloadProgress) => void,
+  signal?: AbortSignal,
 ): Promise<CachedDeployment> {
   const progress: DownloadProgress = {
     phase: 'estimating',
@@ -291,7 +307,44 @@ export async function downloadDeployment(
   // has no tile templates (vector-style basemap, MVT-only,
   // unconfigured, etc) -- the runtime degrades to blank tiles
   // offline as it did before, but feature data + forms still work.
-  if (
+  if (input.preparedPackage) {
+    // #71: the author prepared this area, so there is one file to
+    // fetch. Takes precedence over tile warming unconditionally: a
+    // prepared package is both smaller and the only version that
+    // renders with no signal, so warming as well would be pure
+    // waste against somebody else's tile server.
+    progress.phase = 'caching-tiles';
+    progress.message = 'Downloading the map...';
+    onProgress({ ...progress });
+    try {
+      await downloadOfflineBasemap(
+        input.dataCollectionId,
+        input.preparedPackage.areaId,
+        input.preparedPackage.packageId,
+        (p) => {
+          progress.message = p.totalBytes
+            ? `Downloading the map: ${Math.round((p.receivedBytes / p.totalBytes) * 100)}%`
+            : `Downloading the map: ${(p.receivedBytes / 1024 / 1024).toFixed(1)} MB`;
+          onProgress({ ...progress });
+        },
+        signal,
+      );
+      const stored = await storedBasemapSize(
+        input.dataCollectionId,
+        input.preparedPackage.areaId,
+      );
+      if (stored) totalFeatureBytes += stored;
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      // The data above is already cached and useful on its own, so a
+      // failed map download degrades to "offline without a basemap"
+      // rather than losing the whole run.
+      progress.message = `Map download failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+      onProgress({ ...progress });
+    }
+  } else if (
     input.tileUrlTemplates &&
     input.tileUrlTemplates.length > 0 &&
     input.bbox
@@ -312,6 +365,7 @@ export async function downloadDeployment(
           progress.message = `Caching tiles: ${p.fetched}/${p.total}`;
           onProgress({ ...progress });
         },
+        signal,
       );
       // Roll the tile bytes into the deployment manifest's size
       // estimate so the field UI's "Cached: 14 MB" reflects the
@@ -345,6 +399,13 @@ export async function downloadDeployment(
       onProgress({ ...progress });
     }
   }
+
+  // warmTiles stops quietly on abort rather than throwing, so without
+  // this a cancelled run would fall through, write a manifest, and
+  // report "Ready for offline" over a half-warmed cache. Everything
+  // already written to IndexedDB stays: the caller says so, and it
+  // is genuinely useful on its own.
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
   // Persist the deployment manifest. cachedAt is the moment-of-truth
   // for the offline indicator; the field runtime reads it to decide
