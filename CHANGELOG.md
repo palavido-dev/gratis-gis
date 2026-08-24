@@ -5,6 +5,19 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.83] - 2026-08-24
+
+### Fixed
+
+- **The "Download for offline" button in the top menu could still
+  fetch map tiles one at a time**, while the same button in the
+  layers panel used the prepared map. Which one you got depended on
+  what you had tapped earlier in the session. Both now use the
+  prepared map.
+- **Changing the detail level before downloading is no longer
+  ignored.** The download used the range you had set previously, not
+  the one on screen.
+
 ## [0.9.82] - 2026-08-24
 
 ### Fixed

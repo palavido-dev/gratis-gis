@@ -1013,6 +1013,16 @@ export function FieldRuntime({
   // level because two places need it: the layer panel renders the
   // download row, and MapCanvas takes the resulting style.
   const offlineBasemap = useOfflineBasemap(dataCollectionId);
+  // Mirrored into a ref, and startDownload reads the ref rather than
+  // the value it captured. The dep array below lists this too, but
+  // belt and braces on purpose: the areas arrive from the network
+  // after first render, so a callback memoized without them warms a
+  // million tiles instead of fetching one file, and the two download
+  // buttons then disagree depending on which the user pressed first.
+  // A future edit that trims the dep array must not be able to bring
+  // that back.
+  const offlineBasemapRef = useRef(offlineBasemap);
+  offlineBasemapRef.current = offlineBasemap;
   // Slice 10 polish: tile-cache breakdown surfaced separately from
   // total IndexedDB usage so a user can answer "what's eating my
   // quota" without guessing. Null = no SW (dev mode, browsers
@@ -1172,7 +1182,9 @@ export function FieldRuntime({
     // bothering to collect templates. The author declared where the
     // crew works; that is a better answer than the viewport, and it
     // is one download instead of a million.
-    const preparedArea = offlineBasemap.areas.find((a) => a.current);
+    const preparedArea = offlineBasemapRef.current.areas.find(
+      (a) => a.current,
+    );
     const controller = new AbortController();
     downloadAbortRef.current = controller;
     try {
@@ -1217,7 +1229,7 @@ export function FieldRuntime({
       setCachedDeployment(manifest);
       // The archive just landed; re-read it so the map swaps to the
       // local copy without the collector having to reload.
-      if (preparedArea) await offlineBasemap.reload();
+      if (preparedArea) await offlineBasemapRef.current.reload();
       // Tile-cache stats jumped during the warm phase; refresh so
       // the panel's "Map tiles: X (Y MB)" line catches up without
       // forcing the user to reopen the layer panel.
