@@ -5,6 +5,15 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.80] - 2026-08-24
+
+### Fixed
+
+- **A small scrollbar appeared over the last item tab.** The tab row
+  can scroll sideways when there is not enough width for every tab,
+  and a one pixel detail of the underline was enough to make it think
+  it could scroll downward too. The row no longer scrolls vertically.
+
 ## [0.9.79] - 2026-08-24
 
 ### Changed

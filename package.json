@@ -1,6 +1,6 @@
 {
   "name": "gratis-gis",
-  "version": "0.9.79",
+  "version": "0.9.80",
   "private": true,
   "description": "Open-source, self-hosted geospatial portal. Web maps, app builder, offline field collection, and a visual tool builder. Inspired by modern cloud GIS platforms, built on Postgres + PostGIS + MapLibre.",
   "keywords": [
