@@ -5,6 +5,22 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.82] - 2026-08-24
+
+### Fixed
+
+- **The prepared map is now part of "Download for offline", not a
+  separate control.** It was added only to the layers panel, so the
+  download button most people use kept fetching map tiles one at a
+  time. There is one download again, and when your team lead has
+  prepared an area it uses that instead.
+- **A download in progress can be cancelled.** The only button was a
+  disabled "Working...", which left no way to stop a large download
+  short of closing the tab. Anything already saved stays on the
+  device.
+- **The offline panel could show nothing at all**, on devices that
+  support it, with no error to explain why.
+
 ## [0.9.81] - 2026-08-24
 
 ### Added
