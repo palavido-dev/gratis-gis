@@ -5,6 +5,28 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.81] - 2026-08-24
+
+### Added
+
+- **Offline maps for field deployments are now prepared once, on the
+  server.** Taking a deployment offline used to mean each collector's
+  device fetching map tiles one at a time. For a county-sized area
+  that is over a million requests and tens of gigabytes, and it is
+  aimed at map servers whose terms do not allow it. The portal now
+  prepares a single map file per area, typically under ten megabytes
+  for the same ground, and everyone on the crew downloads that.
+
+  Set areas up on a field deployment under **Offline areas**. The
+  extent comes from the deployed map, so the only choice is how much
+  detail to keep, with the download size shown before you commit.
+  Areas can rebuild themselves weekly, monthly, or not at all.
+
+  In the field, the layers panel lists the prepared areas with their
+  size and a Download button. Once downloaded the map draws with no
+  signal at all, including street names, and nothing is fetched from
+  the internet to render it.
+
 ## [0.9.80] - 2026-08-24
 
 ### Fixed
