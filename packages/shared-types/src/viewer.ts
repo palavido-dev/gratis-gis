@@ -52,9 +52,14 @@ export interface ViewerTarget {
   /** Item id of the data_layer this target lives in. */
   dataLayerId: string;
   /**
-   * Key identifying which layer inside the data_layer this target
-   * refers to. Matches the v3 layer key in the data_layer's
-   * `data.layers[].key`.
+   * Which layer inside the data_layer this target refers to.
+   *
+   * Matches `data.layers[].id` on the v3 data_layer, NOT
+   * `data.layers[].key`, which this comment claimed until 2026-08-24
+   * and which has never existed: DataLayerSublayer has `id`, `label`
+   * and `name`. `id` is also what the tile and feature routes take as
+   * `:layerId`, so the value here is the same string used everywhere
+   * else. Named `layerKey` for historical reasons only.
    */
   layerKey: string;
 }

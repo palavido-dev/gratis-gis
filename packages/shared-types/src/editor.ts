@@ -62,9 +62,11 @@ export interface EditorTarget {
   /** Item id of the data_layer this target lives in. */
   dataLayerId: string;
   /**
-   * Key identifying which layer inside the data_layer this target
-   * refers to. Matches the v3 layer key in the data_layer's
-   * `data.layers[].key`.
+   * Which layer inside the data_layer this target refers to.
+   * Matches `data.layers[].id`, not `data.layers[].key`: a v3
+   * DataLayerSublayer has `id`, `label` and `name` and never had a
+   * `key`. Same string the tile and feature routes take as
+   * `:layerId`. See the note on ViewerTarget.layerKey.
    */
   layerKey: string;
   /** Whether users can create new features. */

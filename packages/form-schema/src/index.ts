@@ -169,8 +169,9 @@ export type Hint = string;
  * Field runtime falls back to the question id.
  */
 export interface BindTo {
-  /** Layer key inside the multi-layer data_layer item; matches
-   *  data_layer.layers[].key. Optional for single-layer data_layers. */
+  /** Which layer inside the multi-layer data_layer item; matches
+   *  `data_layer.layers[].id`, not `.key`, which has never existed on
+   *  a v3 sublayer. Optional for single-layer data_layers. */
   layerKey?: string;
   /**
    * For cross-item relationships: the id of a separate data_layer
