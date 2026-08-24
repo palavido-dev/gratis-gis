@@ -5,6 +5,34 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.86] - 2026-08-24
+
+### Fixed
+
+- **Deleting an offline area, or the whole deployment, now cleans up
+  its prepared map files.** Previously the built archives stayed in
+  storage forever, and rebuilding an area stacked a new archive next
+  to the old ones. The database now enforces the link between
+  packages and their item, superseded builds are pruned, and the
+  nightly refresh sweep checks all deployments in one query instead
+  of one query per area.
+
+### Changed
+
+- The item page tabs, the metadata panel and all of the offline map
+  surfaces now go through the translation catalog instead of
+  hardcoded English, so the four non-English locales can pick them
+  up.
+- The stats strip on a dataset's item page refreshes when a layer's
+  fields change, not only when the item itself is saved.
+
+### Docs
+
+- `PORTAL_BASEMAP_PMTILES_URL`, the optional mirror for the vector
+  basemap the offline builder clips from, is now documented in both
+  env examples. The URL must not carry credentials; it appears in
+  worker logs.
+
 ## [0.9.85] - 2026-08-24
 
 ### Fixed
