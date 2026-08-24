@@ -5,6 +5,28 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.79] - 2026-08-24
+
+### Changed
+
+- **Item pages are now organised into tabs.** Every item has Overview,
+  Metadata and Access; a dataset also gets Data and Source. Sharing
+  used to sit at the bottom of a single long column, which on a
+  dataset meant scrolling past a map, a statistics strip, a source
+  panel, a field list, a version history and a schema builder to reach
+  it. Links that pointed at the sharing section still work and now
+  open the Access tab.
+
+### Added
+
+- **A Metadata tab that shows what an item actually records.** The
+  description and tags used to hide inside a collapsed strip, and the
+  license, creation date, source file, source format and original
+  projection were not shown anywhere. They now sit in a details column
+  alongside the item's identifier and, for a dataset, the storage
+  reference for each layer, both copyable in one click. Anything the
+  item has not recorded says so rather than showing a guess.
+
 ## [0.9.78] - 2026-08-24
 
 ### Fixed
