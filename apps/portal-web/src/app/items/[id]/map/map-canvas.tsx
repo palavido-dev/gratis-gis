@@ -128,6 +128,20 @@ interface Props {
    * an inline OSM raster style so the canvas never fails to render.
    */
   basemaps?: CustomBasemap[];
+  /**
+   * Replaces the basemap entirely with a caller-supplied style.
+   *
+   * Added for the field runtime's offline basemap (#71), where the
+   * style reads tiles out of an archive on the device and must not
+   * be resolved from `map.basemap` at all: the referenced basemap
+   * item points at a tile server the device cannot reach.
+   *
+   * `tag` identifies the style for the swap check below, which
+   * compares against the loaded style rather than trusting React
+   * identity. Change the tag when the style changes; an object with
+   * the same tag is treated as the style already on the map.
+   */
+  styleOverride?: { tag: string; style: maplibregl.StyleSpecification } | null;
   /** Fired whenever the user pans, zooms, rotates, or pitches. */
   onCameraChange: (next: Pick<MapData, 'center' | 'zoom' | 'bearing' | 'pitch'>) => void;
   /**
@@ -305,6 +319,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
   {
     map,
     basemaps = [],
+    styleOverride = null,
     onCameraChange,
     onViewportChange,
     selection,
@@ -629,6 +644,10 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
   // canvas never fails to render. MapLibre's setStyle() accepts
   // either a StyleSpecification or a URL string.
   function resolveStyle(): maplibregl.StyleSpecification | string {
+    // An override wins outright. The field runtime uses it to draw a
+    // basemap held on the device, where consulting `map.basemap`
+    // would resolve to a tile server that is not reachable.
+    if (styleOverride) return styleOverride.style;
     if (map.basemap) {
       const row = basemapsRef.current.find((b) => b.id === map.basemap);
       if (row) {
@@ -818,7 +837,9 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     // choice needs a reset. Uses the basemap item UUID directly (or
     // a 'none' sentinel when the map has no basemap set and is
     // rendering against the fallback style).
-    const desiredTag = `basemap:${map.basemap || 'none'}`;
+    const desiredTag = styleOverride
+      ? `override:${styleOverride.tag}`
+      : `basemap:${map.basemap || 'none'}`;
     const current = (
       m.getStyle() as { metadata?: { basemapTag?: string } } | null
     )?.metadata?.basemapTag;
@@ -922,7 +943,12 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     };
     // Re-run when the chosen basemap item id changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [map.basemap]);
+    // The override's tag, not the object: the field runtime rebuilds
+    // the style object on every render that touches its state, and
+    // depending on identity would re-run the whole swap (which wipes
+    // and re-applies every overlay) for no reason.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map.basemap, styleOverride?.tag]);
 
   // Keep overlay layers (everything after the basemap) in sync with
   // props. Depends on iconsTick so the sync re-runs once each icon

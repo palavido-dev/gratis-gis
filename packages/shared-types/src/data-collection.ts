@@ -63,10 +63,14 @@ export interface DataCollectionData {
    */
   formBindings?: Record<string, DataCollectionFormBinding>;
   /**
-   * Optional offline-collection configuration. When present, the
-   * field runtime exposes a "Download for offline" affordance and
-   * pre-caches map tiles + feature data within the configured
-   * extent. Slice 4 work in the field-mode arc.
+   * NOT READ BY ANYTHING. Kept only so items that already carry it
+   * round-trip unchanged.
+   *
+   * It was meant to bound what the field runtime pre-caches, and the
+   * runtime never consulted it: the download uses the live viewport
+   * and the zoom pickers instead. Pre-declared extents are now
+   * `offlineAreas` below, which the server builds from. Read that
+   * one; this one is a tombstone.
    */
   offline?: DataCollectionOfflineConfig;
   /**
@@ -94,9 +98,10 @@ export interface DataCollectionFormBinding {
 }
 
 /**
- * Offline configuration for a data_collection. The bbox limits which
- * features and tiles get cached; the zoom range bounds tile cache
- * size (each zoom level past the minimum quadruples tile count).
+ * Dead shape. See the note on `DataCollectionData.offline`: nothing
+ * has ever read this, and the field comments below describe a
+ * runtime that was never built against it. Left in place so stored
+ * items keep round-tripping; do not write new code against it.
  */
 export interface DataCollectionOfflineConfig {
   /**

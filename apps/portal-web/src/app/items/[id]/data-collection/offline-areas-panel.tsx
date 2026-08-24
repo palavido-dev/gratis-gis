@@ -270,10 +270,9 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
             Offline areas
           </h3>
           <p className="mt-1 text-xs text-muted">
-            The portal prepares one map file per area. Collectors
-            download it once instead of pulling the map in piece by
-            piece, which is far faster and works where there is no
-            signal at all.
+            The portal prepares one map file per area, so a whole
+            county is a single download of a few megabytes rather
+            than a million separate requests.
           </p>
         </div>
         {canEdit && !adding && mapBbox ? (

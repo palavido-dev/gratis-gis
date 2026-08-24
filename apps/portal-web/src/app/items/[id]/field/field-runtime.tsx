@@ -93,6 +93,11 @@ import {
   gpsAccuracyBand,
   type GpsPosition,
 } from './use-geolocation';
+import {
+  useOfflineBasemap,
+  type OfflineBasemapState,
+} from './use-offline-basemap';
+import { OfflineBasemapRow } from './offline-basemap-row';
 import { createGpsMarker, type GpsMarkerHandle } from './gps-map-marker';
 import { stampGpsMetadata } from './gps-metadata-stamp';
 import { V3FeatureAttachments } from '../data-layer/v3-feature-attachments';
@@ -1000,6 +1005,10 @@ export function FieldRuntime({
     'unknown' | 'persistent' | 'best-effort'
   >('unknown');
   const [storage, setStorage] = useState<StorageEstimate | null>(null);
+  // #71: prepared offline basemaps for this deployment. Held at this
+  // level because two places need it: the layer panel renders the
+  // download row, and MapCanvas takes the resulting style.
+  const offlineBasemap = useOfflineBasemap(dataCollectionId);
   // Slice 10 polish: tile-cache breakdown surfaced separately from
   // total IndexedDB usage so a user can answer "what's eating my
   // quota" without guessing. Null = no SW (dev mode, browsers
@@ -1897,6 +1906,12 @@ export function FieldRuntime({
           ref={canvasRef}
           map={effectiveMapData}
           basemaps={basemaps}
+          // #71: when a prepared area's archive is on this device,
+          // draw from it instead of from the deployment's basemap,
+          // which points at a tile server a collector out of signal
+          // cannot reach. Null whenever nothing is stored, so the
+          // online path is untouched.
+          styleOverride={offlineBasemap.styleOverride}
           selection={selection}
           selectTool="off"
           onSelectionChange={setSelection}
@@ -2261,6 +2276,7 @@ export function FieldRuntime({
               if (!map) return 0;
               return map.getCenter().lat;
             })()}
+            offlineBasemap={offlineBasemap}
           />
         ) : null}
       </div>
@@ -3046,6 +3062,7 @@ function LayerVisibilityPanel({
   estimatedTileCount,
   blockedTileSources,
   centerLat,
+  offlineBasemap,
 }: {
   layers: MapLayer[];
   /** #249.21: editable-layer list so the panel can look up the
@@ -3097,6 +3114,8 @@ function LayerVisibilityPanel({
    *  scale conversion so "1:1,128" reflects what the worker is
    *  actually looking at, not the equator-baseline. */
   centerLat: number;
+  /** #71: prepared offline basemaps, owned by FieldRuntime. */
+  offlineBasemap: OfflineBasemapState;
 }) {
   // Group sources are headers, not togglable rows themselves -- but
   // we still show them so the panel reads like the desktop layer
@@ -3292,6 +3311,10 @@ function LayerVisibilityPanel({
             {formatBytes(cachedDeployment.estimatedSize)}
           </p>
         ) : null}
+        {/* #71: the prepared basemap is a separate download from the
+            data above, and a much bigger win. Self-hides when the
+            author has prepared nothing. */}
+        <OfflineBasemapRow state={offlineBasemap} />
       </div>
       {/* Slice 6 (persistence floor): storage gauge + persistence
           affordance. Only renders when we have real numbers; on
