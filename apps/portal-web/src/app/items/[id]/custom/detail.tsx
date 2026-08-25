@@ -1910,7 +1910,8 @@ function PageTabs({
 // at the same physical size as it did at v3 (Item span =
 // N * track + (N-1) * gap; if both terms scale 1/4 the total
 // stays put).
-const ROW_HEIGHT_PX = 3;
+// ROW_HEIGHT_PX is gone (#80): rows are viewport-proportional now,
+// matching the runtime; px-per-row is measured live off the grid.
 const GRID_COLS = 192;
 const GAP_PX = 1.5;
 /**
@@ -2126,15 +2127,27 @@ function Canvas({
   // because their grid layout is ignored at render time -- counting
   // their (often arbitrary, e.g. 16 or 240) rowSpan would inflate
   // the grid height for no visual reason.
-  const minRows = 12;
+  // #80: the RUNTIME's row formula, verbatim (see totalRows in
+  // CustomRuntimeClient). The designer used to run fixed 3px rows
+  // with its own row count, which meant a rowSpan bought a
+  // different number of pixels here than it does live: the reader's
+  // page squeezes `repeat(totalRows, 1fr)` into the viewport, and a
+  // widget the canvas showed whole arrived clipped. The two
+  // surfaces must compute the SAME row count over the SAME widget
+  // list (including partitioned containers, which the runtime
+  // counts too) or a rowSpan means different fractions of the page
+  // in each.
   const usedRows = widgets.reduce(
-    (n, w) =>
-      isPartitionedContainer(w)
-        ? n
-        : Math.max(n, w.layout.row + w.layout.rowSpan - 1),
+    (n, w) => Math.max(n, w.layout.row + w.layout.rowSpan - 1),
     0,
   );
-  const totalRows = Math.max(minRows, usedRows + 4);
+  const totalRows = Math.max(8, usedRows + 2);
+  /** Live px-per-row against the inner grid, the vertical twin of
+   *  pxPerCol below now that rows are viewport-proportional. */
+  function pxPerRowLive(): number {
+    const rect = gridRef.current?.getBoundingClientRect();
+    return rect && totalRows > 0 ? rect.height / totalRows : 12;
+  }
 
   function onDragOver(e: DragEvent<HTMLDivElement>) {
     if (!canEdit) return;
@@ -2187,7 +2200,7 @@ function Canvas({
       const y = Math.max(0, e.clientY - rect.top);
       const colWidth = rect.width / GRID_COLS;
       col = Math.max(1, Math.min(GRID_COLS, Math.floor(x / colWidth) + 1));
-      row = Math.max(1, Math.floor(y / ROW_HEIGHT_PX) + 1);
+      row = Math.max(1, Math.floor(y / pxPerRowLive()) + 1);
     }
     // #98: same DOM hit-test used by the dragover highlight, so the
     // routing decision is consistent with what the user just saw.
@@ -2298,7 +2311,7 @@ function Canvas({
       const y = Math.max(0, e.clientY - rect.top);
       const colWidth = rect.width / GRID_COLS;
       const col = Math.max(1, Math.min(GRID_COLS, Math.floor(x / colWidth) + 1));
-      const row = Math.max(1, Math.floor(y / ROW_HEIGHT_PX) + 1);
+      const row = Math.max(1, Math.floor(y / pxPerRowLive()) + 1);
       return { col, row };
     }
     /**
@@ -2368,7 +2381,7 @@ function Canvas({
         setDropTargetId((cur) => (cur === targetId ? cur : targetId));
       }
       const colDelta = Math.round(dx / pxPerCol());
-      const rowDelta = Math.round(dy / ROW_HEIGHT_PX);
+      const rowDelta = Math.round(dy / pxPerRowLive());
       const start = g.startLayout;
       const next: CustomLayout = { ...start };
       if (g.kind === 'move') {
@@ -2729,7 +2742,7 @@ function Canvas({
             min-height pushes the parent past the viewport). */}
         <div className="flex min-h-0 flex-1 items-stretch">
           {leftDocks.map((w) => renderWidget(w, false))}
-          <div className="relative min-h-0 min-w-0 flex-1 overflow-auto bg-[radial-gradient(circle_at_1px_1px,rgba(0,0,0,0.06)_1px,transparent_0)] bg-[length:24px_24px] p-4">
+          <div className="relative min-h-0 min-w-0 flex-1 overflow-auto bg-[radial-gradient(circle_at_1px_1px,rgba(0,0,0,0.06)_1px,transparent_0)] bg-[length:24px_24px]">
             {/* The actual grid.  CSS Grid makes the placement math
                 cheap: each widget's gridColumn / gridRow line up
                 with the schema's col/row + spans, no manual
@@ -2740,12 +2753,18 @@ function Canvas({
                 fill the canvas pane. */}
             <div
               ref={gridRef}
-              className="grid w-full"
+              className="grid h-full w-full"
               style={{
                 gridTemplateColumns: `repeat(${GRID_COLS}, minmax(0, 1fr))`,
-                gridAutoRows: `${ROW_HEIGHT_PX}px`,
+                // #80: the runtime's exact vertical model. Rows are
+                // equal fractions of the pane, not fixed pixels, so
+                // the canvas height IS a viewport and a rowSpan
+                // shows the same fraction of the page it will
+                // occupy live. The old 3px-row canvas showed a
+                // widget whole that the reader's viewport clipped
+                // in half, which made layout work a lie.
+                gridTemplateRows: `repeat(${totalRows}, minmax(0, 1fr))`,
                 minWidth: `${CANVAS_MIN_WIDTH_PX}px`,
-                minHeight: `${totalRows * ROW_HEIGHT_PX}px`,
                 gap: `${GAP_PX}px`,
               }}
             >
@@ -3000,10 +3019,18 @@ function WidgetCard({
               ? 10
               : 5,
       }}
-      className={`group relative flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden rounded-md bg-surface-1 text-left transition-shadow ${
+      // #79 follow-up: the card paints with the APP's tokens, not
+      // the portal's. With the portal in dark mode, `bg-surface-1`
+      // made every preview a dark slab under a light-themed app;
+      // the widget inside was themed right and the card behind it
+      // was not. The idle ring is the app's border for the same
+      // reason (that ring is what the runtime panel border looks
+      // like); the selected ring stays portal ink, since selection
+      // is editor UI.
+      className={`group relative flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden rounded-md bg-[hsl(var(--app-surface-1))] text-left transition-shadow ${
         selected
           ? 'shadow-[0_0_0_2px_var(--color-ink-0,_#0f0f10)]'
-          : 'shadow-[0_0_0_1px_var(--color-border,_#e5e7eb)] hover:shadow-[0_0_0_1px_var(--color-ink-1,_#374151)]'
+          : 'shadow-[0_0_0_1px_hsl(var(--app-border))] hover:shadow-[0_0_0_1px_var(--color-ink-1,_#374151)]'
       } ${gesturing ? 'opacity-90' : ''}`}
     >
       {isToolMode ? (
@@ -3017,12 +3044,12 @@ function WidgetCard({
           className="flex h-full w-full flex-col items-center justify-center gap-1 p-1"
           title={`${label} (tool)${summary ? ` · ${summary}` : ''}`}
         >
-          <Icon className="h-5 w-5 text-ink-1" strokeWidth={1.75} />
+          <Icon className="h-5 w-5 text-[hsl(var(--app-ink-1))]" strokeWidth={1.75} />
           {(() => {
             const cfg = widget.config as { panelArrangement?: { labelMode?: string } };
             const iconOnly = cfg.panelArrangement?.labelMode === 'icon-only';
             return iconOnly ? null : (
-              <span className="truncate text-2xs font-medium text-muted">
+              <span className="truncate text-2xs font-medium text-[hsl(var(--app-muted))]">
                 {label}
               </span>
             );
@@ -3149,7 +3176,7 @@ function WidgetCard({
           />
         </div>
       ) : (
-        <div className="flex flex-1 items-center justify-center p-3 text-xs text-muted">
+        <div className="flex flex-1 items-center justify-center p-3 text-xs text-[hsl(var(--app-muted))]">
           {widgetPlaceholderText(
             widget.kind,
             label,
