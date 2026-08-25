@@ -5,6 +5,16 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.90] - 2026-08-25
+
+### Fixed
+
+- **The attribute table's new relate actually narrows.** v0.9.89's
+  endpoint validated the relate, authorized it, and then dropped it
+  in a forwarding wrapper, answering with the whole layer. Caught
+  by a negative control minutes after deploy; the forwarding
+  contract test now covers the new keys.
+
 ## [0.9.89] - 2026-08-25
 
 ### Added
