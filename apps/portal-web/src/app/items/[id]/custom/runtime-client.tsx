@@ -118,6 +118,7 @@ import {
   binFilterFor,
   defaultIndicatorLabel,
   fetchAggregate,
+  fetchFilteredExtent,
   formatAggregateValue,
   formatBinLabel,
 } from '@/lib/layer-aggregate';
@@ -464,6 +465,13 @@ function useSourceScope(
   const parentFollowId =
     parent?.followMapWidgetId === '' ? undefined : parent?.followMapWidgetId;
   const parentBboxKey = useMapViewportBbox(parentFollowId);
+  // #77: the layer behind the selection's own source, so the
+  // resolver can apply the clauses to every source reading that
+  // same layer, not only to the source the publishing widget was
+  // bound to.
+  const selectionSourceLayer = selection
+    ? byId[selection.sourceId]?.layer
+    : undefined;
   // The composition itself lives in shared-types as a pure function
   // with an exhaustive spec table beside it. This hook is now only
   // the React part: subscribe to the viewports, look the parent up,
@@ -484,6 +492,9 @@ function useSourceScope(
           ? { parentBbox: parentBboxKey.split(',').map(Number) as Bbox }
           : {}),
         selection,
+        ...(selectionSourceLayer !== undefined
+          ? { selectionSourceLayer }
+          : {}),
         ...(opts.ignoreSelectionFrom !== undefined
           ? { ignoreSelectionFrom: opts.ignoreSelectionFrom }
           : {}),
@@ -500,6 +511,8 @@ function useSourceScope(
       parentWhereKey,
       parent?.id,
       source?.id,
+      selectionSourceLayer?.dataLayerId,
+      selectionSourceLayer?.layerKey,
       opts.ignoreSelectionFrom,
     ],
   );
@@ -2047,10 +2060,83 @@ function MapWidgetRender({ widget }: { widget: CustomWidget }) {
   // request instead. See applySelectionToLayers.
   const relatedLayerIds = useMemo(() => {
     if (!selection || !ctx) return [];
+    // #77: a relate whose parent reads the same LAYER as the
+    // selection's source is narrowed too, matching what
+    // resolveSourceScope does for charts. The clauses are facts
+    // about the layer, not about the one source the publishing
+    // widget was bound to.
+    const selLayer = sourcesById[selection.sourceId]?.layer;
     return ctx.resolvedTargets
-      .filter((t) => sourcesById[t.sourceId]?.via?.sourceId === selection.sourceId)
+      .filter((t) => {
+        const via = sourcesById[t.sourceId]?.via;
+        if (!via) return false;
+        if (via.sourceId === selection.sourceId) return true;
+        const parentLayer = sourcesById[via.sourceId]?.layer;
+        return (
+          selLayer !== undefined &&
+          parentLayer !== undefined &&
+          parentLayer.dataLayerId === selLayer.dataLayerId &&
+          parentLayer.layerKey === selLayer.layerKey
+        );
+      })
       .map((t) => t.mapLayer.id);
   }, [selection, ctx, sourcesById]);
+
+  // #77: fly to the union extent of the filtered features when a
+  // selection lands. On by default, off via the widget's
+  // zoomToSelection toggle. The extent request deliberately carries
+  // NO viewport bbox: it must describe the surviving rows wherever
+  // they are, or the map could never zoom back out to rows that
+  // scrolled off screen. Predicate and relate are resolved through
+  // the same resolveSourceScope every widget reads, so the map
+  // flies to exactly the rows the widgets counted.
+  const zoomEnabled =
+    widget.config.kind === 'map' && widget.config.zoomToSelection !== false;
+  const appAtForZoom = appAt;
+  const selZoomKey = selection ? JSON.stringify(selection) : '';
+  useEffect(() => {
+    if (!zoomEnabled || !selection || !ctx) return;
+    const selSource = sourcesById[selection.sourceId];
+    if (!selSource) return;
+    // Only when this map draws that source's layer: flying a map
+    // that does not show the filtered features to their extent
+    // would be a jump with nothing visible to explain it.
+    const drawn = ctx.resolvedTargets.some(
+      (t) => t.sourceId === selection.sourceId,
+    );
+    if (!drawn) return;
+    const scope = resolveSourceScope({
+      source: selSource,
+      ...(selSource.via && sourcesById[selSource.via.sourceId]
+        ? { parent: sourcesById[selSource.via.sourceId] }
+        : {}),
+      selection,
+      selectionSourceLayer: selSource.layer,
+    });
+    const ctrl = new AbortController();
+    void fetchFilteredExtent({
+      itemId: selSource.layer.dataLayerId,
+      layerId: selSource.layer.layerKey,
+      ...(scope.where ? { where: scope.where } : {}),
+      ...(scope.via ? { via: scope.via } : {}),
+      ...(appAtForZoom ? { asOf: appAtForZoom } : {}),
+      signal: ctrl.signal,
+    })
+      .then((bbox) => {
+        if (bbox) ctx.flyTo(widget.id, bbox);
+        // A null extent (nothing matched, or nothing has geometry)
+        // keeps the current view: flying nowhere is worse than
+        // staying put.
+      })
+      .catch(() => {
+        /* Extent is a courtesy; the filter itself already applied. */
+      });
+    return () => ctrl.abort();
+    // Keyed on the serialized selection: object identity churns per
+    // render, and clearing a selection intentionally does NOT zoom
+    // back (the reader keeps the context they were looking at).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selZoomKey, zoomEnabled, appAtForZoom, widget.id]);
 
   // Apply the page's cross-filter to whichever of this map's layers
   // draw the selected target.
@@ -4359,7 +4445,22 @@ function AttributeTableWidgetRender({ widget }: { widget: CustomWidget }) {
   // same predicate twice. Selections on OTHER sources still project
   // onto their layer, which is what narrows the picker's other rows.
   const selectionInScope = Boolean(
-    crossFilter && source && crossFilter.sourceId === source.id,
+    crossFilter &&
+      source &&
+      (crossFilter.sourceId === source.id ||
+        // #77: the resolver now applies a same-layer selection to
+        // this source's scope, so the layer projection must skip it
+        // in the same cases or the clauses are sent twice.
+        (() => {
+          const selLayer = ctx?.resolvedTargets.find(
+            (t) => t.sourceId === crossFilter.sourceId,
+          );
+          return (
+            selLayer !== undefined &&
+            selLayer.dataLayerId === source.layer.dataLayerId &&
+            selLayer.layerKey === source.layer.layerKey
+          );
+        })()),
   );
 
   // Layers shown in the table's layer-picker dropdown. Bound to a
@@ -4816,6 +4917,12 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
   // left out.
   const where = scope.where;
   const whereKey = where ? JSON.stringify(where) : '';
+  // #77: the relate is a fetch input like the predicate is. Without
+  // this key, a selection that reached this source only through the
+  // parent (via.parentWhere) updated the caption and never the
+  // numbers; the demo dashboards' 60-second auto-refresh made it
+  // look like slowness rather than a missing dependency.
+  const scopeViaKey = scope.via ? JSON.stringify(scope.via) : '';
   // A binned chart is selectable too: its category is the bucket.
   const selectable = Boolean(groupBy || binField);
   const selectField = binField ?? groupBy;
@@ -4950,7 +5057,7 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
     // every render would re-fetch forever.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target, appAt, aggregate, valueField, groupBy, chartType, bboxKey,
-      whereKey, binKey, refreshTick]);
+      whereKey, scopeViaKey, binKey, refreshTick]);
 
   // A generated title beats "Chart": it names the measure and the
   // grouping, which is exactly what the reader needs to interpret the
@@ -5186,6 +5293,8 @@ function IndicatorWidgetRender({ widget }: { widget: CustomWidget }) {
   const { selection } = useContext(CrossFilterContext);
   const where = scope.where;
   const whereKey = where ? JSON.stringify(where) : '';
+  // #77: same missing dependency as the chart's; see the note there.
+  const scopeViaKey = scope.via ? JSON.stringify(scope.via) : '';
 
   const [state, setState] = useState<{
     loading: boolean;
@@ -5251,7 +5360,7 @@ function IndicatorWidgetRender({ widget }: { widget: CustomWidget }) {
     })();
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target, appAt, aggregate, valueField, bboxKey, whereKey, refreshTick]);
+  }, [target, appAt, aggregate, valueField, bboxKey, whereKey, scopeViaKey, refreshTick]);
 
   const label =
     cfg.label?.trim() ||

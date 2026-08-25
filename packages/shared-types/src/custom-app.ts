@@ -745,6 +745,15 @@ export interface MapWidgetConfig {
   showTargets?: number[];
   /** Show the standard zoom in/out + home + locate buttons. */
   showNavigation?: boolean;
+  /**
+   * #77: fly to the union extent of the filtered features when a
+   * cross-filter selection lands (a filter pick, a chart click).
+   * Defaults to ON: "show me where they are" is what filtering a
+   * map means to most readers. Authors of dashboards where the
+   * viewport IS the question (the extent drives the widgets) turn
+   * it off here.
+   */
+  zoomToSelection?: boolean;
 }
 
 export interface LegendWidgetConfig {

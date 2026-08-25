@@ -185,6 +185,17 @@ export interface ResolveSourceScopeArgs {
   /** The page's current cross-filter selection, if any. */
   selection?: CrossFilterSelection | null;
   /**
+   * The layer read by the source the selection names (#77). A
+   * selection's clauses are written in that LAYER's vocabulary, so
+   * they apply to every source reading the same layer, not only to
+   * the one source the publishing widget happened to be bound to.
+   * Without this, a dashboard with "sites", "sites over a health
+   * limit" and "sites gone quiet" as three sources over one layer
+   * narrowed exactly one of its three site KPIs on a filter pick,
+   * which read as the other two being broken.
+   */
+  selectionSourceLayer?: AppDataSource['layer'] | undefined;
+  /**
    * Resolve as though the selection published by this widget did not
    * exist. The widget that published a filter keeps its own context,
    * or a bar chart collapses to the bar you just clicked and throws
@@ -202,10 +213,26 @@ export function resolveSourceScope(args: ResolveSourceScopeArgs): SourceScope {
       ? null
       : (args.selection ?? null);
 
-  const selecting =
-    selection && source && selection.sourceId === source.id ? selection : null;
+  // The selection applies to a source when it names it, or when the
+  // named source reads the same layer: the clauses are facts about
+  // the LAYER's attributes, and two sources over one layer must not
+  // disagree about a predicate both can evaluate.
+  const sameLayer = (
+    a: AppDataSource['layer'] | undefined,
+    b: AppDataSource['layer'] | undefined,
+  ): boolean =>
+    a !== undefined &&
+    b !== undefined &&
+    a.dataLayerId === b.dataLayerId &&
+    a.layerKey === b.layerKey;
+  const appliesTo = (s: AppDataSource): boolean =>
+    selection !== null &&
+    (selection.sourceId === s.id ||
+      sameLayer(args.selectionSourceLayer, s.layer));
+
+  const selecting = selection && source && appliesTo(source) ? selection : null;
   const parentSelecting =
-    selection && parent && selection.sourceId === parent.id ? selection : null;
+    selection && parent && appliesTo(parent) ? selection : null;
 
   const clauses: MapLayerFilter['clauses'] = [
     ...(source?.where?.clauses ?? []),

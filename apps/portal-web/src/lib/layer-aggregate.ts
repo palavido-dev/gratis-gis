@@ -256,3 +256,35 @@ export function defaultIndicatorLabel(
           : 'Highest';
   return field ? `${verb} ${field}` : `${verb} value`;
 }
+
+/**
+ * #77: union bbox of the rows a predicate keeps, for "zoom to the
+ * filtered features". Same `where` / `via` vocabulary as
+ * fetchAggregate, deliberately WITHOUT a bbox input: the extent must
+ * be independent of the current viewport or the map could never zoom
+ * back out to rows that scrolled off screen.
+ */
+export async function fetchFilteredExtent(req: {
+  itemId: string;
+  layerId: string;
+  where?: MapLayerFilter;
+  via?: AggregateRequest['via'];
+  asOf?: string;
+  signal?: AbortSignal;
+}): Promise<[number, number, number, number] | null> {
+  const params = new URLSearchParams();
+  if (req.where) params.set('where', JSON.stringify(req.where));
+  if (req.via) params.set('via', JSON.stringify(req.via));
+  if (req.asOf) params.set('at', req.asOf);
+  const res = await fetch(
+    `/api/portal/items/${req.itemId}/layers/${req.layerId}/filtered-extent?${params.toString()}`,
+    req.signal ? { signal: req.signal } : {},
+  );
+  if (!res.ok) {
+    throw new Error(`Could not resolve the filtered extent (HTTP ${res.status}).`);
+  }
+  const body = (await res.json()) as {
+    bbox: [number, number, number, number] | null;
+  };
+  return body.bbox;
+}

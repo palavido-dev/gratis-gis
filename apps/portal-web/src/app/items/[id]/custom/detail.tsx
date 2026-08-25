@@ -4698,7 +4698,12 @@ function MapWidgetConfig({
   onChangeConfig,
   onPickMap,
 }: {
-  config: { kind: 'map'; mapId?: string; showNavigation?: boolean };
+  config: {
+    kind: 'map';
+    mapId?: string;
+    showNavigation?: boolean;
+    zoomToSelection?: boolean;
+  };
   canEdit: boolean;
   appMapId: string | undefined;
   appMapTitle: string | null;
@@ -4769,6 +4774,22 @@ function MapWidgetConfig({
         >
           <option value="yes">Show zoom + home + locate</option>
           <option value="no">Hide</option>
+        </select>
+      </Field>
+      <Field
+        label="On filter"
+        hint="When a filter or chart click narrows the page, fly to where the matching features are."
+      >
+        <select
+          value={config.zoomToSelection === false ? 'no' : 'yes'}
+          disabled={!canEdit}
+          onChange={(e) =>
+            onChangeConfig({ zoomToSelection: e.target.value === 'yes' })
+          }
+          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+        >
+          <option value="yes">Zoom to the filtered features</option>
+          <option value="no">Keep the current view</option>
         </select>
       </Field>
       <p className="rounded-md border border-dashed border-border bg-surface-2/40 px-2 py-2 text-2xs text-muted">

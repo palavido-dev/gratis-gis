@@ -129,6 +129,53 @@ describe('resolveSourceScope: whose selection reaches whom', () => {
     expect(s).toEqual({ spatial: false });
   });
 
+  it('a selection reaches a SIBLING source over the same layer (#77)', () => {
+    // The clauses are facts about the layer's attributes, not about
+    // the one source the publishing widget was bound to. Before
+    // this, "sites", "sites over a health limit" and "sites gone
+    // quiet" were three sources over one layer, and a filter pick
+    // narrowed exactly one of the three KPIs.
+    const s = resolveSourceScope({
+      source: src({ id: 's_health', where: where('primary', 'yes') }),
+      selection: sel({ sourceId: 's1' }),
+      selectionSourceLayer: LAYER,
+    });
+    expect(s.where).toEqual({
+      combinator: 'all',
+      clauses: [
+        { field: 'primary', op: '==', value: 'yes' },
+        { field: 'status', op: '==', value: 'open' },
+      ],
+    });
+    expect(s.note).toBe('Status: open');
+  });
+
+  it('the same-layer rule does not reach a source over a DIFFERENT layer', () => {
+    const s = resolveSourceScope({
+      source: src({ id: 's2', layer: PARENT_LAYER }),
+      selection: sel({ sourceId: 's1' }),
+      selectionSourceLayer: LAYER,
+    });
+    expect(s).toEqual({ spatial: false });
+  });
+
+  it('a selection on a same-layer sibling of the PARENT reaches the child (#77)', () => {
+    // The relate declares "narrow me to the surviving parents"; a
+    // predicate any parent-layer source published narrows which
+    // parents survive, whichever source object carried it.
+    const s = resolveSourceScope({
+      source: src({ via: VIA }),
+      parent: parentSrc(),
+      selection: sel({ sourceId: 'p_other', field: 'county', value: 'Preston', label: 'County: Preston' }),
+      selectionSourceLayer: PARENT_LAYER,
+    });
+    expect(s.via?.parentWhere).toEqual({
+      combinator: 'all',
+      clauses: [{ field: 'county', op: '==', value: 'Preston' }],
+    });
+    expect(s.note).toBe('County: Preston');
+  });
+
   it('ignoreSelectionFrom keeps the publishing widget in context', () => {
     const s = resolveSourceScope({
       source: src(),
