@@ -5,6 +5,26 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.91] - 2026-08-25
+
+### Fixed
+
+- **A filter now narrows the whole page, not just the map.** A
+  selection applies to every data source reading the same layer
+  (three site KPIs over one sites layer all narrow together now),
+  and to related sources through the relate. Charts and KPIs whose
+  numbers arrived through a relate also re-fetch immediately; they
+  previously updated their caption and quietly kept the old
+  numbers until the next auto-refresh.
+
+### Added
+
+- **The map flies to the filtered features.** Picking a filter
+  value or clicking a chart bar zooms the map to the extent of the
+  matching features, computed server-side under the same sharing
+  scope as everything else. On by default; each Map widget has an
+  "On filter" setting to keep the current view instead.
+
 ## [0.9.90] - 2026-08-25
 
 ### Fixed
