@@ -9959,6 +9959,32 @@ export const DESIGN_TIME_KINDS: ReadonlySet<CustomWidgetKind> = new Set([
   // working app look broken.
   'legend',
   'layer-list',
+  // #78: everything below joined after an audit of each renderer
+  // confirmed it mounts safely with `maps: {}` (no MapLibre
+  // instance) and noop mutators: every instance access is behind
+  // `ctx?.maps[id] ?? null` plus an explicit null check, or lives
+  // in an event handler pointer-events-none makes unreachable. The
+  // widgets that need a live camera render their real chrome with
+  // the control disabled, which is a truthful preview of a widget
+  // whose map has not loaded yet. The grey "Filter content" box
+  // these replaced looked nothing like the running app, which made
+  // layout work guesswork.
+  'filter',
+  'time-slider',
+  'search',
+  'print',
+  'select',
+  'export',
+  'basemap-gallery',
+  'embed',
+  'bookmark',
+  'coordinates',
+  'my-location',
+  'elevation-profile',
+  'magic-outline',
+  'create-feature',
+  'edit-feature',
+  'delete-feature',
 ]);
 
 /** Stable empties, so an omitted prop does not remake the context. */
@@ -10052,7 +10078,16 @@ export function DesignTimeWidgetPreview({
         <AppSourceOrderContext.Provider value={sourceOrder}>
           <CustomMapsContext.Provider value={ctx}>
             <div ref={containerRef} className="flex h-full w-full flex-col">
-              {renderWidget(widget)}
+              {/* #78: mirror the runtime's own display decision. A
+                  widget the author set to tool mode ships as a
+                  toolbar button, so the canvas shows THAT button
+                  (closed; pointer-events-none keeps the popover
+                  shut), not the panel content hiding behind it. */}
+              {widgetDisplayMode(widget) === 'tool' ? (
+                <ToolWidgetSlot widget={widget} />
+              ) : (
+                renderWidget(widget)
+              )}
             </div>
           </CustomMapsContext.Provider>
         </AppSourceOrderContext.Provider>
