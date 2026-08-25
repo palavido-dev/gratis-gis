@@ -10,17 +10,25 @@ import type {
   FeatureField,
 } from '@gratis-gis/shared-types';
 import { DataLayerBuilder } from '@/app/items/new/data-layer-builder';
+import { useT } from '@/lib/i18n/locale-context';
+import { useV3Editor } from './v3-editor-context';
 import { V3LayerDataPanel } from './v3-layer-data-panel';
 
 /**
- * Detail-page schema editor for v3 data_layer items.
+ * Detail-page editing surfaces for v3 data_layer items, split across
+ * two tabs (#73):
  *
- * Mounts the same multi-layer builder the /items/new wizard uses,
- * pre-filled with the item's current v3 config, and PATCHes the
- * updated blob back to the API. Provides the "path back in" for
- * adjusting schema, coded-value domains, and constraints after create.
+ * - V3DataSection (Data tab): per-layer import, browse, analyze.
+ * - V3StructureSection (Structure tab): the multi-layer builder the
+ *   /items/new wizard uses, pre-filled with the item's current v3
+ *   config, plus the event-layer wizard and the save button.
  *
- * Persistence: a save here takes effect immediately. Since the
+ * Both read the same draft from V3EditorScope (see
+ * v3-editor-context.tsx), so a layer added in the builder shows up
+ * in the Data tab's picker before it is saved, exactly as it did
+ * when the two lived in one column.
+ *
+ * Persistence: a save takes effect immediately. Since the
  * observation-log pivot a schema edit is pure metadata, because
  * features are keyed by scope rather than living in per-layer tables
  * with columns to alter. There is no DDL to run and no data to lose.
@@ -30,23 +38,41 @@ import { V3LayerDataPanel } from './v3-layer-data-panel';
  * unnecessary by the engine substrate rather than completed, and the
  * note survived. See ItemsService for the authoritative version.
  */
-interface Props {
+
+/** Data tab: work with the rows of whichever layer you pick. */
+export function V3DataSection({
+  itemId,
+  canEdit,
+  canDownload,
+}: {
   itemId: string;
-  initial: DataLayerDataV3;
   canEdit: boolean;
   /** Download tier (#32), resolved server-side by the detail page.
    *  Gates the export affordances down in the feature browser. */
   canDownload: boolean;
+}) {
+  const { data } = useV3Editor();
+  return (
+    <V3LayerDataPanel
+      itemId={itemId}
+      layers={data.layers}
+      canEdit={canEdit}
+      canDownload={canDownload}
+    />
+  );
 }
 
-export function DataLayerV3SchemaEditor({
+/** Structure tab: schema builder, event-layer wizard, save. */
+export function V3StructureSection({
   itemId,
-  initial,
   canEdit,
-  canDownload,
-}: Props) {
+}: {
+  itemId: string;
+  canEdit: boolean;
+}) {
+  const t = useT();
   const router = useRouter();
-  const [data, setData] = useState<DataLayerDataV3>(initial);
+  const { data, setData, initial } = useV3Editor();
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -106,24 +132,9 @@ export function DataLayerV3SchemaEditor({
   return (
     <div className="space-y-4">
       <div className="rounded-md border border-accent/30 bg-accent/5 px-3 py-2 text-xs text-ink-1">
-        <p className="font-medium">Multi-layer feature service (v3)</p>
-        <p className="mt-0.5 text-muted">
-          The builder below edits schema; the panel above imports data
-          into whichever layer you pick. Saving the schema re-runs table
-          reconciliation on the backend (new columns added, dropped
-          layers removed).
-        </p>
+        <p className="font-medium">{t('v3Editor.structureTitle')}</p>
+        <p className="mt-0.5 text-muted">{t('v3Editor.structureIntro')}</p>
       </div>
-
-      {/* Data-import panel first: for most authors the first thing they
-          want to do on the detail page is actually load data into the
-          layer tables that were provisioned at create time. */}
-      <V3LayerDataPanel
-        itemId={itemId}
-        layers={data.layers}
-        canEdit={canEdit}
-        canDownload={canDownload}
-      />
 
       {/* Quick wizard for the most common related-table pattern: the
           author has a parent feature (poles, parcels, transect points,

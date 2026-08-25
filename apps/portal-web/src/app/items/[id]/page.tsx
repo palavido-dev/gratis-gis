@@ -128,7 +128,11 @@ import { AddToMapButton } from './add-to-map-button';
 import { MapEditor } from './map/map-editor';
 import { DataLayerEditor } from './data-layer/editor';
 import { ImportJobsBanner } from './import-jobs-banner';
-import { DataLayerV3SchemaEditor } from './data-layer/v3-schema-editor';
+import {
+  V3DataSection,
+  V3StructureSection,
+} from './data-layer/v3-schema-editor';
+import { V3EditorScope } from './data-layer/v3-editor-context';
 import { ArcgisServiceEditor } from './arcgis-service/editor';
 import { PickListEditor } from './pick-list/editor';
 import { GeoBoundaryEditor } from './geo-boundary/editor';
@@ -465,22 +469,24 @@ export default async function ItemDetailPage(props: Props) {
     ) : null;
   const dataLayerDataPanels =
     item.type === 'data_layer' ? (
-      <>
-        {/* Read-only schema inspector above the editor: the field
-            table as the server currently has it, plus a raw JSON
-            disclosure, so an author comparing against an unsaved
-            edit has the committed truth on the same screen. */}
-        <DataLayerSchema data={item.data as DataLayerData | null} />
-        {v3Data ? (
-          <section className="mb-6">
-            <DataLayerV3SchemaEditor
-              itemId={item.id}
-              initial={v3Data}
-              canEdit={canManage}
-              canDownload={canDownload}
-            />
-          </section>
-        ) : (
+      v3Data ? (
+        // #73: v3 Data tab holds only the row-level surfaces (import,
+        // browse, analyze). Schema editing moved to its own Structure
+        // tab below. Both read the shared draft from V3EditorScope.
+        <section className="mb-6">
+          <V3DataSection
+            itemId={item.id}
+            canEdit={canManage}
+            canDownload={canDownload}
+          />
+        </section>
+      ) : (
+        <>
+          {/* Read-only schema inspector above the editor: the field
+              table as the server currently has it, plus a raw JSON
+              disclosure, so an author comparing against an unsaved
+              edit has the committed truth on the same screen. */}
+          <DataLayerSchema data={item.data as DataLayerData | null} />
           <section className="mb-6">
             <DataLayerEditor
               itemId={item.id}
@@ -495,9 +501,21 @@ export default async function ItemDetailPage(props: Props) {
               canEdit={canManage}
             />
           </section>
-        )}
-      </>
+        </>
+      )
     ) : null;
+  // #73: v3 Structure tab. The read-only inspector sits above the
+  // builder so an author comparing against an unsaved edit has the
+  // committed truth on the same screen, which is where that panel
+  // has always earned its keep.
+  const dataLayerStructurePanels = v3Data ? (
+    <>
+      <DataLayerSchema data={item.data as DataLayerData | null} />
+      <section className="mb-6">
+        <V3StructureSection itemId={item.id} canEdit={canManage} />
+      </section>
+    </>
+  ) : null;
 
   // Dependencies and sharing share a tab: "what else points at this"
   // and "who can see this" are the same question from two sides, and
@@ -584,6 +602,11 @@ export default async function ItemDetailPage(props: Props) {
             id: 'data',
             label: t('itemTabs.data', undefined, locale),
             content: dataLayerDataPanels,
+          },
+          {
+            id: 'structure',
+            label: t('itemTabs.structure', undefined, locale),
+            content: dataLayerStructurePanels,
           },
           {
             id: 'source',
@@ -788,6 +811,10 @@ export default async function ItemDetailPage(props: Props) {
           Owner: {ownerLabel}
         </span>
       </div>
+      {/* #73: the scope is a no-op for everything except a v3
+          data_layer, where it holds the schema draft both the Data
+          and Structure tabs read. */}
+      <V3EditorScope initial={v3Data}>
       <ItemTabs tabs={sideTabs}>
         {/* Overview: the item type's own detail surface. */}
       {item.type === 'map' && isBuilderView ? (
@@ -1332,6 +1359,7 @@ export default async function ItemDetailPage(props: Props) {
         </section>
       )}
       </ItemTabs>
+      </V3EditorScope>
     </div>
   );
 }

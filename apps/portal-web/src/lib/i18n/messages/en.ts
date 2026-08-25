@@ -267,10 +267,18 @@ export const en = {
   itemTabs: {
     overview: 'Overview',
     data: 'Data',
+    structure: 'Structure',
     source: 'Source',
     metadata: 'Metadata',
     access: 'Access',
     sections: 'Item sections',
+  },
+  // #73: the v3 data_layer editor, split across the Data and
+  // Structure tabs.
+  v3Editor: {
+    structureTitle: 'Layer structure',
+    structureIntro:
+      'Edit layers, fields, domains and constraints here. Saving takes effect immediately; importing and browsing rows lives on the Data tab.',
   },
   metadataPanel: {
     description: 'Description',
