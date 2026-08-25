@@ -5,6 +5,19 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.94] - 2026-08-25
+
+### Fixed
+
+- **The designer canvas is now a true viewport.** The canvas used
+  fixed-height rows while the live app squeezes the page into the
+  reader's screen, so a widget that looked whole while authoring
+  could arrive clipped in half. The canvas now uses the exact grid
+  model the runtime uses (equal-fraction rows over the same row
+  count), previews paint with the app's theme instead of the
+  portal's, and drag, drop and resize all track the live row size.
+  What you lay out is what ships.
+
 ## [0.9.93] - 2026-08-25
 
 ### Fixed
