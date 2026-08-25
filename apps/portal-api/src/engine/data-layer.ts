@@ -1943,6 +1943,22 @@ export class DataLayerEngine {
     /** Share row-scope (#40). See the collapseFilters push below for
      *  why this is entity-level rather than a content predicate. */
     ownRowsOnly?: { userId: string };
+    /**
+     * Bitemporal read instant (#87). The attribute table sent `at=`
+     * from the day the time slider shipped and this method silently
+     * dropped it, so a scrubbed dashboard's table listed current
+     * truth beside a map drawing the past. Defaults to now, which
+     * also aligns this read with every other collapse in this file:
+     * they all bound `valid_from`, this one never did.
+     */
+    asOf?: Date;
+    /**
+     * Relate (#25): narrow to rows whose `myField` appears among the
+     * parent layer's in-scope rows, exactly as the aggregate and the
+     * tile do. The caller must have authorized the parent read; see
+     * FeaturesController.resolveVia.
+     */
+    via?: AggregateVia;
   }): Promise<{
     features: Array<{ id: string; properties: Record<string, unknown> }>;
     count: number;
@@ -1954,6 +1970,9 @@ export class DataLayerEngine {
     const scope = this.scope(args.itemId, args.layerId);
     const limit = Math.min(Math.max(args.limit | 0, 1), 5000);
     const fetchN = limit + 1;
+    const asOf = args.asOf ?? new Date();
+    // Set when a relate is present; joins the WITH list below.
+    let viaCte: Prisma.Sql | null = null;
 
     // Split the same way buildReadFilters splits: entity-id
     // restrictions are version-independent and may sit inside the
@@ -2044,6 +2063,42 @@ export class DataLayerEngine {
       const sql = compileAttrFilter(args.where);
       if (sql) contentFilters.push(sql);
     }
+    if (args.via !== undefined) {
+      // Identical composition to aggregateFeatures: the parent's own
+      // content predicates compile against the alias `p` inside the
+      // semi-join CTE, and the predicate this pushes is a content
+      // filter for the same reason `where` is one.
+      validateGeoJson(args.via.parentGeoLimit);
+      const parentFilters: Prisma.Sql[] = [];
+      if (args.via.parentBbox !== undefined) {
+        const [w, s2, e, n2] = args.via.parentBbox;
+        parentFilters.push(
+          Prisma.sql`AND p.geom && ST_MakeEnvelope(${w}, ${s2}, ${e}, ${n2}, 4326)`,
+        );
+      }
+      if (args.via.parentGeoLimit !== undefined) {
+        const json = JSON.stringify(args.via.parentGeoLimit);
+        parentFilters.push(
+          Prisma.sql`AND (p.geom IS NULL OR ST_Intersects(p.geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
+        );
+      }
+      if (args.via.parentWhere !== undefined) {
+        const sql = compileAttrFilter(args.via.parentWhere, 'p');
+        if (sql) parentFilters.push(sql);
+      }
+      const compiled = compileViaFilter({
+        myField: args.via.myField,
+        parentField: args.via.parentField,
+        parentScope: this.scope(
+          args.via.parentItemId,
+          args.via.parentLayerId,
+        ),
+        asOf,
+        parentContentFilters: parentFilters,
+      });
+      viaCte = compiled.cte;
+      contentFilters.push(compiled.predicate);
+    }
     const collapseExtras =
       collapseFilters.length > 0
         ? Prisma.join(collapseFilters, ' ')
@@ -2090,6 +2145,7 @@ export class DataLayerEngine {
           tx_time AS edited_at
         FROM observation
         WHERE scope = ${scope}
+          AND valid_from <= ${asOf}
           ${collapseExtras}
         ORDER BY entity, valid_from DESC, tx_time DESC
       ) latest
@@ -2101,10 +2157,11 @@ export class DataLayerEngine {
           // ordered so the fetchN prefix is deterministic, and the
           // LATERAL collapse costs one index descent per candidate.
           await this.prisma.$queryRaw<Row[]>`
-      WITH content_candidates AS (
+      WITH ${viaCte ? Prisma.sql`${viaCte},` : Prisma.empty} content_candidates AS (
         SELECT DISTINCT entity
         FROM observation
         WHERE scope = ${scope}
+          AND valid_from <= ${asOf}
           ${collapseExtras}
           ${Prisma.join(contentFilters, ' ')}
       )
@@ -2121,6 +2178,7 @@ export class DataLayerEngine {
         FROM observation
         WHERE scope = ${scope}
           AND entity = cand.entity
+          AND valid_from <= ${asOf}
         ORDER BY valid_from DESC, tx_time DESC
         LIMIT 1
       ) l

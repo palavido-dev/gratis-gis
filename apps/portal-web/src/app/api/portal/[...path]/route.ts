@@ -125,7 +125,7 @@ function publicRewriteForAnonymousGet(suffix: string): string | null {
   // half looks correct, the widget renders empty, and it reads as a
   // broken dashboard rather than a missing allowlist entry.
   if (
-    /^items\/[^/]+\/layers\/[^/]+\/(geojson|features|features-search|aggregate)$/.test(
+    /^items\/[^/]+\/layers\/[^/]+\/(geojson|features|features-search|features-page|aggregate)$/.test(
       suffix,
     )
   ) {

@@ -691,6 +691,8 @@ export class DataLayerFeaturesController {
     @Query('entityIds') entityIds?: string,
     @Query('clip') clip?: string,
     @Query('where') where?: string,
+    @Query('via') viaRaw?: string,
+    @Query('at') at?: string,
   ) {
     const { geoLimit, rowScope, isTable, layer } = await this.assertV3Layer(
       user,
@@ -711,7 +713,29 @@ export class DataLayerFeaturesController {
       isTable?: boolean;
       where?: MapLayerFilter;
       ownRowsOnly?: { userId: string };
+      asOf?: Date;
+      via?: EngineVia;
     } = {};
+    // #25: the attribute table joins the aggregate and the tile on
+    // the relate. Same parse, same parent authorization, same engine
+    // shape, so the three reads cannot disagree about what a relate
+    // means.
+    const via = await this.resolveVia(user, parseVia(viaRaw));
+    if (via) opts.via = via;
+    // #87: the table sent `at=` from the day the time slider shipped
+    // and this endpoint silently dropped it. Reject a malformed
+    // instant instead of ignoring it, for the same reason `where`
+    // rejects: a silently dropped narrowing is the failure mode this
+    // endpoint exists to fix.
+    if (at !== undefined && at !== '') {
+      const dAt = new Date(String(at));
+      if (!Number.isFinite(dAt.getTime())) {
+        throw new BadRequestException(
+          'at must be an RFC 3339 timestamp, e.g. 2026-08-01T00:00:00Z.',
+        );
+      }
+      opts.asOf = dAt;
+    }
     // Rejects a malformed predicate with a 400 rather than dropping
     // it. A silently ignored filter is the failure this endpoint is
     // being changed to fix, so failing to parse one must not
@@ -1706,10 +1730,11 @@ export class DataLayerFeaturesController {
    * direct read of it would, so the relate leaks no more than asking
    * about the parent directly.
    *
-   * One method rather than one copy per endpoint. Two endpoints take
-   * a relate now (aggregate and tile), and an authorization check
-   * that exists in two places is an authorization check that will
-   * exist in one place after the next edit.
+   * One method rather than one copy per endpoint. Three endpoints
+   * take a relate now (aggregate, tile and features-page), and an
+   * authorization check that exists in two places is an
+   * authorization check that will exist in one place after the next
+   * edit.
    */
   private async resolveVia(
     user: AuthUser,

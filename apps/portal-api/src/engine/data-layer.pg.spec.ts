@@ -895,6 +895,118 @@ d('observation-log read paths against real PostGIS', () => {
     });
   });
 
+  describe('scenario 3c: features-page takes via and at (#25)', () => {
+    const itemId = uuidv7();
+    const layerId = 'layer-page-pred';
+    const scope = dataLayerScope(itemId, layerId);
+    const parentItemId = uuidv7();
+    const parentLayerId = 'layer-page-parent';
+    const parentScope = dataLayerScope(parentItemId, parentLayerId);
+
+    const kid1 = uuidv7();
+    const kid2 = uuidv7();
+    const site1 = uuidv7();
+    const site2 = uuidv7();
+    // Captured between the first and second seed so the asOf case
+    // has an instant at which kid1 exists and kid2 does not yet.
+    let betweenSeeds: Date;
+
+    beforeAll(async () => {
+      await seed(scope, kid1, 'create', { SITE: 's1', METAL: 'Iron' }, HERE);
+      betweenSeeds = new Date(clock + 500);
+      await seed(scope, kid2, 'create', { SITE: 's2', METAL: 'Iron' }, HERE);
+      await seed(parentScope, site1, 'create', { KEY: 's1', OVER: 'yes' }, HERE);
+      await seed(parentScope, site2, 'create', { KEY: 's2', OVER: 'no' }, HERE);
+    });
+
+    const viaSite = {
+      myField: 'SITE',
+      parentField: 'KEY',
+      parentItemId,
+      parentLayerId,
+    };
+
+    it('without a relate the page lists both rows', async () => {
+      const out = await makeEngine().pageFeatures({ itemId, layerId, limit: 100 });
+      expect(out.features.map((f) => f.id).sort()).toEqual([kid1, kid2].sort());
+    });
+
+    it('via narrows to the rows whose parent survives the parent filter', async () => {
+      const out = await makeEngine().pageFeatures({
+        itemId,
+        layerId,
+        limit: 100,
+        via: {
+          ...viaSite,
+          parentWhere: {
+            combinator: 'all',
+            clauses: [{ field: 'OVER', op: '==', value: 'yes' }],
+          },
+        },
+      });
+      expect(out.features.map((f) => f.id)).toEqual([kid1]);
+    });
+
+    it('via with no surviving parent lists nothing, not everything', async () => {
+      // An unfiltered page here is exactly the bug this endpoint
+      // changed to fix: the chart beside the table narrows to zero
+      // and the table lists the whole layer.
+      const out = await makeEngine().pageFeatures({
+        itemId,
+        layerId,
+        limit: 100,
+        via: {
+          ...viaSite,
+          parentWhere: {
+            combinator: 'all',
+            clauses: [{ field: 'OVER', op: '==', value: 'never' }],
+          },
+        },
+      });
+      expect(out.features).toEqual([]);
+    });
+
+    it('via composes with where on the child', async () => {
+      const out = await makeEngine().pageFeatures({
+        itemId,
+        layerId,
+        limit: 100,
+        where: {
+          combinator: 'all',
+          clauses: [{ field: 'METAL', op: '==', value: 'Lead' }],
+        },
+        via: { ...viaSite },
+      });
+      // Both children are Iron; the child predicate must apply on
+      // top of the relate rather than being displaced by it.
+      expect(out.features).toEqual([]);
+    });
+
+    it('asOf excludes rows created after the instant, on both query shapes', async () => {
+      const engine = makeEngine();
+      // No content filter: the DISTINCT ON fast path.
+      const plain = await engine.pageFeatures({
+        itemId,
+        layerId,
+        limit: 100,
+        asOf: betweenSeeds,
+      });
+      expect(plain.features.map((f) => f.id)).toEqual([kid1]);
+      // With a content filter: the candidate-then-collapse path.
+      const filtered = await engine.pageFeatures({
+        itemId,
+        layerId,
+        limit: 100,
+        asOf: betweenSeeds,
+        where: {
+          combinator: 'all',
+          clauses: [{ field: 'METAL', op: '==', value: 'Iron' }],
+        },
+      });
+      expect(filtered.features.map((f) => f.id)).toEqual([kid1]);
+    });
+  });
+
   describe('scenario 3: MVT budget applies after the collapse', () => {
     const itemId = uuidv7();
     const layerId = 'layer-1';

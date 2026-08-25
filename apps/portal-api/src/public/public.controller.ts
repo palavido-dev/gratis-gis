@@ -630,6 +630,133 @@ export class PublicController {
   }
 
   /**
+   * Anonymous mirror of the auth'd `/features-page` read (#25).
+   *
+   * This is the attribute table's endpoint. Public dashboards ship
+   * attribute-table widgets, and until this mirror existed those
+   * widgets 401'd at the BFF for anonymous viewers: the aggregate
+   * beside the table answered and the table did not, which read as
+   * a broken widget rather than a missing mirror. Same params as
+   * the auth'd route (`bbox`, `q`, `sort`, `dir`, `limit`,
+   * `entityIds`, `where`, `via`, `at`), same engine call, with the
+   * public-tier clip standing in for the share geo limit exactly as
+   * it does on every other mirror in this file.
+   */
+  @Public()
+  @Get('items/:id/layers/:layerId/features-page')
+  async layerFeaturesPage(
+    @Param('id') itemId: string,
+    @Param('layerId') layerId: string,
+    @Query('bbox') bbox?: string,
+    @Query('q') q?: string,
+    @Query('sort') sort?: string,
+    @Query('dir') dir?: 'asc' | 'desc',
+    @Query('limit') limit?: string,
+    @Query('entityIds') entityIds?: string,
+    @Query('where') where?: string,
+    @Query('via') viaRaw?: string,
+    @Query('at') at?: string,
+  ) {
+    if (!isUuidShape(itemId)) throw new NotFoundException('Item not found');
+    const item = await this.prisma.item.findFirst({
+      where: {
+        id: itemId,
+        type: 'data_layer',
+        access: 'public',
+        deletedAt: null,
+      },
+      select: { id: true, data: true, ...PUBLIC_TIER_SELECT },
+    });
+    if (!item) throw new NotFoundException('Item not found');
+    const layer = pickV3Layer(item.data, layerId);
+    if (!layer) throw new NotFoundException('Layer not found');
+
+    const opts: {
+      bbox?: [number, number, number, number];
+      q?: string;
+      sort?: string;
+      dir?: 'asc' | 'desc';
+      limit: number;
+      entityIds?: string[];
+      geoLimit?: unknown;
+      isTable?: boolean;
+      where?: MapLayerFilter;
+      asOf?: Date;
+      via?: EngineVia;
+    } = { limit: 5000 };
+
+    // Whitelist every request-supplied field name against the layer
+    // schema, as the aggregate mirror does, so an arbitrary key
+    // cannot be probed through attrs->>'..' anonymously.
+    const allowed = new Set(layer.fields.map((f) => f.name));
+    const parsedWhere = parseWhere(where);
+    for (const name of [
+      ...(parsedWhere?.clauses ?? []).map((c) => c.field),
+    ]) {
+      if (!allowed.has(name)) {
+        throw new BadRequestException(
+          `"${name}" is not a field on this layer.`,
+        );
+      }
+    }
+    if (parsedWhere) opts.where = parsedWhere;
+
+    const parsedVia = parseVia(viaRaw);
+    if (parsedVia && !allowed.has(parsedVia.myField)) {
+      throw new BadRequestException(
+        `"${parsedVia.myField}" is not a field on this layer.`,
+      );
+    }
+    const via = await this.resolvePublicVia(parsedVia);
+    if (via) opts.via = via;
+
+    if (layer.geometryType === null) opts.isTable = true;
+    if (bbox) {
+      const parts = bbox.split(',').map(Number);
+      if (parts.length === 4 && parts.every((n) => Number.isFinite(n))) {
+        opts.bbox = parts as [number, number, number, number];
+      }
+    }
+    if (q) opts.q = q;
+    // Sort columns beyond the schema fall back to entity order, the
+    // same silent-downgrade the auth'd route applies.
+    if (sort) {
+      const SYNTHETIC = new Set(['_global_id', '_edited_at', '_created_at']);
+      if (SYNTHETIC.has(sort) || allowed.has(sort)) opts.sort = sort;
+    }
+    if (dir === 'asc' || dir === 'desc') opts.dir = dir;
+    if (limit) {
+      const n = Number(limit);
+      if (Number.isFinite(n) && n > 0) {
+        opts.limit = Math.min(Math.max(Math.floor(n), 1), 5000);
+      }
+    }
+    if (entityIds) {
+      const ids = entityIds
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => isUuidShape(s))
+        .slice(0, 1000);
+      if (ids.length > 0) opts.entityIds = ids;
+    }
+    if (at !== undefined && at !== '') {
+      const dAt = new Date(String(at));
+      if (!Number.isFinite(dAt.getTime())) {
+        throw new BadRequestException(
+          'at must be an RFC 3339 timestamp, e.g. 2026-08-01T00:00:00Z.',
+        );
+      }
+      opts.asOf = dAt;
+    }
+    const tierClip = await publicTierGeoLimit(
+      this.prisma,
+      item.publicGeoBoundaryId,
+    );
+    if (tierClip) opts.geoLimit = tierClip;
+    return this.v3.pageFeatures(itemId, layerId, opts);
+  }
+
+  /**
    * Authorize a relate for an ANONYMOUS caller and turn it into the
    * engine's shape.
    *
@@ -640,10 +767,11 @@ export class PublicController {
    * 200 with numbers for the WHOLE child layer while the caller
    * believed they were scoped to a parent selection.
    *
-   * One method rather than one copy per endpoint. Two anonymous reads
-   * take a relate now, the aggregate and the tile, and the second one
-   * exists because a map layer drawn from a related source has to
-   * narrow the same way the charts above it do. An authorization
+   * One method rather than one copy per endpoint. Three anonymous
+   * reads take a relate now: the aggregate, the tile, and the
+   * features-page behind the attribute table, each because a surface
+   * drawn from a related source has to narrow the same way the
+   * charts beside it do. An authorization
    * check written twice is one that will be written once after the
    * next edit, and this is the mirror, which is historically where
    * the check goes missing.
