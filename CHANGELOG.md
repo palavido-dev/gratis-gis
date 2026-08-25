@@ -5,6 +5,18 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.93] - 2026-08-25
+
+### Fixed
+
+- **Designer widgets now occupy exactly the space they will occupy
+  live.** The canvas added its own title strip to every card, so
+  everything previewed taller than it runs and lining a layout up
+  against the live app was guesswork. The strip is now a floating
+  chip that appears on hover or selection and takes no space, and
+  overlapping widgets stack in the designer exactly as they will at
+  runtime (a filter laid over a map previews over the map).
+
 ## [0.9.92] - 2026-08-25
 
 ### Fixed
