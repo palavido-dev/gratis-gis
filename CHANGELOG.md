@@ -5,6 +5,22 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.87] - 2026-08-24
+
+### Changed
+
+- **A dataset's Data and Structure are now separate tabs.** The Data
+  tab holds importing, browsing and analyzing rows; the new
+  Structure tab holds the layer and field builder, the event-layer
+  wizard and the schema save. Both share one unsaved draft, so a
+  layer added in the builder is immediately available in the Data
+  tab's import picker, and switching tabs never discards an edit.
+- **The Housekeeping page now uses tabs too.** Review (stale and
+  expiring things, storage, maintenance actions), Cleanup (broken
+  references, orphaned uploads), Starters (app templates and
+  themes) and Schedule, instead of six cards in one long scroll.
+  Selections and dialogs survive switching tabs.
+
 ## [0.9.86] - 2026-08-24
 
 ### Fixed
