@@ -2986,6 +2986,19 @@ function WidgetCard({
         gridColumn: `${widget.layout.col} / span ${widget.layout.colSpan}`,
         gridRow: `${widget.layout.row} / span ${widget.layout.rowSpan}`,
         cursor: canEdit ? (gesturing ? 'grabbing' : 'grab') : 'default',
+        // #79: the runtime's stacking model (WidgetSlot): map/tabs
+        // at 0, tool buttons at 10, other panels at 5. Without it,
+        // overlapping cards stacked by source order here and by
+        // z-index at runtime, so a filter laid over a map could
+        // preview UNDER it. A selected card wins outright so its
+        // ring and handles are never buried by an overlap.
+        zIndex: selected
+          ? 15
+          : widget.kind === 'map' || widget.kind === 'tabs'
+            ? 0
+            : isToolMode
+              ? 10
+              : 5,
       }}
       className={`group relative flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden rounded-md bg-surface-1 text-left transition-shadow ${
         selected
@@ -3017,11 +3030,25 @@ function WidgetCard({
         </div>
       ) : (
         <>
-          <div className="flex shrink-0 items-center gap-1.5 border-b border-border px-2.5 py-1.5 text-xs">
-            <Icon className="h-3.5 w-3.5 text-muted" strokeWidth={1.75} />
+          {/* #79: the identification strip is an OVERLAY, not a row.
+              As an in-flow header it added ~28px the runtime does
+              not have, so every widget on the canvas was taller
+              than the widget it previewed and lining a layout up
+              against the live app was guesswork. The chip appears
+              on hover and while selected, floats above the content,
+              and takes no part in layout, so the card's footprint
+              IS the runtime footprint. pointer-events-none keeps
+              the whole card surface grabbable for the move
+              gesture. */}
+          <div
+            className={`pointer-events-none absolute left-1 top-1 z-20 flex max-w-[calc(100%-0.5rem)] items-center gap-1.5 rounded border border-border bg-surface-1/95 px-2 py-0.5 text-2xs shadow-sm transition-opacity ${
+              selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+            }`}
+          >
+            <Icon className="h-3 w-3 shrink-0 text-muted" strokeWidth={1.75} />
             <span className="font-medium text-ink-0">{label}</span>
             {summary && (
-              <span className="ml-auto truncate text-muted" title={summary}>
+              <span className="truncate text-muted" title={summary}>
                 {summary}
               </span>
             )}
