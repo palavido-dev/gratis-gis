@@ -3,6 +3,7 @@
 
 import {
   useCallback,
+  useEffect,
   useRef,
   useState,
   useTransition,
@@ -70,10 +71,12 @@ import {
   ITEM_TYPES,
   APP_THEMES,
   getAppTemplate,
+  newSourceId,
   serviceProtocolLabel,
   stampBlueprint,
 } from '@gratis-gis/shared-types';
 import type {
+  AppDataSource,
   AppTemplateId,
   CustomAppData,
 } from '@gratis-gis/shared-types';
@@ -411,6 +414,62 @@ const ACCESS_OPTIONS: Array<{
 ];
 
 /**
+ * #34 / #25: derive app data sources from a map's data layers.
+ *
+ * Deliberately a small copy of the designer's discoverMapTargets
+ * rather than an import: pulling detail.tsx into the wizard bundle
+ * drags the whole designer along. Same contract: only `data-layer`
+ * sources count, deduped by item:layer.
+ */
+async function sourcesFromMap(
+  mapId: string,
+  blueprint: CustomAppData,
+): Promise<AppDataSource[]> {
+  try {
+    const res = await fetch(`/api/portal/items/${mapId}`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) return [];
+    const item = (await res.json()) as {
+      data?: { layers?: Array<{ source?: unknown }> };
+    };
+    const seen = new Set(
+      (blueprint.sources ?? []).map(
+        (s) => `${s.layer.dataLayerId}:${s.layer.layerKey}`,
+      ),
+    );
+    // On a dashboard, a new source follows the first Map widget:
+    // the author just chose a map for a dashboard, and "answer for
+    // what is on the map" is what that means. Same default the
+    // designer applies.
+    const mapWidget =
+      blueprint.blueprint === 'dashboard'
+        ? blueprint.pages
+            .flatMap((pg) => pg.widgets ?? [])
+            .find((w) => w.kind === 'map')
+        : undefined;
+    const out: AppDataSource[] = [];
+    for (const layer of item.data?.layers ?? []) {
+      const src = layer.source as
+        | { kind?: string; itemId?: string; layerKey?: string }
+        | undefined;
+      if (src?.kind !== 'data-layer' || !src.itemId || !src.layerKey) continue;
+      const key = `${src.itemId}:${src.layerKey}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        id: newSourceId(),
+        layer: { dataLayerId: src.itemId, layerKey: src.layerKey },
+        ...(mapWidget ? { followMapWidgetId: mapWidget.id } : {}),
+      });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/**
  * #22: summary of one app_template item, served from the server
  * component and used by the Custom Web App gallery.  The full
  * blueprint is fetched at submit time so we don't ship every
@@ -519,6 +578,49 @@ export function NewItemWizard({
       ? preselectedTemplateId
       : (appTemplates[0]?.itemId ?? null),
   );
+  // #34: the map offer. A dashboard without a map is a page of
+  // widgets with nothing to scope them; every real dashboard so far
+  // began with someone asking where the map picker was. 'none' stays
+  // the default because a map is not mandatory, but the choice is on
+  // the create form where the decision naturally happens.
+  const [customMapChoice, setCustomMapChoice] = useState<
+    'none' | 'new' | 'existing'
+  >('none');
+  const [customExistingMapId, setCustomExistingMapId] = useState('');
+  const [customMapOptions, setCustomMapOptions] = useState<Array<{
+    id: string;
+    title: string;
+  }> | null>(null);
+  useEffect(() => {
+    if (type !== 'custom' || customMapChoice !== 'existing') return;
+    if (customMapOptions !== null) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/portal/items?type=map', {
+          cache: 'no-store',
+        });
+        if (!res.ok || cancelled) {
+          if (!cancelled) setCustomMapOptions([]);
+          return;
+        }
+        const rows = (await res.json()) as Array<{
+          id: string;
+          title: string;
+        }>;
+        if (!cancelled) {
+          setCustomMapOptions(
+            rows.map((r) => ({ id: r.id, title: r.title })),
+          );
+        }
+      } catch {
+        if (!cancelled) setCustomMapOptions([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [type, customMapChoice, customMapOptions]);
   // Legacy state kept around in case some unrelated code reads the
   // old AppTemplateId.  No longer driven by the gallery.
   const [customAppTemplateId, setCustomAppTemplateId] =
@@ -1244,6 +1346,48 @@ export function NewItemWizard({
         // a valid CustomAppData.
         blueprintData = getAppTemplate('blank-canvas').seed();
       }
+      // #34: the map offer. Created (or picked) BEFORE the app item
+      // so the app's blueprint can reference it in the same create;
+      // the print-template wizard's ?map= stamp is the precedent.
+      let dashMapId: string | null = null;
+      if (customMapChoice === 'new') {
+        const mapRes = await fetch('/api/portal/items', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            type: 'map',
+            title: `${title.trim()} map`,
+            description: `Map for the "${title.trim()}" app.`,
+            data: { ...DEFAULT_MAP },
+          }),
+        });
+        if (!mapRes.ok) {
+          // setError, not throw: submit() is wired straight to
+          // onClick, so a throw here would be an unhandled
+          // rejection with no message on screen.
+          setError(
+            `Could not create the map (HTTP ${mapRes.status}). Nothing was created; try again.`,
+          );
+          return;
+        }
+        dashMapId = ((await mapRes.json()) as { id: string }).id;
+      } else if (customMapChoice === 'existing' && customExistingMapId) {
+        dashMapId = customExistingMapId;
+      }
+      if (dashMapId) {
+        // #25: an existing map's data layers become sources on the
+        // spot, so the first chart the author drops has something
+        // to read. A fresh map has no layers yet and adds nothing.
+        const adopted = await sourcesFromMap(dashMapId, blueprintData);
+        const sources = [...(blueprintData.sources ?? []), ...adopted];
+        blueprintData = {
+          ...blueprintData,
+          mapId: dashMapId,
+          ...(adopted.length > 0
+            ? { sources, targets: sources.map((s) => s.layer) }
+            : {}),
+        };
+      }
       const webApp: WebAppData = {
         version: 1,
         template: 'custom',
@@ -1829,6 +1973,86 @@ export function NewItemWizard({
             You can also save your finished app as a template later
             for reuse.
           </p>
+        </section>
+      ) : null}
+
+      {/* #34: the map offer. The map is the thing every dashboard
+          widget scopes to, so choosing one belongs on the create
+          form rather than being discovered later in the designer.
+          Its data layers become the app's sources automatically
+          (#25), so an existing map makes the app chartable on
+          arrival. */}
+      {type === 'custom' ? (
+        <section>
+          <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted">
+            Map
+          </label>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            {(
+              [
+                {
+                  value: 'none',
+                  label: 'No map yet',
+                  hint: 'Pick or create one later in the designer.',
+                },
+                {
+                  value: 'new',
+                  label: 'Create a map with it',
+                  hint: 'An empty map, named after this app, wired in from the start.',
+                },
+                {
+                  value: 'existing',
+                  label: 'Use an existing map',
+                  hint: 'Its layers become the app\u2019s data sources.',
+                },
+              ] as const
+            ).map((opt) => {
+              const active = customMapChoice === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setCustomMapChoice(opt.value)}
+                  aria-pressed={active}
+                  className={`flex flex-col items-start gap-1 rounded-lg border bg-surface-1 p-3 text-left transition-colors ${
+                    active
+                      ? 'border-accent ring-2 ring-accent/30'
+                      : 'border-border hover:border-ink-1 hover:bg-surface-2'
+                  }`}
+                >
+                  <span className="text-sm font-semibold text-ink-0">
+                    {opt.label}
+                  </span>
+                  <span className="text-xs text-muted">{opt.hint}</span>
+                </button>
+              );
+            })}
+          </div>
+          {customMapChoice === 'existing' ? (
+            <div className="mt-2">
+              {customMapOptions === null ? (
+                <p className="text-xs text-muted">Loading your maps...</p>
+              ) : customMapOptions.length === 0 ? (
+                <p className="text-xs text-muted">
+                  No maps found. Create one first, or choose
+                  &ldquo;Create a map with it&rdquo;.
+                </p>
+              ) : (
+                <select
+                  value={customExistingMapId}
+                  onChange={(e) => setCustomExistingMapId(e.target.value)}
+                  className="w-full rounded-md border border-border bg-surface-1 px-2 py-1.5 text-sm"
+                >
+                  <option value="">Choose a map...</option>
+                  {customMapOptions.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.title}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          ) : null}
         </section>
       ) : null}
 
