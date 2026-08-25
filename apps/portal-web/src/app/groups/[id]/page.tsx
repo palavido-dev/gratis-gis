@@ -1,12 +1,23 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, Users, Lock, Building2, Globe2, Pencil } from 'lucide-react';
+import {
+  ArrowLeft,
+  Users,
+  Lock,
+  Building2,
+  Globe2,
+  Pencil,
+  Share2,
+} from 'lucide-react';
 import type { Group, GroupMember, User } from '@gratis-gis/shared-types';
 import { EntityBadge } from '@gratis-gis/ui';
 import { apiFetch } from '@/lib/api';
+import { t } from '@/lib/i18n';
+import { getServerLocale } from '@/lib/i18n/server';
 import { MembersPanel } from './members-panel';
 import { DeleteGroupButton } from './delete-button';
+import { SharedItemsPanel, type SharedItemRow } from './shared-items-panel';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -35,7 +46,23 @@ export default async function GroupDetailPage(props: Props) {
   }
 
   const me = await apiFetch<{ id: string; orgRole: string }>('/api/users/me');
+  const locale = await getServerLocale();
   const canManage = me.id === group.ownerId || me.orgRole === 'admin';
+  // #76: items shared with this group. The list endpoint applies
+  // visibleWhere on top of the group filter, so each caller sees
+  // only the shared items they can themselves read. Fetched after
+  // the group resolves (a 404 above short-circuits) rather than in
+  // the Promise.all, because a foreign group id must not leak
+  // whether it has shares.
+  let sharedItems: SharedItemRow[] = [];
+  try {
+    sharedItems = await apiFetch<SharedItemRow[]>(
+      `/api/items?sharedWithGroupId=${group.id}`,
+    );
+  } catch {
+    // Non-fatal: the page is still useful without the list, and an
+    // empty array renders the honest "nothing shared" state.
+  }
   // Owner-not-member badge (#102): an owner can remove their own
   // membership while keeping the group; the badge reminds them of
   // that state so 5 months later it's not a mystery why their
@@ -135,6 +162,22 @@ export default async function GroupDetailPage(props: Props) {
           canManage={canManage}
           currentUserId={me.id}
           isOwner={isOwner}
+        />
+      </section>
+
+      {/* #76: what this group grants access to. Sits below Members
+          because "who is in it" is the group's identity and "what
+          they can see" is its effect. */}
+      <section className="mb-8">
+        <h2 className="mb-4 flex items-center gap-2 text-sm font-medium text-muted">
+          <Share2 className="h-4 w-4" />
+          {t('groupItems.title', undefined, locale)}
+        </h2>
+        <SharedItemsPanel
+          groupId={group.id}
+          initialItems={sharedItems}
+          currentUserId={me.id}
+          isOrgAdmin={me.orgRole === 'admin'}
         />
       </section>
     </div>

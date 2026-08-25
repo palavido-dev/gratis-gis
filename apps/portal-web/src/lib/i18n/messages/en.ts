@@ -273,6 +273,19 @@ export const en = {
     access: 'Access',
     sections: 'Item sections',
   },
+  // #76: items shared with a group, on the group detail page.
+  groupItems: {
+    title: 'Shared with this group',
+    empty: 'Nothing is shared with this group yet. Share an item to the group from its Access tab and it will show up here.',
+    openItem: 'Open item details',
+    removeAction: 'Remove from this group',
+    removeTitle: 'Remove from group',
+    removeBody:
+      'Remove "{title}" from this group? Group members lose the access this share granted; the item itself is not touched.',
+    removeConfirm: 'Remove',
+    removed: 'Removed "{title}" from the group.',
+    removeFailed: 'Could not remove the item: HTTP {status}.',
+  },
   // #75: the housekeeping dashboard's tab strip.
   housekeepingTabs: {
     review: 'Review',
