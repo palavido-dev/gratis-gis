@@ -31,6 +31,7 @@ import type {
   MapLayer,
   MapLayerFilter,
   PickListData,
+  ResolvedVia,
 } from '@gratis-gis/shared-types';
 import type { LayerMetadata } from './layer-metadata';
 import { getCachedUserName, prefetchUserNames } from '@/lib/user-name-cache';
@@ -158,6 +159,21 @@ interface Props {
    * when the user scrubs the time slider.
    */
   asOfTime?: string | null;
+  /**
+   * #25 -- the resolved source scope, from the Custom Web App
+   * runtime's `useSourceScope`. Applied only when the ACTIVE layer
+   * is `scopeLayerId`: the scope narrates one source, and the other
+   * layers in the picker are not that source.
+   *
+   * `scopeWhere` is ANDed with the active layer's own filter on the
+   * server-paged fetch. `scopeVia` is the relate, serialized onto
+   * the request the same way the aggregate sends it, so a related
+   * table narrows with the charts beside it instead of listing the
+   * whole layer.
+   */
+  scopeLayerId?: string | null;
+  scopeWhere?: MapLayerFilter | null;
+  scopeVia?: ResolvedVia | null;
 }
 
 type SortDir = 'asc' | 'desc';
@@ -195,6 +211,9 @@ export function AttributeTable({
   mapBbox,
   embedded = false,
   asOfTime,
+  scopeLayerId,
+  scopeWhere,
+  scopeVia,
 }: Props) {
   const [activeLayerId, setActiveLayerId] = useState<string | null>(null);
   const [lastPicked, setLastPicked] = useState<number | null>(null);
@@ -490,11 +509,41 @@ export function AttributeTable({
    * dependency, and the layer object is rebuilt on every map state
    * change; comparing the JSON keeps a pan from re-fetching.
    */
+  const scopeApplies = Boolean(
+    scopeLayerId && activeLayer && activeLayer.id === scopeLayerId,
+  );
   const whereForServer = useMemo<string | null>(() => {
     const f = activeLayer?.filter;
-    if (!f || !f.clauses || f.clauses.length === 0) return null;
-    return JSON.stringify(f);
-  }, [activeLayer?.filter]);
+    const own = f && f.clauses && f.clauses.length > 0 ? f : null;
+    // #25: the source scope's predicate joins the layer's own filter
+    // on the fetch. Flattened under 'all' when both exist, the same
+    // convention resolveSourceScope applies: a scope narrows what
+    // the layer shows, it never widens it.
+    const extra =
+      scopeApplies && scopeWhere && scopeWhere.clauses.length > 0
+        ? scopeWhere
+        : null;
+    if (own && extra) {
+      return JSON.stringify({
+        combinator: 'all' as const,
+        clauses: [...own.clauses, ...extra.clauses],
+      });
+    }
+    if (extra) return JSON.stringify(extra);
+    if (own) return JSON.stringify(own);
+    return null;
+  }, [activeLayer?.filter, scopeApplies, scopeWhere]);
+
+  /**
+   * The relate, serialized exactly as `fetchAggregate` sends it, so
+   * the table and the chart reading the same related source cannot
+   * disagree about what the relate means. Applied only to the scope
+   * layer; a picker-switched layer is not the scoped source.
+   */
+  const viaForServer = useMemo<string | null>(() => {
+    if (!scopeApplies || !scopeVia) return null;
+    return JSON.stringify(scopeVia);
+  }, [scopeApplies, scopeVia]);
 
   /**
    * Drive the server-paged fetch. Re-runs whenever any URL input
@@ -535,6 +584,7 @@ export function AttributeTable({
     }
     if (entityIdsForServer) params.set('entityIds', entityIdsForServer);
     if (whereForServer) params.set('where', whereForServer);
+    if (viaForServer) params.set('via', viaForServer);
     // #87 -- bitemporal "as of" pass-through.  When the host runtime
     // is in time-travel mode, fetch the snapshot at the chosen
     // moment so the table matches what the map is rendering.
@@ -584,6 +634,7 @@ export function AttributeTable({
     sortDir,
     entityIdsForServer,
     whereForServer,
+    viaForServer,
     asOfTime,
   ]);
 

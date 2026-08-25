@@ -13,6 +13,7 @@ import {
 import {
   AlertTriangle,
   BarChart3,
+  Filter as FilterIcon,
   Gauge,
   Bookmark as BookmarkIcon,
   ChartSpline as ChartSplineIcon,
@@ -459,6 +460,65 @@ export function CustomAppDetail({
     // off again.
     setApp((cur) => applyPatch(cur, patch));
     setDirty(true);
+  }, []);
+
+  /**
+   * #25: promote a just-picked map's data layers to app sources.
+   *
+   * Every symptom in the "scope lived on the widget" defect family
+   * ended at the same place: an author picks a map whose layers they
+   * can see, and none of them are chartable until they re-add each
+   * one by hand in the Layers panel. The map already names the
+   * layers; asking again is data entry. Layers already present as
+   * sources are left untouched (same identity, same scope), so
+   * re-picking a map or picking a second map that shares layers
+   * never duplicates or resets anything.
+   *
+   * Functional setApp rather than a closed-over `app`, because the
+   * candidates arrive from a fetch and the author may have edited
+   * sources in the meantime.
+   */
+  const adoptMapSources = useCallback((mapId: string) => {
+    void discoverMapTargets(mapId)
+      .then((candidates) => {
+        if (candidates.length === 0) return;
+        setApp((cur) => {
+          const sources = cur.sources ?? [];
+          const taken = new Set(
+            sources.map((s) => `${s.layer.dataLayerId}:${s.layer.layerKey}`),
+          );
+          const fresh = candidates.filter(
+            (c) => !taken.has(`${c.dataLayerId}:${c.layerKey}`),
+          );
+          if (fresh.length === 0) return cur;
+          // Same default AddTargetControl applies: on a dashboard a
+          // new source follows the page's map, because "answer for
+          // what is on the map" is what picking a map for a
+          // dashboard means.
+          const mapWidget =
+            cur.blueprint === 'dashboard'
+              ? cur.pages
+                  .flatMap((pg) => pg.widgets ?? [])
+                  .find((w) => w.kind === 'map')
+              : undefined;
+          const added: AppDataSource[] = fresh.map((c) => ({
+            id: newSourceId(),
+            layer: { dataLayerId: c.dataLayerId, layerKey: c.layerKey },
+            ...(mapWidget ? { followMapWidgetId: mapWidget.id } : {}),
+          }));
+          const next = [...sources, ...added];
+          return { ...cur, sources: next, targets: next.map((s) => s.layer) };
+        });
+        // Outside the updater (updaters must stay pure). Marking
+        // dirty when every candidate was already a source is a
+        // harmless save of identical data; the map pick itself
+        // dirtied the app anyway.
+        setDirty(true);
+      })
+      .catch(() => {
+        /* The Layers panel's own add control remains; a failed
+           discovery just means the author adds by hand as before. */
+      });
   }, []);
 
   // #22: build the picker option list from themeItems (server-
@@ -1125,6 +1185,9 @@ export function CustomAppDetail({
             // App-default path (or null fallthrough): write to app.mapId.
             updateApp({ mapId: picked.id });
           }
+          // #25: either way, the picked map's data layers become
+          // sources so they are immediately chartable.
+          adoptMapSources(picked.id);
           setPickingMap(null);
         }}
         onClose={() => setPickingMap(null)}
@@ -1456,6 +1519,13 @@ const PALETTE_TILES: Array<{
     label: 'Indicator',
     Icon: Gauge,
     hint: 'One big number from a target layer',
+    category: 'data',
+  },
+  {
+    kind: 'filter',
+    label: 'Filter',
+    Icon: FilterIcon,
+    hint: "Pick a field value; every widget narrows to it (#19)",
     category: 'data',
   },
   {
@@ -3256,6 +3326,8 @@ function summarizeWidget(w: CustomWidget): string {
       return w.config.aggregate === 'count'
         ? `count of #${w.config.targetIndex}`
         : `${w.config.aggregate} ${w.config.valueField ?? '(pick a field)'}`;
+    case 'filter':
+      return w.config.field ? `by ${w.config.field}` : '(pick a field)';
     case 'image':
       return w.config.url ? 'image set' : 'no url';
     case 'button':
@@ -4274,7 +4346,10 @@ function WidgetConfigForm({
           }
         />
       );
-    case 'attribute-table':
+    case 'attribute-table': {
+      // Alias so the closures below keep the narrowing (a param
+      // property re-narrows to the broad union inside a callback).
+      const atCfg = widget.config;
       return (
         <div className="space-y-3">
           <Field
@@ -4286,11 +4361,24 @@ function WidgetConfigForm({
             }
           >
             <select
-              value={widget.config.targetIndex}
+              value={(() => {
+                if (atCfg.sourceId !== undefined) {
+                  const i = appTargets.findIndex(
+                    (s) => s.id === atCfg.sourceId,
+                  );
+                  if (i >= 0) return i;
+                }
+                return atCfg.targetIndex;
+              })()}
               disabled={!canEdit || appTargets.length === 0}
-              onChange={(e) =>
-                onChangeConfig({ targetIndex: Number(e.target.value) })
-              }
+              onChange={(e) => {
+                const i = Number(e.target.value);
+                const id = appTargets[i]?.id;
+                onChangeConfig({
+                  targetIndex: i,
+                  ...(id ? { sourceId: id } : {}),
+                });
+              }}
               className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
             >
               {appTargets.length === 0 ? (
@@ -4339,6 +4427,7 @@ function WidgetConfigForm({
           </Field>
         </div>
       );
+    }
     case 'text':
       return (
         <div className="space-y-3">
@@ -4389,6 +4478,15 @@ function WidgetConfigForm({
           canEdit={canEdit}
           appTargets={appTargets}
           mapWidgets={mapWidgets}
+          onChangeConfig={onChangeConfig}
+        />
+      );
+    case 'filter':
+      return (
+        <FilterWidgetConfigEditor
+          config={widget.config}
+          canEdit={canEdit}
+          appTargets={appTargets}
           onChangeConfig={onChangeConfig}
         />
       );
@@ -7854,14 +7952,23 @@ function numericCandidates(
 /** Shared target <select>; both editors bind one layer. */
 function TargetSelect({
   value,
+  sourceId,
   appTargets,
   canEdit,
   onChange,
 }: {
   value: number;
+  /** The widget's stable binding, when it has one. Wins over the
+   *  legacy index for DISPLAY exactly as useWidgetSource makes it
+   *  win at runtime, so the picker cannot show a different layer
+   *  than the widget reads. */
+  sourceId?: string | undefined;
   appTargets: AppDataSource[];
   canEdit: boolean;
-  onChange: (index: number) => void;
+  /** Reports both spellings of the choice: the index for the legacy
+   *  field, the id for the stable one. Callers write both (#25);
+   *  the id is what survives source removal and reordering. */
+  onChange: (index: number, sourceId: string | undefined) => void;
 }) {
   // Resolve the layers' real names. The list used to read
   // "#0 4d029569 / bridges", which asks an author to recognise a
@@ -7869,6 +7976,13 @@ function TargetSelect({
   // is the kind of database detail the UI is supposed to keep to
   // itself.
   const resolved = useResolvedTargets(appTargets);
+  const effectiveIndex = (() => {
+    if (sourceId !== undefined) {
+      const i = appTargets.findIndex((s) => s.id === sourceId);
+      if (i >= 0) return i;
+    }
+    return value;
+  })();
   return (
     <Field
       label="Layer"
@@ -7879,9 +7993,12 @@ function TargetSelect({
       }
     >
       <select
-        value={value}
+        value={effectiveIndex}
         disabled={!canEdit || appTargets.length === 0}
-        onChange={(e) => onChange(Number(e.target.value))}
+        onChange={(e) => {
+          const i = Number(e.target.value);
+          onChange(i, appTargets[i]?.id);
+        }}
         className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
       >
         {appTargets.length === 0 ? (
@@ -7897,6 +8014,102 @@ function TargetSelect({
         )}
       </select>
     </Field>
+  );
+}
+
+/**
+ * Filter widget config (#19): the source, the field whose values
+ * become the options, and how they render. The field list comes from
+ * the layer schema, same as the chart's group-by picker, so an
+ * author picks by name rather than typing one.
+ */
+function FilterWidgetConfigEditor({
+  config,
+  canEdit,
+  appTargets,
+  onChangeConfig,
+}: {
+  config: Extract<CustomWidget['config'], { kind: 'filter' }>;
+  canEdit: boolean;
+  appTargets: AppDataSource[];
+  onChangeConfig: (patch: Record<string, unknown>) => void;
+}) {
+  const target = appTargets.find((src) =>
+    config.sourceId !== undefined
+      ? src.id === config.sourceId
+      : appTargets.indexOf(src) === config.targetIndex,
+  )?.layer;
+  const { fields, loading } = useTargetFields(target);
+  return (
+    <div className="space-y-3">
+      <TargetSelect
+        value={config.targetIndex}
+        sourceId={config.sourceId}
+        appTargets={appTargets}
+        canEdit={canEdit}
+        onChange={(i, id) =>
+          onChangeConfig({ targetIndex: i, ...(id ? { sourceId: id } : {}) })
+        }
+      />
+      <Field
+        label="Field"
+        hint={
+          loading
+            ? 'Reading the layer schema…'
+            : 'Readers pick one of this field\u2019s values; every widget on the page narrows to it.'
+        }
+      >
+        <select
+          value={config.field}
+          disabled={!canEdit}
+          onChange={(e) => onChangeConfig({ field: e.target.value })}
+          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+        >
+          <option value="">(pick a field)</option>
+          {fields.map((f) => (
+            <option key={f.name} value={f.name}>
+              {f.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Label" hint="Shown above the control. Defaults to the field name.">
+        <input
+          type="text"
+          value={config.label ?? ''}
+          disabled={!canEdit}
+          onChange={(e) =>
+            onChangeConfig({ label: e.target.value || undefined })
+          }
+          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+        />
+      </Field>
+      <Field label="Style">
+        <select
+          value={config.presentation ?? 'dropdown'}
+          disabled={!canEdit}
+          onChange={(e) => onChangeConfig({ presentation: e.target.value })}
+          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs"
+        >
+          <option value="dropdown">Dropdown</option>
+          <option value="buttons">Buttons</option>
+        </select>
+      </Field>
+      <Field
+        label="Max values"
+        hint="Longest list of values to offer, biggest groups first."
+      >
+        <NumberInput
+          value={config.maxOptions ?? 50}
+          min={2}
+          max={500}
+          disabled={!canEdit}
+          onChange={(v) =>
+            onChangeConfig({ maxOptions: Math.max(2, Math.min(500, v)) })
+          }
+        />
+      </Field>
+    </div>
   );
 }
 
@@ -8285,9 +8498,12 @@ function ChartWidgetConfigEditor({
       </Field>
       <TargetSelect
         value={config.targetIndex}
+        sourceId={config.sourceId}
         appTargets={appTargets}
         canEdit={canEdit}
-        onChange={(i) => onChangeConfig({ targetIndex: i })}
+        onChange={(i, id) =>
+          onChangeConfig({ targetIndex: i, ...(id ? { sourceId: id } : {}) })
+        }
       />
       <Field label="Chart type">
         <select
@@ -8445,9 +8661,12 @@ function IndicatorWidgetConfigEditor({
     <div className="space-y-3">
       <TargetSelect
         value={config.targetIndex}
+        sourceId={config.sourceId}
         appTargets={appTargets}
         canEdit={canEdit}
-        onChange={(i) => onChangeConfig({ targetIndex: i })}
+        onChange={(i, id) =>
+          onChangeConfig({ targetIndex: i, ...(id ? { sourceId: id } : {}) })
+        }
       />
       <Field label="Measure">
         <select
@@ -8745,6 +8964,10 @@ function defaultLayoutForKind(kind: CustomWidgetKind): CustomLayout {
     // tiles across the top of a page is the natural first drop.
     case 'indicator':
       return { col: 1, row: 1, colSpan: 48, rowSpan: 40 };
+    // A filter is a control, not a reading surface: one label plus
+    // one input, sized like a toolbar row.
+    case 'filter':
+      return { col: 1, row: 1, colSpan: 48, rowSpan: 16 };
     case 'image':
       return { col: 1, row: 1, colSpan: 32, rowSpan: 32 };
     case 'button':
@@ -9370,6 +9593,19 @@ function stampWidget(kind: CustomWidgetKind, layout: CustomLayout): CustomWidget
           targetIndex: 0,
           aggregate: 'count',
           format: { grouping: true },
+        },
+      };
+    case 'filter':
+      return {
+        id,
+        kind,
+        layout,
+        config: {
+          kind: 'filter',
+          targetIndex: 0,
+          // Empty until the author picks one; the runtime renders a
+          // configure-me nudge rather than guessing a field.
+          field: '',
         },
       };
     case 'search':

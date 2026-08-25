@@ -23,6 +23,7 @@ import {
   Clock,
   Crosshair as CrosshairIcon,
   Download,
+  Filter as FilterIcon,
   Image as ImageIcon,
   Info as InfoIcon,
   Layers as LayersIcon,
@@ -1949,6 +1950,8 @@ function renderWidget(widget: CustomWidget): React.ReactNode {
       return <ChartWidgetRender widget={widget} />;
     case 'indicator':
       return <IndicatorWidgetRender widget={widget} />;
+    case 'filter':
+      return <FilterWidgetRender widget={widget} />;
     case 'search':
       return <SearchWidgetRender widget={widget} />;
     case 'print':
@@ -4323,6 +4326,14 @@ function AttributeTableWidgetRender({ widget }: { widget: CustomWidget }) {
   // #87 -- so the table re-fetches against the bitemporal snapshot
   // when the user scrubs the time slider.
   const appAt = useAppTime();
+  // #25: the table joins the chart and the indicator on the resolved
+  // source scope. Before this it composed its own narrowing from map
+  // state and the raw cross-filter, which meant the author's
+  // `source.where`, the source's follow-viewport and the relate all
+  // silently failed to reach it: the one widget that LISTS rows was
+  // the one widget that ignored what the rows meant.
+  const source = useWidgetSource(cfg);
+  const scope = useSourceScope(source);
 
   const mapWidgetId = cfg.syncWithMapWidgetId;
   const boundMapState = mapWidgetId ? ctx?.states[mapWidgetId] ?? null : null;
@@ -4342,16 +4353,27 @@ function AttributeTableWidgetRender({ widget }: { widget: CustomWidget }) {
     crossFilter && ctx
       ? ctx.resolvedTargets.find((t) => t.sourceId === crossFilter.sourceId)
       : undefined;
+  // When the selection targets THIS widget's own source, the scope's
+  // `where` already carries its clauses (resolveSourceScope composes
+  // them), so projecting it onto the layer as well would send the
+  // same predicate twice. Selections on OTHER sources still project
+  // onto their layer, which is what narrows the picker's other rows.
+  const selectionInScope = Boolean(
+    crossFilter && source && crossFilter.sourceId === source.id,
+  );
 
   // Layers shown in the table's layer-picker dropdown. Bound to a
   // map: all the map's layers (the rich AttributeTable filters down
   // to queryable ones internally). Unbound: just the configured
   // target as a synthetic single-layer array.
   const layers = useMemo<MapLayer[]>(() => {
+    const projectTargetId = selectionInScope
+      ? null
+      : selectionTarget?.mapLayer.id;
     if (boundMapState?.mapData.layers) {
       return applySelectionToLayers({
         layers: boundMapState.mapData.layers,
-        targetLayerId: selectionTarget?.mapLayer.id,
+        targetLayerId: projectTargetId,
         selection: crossFilter,
       }) as MapLayer[];
     }
@@ -4362,7 +4384,7 @@ function AttributeTableWidgetRender({ widget }: { widget: CustomWidget }) {
     if (!target) return [];
     return applySelectionToLayers({
       layers: [target.mapLayer],
-      targetLayerId: selectionTarget?.mapLayer.id,
+      targetLayerId: projectTargetId,
       selection: crossFilter,
     }) as MapLayer[];
   }, [
@@ -4372,6 +4394,7 @@ function AttributeTableWidgetRender({ widget }: { widget: CustomWidget }) {
     cfg.targetIndex,
     crossFilter,
     selectionTarget,
+    selectionInScope,
   ]);
 
   // Selection state. Shared with the bound map when present; the
@@ -4528,26 +4551,41 @@ function AttributeTableWidgetRender({ widget }: { widget: CustomWidget }) {
   }
 
   return (
-    <AttributeTable
-      embedded
-      open
-      layers={layers}
-      featuresByLayer={featuresByLayer}
-      metadata={metadata}
-      canEdit={false}
-      selection={selection}
-      setSelection={setSelection}
-      onClose={() => {
-        /* The ToolPopover owns close; the embedded AttributeTable
-           hides its own close button, so this is a no-op stub kept
-           for the typed prop. */
-      }}
-      onZoomTo={onZoomTo}
-      onPatchLayer={onPatchLayer}
-      focusLayerId={focusLayerId}
-      mapBbox={mapBbox}
-      asOfTime={appAt}
-    />
+    <div className="flex h-full w-full flex-col">
+      {/* Same contract as the chart's caption: `scope.note` is set
+          only where a selection genuinely reached this source, so
+          the table never announces a filter it is not applying. */}
+      {scope.note ? (
+        <p className="shrink-0 px-3 py-1 text-2xs italic text-[hsl(var(--app-muted))]">
+          Filtered to {scope.note}.
+        </p>
+      ) : null}
+      <div className="relative min-h-0 flex-1">
+        <AttributeTable
+          embedded
+          open
+          layers={layers}
+          featuresByLayer={featuresByLayer}
+          metadata={metadata}
+          canEdit={false}
+          selection={selection}
+          setSelection={setSelection}
+          onClose={() => {
+            /* The ToolPopover owns close; the embedded AttributeTable
+               hides its own close button, so this is a no-op stub kept
+               for the typed prop. */
+          }}
+          onZoomTo={onZoomTo}
+          onPatchLayer={onPatchLayer}
+          focusLayerId={focusLayerId}
+          mapBbox={mapBbox ?? scope.bbox ?? null}
+          asOfTime={appAt}
+          scopeLayerId={focusLayerId}
+          scopeWhere={scope.where ?? null}
+          scopeVia={scope.via ?? null}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -5846,6 +5884,201 @@ function ChartPlot({
         </Recharts.Bar>
       </Recharts.BarChart>
     </Recharts.ResponsiveContainer>
+  );
+}
+
+// ---- Filter widget (#19) ---------------------------------------------------
+
+/**
+ * Dedicated cross-filter control: one field's distinct values, from
+ * the same server aggregate the charts use, published through the
+ * same CrossFilterContext a chart click uses. The option list is
+ * computed under this widget's own scope MINUS its own selection
+ * (ignoreSelectionFrom), or picking a value would collapse the list
+ * to the value just picked.
+ *
+ * Options are addressed by INDEX in the select, not by value: a
+ * category is arbitrary text ("Cold/Wind Chill", ""), and any
+ * sentinel scheme for the null bucket collides with some legal
+ * value eventually. The index round-trips exactly.
+ *
+ * One selection page-wide is the existing model: picking here
+ * replaces a chart's selection and vice versa, and the control
+ * renders as inactive when another widget owns the page's
+ * selection.
+ */
+function FilterWidgetRender({ widget }: { widget: CustomWidget }) {
+  if (widget.config.kind !== 'filter') return null;
+  const cfg = widget.config;
+  const source = useWidgetSource(cfg);
+  const target = useWidgetTarget(cfg);
+  const scope = useSourceScope(source, { ignoreSelectionFrom: widget.id });
+  const { selection, toggle } = useContext(CrossFilterContext);
+  const appAt = useAppTime();
+  const refreshTick = useWidgetRefresh(widget);
+
+  const [state, setState] = useState<{
+    loading: boolean;
+    options: Array<{ value: string | null; count: number | null }>;
+    error: string | null;
+  }>({ loading: false, options: [], error: null });
+
+  const field = cfg.field?.trim() ?? '';
+  const bboxKey = scope.bbox ? scope.bbox.join(',') : '';
+  const whereKey = scope.where ? JSON.stringify(scope.where) : '';
+  const viaKey = scope.via ? JSON.stringify(scope.via) : '';
+
+  useEffect(() => {
+    if (!target || !field) {
+      setState({ loading: false, options: [], error: null });
+      return;
+    }
+    const controller = new AbortController();
+    setState((s) => ({ ...s, loading: true, error: null }));
+    void (async () => {
+      try {
+        const res = await fetchAggregate({
+          itemId: target.dataLayerId,
+          layerId: target.layerKey,
+          aggs: [{ op: 'count' }],
+          groupBy: [field],
+          ...(scope.bbox ? { bbox: scope.bbox } : {}),
+          ...(scope.where ? { where: scope.where } : {}),
+          ...(scope.via ? { via: scope.via } : {}),
+          ...(appAt ? { asOf: appAt } : {}),
+          limit: cfg.maxOptions ?? 50,
+          signal: controller.signal,
+        });
+        const options = res.groups.map((g) => ({
+          value: g.key[field] ?? null,
+          count: g.values['count'] ?? null,
+        }));
+        // Top-N by count is the server's order; readers scan a list
+        // alphabetically, so sort for the eye and keep the null
+        // bucket last.
+        options.sort((a, b) => {
+          if (a.value === null) return 1;
+          if (b.value === null) return -1;
+          return a.value.localeCompare(b.value);
+        });
+        setState({ loading: false, options, error: null });
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') return;
+        setState({
+          loading: false,
+          options: [],
+          error: err instanceof Error ? err.message : 'Could not load values.',
+        });
+      }
+    })();
+    return () => controller.abort();
+    // Keys rather than objects, same reasoning as the chart's fetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target, field, bboxKey, whereKey, viaKey, appAt, refreshTick, cfg.maxOptions]);
+
+  const label = cfg.label?.trim() || field;
+  const mine = selection && selection.widgetId === widget.id ? selection : null;
+  const activeIndex = mine
+    ? state.options.findIndex((o) => o.value === mine.value)
+    : -1;
+
+  const pick = useCallback(
+    (opt: { value: string | null }) => {
+      if (!source) return;
+      const display = opt.value === null ? '(no value)' : opt.value;
+      toggle({
+        widgetId: widget.id,
+        sourceId: source.id,
+        field,
+        value: opt.value,
+        label: `${label}: ${display}`,
+      });
+    },
+    [source, toggle, widget.id, field, label],
+  );
+
+  if (!target || !field) {
+    return (
+      <p className="p-3 text-xs italic text-[hsl(var(--app-muted))]">
+        Configure the widget&rsquo;s layer and field to offer a
+        filter.
+      </p>
+    );
+  }
+
+  const displayOf = (v: string | null): string =>
+    v === null ? '(no value)' : v === '' ? '(empty)' : v;
+
+  return (
+    <div className="flex h-full w-full flex-col justify-center gap-1 p-3">
+      <label className="text-2xs font-medium uppercase tracking-wide text-[hsl(var(--app-muted))]">
+        {label}
+      </label>
+      {state.error ? (
+        <p className="text-xs text-[hsl(var(--app-danger))]">{state.error}</p>
+      ) : (cfg.presentation ?? 'dropdown') === 'buttons' ? (
+        <div className="flex flex-wrap gap-1">
+          {state.options.map((o, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => pick(o)}
+              className={`rounded-full border px-2 py-0.5 text-xs transition-colors ${
+                i === activeIndex
+                  ? 'border-[hsl(var(--app-accent))] bg-[hsl(var(--app-accent)/0.15)] text-[hsl(var(--app-ink-0))]'
+                  : 'border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]'
+              }`}
+            >
+              {displayOf(o.value)}
+              {o.count !== null ? (
+                <span className="ml-1 text-[hsl(var(--app-muted))]">
+                  {o.count.toLocaleString()}
+                </span>
+              ) : null}
+            </button>
+          ))}
+          {mine ? (
+            <button
+              type="button"
+              onClick={() => pick({ value: mine.value })}
+              className="rounded-full border border-[hsl(var(--app-border))] px-2 py-0.5 text-xs text-[hsl(var(--app-muted))] hover:bg-[hsl(var(--app-surface-2))]"
+            >
+              Clear
+            </button>
+          ) : null}
+        </div>
+      ) : (
+        <select
+          value={activeIndex}
+          disabled={state.loading && state.options.length === 0}
+          onChange={(e) => {
+            const i = Number(e.target.value);
+            if (i === -1) {
+              // "All values": clear this widget's own selection by
+              // re-toggling it; a selection owned elsewhere is not
+              // this control's to clear.
+              if (mine) pick({ value: mine.value });
+              return;
+            }
+            const opt = state.options[i];
+            if (opt) pick(opt);
+          }}
+          className="w-full rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-2 py-1 text-sm text-[hsl(var(--app-ink-0))]"
+        >
+          <option value={-1}>
+            {state.loading && state.options.length === 0
+              ? 'Loading\u2026'
+              : `All ${label ? label.toLowerCase() : 'values'}`}
+          </option>
+          {state.options.map((o, i) => (
+            <option key={i} value={i}>
+              {displayOf(o.value)}
+              {o.count !== null ? ` (${o.count.toLocaleString()})` : ''}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
   );
 }
 
@@ -9731,6 +9964,7 @@ export const KIND_ICON: Record<CustomWidgetKind, typeof MapIcon> = {
   text: TypeIcon,
   chart: ChevronRight,
   indicator: ChevronRight,
+  filter: FilterIcon,
   search: SearchIcon,
   print: Printer,
   select: MousePointer2,

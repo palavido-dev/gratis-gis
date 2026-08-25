@@ -357,6 +357,12 @@ export type CustomWidgetKind =
   // chart does, so it costs one small request rather than a layer
   // download, and it respects the caller's sharing scope.
   | 'indicator'
+  // #19: dedicated cross-filter control. A dropdown (or chip row) of
+  // one field's distinct values; picking one publishes the page's
+  // CrossFilterSelection exactly as clicking a chart bar does. The
+  // context and wire format shipped with phase 2; this is the widget
+  // that lets a page filter without needing a chart to click.
+  | 'filter'
   | 'search'
   | 'print'
   | 'select'
@@ -545,6 +551,7 @@ export type CustomWidgetConfig =
   | TextWidgetConfig
   | ChartWidgetConfig
   | IndicatorWidgetConfig
+  | FilterWidgetConfig
   | SearchWidgetConfig
   | PrintWidgetConfig
   | SelectWidgetConfig
@@ -891,6 +898,40 @@ export interface IndicatorWidgetConfig {
     /** Caption for the reference line, e.g. "target". */
     label?: string;
   };
+}
+
+/**
+ * Filter widget config (#19).
+ *
+ * One field on one source; the runtime lists the field's distinct
+ * values (from the same server aggregate the charts use, so the
+ * option list respects the caller's sharing scope) and picking one
+ * publishes the page-wide CrossFilterSelection. One selection at a
+ * time page-wide is the existing model, so a second filter widget
+ * replaces rather than stacks; the widget shows itself as inactive
+ * when another widget owns the selection.
+ */
+export interface FilterWidgetConfig {
+  kind: 'filter';
+  /** Which data source this widget reads; see IndicatorWidgetConfig. */
+  sourceId?: string;
+  /** Legacy index binding, kept for the same one-release window. */
+  targetIndex: number;
+  /** Attribute whose distinct values become the options. */
+  field: string;
+  /** Caption above the control. Defaults to the field name. */
+  label?: string;
+  /**
+   * How the options render. 'dropdown' (default) scales to long
+   * lists; 'buttons' shows every value as a chip and suits short
+   * enumerations an author wants one tap away.
+   */
+  presentation?: 'dropdown' | 'buttons';
+  /**
+   * Cap on listed values, newest-biggest-first from the aggregate's
+   * own top-N. The server's group cap (1000) applies regardless.
+   */
+  maxOptions?: number;
 }
 
 /**
