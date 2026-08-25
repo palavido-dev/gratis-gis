@@ -273,6 +273,14 @@ export const en = {
     access: 'Access',
     sections: 'Item sections',
   },
+  // #75: the housekeeping dashboard's tab strip.
+  housekeepingTabs: {
+    review: 'Review',
+    cleanup: 'Cleanup',
+    starters: 'Starters',
+    schedule: 'Schedule',
+    sections: 'Housekeeping sections',
+  },
   // #73: the v3 data_layer editor, split across the Data and
   // Structure tabs.
   v3Editor: {

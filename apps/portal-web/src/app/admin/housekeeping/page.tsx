@@ -4,6 +4,9 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { ArrowLeft, Sparkles } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { t } from '@/lib/i18n';
+import { getServerLocale } from '@/lib/i18n/server';
+import { HashTabs } from '@/components/ui/hash-tabs';
 import { HousekeepingView, type HousekeepingBundle } from './housekeeping-view';
 import {
   HousekeepingScheduleCard,
@@ -66,6 +69,7 @@ export default async function AdminHousekeepingPage() {
     redirect('/items');
   }
   if (me.orgRole !== 'admin') redirect('/items');
+  const locale = await getServerLocale();
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 py-10">
@@ -93,57 +97,84 @@ export default async function AdminHousekeepingPage() {
         </div>
       </header>
 
-      {/* Schedule card: small fetch (config + last-10 runs).  Almost
-          always the fastest section to resolve. */}
-      <Suspense fallback={<SkeletonCard />}>
-        <div className="mb-6">
-          <ScheduleSection />
-        </div>
-      </Suspense>
-
-      {/* Starter app templates: single tiny query (seed_kind filter
-          on the items table, lightweight). */}
-      <Suspense fallback={<SkeletonCard />}>
-        <div className="mb-6">
-          <StarterTemplatesSection />
-        </div>
-      </Suspense>
-
-      {/* Starter themes: same shape as templates, same speed. */}
-      <Suspense fallback={<SkeletonCard />}>
-        <div className="mb-6">
-          <StarterThemesSection />
-        </div>
-      </Suspense>
-
-      {/* Broken references (#217 companion): items pointing at item
-          ids that no longer resolve. One org-wide dependency walk +
-          one id lookup; fast, but keeps its own boundary like the
-          rest. */}
-      <Suspense fallback={<SkeletonCard />}>
-        <div className="mb-6">
-          <DanglingReferencesSection />
-        </div>
-      </Suspense>
-
-      {/* Orphaned uploads: walks the MinIO prefixes + a reference
-          scan, so it can take a few seconds on a big bucket. Own
-          boundary keeps it off the critical path. Read-only fetch;
-          the delete lives behind a confirm inside the card. */}
-      <Suspense fallback={<SkeletonCard />}>
-        <div className="mb-6">
-          <OrphanedUploadsSection />
-        </div>
-      </Suspense>
-
-      {/* The big bundle: storage + stale-items + stale-users +
-          large-items + expiring-shares + expiring-users + largest-
-          tables + largest-data-layers + summary.  Slowest of the
-          four sections; kept whole so HousekeepingView keeps its
-          existing bundle-shaped prop. */}
-      <Suspense fallback={<SkeletonBigBundle />}>
-        <BundleSection />
-      </Suspense>
+      {/* #75: the item-page tab strategy applied here. The page had
+          grown to six stacked cards and the answer to "what needs my
+          attention" was several screens below the schedule config.
+          Each card keeps its own Suspense boundary inside its tab;
+          panels are hidden rather than unmounted, so every fetch
+          still streams in on first load and in-panel state (row
+          selections, dialogs) survives tab switches. */}
+      <HashTabs
+        ariaLabel={t('housekeepingTabs.sections', undefined, locale)}
+        idPrefix="housekeeping"
+        tabs={[
+          {
+            id: 'review',
+            label: t('housekeepingTabs.review', undefined, locale),
+            // The big bundle: storage + stale-items + stale-users +
+            // expiring-shares + expiring-users + largest-data-layers
+            // + summary. Slowest fetch on the page; kept whole so
+            // HousekeepingView keeps its existing bundle-shaped prop
+            // and its cross-section flash/error/busy state.
+            content: (
+              <Suspense fallback={<SkeletonBigBundle />}>
+                <BundleSection />
+              </Suspense>
+            ),
+          },
+          {
+            id: 'cleanup',
+            label: t('housekeepingTabs.cleanup', undefined, locale),
+            content: (
+              <>
+                {/* Broken references (#217 companion): items pointing
+                    at item ids that no longer resolve. */}
+                <Suspense fallback={<SkeletonCard />}>
+                  <div className="mb-6">
+                    <DanglingReferencesSection />
+                  </div>
+                </Suspense>
+                {/* Orphaned uploads: walks the MinIO prefixes + a
+                    reference scan, so it can take a few seconds on a
+                    big bucket. Read-only fetch; the delete lives
+                    behind a confirm inside the card. */}
+                <Suspense fallback={<SkeletonCard />}>
+                  <OrphanedUploadsSection />
+                </Suspense>
+              </>
+            ),
+          },
+          {
+            id: 'starters',
+            label: t('housekeepingTabs.starters', undefined, locale),
+            content: (
+              <>
+                {/* Starter app templates: single tiny query
+                    (seed_kind filter on the items table). */}
+                <Suspense fallback={<SkeletonCard />}>
+                  <div className="mb-6">
+                    <StarterTemplatesSection />
+                  </div>
+                </Suspense>
+                {/* Starter themes: same shape, same speed. */}
+                <Suspense fallback={<SkeletonCard />}>
+                  <StarterThemesSection />
+                </Suspense>
+              </>
+            ),
+          },
+          {
+            id: 'schedule',
+            label: t('housekeepingTabs.schedule', undefined, locale),
+            // Schedule card: small fetch (config + last-10 runs).
+            content: (
+              <Suspense fallback={<SkeletonCard />}>
+                <ScheduleSection />
+              </Suspense>
+            ),
+          },
+        ]}
+      />
     </div>
   );
 }
