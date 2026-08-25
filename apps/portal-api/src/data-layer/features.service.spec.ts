@@ -373,6 +373,19 @@ describe('pageFeatures forwards every option to the engine', () => {
 
   it('carries every other option in the same call', async () => {
     const { service, pageFeatures } = makePager();
+    // The fourth occurrence of the dropped-key trap was `via` and
+    // `asOf` on THIS wrapper (2026-08-25): engine correct, both
+    // controllers correct, pg specs green, and the live endpoint
+    // answered the whole layer. If you add a key to the wrapper,
+    // add it here in the SAME commit.
+    const via = {
+      myField: 'site',
+      parentField: 'key',
+      parentItemId: ITEM_ID,
+      parentLayerId: 'parent-layer',
+      parentWhere: WHERE,
+    };
+    const asOf = new Date('2026-08-01T00:00:00Z');
     await service.pageFeatures(ITEM_ID, LAYER_ID, {
       bbox: [-81, 38, -79, 40],
       q: 'creek',
@@ -383,6 +396,8 @@ describe('pageFeatures forwards every option to the engine', () => {
       isTable: true,
       where: WHERE,
       ownRowsOnly: { userId: 'user-1' },
+      asOf,
+      via,
     });
     expect(pageFeatures.mock.calls[0]![0]).toEqual({
       itemId: ITEM_ID,
@@ -396,6 +411,8 @@ describe('pageFeatures forwards every option to the engine', () => {
       isTable: true,
       where: WHERE,
       ownRowsOnly: { userId: 'user-1' },
+      asOf,
+      via,
     });
   });
 });

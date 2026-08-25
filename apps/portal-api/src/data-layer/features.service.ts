@@ -420,6 +420,17 @@ export class DataLayerFeaturesService {
       isTable?: boolean;
       where?: MapLayerFilter;
       ownRowsOnly?: { userId: string };
+      /**
+       * Bitemporal read instant and relate (#25). Same rule as every
+       * other key on this wrapper: named in this type AND spread
+       * below, or it is silently dropped. Which is exactly what
+       * happened on this pair's first deploy: engine correct, both
+       * controllers correct, pg specs green, and the live endpoint
+       * answered the whole layer because this wrapper was the one
+       * hop nobody re-checked. Fourth occurrence of the trap.
+       */
+      asOf?: Date;
+      via?: EngineVia;
     } = {},
   ) {
     // Key-by-key forwarding. Adding an option means adding it in two
@@ -446,6 +457,8 @@ export class DataLayerFeaturesService {
       ...(args.ownRowsOnly !== undefined
         ? { ownRowsOnly: args.ownRowsOnly }
         : {}),
+      ...(args.asOf !== undefined ? { asOf: args.asOf } : {}),
+      ...(args.via !== undefined ? { via: args.via } : {}),
     });
   }
 
