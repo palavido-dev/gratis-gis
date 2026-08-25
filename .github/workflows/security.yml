@@ -133,12 +133,31 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
+      # One retry on the image build. The portal-api Dockerfile
+      # builds go-pmtiles from source, and that stage's `go get`
+      # against the module proxy fails transiently every so often
+      # (v0.9.92's run died there; the identical next run passed).
+      # A red Security badge that means "the proxy hiccupped" trains
+      # everyone to ignore real failures, so the first attempt may
+      # fail quietly and only a second consecutive failure is real.
       - name: Build ${{ matrix.image.name }} image
+        id: build1
+        continue-on-error: true
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           # Build context is the monorepo root; the per-app
           # Dockerfile copies pnpm-workspace.yaml + packages + apps
           # so it needs the whole tree as context.
+          context: .
+          file: ${{ matrix.image.dockerfile }}
+          push: false
+          load: true
+          tags: gratisgis-${{ matrix.image.name }}:ci
+
+      - name: Build ${{ matrix.image.name }} image (retry)
+        if: steps.build1.outcome == 'failure'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
           context: .
           file: ${{ matrix.image.dockerfile }}
           push: false
