@@ -757,6 +757,76 @@ export class PublicController {
   }
 
   /**
+   * Anonymous mirror of `/filtered-extent` (#77): zoom-to-filter on
+   * a public dashboard. Same whitelisting and public-tier clip as
+   * the features-page mirror above.
+   */
+  @Public()
+  @Get('items/:id/layers/:layerId/filtered-extent')
+  async layerFilteredExtent(
+    @Param('id') itemId: string,
+    @Param('layerId') layerId: string,
+    @Query('where') where?: string,
+    @Query('via') viaRaw?: string,
+    @Query('at') at?: string,
+  ): Promise<{ bbox: [number, number, number, number] | null }> {
+    if (!isUuidShape(itemId)) throw new NotFoundException('Item not found');
+    const item = await this.prisma.item.findFirst({
+      where: {
+        id: itemId,
+        type: 'data_layer',
+        access: 'public',
+        deletedAt: null,
+      },
+      select: { id: true, data: true, ...PUBLIC_TIER_SELECT },
+    });
+    if (!item) throw new NotFoundException('Item not found');
+    const layer = pickV3Layer(item.data, layerId);
+    if (!layer) throw new NotFoundException('Layer not found');
+
+    const opts: {
+      where?: MapLayerFilter;
+      via?: EngineVia;
+      geoLimit?: unknown;
+      asOf?: Date;
+    } = {};
+    const allowed = new Set(layer.fields.map((f) => f.name));
+    const parsedWhere = parseWhere(where);
+    for (const name of (parsedWhere?.clauses ?? []).map((c) => c.field)) {
+      if (!allowed.has(name)) {
+        throw new BadRequestException(
+          `"${name}" is not a field on this layer.`,
+        );
+      }
+    }
+    if (parsedWhere) opts.where = parsedWhere;
+    const parsedVia = parseVia(viaRaw);
+    if (parsedVia && !allowed.has(parsedVia.myField)) {
+      throw new BadRequestException(
+        `"${parsedVia.myField}" is not a field on this layer.`,
+      );
+    }
+    const via = await this.resolvePublicVia(parsedVia);
+    if (via) opts.via = via;
+    if (at !== undefined && at !== '') {
+      const dAt = new Date(String(at));
+      if (!Number.isFinite(dAt.getTime())) {
+        throw new BadRequestException(
+          'at must be an RFC 3339 timestamp, e.g. 2026-08-01T00:00:00Z.',
+        );
+      }
+      opts.asOf = dAt;
+    }
+    const tierClip = await publicTierGeoLimit(
+      this.prisma,
+      item.publicGeoBoundaryId,
+    );
+    if (tierClip) opts.geoLimit = tierClip;
+    const bbox = await this.v3.filteredExtent(itemId, layerId, opts);
+    return { bbox };
+  }
+
+  /**
    * Authorize a relate for an ANONYMOUS caller and turn it into the
    * engine's shape.
    *

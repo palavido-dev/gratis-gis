@@ -982,6 +982,46 @@ d('observation-log read paths against real PostGIS', () => {
       expect(out.features).toEqual([]);
     });
 
+    it('filteredExtent answers for the surviving rows and null for none (#77)', async () => {
+      const engine = makeEngine();
+      const some = await engine.filteredExtent({
+        itemId,
+        layerId,
+        where: {
+          combinator: 'all',
+          clauses: [{ field: 'SITE', op: '==', value: 's1' }],
+        },
+      });
+      // Both children sit at HERE; a point layer's extent degenerates
+      // to the point itself.
+      expect(some).not.toBeNull();
+      expect(some![0]).toBeCloseTo(HERE[0], 6);
+      expect(some![1]).toBeCloseTo(HERE[1], 6);
+      const none = await engine.filteredExtent({
+        itemId,
+        layerId,
+        where: {
+          combinator: 'all',
+          clauses: [{ field: 'SITE', op: '==', value: 'nope' }],
+        },
+      });
+      expect(none).toBeNull();
+      // Through the relate: no surviving parent, no extent. A bbox
+      // here would fly the map to rows the filter just removed.
+      const viaNone = await engine.filteredExtent({
+        itemId,
+        layerId,
+        via: {
+          ...viaSite,
+          parentWhere: {
+            combinator: 'all',
+            clauses: [{ field: 'OVER', op: '==', value: 'never' }],
+          },
+        },
+      });
+      expect(viaNone).toBeNull();
+    });
+
     it('asOf excludes rows created after the instant, on both query shapes', async () => {
       const engine = makeEngine();
       // No content filter: the DISTINCT ON fast path.

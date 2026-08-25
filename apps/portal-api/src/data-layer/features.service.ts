@@ -609,6 +609,41 @@ export class DataLayerFeaturesService {
   }
 
   /**
+   * #77: predicate-driven union bbox. Same forwarding rule as every
+   * wrapper on this class: each key named in this type AND in the
+   * spread, and the forwarding spec carries the full-option case.
+   */
+  async filteredExtent(
+    itemId: string,
+    layerId: string,
+    args: {
+      where?: MapLayerFilter;
+      via?: EngineVia;
+      geoLimit?: unknown;
+      boundaryClip?: unknown;
+      ownRowsOnly?: { userId: string };
+      asOf?: Date;
+    } = {},
+  ): Promise<[number, number, number, number] | null> {
+    return this.dataLayer.filteredExtent({
+      itemId,
+      layerId,
+      ...(args.where !== undefined ? { where: args.where } : {}),
+      ...(args.via !== undefined ? { via: args.via } : {}),
+      ...(args.geoLimit !== undefined
+        ? { geoLimit: args.geoLimit as GeoJsonGeometry }
+        : {}),
+      ...(args.boundaryClip !== undefined
+        ? { boundaryClip: args.boundaryClip as GeoJsonGeometry }
+        : {}),
+      ...(args.ownRowsOnly !== undefined
+        ? { ownRowsOnly: args.ownRowsOnly }
+        : {}),
+      ...(args.asOf !== undefined ? { asOf: args.asOf } : {}),
+    });
+  }
+
+  /**
    * Vector-tile bytes for one layer at z/x/y (#115 P12).
    *
    * Pure read-through to DataLayerEngine.mvtTile. Kept here so the

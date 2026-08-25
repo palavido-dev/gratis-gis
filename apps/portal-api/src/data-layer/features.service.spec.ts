@@ -418,6 +418,57 @@ describe('pageFeatures forwards every option to the engine', () => {
 });
 
 /**
+ * The same forwarding contract for filteredExtent (#77). Written in
+ * the same commit that adds the wrapper, per the rule the via/asOf
+ * incident bought: a key added to a wrapper is added to its
+ * forwarding spec before anything else calls it.
+ */
+describe('filteredExtent forwards every option to the engine', () => {
+  it('carries every option in the same call', async () => {
+    const filteredExtent = jest.fn(
+      async (_args: Record<string, unknown>) => null,
+    );
+    const service = new DataLayerFeaturesService(
+      {} as unknown as PrismaService,
+      { notifySourceWrite: jest.fn() } as unknown as DerivedLayerCacheRefreshService,
+      { filteredExtent } as unknown as DataLayerEngine,
+      { refreshItemBbox: jest.fn() } as unknown as ItemBboxRefreshService,
+    );
+    const WHERE = {
+      combinator: 'all' as const,
+      clauses: [{ field: 'status', op: '==' as const, value: 'open' }],
+    };
+    const via = {
+      myField: 'site',
+      parentField: 'key',
+      parentItemId: ITEM_ID,
+      parentLayerId: 'parent-layer',
+    };
+    const asOf = new Date('2026-08-01T00:00:00Z');
+    const geoLimit = { type: 'Point', coordinates: [0, 0] };
+    const boundaryClip = { type: 'Point', coordinates: [1, 1] };
+    await service.filteredExtent(ITEM_ID, LAYER_ID, {
+      where: WHERE,
+      via,
+      geoLimit,
+      boundaryClip,
+      ownRowsOnly: { userId: 'user-1' },
+      asOf,
+    });
+    expect(filteredExtent.mock.calls[0]![0]).toEqual({
+      itemId: ITEM_ID,
+      layerId: LAYER_ID,
+      where: WHERE,
+      via,
+      geoLimit,
+      boundaryClip,
+      ownRowsOnly: { userId: 'user-1' },
+      asOf,
+    });
+  });
+});
+
+/**
  * The same forwarding contract for mvtTile.
  *
  * This one is not hypothetical. `where` and `via` were threaded

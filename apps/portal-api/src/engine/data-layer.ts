@@ -3037,6 +3037,165 @@ export class DataLayerEngine {
   }
 
   /**
+   * #77: union bbox of the rows matching a predicate, in WGS84.
+   *
+   * Powers "zoom to the filtered features": a filter pick or chart
+   * click narrows every widget on a dashboard page, and the map
+   * flies to where the surviving rows actually are. The predicate
+   * vocabulary is exactly the read vocabulary everywhere else on
+   * this class (`where`, the relate, the caller's geo limit and row
+   * scope, the bitemporal instant), so the extent the map flies to
+   * is the extent of precisely the rows the other widgets counted.
+   *
+   * Same collapse discipline as pageFeatures: candidates from any
+   * version, geometry and predicate evaluated on the LATEST row, or
+   * a feature edited out of the filter contributes its old location
+   * and the map flies to somewhere the selection no longer is.
+   * Returns null when nothing matches or nothing has geometry.
+   */
+  async filteredExtent(args: {
+    itemId: string;
+    layerId: string;
+    where?: {
+      combinator: 'all' | 'any';
+      clauses: Array<{ field: string; op: string; value: string }>;
+    };
+    via?: AggregateVia;
+    geoLimit?: GeoJsonGeometry;
+    boundaryClip?: GeoJsonGeometry;
+    /** Share row-scope (#40): an extent leaks location. */
+    ownRowsOnly?: { userId: string };
+    asOf?: Date;
+  }): Promise<[number, number, number, number] | null> {
+    validateGeoJson(args.geoLimit);
+    validateGeoJson(args.boundaryClip);
+    const scope = this.scope(args.itemId, args.layerId);
+    const asOf = args.asOf ?? new Date();
+    let viaCte: Prisma.Sql | null = null;
+
+    const collapseFilters: Prisma.Sql[] = [];
+    const contentFilters: Prisma.Sql[] = [];
+    if (args.ownRowsOnly !== undefined) {
+      collapseFilters.push(
+        Prisma.sql`AND entity IN (
+          SELECT entity
+          FROM observation
+          WHERE scope = ${scope}
+            AND kind = 'create'
+            AND author_sub = ${args.ownRowsOnly.userId}
+        )`,
+      );
+    }
+    if (args.geoLimit !== undefined) {
+      const json = JSON.stringify(args.geoLimit);
+      contentFilters.push(
+        Prisma.sql`AND ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326))`,
+      );
+    }
+    if (args.boundaryClip !== undefined) {
+      const json = JSON.stringify(args.boundaryClip);
+      contentFilters.push(
+        Prisma.sql`AND ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326))`,
+      );
+    }
+    if (args.where !== undefined && args.where.clauses.length > 0) {
+      const sql = compileAttrFilter(args.where);
+      if (sql) contentFilters.push(sql);
+    }
+    if (args.via !== undefined) {
+      validateGeoJson(args.via.parentGeoLimit);
+      const parentFilters: Prisma.Sql[] = [];
+      if (args.via.parentBbox !== undefined) {
+        const [w, s2, e, n2] = args.via.parentBbox;
+        parentFilters.push(
+          Prisma.sql`AND p.geom && ST_MakeEnvelope(${w}, ${s2}, ${e}, ${n2}, 4326)`,
+        );
+      }
+      if (args.via.parentGeoLimit !== undefined) {
+        const json = JSON.stringify(args.via.parentGeoLimit);
+        parentFilters.push(
+          Prisma.sql`AND (p.geom IS NULL OR ST_Intersects(p.geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
+        );
+      }
+      if (args.via.parentWhere !== undefined) {
+        const sql = compileAttrFilter(args.via.parentWhere, 'p');
+        if (sql) parentFilters.push(sql);
+      }
+      const compiled = compileViaFilter({
+        myField: args.via.myField,
+        parentField: args.via.parentField,
+        parentScope: this.scope(
+          args.via.parentItemId,
+          args.via.parentLayerId,
+        ),
+        asOf,
+        parentContentFilters: parentFilters,
+      });
+      viaCte = compiled.cte;
+      contentFilters.push(compiled.predicate);
+    }
+    const collapseExtras =
+      collapseFilters.length > 0
+        ? Prisma.join(collapseFilters, ' ')
+        : Prisma.empty;
+    const contentExtras =
+      contentFilters.length > 0
+        ? Prisma.join(contentFilters, ' ')
+        : Prisma.empty;
+
+    interface ExtentRow {
+      xmin: number | null;
+      ymin: number | null;
+      xmax: number | null;
+      ymax: number | null;
+    }
+    const rows = await this.prisma.$queryRaw<ExtentRow[]>`
+      WITH ${viaCte ? Prisma.sql`${viaCte},` : Prisma.empty} content_candidates AS (
+        SELECT DISTINCT entity
+        FROM observation
+        WHERE scope = ${scope}
+          AND valid_from <= ${asOf}
+          ${collapseExtras}
+          ${contentExtras}
+      )
+      SELECT
+        ST_XMin(ST_Extent(l.geom)) AS xmin,
+        ST_YMin(ST_Extent(l.geom)) AS ymin,
+        ST_XMax(ST_Extent(l.geom)) AS xmax,
+        ST_YMax(ST_Extent(l.geom)) AS ymax
+      FROM (SELECT entity FROM content_candidates) cand
+      CROSS JOIN LATERAL (
+        SELECT entity, attrs, geom, kind
+        FROM observation
+        WHERE scope = ${scope}
+          AND entity = cand.entity
+          AND valid_from <= ${asOf}
+        ORDER BY valid_from DESC, tx_time DESC
+        LIMIT 1
+      ) l
+      WHERE l.kind <> 'delete'
+        AND l.geom IS NOT NULL
+        ${contentExtras}
+    `;
+    const r = rows[0];
+    if (
+      !r ||
+      r.xmin === null ||
+      r.ymin === null ||
+      r.xmax === null ||
+      r.ymax === null
+    ) {
+      return null;
+    }
+    return [
+      Number(r.xmin),
+      Number(r.ymin),
+      Number(r.xmax),
+      Number(r.ymax),
+    ];
+  }
+
+  /**
    * Build a Mapbox Vector Tile for one layer at a given z/x/y. The
    * tile contains the layer's current-state features clipped to the
    * tile envelope.

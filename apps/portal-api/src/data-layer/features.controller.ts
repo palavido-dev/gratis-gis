@@ -1004,6 +1004,64 @@ export class DataLayerFeaturesController {
     return { bbox };
   }
 
+  /**
+   * #77: union bbox of the rows a predicate keeps.  Powers "zoom to
+   * the filtered features": a filter pick narrows the page, and the
+   * map flies to where the surviving rows are.  Takes the same
+   * `where` / `via` / `at` vocabulary as features-page, through the
+   * same parent authorization, so the extent describes exactly the
+   * rows the widgets counted.  Returns { bbox: null } when nothing
+   * matches or nothing has geometry.
+   */
+  @Get('filtered-extent')
+  async filteredExtent(
+    @CurrentUser() user: AuthUser,
+    @Param('id') itemId: string,
+    @Param('layerId') layerId: string,
+    @Query('where') where?: string,
+    @Query('via') viaRaw?: string,
+    @Query('at') at?: string,
+    @Query('clip') clip?: string,
+  ): Promise<{ bbox: [number, number, number, number] | null }> {
+    const { geoLimit, rowScope } = await this.assertV3Layer(
+      user,
+      itemId,
+      layerId,
+      'read',
+    );
+    const opts: {
+      where?: MapLayerFilter;
+      via?: EngineVia;
+      geoLimit?: unknown;
+      boundaryClip?: unknown;
+      ownRowsOnly?: { userId: string };
+      asOf?: Date;
+    } = {};
+    const parsedWhere = parseWhere(where);
+    if (parsedWhere) opts.where = parsedWhere;
+    const via = await this.resolveVia(user, parseVia(viaRaw));
+    if (via) opts.via = via;
+    if (at !== undefined && at !== '') {
+      const dAt = new Date(String(at));
+      if (!Number.isFinite(dAt.getTime())) {
+        throw new BadRequestException(
+          'at must be an RFC 3339 timestamp, e.g. 2026-08-01T00:00:00Z.',
+        );
+      }
+      opts.asOf = dAt;
+    }
+    // Same leak reasoning as selection-extent: a bbox reveals
+    // location, so the caller's row scope and geo limit apply.
+    if (rowScope === 'own') opts.ownRowsOnly = { userId: user.id };
+    if (geoLimit) opts.geoLimit = geoLimit;
+    if (clip) {
+      const geom = await this.resolveBoundaryGeometry(clip);
+      if (geom) opts.boundaryClip = geom;
+    }
+    const bbox = await this.v3.filteredExtent(itemId, layerId, opts);
+    return { bbox };
+  }
+
   /** GeoJSON view of a single layer: the map editor's overlay source
    *  hits this per-layer URL for v3 items, the same way v2 items use
    *  /items/:id/geojson. */
