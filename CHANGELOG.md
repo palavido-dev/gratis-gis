@@ -5,6 +5,19 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.92] - 2026-08-25
+
+### Fixed
+
+- **The app designer's canvas now previews widgets as they will
+  actually run.** The filter widget, time slider, search, print,
+  select, export, basemap gallery, embed, bookmarks, coordinates,
+  my-location, elevation profile, magic outline and the three
+  feature-editing widgets all rendered as grey placeholder boxes;
+  they now render live, and a widget set to tool mode previews as
+  the toolbar button it ships as. Laying a page out no longer means
+  guessing what a box will turn into.
+
 ## [0.9.91] - 2026-08-25
 
 ### Fixed
