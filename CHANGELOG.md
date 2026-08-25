@@ -5,6 +5,17 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.88] - 2026-08-24
+
+### Added
+
+- **A group's page now shows what is shared with it.** A new
+  "Shared with this group" section lists every shared item the
+  viewer can see, with the item's type, owner and the permission
+  the group holds, a link to the item's detail page, and (for the
+  item's owner or an org admin) a one-click remove that revokes
+  the group's access without touching the item.
+
 ## [0.9.87] - 2026-08-24
 
 ### Changed
