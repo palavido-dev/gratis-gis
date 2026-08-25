@@ -5,6 +5,33 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.89] - 2026-08-25
+
+### Added
+
+- **A dedicated Filter widget for dashboards.** A dropdown or chip
+  row of one field's values (with live counts); picking one narrows
+  every widget on the page, exactly as clicking a chart bar does.
+  The option list comes from the same server aggregate the charts
+  use, so it respects the viewer's sharing scope.
+- **Starting a Custom Web App now offers a map.** Create an empty
+  map named after the app, or pick an existing one; an existing
+  map's data layers become the app's data sources immediately, so
+  the first chart has something to read.
+
+### Fixed
+
+- **The attribute table now honors the full source scope.** A
+  layer's authored filter, the "follow this map" viewport, the
+  relate to a parent layer, the page's cross-filter selection and
+  the time slider all reach the table's rows now; before, the one
+  widget that lists rows was the one that ignored most of what
+  narrowed them. Anonymous viewers get the table too: the endpoint
+  behind it gained a public mirror.
+- **Picking a map for an app promotes its layers to data sources
+  automatically.** No more re-adding each layer by hand in the
+  Layers panel before anything is chartable.
+
 ## [0.9.88] - 2026-08-24
 
 ### Added
