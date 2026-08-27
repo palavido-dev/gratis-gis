@@ -5,6 +5,17 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.95] - 2026-08-27
+
+### Fixed
+
+- **Traffic stats no longer count the browser's link prefetching as
+  page views.** Opening one page makes the app quietly pre-load
+  every link on it, which the stats page was counting as a burst of
+  visits ("19 pages in 16 seconds"). Prefetches are now classed as
+  machinery, and a backfill pass re-tags the retained history so
+  past sessions read honestly too.
+
 ## [0.9.94] - 2026-08-25
 
 ### Fixed
