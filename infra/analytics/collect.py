@@ -356,6 +356,25 @@ def ingest_caddy(conn: sqlite3.Connection) -> int:
                 referer = (headers.get("Referer") or [""])[0]
                 path_only = (req.get("uri") or "").split("?")[0]
                 is_bot, is_asset, activity = classify(path_only, ua)
+                # Router prefetches are machinery, not visits. Next.js
+                # fetches the RSC payload of every link a page shows
+                # the moment it renders, so one person landing on the
+                # landing page produces a one-second burst of a dozen
+                # "page views" across routes nobody opened. The real
+                # session that exposed this read "19 pages in 16
+                # seconds"; the raw log showed 5 prefetches at t+0 and
+                # ONE actual navigation 20 seconds later. Soft
+                # navigations also carry Rsc: 1 but NOT this header,
+                # so they still count, as they should: the reader did
+                # click. Sec-Purpose covers browser-native
+                # speculation-rules prefetching, same reasoning.
+                purpose = (
+                    headers.get("Sec-Purpose") or headers.get("Purpose") or [""]
+                )[0]
+                if headers.get("Next-Router-Prefetch") or (
+                    "prefetch" in purpose.lower()
+                ):
+                    is_asset, activity = True, None
                 # OR IGNORE against request_dedupe_idx. Re-reading a log
                 # is then free, which is what lets a bookmark reset
                 # backfill a gap without inflating the counts.
@@ -703,8 +722,82 @@ def prune(conn: sqlite3.Connection) -> int:
     return n
 
 
+def backfill_prefetch(conn: sqlite3.Connection) -> tuple[int, int]:
+    """Re-tag stored requests that were router prefetches.
+
+    The prefetch signal lives in request HEADERS, which the request
+    table does not keep, so reclassify() cannot recover it from the
+    store. The raw logs can, for as long as they are retained: walk
+    every access log in full (bookmarks ignored; this reads, never
+    inserts), collect the (ts, ip, path) of every prefetch, and
+    re-tag the matching rows as assets. Caddy's ts is microsecond
+    epoch, so the triple is as good as a key. Sessions rebuild from
+    the request table afterwards, which is what actually fixes the
+    inflated page_views on the dashboard.
+    """
+    keys: list[tuple[float, str, str]] = []
+    if CADDY_LOG_DIR.is_dir():
+        for path in sorted(CADDY_LOG_DIR.iterdir()):
+            if not path.is_file() or "access" not in path.name:
+                continue
+            opener = gzip.open if path.name.endswith(".gz") else open
+            try:
+                with opener(path, "rt", errors="replace") as fh:  # type: ignore[operator]
+                    for line in fh:
+                        line = line.strip()
+                        if not line.startswith("{"):
+                            continue
+                        try:
+                            rec = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if "request" not in rec or "status" not in rec:
+                            continue
+                        req = rec["request"]
+                        headers = req.get("headers") or {}
+                        purpose = (
+                            headers.get("Sec-Purpose")
+                            or headers.get("Purpose")
+                            or [""]
+                        )[0]
+                        if not (
+                            headers.get("Next-Router-Prefetch")
+                            or "prefetch" in purpose.lower()
+                        ):
+                            continue
+                        ip = client_address(req)
+                        if not ip:
+                            continue
+                        keys.append(
+                            (
+                                rec.get("ts"),
+                                ip,
+                                (req.get("uri") or "").split("?")[0][:500],
+                            )
+                        )
+            except OSError:
+                continue
+    changed = 0
+    for ts, ip, path_only in keys:
+        cur = conn.execute(
+            "UPDATE request SET is_asset = 1, activity = NULL"
+            " WHERE ts = ? AND ip = ? AND path = ? AND is_asset = 0",
+            (ts, ip, path_only),
+        )
+        changed += cur.rowcount
+    conn.commit()
+    return changed, sessionise(conn, full=True)
+
+
 def main() -> int:
     conn = connect()
+    if "--backfill-prefetch" in sys.argv:
+        retagged, sessions = backfill_prefetch(conn)
+        conn.execute("PRAGMA optimize")
+        conn.close()
+        print(f"prefetch backfill: requests retagged {retagged}  "
+              f"sessions rebuilt {sessions}")
+        return 0
     if "--reclassify" in sys.argv:
         # Ordering matters: ASN lookups first so the hosting-network
         # rule has data to work with on this pass rather than the next.
