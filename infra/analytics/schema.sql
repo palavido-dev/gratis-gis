@@ -41,7 +41,12 @@ CREATE TABLE IF NOT EXISTS request (
   host      TEXT,
   is_bot    INTEGER NOT NULL DEFAULT 0,
   is_asset  INTEGER NOT NULL DEFAULT 0,-- static chunk, font, tile, model
-  activity  TEXT                       -- coarse feature tag, NULL for assets
+  activity  TEXT,                      -- coarse feature tag, NULL for assets
+  -- Router prefetch, from a request header the rest of this row does
+  -- not keep. Stored because it cannot be recovered from `path`: a
+  -- reclassify pass would otherwise recompute the row and hand a
+  -- prefetch its activity tag back.
+  prefetch  INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS request_ts_idx ON request (ts);
 CREATE INDEX IF NOT EXISTS request_ip_idx ON request (ip, ts);

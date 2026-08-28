@@ -72,6 +72,14 @@ ASSET_RE = re.compile(
 # Map tiles and vector data. Machinery, but the presence of a lot of
 # them is the strongest signal that somebody actually panned a map.
 TILE_RE = re.compile(r"/tiles?/\d+/\d+/\d+|\.(mvt|pbf)$|/tile/\d+/\d+/\d+", re.I)
+# Our own keepalive. A map page heartbeats every few seconds for as
+# long as its tab exists, which is a statement about the tab and not
+# about the person: one visitor who wandered off logged 28,583 of
+# these across 42 hours. Left in `request` because it is real traffic,
+# but it must not extend a session, count as a hit, or read as
+# engagement. It is also why the 30-minute idle rule never fired: a
+# five-second keepalive means a session can never go quiet.
+KEEPALIVE_RE = re.compile(r"/presence/heartbeat$|/heartbeat$|/keepalive$", re.I)
 
 BOT_UA_RE = re.compile(
     r"bot|crawl|spider|slurp|scrapy|curl|wget|python-requests|httpx|go-http|java/"
@@ -119,14 +127,58 @@ ROBOTS_RE = re.compile(r"^/robots\.txt$", re.I)
 # organisation string, which is why these are substrings rather than
 # AS numbers: the numbers change hands, the names are stable enough
 # and a miss only means the behavioural rules have to carry it.
+#
+# The second block was added 2026-08-28 after three sessions two
+# minutes apart, from one Beijing datacenter ASN, wearing three
+# different device user agents, were counted as three human visitors.
+# Name matching is whack-a-mole by nature, which is why
+# flag_coordinated() exists beside it: that rule catches the same
+# shape without needing to know the operator's name.
 HOSTING_ORG_RE = re.compile(
     r"digitalocean|amazon|aws|google|microsoft|azure|oracle|linode|akamai"
     r"|ovh|hetzner|vultr|scaleway|contabo|leaseweb|choopa|m247|datacamp"
     r"|alibaba|tencent|huawei cloud|ucloud|kamatera|hostinger|namecheap"
     r"|godaddy|cloudflare|fastly|censys|shodan|internet measurement"
-    r"|palo alto|recyber|driftnet|stretchoid|binaryedge|bitsight",
+    r"|palo alto|recyber|driftnet|stretchoid|binaryedge|bitsight"
+    r"|guanghuan|sinnet|suibian|techoff|storm industries|internet vikings"
+    r"|idc|hosting|colocation|colo(?:crossing)?|vps|dedicated server"
+    r"|data ?cent(?:er|re)|cloud ?(?:computing|service|platform)",
     re.I,
 )
+# Consumer networks whose names trip the patterns above. Google Fiber
+# is a home ISP; matching it as a datacenter would file real visitors
+# under machinery, which is the failure this whole module is trying to
+# avoid in the other direction.
+CONSUMER_ORG_RE = re.compile(r"google fiber|amazon.*fulfillment", re.I)
+
+
+def machine_org(org: str | None) -> bool:
+    """True when this ASN sells servers rather than home internet."""
+    if not org:
+        return False
+    if CONSUMER_ORG_RE.search(org):
+        return False
+    return bool(HOSTING_ORG_RE.search(org))
+
+
+# A visit deep enough to override its own origin. Real people do reach
+# us from "hosting" ASNs: Cloudflare WARP, iCloud Private Relay and
+# corporate egress all leave from address space that sells servers, so
+# a datacenter address alone cannot be the whole verdict. Measured
+# against the sessions this rule was written for, the bar clears the
+# two plausibly-real visits (56 pages over 34 minutes, 82 pages over
+# 22) and catches the eight machines, including one that pulled 72
+# pages in 26 seconds.
+ENGAGED_MIN_PAGES = 3
+ENGAGED_MIN_SECONDS = 120
+
+# Coordinated-agent rule. Several visits from one ASN, close together,
+# each shallow, each claiming a different device: one operator wearing
+# hats. A genuine office behind one NAT trips none of this, because
+# real colleagues do not all bounce after a page or two.
+COORD_WINDOW_SECONDS = 10 * 60
+COORD_MIN_AGENTS = 3
+COORD_MAX_PAGES = 2
 
 # How far either side of a visit we look for probe behaviour from the
 # same address. A scanner that rotates user agents produces several
@@ -174,6 +226,11 @@ ACTIVITY_RULES: list[tuple[re.Pattern[str], str]] = [
 def classify(path: str, ua: str) -> tuple[bool, bool, str | None]:
     """Return (is_bot, is_asset, activity) for one request line."""
     is_bot = bool(BOT_UA_RE.search(ua or "")) or bool(PROBE_RE.match(path or ""))
+    # Keepalive first: it is an /api/ path, so the activity rules below
+    # would otherwise tag it as real API use and the session builder
+    # would count it.
+    if KEEPALIVE_RE.search(path or ""):
+        return is_bot, True, "keepalive"
     is_asset = bool(ASSET_RE.search(path or "")) or bool(TILE_RE.search(path or ""))
     if is_asset:
         return is_bot, True, "map tiles" if TILE_RE.search(path or "") else None
@@ -218,6 +275,18 @@ def connect() -> sqlite3.Connection:
     have = {r["name"] for r in conn.execute("PRAGMA table_info(session)")}
     if "bot_reason" not in have:
         conn.execute("ALTER TABLE session ADD COLUMN bot_reason TEXT")
+        conn.commit()
+    # Whether the browser asked for this before anyone clicked. It has
+    # to be a stored column rather than something classify() works out,
+    # because the evidence is a request HEADER and the request table
+    # keeps only the path. Without it, reclassify() would recompute
+    # each row from its path and quietly undo every prefetch already
+    # identified, putting the inflated page counts straight back.
+    have_r = {r["name"] for r in conn.execute("PRAGMA table_info(request)")}
+    if "prefetch" not in have_r:
+        conn.execute(
+            "ALTER TABLE request ADD COLUMN prefetch INTEGER NOT NULL DEFAULT 0"
+        )
         conn.commit()
     return conn
 
@@ -371,17 +440,19 @@ def ingest_caddy(conn: sqlite3.Connection) -> int:
                 purpose = (
                     headers.get("Sec-Purpose") or headers.get("Purpose") or [""]
                 )[0]
-                if headers.get("Next-Router-Prefetch") or (
+                is_prefetch = bool(headers.get("Next-Router-Prefetch")) or (
                     "prefetch" in purpose.lower()
-                ):
+                )
+                if is_prefetch:
                     is_asset, activity = True, None
                 # OR IGNORE against request_dedupe_idx. Re-reading a log
                 # is then free, which is what lets a bookmark reset
                 # backfill a gap without inflating the counts.
                 cur = conn.execute(
                     "INSERT OR IGNORE INTO request (ts, ip, method, path, status,"
-                    " duration, bytes, ua, referer, host, is_bot, is_asset, activity)"
-                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    " duration, bytes, ua, referer, host, is_bot, is_asset, activity,"
+                    " prefetch)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         rec.get("ts"),
                         ip,
@@ -396,6 +467,7 @@ def ingest_caddy(conn: sqlite3.Connection) -> int:
                         int(is_bot),
                         int(is_asset),
                         activity,
+                        int(is_prefetch),
                     ),
                 )
                 inserted += cur.rowcount
@@ -554,7 +626,21 @@ def resolve_asn(conn: sqlite3.Connection) -> int:
 
 # Machinery tags. Useful on individual requests for weighing how busy a
 # visit was, noise in the per-visit feature list.
-MACHINERY_TAGS = {"map tiles", "api", "other"}
+MACHINERY_TAGS = {"map tiles", "api", "other", "keepalive"}
+
+
+def engaged(s: dict) -> bool:
+    """Did this visit go deep enough to speak for itself?
+
+    Used to let a real person through the machine-origin rule. Depth
+    AND dwell, both: a scraper can rack up pages (one pulled 72 in 26
+    seconds) and a health check can idle, but doing both is what
+    reading looks like.
+    """
+    return (
+        s["pages"] >= ENGAGED_MIN_PAGES
+        and (s["end"] - s["start"]) >= ENGAGED_MIN_SECONDS
+    )
 
 
 def bot_verdict(s: dict, probe_ts: dict[str, list[float]], hosting: set[str]) -> str | None:
@@ -571,6 +657,24 @@ def bot_verdict(s: dict, probe_ts: dict[str, list[float]], hosting: set[str]) ->
         return "probe path"
     if s["robots"]:
         return "fetched robots.txt"
+    # Origin, BEFORE the browser-evidence gate below. This used to sit
+    # underneath it, which made it unreachable in every case it was
+    # written for: a headless browser fetches the page's JavaScript
+    # like any other, so `scripts` was set and the function returned
+    # "looks human" before it ever asked where the address lived. The
+    # measured cost of that ordering was 51 sessions from Microsoft,
+    # Scaleway, Fastly, Cloudflare, Amazon and Google datacenters
+    # counted as human visitors, including three from one Beijing ASN
+    # two minutes apart wearing three different device user agents.
+    #
+    # The engagement carve-out is what makes the rule safe to run this
+    # early. Real people do arrive from these networks (Cloudflare
+    # WARP, iCloud Private Relay, corporate egress), so a datacenter
+    # address is grounds for suspicion, not a verdict: a visit that
+    # went several pages deep and lasted minutes is treated as a
+    # person regardless of where it came from.
+    if s["ip"] in hosting and not engaged(s):
+        return "hosting network"
     # Everything below needs the absence of browser evidence, so stop
     # here for anything that actually loaded the application. The
     # 404-share rule in particular has to sit on this side of the gate:
@@ -585,8 +689,6 @@ def bot_verdict(s: dict, probe_ts: dict[str, list[float]], hosting: set[str]) ->
     near = probe_ts.get(s["ip"], ())
     if any(s["start"] - halo <= t <= s["end"] + halo for t in near):
         return "same address probed"
-    if s["ip"] in hosting:
-        return "hosting network"
     if s["hits"] <= THIN_SESSION_HITS:
         return "no browser assets"
     return None
@@ -618,8 +720,15 @@ def sessionise(conn: sqlite3.Connection, full: bool = False) -> int:
         (cutoff - PROBE_HALO_HOURS * 3600,),
     ):
         probe_ts.setdefault(r["ip"], []).append(r["ts"])
+    # Computed from the stored org string rather than read from the
+    # stored is_hosting flag: widening the pattern then takes effect on
+    # the next sessionise instead of only for addresses looked up after
+    # the change, which is the difference between a rule and a rule
+    # that agrees with itself across a seam.
     hosting = {
-        r["ip"] for r in conn.execute("SELECT ip FROM ip_asn WHERE is_hosting = 1")
+        r["ip"]
+        for r in conn.execute("SELECT ip, org FROM ip_asn")
+        if machine_org(r["org"])
     }
 
     rows = conn.execute(
@@ -653,6 +762,13 @@ def sessionise(conn: sqlite3.Connection, full: bool = False) -> int:
         return 1
 
     for row in rows:
+        # Keepalive is dropped before the grouping decision, not after.
+        # Skipping it later still let it start a session and, worse,
+        # split one: with `end` frozen, every heartbeat past the gap
+        # looked like a new visit, so an idle tab would have minted an
+        # empty session every 30 minutes forever.
+        if row["activity"] == "keepalive":
+            continue
         ua_hash = hashlib.sha1((row["ua"] or "").encode()).hexdigest()[:12]
         same = (
             current
@@ -690,7 +806,58 @@ def sessionise(conn: sqlite3.Connection, full: bool = False) -> int:
         current["robots"] = current["robots"] or bool(ROBOTS_RE.match(path))
     written += flush(current)
     conn.commit()
+    flag_coordinated(conn, cutoff)
     return written
+
+
+def flag_coordinated(conn: sqlite3.Connection, cutoff: float) -> int:
+    """One operator wearing several hats, caught without knowing its name.
+
+    Three visits landed two minutes apart from a single Beijing
+    datacenter ASN, each a page deep, each claiming a different device:
+    two Android handsets of different models and a Mac. Name matching
+    caught none of it, because the fix for a name you have not seen yet
+    is always a name you have not seen yet. What gives it away is the
+    shape: one network, one moment, several devices, no depth.
+
+    Deliberately narrow. Sessions must be shallow (a real office behind
+    one NAT has colleagues who read more than two pages), the window is
+    minutes rather than hours, and it takes three distinct agents, so
+    a household with a laptop and a phone on one address does not trip
+    it. Runs after the main pass and only upgrades verdicts, never
+    clears one.
+    """
+    rows = conn.execute(
+        "SELECT s.id, s.ua_hash, s.started, a.asn FROM session s"
+        " JOIN ip_asn a ON a.ip = s.ip"
+        " WHERE s.started >= ? AND s.is_bot = 0 AND a.asn IS NOT NULL"
+        "   AND s.page_views <= ?"
+        " ORDER BY a.asn, s.started",
+        (cutoff, COORD_MAX_PAGES),
+    ).fetchall()
+
+    by_asn: dict[int, list[sqlite3.Row]] = {}
+    for r in rows:
+        by_asn.setdefault(r["asn"], []).append(r)
+
+    guilty: set[int] = set()
+    for group in by_asn.values():
+        for i, anchor in enumerate(group):
+            window = [
+                r
+                for r in group[i:]
+                if r["started"] - anchor["started"] <= COORD_WINDOW_SECONDS
+            ]
+            if len({r["ua_hash"] for r in window}) >= COORD_MIN_AGENTS:
+                guilty.update(r["id"] for r in window)
+
+    for sid in guilty:
+        conn.execute(
+            "UPDATE session SET is_bot = 1, bot_reason = ? WHERE id = ?",
+            ("coordinated user agents", sid),
+        )
+    conn.commit()
+    return len(guilty)
 
 
 def reclassify(conn: sqlite3.Connection) -> tuple[int, int]:
@@ -704,11 +871,25 @@ def reclassify(conn: sqlite3.Connection) -> tuple[int, int]:
     verdict they were given when their requests still existed.
     """
     changed = 0
-    for row in conn.execute("SELECT id, path, ua, is_bot FROM request").fetchall():
-        is_bot, _, _ = classify(row["path"] or "", row["ua"] or "")
-        if int(is_bot) != int(row["is_bot"]):
+    rows = conn.execute(
+        "SELECT id, path, ua, is_bot, is_asset, activity, prefetch FROM request"
+    ).fetchall()
+    for row in rows:
+        is_bot, is_asset, activity = classify(row["path"] or "", row["ua"] or "")
+        # A prefetch stays machinery whatever its path says. The header
+        # that proved it is long gone from the store, so recomputing
+        # from the path alone would hand it back its activity tag.
+        if row["prefetch"]:
+            is_asset, activity = True, None
+        if (
+            int(is_bot) != int(row["is_bot"])
+            or int(is_asset) != int(row["is_asset"] or 0)
+            or (activity or None) != (row["activity"] or None)
+        ):
             conn.execute(
-                "UPDATE request SET is_bot = ? WHERE id = ?", (int(is_bot), row["id"])
+                "UPDATE request SET is_bot = ?, is_asset = ?, activity = ?"
+                " WHERE id = ?",
+                (int(is_bot), int(is_asset), activity, row["id"]),
             )
             changed += 1
     conn.commit()
@@ -780,8 +961,8 @@ def backfill_prefetch(conn: sqlite3.Connection) -> tuple[int, int]:
     changed = 0
     for ts, ip, path_only in keys:
         cur = conn.execute(
-            "UPDATE request SET is_asset = 1, activity = NULL"
-            " WHERE ts = ? AND ip = ? AND path = ? AND is_asset = 0",
+            "UPDATE request SET is_asset = 1, activity = NULL, prefetch = 1"
+            " WHERE ts = ? AND ip = ? AND path = ? AND prefetch = 0",
             (ts, ip, path_only),
         )
         changed += cur.rowcount
