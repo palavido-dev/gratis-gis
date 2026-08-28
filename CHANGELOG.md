@@ -5,6 +5,34 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.96] - 2026-08-28
+
+### Fixed
+
+- **Traffic stats counted datacenter machinery as human visitors.**
+  The rule that recognises a visit from a server farm sat below a
+  test for browser evidence, and since a headless browser loads the
+  page's JavaScript like anyone else, it was never reached. Fifty-one
+  visits from Microsoft, Amazon, Google, Fastly, Cloudflare and
+  Scaleway address space were being counted as people, including one
+  that read 72 pages in 26 seconds. Origin is now weighed first, with
+  a carve-out so that a visit which genuinely went several pages deep
+  over several minutes still counts as a person, because real
+  visitors do arrive through privacy relays and company networks.
+- **A map left open in a tab no longer reads as a long visit.** The
+  map's presence heartbeat fires every few seconds for as long as the
+  page exists, so a visit could never fall quiet and the idle cut-off
+  could never fire; the longest visit on record, 6h 35m, was 72%
+  heartbeat. Keepalive traffic is now excluded from visit length
+  entirely.
+- Added a rule for several shallow visits arriving from one network
+  minutes apart wearing different device identities, which is what a
+  single operator rotating disguises looks like.
+
+Together these take the 30-day figures from 223 visitors to 186, and
+the median visit from 36 seconds to 66, because the visits that were
+dragging it down were never people.
+
 ## [0.9.95] - 2026-08-27
 
 ### Fixed
