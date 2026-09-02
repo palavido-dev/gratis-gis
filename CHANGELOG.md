@@ -5,6 +5,14 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.98] - 2026-09-02
+
+### Security
+
+- Updated four more indirectly-included packages (`fast-uri`, `qs`,
+  `browserslist`, `postcss-selector-parser`) to their patched
+  releases. No behaviour change.
+
 ## [0.9.97] - 2026-09-02
 
 ### Added
