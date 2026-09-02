@@ -65,7 +65,7 @@
     "overrides": {
       "glob": "^11.0.0",
       "path-scurry": "^2.0.0",
-      "fast-uri": "^3.1.5",
+      "fast-uri": "^3.1.6",
       "fast-xml-builder": "^1.1.7",
       "lodash": "^4.18.0",
       "picomatch": "^4.0.4",
@@ -91,7 +91,10 @@
       "valibot": "^1.4.2",
       "deepmerge-ts": "^8.0.0",
       "mysql2": "^3.22.0",
-      "@xmldom/xmldom": "^0.9.12"
+      "@xmldom/xmldom": "^0.9.12",
+      "qs": "^6.16.0",
+      "browserslist": "^4.28.7",
+      "postcss-selector-parser": "^6.1.3"
     }
   }
 }
