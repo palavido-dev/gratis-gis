@@ -71,7 +71,24 @@ function makeUser(): AuthUser {
  * entities get written" exercises the service's threading rather
  * than echoing its own inputs.
  */
-function makeService() {
+/**
+ * Prisma stub serving one v3 data_layer item, so `loadLayerSchema`
+ * has something to read. `fields: null` stands for a layer that
+ * declares no schema, which is the case where the validator has to
+ * stay out of the way entirely.
+ */
+function makePrisma(fields: unknown[] | null) {
+  const findUnique = jest.fn(async () => ({
+    data: {
+      version: 3,
+      layers: [{ id: LAYER_ID, ...(fields ? { fields } : {}) }],
+    },
+  }));
+  const findMany = jest.fn(async () => [] as Array<{ id: string; data: unknown }>);
+  return { item: { findUnique, findMany } };
+}
+
+function makeService(fields: unknown[] | null = null) {
   const listFeatures = jest.fn(
     async (args: { entityIds?: string[] }) => ({
       type: 'FeatureCollection' as const,
@@ -93,7 +110,7 @@ function makeService() {
     refreshItemBbox: jest.fn(() => Promise.resolve()),
   };
   const service = new DataLayerFeaturesService(
-    {} as unknown as PrismaService,
+    makePrisma(fields) as unknown as PrismaService,
     cacheRefresh as unknown as DerivedLayerCacheRefreshService,
     engine as unknown as DataLayerEngine,
     bboxRefresh as unknown as ItemBboxRefreshService,
@@ -313,6 +330,80 @@ describe('DataLayerFeaturesService.calculateField scope', () => {
     expect(out.totalRows).toBe(1);
     expect(out.appliedRows).toBe(0);
     expect(out.sample).toEqual([{ id: E3, oldValue: undefined, newValue: 6 }]);
+  });
+});
+
+/**
+ * Calculate Field against the layer's declared schema.
+ *
+ * Two holes this closes. The expression used to be checked against
+ * field names harvested from the first returned row, with every type
+ * recorded as 'unknown', so a reference to a field absent from row one
+ * read as a typo and `acres + owner` type-checked. And `outputName`
+ * was checked only against a name-shaped regex, so a calculation could
+ * write a column the layer does not declare: the value lands in the
+ * attributes, the attribute table renders declared fields and never
+ * shows it, and the author concludes the run did nothing.
+ */
+describe('DataLayerFeaturesService.calculateField schema enforcement', () => {
+  const NUMERIC_SCHEMA = [
+    { name: 'value', type: 'number', label: 'Value', nullable: true },
+    { name: 'doubled', type: 'number', label: 'Doubled', nullable: true },
+  ];
+
+  it('writes to a field the layer declares', async () => {
+    const { service, writeFeaturesUpdate } = makeService(NUMERIC_SCHEMA);
+    const out = await service.calculateField(calcArgs());
+    expect(out.appliedRows).toBe(4);
+    expect(writeFeaturesUpdate).toHaveBeenCalled();
+  });
+
+  it('refuses to invent a column the layer does not declare', async () => {
+    const { service, writeFeaturesUpdate } = makeService(NUMERIC_SCHEMA);
+    await expect(
+      service.calculateField(calcArgs({ outputName: 'not_a_field' })),
+    ).rejects.toThrow(/no field called/i);
+    expect(writeFeaturesUpdate).not.toHaveBeenCalled();
+  });
+
+  it('still allows any output name on a layer with no declared schema', async () => {
+    // Schema-free v3 layers have nothing to disagree with and must
+    // stay writable, so the pre-schema behaviour survives there.
+    const { service } = makeService(null);
+    const out = await service.calculateField(calcArgs({ outputName: 'anything' }));
+    expect(out.appliedRows).toBe(4);
+  });
+
+  it('counts rows the target field cannot hold as errors and leaves them alone', async () => {
+    // outputType is what the author asked the expression to produce.
+    // It says nothing about the column's domain, so a value outside it
+    // has to be caught after the expression runs, not before.
+    const { service, writeFeaturesUpdate } = makeService([
+      { name: 'value', type: 'number', label: 'Value', nullable: true },
+      {
+        name: 'grade',
+        type: 'number',
+        label: 'Grade',
+        nullable: true,
+        domain: { type: 'range', min: 0, max: 5 },
+      },
+    ]);
+    const out = await service.calculateField(
+      calcArgs({ outputName: 'grade', expression: '{{value}} * 2' }),
+    );
+    // values 1..4 double to 2, 4, 6, 8; only the first two fit 0..5.
+    expect(out.appliedRows).toBe(2);
+    expect(out.errors).toBe(2);
+    expect(
+      writeFeaturesUpdate.mock.calls[0]![0].map((u) => u.globalId),
+    ).toEqual([E1, E2]);
+  });
+
+  it('rejects an expression referencing a field the schema does not declare', async () => {
+    const { service } = makeService(NUMERIC_SCHEMA);
+    await expect(
+      service.calculateField(calcArgs({ expression: '{{missing}} * 2' })),
+    ).rejects.toThrow(BadRequestException);
   });
 });
 

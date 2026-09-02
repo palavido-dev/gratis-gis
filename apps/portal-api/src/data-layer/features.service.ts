@@ -4,10 +4,16 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { isUuid, type GeoJsonGeometry } from '@gratis-gis/engine';
 import {
   ExpressionError,
+  describeViolations,
   evaluateExpression,
   parseExpression,
   validateExpression,
+  validateFeatureProperties,
+  type FeatureField,
+  type FieldDomain,
+  type FieldRef,
   type MapLayerFilter,
+  type ResolvedPickLists,
 } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -123,6 +129,156 @@ export class DataLayerFeaturesService {
    */
   private scheduleBboxRefresh(itemId: string): void {
     void this.bboxRefresh.refreshItemBbox(itemId);
+  }
+
+  /**
+   * The layer's declared fields plus any pick lists its domains point
+   * at, for `validateFeatureProperties`.
+   *
+   * Read straight off `item.data` rather than through one of the four
+   * `readV3Layers` copies: those narrow a field down to name, type and
+   * label, and drop `domain`, `storage` and `nullable`, which are three
+   * of the five things there is any point in validating.
+   *
+   * Returns an empty field list for v1/v2 items and for layers that
+   * declare no fields, which makes the validator a no-op there. That
+   * is deliberate: a layer with no schema has nothing to disagree
+   * with, and schema-free v3 layers must stay writable.
+   */
+  private async loadLayerSchema(
+    itemId: string,
+    layerId: string,
+  ): Promise<{ fields: FeatureField[]; pickLists: ResolvedPickLists }> {
+    const empty = { fields: [] as FeatureField[], pickLists: {} };
+    const item = await this.prisma.item.findUnique({
+      where: { id: itemId },
+      select: { data: true },
+    });
+    const data = item?.data;
+    if (!data || typeof data !== 'object') return empty;
+    const d = data as { version?: unknown; layers?: unknown };
+    if (d.version !== 3 || !Array.isArray(d.layers)) return empty;
+
+    const layer = (d.layers as Array<Record<string, unknown>>).find(
+      (l) => l && typeof l === 'object' && l.id === layerId,
+    );
+    const rawFields = layer?.fields;
+    if (!Array.isArray(rawFields) || rawFields.length === 0) return empty;
+    const fields = rawFields.filter(
+      (f): f is FeatureField =>
+        !!f && typeof f === 'object' && typeof (f as FeatureField).name === 'string',
+    );
+    if (fields.length === 0) return empty;
+
+    const refIds = [
+      ...new Set(
+        fields
+          .map((f) => f.domain)
+          .filter(
+            (dom): dom is Extract<FieldDomain, { type: 'coded-value-ref' }> =>
+              !!dom && dom.type === 'coded-value-ref',
+          )
+          .map((dom) => dom.pickListItemId)
+          .filter((id) => isUuid(id)),
+      ),
+    ];
+    if (refIds.length === 0) return { fields, pickLists: {} };
+
+    // Read the referenced lists directly. No share check: a domain the
+    // layer author already wired in is part of the layer's schema, and
+    // the codes are visible in the field editor anyway. An unreadable
+    // or deleted list simply does not land here, and the validator
+    // then leaves that field's domain unchecked rather than making the
+    // layer read-only by accident.
+    const lists = await this.prisma.item.findMany({
+      where: { id: { in: refIds }, type: 'pick_list', deletedAt: null },
+      select: { id: true, data: true },
+    });
+    const pickLists: ResolvedPickLists = {};
+    for (const list of lists) {
+      const listData = list.data as { entries?: unknown } | null;
+      if (!listData || !Array.isArray(listData.entries)) continue;
+      pickLists[list.id] = (listData.entries as Array<Record<string, unknown>>)
+        .filter((e) => e && (typeof e.code === 'string' || typeof e.code === 'number'))
+        .map((e) => ({ code: e.code as string | number }));
+    }
+    return { fields, pickLists };
+  }
+
+  /**
+   * Validate one feature's attributes against the layer schema and
+   * return the COERCED properties to persist.
+   *
+   * Enforced here in the service rather than in the controller so that
+   * every writer is covered by one implementation: the REST endpoints,
+   * the form runtime, the OSM save-as-layer path, the ArcGIS importer,
+   * the sample seeder and the async import worker all land in this
+   * class, and several of them never touch a controller at all.
+   *
+   * Callers must persist the returned object. Discarding it and
+   * writing the original input silently drops every coercion, which
+   * would leave the validator doing nothing except occasionally
+   * saying no.
+   */
+  private async validateProperties(
+    itemId: string,
+    layerId: string,
+    properties: Record<string, unknown> | undefined,
+    mode: 'create' | 'patch',
+    context?: string,
+  ): Promise<Record<string, unknown> | undefined> {
+    if (properties === undefined) return undefined;
+    const { fields, pickLists } = await this.loadLayerSchema(itemId, layerId);
+    if (fields.length === 0) return properties;
+    const result = validateFeatureProperties(fields, properties, {
+      mode,
+      pickLists,
+    });
+    if (!result.ok) {
+      throw new BadRequestException(
+        (context ? `${context}: ` : '') + describeViolations(result.violations),
+      );
+    }
+    return result.value;
+  }
+
+  /**
+   * Batch form of `validateProperties`: loads the layer schema ONCE
+   * and validates every input against it, returning the coerced
+   * property bags positionally.
+   *
+   * The positional contract matters. The caller rebuilds its engine
+   * arguments by index, so returning a filtered or reordered list here
+   * would attach one feature's attributes to another's geometry.
+   *
+   * Rejects on the first offending row and names it, because a bulk
+   * import that reports "row 41,208: Depth is a number field; 'n/a' is
+   * not a number" tells the operator which column to fix, while a
+   * partial import leaves them reconciling two datasets.
+   */
+  private async validateAll(
+    itemId: string,
+    layerId: string,
+    inputs: readonly DataLayerFeatureInsert[],
+    mode: 'create' | 'patch',
+  ): Promise<Array<Record<string, unknown> | undefined>> {
+    const originals = inputs.map((f) => f.properties);
+    const { fields, pickLists } = await this.loadLayerSchema(itemId, layerId);
+    if (fields.length === 0) return originals;
+
+    return originals.map((properties, i) => {
+      if (properties === undefined) return undefined;
+      const result = validateFeatureProperties(fields, properties, {
+        mode,
+        pickLists,
+      });
+      if (!result.ok) {
+        throw new BadRequestException(
+          `Row ${i + 1}: ${describeViolations(result.violations)}`,
+        );
+      }
+      return result.value;
+    });
   }
 
   /** Current-state feature collection for a layer. Supports bbox
@@ -322,12 +478,16 @@ export class DataLayerFeaturesService {
     }
 
     const principal = { sub: user.id, displayName: user.username ?? '' };
-    const args: CreateFeatureArgs[] = inputs.map((f) => ({
+    // Schema check before anything is written, in 'create' mode so a
+    // required field the caller omitted entirely is caught here rather
+    // than surfacing later as an empty column nobody can explain.
+    const validated = await this.validateAll(itemId, layerId, inputs, 'create');
+    const args: CreateFeatureArgs[] = inputs.map((f, i) => ({
       itemId,
       layerId,
       principal,
       ...(f.globalId !== undefined ? { globalId: f.globalId } : {}),
-      ...(f.properties !== undefined ? { properties: f.properties } : {}),
+      ...(validated[i] !== undefined ? { properties: validated[i] } : {}),
       ...(f.geometry !== undefined
         ? { geometry: f.geometry as GeoJsonGeometry | null }
         : {}),
@@ -349,11 +509,7 @@ export class DataLayerFeaturesService {
     // rolled back by a downstream cache problem. Skipped entirely on
     // a fully-deduplicated retry: nothing changed.
     if (inserted > 0) {
-      void this.cacheRefresh.notifySourceWrite(
-        itemId,
-        layerId,
-        inputs.map((f) => f.properties),
-      );
+      void this.cacheRefresh.notifySourceWrite(itemId, layerId, validated);
       this.scheduleBboxRefresh(itemId);
     }
 
@@ -386,12 +542,17 @@ export class DataLayerFeaturesService {
     if (inputs.length === 0) return { inserted: 0 };
 
     const principal = { sub: user.id, displayName: user.username ?? '' };
-    const args: CreateFeatureArgs[] = inputs.map((f) => ({
+    // Same schema gate as the interactive create path. The bulk
+    // importer is exactly where bad data has historically entered (the
+    // numeric osm_id in a text-declared column came in this way), so
+    // exempting it would leave the hole open at the widest point.
+    const validated = await this.validateAll(itemId, layerId, inputs, 'create');
+    const args: CreateFeatureArgs[] = inputs.map((f, i) => ({
       itemId,
       layerId,
       principal,
       ...(f.globalId !== undefined ? { globalId: f.globalId } : {}),
-      ...(f.properties !== undefined ? { properties: f.properties } : {}),
+      ...(validated[i] !== undefined ? { properties: validated[i] } : {}),
       ...(f.geometry !== undefined
         ? { geometry: f.geometry as GeoJsonGeometry | null }
         : {}),
@@ -756,9 +917,18 @@ export class DataLayerFeaturesService {
       return out;
     };
 
+    // 'patch' mode, not 'create': an update is judged on the keys it
+    // actually carries. A required field cleared to '' is still caught
+    // (that key is present), but a required field the caller never
+    // mentioned is not invented as an error here.
     const nextProps =
       patch.properties !== undefined
-        ? patch.properties
+        ? ((await this.validateProperties(
+            itemId,
+            layerId,
+            patch.properties,
+            'patch',
+          )) ?? patch.properties)
         : stripUnderscoreKeys(existing.properties);
 
     const nextGeometry: GeoJsonGeometry | null = isTable
@@ -934,19 +1104,47 @@ export class DataLayerFeaturesService {
       );
     }
 
-    // Light schema validation against the upstream fields.  We
-    // gather field names from the first row's properties as a
-    // pragmatic stand-in for the schema; sublayer schema lookup
-    // would be more correct but the row sample matches what the
-    // user is editing.
-    const schemaSeed = features.features[0]?.properties ?? {};
-    const validationErrors = validateExpression(
-      ast,
-      Object.keys(schemaSeed).map((name) => ({ name, type: 'unknown' as const })),
+    // Check the expression against the layer's DECLARED schema.
+    //
+    // This used to seed the field list from the first row's property
+    // keys, which meant the type of every reference was 'unknown' (so
+    // `acres + owner` type-checked) and a field absent from row one
+    // read as a typo. The declared schema is now available, so use it.
+    // Layers with no schema keep the old row-sampled behaviour,
+    // because there is nothing better to check against.
+    const { fields: layerFields, pickLists } = await this.loadLayerSchema(
+      args.itemId,
+      args.layerId,
     );
+    const schemaRefs: FieldRef[] =
+      layerFields.length > 0
+        ? layerFields.map((f) => ({
+            name: f.name,
+            type:
+              f.type === 'number' || f.type === 'boolean' || f.type === 'string'
+                ? f.type
+                : ('unknown' as const),
+          }))
+        : Object.keys(features.features[0]?.properties ?? {}).map((name) => ({
+            name,
+            type: 'unknown' as const,
+          }));
+    const validationErrors = validateExpression(ast, schemaRefs);
     if (validationErrors.length > 0) {
       throw new BadRequestException(
         `expression: ${validationErrors.join('; ')}`,
+      );
+    }
+
+    // The output has to be a field the layer actually declares.
+    // Without this, Calculate Field invents a column: the value lands
+    // in the JSONB attributes, the attribute table (which renders
+    // declared fields) never shows it, and the author concludes the
+    // calculation silently did nothing.
+    const outputField = layerFields.find((f) => f.name === args.outputName);
+    if (layerFields.length > 0 && !outputField) {
+      throw new BadRequestException(
+        `This layer has no field called "${args.outputName}". Add it to the layer first, then run the calculation.`,
       );
     }
 
@@ -979,7 +1177,31 @@ export class DataLayerFeaturesService {
         errors += 1;
         raw = null;
       }
-      const coerced = coerceOutputValue(raw, args.outputType);
+      let coerced = coerceOutputValue(raw, args.outputType);
+
+      // The computed value still has to satisfy the target field:
+      // outputType is what the AUTHOR asked the expression to produce,
+      // which is not necessarily what the column declares, and it says
+      // nothing at all about domains, ranges or field length. A row
+      // whose result the field cannot hold counts as an error and is
+      // left untouched rather than written as a value that would fail
+      // the same check on the way back in.
+      if (outputField) {
+        const check = validateFeatureProperties(
+          [outputField],
+          { [args.outputName]: coerced },
+          { mode: 'patch', pickLists },
+        );
+        if (!check.ok) {
+          errors += 1;
+          if (sample.length < 5) {
+            sample.push({ id: String(f.id), oldValue, newValue: oldValue });
+          }
+          continue;
+        }
+        coerced = check.value[args.outputName];
+      }
+
       if (sample.length < 5) {
         sample.push({ id: String(f.id), oldValue, newValue: coerced });
       }
