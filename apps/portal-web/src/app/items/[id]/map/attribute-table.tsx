@@ -187,9 +187,11 @@ type SortDir = 'asc' | 'desc';
  *   - Click a column header to sort (click again to flip direction).
  *   - Click a row to toggle its selection; shift-click for a range.
  *   - Toolbar: Zoom to selection, text Query, "Use selection as filter".
- *   - Edit is gated on canEdit + a source that supports writes. For
- *     now, feature-service sources only accept replace-all updates, so
- *     row-level edit is stubbed with a friendly message.
+ *   - Double-click a cell to edit it, on layers the caller marked
+ *     editable. Editing is gated twice: `editableLayerIds` decides
+ *     which layers offer it at all, and the server re-checks edit
+ *     permission on the underlying layer for every PATCH, so a stale
+ *     client that offers a cell it should not fails closed.
  */
 export function AttributeTable({
   open,
@@ -1073,17 +1075,15 @@ export function AttributeTable({
   }
 
   /**
-   * Commit the in-progress edit. We coerce the draft string back
-   * to the same JS type as the original value so a number column
-   * stays a number, a boolean stays a boolean, etc. If the user
-   * blanks the cell and the field was numeric/boolean we send null
-   * (so the column can clear); for string columns an empty string
-   * is preserved as-is. Pick-list awareness is intentionally not
-   * here yet (the LayerMetadata.fields surface is `string[]`, not
-   * full FeatureField objects with domains); for now pick-list
-   * fields edit as raw text. The richer cell editor that knows
-   * about coded-value domains lands when we thread fieldsByLayer
-   * through alongside the existing string allowlist.
+   * Commit the in-progress edit. The draft string is coerced to the
+   * column's declared type (see `coerceDraft`), so a number column
+   * stays numeric even when the cell being edited was empty. Blanking
+   * a non-text column sends null so the column can clear; on a text
+   * column the empty string is preserved.
+   *
+   * The server validates and coerces this again against the same
+   * schema, so a value the column cannot hold comes back as a 400
+   * with the field named, and `editError` shows it under the table.
    */
   async function commitEditCell() {
     if (!editingCell || !activeLayer || !onPatchFeature) return;
@@ -1098,7 +1098,11 @@ export function AttributeTable({
       setEditError('Missing feature id; refresh and try again.');
       return;
     }
-    const coerced = coerceDraft(draftValue, originalValue);
+    const coerced = coerceDraft(
+      draftValue,
+      originalValue,
+      fieldsByLayer?.[activeLayer.id]?.find((f) => f.name === editingCell.field),
+    );
     // No-op edits (same value typed back in) shouldn't fire a
     // server round-trip; quietly close out the editor.
     if (sameValue(coerced, originalValue)) {
@@ -1785,9 +1789,8 @@ export function AttributeTable({
           </div>
         ) : (
           <div className="border-t border-border px-3 py-1.5 text-2xs text-muted">
-            Row-level editing lands when feature services store data in
-            PostGIS. For now, edit the dataset by replacing the whole
-            FeatureCollection from the feature-service detail page.
+            This table is read-only here. Rows can be edited on layers
+            you have permission to change.
           </div>
         )
       ) : null}
@@ -2690,15 +2693,50 @@ function AttachmentDrawerTile({
 }
 
 /**
- * Coerce the user's draft string back to the same JS type the cell
- * originally held. Numbers stay numeric; booleans accept the usual
- * truthy/falsy spellings; objects are JSON-parsed when possible.
- * An empty draft on a non-string column becomes null (so the
- * server can clear that column); on a string column the empty
- * string is preserved (a user might genuinely want '' there).
+ * Coerce the user's draft string to the type the column DECLARES,
+ * falling back to the type the cell happened to hold when the layer
+ * has no schema.
+ *
+ * The declared type has to win. Reading the type off the current
+ * value means an empty cell in a number column is `null`, matches
+ * none of the branches, and the typed digits persist as text: the
+ * column then holds numbers on most rows and a string on the one
+ * that was blank, and every numeric filter quietly skips it. The
+ * server validator coerces this correctly too, but the optimistic
+ * value the table paints should agree with what gets stored.
+ *
+ * An empty draft clears to null on any non-text column; on a text
+ * column the empty string is preserved, since a user might genuinely
+ * want '' there.
  */
-function coerceDraft(draft: string, original: unknown): unknown {
+function coerceDraft(
+  draft: string,
+  original: unknown,
+  field?: FeatureField | undefined,
+): unknown {
   const trimmed = draft.trim();
+  if (field) {
+    if (trimmed === '' && field.type !== 'string') return null;
+    switch (field.type) {
+      case 'number': {
+        const n = Number(trimmed);
+        return Number.isFinite(n) ? n : draft;
+      }
+      case 'boolean': {
+        const lower = trimmed.toLowerCase();
+        if (lower === 'true' || lower === '1' || lower === 'yes' || lower === 'on')
+          return true;
+        if (lower === 'false' || lower === '0' || lower === 'no' || lower === 'off')
+          return false;
+        return draft;
+      }
+      case 'string':
+      case 'date':
+        return draft;
+      default:
+        break;
+    }
+  }
   if (typeof original === 'number') {
     if (trimmed === '') return null;
     const n = Number(trimmed);

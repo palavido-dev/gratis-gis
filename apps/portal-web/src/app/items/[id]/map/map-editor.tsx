@@ -13,6 +13,7 @@ import {
   Table,
 } from 'lucide-react';
 import type {
+  FeatureField,
   Group,
   Item,
   ItemShare,
@@ -20,6 +21,7 @@ import type {
   MapFilterOp,
   MapLayer,
   MapLayerAccess,
+  PickListData,
   TerrainStackEntry,
 } from '@gratis-gis/shared-types';
 import { layersForPortalItem } from './portal-item-layers';
@@ -72,7 +74,23 @@ interface Props {
    */
   itemTitle: string;
   initial: MapData;
+  /**
+   * May this person change the MAP: its layers, styling, extent,
+   * basemap. Resolved from SharingService, not from owner-or-admin
+   * (#81); the two differ for anyone holding an explicit edit share.
+   */
   canEdit: boolean;
+  /**
+   * data_layer item ids this person may WRITE FEATURES to (#81).
+   *
+   * A separate question from `canEdit` above, and deliberately not
+   * derived from it: editing a map's styling and editing the data a
+   * layer points at are different grants on different items. Someone
+   * can own a map built entirely from layers they may only read, and
+   * the reverse happens too. Empty when the viewer may write to
+   * none, which is the common case for a shared read-only map.
+   */
+  editableLayerItemIds?: string[];
   /**
    * Basemap items from the org's library (items of type=basemap).
    * Includes the seeded built-ins and any user-authored basemaps.
@@ -178,6 +196,7 @@ export function MapEditor({
   itemTitle,
   initial,
   canEdit,
+  editableLayerItemIds = [],
   basemaps = [],
   defaultExtentBoundary = null,
   geoBoundaries = [],
@@ -731,6 +750,184 @@ export function MapEditor({
     // itself would cause infinite loops.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceKeysJoined]);
+
+  /**
+   * Map layers whose underlying data_layer item the signed-in user
+   * may edit (#81). Keyed by MAP layer id, because that is what the
+   * attribute table addresses rows by; `editableLayerItemIds` arrives
+   * from the server keyed by ITEM id, and one item can appear as
+   * several map layers.
+   *
+   * This gate is convenience, not security. Every PATCH is re-checked
+   * server-side against the same permission, so a stale client that
+   * offers an editable cell it should not still fails closed.
+   */
+  const editableLayerIds = useMemo(() => {
+    const items = new Set(editableLayerItemIds);
+    const out = new Set<string>();
+    for (const l of map.layers) {
+      if (
+        l.source.kind === 'data-layer' &&
+        typeof l.source.layerKey === 'string' &&
+        l.source.layerKey.length > 0 &&
+        items.has(l.source.itemId)
+      ) {
+        out.add(l.id);
+      }
+    }
+    return out;
+  }, [map.layers, editableLayerItemIds]);
+
+  /**
+   * Declared field schemas for the editable layers, keyed by map layer
+   * id, plus any pick lists their domains reference.
+   *
+   * `LayerMetadata.fields` is a `string[]` of names discovered from
+   * the data, which is enough to render columns and nowhere near
+   * enough to edit one: the inline editor needs each field's type to
+   * coerce the draft correctly and its domain to offer a list instead
+   * of a free-text box. So this reads the authoritative schema off the
+   * parent item, and only for layers the user can actually edit.
+   */
+  const [editSchemas, setEditSchemas] = useState<{
+    fieldsByLayer: Record<string, FeatureField[]>;
+    pickLists: Record<string, PickListData>;
+  }>({ fieldsByLayer: {}, pickLists: {} });
+
+  const editableSchemaKey = useMemo(
+    () =>
+      map.layers
+        .filter((l) => editableLayerIds.has(l.id))
+        .map((l) =>
+          l.source.kind === 'data-layer'
+            ? `${l.id}:${l.source.itemId}:${l.source.layerKey}`
+            : l.id,
+        )
+        .sort()
+        .join('\n'),
+    [map.layers, editableLayerIds],
+  );
+
+  useEffect(() => {
+    if (!editableSchemaKey) {
+      setEditSchemas({ fieldsByLayer: {}, pickLists: {} });
+      return;
+    }
+    const controller = new AbortController();
+    void (async () => {
+      // Rejoin past the third field: a sublayer key is author-chosen
+      // and may contain a colon, and truncating it here would look
+      // up a layer that does not exist and silently leave the whole
+      // schema empty.
+      const entries = editableSchemaKey.split('\n').map((k) => {
+        const [layerId, itemId, ...rest] = k.split(':');
+        return [layerId, itemId, rest.join(':')] as const;
+      });
+      const fieldsByLayer: Record<string, FeatureField[]> = {};
+      // One fetch per distinct ITEM, not per layer: two sublayers of
+      // the same data_layer share a parent document.
+      const byItem = new Map<string, string[]>();
+      for (const [layerId, itemId] of entries) {
+        if (!layerId || !itemId) continue;
+        byItem.set(itemId, [...(byItem.get(itemId) ?? []), layerId]);
+      }
+      const pickListIds = new Set<string>();
+      await Promise.all(
+        [...byItem.keys()].map(async (id) => {
+          try {
+            const res = await fetch(`/api/portal/items/${id}`, {
+              signal: controller.signal,
+            });
+            if (!res.ok) return;
+            const item = (await res.json()) as {
+              data?: {
+                layers?: Array<{ id?: string; fields?: FeatureField[] }>;
+              };
+            };
+            for (const [layerId, itemId, layerKey] of entries) {
+              if (itemId !== id || !layerId) continue;
+              const sub = item.data?.layers?.find((l) => l.id === layerKey);
+              if (!Array.isArray(sub?.fields)) continue;
+              fieldsByLayer[layerId] = sub.fields;
+              for (const f of sub.fields) {
+                if (f.domain?.type === 'coded-value-ref') {
+                  pickListIds.add(f.domain.pickListItemId);
+                }
+              }
+            }
+          } catch {
+            // A schema we cannot read means that layer's cells edit as
+            // plain text rather than as a list. Degrading is right
+            // here: the server still validates the value.
+          }
+        }),
+      );
+      const pickLists: Record<string, PickListData> = {};
+      await Promise.all(
+        [...pickListIds].map(async (id) => {
+          try {
+            const res = await fetch(`/api/portal/items/${id}`, {
+              signal: controller.signal,
+            });
+            if (!res.ok) return;
+            const item = (await res.json()) as { data?: PickListData };
+            if (item.data && Array.isArray(item.data.entries)) {
+              pickLists[id] = item.data;
+            }
+          } catch {
+            // Same degradation as above.
+          }
+        }),
+      );
+      if (controller.signal.aborted) return;
+      setEditSchemas({ fieldsByLayer, pickLists });
+    })();
+    return () => controller.abort();
+  }, [editableSchemaKey]);
+
+  /**
+   * Persist one inline attribute edit, then repaint.
+   *
+   * The v3 PATCH replaces the property bag wholesale, which is what
+   * the table sends. On success the layer's tiles and cached features
+   * are stale, so the source is refreshed rather than patched in
+   * place: the server may have coerced the value (a number typed into
+   * a text column is stored as text), and painting the draft would
+   * show something the database does not hold.
+   */
+  const handlePatchFeature = useCallback(
+    async (layerId: string, featureId: string, properties: Record<string, unknown>) => {
+      const layer = map.layers.find((l) => l.id === layerId);
+      if (!layer || layer.source.kind !== 'data-layer') {
+        throw new Error('This layer does not support editing.');
+      }
+      const { itemId: sourceItemId, layerKey } = layer.source;
+      const res = await fetch(
+        `/api/portal/items/${sourceItemId}/layers/${layerKey}/features/${featureId}`,
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ properties }),
+        },
+      );
+      if (!res.ok) {
+        // The 400 body carries the validator's sentence, which names
+        // the field and what it would not accept. Surfacing the status
+        // code instead would throw that away.
+        const body = await res.text();
+        let message = `Save failed (${res.status}).`;
+        try {
+          const parsed = JSON.parse(body) as { message?: unknown };
+          if (typeof parsed.message === 'string') message = parsed.message;
+        } catch {
+          if (body.trim() && body.length < 300) message = body;
+        }
+        throw new Error(message);
+      }
+      canvasRef.current?.refreshLayerSource(layerId);
+    },
+    [map.layers],
+  );
 
   function markDirty() {
     setDirty(true);
@@ -1762,6 +1959,14 @@ export function MapEditor({
                 map.layers.map((l) => (l.id === layerId ? { ...l, ...patch } : l)),
               );
             }}
+            {...(editableLayerIds.size > 0
+              ? {
+                  onPatchFeature: handlePatchFeature,
+                  editableLayerIds,
+                  fieldsByLayer: editSchemas.fieldsByLayer,
+                  pickLists: editSchemas.pickLists,
+                }
+              : {})}
           />
           {error ? (
             <p

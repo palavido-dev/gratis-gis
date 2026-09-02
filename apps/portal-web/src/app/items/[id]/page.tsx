@@ -243,6 +243,24 @@ export default async function ItemDetailPage(props: Props) {
   // max-of-7-fetches. Failures are non-fatal per-fetch (same as the
   // sequential version was).
   const needsThemes = isCustomAppItem(item);
+  // #81: the layers this map draws, so the batch permissions call
+  // below can ask "may this person edit each of these?". Read from
+  // the map's own data rather than the dependency walk: what matters
+  // for an edit control is the data_layer a layer actually points
+  // at, and only v3 data-layer sources are writable.
+  const mapLayerItemIds: string[] = isMap
+    ? Array.from(
+        new Set(
+          (mapData?.layers ?? [])
+            .map((l) => {
+              const src = l.source as { kind?: string; itemId?: string } | null;
+              return src?.kind === 'data-layer' ? src.itemId : undefined;
+            })
+            .filter((id): id is string => Boolean(id)),
+        ),
+      )
+    : [];
+
   const [
     basemaps,
     defaultExtentBoundary,
@@ -252,6 +270,8 @@ export default async function ItemDetailPage(props: Props) {
     groups,
     themeItems,
     canDownload,
+    mapItemCanEdit,
+    layerPermissions,
   ] = await Promise.all([
     // Web map basemap library. full=1: the list default strips
     // data_json, but basemapItemToCustomBasemap needs each row's
@@ -340,7 +360,33 @@ export default async function ItemDetailPage(props: Props) {
           .then((p) => p.canDownload)
           .catch(() => viewerCanDownload)
       : Promise.resolve(true),
+    // #81: the map item's REAL edit permission. `canManage` is
+    // owner-or-admin, so the map builder silently hid its write
+    // affordances from anyone holding an explicit edit share, which
+    // no share tier could ever satisfy. Owners and admins skip the
+    // round-trip because the answer cannot be no.
+    isMap && !canManage
+      ? apiFetch<{ canEdit: boolean }>(`/api/items/${item.id}/permissions`)
+          .then((p) => p.canEdit)
+          .catch(() => false)
+      : Promise.resolve(canManage),
+    // #81: and the per-LAYER answer, which is a different question:
+    // this permission is about the map item, while every edit target
+    // is a separate data_layer item with its own sharing. One batch
+    // call so a twelve-layer map is one round trip, not twelve.
+    isMap && mapLayerItemIds.length > 0
+      ? apiFetch<Record<string, { canEdit: boolean }>>(
+          `/api/items/permissions?ids=${mapLayerItemIds.join(',')}`,
+        ).catch(() => ({}) as Record<string, { canEdit: boolean }>)
+      : Promise.resolve({} as Record<string, { canEdit: boolean }>),
   ]);
+
+  // Ids of the data_layers this viewer may actually write to. Passed
+  // to the map builder so an edit control appears only where an edit
+  // would succeed, rather than being offered and then 403'd.
+  const editableLayerItemIds = Object.entries(layerPermissions)
+    .filter(([, p]) => p?.canEdit)
+    .map(([id]) => id);
 
   // Folder breadcrumb: walk up the parent chain so the detail page
   // can render "Project A > 2026 Surveys > (this folder)" at the
@@ -822,7 +868,8 @@ export default async function ItemDetailPage(props: Props) {
           itemId={item.id}
           itemTitle={item.title}
           initial={{ ...DEFAULT_MAP, ...((item.data ?? {}) as Partial<MapData>) }}
-          canEdit={canManage}
+          canEdit={mapItemCanEdit}
+          editableLayerItemIds={editableLayerItemIds}
           {...(searchParams?.add ? { addItemId: searchParams.add } : {})}
           basemaps={basemaps}
           defaultExtentBoundary={defaultExtentBoundary}

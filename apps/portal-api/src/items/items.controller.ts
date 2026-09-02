@@ -52,6 +52,13 @@ import { safeFetch } from '../common/net-guards.js';
  */
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/**
+ * Cap on the batch permissions route. Each id costs one authorized
+ * item resolution, so an uncapped list is an invitation to walk the
+ * whole table one request at a time. Comfortably above any real map:
+ * the largest demo map draws a dozen layers.
+ */
+const MAX_PERMISSION_IDS = 100;
 import type { CreateItemInput, UpdateItemInput } from './items.service.js';
 import { ItemsService } from './items.service.js';
 import { DataSnapshotService } from './data-snapshot.service.js';
@@ -372,6 +379,64 @@ export class ItemsController {
   @Get('trash')
   listTrash(@CurrentUser() user: AuthUser) {
     return this.items.listTrash(user);
+  }
+
+  /**
+   * Effective permissions for several items at once (#81).
+   *
+   * The per-item `:id/permissions` route below answers the same
+   * question, but a map asking it for every layer it draws is one
+   * round trip per layer before the first edit control can render.
+   * A map with a dozen layers made that a visibly slow toolbar, so
+   * the map builder asks once.
+   *
+   * Unreadable and unknown ids are OMITTED rather than returned as
+   * all-false. A caller cannot then distinguish "denied" from "does
+   * not exist", which is the same posture the single-item route
+   * takes by 404ing, and it keeps this from becoming an oracle for
+   * which ids exist.
+   *
+   * MUST stay above `@Get(':id')`; see the note on /items/trash.
+   */
+  @Get('permissions')
+  async permissionsBatch(
+    @CurrentUser() user: AuthUser,
+    @Query('ids') ids?: string,
+  ): Promise<Record<string, {
+    canRead: boolean;
+    canEdit: boolean;
+    canDownload: boolean;
+    canAdmin: boolean;
+  }>> {
+    const wanted = (ids ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => UUID_RE.test(s))
+      .slice(0, MAX_PERMISSION_IDS);
+    if (wanted.length === 0) return {};
+    const out: Record<
+      string,
+      { canRead: boolean; canEdit: boolean; canDownload: boolean; canAdmin: boolean }
+    > = {};
+    // One resolution per id through the same service the single-item
+    // route uses, rather than a bulk query with its own visibility
+    // logic. A second implementation of "can this person see this"
+    // is how the two answers drift apart, and this one would drift
+    // in the direction of showing edit controls that 403.
+    for (const id of wanted) {
+      try {
+        const item = await this.items.get(user, id);
+        out[id] = {
+          canRead: this.sharing.canRead(user, item, item.shares ?? []),
+          canEdit: this.sharing.canEdit(user, item, item.shares ?? []),
+          canDownload: this.sharing.canDownload(user, item, item.shares ?? []),
+          canAdmin: this.sharing.canAdmin(user, item),
+        };
+      } catch {
+        // Not readable, or gone. Omitted on purpose; see the docblock.
+      }
+    }
+    return out;
   }
 
   @Get(':id')
