@@ -18,6 +18,7 @@ export * from './map';
 export * from './drawings';
 export * from './data-layer';
 export * from './feature-validate';
+export * from './submission-stamp';
 export * from './length';
 export * from './derived-layer';
 export * from './arcgis-service';

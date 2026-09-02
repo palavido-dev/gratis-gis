@@ -89,7 +89,9 @@
       "sharp": "^0.35.0",
       "next": "^16.2.11",
       "valibot": "^1.4.2",
-      "deepmerge-ts": "^8.0.0"
+      "deepmerge-ts": "^8.0.0",
+      "mysql2": "^3.22.0",
+      "@xmldom/xmldom": "^0.9.12"
     }
   }
 }

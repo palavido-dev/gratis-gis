@@ -1218,10 +1218,19 @@ export class ItemsService {
               nullable: true,
             },
             {
+              // Nullable, unlike submitted_at beside it, because only
+              // the forms pipeline can supply it. It records which
+              // form schema a response was captured against, and the
+              // submission endpoint rejects a version that does not
+              // match the form's current one. The field runtime writes
+              // to the feature endpoint directly and has no version to
+              // give; guessing one would defeat that check, so a row
+              // that did not come from a form submission legitimately
+              // has none.
               name: 'schema_version',
               type: 'number',
               label: 'Schema version',
-              nullable: false,
+              nullable: true,
               storage: { numberKind: 'integer' as const },
             },
           ],

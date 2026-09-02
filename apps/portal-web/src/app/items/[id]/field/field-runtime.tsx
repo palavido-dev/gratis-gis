@@ -37,7 +37,10 @@ import type {
   MapLayerRenderer,
   PickListData,
 } from '@gratis-gis/shared-types';
-import { splitByPrefetchPolicy } from '@gratis-gis/shared-types';
+import {
+  splitByPrefetchPolicy,
+  stampSubmissionMetadata,
+} from '@gratis-gis/shared-types';
 import {
   generateFormFromLayer,
   type FormSchema,
@@ -3992,10 +3995,29 @@ function FormModal({
       modal.mode === 'add'
         ? { ...modal.presetAttributes, ...response }
         : response;
-    const properties: FormResponse =
+    const gpsStamped: FormResponse =
       modal.mode === 'add' && gpsPosition
         ? stampGpsMetadata(modal.layer.fields, responseWithPresets, gpsPosition)
         : responseWithPresets;
+    // Submission bookkeeping, on adds only (an edit keeps the row's
+    // original submitted_at). This path writes to the feature endpoint
+    // rather than through the forms service, so nothing else fills
+    // `submitted_at` / `submitted_by`: an offline-captured row and an
+    // online one described the same act differently, and the responses
+    // view has been papering over it by falling back to _created_at.
+    //
+    // Stamped HERE, above the online / queued fork, so both branches
+    // send the same properties. Doing it in one branch is how the two
+    // diverged in the first place.
+    const properties: FormResponse =
+      modal.mode === 'add'
+        ? (stampSubmissionMetadata(modal.layer.fields, gpsStamped, {
+            userId: currentUserId,
+            // Capture time, not sync time. Offline is the only place
+            // that knows the difference and it is the one that counts.
+            capturedAt: new Date().toISOString(),
+          }) as FormResponse)
+        : gpsStamped;
     // Identity. For inserts we generate the globalId client-side so
     // the queue and the local feature row share a key with the
     // eventual server row -- a re-drained queue (or a sync that
