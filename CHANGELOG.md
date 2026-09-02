@@ -5,6 +5,55 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.97] - 2026-09-02
+
+### Added
+
+- **Edit a layer's attributes straight from a map.** Open the
+  attribute table in a map you are building and double-click a cell to
+  change it, on any layer you have permission to change. Previously
+  the only way to correct a value was to build a dedicated editing app
+  on top of the layer, which is a lot of ceremony for fixing one wrong
+  entry. Cells on a layer with a defined list of allowed values offer
+  that list rather than a free-text box.
+- **A Calculate button on the attribute table.** Setting a column for
+  many rows at once from a formula already worked, but the only way to
+  reach it was to right-click a column heading, which nothing told
+  you. The dialog now also lets you choose which column to write to,
+  and takes the result type from the column itself instead of asking
+  you to pick one that might not fit.
+
+### Fixed
+
+- **Values that do not fit a column are now refused instead of
+  stored.** Nothing had ever checked a saved value against the field
+  definitions the layer advertises, so text could land in a number
+  column, a value outside a defined list could land in a list column,
+  and a field marked as required could be saved empty. Saves are now
+  checked, with a message naming the field and what it would not
+  accept. Values that convert cleanly still convert, so existing
+  imports keep working.
+- Two datasets on the public demo were storing values their own
+  definitions did not allow, and have been corrected: sample dates in
+  the water-quality measurements, and identifiers on the Elkins
+  buildings.
+- **Field submissions captured offline now record who submitted them
+  and when they were captured**, matching what an online submission
+  has always recorded. Rows collected in the field were arriving
+  without either, and the responses view had been quietly falling back
+  to the row's creation time.
+- Map builders shared with you for editing no longer appear read-only.
+  The builder was checking for ownership rather than for edit
+  permission, which no sharing level could satisfy.
+- Calculating a column no longer silently writes to a column the layer
+  does not have, which produced a value nothing displayed and left the
+  author thinking the run had done nothing.
+
+### Security
+
+- Updated two dependencies pulled in indirectly (`mysql2`,
+  `@xmldom/xmldom`) to their patched releases.
+
 ## [0.9.96] - 2026-08-28
 
 ### Fixed
