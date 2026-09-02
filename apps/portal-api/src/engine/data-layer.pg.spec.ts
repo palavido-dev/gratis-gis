@@ -2393,7 +2393,20 @@ d('observation-log read paths against real PostGIS', () => {
 
     const makeService = () =>
       new DataLayerFeaturesService(
-        prisma,
+        // The service reads the layer's declared field schema off the
+        // `item` row to validate writes (#81). This suite's throwaway
+        // database carries only the observation table, so `item` is
+        // stubbed to "no such item", which makes the validator a
+        // no-op. That is the right shape here: what this scenario
+        // pins is the write path underneath validation, and the
+        // validator's own rules are covered in
+        // packages/shared-types/src/feature-validate.spec.ts.
+        {
+          item: {
+            findUnique: async () => null,
+            findMany: async () => [],
+          },
+        } as unknown as PrismaService,
         { notifySourceWrite: async () => undefined } as never,
         makeEngine(),
         { refreshItemBbox: async () => undefined } as never,

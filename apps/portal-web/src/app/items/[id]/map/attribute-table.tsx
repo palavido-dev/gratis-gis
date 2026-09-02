@@ -7,6 +7,7 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  Calculator,
   Download,
   FileIcon,
   Filter as FilterIcon,
@@ -1026,6 +1027,17 @@ export function AttributeTable({
    *     or the field is in the per-layer allowlist
    *   - the row carries a `_global_id` (without it we can't PATCH)
    */
+  /**
+   * May this person write features to the layer currently shown?
+   *
+   * Distinct from the `canEdit` prop, which is about the MAP. A map
+   * you own can draw a layer you may only read, so gating a write on
+   * `canEdit` offers an action the server will refuse.
+   */
+  const canEditActiveLayer = Boolean(
+    onPatchFeature && activeLayer && editableLayerIds?.has(activeLayer.id),
+  );
+
   function canInlineEditField(field: string, idx: number): boolean {
     if (!onPatchFeature || !activeLayer) return false;
     if (!editableLayerIds || !editableLayerIds.has(activeLayer.id))
@@ -1419,6 +1431,23 @@ export function AttributeTable({
           <FilterIcon className="h-3.5 w-3.5" />
           Use as filter
         </button>
+        {/* Calculate Field had one entry point: right-clicking a
+            column header. Nothing in the UI said so, so a feature
+            that exists for exactly this job was effectively hidden.
+            The button is the discoverable route; the context menu
+            stays because it preselects the column you clicked. */}
+        {serverMode && canEditActiveLayer ? (
+          <button
+            type="button"
+            onClick={() => setCalcFieldFor('')}
+            disabled={activeFields.length === 0}
+            className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+            title="Set a column's value for many rows at once from an expression"
+          >
+            <Calculator className="h-3.5 w-3.5" />
+            Calculate
+          </button>
+        ) : null}
         {/* #108: export the currently-displayed feature set to CSV
             or Excel.  Scope follows the table's existing scope
             controls: "all rows" exports activeFeatures; with a
@@ -1503,18 +1532,21 @@ export function AttributeTable({
                     key={f}
                     onClick={() => onHeaderClick(f)}
                     onContextMenu={(e) => {
-                      // #83: right-click opens Calculate Field.  Only
-                      // for v3 data_layer sublayers (serverMode); the
-                      // legacy geojson client-cache path can't write
-                      // back per-row.  Owners + admins + edit-share
-                      // recipients pass the server's write check;
-                      // anyone else gets a 403 toast from the POST.
-                      if (!serverMode || !canEdit) return;
+                      // #83: right-click opens Calculate Field on this
+                      // column. Only for v3 data_layer sublayers
+                      // (serverMode); the legacy geojson client-cache
+                      // path cannot write back per-row.
+                      //
+                      // Gated on the LAYER's edit right, not the map's
+                      // (#81): this writes rows in the data layer, so
+                      // offering it to someone who merely owns the map
+                      // is offering a 403.
+                      if (!serverMode || !canEditActiveLayer) return;
                       e.preventDefault();
                       setCalcFieldFor(f);
                     }}
                     title={
-                      serverMode && canEdit
+                      serverMode && canEditActiveLayer
                         ? 'Click to sort, right-click to Calculate Field'
                         : undefined
                     }
@@ -1809,8 +1841,11 @@ export function AttributeTable({
         <CalculateFieldModal
           itemId={serverItemId}
           layerKey={serverLayerKey}
-          fieldName={calcFieldFor}
+          initialFieldName={calcFieldFor || (activeFields[0] ?? '')}
           availableFields={activeFields}
+          fieldDefs={
+            activeLayer ? fieldsByLayer?.[activeLayer.id] : undefined
+          }
           selectedIds={(() => {
             // The selection set carries client + UUID ids depending
             // on the layer; the calculate-field server endpoint only
@@ -2248,16 +2283,30 @@ function AttrTableExportMenu({
 function CalculateFieldModal({
   itemId,
   layerKey,
-  fieldName,
+  initialFieldName,
   availableFields,
+  fieldDefs,
   selectedIds,
   onClose,
   onApplied,
 }: {
   itemId: string;
   layerKey: string;
-  fieldName: string;
+  /**
+   * Target column to preselect. The column-header entry point knows
+   * which one; the toolbar button does not and passes the first
+   * available field, which the picker below can change.
+   */
+  initialFieldName: string;
   availableFields: string[];
+  /**
+   * Declared schema for the layer, when the caller has it. Used to
+   * fix the output type to what the target column actually is: the
+   * server validates the computed value against the column, so
+   * letting someone pick String for a number column would produce a
+   * run where every row is reported as an error.
+   */
+  fieldDefs?: FeatureField[] | undefined;
   /** Filtered (UUID-only, capped at 1000) selection from the table.
    *  Length == 0 disables the "Selected rows" scope option. */
   selectedIds: string[];
@@ -2265,10 +2314,16 @@ function CalculateFieldModal({
   onApplied: () => void;
 }) {
   const selectionCount = selectedIds.length;
+  const [fieldName, setFieldName] = useState(initialFieldName);
   const [expression, setExpression] = useState('');
-  const [outputType, setOutputType] = useState<'number' | 'string' | 'boolean'>(
+  const declaredType = (() => {
+    const t = fieldDefs?.find((f) => f.name === fieldName)?.type;
+    return t === 'number' || t === 'string' || t === 'boolean' ? t : null;
+  })();
+  const [pickedType, setPickedType] = useState<'number' | 'string' | 'boolean'>(
     'number',
   );
+  const outputType = declaredType ?? pickedType;
   const [scope, setScope] = useState<'all' | 'selection'>(
     selectionCount > 0 ? 'selection' : 'all',
   );
@@ -2368,8 +2423,22 @@ function CalculateFieldModal({
             <h3 className="text-sm font-medium text-ink-0">
               Calculate Field
             </h3>
-            <p className="text-xs text-muted">
-              Updates <span className="font-mono text-ink-1">{fieldName}</span>{' '}
+            <p className="flex items-center gap-1 text-xs text-muted">
+              Updates
+              <select
+                value={fieldName}
+                onChange={(e) => {
+                  setFieldName(e.target.value);
+                  setPreview(null);
+                }}
+                className="h-6 rounded border border-border bg-surface-1 px-1 font-mono text-2xs text-ink-1 focus:border-accent focus:outline-none"
+              >
+                {availableFields.map((f) => (
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
+                ))}
+              </select>
               across every row in scope.
             </p>
           </div>
@@ -2389,17 +2458,35 @@ function CalculateFieldModal({
               <span className="text-2xs uppercase tracking-wide text-muted">
                 Expression
               </span>
-              <select
-                value={outputType}
-                onChange={(e) =>
-                  setOutputType(e.target.value as 'number' | 'string' | 'boolean')
-                }
-                className="h-7 rounded border border-border bg-surface-1 px-2 text-2xs focus:border-accent focus:outline-none"
-              >
-                <option value="number">Number</option>
-                <option value="string">String</option>
-                <option value="boolean">Boolean</option>
-              </select>
+              {declaredType ? (
+                <span
+                  className="text-2xs text-muted"
+                  title="The result type comes from the column's own definition."
+                >
+                  Result:{' '}
+                  <span className="font-medium text-ink-1">
+                    {declaredType === 'number'
+                      ? 'Number'
+                      : declaredType === 'boolean'
+                        ? 'Yes / no'
+                        : 'Text'}
+                  </span>
+                </span>
+              ) : (
+                <select
+                  value={pickedType}
+                  onChange={(e) =>
+                    setPickedType(
+                      e.target.value as 'number' | 'string' | 'boolean',
+                    )
+                  }
+                  className="h-7 rounded border border-border bg-surface-1 px-2 text-2xs focus:border-accent focus:outline-none"
+                >
+                  <option value="number">Number</option>
+                  <option value="string">String</option>
+                  <option value="boolean">Boolean</option>
+                </select>
+              )}
             </div>
             <p className="text-2xs text-muted">
               Reference fields with{' '}
