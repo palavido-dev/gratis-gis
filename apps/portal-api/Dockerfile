@@ -119,13 +119,27 @@ ARG PMTILES_VERSION=1.30.3
 # CVE-2026-56852, HIGH: go-pmtiles pins golang.org/x/text v0.35.0 and
 # still does at v1.31.2, so bumping PMTILES_VERSION does not clear it.
 # Fixed upstream in x/text 0.39.0.
-ARG PMTILES_XTEXT_VERSION=0.39.0
+#
+# Now 0.41.0 rather than 0.39.0: the grpc pin added below drags x/text
+# up on its own, and the assertion at the end of this stage is an
+# EXACT match on purpose (it is there to catch a downgrade), so the
+# recorded version has to be what actually lands in the binary.
+ARG PMTILES_XTEXT_VERSION=0.41.0
 # CVE-2026-46600, HIGH: go-pmtiles pulls golang.org/x/net v0.52.0, which
 # bumping PMTILES_VERSION does not clear. Fixed upstream in x/net 0.56.0.
 # Pinned here the same way as x/text so Trivy sees a patched version
 # embedded in the binary. Watch for go-pmtiles adopting >=0.56.0 itself,
 # at which point this pin can drop.
-ARG PMTILES_XNET_VERSION=0.56.0
+# 0.57.0 rather than 0.56.0 for the same reason as x/text above.
+ARG PMTILES_XNET_VERSION=0.57.0
+# CVE-2026-56854, CRITICAL: go-pmtiles pulls golang.org/x/crypto
+# v0.53.0. Fixed upstream in 0.55.0. Same pin-and-assert treatment as
+# x/text and x/net above.
+ARG PMTILES_XCRYPTO_VERSION=0.55.0
+# CVE-2026-84304, HIGH: google.golang.org/grpc v1.79.3 arrives through
+# gocloud.dev, which go-pmtiles uses for its remote-bucket support.
+# Fixed upstream in 1.83.1.
+ARG PMTILES_GRPC_VERSION=1.83.1
 # GOTOOLCHAIN=auto (the default) lets Go honour go-pmtiles' go.mod
 # directive and pull the matching toolchain if the image's Go is
 # older than declared. CGO=0 produces a static binary that runs on
@@ -142,9 +156,13 @@ RUN mkdir -p /pmtiles-build && cd /pmtiles-build \
     && go get "github.com/protomaps/go-pmtiles@v${PMTILES_VERSION}" \
     && go get "golang.org/x/text@v${PMTILES_XTEXT_VERSION}" \
     && go get "golang.org/x/net@v${PMTILES_XNET_VERSION}" \
+    && go get "golang.org/x/crypto@v${PMTILES_XCRYPTO_VERSION}" \
+    && go get "google.golang.org/grpc@v${PMTILES_GRPC_VERSION}" \
     && go build -o /go/bin/go-pmtiles github.com/protomaps/go-pmtiles \
     && go version -m /go/bin/go-pmtiles | grep -q "golang.org/x/text[[:space:]]*v${PMTILES_XTEXT_VERSION}" \
-    && go version -m /go/bin/go-pmtiles | grep -q "golang.org/x/net[[:space:]]*v${PMTILES_XNET_VERSION}"
+    && go version -m /go/bin/go-pmtiles | grep -q "golang.org/x/net[[:space:]]*v${PMTILES_XNET_VERSION}" \
+    && go version -m /go/bin/go-pmtiles | grep -q "golang.org/x/crypto[[:space:]]*v${PMTILES_XCRYPTO_VERSION}" \
+    && go version -m /go/bin/go-pmtiles | grep -q "google.golang.org/grpc[[:space:]]*v${PMTILES_GRPC_VERSION}"
 
 FROM base AS runtime
 WORKDIR /app
