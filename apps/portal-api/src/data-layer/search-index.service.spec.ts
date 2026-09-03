@@ -10,7 +10,6 @@
 
 import {
   DataLayerSearchIndexService,
-  readSearchableLayers,
 } from './search-index.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { DataLayerLayerShape } from './tables.service.js';
@@ -319,39 +318,5 @@ describe('buildForOrg orphan sweep', () => {
     ]);
     expect(res.scannedItems).toBe(1);
     expect(res.indexedLayers).toBe(1);
-  });
-});
-
-describe('readSearchableLayers', () => {
-  it('narrows a v3 payload to layer ids + fields + searchable flags', () => {
-    const layers = readSearchableLayers({
-      version: 3,
-      layers: [
-        {
-          id: 'layer-1',
-          geometryType: 'point',
-          fields: [
-            { name: 'OWNER', type: 'string', searchable: true },
-            { name: 'NOTES', type: 'string', searchable: false },
-            { name: '', type: 'string', searchable: true }, // dropped
-          ],
-        },
-      ],
-    });
-    expect(layers).toEqual([
-      {
-        id: 'layer-1',
-        geometryType: 'point',
-        fields: [
-          { name: 'OWNER', type: 'string', searchable: true },
-          { name: 'NOTES', type: 'string' },
-        ],
-      },
-    ]);
-  });
-
-  it('returns null for non-v3 payloads', () => {
-    expect(readSearchableLayers({ version: 2, layers: [] })).toBeNull();
-    expect(readSearchableLayers(null)).toBeNull();
   });
 });

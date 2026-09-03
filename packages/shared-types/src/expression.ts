@@ -41,11 +41,47 @@
  * concat can also use the `concat(a, b, ...)` function.
  */
 
+/**
+ * What the type-checker knows about a value.
+ *
+ * `date` is ISO-8601 text. It compares as text (which is correct for
+ * ISO-8601, in the SQL emitter and the JS evaluator alike) and is
+ * refused by arithmetic: `{{sample_date}} - 1` used to type-check as
+ * `unknown` and then produce NaN in JS and a cast error in SQL. What a
+ * date minus a number should mean (days? seconds?) is a language
+ * decision nobody has made, so until someone does, it is an error
+ * with a sentence rather than a silent wrong answer.
+ *
+ * `list` is a multi_select value. It supports only `==` and `!=`
+ * against text, meaning "is exactly this one selection"; membership
+ * tests have no operator yet and are refused rather than guessed.
+ */
+export type FieldRefType =
+  | 'number'
+  | 'string'
+  | 'boolean'
+  | 'date'
+  | 'list'
+  | 'unknown';
+
 /** Field reference -> SQL column. Hand off to the emitter; the
  *  expression engine never touches column quoting itself. */
 export interface FieldRef {
   name: string;
-  type: 'number' | 'string' | 'boolean' | 'unknown';
+  type: FieldRefType;
+}
+
+/**
+ * The type-checker's view of a declared layer field. One mapping so
+ * every caller that builds FieldRefs from a FeatureField schema agrees;
+ * two of them used to cast `f.type` to the four-member union and
+ * silently carry 'date' and 'multi_select' through as if they were
+ * one of those.
+ */
+export function fieldRefTypeFor(
+  fieldType: 'string' | 'number' | 'boolean' | 'date' | 'multi_select',
+): FieldRefType {
+  return fieldType === 'multi_select' ? 'list' : fieldType;
 }
 
 export type Expr =
@@ -455,9 +491,11 @@ export function validateExpression(
   const errors: string[] = [];
   const fieldsByName = new Map(schema.map((f) => [f.name, f]));
 
-  function inferType(
-    e: Expr,
-  ): 'number' | 'string' | 'boolean' | 'unknown' {
+  /** Human names for the type words that reach an error message. */
+  const shown = (t: FieldRefType) =>
+    t === 'list' ? 'a list' : t === 'date' ? 'a date' : t === 'unknown' ? 'an unknown type' : `a ${t}`;
+
+  function inferType(e: Expr): FieldRefType {
     switch (e.kind) {
       case 'num':
         return 'number';
@@ -479,7 +517,7 @@ export function validateExpression(
         if (e.op === '-') {
           const t = inferType(e.arg);
           if (t !== 'number' && t !== 'unknown') {
-            errors.push(`Unary minus requires a number (got ${t})`);
+            errors.push(`Unary minus requires a number (got ${shown(t)})`);
           }
           return 'number';
         }
@@ -497,23 +535,47 @@ export function validateExpression(
           e.op === '>' ||
           e.op === '>='
         ) {
-          if (
-            lt !== 'unknown' &&
-            rt !== 'unknown' &&
-            lt !== rt &&
-            !(
-              (lt === 'number' && rt === 'number') ||
-              (lt === 'string' && rt === 'string')
-            )
-          ) {
-            errors.push(
-              `Comparison ${e.op} between ${lt} and ${rt} is unsupported; cast one side first`,
-            );
+          if (lt !== 'unknown' && rt !== 'unknown') {
+            const equality = e.op === '==' || e.op === '!=';
+            // A date is ISO text, so date-with-date and date-with-a-text
+            // literal both order correctly as text. A list is only ever
+            // "exactly this selection" against text; ordering a list
+            // means nothing and is refused.
+            const textLike = (t: FieldRefType) => t === 'string' || t === 'date';
+            const ok =
+              (lt === rt && lt !== 'list') ||
+              (textLike(lt) && textLike(rt)) ||
+              (equality && lt === 'list' && rt === 'string') ||
+              (equality && lt === 'string' && rt === 'list');
+            if (!ok) {
+              errors.push(
+                lt === 'list' || rt === 'list'
+                  ? `Comparison ${e.op} is not supported for a list field; only == and != against a text value are`
+                  : `Comparison ${e.op} between ${shown(lt)} and ${shown(rt)} is unsupported; cast one side first`,
+              );
+            }
           }
           return 'boolean';
         }
         if (e.op === '~~') return 'string';
-        // arithmetic
+        // Arithmetic. Dates and lists are refused outright (see
+        // FieldRefType); text is refused too, which this checker never
+        // did before even though its own docblock names `acres + name`
+        // as the thing it exists to catch.
+        for (const [t, side] of [
+          [lt, e.left],
+          [rt, e.right],
+        ] as const) {
+          if (t === 'number' || t === 'unknown') continue;
+          const what = side.kind === 'field' ? `Field {{${side.name}}}` : 'A value';
+          errors.push(
+            t === 'date'
+              ? `${what} is a date and cannot be used in arithmetic`
+              : t === 'list'
+                ? `${what} is a list and cannot be used in arithmetic`
+                : `${what} is ${shown(t)} and cannot be used in arithmetic; use concat() to join text`,
+          );
+        }
         return 'number';
       }
       case 'func': {
@@ -721,14 +783,28 @@ export function evaluateExpression(
           return l === r;
         case '!=':
           return l !== r;
+        // Text against text orders as text, which is what the SQL
+        // emitter does for a text column and the only reading under
+        // which two ISO dates compare correctly. Coercing both sides
+        // to Number, as this used to, made `{{d}} < '2021-01-01'`
+        // NaN-compare to false in the JS preview while the SQL said
+        // yes: the two runtimes disagreed on every date filter.
         case '<':
-          return Number(l) < Number(r);
+          return typeof l === 'string' && typeof r === 'string'
+            ? l < r
+            : Number(l) < Number(r);
         case '<=':
-          return Number(l) <= Number(r);
+          return typeof l === 'string' && typeof r === 'string'
+            ? l <= r
+            : Number(l) <= Number(r);
         case '>':
-          return Number(l) > Number(r);
+          return typeof l === 'string' && typeof r === 'string'
+            ? l > r
+            : Number(l) > Number(r);
         case '>=':
-          return Number(l) >= Number(r);
+          return typeof l === 'string' && typeof r === 'string'
+            ? l >= r
+            : Number(l) >= Number(r);
         case '~~':
           return String(l) + String(r);
         case '+':

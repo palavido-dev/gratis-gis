@@ -7,6 +7,7 @@ import {
   validateExpression,
   ExpressionError,
   collectFieldRefs,
+  fieldRefTypeFor,
 } from '@gratis-gis/shared-types';
 
 import type { ToolGenerator, ToolValidateContext } from './types.js';
@@ -105,7 +106,7 @@ export const filterGenerator: ToolGenerator<FilterParams> = {
     if (ctx?.sourceSchema) {
       const schema = ctx.sourceSchema.map((f) => ({
         name: f.name,
-        type: f.type as 'number' | 'string' | 'boolean' | 'unknown',
+        type: fieldRefTypeFor(f.type),
       }));
       const errors = validateExpression(ast, schema);
       if (errors.length > 0) {

@@ -3,13 +3,10 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import type { ItemAccess, ItemType, PrincipalType, SharePermission } from '@prisma/client';
-import {
-  ITEM_TYPES,
-  defaultThumbnailDesign,
-  type FeatureFieldType,
-} from '@gratis-gis/shared-types';
+import { ITEM_TYPES, defaultThumbnailDesign } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { readV3Layers } from '../data-layer/read-v3-layers.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { SharingService } from './sharing.service.js';
 import { DataSnapshotService } from './data-snapshot.service.js';
@@ -3483,59 +3480,6 @@ export class ItemsService {
       orderBy: { title: 'asc' },
     });
   }
-}
-
-/**
- * Narrow an item's data payload to the v3 layer list when it's a v3
- * data_layer. Returns null for v1/v2 items (so callers can skip
- * the v3 reconcile path) or when the payload doesn't look like a
- * valid v3 shape.
- */
-function readV3Layers(data: unknown): DataLayerLayerShape[] | null {
-  if (!data || typeof data !== 'object') return null;
-  const d = data as { version?: unknown; layers?: unknown };
-  if (d.version !== 3) return null;
-  if (!Array.isArray(d.layers)) return [];
-  return d.layers
-    .map((raw) => {
-      if (!raw || typeof raw !== 'object') return null;
-      const l = raw as Record<string, unknown>;
-      const id = typeof l.id === 'string' ? l.id : '';
-      if (!id) return null;
-      const gt = l.geometryType;
-      const geometryType: DataLayerLayerShape['geometryType'] =
-        gt === 'point' || gt === 'line' || gt === 'polygon' ? gt : null;
-      const fields: NonNullable<DataLayerLayerShape['fields']> = Array.isArray(
-        l.fields,
-      )
-        ? (l.fields as Array<Record<string, unknown>>)
-            .map((f) => {
-              const name = typeof f.name === 'string' ? f.name : '';
-              const type: FeatureFieldType =
-                f.type === 'number' ||
-                f.type === 'boolean' ||
-                f.type === 'date' ||
-                f.type === 'multi_select'
-                  ? f.type
-                  : 'string';
-              const searchable = f.searchable === true;
-              return searchable
-                ? { name, type, searchable }
-                : { name, type };
-            })
-            .filter((f) => f.name.length > 0)
-        : [];
-      const out: DataLayerLayerShape = {
-        id,
-        geometryType,
-        fields,
-      };
-      if (typeof l.parentFkColumn === 'string' && l.parentFkColumn.length > 0) {
-        out.parentFkColumn = l.parentFkColumn;
-      }
-      return out;
-    })
-    .filter((l): l is DataLayerLayerShape => l !== null);
 }
 
 /**

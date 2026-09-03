@@ -389,7 +389,7 @@ export class ItemsController {
   }
 
   /**
-   * Effective permissions for several items at once (#81).
+   * Effective permissions for several items at once (map-builder editing).
    *
    * The per-item `:id/permissions` route below answers the same
    * question, but a map asking it for every layer it draws is one

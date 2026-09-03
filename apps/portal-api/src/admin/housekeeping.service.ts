@@ -5,11 +5,9 @@ import { ConfigService } from '@nestjs/config';
 import type { ItemType } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { readV3Layers } from '../data-layer/read-v3-layers.js';
 import { itemBbox } from '../items/item-bbox.js';
-import {
-  DataLayerTablesService,
-  type DataLayerLayerShape,
-} from '../data-layer/tables.service.js';
+import { DataLayerTablesService } from '../data-layer/tables.service.js';
 import {
   DataLayerSearchIndexService,
   type SearchIndexBuildResult,
@@ -1778,35 +1776,6 @@ function bboxEqual(
   return (
     a![0] === b![0] && a![1] === b![1] && a![2] === b![2] && a![3] === b![3]
   );
-}
-
-/** Lightweight shape probe for v3 layers without pulling
- *  ItemsService here (would create a DI cycle). Mirrors the
- *  behaviour of items.service.readV3Layers for the fields we
- *  actually need. */
-function readV3Layers(data: unknown): DataLayerLayerShape[] | null {
-  if (!data || typeof data !== 'object') return null;
-  const v = (data as { version?: unknown; layers?: unknown }).version;
-  // Numeric 3 only, matching the canonical items.service copy. This
-  // copy used to also accept the string '3', which items.service
-  // never did: any row carrying a stringified version is already
-  // broken on every user-facing path, and quietly reconciling it
-  // here while the item page ignored it hid the real invariant
-  // (2026-08-24 review).
-  if (v !== 3) return null;
-  const layers = (data as { layers?: unknown }).layers;
-  if (!Array.isArray(layers)) return null;
-  const out: DataLayerLayerShape[] = [];
-  for (const l of layers) {
-    if (!l || typeof l !== 'object') continue;
-    const id = (l as { id?: unknown }).id;
-    if (typeof id !== 'string' || id.length === 0) continue;
-    const gt = (l as { geometryType?: unknown }).geometryType;
-    const geometryType: DataLayerLayerShape['geometryType'] =
-      gt === 'point' || gt === 'line' || gt === 'polygon' ? gt : null;
-    out.push({ id, geometryType });
-  }
-  return out;
 }
 
 /** v1 data_layer fallback: peer into the inline FeatureCollection

@@ -28,6 +28,7 @@ import {
   MAX_BUFFER_DISTANCE_METERS,
   METERS_PER_UNIT,
   UNIT_LABELS,
+  fieldRefTypeFor,
   parseExpression,
   validateExpression,
   type AreaUnit,
@@ -2577,7 +2578,7 @@ function ExpressionEditor({
         ast,
         sourceFields.map((f) => ({
           name: f.name,
-          type: f.type as 'number' | 'string' | 'boolean' | 'unknown',
+          type: fieldRefTypeFor(f.type),
         })),
       );
       return { errors, info: null as string | null };

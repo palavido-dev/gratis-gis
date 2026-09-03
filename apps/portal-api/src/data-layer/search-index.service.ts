@@ -5,7 +5,7 @@ import { Injectable, Logger } from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { DataLayerLayerShape } from './tables.service.js';
-import type { FeatureFieldType } from '@gratis-gis/shared-types';
+import { readV3Layers } from './read-v3-layers.js';
 
 /**
  * Per-searchable-field trigram indexing for data_layer attribute
@@ -379,7 +379,7 @@ export class DataLayerSearchIndexService {
     });
     out.scannedItems = items.length;
     for (const item of items) {
-      const layers = readSearchableLayers(item.data);
+      const layers = readV3Layers(item.data);
       if (layers === null || layers.length === 0) continue;
       out.indexedLayers += layers.filter((l) =>
         (l.fields ?? []).some((f) => f.searchable === true),
@@ -418,7 +418,7 @@ export class DataLayerSearchIndexService {
     });
     const knownScopeHashes = new Set<string>();
     for (const item of owners) {
-      const layers = readSearchableLayers(item.data);
+      const layers = readV3Layers(item.data);
       for (const l of layers ?? []) {
         knownScopeHashes.add(
           DataLayerSearchIndexService.scopeHash(
@@ -446,55 +446,4 @@ export class DataLayerSearchIndexService {
     }
     return dropped;
   }
-}
-
-/**
- * Local narrowing of a data_layer item's v3 payload down to what
- * indexing needs (layer ids + field names + searchable flags).
- * Duplicated from items.service.readV3Layers on purpose, the same
- * way housekeeping.service, housekeeping-schedule.service and
- * item-bbox-refresh.service carry their own copies: importing ItemsService here would create a DI
- * cycle (ItemsModule imports DataLayerTablesModule).
- */
-export function readSearchableLayers(
-  data: unknown,
-): DataLayerLayerShape[] | null {
-  if (!data || typeof data !== 'object') return null;
-  const v = (data as { version?: unknown }).version;
-  // Numeric 3 only, matching items.service. See the note on the
-  // housekeeping.service copy (2026-08-24 review).
-  if (v !== 3) return null;
-  const layers = (data as { layers?: unknown }).layers;
-  if (!Array.isArray(layers)) return null;
-  const out: DataLayerLayerShape[] = [];
-  for (const l of layers) {
-    if (!l || typeof l !== 'object') continue;
-    const id = (l as { id?: unknown }).id;
-    if (typeof id !== 'string' || id.length === 0) continue;
-    const gt = (l as { geometryType?: unknown }).geometryType;
-    const geometryType: DataLayerLayerShape['geometryType'] =
-      gt === 'point' || gt === 'line' || gt === 'polygon' ? gt : null;
-    const rawFields = (l as { fields?: unknown }).fields;
-    const fields: NonNullable<DataLayerLayerShape['fields']> = Array.isArray(
-      rawFields,
-    )
-      ? (rawFields as Array<Record<string, unknown>>)
-          .map((f) => {
-            const name = typeof f.name === 'string' ? f.name : '';
-            const type: FeatureFieldType =
-              f.type === 'number' ||
-              f.type === 'boolean' ||
-              f.type === 'date' ||
-              f.type === 'multi_select'
-                ? f.type
-                : 'string';
-            return f.searchable === true
-              ? { name, type, searchable: true as const }
-              : { name, type };
-          })
-          .filter((f) => f.name.length > 0)
-      : [];
-    out.push({ id, geometryType, fields });
-  }
-  return out;
 }

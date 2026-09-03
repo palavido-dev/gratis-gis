@@ -7,6 +7,20 @@ import type { DataLayerEngine } from '../engine/data-layer.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { DerivedLayerCacheRefreshService } from '../derived-layers/cache-refresh.service.js';
 import type { ItemBboxRefreshService } from '../items/item-bbox-refresh.service.js';
+import type { SharingService } from '../items/sharing.service.js';
+import type { AuthSyncService } from '../auth/auth-sync.service.js';
+
+/**
+ * The pick-list share check resolves lists as the layer OWNER sees
+ * them. These stubs stand for "no owner, no lists", which makes every
+ * coded-value-ref domain unresolvable and therefore unchecked. The
+ * resolution contract itself is pinned in the describe block at the
+ * end of this file.
+ */
+const SHARING_STUB = { visibleWhere: () => ({}) } as unknown as SharingService;
+const AUTH_SYNC_STUB = {
+  principalForUserId: async () => null,
+} as unknown as AuthSyncService;
 
 /**
  * Calculate Field scope coverage (#83 regression).
@@ -128,6 +142,8 @@ function makeService(fields: unknown[] | null = null) {
     cacheRefresh as unknown as DerivedLayerCacheRefreshService,
     engine as unknown as DataLayerEngine,
     bboxRefresh as unknown as ItemBboxRefreshService,
+    SHARING_STUB,
+    AUTH_SYNC_STUB,
   );
   return {
     service,
@@ -186,6 +202,8 @@ describe('DataLayerFeaturesService.aggregateFeatures option forwarding', () => {
       { notifySourceWrite: jest.fn() } as unknown as DerivedLayerCacheRefreshService,
       { aggregateFeatures } as unknown as DataLayerEngine,
       { refreshItemBbox: jest.fn() } as unknown as ItemBboxRefreshService,
+      SHARING_STUB,
+      AUTH_SYNC_STUB,
     );
     return { service, aggregateFeatures };
   }
@@ -548,6 +566,8 @@ describe('pageFeatures forwards every option to the engine', () => {
       { notifySourceWrite: jest.fn() } as unknown as DerivedLayerCacheRefreshService,
       { pageFeatures } as unknown as DataLayerEngine,
       { refreshItemBbox: jest.fn() } as unknown as ItemBboxRefreshService,
+      SHARING_STUB,
+      AUTH_SYNC_STUB,
     );
     return { service, pageFeatures };
   }
@@ -635,6 +655,8 @@ describe('filteredExtent forwards every option to the engine', () => {
       { notifySourceWrite: jest.fn() } as unknown as DerivedLayerCacheRefreshService,
       { filteredExtent } as unknown as DataLayerEngine,
       { refreshItemBbox: jest.fn() } as unknown as ItemBboxRefreshService,
+      SHARING_STUB,
+      AUTH_SYNC_STUB,
     );
     const WHERE = {
       combinator: 'all' as const,
@@ -701,6 +723,8 @@ describe('mvtTile forwards every option to the engine', () => {
       { notifySourceWrite: jest.fn() } as unknown as DerivedLayerCacheRefreshService,
       { mvtTile } as unknown as DataLayerEngine,
       { refreshItemBbox: jest.fn() } as unknown as ItemBboxRefreshService,
+      SHARING_STUB,
+      AUTH_SYNC_STUB,
     );
     return { service, mvtTile };
   }
@@ -759,5 +783,76 @@ describe('mvtTile forwards every option to the engine', () => {
       where: WHERE,
       via: VIA,
     });
+  });
+});
+
+/**
+ * Pick lists referenced by a coded-value-ref domain are resolved AS
+ * THE LAYER OWNER SEES THEM, through SharingService.visibleWhere.
+ *
+ * Asserting on the where clause the prisma stub RECEIVED, not on the
+ * validation outcome: an unresolvable list degrades to "unchecked",
+ * which is indistinguishable in the outcome from "checked and the
+ * value was fine". Before this, lists were read by id with no share
+ * check, and the accept-or-reject answer was an oracle for the
+ * membership of any list an author could name.
+ */
+describe('DataLayerFeaturesService.loadLayerSchema pick-list resolution', () => {
+  const PL = '33333333-3333-7333-8333-333333333333';
+  const OWNER = { id: 'owner-1', orgId: 'org-1' } as unknown as AuthUser;
+  const SCHEMA = [
+    {
+      name: 'kind',
+      type: 'string',
+      label: 'Kind',
+      nullable: true,
+      domain: { type: 'coded-value-ref', pickListItemId: PL },
+    },
+  ];
+
+  function makeSchemaService(opts: { owner: AuthUser | null }) {
+    const findUnique = jest.fn(async () => ({
+      ownerId: 'owner-1',
+      data: { version: 3, layers: [{ id: LAYER_ID, fields: SCHEMA }] },
+    }));
+    const findMany = jest.fn(async (_args: Record<string, unknown>) => [
+      { id: PL, data: { version: 3, entries: [{ code: 'tree', label: 'Tree' }] } },
+    ]);
+    const visibleWhere = jest.fn(() => ({ MARKER: 'visible-to-owner' }));
+    const principalForUserId = jest.fn(async () => opts.owner);
+    const service = new DataLayerFeaturesService(
+      { item: { findUnique, findMany } } as unknown as PrismaService,
+      { notifySourceWrite: jest.fn() } as unknown as DerivedLayerCacheRefreshService,
+      {} as unknown as DataLayerEngine,
+      { refreshItemBbox: jest.fn() } as unknown as ItemBboxRefreshService,
+      { visibleWhere } as unknown as SharingService,
+      { principalForUserId } as unknown as AuthSyncService,
+    );
+    return { service, findMany, visibleWhere, principalForUserId };
+  }
+
+  it('reads the list through the owner visibility clause, not by id alone', async () => {
+    const { service, findMany, visibleWhere, principalForUserId } = makeSchemaService({
+      owner: OWNER,
+    });
+    const schema = await service.loadLayerSchema(ITEM_ID, LAYER_ID);
+    expect(principalForUserId).toHaveBeenCalledWith('owner-1');
+    expect(visibleWhere).toHaveBeenCalledWith(OWNER);
+    const where = (findMany.mock.calls[0]![0] as { where: { AND: unknown[] } }).where;
+    expect(where.AND).toEqual([
+      { id: { in: [PL] }, type: 'pick_list', deletedAt: null },
+      { MARKER: 'visible-to-owner' },
+    ]);
+    expect(schema.pickLists[PL]).toEqual([{ code: 'tree' }]);
+  });
+
+  it('resolves nothing when the owner cannot be built, and never queries lists', async () => {
+    // A deleted owner has no visibility; the domain goes unchecked
+    // rather than being read as though anyone could see it.
+    const { service, findMany } = makeSchemaService({ owner: null });
+    const schema = await service.loadLayerSchema(ITEM_ID, LAYER_ID);
+    expect(findMany).not.toHaveBeenCalled();
+    expect(schema.pickLists).toEqual({});
+    expect(schema.fields).toHaveLength(1);
   });
 });

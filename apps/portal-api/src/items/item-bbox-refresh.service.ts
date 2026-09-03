@@ -2,10 +2,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service.js';
-import {
-  DataLayerTablesService,
-  type DataLayerLayerShape,
-} from '../data-layer/tables.service.js';
+import { readV3Layers } from '../data-layer/read-v3-layers.js';
+import { DataLayerTablesService } from '../data-layer/tables.service.js';
 import { itemBbox } from './item-bbox.js';
 import { extractDependencies } from './dependency-extractor.js';
 
@@ -251,33 +249,6 @@ function bboxEqual(
   if (!b) return !a || a.length === 0;
   if (!a || a.length !== 4) return false;
   return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
-}
-
-/** Local copy of the helper from items.service so this module
- *  doesn't have to depend on the full ItemsService. Mirrors the
- *  v3 multi-layer schema accessor. */
-function readV3Layers(data: unknown): DataLayerLayerShape[] | null {
-  if (!data || typeof data !== 'object') return null;
-  const v = (data as { version?: unknown }).version;
-  if (v !== 3) return null;
-  const layers = (data as { layers?: unknown }).layers;
-  if (!Array.isArray(layers)) return null;
-  const out: DataLayerLayerShape[] = [];
-  for (const l of layers) {
-    if (!l || typeof l !== 'object') continue;
-    const id = (l as { id?: unknown }).id;
-    // Same filters as every other copy of this helper. This one had
-    // drifted: it accepted empty-string ids and cast unknown
-    // geometry types straight through, both invisible to typecheck
-    // because the output is already the typed shape (2026-08-24
-    // review).
-    if (typeof id !== 'string' || id.length === 0) continue;
-    const gt = (l as { geometryType?: unknown }).geometryType;
-    const geometryType: DataLayerLayerShape['geometryType'] =
-      gt === 'point' || gt === 'line' || gt === 'polygon' ? gt : null;
-    out.push({ id, geometryType });
-  }
-  return out;
 }
 
 /** Walk a map's data.layers[] and return the underlying portal

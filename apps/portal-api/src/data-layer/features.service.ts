@@ -6,6 +6,7 @@ import {
   ExpressionError,
   describeViolations,
   evaluateExpression,
+  fieldRefTypeFor,
   parseExpression,
   validateExpression,
   validateFeatureProperties,
@@ -17,7 +18,8 @@ import {
 } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
-import type { AuthUser } from '../auth/auth-sync.service.js';
+import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
+import { SharingService } from '../items/sharing.service.js';
 import { DerivedLayerCacheRefreshService } from '../derived-layers/cache-refresh.service.js';
 import { ItemBboxRefreshService } from '../items/item-bbox-refresh.service.js';
 import {
@@ -136,6 +138,8 @@ export class DataLayerFeaturesService {
     private readonly cacheRefresh: DerivedLayerCacheRefreshService,
     private readonly dataLayer: DataLayerEngine,
     private readonly bboxRefresh: ItemBboxRefreshService,
+    private readonly sharing: SharingService,
+    private readonly authSync: AuthSyncService,
   ) {}
 
   /**
@@ -185,7 +189,7 @@ export class DataLayerFeaturesService {
     const empty: LayerSchema = { fields: [], pickLists: {} };
     const item = await this.prisma.item.findUnique({
       where: { id: itemId },
-      select: { data: true },
+      select: { data: true, ownerId: true },
     });
     const data = item?.data;
     if (!data || typeof data !== 'object') return empty;
@@ -227,16 +231,41 @@ export class DataLayerFeaturesService {
     ];
     if (refIds.length === 0) return { fields, pickLists: {} };
 
-    // Read the referenced lists directly. No share check: a domain the
-    // layer author already wired in is part of the layer's schema, and
-    // the codes are visible in the field editor anyway. An unreadable
-    // or deleted list simply does not land here, and the validator
-    // then leaves that field's domain unchecked rather than making the
-    // layer read-only by accident.
-    const lists = await this.prisma.item.findMany({
-      where: { id: { in: refIds }, type: 'pick_list', deletedAt: null },
-      select: { id: true, data: true },
-    });
+    // Resolve the referenced lists AS THE LAYER'S OWNER would see them.
+    //
+    // The domain is part of the layer's schema and the owner wired it
+    // in, so the owner's read right on the list is the honest test of
+    // whether it belongs there. Resolving with no check, as this used
+    // to, let an author point a domain at any pick list by id and then
+    // probe its membership one value at a time: the 400 no longer
+    // lists codes, but accept-or-reject is still an oracle. A list the
+    // owner cannot read is treated exactly like a deleted one: it does
+    // not land here, and the validator leaves that field's domain
+    // unchecked rather than making the layer read-only by accident.
+    //
+    // The owner, not the caller: a share recipient writing a row must
+    // be judged by the same domain the owner authored, or two people
+    // editing the same layer would be held to different rules.
+    const owner = item?.ownerId
+      ? await this.authSync.principalForUserId(item.ownerId)
+      : null;
+    const lists = owner
+      ? await this.prisma.item.findMany({
+          where: {
+            AND: [
+              { id: { in: refIds }, type: 'pick_list', deletedAt: null },
+              this.sharing.visibleWhere(owner),
+            ],
+          },
+          select: { id: true, data: true },
+        })
+      : [];
+    const unresolved = refIds.filter((id) => !lists.some((l) => l.id === id));
+    if (unresolved.length > 0) {
+      this.log.warn(
+        `data_layer:${itemId}:${layerId} references pick list(s) its owner cannot read or that no longer exist (${unresolved.join(', ')}); those domains are not enforced`,
+      );
+    }
     const pickLists: ResolvedPickLists = {};
     for (const list of lists) {
       const listData = list.data as { entries?: unknown } | null;
@@ -1225,13 +1254,7 @@ export class DataLayerFeaturesService {
     );
     const schemaRefs: FieldRef[] =
       layerFields.length > 0
-        ? layerFields.map((f) => ({
-            name: f.name,
-            type:
-              f.type === 'number' || f.type === 'boolean' || f.type === 'string'
-                ? f.type
-                : ('unknown' as const),
-          }))
+        ? layerFields.map((f) => ({ name: f.name, type: fieldRefTypeFor(f.type) }))
         : Object.keys(features.features[0]?.properties ?? {}).map((name) => ({
             name,
             type: 'unknown' as const,

@@ -2394,7 +2394,7 @@ d('observation-log read paths against real PostGIS', () => {
     const makeService = () =>
       new DataLayerFeaturesService(
         // The service reads the layer's declared field schema off the
-        // `item` row to validate writes (#81). This suite's throwaway
+        // `item` row to validate writes (schema validator). This suite's throwaway
         // database carries only the observation table, so `item` is
         // stubbed to "no such item", which makes the validator a
         // no-op. That is the right shape here: what this scenario
@@ -2410,6 +2410,11 @@ d('observation-log read paths against real PostGIS', () => {
         { notifySourceWrite: async () => undefined } as never,
         makeEngine(),
         { refreshItemBbox: async () => undefined } as never,
+        // Pick-list resolution needs an owner principal and the
+        // sharing clause; with no item row there is no owner, so
+        // neither is ever consulted.
+        { visibleWhere: () => ({}) } as never,
+        { principalForUserId: async () => null } as never,
       );
 
     const user = { id: 'itest-user', username: 'itest' } as AuthUser;

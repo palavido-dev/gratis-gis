@@ -378,6 +378,62 @@ export class AuthSyncService {
       await inFlight;
     }
 
+    return this.principalFor(
+      {
+        id: user.id,
+        orgId: user.orgId,
+        username: user.username,
+        email: user.email,
+        orgRole: user.orgRole,
+      },
+      org.slug,
+    );
+  }
+
+  /**
+   * The AuthUser a stored user WOULD hold if they were the caller.
+   *
+   * For code that has to answer "what can this person see" about
+   * someone who is not making the request: the feature validator
+   * resolves a layer's pick-list references as the layer's OWNER sees
+   * them, so an author cannot learn a list's contents by pointing a
+   * domain at it and probing.
+   *
+   * Null for a deleted or unknown user. No lockout checks beyond
+   * that: this principal is used to evaluate the sharing policy, not
+   * to grant a session. The API-key path keeps its own builder
+   * because it also carries the key's read-only flag and runs
+   * lockout checks that belong to a live credential.
+   */
+  async principalForUserId(userId: string): Promise<AuthUser | null> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { org: { select: { slug: true } } },
+    });
+    if (!user || user.deletedAt !== null) return null;
+    return this.principalFor(
+      {
+        id: user.id,
+        orgId: user.orgId,
+        username: user.username,
+        email: user.email,
+        orgRole: user.orgRole,
+      },
+      user.org.slug,
+    );
+  }
+
+  /** Shared tail of the two builders above: groups, overrides, capabilities. */
+  private async principalFor(
+    user: {
+      id: string;
+      orgId: string;
+      username: string;
+      email: string;
+      orgRole: OrgRole;
+    },
+    orgSlug: string,
+  ): Promise<AuthUser> {
     // Exclude memberships whose group is in the trash. Otherwise an item
     // shared to a soft-deleted group would still match this user's
     // effective groupIds and grant read access, which would defeat
@@ -399,7 +455,7 @@ export class AuthSyncService {
     return {
       id: user.id,
       orgId: user.orgId,
-      orgSlug: org.slug,
+      orgSlug,
       username: user.username,
       email: user.email,
       orgRole: user.orgRole,
