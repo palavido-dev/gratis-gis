@@ -475,6 +475,7 @@ export const en = {
     configure: 'Configure',
     previewData: 'Preview data',
     addToMap: 'Add to map',
+    addLayerToMapTitle: 'Add just this layer to a map',
     moveToFolder: 'Move to folder',
     removeFromFolder: 'Remove from this folder',
     removeFromNamedFolder: 'Remove from "{folder}"',

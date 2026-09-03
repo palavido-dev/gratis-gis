@@ -217,6 +217,7 @@ export const es: Partial<CatalogShape> = {
     configure: 'Configurar',
     previewData: 'Vista previa de datos',
     addToMap: 'Añadir al mapa',
+    addLayerToMapTitle: 'Añadir solo esta capa a un mapa',
     moveToFolder: 'Mover a carpeta',
     removeFromFolder: 'Quitar de esta carpeta',
     removeFromNamedFolder: 'Quitar de "{folder}"',

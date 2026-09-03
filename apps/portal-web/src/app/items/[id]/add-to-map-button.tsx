@@ -5,6 +5,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronDown, Loader2, Map as MapIcon, Plus } from 'lucide-react';
 
+import { useT } from '@/lib/i18n/locale-context';
+
 /**
  * #185 "Add to map" on layer-ish item pages. Two paths:
  *
@@ -18,9 +20,26 @@ import { ChevronDown, Loader2, Map as MapIcon, Plus } from 'lucide-react';
  * The heavy lifting (turning an item into map layers) lives in
  * portal-item-layers.ts and runs inside the builder, so this
  * component is just navigation.
+ *
+ * `layerKey` narrows the add to one sublayer of a multi-layer
+ * data_layer (the Data tab renders one of these per row, `compact`,
+ * next to Browse and Analyze). The builder reads it as `&layer=`.
  */
-export function AddToMapButton({ itemId }: { itemId: string }) {
+export function AddToMapButton({
+  itemId,
+  layerKey,
+  compact = false,
+}: {
+  itemId: string;
+  layerKey?: string;
+  compact?: boolean;
+}) {
   const router = useRouter();
+  const t = useT();
+  const target = (path: string) =>
+    `${path}${path.includes('?') ? '&' : '?'}add=${itemId}${
+      layerKey !== undefined ? `&layer=${encodeURIComponent(layerKey)}` : ''
+    }`;
   const [open, setOpen] = useState(false);
   const [maps, setMaps] = useState<Array<{ id: string; title: string }> | null>(
     null,
@@ -80,11 +99,16 @@ export function AddToMapButton({ itemId }: { itemId: string }) {
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 shadow-card hover:bg-surface-2"
+        title={layerKey !== undefined ? t('itemMenu.addLayerToMapTitle') : undefined}
+        className={
+          compact
+            ? 'inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2 text-xs font-medium text-ink-1 hover:bg-surface-2'
+            : 'inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 shadow-card hover:bg-surface-2'
+        }
       >
-        <MapIcon className="h-4 w-4" />
-        Add to map
-        <ChevronDown className="h-3.5 w-3.5 text-muted" />
+        <MapIcon className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+        {t('itemMenu.addToMap')}
+        <ChevronDown className={compact ? 'h-3 w-3 text-muted' : 'h-3.5 w-3.5 text-muted'} />
       </button>
       {open ? (
         <div
@@ -94,7 +118,7 @@ export function AddToMapButton({ itemId }: { itemId: string }) {
           <button
             type="button"
             role="menuitem"
-            onClick={() => router.push(`/maps/new?add=${itemId}`)}
+            onClick={() => router.push(target('/maps/new'))}
             className="flex w-full items-center gap-2 px-3 py-2 text-left text-ink-0 hover:bg-surface-2"
           >
             <Plus className="h-4 w-4 text-accent" />
@@ -120,7 +144,7 @@ export function AddToMapButton({ itemId }: { itemId: string }) {
                     type="button"
                     role="menuitem"
                     onClick={() =>
-                      router.push(`/items/${m.id}?view=configure&add=${itemId}`)
+                      router.push(target(`/items/${m.id}?view=configure`))
                     }
                     className="w-full truncate px-3 py-1.5 text-left text-ink-1 hover:bg-surface-2"
                   >

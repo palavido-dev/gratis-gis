@@ -22,6 +22,7 @@ import {
   type UploadBusy,
 } from '@/components/upload-progress-panel';
 import { V3FeatureBrowser } from './v3-feature-browser';
+import { AddToMapButton } from '../add-to-map-button';
 
 // Analyze (#175) lazy-loads: the DuckDB-WASM chunk is multiple MB
 // and must cost nothing on detail pages where nobody analyzes.
@@ -229,6 +230,13 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
             ) : null}
           </p>
         </div>
+        {/* One sublayer onto a map. The header's "Add to map" takes
+            the whole item, which is the wrong grain for a service of
+            unrelated layers; only shown when there is a choice to make
+            and the layer has shapes to draw. */}
+        {allLayers.length > 1 && layer.geometryType ? (
+          <AddToMapButton itemId={itemId} layerKey={layer.id} compact />
+        ) : null}
         <button
           type="button"
           onClick={() => setBrowseOpen((v) => !v)}

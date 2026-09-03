@@ -143,6 +143,12 @@ interface Props {
    * scratch route's ?add= parameter.
    */
   addItemId?: string;
+  /**
+   * With `addItemId`, narrow a multi-layer data_layer to this one
+   * sublayer (the Data tab's per-row "Add to map"). Ignored without
+   * `addItemId`.
+   */
+  addLayerKey?: string;
 }
 
 /**
@@ -206,6 +212,7 @@ export function MapEditor({
   currentUser = null,
   scratch = false,
   addItemId,
+  addLayerKey,
 }: Props) {
   // Hydrate older persisted maps. Each bump in the schema lands a new
   // migrator here; the goal is that any v2.x map still opens cleanly.
@@ -1473,7 +1480,10 @@ export function MapEditor({
           return;
         }
         const item = (await res.json()) as Item;
-        const { layers, error: addError } = await layersForPortalItem(item);
+        const { layers, error: addError } = await layersForPortalItem(
+          item,
+          addLayerKey !== undefined ? { layerKey: addLayerKey } : {},
+        );
         if (addError) {
           setError(addError);
           return;
@@ -1500,8 +1510,9 @@ export function MapEditor({
           }
         }
         const url = new URL(window.location.href);
-        if (url.searchParams.has('add')) {
+        if (url.searchParams.has('add') || url.searchParams.has('layer')) {
           url.searchParams.delete('add');
+          url.searchParams.delete('layer');
           window.history.replaceState(null, '', url.toString());
         }
       } catch (err) {
@@ -1511,7 +1522,7 @@ export function MapEditor({
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addItemId, canEdit]);
+  }, [addItemId, addLayerKey, canEdit]);
 
   /**
    * Create an empty group at the top of the layer list (#70). The

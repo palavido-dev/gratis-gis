@@ -26,12 +26,13 @@ export const metadata: Metadata = {
 };
 
 interface Props {
-  searchParams?: Promise<{ add?: string }>;
+  searchParams?: Promise<{ add?: string; layer?: string }>;
 }
 
 export default async function NewScratchMapPage(props: Props) {
   const searchParams = await props.searchParams;
   const addItemId = searchParams?.add;
+  const addLayerKey = searchParams?.layer;
 
   let me: {
     id: string;
@@ -86,6 +87,7 @@ export default async function NewScratchMapPage(props: Props) {
             : me.username) ?? 'You',
       }}
       {...(addItemId ? { addItemId } : {})}
+      {...(addItemId && addLayerKey ? { addLayerKey } : {})}
     />
   );
 }

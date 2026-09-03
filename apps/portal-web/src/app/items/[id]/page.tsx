@@ -166,7 +166,7 @@ import { PrintTemplateDetail } from './print-template/print-template-detail';
 
 interface Props {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ view?: string; add?: string }>;
+  searchParams?: Promise<{ view?: string; add?: string; layer?: string }>;
 }
 
 type ItemWithShares = Item & { shares: ItemShare[] };
@@ -871,6 +871,9 @@ export default async function ItemDetailPage(props: Props) {
           canEdit={mapItemCanEdit}
           editableLayerItemIds={editableLayerItemIds}
           {...(searchParams?.add ? { addItemId: searchParams.add } : {})}
+          {...(searchParams?.add && searchParams.layer
+            ? { addLayerKey: searchParams.layer }
+            : {})}
           basemaps={basemaps}
           defaultExtentBoundary={defaultExtentBoundary}
           geoBoundaries={geoBoundaries.map((g) => ({

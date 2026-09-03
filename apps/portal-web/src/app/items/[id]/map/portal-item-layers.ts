@@ -290,9 +290,18 @@ export function buildTileLayer(
  * group mode. Connected Service items (WMS/WFS/WMTS) are declined
  * with a pointer at the dialog, which knows how to explain their
  * rendering status.
+ *
+ * `opts.layerKey` narrows a multi-layer data_layer to ONE of its
+ * sublayers. A data_layer item is often a whole service (parcels,
+ * zoning, easements) and a map usually wants one of them, not the
+ * lot; the Data tab offers this per row. The single layer is titled
+ * by the sublayer, since the item title would describe siblings that
+ * are not on the map. A key that no longer exists is an error, not a
+ * silent fall back to everything.
  */
 export async function layersForPortalItem(
   input: Item,
+  opts: { layerKey?: string } = {},
 ): Promise<{ layers?: MapLayer[]; error?: string }> {
   if (
     input.type === 'service' ||
@@ -359,6 +368,30 @@ export async function layersForPortalItem(
       }
     }
     if (sublayers && sublayers.length > 0) {
+      if (opts.layerKey !== undefined) {
+        const sub = sublayers.find((s) => s.id === opts.layerKey);
+        if (!sub) {
+          return {
+            error: `${input.title} no longer has a layer "${opts.layerKey}".`,
+          };
+        }
+        if (!sub.geometryType) {
+          return {
+            error: `${sub.label || sub.id} is a table with no shapes, so there is nothing to draw.`,
+          };
+        }
+        const title =
+          sublayers.length === 1 ? input.title : sub.label || sub.id;
+        return {
+          layers: [
+            makeLayer(title, {
+              kind: 'data-layer',
+              itemId: input.id,
+              layerKey: sub.id,
+            }),
+          ],
+        };
+      }
       const layers = buildDataLayerLayers(
         { ...lite, _layers: sublayers },
         'group',
@@ -366,6 +399,10 @@ export async function layersForPortalItem(
       );
       if (layers.length > 0) return { layers };
     }
+  } else if (opts.layerKey !== undefined) {
+    return {
+      error: `${input.title} has no layers to choose from; add the whole item instead.`,
+    };
   }
   // v1/v2 single-table data_layer and derived_layer: single layer
   // against the item-level geojson endpoint.
