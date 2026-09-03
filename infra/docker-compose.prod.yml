@@ -155,6 +155,16 @@ services:
       - pg_stat_statements.track=all
       - -c
       - pg_stat_statements.max=5000
+      - -c
+      - log_min_duration_statement=500
+      # Vacuum. The default cost limit throttles autovacuum to a pace
+      # meant for spinning disks. A bulk import lands hundreds of
+      # thousands of rows in one partition, and until autovacuum has
+      # marked those pages all-visible every read of them checks
+      # visibility row by row. Five times the budget on an SSD is
+      # still gentle and lets it keep up with an import day.
+      - -c
+      - vacuum_cost_limit=1000
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-gratisgis}
       POSTGRES_USER: ${POSTGRES_USER:-gratisgis}
