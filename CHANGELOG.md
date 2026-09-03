@@ -5,6 +5,21 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.106] - 2026-09-03
+
+### Changed
+
+- **The production Postgres is tuned instead of running on stock
+  defaults.** The compose file now sets memory, planner, parallelism,
+  WAL, safety and logging settings sized for the demo host, with a
+  comment on each and a note on which to scale with RAM. On the demo
+  the database is 320 MB and was getting a 76% buffer hit rate from a
+  128 MB cache and writing 22 GB of temp files a day from 4 MB sorts.
+  `pg_stat_statements` is preloaded so the slowest queries can be read
+  off the server rather than reproduced. Existing installs pick this
+  up on the next deploy; the database restarts once, about fifteen
+  seconds.
+
 ## [0.9.105] - 2026-09-03
 
 ### Fixed
