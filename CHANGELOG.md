@@ -5,6 +5,43 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.100] - 2026-09-03
+
+### Added
+
+- **Field edits the server refuses now wait for you instead of
+  retrying forever.** When a queued edit comes back with a reason a
+  retry cannot change (a value the layer's rules refuse, a layer you
+  no longer have access to), the field app parks it and shows a red
+  "edits need attention" chip beside the sync chip. Open it to read
+  the server's reason and either retry the edit or discard it.
+  Network trouble and server errors still retry on their own as
+  before. The admin Field device queues page lists these rows first.
+- Cross-origin access to the API is now per route. The public
+  open-data endpoints (`/api/public/*`) stay open to any website,
+  read-only, so other sites can load them into their own maps.
+  Everything else answers only the origins in `CORS_ALLOWED_ORIGINS`,
+  which defaults to none; the portal's own pages never needed it.
+
+### Fixed
+
+- **Edit shape and Delete in the map builder now actually select a
+  feature.** In 0.9.99 the click was swallowed before it reached the
+  tool, so neither could pick anything.
+- The map builder's Edit toolbar now appears as soon as you add a
+  layer you can edit, rather than after saving and reopening the map.
+- The New feature form no longer asks for "Submitted at", "Submitted
+  by" or "Schema version", which the server fills in itself. It used
+  to refuse to submit until you typed a date it was about to
+  overwrite.
+- Pick lists a layer's fields reference are now looked up with the
+  layer owner's access, not the editor's, so a value list the editor
+  cannot see still validates.
+- Filter and Calculate Field expressions now understand date and list
+  columns: a date compares with a date or text and cannot be used in
+  arithmetic, a list can only be tested for equality, and the preview
+  orders dates the same way the database does.
+
 ## [0.9.99] - 2026-09-03
 
 ### Added
