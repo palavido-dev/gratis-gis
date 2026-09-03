@@ -176,6 +176,88 @@ describe('TileCacheService', () => {
     });
   });
 
+  describe('lanes and dependencies (aggregate results)', () => {
+    it('queues laned computes past the lane limit instead of failing, in order', async () => {
+      const cache = new TileCacheService();
+      const order: string[] = [];
+      const gates: Array<() => void> = [];
+      const compute = (name: string) => async () => {
+        order.push(`start ${name}`);
+        await new Promise<void>((r) => gates.push(r));
+        return Buffer.from(name);
+      };
+      const lane = { name: 'agg', limit: 2 };
+      const a = cache.getOrCompute('s|agg|a', compute('a'), { lane });
+      const b = cache.getOrCompute('s|agg|b', compute('b'), { lane });
+      const c = cache.getOrCompute('s|agg|c', compute('c'), { lane });
+      await new Promise((r) => setTimeout(r, 5));
+      // Two running, the third waiting; nothing threw.
+      expect(order).toEqual(['start a', 'start b']);
+      gates.shift()!();
+      await a;
+      await new Promise((r) => setTimeout(r, 5));
+      expect(order).toEqual(['start a', 'start b', 'start c']);
+      gates.shift()!();
+      gates.shift()!();
+      expect((await b).buf.toString()).toBe('b');
+      expect((await c).buf.toString()).toBe('c');
+      // Laned work never consumed a tile slot.
+      expect(cache.getStats().activeComputes).toBe(0);
+    });
+
+    it('coalesces an identical request that arrives while the leader is queued', async () => {
+      const cache = new TileCacheService();
+      let release!: () => void;
+      const blocker = cache.getOrCompute(
+        's|agg|x',
+        async () => {
+          await new Promise<void>((r) => (release = r));
+          return Buffer.from('x');
+        },
+        { lane: { name: 'one', limit: 1 } },
+      );
+      const compute = jest.fn(async () => Buffer.from('y'));
+      const first = cache.getOrCompute('s|agg|y', compute, { lane: { name: 'one', limit: 1 } });
+      const second = cache.getOrCompute('s|agg|y', compute, { lane: { name: 'one', limit: 1 } });
+      // The blocker's compute starts on a later tick (after its lane
+      // slot resolves), so `release` is not assigned synchronously.
+      await new Promise((r) => setTimeout(r, 5));
+      release();
+      await blocker;
+      expect((await first).buf.toString()).toBe('y');
+      expect((await second).buf.toString()).toBe('y');
+      expect(compute).toHaveBeenCalledTimes(1);
+    });
+
+    it('drops an entry when a prefix it depends on is invalidated', async () => {
+      const cache = new TileCacheService();
+      await cache.getOrCompute('child|agg|k', async () => Buffer.from('v'), {
+        dependsOn: ['parent|'],
+      });
+      expect(cache.get('child|agg|k')).not.toBeNull();
+      expect(cache.onObservationWritten('parent')).toBe(1);
+      expect(cache.get('child|agg|k')).toBeNull();
+      // And the child's own prefix still drops it too.
+      await cache.getOrCompute('child|agg|k', async () => Buffer.from('v'), {
+        dependsOn: ['parent|'],
+      });
+      expect(cache.onObservationWritten('child')).toBe(1);
+      expect(cache.get('child|agg|k')).toBeNull();
+    });
+
+    it('honours a per-entry TTL', () => {
+      const cache = new TileCacheService();
+      const now = Date.now();
+      const spy = jest.spyOn(Date, 'now').mockReturnValue(now);
+      cache.set('s|agg|t', Buffer.from('v'), 1_000);
+      spy.mockReturnValue(now + 999);
+      expect(cache.get('s|agg|t')).not.toBeNull();
+      spy.mockReturnValue(now + 1_001);
+      expect(cache.get('s|agg|t')).toBeNull();
+      spy.mockRestore();
+    });
+  });
+
   describe('getOrCompute single-flight', () => {
     it('returns the cached entry on hit without calling compute', async () => {
       const cache = new TileCacheService();

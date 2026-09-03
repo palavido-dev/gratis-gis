@@ -15,6 +15,8 @@
 // `DataLayerFeaturesService` is unchanged. Phase 2.2 swaps the v3 service's
 // internals to call into this adapter.
 
+import { createHash } from 'node:crypto';
+
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
@@ -750,6 +752,110 @@ export function dataLayerSourceSqlFragment(
   `;
 }
 
+export interface AggregateFeaturesArgs {
+    itemId: string;
+    layerId: string;
+    /**
+     * Bitemporal read instant. Defaults to now. The time-slider
+     * widget drives this, so a chart scrubbed back in time must
+     * aggregate the snapshot as of that instant rather than today's
+     * rows: without it, moving the slider would change the map and
+     * the table while the numbers beside them silently stayed
+     * current, which is a wrong answer of exactly the kind this
+     * endpoint exists to avoid.
+     */
+    asOf?: Date;
+    /** Attribute names to group by. Empty = one row over the layer. */
+    groupBy?: string[];
+    /** Requested aggregates. `count` needs no field. */
+    aggs: Array<{
+      op: 'count' | 'countDistinct' | 'sum' | 'avg' | 'min' | 'max';
+      field?: string;
+      /** Result key. Caller-supplied so the widget can address it. */
+      as: string;
+    }>;
+    bbox?: [number, number, number, number];
+    geoLimit?: GeoJsonGeometry;
+    boundaryClip?: GeoJsonGeometry;
+    ownRowsOnly?: { userId: string };
+    /**
+     * Attribute predicate. The caller has already checked every field
+     * against the layer schema; this applies it as a content filter,
+     * which is the only place a predicate on row content is safe.
+     */
+    where?: {
+      combinator: 'all' | 'any';
+      clauses: Array<{ field: string; op: string; value: string }>;
+    };
+    via?: AggregateVia;
+    /**
+     * Bin a numeric attribute into ranges and add it as the LAST group
+     * level, turning the result into a distribution. `count` and
+     * `width` modes measure the field's range first, through this same
+     * method, so the axis can never disagree with the bars it labels.
+     */
+    bin?: AggregateBin;
+    /** Max groups returned. Server clamps to AGG_GROUP_CAP. */
+    limit?: number;
+}
+
+export interface AggregateFeaturesResult {
+    groups: Array<{
+      key: Record<string, string | null>;
+      values: Record<string, number | null>;
+      /** Present only on a binned request. Half-open [lower, upper). */
+      bin?: AggregateBinRange;
+    }>;
+    truncated: boolean;
+    /**
+     * The thresholds actually used, ascending. Present on a binned
+     * request so a client can label an axis, place a reference line, or
+     * build a cross-filter without re-deriving edges the server already
+     * computed from the data. Absent when the range could not support
+     * bins; `groups` is then empty and the widget should say why rather
+     * than draw an empty chart.
+     */
+    binEdges?: number[];
+}
+
+/**
+ * Aggregate results live until the layer (or a via parent) is written,
+ * which the tile cache's LISTEN connection reports; the TTL only bounds
+ * staleness while that listener is down. Ten minutes, not the tile
+ * cache's one, because a dashboard number is a much cheaper thing to
+ * hold than a tile and a much more expensive one to recompute.
+ */
+const AGGREGATE_CACHE_TTL_MS = parseIntEnvLocal('AGGREGATE_CACHE_TTL_MS', 600_000);
+/**
+ * Concurrent aggregate queries per replica. Each one can spawn two
+ * parallel workers and spill a 110 MB sort to disk; with two replicas
+ * this keeps Postgres at six such queries at most while the rest wait
+ * in order, which on a 4-core box finishes sooner than letting all of
+ * them thrash.
+ */
+const AGGREGATE_MAX_CONCURRENT = parseIntEnvLocal('AGGREGATE_MAX_CONCURRENT', 3);
+
+function parseIntEnvLocal(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+/** JSON with object keys sorted at every level, so equal requests hash equal. */
+export function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const o = value as Record<string, unknown>;
+    return `{${Object.keys(o)
+      .sort()
+      .filter((k) => o[k] !== undefined)
+      .map((k) => `${JSON.stringify(k)}:${stableStringify(o[k])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
 @Injectable()
 export class DataLayerEngine {
   constructor(
@@ -757,10 +863,26 @@ export class DataLayerEngine {
     private readonly prisma: PrismaService,
     private readonly lensPolicy: LensPolicyService,
     private readonly tileCache: TileCacheService,
-  ) {}
+  ) {
+    this.engine.onWrite((scopes) => this.wrote(scopes));
+  }
 
   scope(itemId: string, layerId: string): string {
     return dataLayerScope(itemId, layerId);
+  }
+
+  /**
+   * Drop this process's cached tiles and aggregates for the scopes a
+   * write just touched. Called by EngineService for every write it
+   * makes, and directly by the one raw INSERT path below that bypasses
+   * it. The observation trigger's NOTIFY does the same for every
+   * replica, this one included, but it arrives a network hop later; a
+   * caller that writes and immediately reads through the same replica
+   * must not see the pre-write answer in that gap. The pg suite is
+   * exactly such a caller.
+   */
+  private wrote(scopes: Iterable<string>): void {
+    for (const scope of new Set(scopes)) this.tileCache.invalidatePrefix(`${scope}|`);
   }
 
   /**
@@ -1041,6 +1163,7 @@ export class DataLayerEngine {
       }
     }
 
+    this.wrote(inputs.map((a) => this.scope(a.itemId, a.layerId)));
     return results;
   }
 
@@ -2252,69 +2375,54 @@ export class DataLayerEngine {
    * cap the response is truncated and says so, so the widget can
    * render "showing top N" instead of quietly lying.
    */
-  async aggregateFeatures(args: {
-    itemId: string;
-    layerId: string;
-    /**
-     * Bitemporal read instant. Defaults to now. The time-slider
-     * widget drives this, so a chart scrubbed back in time must
-     * aggregate the snapshot as of that instant rather than today's
-     * rows: without it, moving the slider would change the map and
-     * the table while the numbers beside them silently stayed
-     * current, which is a wrong answer of exactly the kind this
-     * endpoint exists to avoid.
-     */
-    asOf?: Date;
-    /** Attribute names to group by. Empty = one row over the layer. */
-    groupBy?: string[];
-    /** Requested aggregates. `count` needs no field. */
-    aggs: Array<{
-      op: 'count' | 'countDistinct' | 'sum' | 'avg' | 'min' | 'max';
-      field?: string;
-      /** Result key. Caller-supplied so the widget can address it. */
-      as: string;
-    }>;
-    bbox?: [number, number, number, number];
-    geoLimit?: GeoJsonGeometry;
-    boundaryClip?: GeoJsonGeometry;
-    ownRowsOnly?: { userId: string };
-    /**
-     * Attribute predicate. The caller has already checked every field
-     * against the layer schema; this applies it as a content filter,
-     * which is the only place a predicate on row content is safe.
-     */
-    where?: {
-      combinator: 'all' | 'any';
-      clauses: Array<{ field: string; op: string; value: string }>;
-    };
-    via?: AggregateVia;
-    /**
-     * Bin a numeric attribute into ranges and add it as the LAST group
-     * level, turning the result into a distribution. `count` and
-     * `width` modes measure the field's range first, through this same
-     * method, so the axis can never disagree with the bars it labels.
-     */
-    bin?: AggregateBin;
-    /** Max groups returned. Server clamps to AGG_GROUP_CAP. */
-    limit?: number;
-  }): Promise<{
-    groups: Array<{
-      key: Record<string, string | null>;
-      values: Record<string, number | null>;
-      /** Present only on a binned request. Half-open [lower, upper). */
-      bin?: AggregateBinRange;
-    }>;
-    truncated: boolean;
-    /**
-     * The thresholds actually used, ascending. Present on a binned
-     * request so a client can label an axis, place a reference line, or
-     * build a cross-filter without re-deriving edges the server already
-     * computed from the data. Absent when the range could not support
-     * bins; `groups` is then empty and the widget should say why rather
-     * than draw an empty chart.
-     */
-    binEdges?: number[];
-  }> {
+  async aggregateFeatures(
+    args: AggregateFeaturesArgs,
+  ): Promise<AggregateFeaturesResult> {
+    // Cached, coalesced and queued; see the docblock on the uncached
+    // method for why. The key is the whole request, hashed, under the
+    // child scope's prefix so a write to the layer drops it; a via
+    // request also depends on the parent scope. `asOf` defaults to
+    // "now", and two "now" requests seconds apart must share an entry
+    // or the cache is useless, so the default is keyed as the word,
+    // not the instant. An explicit asOf is keyed by its value.
+    const scope = this.scope(args.itemId, args.layerId);
+    const { asOf, ...rest } = args;
+    const keyed = { ...rest, asOf: asOf ? asOf.toISOString() : 'now' };
+    const hash = createHash('sha256')
+      .update(stableStringify(keyed))
+      .digest('base64url')
+      .slice(0, 32);
+    const dependsOn = args.via
+      ? [`${this.scope(args.via.parentItemId, args.via.parentLayerId)}|`]
+      : [];
+    const hit = await this.tileCache.getOrCompute(
+      `${scope}|agg|${hash}`,
+      async () =>
+        Buffer.from(JSON.stringify(await this.aggregateFeaturesUncached(args))),
+      {
+        ttlMs: AGGREGATE_CACHE_TTL_MS,
+        dependsOn,
+        lane: { name: 'aggregate', limit: AGGREGATE_MAX_CONCURRENT },
+      },
+    );
+    return JSON.parse(hit.buf.toString()) as AggregateFeaturesResult;
+  }
+
+  /**
+   * The query behind aggregateFeatures. Every call collapses the whole
+   * scope to its latest observation per entity before it can count
+   * anything, which for a 285k-row layer is a 110 MB external sort
+   * per request. A dashboard fires eight of these on load and eight
+   * more on every pan, and two pans in quick succession put the last
+   * ones past the 30 s statement timeout on the demo. So the public
+   * method above caches results until the layer (or the via parent)
+   * is written, coalesces identical requests in flight, and lets at
+   * most AGGREGATE_MAX_CONCURRENT run per replica while the rest wait
+   * their turn rather than all hitting Postgres at once.
+   */
+  private async aggregateFeaturesUncached(
+    args: AggregateFeaturesArgs,
+  ): Promise<AggregateFeaturesResult> {
     validateGeoJson(args.geoLimit);
     validateGeoJson(args.boundaryClip);
     const scope = this.scope(args.itemId, args.layerId);
@@ -2356,7 +2464,11 @@ export class DataLayerEngine {
       if (args.bin.mode === 'edges') {
         binEdges = args.bin.edges.slice(0, AGG_MAX_BINS - 1);
       } else {
-        const bounds = await this.aggregateFeatures({
+        // The uncached method, on purpose: this call runs INSIDE a lane
+        // slot, and going back through the cached entry point would
+        // queue for a second slot while holding the first. With every
+        // slot held by a binned request doing the same, nobody moves.
+        const bounds = await this.aggregateFeaturesUncached({
           itemId: args.itemId,
           layerId: args.layerId,
           // The resolved instant, not args.asOf: an unset asOf defaults

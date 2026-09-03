@@ -50,6 +50,9 @@ function makeFakeEngine() {
         writes.push(...filled);
         return filled;
       },
+      // The adapter subscribes to writes at construction so its caches
+      // drop in-process; the fake never fires it.
+      onWrite() {},
     } as unknown as EngineService,
   };
 }

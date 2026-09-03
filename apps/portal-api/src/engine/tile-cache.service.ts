@@ -125,6 +125,27 @@ export class TileCacheService implements OnModuleDestroy {
   private invalidationSeq = 0;
   private readonly invalidatedAtSeq = new Map<string, number>();
 
+  /**
+   * Keys that must ALSO drop when some other prefix is invalidated.
+   * A via aggregate is keyed under the child scope but its answer
+   * depends on the parent scope's rows too; a write to the parent
+   * would otherwise leave it stale for a TTL.
+   */
+  private readonly dependents = new Map<string, Set<string>>();
+
+  /**
+   * Named concurrency lanes for computes that should WAIT when the
+   * lane is full instead of failing. Tiles fail fast (a 503 with
+   * Retry-After is fine for a map that will ask again on the next
+   * pan); a dashboard widget has one shot, and 43 aggregate queries
+   * in flight at once is exactly what pushed the last ones past the
+   * 30 s statement timeout on the demo.
+   */
+  private readonly lanes = new Map<
+    string,
+    { limit: number; active: number; waiters: Array<() => void> }
+  >();
+
   /** Dedicated LISTEN connection; null until the first compute. */
   private listener: PgClient | null = null;
   private listenerStarting = false;
@@ -177,7 +198,7 @@ export class TileCacheService implements OnModuleDestroy {
    * Returns the ETag for the stored entry so the caller can set
    * the response header from the same value.
    */
-  set(key: string, buf: Buffer): string {
+  set(key: string, buf: Buffer, ttlMs: number = this.ttlMs): string {
     const prior = this.entries.get(key);
     if (prior !== undefined) {
       this.currentBytes -= prior.buf.length;
@@ -187,7 +208,7 @@ export class TileCacheService implements OnModuleDestroy {
     this.entries.set(key, {
       buf,
       etag,
-      expiresAt: Date.now() + this.ttlMs,
+      expiresAt: Date.now() + ttlMs,
     });
     this.currentBytes += buf.length;
 
@@ -233,6 +254,21 @@ export class TileCacheService implements OnModuleDestroy {
   async getOrCompute(
     key: string,
     compute: () => Promise<Buffer>,
+    opts: {
+      /** Entry lifetime; defaults to the tile TTL. */
+      ttlMs?: number;
+      /**
+       * Other key prefixes whose invalidation must drop this entry
+       * too (a via aggregate's parent scope).
+       */
+      dependsOn?: readonly string[];
+      /**
+       * Wait in a named lane instead of failing when too many
+       * computes are running. Each lane has its own limit; omit it
+       * to use the tile behaviour (fail fast with an overload error).
+       */
+      lane?: { name: string; limit: number };
+    } = {},
   ): Promise<CacheHit> {
     // Phase 1: cache hit.
     const cached = this.get(key);
@@ -251,8 +287,9 @@ export class TileCacheService implements OnModuleDestroy {
     // DIFFERENT tiles arrive at once (the in-flight map already
     // handles the same-tile case). Excess returns a typed
     // overload error so the controller can map it to 503 with
-    // Retry-After.
-    if (this.activeComputes >= this.maxConcurrentComputes) {
+    // Retry-After, unless the caller asked for a lane, in which case
+    // it queues.
+    if (!opts.lane && this.activeComputes >= this.maxConcurrentComputes) {
       this.rejectedOverload += 1;
       throw new TileCacheOverloadError(
         this.activeComputes,
@@ -263,10 +300,16 @@ export class TileCacheService implements OnModuleDestroy {
     this.ensureListener();
 
     // Register the in-flight slot before awaiting so concurrent
-    // callers see it.
-    this.activeComputes += 1;
+    // callers see it. A laned compute takes its lane slot INSIDE the
+    // promise, so joiners that arrive while it queues still coalesce
+    // onto it instead of queueing their own copy.
+    // A laned compute is bounded by its lane, not by the tile cap, so
+    // queued aggregates never make the map's tiles 503.
+    const lane = opts.lane;
+    if (!lane) this.activeComputes += 1;
     const seqAtStart = this.invalidationSeq;
     const promise: Promise<CacheHit> = (async () => {
+      if (lane) await this.acquireLane(lane.name, lane.limit);
       try {
         // Wall-clock timeout safety net. Without this, a Prisma
         // query that never resolves AND never rejects (observed
@@ -281,10 +324,11 @@ export class TileCacheService implements OnModuleDestroy {
         // finally below decrements the counter; the caller maps
         // the rejection to a 503 just like any other compute
         // failure.
+        let timer: ReturnType<typeof setTimeout> | undefined;
         const buf = await Promise.race<Buffer>([
           compute(),
-          new Promise<Buffer>((_, reject) =>
-            setTimeout(
+          new Promise<Buffer>((_, reject) => {
+            timer = setTimeout(
               () =>
                 reject(
                   new Error(
@@ -292,9 +336,13 @@ export class TileCacheService implements OnModuleDestroy {
                   ),
                 ),
               this.computeTimeoutMs,
-            ),
-          ),
-        ]);
+            );
+          }),
+        ]).finally(() => {
+          // A finished compute must not leave its timer pending: it
+          // held the process open for 35 s after every tile in tests.
+          if (timer) clearTimeout(timer);
+        });
         // A write to this scope landed while we were computing:
         // serve the bytes, but do not cache what may already be
         // stale. The next request recomputes.
@@ -303,10 +351,12 @@ export class TileCacheService implements OnModuleDestroy {
         if (droppedAtSeq !== undefined && droppedAtSeq > seqAtStart) {
           return { buf, etag: computeEtag(key, buf) };
         }
-        const etag = this.set(key, buf);
+        const etag = this.set(key, buf, opts.ttlMs);
+        for (const dep of opts.dependsOn ?? []) this.registerDependency(dep, key);
         return { buf, etag };
       } finally {
-        this.activeComputes -= 1;
+        if (lane) this.releaseLane(lane.name);
+        else this.activeComputes -= 1;
         this.inFlight.delete(key);
       }
     })();
@@ -336,7 +386,56 @@ export class TileCacheService implements OnModuleDestroy {
         dropped += 1;
       }
     }
+    const dependents = this.dependents.get(prefix);
+    if (dependents) {
+      this.dependents.delete(prefix);
+      for (const key of dependents) {
+        const entry = this.entries.get(key);
+        if (entry !== undefined) {
+          this.currentBytes -= entry.buf.length;
+          this.entries.delete(key);
+          dropped += 1;
+        }
+      }
+    }
     return dropped;
+  }
+
+  /** Make `key` drop whenever `prefix` is invalidated. */
+  registerDependency(prefix: string, key: string): void {
+    let set = this.dependents.get(prefix);
+    if (!set) {
+      set = new Set();
+      this.dependents.set(prefix, set);
+    }
+    set.add(key);
+  }
+
+  private acquireLane(name: string, limit: number): Promise<void> {
+    let lane = this.lanes.get(name);
+    if (!lane) {
+      lane = { limit, active: 0, waiters: [] };
+      this.lanes.set(name, lane);
+    }
+    lane.limit = limit;
+    if (lane.active < lane.limit) {
+      lane.active += 1;
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      lane!.waiters.push(() => {
+        lane!.active += 1;
+        resolve();
+      });
+    });
+  }
+
+  private releaseLane(name: string): void {
+    const lane = this.lanes.get(name);
+    if (!lane) return;
+    lane.active -= 1;
+    const next = lane.waiters.shift();
+    if (next) next();
   }
 
   /**

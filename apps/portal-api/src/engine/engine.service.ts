@@ -74,6 +74,28 @@ interface ObservationRow {
 export class EngineService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private readonly writeListeners: Array<(scopes: ReadonlySet<string>) => void> = [];
+
+  /**
+   * Be told, in-process and synchronously, which scopes a write just
+   * landed in. DataLayerEngine uses this to drop its cached tiles and
+   * aggregates before the write returns, so a caller that writes and
+   * reads back through the same replica never sees the pre-write
+   * answer. The observation trigger's NOTIFY covers the other replica
+   * a network hop later. Every write path in this service reports,
+   * so a writer that skips DataLayerEngine (the OSM save-as-layer
+   * path does) is still covered.
+   */
+  onWrite(listener: (scopes: ReadonlySet<string>) => void): void {
+    this.writeListeners.push(listener);
+  }
+
+  private notifyWritten(observations: ReadonlyArray<{ scope: string }>): void {
+    if (this.writeListeners.length === 0 || observations.length === 0) return;
+    const scopes = new Set(observations.map((o) => o.scope));
+    for (const listener of this.writeListeners) listener(scopes);
+  }
+
   /**
    * Write an observation to the log. Fills in `id` (UUIDv7), `txTime`
    * (now), and `cell` (H3 res 7) when omitted. Validates the result
@@ -118,6 +140,7 @@ export class EngineService {
       )
     `;
 
+    this.notifyWritten([obs]);
     return obs;
   }
 
@@ -188,6 +211,7 @@ export class EngineService {
       );
     }
 
+    this.notifyWritten(filled);
     return filled;
   }
 
@@ -237,6 +261,7 @@ export class EngineService {
     // returns the joined COPY-line string; the writer pushes it to
     // the pg-copy-streams socket in one shot.
     await writer.writeBatch(filled);
+    this.notifyWritten(filled);
     return filled;
   }
 
