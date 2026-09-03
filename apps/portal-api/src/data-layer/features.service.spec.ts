@@ -90,19 +90,33 @@ function makePrisma(fields: unknown[] | null) {
 
 function makeService(fields: unknown[] | null = null) {
   const listFeatures = jest.fn(
-    async (args: { entityIds?: string[] }) => ({
+    async (args: { entityIds?: string[]; entity?: string }) => ({
       type: 'FeatureCollection' as const,
       features:
-        args.entityIds !== undefined && args.entityIds.length > 0
-          ? ALL_FEATURES.filter((f) => args.entityIds!.includes(f.id))
-          : ALL_FEATURES,
+        args.entity !== undefined
+          ? ALL_FEATURES.filter((f) => f.id === args.entity)
+          : args.entityIds !== undefined && args.entityIds.length > 0
+            ? ALL_FEATURES.filter((f) => args.entityIds!.includes(f.id))
+            : ALL_FEATURES,
     }),
   );
   const writeFeaturesUpdate = jest.fn(
     async (updates: Array<{ globalId: string }>) =>
       updates.map(() => ({ observationId: 'obs' })),
   );
-  const engine = { listFeatures, writeFeaturesUpdate };
+  const writeFeatureUpdate = jest.fn(
+    async (_args: Record<string, unknown>) => ({ observationId: 'obs' }),
+  );
+  const writeFeaturesCreateIdempotent = jest.fn(
+    async (args: Array<{ globalId?: string }>) =>
+      args.map((a, i) => ({ globalId: a.globalId ?? `new-${i}`, deduplicated: false })),
+  );
+  const engine = {
+    listFeatures,
+    writeFeaturesUpdate,
+    writeFeatureUpdate,
+    writeFeaturesCreateIdempotent,
+  };
   const cacheRefresh = {
     notifySourceWrite: jest.fn(() => Promise.resolve()),
   };
@@ -115,7 +129,13 @@ function makeService(fields: unknown[] | null = null) {
     engine as unknown as DataLayerEngine,
     bboxRefresh as unknown as ItemBboxRefreshService,
   );
-  return { service, listFeatures, writeFeaturesUpdate };
+  return {
+    service,
+    listFeatures,
+    writeFeaturesUpdate,
+    writeFeatureUpdate,
+    writeFeaturesCreateIdempotent,
+  };
 }
 
 function calcArgs(
@@ -162,7 +182,7 @@ describe('DataLayerFeaturesService.aggregateFeatures option forwarding', () => {
       }),
     );
     const service = new DataLayerFeaturesService(
-      {} as unknown as PrismaService,
+      makePrisma(null) as unknown as PrismaService,
       { notifySourceWrite: jest.fn() } as unknown as DerivedLayerCacheRefreshService,
       { aggregateFeatures } as unknown as DataLayerEngine,
       { refreshItemBbox: jest.fn() } as unknown as ItemBboxRefreshService,
@@ -408,6 +428,97 @@ describe('DataLayerFeaturesService.calculateField schema enforcement', () => {
 });
 
 /**
+ * updateFeature merges. Its docblock always said so; the code replaced
+ * the whole bag, which meant a client sending only the keys it changed
+ * silently cleared every other column. The field runtime's edit path
+ * sends only the form's own keys, so on a paired submissions layer an
+ * edit wiped submitted_at and submitted_by.
+ */
+describe('DataLayerFeaturesService.updateFeature merge semantics', () => {
+  const SCHEMA = [
+    { name: 'value', type: 'number', label: 'Value', nullable: true },
+    { name: 'note', type: 'string', label: 'Note', nullable: true },
+  ];
+
+  it('keeps columns the patch does not mention', async () => {
+    const { service, writeFeatureUpdate } = makeService(SCHEMA);
+    await service.updateFeature(ITEM_ID, LAYER_ID, E1, { properties: { note: 'hi' } }, makeUser());
+    const written = writeFeatureUpdate.mock.calls[0]![0] as { properties: Record<string, unknown> };
+    expect(written.properties).toEqual({ value: 1, note: 'hi' });
+  });
+
+  it('never persists the underscore keys the read path inlines, even when echoed back', async () => {
+    const { service, writeFeatureUpdate } = makeService(SCHEMA);
+    await service.updateFeature(
+      ITEM_ID,
+      LAYER_ID,
+      E1,
+      { properties: { value: 5, _created_at: '1999-01-01T00:00:00.000Z' } },
+      makeUser(),
+    );
+    const written = writeFeatureUpdate.mock.calls[0]![0] as { properties: Record<string, unknown> };
+    expect(written.properties).toEqual({ value: 5 });
+    expect(Object.keys(written.properties).some((k) => k.startsWith('_'))).toBe(false);
+  });
+
+  it('a required field cleared explicitly is still refused', async () => {
+    const { service } = makeService([
+      { name: 'value', type: 'number', label: 'Value', nullable: false },
+    ]);
+    await expect(
+      service.updateFeature(ITEM_ID, LAYER_ID, E1, { properties: { value: '' } }, makeUser()),
+    ).rejects.toThrow(/required/);
+  });
+});
+
+/**
+ * Submission bookkeeping on create. submitted_by comes from the token,
+ * never the body: the client sends it so its offline queue can render
+ * the row, but trusting it would let anyone with edit rights attribute
+ * an observation to any user id. submitted_at is client-authoritative
+ * (capture time) and only filled when absent, so a record queued
+ * before the client learned to send it does not fail the required
+ * check on every sync forever.
+ */
+describe('DataLayerFeaturesService.insertFeatures submission stamp', () => {
+  const PAIRED = [
+    { name: 'submitted_at', type: 'date', label: 'Submitted at', nullable: false },
+    { name: 'submitted_by', type: 'string', label: 'Submitted by', nullable: true },
+    { name: 'issue', type: 'string', label: 'Issue', nullable: true },
+  ];
+
+  it('overwrites a client-supplied submitted_by with the caller', async () => {
+    const { service, writeFeaturesCreateIdempotent } = makeService(PAIRED);
+    await service.insertFeatures(
+      ITEM_ID,
+      LAYER_ID,
+      [{ properties: { issue: 'x', submitted_by: 'someone-else', submitted_at: '2026-01-01T00:00:00.000Z' } }],
+      makeUser(),
+    );
+    const args = writeFeaturesCreateIdempotent.mock.calls[0]![0] as Array<{ properties: Record<string, unknown> }>;
+    expect(args[0]!.properties.submitted_by).toBe('user-1');
+    expect(args[0]!.properties.submitted_at).toBe('2026-01-01T00:00:00.000Z');
+  });
+
+  it('fills a missing submitted_at rather than failing the required check', async () => {
+    const { service, writeFeaturesCreateIdempotent } = makeService(PAIRED);
+    await service.insertFeatures(ITEM_ID, LAYER_ID, [{ properties: { issue: 'x' } }], makeUser());
+    const args = writeFeaturesCreateIdempotent.mock.calls[0]![0] as Array<{ properties: Record<string, unknown> }>;
+    expect(typeof args[0]!.properties.submitted_at).toBe('string');
+    expect(Number.isNaN(Date.parse(args[0]!.properties.submitted_at as string))).toBe(false);
+  });
+
+  it('does not invent the columns on a layer that does not declare them', async () => {
+    const { service, writeFeaturesCreateIdempotent } = makeService([
+      { name: 'species', type: 'string', label: 'Species', nullable: true },
+    ]);
+    await service.insertFeatures(ITEM_ID, LAYER_ID, [{ properties: { species: 'oak' } }], makeUser());
+    const args = writeFeaturesCreateIdempotent.mock.calls[0]![0] as Array<{ properties: Record<string, unknown> }>;
+    expect(args[0]!.properties).toEqual({ species: 'oak' });
+  });
+});
+
+/**
  * The forwarding contract for pageFeatures.
  *
  * `DataLayerFeaturesService.pageFeatures` rebuilds the engine's
@@ -433,7 +544,7 @@ describe('pageFeatures forwards every option to the engine', () => {
       truncated: false,
     }));
     const service = new DataLayerFeaturesService(
-      {} as unknown as PrismaService,
+      makePrisma(null) as unknown as PrismaService,
       { notifySourceWrite: jest.fn() } as unknown as DerivedLayerCacheRefreshService,
       { pageFeatures } as unknown as DataLayerEngine,
       { refreshItemBbox: jest.fn() } as unknown as ItemBboxRefreshService,
@@ -520,7 +631,7 @@ describe('filteredExtent forwards every option to the engine', () => {
       async (_args: Record<string, unknown>) => null,
     );
     const service = new DataLayerFeaturesService(
-      {} as unknown as PrismaService,
+      makePrisma(null) as unknown as PrismaService,
       { notifySourceWrite: jest.fn() } as unknown as DerivedLayerCacheRefreshService,
       { filteredExtent } as unknown as DataLayerEngine,
       { refreshItemBbox: jest.fn() } as unknown as ItemBboxRefreshService,
@@ -586,7 +697,7 @@ describe('mvtTile forwards every option to the engine', () => {
       etag: '"x"',
     }));
     const service = new DataLayerFeaturesService(
-      {} as unknown as PrismaService,
+      makePrisma(null) as unknown as PrismaService,
       { notifySourceWrite: jest.fn() } as unknown as DerivedLayerCacheRefreshService,
       { mvtTile } as unknown as DataLayerEngine,
       { refreshItemBbox: jest.fn() } as unknown as ItemBboxRefreshService,

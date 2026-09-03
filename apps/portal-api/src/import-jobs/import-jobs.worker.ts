@@ -277,6 +277,14 @@ export class ImportJobsWorker implements OnModuleInit {
       let meta: Awaited<
         ReturnType<IngestService['streamLayerFromPath']>
       >;
+      // The layer schema every batch is validated against, loaded
+      // once per job. bulkInsertFeatures would otherwise reload it
+      // per batch, which on a county-scale import is a few hundred
+      // item reads inside the COPY transaction for the same answer.
+      const schema = await this.dataLayerFeatures.loadLayerSchema(
+        job.itemId,
+        job.layerId,
+      );
       try {
         await writer.begin();
         if (job.mode === 'replace') {
@@ -303,6 +311,7 @@ export class ImportJobsWorker implements OnModuleInit {
                 filtered,
                 author,
                 writer,
+                schema,
               );
             totalInserted += inserted;
             await this.jobs.updateProgress(

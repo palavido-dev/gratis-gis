@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Injectable, Logger } from '@nestjs/common';
+import type { FeatureFieldType } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 
@@ -24,7 +25,14 @@ export interface DataLayerLayerShape {
   geometryType: 'point' | 'line' | 'polygon' | null;
   fields?: Array<{
     name: string;
-    type: 'string' | 'number' | 'boolean' | 'date';
+    /**
+     * The full FeatureFieldType, not a subset. This used to omit
+     * multi_select, and the two readV3Layers copies that parse
+     * fields coerced anything unrecognised to 'string', so a
+     * searchable multi_select got a text trigram index built over a
+     * JSONB array. Keep in step with shared-types.
+     */
+    type: FeatureFieldType;
     /**
      * Drives two things. (1) Which fields the search UI offers,
      * as always. (2) Which per-field partial trigram indexes

@@ -104,6 +104,29 @@ export interface DataLayerFeatureOut {
   properties: Record<string, unknown>;
 }
 
+/** What `loadLayerSchema` returns and `bulkInsertFeatures` optionally takes. */
+export interface LayerSchema {
+  fields: FeatureField[];
+  pickLists: ResolvedPickLists;
+}
+
+/**
+ * Drop the `_`-prefixed editor-tracking keys (`_global_id`,
+ * `_created_by`, ...) that the read path inlines into `properties`.
+ * They are derived on read, so writing them back would freeze a
+ * stale copy into `attrs` and shadow the live values next time.
+ * Applied to every property bag about to be persisted on an update.
+ */
+function stripUnderscoreKeys(
+  props: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(props)) {
+    if (!k.startsWith('_')) out[k] = v;
+  }
+  return out;
+}
+
 @Injectable()
 export class DataLayerFeaturesService {
   private readonly log = new Logger(DataLayerFeaturesService.name);
@@ -132,24 +155,34 @@ export class DataLayerFeaturesService {
   }
 
   /**
+   * Undeclared keys already reported, by `itemId:layerId:sortedKeys`.
+   * Schema drift is worth one line in the log, not one per row of a
+   * 40,000-row import. Bounded by clearing when it grows past a few
+   * thousand entries, which a long-lived replica would otherwise reach
+   * only after years of distinct drift.
+   */
+  private readonly reportedUnknownKeys = new Set<string>();
+
+  /**
    * The layer's declared fields plus any pick lists its domains point
    * at, for `validateFeatureProperties`.
    *
-   * Read straight off `item.data` rather than through one of the four
+   * Read straight off `item.data` rather than through one of the five
    * `readV3Layers` copies: those narrow a field down to name, type and
-   * label, and drop `domain`, `storage` and `nullable`, which are three
-   * of the five things there is any point in validating.
+   * searchable, and drop `domain`, `storage` and `nullable`, which are
+   * three of the five things there is any point in validating.
    *
    * Returns an empty field list for v1/v2 items and for layers that
    * declare no fields, which makes the validator a no-op there. That
    * is deliberate: a layer with no schema has nothing to disagree
    * with, and schema-free v3 layers must stay writable.
+   *
+   * Public so the async import worker can load the schema once for a
+   * whole job and hand it to every `bulkInsertFeatures` batch, rather
+   * than paying an item read plus a pick-list read per batch.
    */
-  private async loadLayerSchema(
-    itemId: string,
-    layerId: string,
-  ): Promise<{ fields: FeatureField[]; pickLists: ResolvedPickLists }> {
-    const empty = { fields: [] as FeatureField[], pickLists: {} };
+  async loadLayerSchema(itemId: string, layerId: string): Promise<LayerSchema> {
+    const empty: LayerSchema = { fields: [], pickLists: {} };
     const item = await this.prisma.item.findUnique({
       where: { id: itemId },
       select: { data: true },
@@ -166,21 +199,31 @@ export class DataLayerFeaturesService {
     if (!Array.isArray(rawFields) || rawFields.length === 0) return empty;
     const fields = rawFields.filter(
       (f): f is FeatureField =>
-        !!f && typeof f === 'object' && typeof (f as FeatureField).name === 'string',
+        !!f &&
+        typeof f === 'object' &&
+        typeof (f as FeatureField).name === 'string' &&
+        (f as FeatureField).name.length > 0,
     );
     if (fields.length === 0) return empty;
 
+    const refDomains = fields
+      .map((f) => f.domain)
+      .filter(
+        (dom): dom is Extract<FieldDomain, { type: 'coded-value-ref' }> =>
+          !!dom && dom.type === 'coded-value-ref',
+      );
+    // A malformed reference is an authoring bug, not a runtime absence.
+    // It degrades the same way (that field's domain goes unchecked) but
+    // deserves to be visible, because nothing else will ever say so.
+    for (const dom of refDomains) {
+      if (!isUuid(dom.pickListItemId)) {
+        this.log.warn(
+          `data_layer:${itemId}:${layerId} has a coded-value-ref domain whose pickListItemId is not a UUID (${JSON.stringify(dom.pickListItemId)}); that field's domain is not enforced`,
+        );
+      }
+    }
     const refIds = [
-      ...new Set(
-        fields
-          .map((f) => f.domain)
-          .filter(
-            (dom): dom is Extract<FieldDomain, { type: 'coded-value-ref' }> =>
-              !!dom && dom.type === 'coded-value-ref',
-          )
-          .map((dom) => dom.pickListItemId)
-          .filter((id) => isUuid(id)),
-      ),
+      ...new Set(refDomains.map((d) => d.pickListItemId).filter((id) => isUuid(id))),
     ];
     if (refIds.length === 0) return { fields, pickLists: {} };
 
@@ -225,27 +268,20 @@ export class DataLayerFeaturesService {
     layerId: string,
     properties: Record<string, unknown> | undefined,
     mode: 'create' | 'patch',
+    user: AuthUser,
     context?: string,
   ): Promise<Record<string, unknown> | undefined> {
     if (properties === undefined) return undefined;
-    const { fields, pickLists } = await this.loadLayerSchema(itemId, layerId);
-    if (fields.length === 0) return properties;
-    const result = validateFeatureProperties(fields, properties, {
-      mode,
-      pickLists,
+    const [out] = await this.validateAll(itemId, layerId, [{ properties }], mode, user, {
+      ...(context ? { context } : {}),
     });
-    if (!result.ok) {
-      throw new BadRequestException(
-        (context ? `${context}: ` : '') + describeViolations(result.violations),
-      );
-    }
-    return result.value;
+    return out;
   }
 
   /**
    * Batch form of `validateProperties`: loads the layer schema ONCE
-   * and validates every input against it, returning the coerced
-   * property bags positionally.
+   * (or takes one the caller already loaded) and validates every input
+   * against it, returning the coerced property bags positionally.
    *
    * The positional contract matters. The caller rebuilds its engine
    * arguments by index, so returning a filtered or reordered list here
@@ -255,27 +291,78 @@ export class DataLayerFeaturesService {
    * import that reports "row 41,208: Depth is a number field; 'n/a' is
    * not a number" tells the operator which column to fix, while a
    * partial import leaves them reconciling two datasets.
+   *
+   * Two things happen here besides validation, both on purpose:
+   *
+   * - On a create, `submitted_by` is overwritten with the caller's own
+   *   id when the layer declares that column. The field runtime sends
+   *   it from the client so its offline queue can render the row, but
+   *   the server is the only party that knows who is actually holding
+   *   the token; trusting the client would let anyone with edit rights
+   *   attribute an observation to any user id they liked, and the
+   *   responses view renders that id as a person's name. `submitted_at`
+   *   is NOT overwritten: capture time is client-authoritative (offline
+   *   is the only place that knows it) and is only filled when absent.
+   *
+   * - Undeclared keys are logged once per distinct set per layer. The
+   *   validator preserves them (rejecting would break the form runtime,
+   *   dropping would lose data) but nothing else would ever say the
+   *   schema has drifted from what its writers send.
    */
   private async validateAll(
     itemId: string,
     layerId: string,
-    inputs: readonly DataLayerFeatureInsert[],
+    inputs: ReadonlyArray<{ properties?: Record<string, unknown> | undefined }>,
     mode: 'create' | 'patch',
+    user: AuthUser,
+    opts: { schema?: LayerSchema; context?: string } = {},
   ): Promise<Array<Record<string, unknown> | undefined>> {
     const originals = inputs.map((f) => f.properties);
-    const { fields, pickLists } = await this.loadLayerSchema(itemId, layerId);
+    const { fields, pickLists } =
+      opts.schema ?? (await this.loadLayerSchema(itemId, layerId));
     if (fields.length === 0) return originals;
 
-    return originals.map((properties, i) => {
-      if (properties === undefined) return undefined;
+    const declaresSubmittedBy = fields.some((f) => f.name === 'submitted_by');
+    const declaresSubmittedAt = fields.some((f) => f.name === 'submitted_at');
+    const rowLabel = (i: number) =>
+      opts.context ? `${opts.context}: ` : originals.length > 1 ? `Row ${i + 1}: ` : '';
+
+    return originals.map((original, i) => {
+      if (original === undefined) return undefined;
+      // Stamp BEFORE validating, not after. Done the other way round,
+      // a queued field record captured before the client learned to
+      // send submitted_at would fail the required check on every
+      // sync attempt forever, and the offline queue retries failed
+      // records on each drain.
+      let properties = original;
+      if (mode === 'create' && (declaresSubmittedBy || declaresSubmittedAt)) {
+        properties = { ...original };
+        if (declaresSubmittedBy) properties.submitted_by = user.id;
+        if (
+          declaresSubmittedAt &&
+          (properties.submitted_at === undefined || properties.submitted_at === null)
+        ) {
+          properties.submitted_at = new Date().toISOString();
+        }
+      }
       const result = validateFeatureProperties(fields, properties, {
         mode,
         pickLists,
       });
       if (!result.ok) {
         throw new BadRequestException(
-          `Row ${i + 1}: ${describeViolations(result.violations)}`,
+          rowLabel(i) + describeViolations(result.violations),
         );
+      }
+      if (result.unknownFields.length > 0) {
+        const key = `${itemId}:${layerId}:${[...result.unknownFields].sort().join(',')}`;
+        if (!this.reportedUnknownKeys.has(key)) {
+          if (this.reportedUnknownKeys.size > 5000) this.reportedUnknownKeys.clear();
+          this.reportedUnknownKeys.add(key);
+          this.log.warn(
+            `data_layer:${itemId}:${layerId} received keys its schema does not declare: ${result.unknownFields.join(', ')} (preserved, not enforced)`,
+          );
+        }
       }
       return result.value;
     });
@@ -481,7 +568,7 @@ export class DataLayerFeaturesService {
     // Schema check before anything is written, in 'create' mode so a
     // required field the caller omitted entirely is caught here rather
     // than surfacing later as an empty column nobody can explain.
-    const validated = await this.validateAll(itemId, layerId, inputs, 'create');
+    const validated = await this.validateAll(itemId, layerId, inputs, 'create', user);
     const args: CreateFeatureArgs[] = inputs.map((f, i) => ({
       itemId,
       layerId,
@@ -531,6 +618,13 @@ export class DataLayerFeaturesService {
    * Skips per-batch derived-layer cache invalidation (the worker
    * fires a single bulk invalidation after the import completes
    * for cheaper amortization).
+   *
+   * `schema` is optional and the worker should pass it: it is called
+   * once per COPY batch, so without it a 1.4M-row import at 5k per
+   * batch would read the item and its pick lists 280 times inside the
+   * import transaction. Load it once with `loadLayerSchema` before the
+   * loop. Left optional so a caller that forgets is still validated,
+   * just more slowly.
    */
   async bulkInsertFeatures(
     itemId: string,
@@ -538,6 +632,7 @@ export class DataLayerFeaturesService {
     inputs: DataLayerFeatureInsert[],
     user: AuthUser,
     writer: import('../engine/copy-writer.js').CopyWriter,
+    schema?: LayerSchema,
   ): Promise<{ inserted: number }> {
     if (inputs.length === 0) return { inserted: 0 };
 
@@ -546,7 +641,9 @@ export class DataLayerFeaturesService {
     // importer is exactly where bad data has historically entered (the
     // numeric osm_id in a text-declared column came in this way), so
     // exempting it would leave the hole open at the widest point.
-    const validated = await this.validateAll(itemId, layerId, inputs, 'create');
+    const validated = await this.validateAll(itemId, layerId, inputs, 'create', user, {
+      ...(schema ? { schema } : {}),
+    });
     const args: CreateFeatureArgs[] = inputs.map((f, i) => ({
       itemId,
       layerId,
@@ -907,29 +1004,39 @@ export class DataLayerFeaturesService {
     }
     const existing = current.features[0]!;
 
-    const stripUnderscoreKeys = (
-      props: Record<string, unknown>,
-    ): Record<string, unknown> => {
-      const out: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(props)) {
-        if (!k.startsWith('_')) out[k] = v;
-      }
-      return out;
-    };
-
-    // 'patch' mode, not 'create': an update is judged on the keys it
-    // actually carries. A required field cleared to '' is still caught
-    // (that key is present), but a required field the caller never
-    // mentioned is not invented as an error here.
+    // MERGE the patch over the current values. This is what the
+    // docblock above has always promised and what every caller
+    // assumed; the code used to replace the whole bag instead, so a
+    // client that sent only the keys it changed silently cleared every
+    // other column. The field runtime's edit path sends only the
+    // form's own keys, which on a paired submissions layer meant an
+    // edit wiped `submitted_at` and `submitted_by`.
+    //
+    // Merging is also what makes 'patch' mode validation exact: a key
+    // the caller did not mention keeps its value, so "not mentioned"
+    // and "cleared" are different things, and only the second can
+    // violate a required field. Under replace semantics they were the
+    // same write and the validator had to pick a side.
+    //
+    // Underscore keys are stripped from BOTH sides: the read path
+    // inlines them and a client that echoes them back would otherwise
+    // freeze a stale `_created_at` into attrs.
+    const base = stripUnderscoreKeys(existing.properties);
     const nextProps =
       patch.properties !== undefined
-        ? ((await this.validateProperties(
-            itemId,
-            layerId,
-            patch.properties,
-            'patch',
-          )) ?? patch.properties)
-        : stripUnderscoreKeys(existing.properties);
+        ? {
+            ...base,
+            ...stripUnderscoreKeys(
+              (await this.validateProperties(
+                itemId,
+                layerId,
+                patch.properties,
+                'patch',
+                user,
+              )) ?? patch.properties,
+            ),
+          }
+        : base;
 
     const nextGeometry: GeoJsonGeometry | null = isTable
       ? null
@@ -1159,15 +1266,6 @@ export class DataLayerFeaturesService {
       newProperties: Record<string, unknown>;
       geometry: GeoJsonGeometry | null;
     }> = [];
-    const stripUnderscoreKeys = (
-      props: Record<string, unknown>,
-    ): Record<string, unknown> => {
-      const out: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(props)) {
-        if (!k.startsWith('_')) out[k] = v;
-      }
-      return out;
-    };
     for (const f of features.features) {
       const oldValue = (f.properties as Record<string, unknown>)[args.outputName];
       let raw: unknown;

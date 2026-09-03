@@ -112,22 +112,61 @@ function typeName(v: unknown): string {
   return `a ${t}`;
 }
 
-/** Domain codes as strings, or null when the domain cannot be resolved. */
-function domainCodes(
+/**
+ * A resolved domain, ready for membership tests.
+ *
+ * `codes` is a Set rather than the array the schema holds because the
+ * check runs once per field per row, and a bulk import multiplies that
+ * by every row in the batch; `Array.includes` over a few-thousand-entry
+ * pick list, rebuilt per row, was measurable CPU on a single request.
+ *
+ * `listable` says whether an error message may enumerate the codes.
+ * Inline `coded-value` domains live in the layer schema the caller can
+ * already read, so listing them is help. A `coded-value-ref` points at
+ * a separate pick_list item that the caller may NOT be able to open,
+ * and the schema is read here with no share check on that list, so
+ * listing its codes in a 400 would hand a layer author the contents of
+ * any pick list they can name. Those stay unlisted.
+ */
+interface ResolvedDomain {
+  codes: Set<string>;
+  listable: boolean;
+}
+
+function resolveDomain(
   domain: FieldDomain | undefined,
   pickLists: ResolvedPickLists | undefined,
-): string[] | null {
+): ResolvedDomain | null {
   if (!domain) return null;
   if (domain.type === 'coded-value') {
-    return domain.values.map((v) => String(v.code));
+    return {
+      codes: new Set(domain.values.map((v) => String(v.code))),
+      listable: true,
+    };
   }
   if (domain.type === 'coded-value-ref') {
     const entries = pickLists?.[domain.pickListItemId];
     if (!entries) return null;
-    return entries.map((e) => String(e.code));
+    return {
+      codes: new Set(entries.map((e) => String(e.code))),
+      listable: false,
+    };
   }
   return null;
 }
+
+/**
+ * Property names that must never be assigned by bracket on a plain
+ * object. Spread and `Object.keys` treat them as ordinary own keys, but
+ * `out[name] = v` on a plain object invokes the `Object.prototype`
+ * setter for `__proto__` and re-points the object's prototype. A field
+ * name comes from item.data, which is author-editable, so it is
+ * untrusted here even though it is not request input.
+ */
+const RESERVED_FIELD_NAMES = new Set(['__proto__', 'constructor', 'prototype']);
+
+/** Largest list a multi_select field accepts. Anything a person picks from a list fits; anything larger is not a selection. */
+const MAX_MULTI_SELECT_ENTRIES = 500;
 
 interface CoerceOk {
   ok: true;
@@ -242,6 +281,13 @@ function coerceValue(field: FeatureField, raw: unknown): CoerceOk | CoerceFail {
 
     case 'multi_select': {
       if (Array.isArray(raw)) {
+        if (raw.length > MAX_MULTI_SELECT_ENTRIES) {
+          return {
+            ok: false,
+            code: 'type',
+            message: `${label} accepts at most ${MAX_MULTI_SELECT_ENTRIES} selections; received ${raw.length}.`,
+          };
+        }
         const bad = raw.find((e) => typeof e !== 'string' && typeof e !== 'number');
         if (bad !== undefined) {
           return {
@@ -288,22 +334,27 @@ function coerceValue(field: FeatureField, raw: unknown): CoerceOk | CoerceFail {
 function checkConstraints(
   field: FeatureField,
   value: unknown,
-  pickLists: ResolvedPickLists | undefined,
+  domain: ResolvedDomain | null,
 ): FieldViolation | null {
   const label = field.label?.trim() ? field.label : field.name;
 
-  const codes = domainCodes(field.domain, pickLists);
-  if (codes && codes.length > 0) {
+  if (domain && domain.codes.size > 0) {
     const candidates = Array.isArray(value) ? value : [value];
     for (const c of candidates) {
-      if (!codes.includes(String(c))) {
-        const shown = codes.slice(0, 8).join(', ');
+      if (!domain.codes.has(String(c))) {
+        let suffix = '.';
+        if (domain.listable) {
+          const all = [...domain.codes];
+          const shown = all.slice(0, 8).join(', ');
+          suffix =
+            all.length > 8
+              ? ` (allowed: ${shown}, and ${all.length - 8} more).`
+              : ` (allowed: ${shown}).`;
+        }
         return {
           field: field.name,
           code: 'domain',
-          message:
-            `${label} only accepts values from its list; "${String(c)}" is not one of them` +
-            (codes.length > 8 ? ` (allowed: ${shown}, and ${codes.length - 8} more).` : ` (allowed: ${shown}).`),
+          message: `${label} only accepts values from its list; "${String(c)}" is not one of them${suffix}`,
         };
       }
     }
@@ -375,8 +426,23 @@ export function validateFeatureProperties(
   const violations: FieldViolation[] = [];
   const value: Record<string, unknown> = { ...input };
   const declared = new Set(fields.map((f) => f.name));
+  // Resolved once per call, not once per field per row: see
+  // ResolvedDomain. Callers that validate a batch still pay this per
+  // row, which is bounded by field count rather than pick-list size.
+  const domains = new Map<string, ResolvedDomain | null>();
+  for (const field of fields) {
+    domains.set(field.name, resolveDomain(field.domain, options.pickLists));
+  }
 
   for (const field of fields) {
+    if (RESERVED_FIELD_NAMES.has(field.name)) {
+      violations.push({
+        field: field.name,
+        code: 'type',
+        message: `"${field.name}" is not a usable field name.`,
+      });
+      continue;
+    }
     const present = Object.prototype.hasOwnProperty.call(input, field.name);
     const raw = input[field.name];
 
@@ -415,12 +481,16 @@ export function validateFeatureProperties(
     }
     value[field.name] = coerced.value;
 
-    const constraint = checkConstraints(field, coerced.value, options.pickLists);
+    const constraint = checkConstraints(
+      field,
+      coerced.value,
+      domains.get(field.name) ?? null,
+    );
     if (constraint) violations.push(constraint);
   }
 
   const unknownFields = Object.keys(input).filter(
-    (k) => !declared.has(k) && !k.startsWith('_'),
+    (k) => !declared.has(k) && !k.startsWith('_') && !RESERVED_FIELD_NAMES.has(k),
   );
 
   return { ok: violations.length === 0, violations, unknownFields, value };

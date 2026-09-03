@@ -30,6 +30,17 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   you. The dialog now also lets you choose which column to write to,
   and takes the result type from the column itself instead of asking
   you to pick one that might not fit.
+- `GET /api/items/permissions?ids=a,b,c` answers "what may I do with
+  each of these" for up to 100 items in one call. Items you cannot see
+  are omitted rather than returned as all-false.
+
+### Changed
+
+- The "Schema version" column on a form's submissions layer is no
+  longer marked required. Only a submission made through the form
+  itself can know it; a record collected in the field against the same
+  layer legitimately has none. New forms get the corrected definition;
+  existing ones are updated by a migration in 0.9.99.
 
 ### Fixed
 

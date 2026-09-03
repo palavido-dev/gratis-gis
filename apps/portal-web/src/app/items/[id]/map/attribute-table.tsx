@@ -26,6 +26,7 @@ import {
 // layer detail page's export menu.
 import { exportFeatures, type ClientExportFormat } from '@/lib/layer-export';
 import { exportBundle } from '@/lib/bundle-export';
+import { parseApiError } from '@/lib/api-error';
 import { matchesFilter } from '@gratis-gis/shared-types';
 import type {
   FeatureField,
@@ -112,17 +113,19 @@ interface Props {
    * Per-layer field schema. When provided, the inline cell editor
    * uses each field's `domain` (coded-value or coded-value-ref) to
    * render a `<select>` of permitted values rather than a freeform
-   * text input. When omitted (the map editor doesn't thread this
-   * through yet), the editor falls back to plain text. Indexed by
-   * layer id; missing layers render text inputs.
+   * text input, and `coerceDraft` uses the declared type rather than
+   * guessing from the cell's current value. When omitted the editor
+   * falls back to plain text. Indexed by layer id; missing layers
+   * render text inputs. Supplied by both the editor runtime and the
+   * map builder.
    */
   fieldsByLayer?: Record<string, FeatureField[]>;
   /**
    * Resolved pick lists keyed by pick_list item id. Used to
    * resolve `coded-value-ref` field domains in the inline editor.
-   * Same shape AttributeForm consumes; the editor runtime already
-   * fetches these server-side so wiring them through here is just
-   * a prop passthrough.
+   * Same shape AttributeForm consumes. The editor runtime fetches
+   * these server-side; the map builder fetches them client-side for
+   * the layers the viewer may edit.
    */
   pickLists?: Record<string, PickListData>;
   /**
@@ -601,9 +604,10 @@ export function AttributeTable({
           { signal: ctrl.signal },
         );
         if (!res.ok) {
+          const message = await parseApiError(res, 'Could not load rows');
           if (!abort) {
             setServerPage({ features: [], count: 0, truncated: false });
-            setServerError(`Server returned ${res.status}`);
+            setServerError(message);
           }
           return;
         }
@@ -1019,15 +1023,6 @@ export function AttributeTable({
   }
 
   /**
-   * Inline-edit predicate. A cell is editable iff:
-   *   - the parent wired `onPatchFeature` (turns the feature on)
-   *   - the active layer is in `editableLayerIds`
-   *   - the field is not underscore-prefixed (editor tracking)
-   *   - the parent didn't restrict the layer's editable fields,
-   *     or the field is in the per-layer allowlist
-   *   - the row carries a `_global_id` (without it we can't PATCH)
-   */
-  /**
    * May this person write features to the layer currently shown?
    *
    * Distinct from the `canEdit` prop, which is about the MAP. A map
@@ -1038,6 +1033,41 @@ export function AttributeTable({
     onPatchFeature && activeLayer && editableLayerIds?.has(activeLayer.id),
   );
 
+  /**
+   * Columns a bulk write may target on the active layer: the declared
+   * fields, minus anything the per-layer allowlist excludes, minus
+   * editor-tracking columns, minus types the expression language has
+   * no result for (a date or a list cannot come out of `{{a}} * 2`).
+   *
+   * Calculate Field used to offer every column and honour none of
+   * this, so an author restricted to two fields could bulk-write any
+   * of them, and picking a date column produced a run where every row
+   * came back an error.
+   */
+  const calculableFields = useMemo(() => {
+    if (!activeLayer) return [] as string[];
+    const allow = editableFieldsByLayer?.[activeLayer.id];
+    const defs = fieldsByLayer?.[activeLayer.id];
+    return activeFields.filter((f) => {
+      if (f.startsWith('_')) return false;
+      if (allow && !allow.has(f)) return false;
+      const def = defs?.find((d) => d.name === f);
+      if (def && def.type !== 'number' && def.type !== 'string' && def.type !== 'boolean') {
+        return false;
+      }
+      return true;
+    });
+  }, [activeLayer, activeFields, editableFieldsByLayer, fieldsByLayer]);
+
+  /**
+   * Inline-edit predicate. A cell is editable iff:
+   *   - the parent wired `onPatchFeature` (turns the feature on)
+   *   - the active layer is in `editableLayerIds`
+   *   - the field is not underscore-prefixed (editor tracking)
+   *   - the parent didn't restrict the layer's editable fields,
+   *     or the field is in the per-layer allowlist
+   *   - the row carries a `_global_id` (without it we can't PATCH)
+   */
   function canInlineEditField(field: string, idx: number): boolean {
     if (!onPatchFeature || !activeLayer) return false;
     if (!editableLayerIds || !editableLayerIds.has(activeLayer.id))
@@ -1436,11 +1466,10 @@ export function AttributeTable({
             that exists for exactly this job was effectively hidden.
             The button is the discoverable route; the context menu
             stays because it preselects the column you clicked. */}
-        {serverMode && canEditActiveLayer ? (
+        {serverMode && canEditActiveLayer && calculableFields.length > 0 ? (
           <button
             type="button"
             onClick={() => setCalcFieldFor('')}
-            disabled={activeFields.length === 0}
             className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
             title="Set a column's value for many rows at once from an expression"
           >
@@ -1542,11 +1571,12 @@ export function AttributeTable({
                       // offering it to someone who merely owns the map
                       // is offering a 403.
                       if (!serverMode || !canEditActiveLayer) return;
+                      if (!calculableFields.includes(f)) return;
                       e.preventDefault();
                       setCalcFieldFor(f);
                     }}
                     title={
-                      serverMode && canEditActiveLayer
+                      serverMode && canEditActiveLayer && calculableFields.includes(f)
                         ? 'Click to sort, right-click to Calculate Field'
                         : undefined
                     }
@@ -1805,8 +1835,12 @@ export function AttributeTable({
         </div>
       )}
 
-      {canEdit ? (
-        onPatchFeature ? (
+      {/* Keyed on the LAYER's edit right, not the map's. In the map
+          builder the two diverge by design, and a person who may edit
+          the layer but not the map was getting editable cells with no
+          hint and, worse, no place for a rejected save to show up. */}
+      {canEdit || canEditActiveLayer ? (
+        onPatchFeature && canEditActiveLayer ? (
           <div className="flex items-center justify-between border-t border-border px-3 py-1.5 text-2xs">
             <span className="text-muted">
               Double-click a cell to edit. Enter to save, Esc to cancel.
@@ -1841,8 +1875,9 @@ export function AttributeTable({
         <CalculateFieldModal
           itemId={serverItemId}
           layerKey={serverLayerKey}
-          initialFieldName={calcFieldFor || (activeFields[0] ?? '')}
-          availableFields={activeFields}
+          initialFieldName={calcFieldFor || (calculableFields[0] ?? '')}
+          availableFields={calculableFields}
+          referenceFields={activeFields.filter((f) => !f.startsWith('_'))}
           fieldDefs={
             activeLayer ? fieldsByLayer?.[activeLayer.id] : undefined
           }
@@ -2285,6 +2320,7 @@ function CalculateFieldModal({
   layerKey,
   initialFieldName,
   availableFields,
+  referenceFields,
   fieldDefs,
   selectedIds,
   onClose,
@@ -2298,7 +2334,14 @@ function CalculateFieldModal({
    * available field, which the picker below can change.
    */
   initialFieldName: string;
+  /** Columns the calculation may WRITE to. Already filtered by the caller. */
   availableFields: string[];
+  /**
+   * Columns an expression may READ. A superset of `availableFields`:
+   * a formula can reference a date column or one outside the write
+   * allowlist without being allowed to overwrite it.
+   */
+  referenceFields: string[];
   /**
    * Declared schema for the layer, when the caller has it. Used to
    * fix the output type to what the target column actually is: the
@@ -2379,18 +2422,7 @@ function CalculateFieldModal({
         },
       );
       if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        try {
-          const parsed = JSON.parse(body) as { message?: unknown };
-          const msg = Array.isArray(parsed.message)
-            ? String(parsed.message[0])
-            : typeof parsed.message === 'string'
-              ? parsed.message
-              : `HTTP ${res.status}`;
-          setError(msg);
-        } catch {
-          setError(`HTTP ${res.status}`);
-        }
+        setError(await parseApiError(res, 'Calculation failed'));
         return;
       }
       const data = (await res.json()) as {
@@ -2497,7 +2529,7 @@ function CalculateFieldModal({
               lower, concat, abs, round, if(cond, a, b).
             </p>
             <div className="flex flex-wrap gap-1">
-              {availableFields.map((f) => (
+              {referenceFields.map((f) => (
                 <button
                   key={f}
                   type="button"

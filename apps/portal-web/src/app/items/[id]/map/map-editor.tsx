@@ -26,6 +26,7 @@ import type {
 } from '@gratis-gis/shared-types';
 import { layersForPortalItem } from './portal-item-layers';
 import { toast } from '@/lib/toast';
+import { parseApiError } from '@/lib/api-error';
 import {
   DEFAULT_LAYER_ACCESS,
   DEFAULT_LAYER_INTERACTIONS,
@@ -914,15 +915,7 @@ export function MapEditor({
         // The 400 body carries the validator's sentence, which names
         // the field and what it would not accept. Surfacing the status
         // code instead would throw that away.
-        const body = await res.text();
-        let message = `Save failed (${res.status}).`;
-        try {
-          const parsed = JSON.parse(body) as { message?: unknown };
-          if (typeof parsed.message === 'string') message = parsed.message;
-        } catch {
-          if (body.trim() && body.length < 300) message = body;
-        }
-        throw new Error(message);
+        throw new Error(await parseApiError(res, 'Save failed'));
       }
       canvasRef.current?.refreshLayerSource(layerId);
     },

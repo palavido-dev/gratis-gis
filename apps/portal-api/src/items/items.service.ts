@@ -3,7 +3,11 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import type { ItemAccess, ItemType, PrincipalType, SharePermission } from '@prisma/client';
-import { ITEM_TYPES, defaultThumbnailDesign } from '@gratis-gis/shared-types';
+import {
+  ITEM_TYPES,
+  defaultThumbnailDesign,
+  type FeatureFieldType,
+} from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
@@ -3507,10 +3511,11 @@ function readV3Layers(data: unknown): DataLayerLayerShape[] | null {
         ? (l.fields as Array<Record<string, unknown>>)
             .map((f) => {
               const name = typeof f.name === 'string' ? f.name : '';
-              const type: 'string' | 'number' | 'boolean' | 'date' =
+              const type: FeatureFieldType =
                 f.type === 'number' ||
                 f.type === 'boolean' ||
-                f.type === 'date'
+                f.type === 'date' ||
+                f.type === 'multi_select'
                   ? f.type
                   : 'string';
               const searchable = f.searchable === true;

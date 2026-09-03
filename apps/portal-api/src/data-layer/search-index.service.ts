@@ -5,6 +5,7 @@ import { Injectable, Logger } from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { DataLayerLayerShape } from './tables.service.js';
+import type { FeatureFieldType } from '@gratis-gis/shared-types';
 
 /**
  * Per-searchable-field trigram indexing for data_layer attribute
@@ -480,8 +481,11 @@ export function readSearchableLayers(
       ? (rawFields as Array<Record<string, unknown>>)
           .map((f) => {
             const name = typeof f.name === 'string' ? f.name : '';
-            const type: 'string' | 'number' | 'boolean' | 'date' =
-              f.type === 'number' || f.type === 'boolean' || f.type === 'date'
+            const type: FeatureFieldType =
+              f.type === 'number' ||
+              f.type === 'boolean' ||
+              f.type === 'date' ||
+              f.type === 'multi_select'
                 ? f.type
                 : 'string';
             return f.searchable === true

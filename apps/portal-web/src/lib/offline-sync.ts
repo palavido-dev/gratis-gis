@@ -51,6 +51,7 @@ import {
   updateQueueRecord,
   type QueueRecord,
 } from './offline-store';
+import { parseApiError } from './api-error';
 
 /**
  * Outcome of a single sync run. `processed` includes both successes
@@ -229,8 +230,11 @@ async function replayRecord(r: QueueRecord): Promise<void> {
 
 async function throwIfNotOk(res: Response, verb: string): Promise<void> {
   if (res.ok) return;
-  const body = await res.text().catch(() => '');
-  throw new Error(`${verb} failed (${res.status}): ${body || res.statusText}`);
+  // The message lands in the queue row's lastError and on the sync
+  // screen. A refused write now usually means the schema validator
+  // said no, and its sentence names the field; the raw JSON envelope
+  // around it does not help anyone in the field.
+  throw new Error(await parseApiError(res, `${verb} failed`));
 }
 
 /**

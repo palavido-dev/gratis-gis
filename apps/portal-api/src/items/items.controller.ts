@@ -59,6 +59,13 @@ const UUID_RE =
  * the largest demo map draws a dozen layers.
  */
 const MAX_PERMISSION_IDS = 100;
+
+interface EffectivePermissions {
+  canRead: boolean;
+  canEdit: boolean;
+  canDownload: boolean;
+  canAdmin: boolean;
+}
 import type { CreateItemInput, UpdateItemInput } from './items.service.js';
 import { ItemsService } from './items.service.js';
 import { DataSnapshotService } from './data-snapshot.service.js';
@@ -402,39 +409,48 @@ export class ItemsController {
   async permissionsBatch(
     @CurrentUser() user: AuthUser,
     @Query('ids') ids?: string,
-  ): Promise<Record<string, {
-    canRead: boolean;
-    canEdit: boolean;
-    canDownload: boolean;
-    canAdmin: boolean;
-  }>> {
-    const wanted = (ids ?? '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter((s) => UUID_RE.test(s))
-      .slice(0, MAX_PERMISSION_IDS);
+  ): Promise<Record<string, EffectivePermissions>> {
+    const wanted = [
+      ...new Set(
+        (ids ?? '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter((s) => UUID_RE.test(s)),
+      ),
+    ];
     if (wanted.length === 0) return {};
-    const out: Record<
-      string,
-      { canRead: boolean; canEdit: boolean; canDownload: boolean; canAdmin: boolean }
-    > = {};
+    // Refuse rather than truncate. A silently partial answer renders
+    // the layers past the cap as read-only with nothing to say why,
+    // which is a worse failure than a 400 the caller can see.
+    if (wanted.length > MAX_PERMISSION_IDS) {
+      throw new BadRequestException(
+        `At most ${MAX_PERMISSION_IDS} ids per request; received ${wanted.length}.`,
+      );
+    }
     // One resolution per id through the same service the single-item
     // route uses, rather than a bulk query with its own visibility
     // logic. A second implementation of "can this person see this"
     // is how the two answers drift apart, and this one would drift
     // in the direction of showing edit controls that 403.
-    for (const id of wanted) {
-      try {
-        const item = await this.items.get(user, id);
-        out[id] = {
-          canRead: this.sharing.canRead(user, item, item.shares ?? []),
-          canEdit: this.sharing.canEdit(user, item, item.shares ?? []),
-          canDownload: this.sharing.canDownload(user, item, item.shares ?? []),
-          canAdmin: this.sharing.canAdmin(user, item),
-        };
-      } catch {
-        // Not readable, or gone. Omitted on purpose; see the docblock.
-      }
+    //
+    // Resolved concurrently: the whole point of this route is that a
+    // twelve-layer map should not wait on twelve round trips, and a
+    // serial loop here would only have moved those from HTTP to the
+    // database. Bounded by MAX_PERMISSION_IDS.
+    const resolved = await Promise.all(
+      wanted.map(async (id) => {
+        try {
+          const item = await this.items.get(user, id);
+          return [id, this.effectivePermissions(user, item)] as const;
+        } catch {
+          // Not readable, or gone. Omitted on purpose; see the docblock.
+          return null;
+        }
+      }),
+    );
+    const out: Record<string, EffectivePermissions> = {};
+    for (const entry of resolved) {
+      if (entry) out[entry[0]] = entry[1];
     }
     return out;
   }
@@ -618,10 +634,24 @@ export class ItemsController {
     // to "what can you do with it?" is "nothing" and a 404 keeps the
     // existence of unreachable items invisible.
     const item = await this.items.get(user, id);
+    return this.effectivePermissions(user, item);
+  }
+
+  /**
+   * The four-flag permission projection both permission routes return.
+   * One implementation on purpose: the batch route's docblock argues
+   * against a second visibility check, and a second copy of the
+   * projection is the smaller version of the same drift.
+   */
+  private effectivePermissions(
+    user: AuthUser,
+    item: Awaited<ReturnType<ItemsService['get']>>,
+  ): EffectivePermissions {
+    const shares = item.shares ?? [];
     return {
-      canRead: this.sharing.canRead(user, item, item.shares ?? []),
-      canEdit: this.sharing.canEdit(user, item, item.shares ?? []),
-      canDownload: this.sharing.canDownload(user, item, item.shares ?? []),
+      canRead: this.sharing.canRead(user, item, shares),
+      canEdit: this.sharing.canEdit(user, item, shares),
+      canDownload: this.sharing.canDownload(user, item, shares),
       canAdmin: this.sharing.canAdmin(user, item),
     };
   }

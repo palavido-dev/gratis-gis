@@ -105,6 +105,7 @@ import { createGpsMarker, type GpsMarkerHandle } from './gps-map-marker';
 import { stampGpsMetadata } from './gps-metadata-stamp';
 import { V3FeatureAttachments } from '../data-layer/v3-feature-attachments';
 import { describeZoom } from '@/lib/map-scale';
+import { parseApiError } from '@/lib/api-error';
 import { useT } from '@/lib/i18n/locale-context';
 
 /**
@@ -4123,8 +4124,7 @@ function FormModal({
             return;
           }
           if (!res.ok) {
-            const body = await res.text().catch(() => '');
-            throw new Error(`POST failed (${res.status}): ${body || res.statusText}`);
+            throw new Error(await parseApiError(res, 'Could not save'));
           }
         } else {
           let res: Response;
@@ -4145,10 +4145,7 @@ function FormModal({
             return;
           }
           if (!res.ok) {
-            const body = await res.text().catch(() => '');
-            throw new Error(
-              `PATCH failed (${res.status}): ${body || res.statusText}`,
-            );
+            throw new Error(await parseApiError(res, 'Could not save'));
           }
         }
       } else {

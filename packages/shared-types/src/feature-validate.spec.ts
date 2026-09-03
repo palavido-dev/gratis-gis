@@ -209,6 +209,29 @@ describe('domains', () => {
     expect(validateFeatureProperties([ref], { kind: 'rock' }, { pickLists }).ok).toBe(false);
   });
 
+  it('lists allowed codes for an inline domain but never for a pick-list reference', () => {
+    // The layer schema the caller can read already contains inline
+    // codes, so naming them is help. A referenced pick list is a
+    // separate item the caller may not be able to open, and this
+    // module resolves it with no share check; enumerating its codes
+    // in a 400 would leak any pick list an author can name.
+    const inline = validateFeatureProperties([coded], { severity: 'urgent' });
+    expect(inline.violations[0]?.message).toContain('allowed: low, high');
+
+    const ref = field({
+      name: 'kind',
+      domain: { type: 'coded-value-ref', pickListItemId: 'pl-1' },
+    });
+    const r = validateFeatureProperties(
+      [ref],
+      { kind: 'rock' },
+      { pickLists: { 'pl-1': [{ code: 'tree' }, { code: 'shrub' }] } },
+    );
+    expect(r.ok).toBe(false);
+    expect(r.violations[0]?.message).not.toContain('tree');
+    expect(r.violations[0]?.message).not.toContain('allowed');
+  });
+
   it('leaves an unresolvable coded-value-ref unchecked rather than blocking every edit', () => {
     // A deleted or unreadable pick list must not make the layer
     // read-only by accident. Same reasoning as a missing geo_boundary
@@ -258,6 +281,26 @@ describe('unknown keys', () => {
     expect(r.unknownFields).toEqual(['location']);
     expect(r.value.location).toEqual({ lat: 38.9, lng: -79.7 });
     expect(r.value._client_id).toBe('sample-sub-4');
+  });
+});
+
+describe('hostile shapes', () => {
+  it('refuses a field named __proto__ instead of re-pointing the result prototype', () => {
+    // Spread treats __proto__ as an ordinary own key, but a bracket
+    // assignment on a plain object invokes the Object.prototype
+    // setter. A field name is author-editable item.data, so it is
+    // untrusted here even though it is not request input.
+    const f = field({ name: '__proto__', type: 'multi_select' });
+    const r = validateFeatureProperties([f], { __proto__: ['x'] } as Record<string, unknown>);
+    expect(r.ok).toBe(false);
+    expect(Object.getPrototypeOf(r.value)).toBe(Object.prototype);
+  });
+
+  it('caps a multi_select list rather than validating it unbounded', () => {
+    const f = field({ name: 'tags', type: 'multi_select' });
+    const r = validateFeatureProperties([f], { tags: Array.from({ length: 501 }, () => 'a') });
+    expect(r.ok).toBe(false);
+    expect(r.violations[0]?.message).toContain('at most 500');
   });
 });
 

@@ -54,12 +54,14 @@ same underlying `data_layer` items, but the policy that governs
 
 | Item type | Purpose | What it does NOT do |
 | --- | --- | --- |
-| `map` (existing, unchanged) | Read-only composition: layers, basemap, viewport, symbology. | No editing UI of any kind. The map is the looking surface. |
+| `map` (existing) | Composition: layers, basemap, viewport, symbology. Since v0.9.97 its attribute table also allows inline cell edits and Calculate Field on any layer the viewer has edit permission for, so a quick correction does not require standing up an editor item. | No drawing or geometry tools, no templates, no snapping, no per-field allowlists. Those are what the editor item is for. |
 | `editor` (new) | Online, tool-driven workspace for adding, editing, deleting features in one or more data_layers. Feature templates, drawing tools, attribute panel from layer schema. | Not form-driven. Not offline. Not for "capture 40 inspections this week" workflows. |
 | `data_collection` (new, wraps existing `form` + `form_submission_collection`) | Form-driven capture, online or offline, of new features (and optionally edits to your own previous submissions). Map-centric or form-centric. | Not for free-form GIS analyst work on existing layers. Not for bulk attribute fixes. |
 
 The mental test for "which item type do I make?" is:
 
+- One wrong value, or one column to recompute, on a layer you may
+  already edit? **The map's attribute table.** No new item needed.
 - Free-form drawing on a desktop, with templates and snap tools,
   against existing data? **Editor.**
 - Field crew capturing structured records, possibly without service?
