@@ -23,11 +23,19 @@
  *     client-supplied globalId via the COALESCE($1::uuid,
  *     gen_random_uuid()) shape.
  *
- *   - **Retry policy.** Failed records keep their failureReason +
- *     retryCount and stay in the queue. The next sync run picks them
- *     up again. This module does NOT exponential-back-off internally;
- *     callers throttle at the trigger level (auto-sync-on-online +
- *     manual "Sync now" button) which is enough in practice.
+ *   - **Retry policy.** A transient failure (network, 5xx, expired
+ *     session, rate limit) marks the record 'failed', keeping its
+ *     failureReason + retryCount, and the next sync run picks it up
+ *     again. A deterministic refusal (validator 400, sharing 403, a
+ *     409, and other 4xx) marks it 'rejected' instead: the same bytes
+ *     would get the same answer, so no drain retries it. The runtime
+ *     shows rejected records with their reason and offers retry
+ *     (`retryRejected`, back to 'pending') or discard
+ *     (`discardRejected`). The split lives in shared-types
+ *     `replayOutcomeForStatus` so it is unit tested. This module does
+ *     NOT exponential-back-off internally; callers throttle at the
+ *     trigger level (auto-sync-on-online + manual "Sync now" button)
+ *     which is enough in practice.
  *
  *   - **No conflict resolution UI here.** That belongs to the runtime
  *     (it has the FormRuntime, the user, and the original record's
@@ -52,24 +60,40 @@ import {
   type QueueRecord,
 } from './offline-store';
 import { parseApiError } from './api-error';
+import { replayOutcomeForStatus } from '@gratis-gis/shared-types';
 
 /**
- * Outcome of a single sync run. `processed` includes both successes
- * and failures; `synced` is the slice that made it to the server.
- * `remaining` is what's still in the queue (pending or failed) when
- * the run ends.
+ * Outcome of a single sync run. `processed` includes successes,
+ * transient failures and rejections; `synced` is the slice that made
+ * it to the server. `remaining` is what's still retryable (pending or
+ * failed) when the run ends; `rejected` counts the parked rows, both
+ * from this run and earlier ones, since they need a person either way.
  */
 export interface SyncResult {
   processed: number;
   synced: number;
   failed: number;
+  rejected: number;
   remaining: number;
   errors: Array<{
     recordId: string;
     op: QueueRecord['op'];
     layerLabel: string;
     reason: string;
+    terminal: boolean;
   }>;
+}
+
+/**
+ * Thrown by replayRecord when the server refused the edit for a
+ * reason a retry cannot change. syncQueue parks the row instead of
+ * marking it failed.
+ */
+class ReplayRejected extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ReplayRejected';
+  }
 }
 
 /**
@@ -122,6 +146,7 @@ export async function syncQueue(
     processed: 0,
     synced: 0,
     failed: 0,
+    rejected: 0,
     remaining: 0,
     errors: [],
   };
@@ -143,35 +168,64 @@ export async function syncQueue(
       result.synced += 1;
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
+      const terminal = err instanceof ReplayRejected;
       await updateQueueRecord({
         ...record,
-        syncStatus: 'failed',
+        syncStatus: terminal ? 'rejected' : 'failed',
         failureReason: reason,
         retryCount: (record.retryCount ?? 0) + 1,
       });
-      result.failed += 1;
+      if (terminal) result.rejected += 1;
+      else result.failed += 1;
       result.errors.push({
         recordId: record.id,
         op: record.op,
         layerLabel: record.layerKey,
         reason,
+        terminal,
       });
     }
     result.processed += 1;
     opts.onProgress?.(result.processed, todo.length);
   }
   // Re-count what's still queued (in case parallel runs added new
-  // pending records during this drain).
+  // pending records during this drain). Rejected rows are reported
+  // as their own total rather than folded into `remaining`: nothing
+  // automatic will ever clear them.
   const stillPending = await listQueueByStatus(dataCollectionId, 'pending');
   const stillFailed = await listQueueByStatus(dataCollectionId, 'failed');
+  const allRejected = await listQueueByStatus(dataCollectionId, 'rejected');
   result.remaining = stillPending.length + stillFailed.length;
+  result.rejected = allRejected.length;
   return result;
+}
+
+/** Rows parked by a deterministic server refusal, oldest first. */
+export async function listRejected(dataCollectionId: string): Promise<QueueRecord[]> {
+  const rows = await listQueueByStatus(dataCollectionId, 'rejected');
+  return rows.sort((a, b) => a.queuedAt.localeCompare(b.queuedAt));
+}
+
+/**
+ * Put a rejected row back in line for the next sync. The reason and
+ * attempt count are kept so the runtime can still show why it was
+ * parked if the server says no again.
+ */
+export async function retryRejected(record: QueueRecord): Promise<void> {
+  if (record.syncStatus !== 'rejected') return;
+  await updateQueueRecord({ ...record, syncStatus: 'pending' });
+}
+
+/** Drop a rejected row. The edit is gone; nothing reaches the server. */
+export async function discardRejected(record: QueueRecord): Promise<void> {
+  if (record.syncStatus !== 'rejected') return;
+  await deleteQueueRecord(record.dataCollectionId, record.id);
 }
 
 /**
  * Replay a single queue record against the live API. Throws on any
- * non-2xx response; the caller (syncQueue) translates that into a
- * 'failed' update on the queue row.
+ * non-2xx response; the caller (syncQueue) translates a ReplayRejected
+ * into a 'rejected' row and anything else into 'failed'.
  *
  * The call shape mirrors what field-runtime's online write path does
  * directly, so behaviour stays consistent regardless of which path
@@ -196,7 +250,7 @@ async function replayRecord(r: QueueRecord): Promise<void> {
         ],
       }),
     });
-    await throwIfNotOk(res, 'POST');
+    await throwIfNotOk(res, 'POST', r.op);
     return;
   }
   if (r.op === 'update') {
@@ -208,33 +262,39 @@ async function replayRecord(r: QueueRecord): Promise<void> {
         ...(r.geometry !== null ? { geometry: r.geometry } : {}),
       }),
     });
-    await throwIfNotOk(res, 'PATCH');
+    await throwIfNotOk(res, 'PATCH', r.op);
     return;
   }
   if (r.op === 'delete') {
     const res = await fetch(`${layerPath}/${r.globalId}`, {
       method: 'DELETE',
     });
-    // 404 on delete is benign: the feature is already gone server-
-    // side (perhaps because a prior sync succeeded but its response
-    // was lost). Treat as success rather than blocking the queue
-    // forever on a row that's effectively done.
-    if (res.status === 404) return;
-    await throwIfNotOk(res, 'DELETE');
+    // A 404 here is classified as done by replayOutcomeForStatus: the
+    // feature is already gone server-side (perhaps because a prior
+    // sync succeeded but its response was lost).
+    await throwIfNotOk(res, 'DELETE', r.op);
     return;
   }
-  // Unknown op (shouldn't happen — type union exhausted above). Fail
-  // explicitly so the queue row gets flagged for admin attention.
-  throw new Error(`Unknown queue op: ${(r as { op: string }).op}`);
+  // Unknown op (the type union is exhausted above, so only a row
+  // written by a newer client could get here). Park it: retrying
+  // cannot teach this build a new op.
+  throw new ReplayRejected(`Unknown queue op: ${(r as { op: string }).op}`);
 }
 
-async function throwIfNotOk(res: Response, verb: string): Promise<void> {
-  if (res.ok) return;
-  // The message lands in the queue row's lastError and on the sync
-  // screen. A refused write now usually means the schema validator
-  // said no, and its sentence names the field; the raw JSON envelope
-  // around it does not help anyone in the field.
-  throw new Error(await parseApiError(res, `${verb} failed`));
+async function throwIfNotOk(
+  res: Response,
+  verb: string,
+  op: QueueRecord['op'],
+): Promise<void> {
+  const outcome = replayOutcomeForStatus(res.status, op);
+  if (outcome === 'done') return;
+  // The message lands in the queue row's failureReason and on the
+  // sync screen. A refused write now usually means the schema
+  // validator said no, and its sentence names the field; the raw JSON
+  // envelope around it does not help anyone in the field.
+  const reason = await parseApiError(res, `${verb} failed`);
+  if (outcome === 'rejected') throw new ReplayRejected(reason);
+  throw new Error(reason);
 }
 
 /**

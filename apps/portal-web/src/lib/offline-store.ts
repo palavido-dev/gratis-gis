@@ -135,7 +135,16 @@ export interface QueueRecord {
   properties: Record<string, unknown> | null;
   queuedAt: string;
   schemaHash: string;
-  syncStatus: 'pending' | 'syncing' | 'synced' | 'failed';
+  /**
+   * 'pending' and 'failed' are retried by every drain; 'failed' just
+   * carries the last reason and a count. 'rejected' is terminal: the
+   * server refused the edit deterministically (validator, sharing, a
+   * conflict), so no drain touches it again until a person retries it
+   * (back to 'pending') or discards it. 'synced' is unused in
+   * practice, since a synced row is deleted, but the service worker
+   * still recognises it.
+   */
+  syncStatus: 'pending' | 'syncing' | 'synced' | 'failed' | 'rejected';
   failureReason?: string;
   lastAttemptAt?: string;
   retryCount?: number;

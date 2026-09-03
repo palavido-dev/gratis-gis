@@ -35,7 +35,7 @@ export interface FieldQueueManifestEntry {
     op: 'insert' | 'update' | 'delete';
     layerId: string;
     queuedAt: string;
-    status: 'pending' | 'failed';
+    status: 'pending' | 'failed' | 'rejected';
     lastError?: string | null;
     attempts?: number;
   }>;
@@ -248,6 +248,7 @@ function DeviceRow({
   const confirm = useConfirm();
   const stuck = countQueued(row);
   const failed = countFailed(row);
+  const rejected = countRejected(row);
   const oldest = oldestQueuedAt(row);
   const lastReportMs = Date.now() - new Date(row.reportedAt).getTime();
   const silent = lastReportMs > 1000 * 60 * 60 * 24 * 3; // > 3 days
@@ -289,11 +290,18 @@ function DeviceRow({
                 {stuck} queued
                 {failed > 0 ? ` (${failed} failed)` : ''}
               </span>
-            ) : (
+            ) : null}
+            {rejected > 0 ? (
+              <span className="inline-flex items-center gap-1 rounded-full border border-danger/30 bg-danger/10 px-2 py-0.5 font-medium text-danger">
+                <AlertTriangle className="h-3 w-3" />
+                {rejected} rejected by the server
+              </span>
+            ) : null}
+            {stuck === 0 ? (
               <span className="inline-flex items-center gap-1 rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-success">
                 Queue clear
               </span>
-            )}
+            ) : null}
             {oldest ? (
               <span className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2 py-0.5 text-muted">
                 Oldest queued: {formatRelative(oldest)}
@@ -386,6 +394,10 @@ function DeviceRow({
 function DeploymentEntry({ entry }: { entry: FieldQueueManifestEntry }) {
   const queued = entry.queuedRecords.length;
   const failed = entry.queuedRecords.filter((r) => r.status === 'failed');
+  const rejected = entry.queuedRecords.filter((r) => r.status === 'rejected');
+  // Rejected rows come first: they are the ones nothing will clear
+  // without a person, so they are what the admin needs to chase.
+  const problems = [...rejected, ...failed];
   // Prefer the server-resolved deployment title. If the item has been
   // soft-deleted we keep the title but tag it; if the lookup missed
   // entirely (cross-org or hard-deleted) we fall back to the uuid so
@@ -434,24 +446,26 @@ function DeploymentEntry({ entry }: { entry: FieldQueueManifestEntry }) {
         <p className="mt-1 text-2xs text-muted">No queued records.</p>
       ) : (
         <p className="mt-1 text-2xs text-ink-1">
-          {queued} queued ({failed.length} failed)
+          {queued} queued ({failed.length} failed
+          {rejected.length > 0 ? `, ${rejected.length} rejected` : ''})
         </p>
       )}
-      {failed.length > 0 ? (
+      {problems.length > 0 ? (
         <div className="mt-2 space-y-1">
-          {failed.slice(0, 5).map((r) => (
+          {problems.slice(0, 5).map((r) => (
             <div
               key={r.id}
               className="rounded border border-danger/20 bg-danger/5 px-2 py-1 text-2xs text-danger"
             >
-              <span className="font-mono">{r.op}</span> · attempts{' '}
-              {r.attempts ?? 0}
+              <span className="font-mono">{r.op}</span>
+              {r.status === 'rejected' ? ' · rejected, waiting on the worker' : ''}
+              {' '}· attempts {r.attempts ?? 0}
               {r.lastError ? <span> · {r.lastError}</span> : null}
             </div>
           ))}
-          {failed.length > 5 ? (
+          {problems.length > 5 ? (
             <p className="text-2xs text-muted">
-              + {failed.length - 5} more failed records.
+              + {problems.length - 5} more records with errors.
             </p>
           ) : null}
         </div>
@@ -462,6 +476,13 @@ function DeploymentEntry({ entry }: { entry: FieldQueueManifestEntry }) {
 
 function countQueued(row: FieldQueueRow): number {
   return row.manifest.reduce((sum, e) => sum + e.queuedRecords.length, 0);
+}
+
+function countRejected(row: FieldQueueRow): number {
+  return row.manifest.reduce(
+    (sum, e) => sum + e.queuedRecords.filter((r) => r.status === 'rejected').length,
+    0,
+  );
 }
 
 function countFailed(row: FieldQueueRow): number {

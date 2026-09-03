@@ -19,7 +19,10 @@ export interface ManifestEntry {
     op: 'insert' | 'update' | 'delete';
     layerId: string;
     queuedAt: string;
-    status: 'pending' | 'failed';
+    /** 'rejected' is the device's terminal state: the server refused
+     *  the edit deterministically and no drain retries it until the
+     *  worker retries or discards it on the device. */
+    status: 'pending' | 'failed' | 'rejected';
     /** Optional: present when the last sync attempt errored. Trimmed to
      *  ~200 chars on the server before persist so a chatty backend
      *  message can't bloat the row. */
@@ -138,7 +141,10 @@ function sanitizeManifest(input: ManifestEntry[] | null | undefined): ManifestEn
                 : 'insert',
             layerId: String(r?.layerId ?? ''),
             queuedAt: r?.queuedAt ? String(r.queuedAt) : '',
-            status: r?.status === 'failed' ? 'failed' : 'pending',
+            status:
+              r?.status === 'failed' || r?.status === 'rejected'
+                ? r.status
+                : 'pending',
             lastError:
               typeof r?.lastError === 'string'
                 ? r.lastError.slice(0, MAX_ERROR_LENGTH)

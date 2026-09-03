@@ -38,7 +38,10 @@ class QueuedRecordDto {
   @IsIn(['insert', 'update', 'delete']) op!: 'insert' | 'update' | 'delete';
   @IsString() @MaxLength(128) layerId!: string;
   @IsString() @MaxLength(64) queuedAt!: string;
-  @IsIn(['pending', 'failed']) status!: 'pending' | 'failed';
+  @IsIn(['pending', 'failed', 'rejected']) status!:
+    | 'pending'
+    | 'failed'
+    | 'rejected';
   @IsOptional() @IsString() @MaxLength(500) lastError?: string;
   @IsOptional() @IsInt() @Min(0) attempts?: number;
 }

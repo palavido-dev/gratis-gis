@@ -47,7 +47,7 @@ interface ManifestEntry {
     op: 'insert' | 'update' | 'delete';
     layerId: string;
     queuedAt: string;
-    status: 'pending' | 'failed';
+    status: 'pending' | 'failed' | 'rejected';
     lastError?: string;
     attempts?: number;
   }>;
@@ -137,7 +137,14 @@ async function buildManifest(): Promise<ManifestEntry[]> {
           op: r.op,
           layerId: r.dataLayerId,
           queuedAt: r.queuedAt,
-          status: r.syncStatus === 'failed' ? 'failed' : 'pending',
+          // 'syncing' and 'synced' collapse to pending: a row mid-flight
+          // is still owed to the server. 'rejected' is reported as its
+          // own state so the admin can tell "offline" from "the server
+          // said no and a person has to look".
+          status:
+            r.syncStatus === 'failed' || r.syncStatus === 'rejected'
+              ? r.syncStatus
+              : 'pending',
         };
         if (r.failureReason) out.lastError = r.failureReason.slice(0, 500);
         if (typeof r.retryCount === 'number') out.attempts = r.retryCount;

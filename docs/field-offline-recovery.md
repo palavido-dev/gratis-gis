@@ -144,10 +144,13 @@ interface QueueRecord {
    * Sync state. `pending` is the default; `syncing` is set while a
    * single op is in flight; `synced` clears the op from the queue
    * (kept briefly for UI confirmation, then garbage-collected);
-   * `failed` carries `failureReason` and stays in the queue until
-   * the user takes action on it.
+   * `failed` carries `failureReason` and is retried by the next
+   * sync run; `rejected` (as built, 2026-09-03) carries the reason
+   * too but is terminal: the server refused the edit for a reason a
+   * retry cannot change, so nothing automatic touches it until the
+   * worker retries or discards it from the runtime.
    */
-  syncStatus: 'pending' | 'syncing' | 'synced' | 'failed';
+  syncStatus: 'pending' | 'syncing' | 'synced' | 'failed' | 'rejected';
   failureReason?: string;
   /** ISO 8601, last sync attempt. */
   lastAttemptAt?: string;
@@ -295,6 +298,17 @@ For each pending queue record, in queue order:
      retry on next sync run). Bump a `retryCount` field; if it
      passes 5, mark `failed` with "max retries exceeded."
 
+   **As built (2026-09-03).** The split is simpler than the sketch
+   above and lives in one tested function,
+   `replayOutcomeForStatus` in `packages/shared-types`, mirrored by
+   hand in `public/sw.js`: 2xx is done, a 404 on delete is done,
+   401/408/425/429 and every 5xx or network error mark the row
+   `failed` and it is retried on every sync run (no retry cap), and
+   every other 4xx marks it `rejected`, which no drain touches again.
+   There is no schema-diff or side-by-side conflict resolver; the
+   server's message is shown as the reason. A synced row is deleted,
+   not kept as `synced`.
+
 Each op is independent. One failure doesn't block the rest. The
 runtime processes the queue sequentially per layer (so two updates
 to the same feature land in order) but parallel across layers.
@@ -308,6 +322,12 @@ The runtime header gains a status pill:
 - "N pending" (amber) — non-zero pending
 - "N failed" (red) — any failures
 - "Offline" (gray) — connectivity lost; queue grows but doesn't sync
+
+As built, the header shows two chips instead of one pill: an amber
+"Sync N" chip for retryable rows (tap to sync now) and a red "N edits
+need attention" chip for rejected rows, which opens a dialog listing
+each with its reason and Retry / Discard actions (Discard confirms
+first). The drawer described next is the original sketch.
 
 Tapping the pill opens a queue review drawer:
 - A list of every record with status icon + timestamp + summary

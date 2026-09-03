@@ -144,8 +144,11 @@ function isTileRequest(url) {
 //   src/lib/offline-store.ts   DB 'gratisgis-offline'
 //     - store 'queue'        keyPath [dataCollectionId, id]; fields used
 //       here: op, dataLayerId, layerKey, globalId, geometry, properties,
-//       queuedAt, syncStatus ('pending'|'syncing'|'synced'|'failed'),
-//       lastAttemptAt, retryCount, failureReason
+//       queuedAt, syncStatus ('pending'|'syncing'|'synced'|'failed'|
+//       'rejected'), lastAttemptAt, retryCount, failureReason.
+//       'rejected' is terminal and never claimed here; the status
+//       table that decides it mirrors shared-types sync-outcome.ts
+//       (replayOutcomeForStatus), see replayFeatureRecord below.
 //     - store 'deployments'  keyPath dataCollectionId; field used here:
 //       bbox [west, south, east, north] (EPSG:4326)
 //
@@ -537,12 +540,6 @@ async function replayFeatureRecord(r) {
         ],
       }),
     });
-    // Today's API accepts a replayed insert outright (append-only
-    // observation log keyed by our globalId; reads collapse to one
-    // feature). If a future server rejects duplicates with 409, the
-    // record is already persisted, so treat it as done rather than
-    // wedging the queue.
-    if (res.status === 409) return 'done';
   } else if (r.op === 'update') {
     res = await fetch(layerPath + '/' + r.globalId, {
       method: 'PATCH',
@@ -558,25 +555,45 @@ async function replayFeatureRecord(r) {
     });
   } else if (r.op === 'delete') {
     res = await fetch(layerPath + '/' + r.globalId, { method: 'DELETE' });
-    // 404 on delete is benign: the feature is already gone server-
-    // side (perhaps a prior replay succeeded but its response was
-    // lost). Same treatment as offline-sync.ts.
-    if (res.status === 404) return 'done';
   } else {
-    return { reason: 'Unknown queue op: ' + r.op };
+    // Only a row written by a newer client can get here; retrying
+    // cannot teach this worker a new op.
+    return { terminal: true, reason: 'Unknown queue op: ' + r.op };
   }
-  if (res.ok) return 'done';
+  const outcome = replayOutcomeForStatus(res.status, r.op);
+  if (outcome === 'done') return 'done';
   const body = await res.text().catch(() => '');
   return {
+    terminal: outcome === 'rejected',
     reason: r.op + ' failed (' + res.status + '): ' + (body || res.statusText),
   };
 }
 
 /**
+ * MIRROR of packages/shared-types/src/sync-outcome.ts
+ * replayOutcomeForStatus. A 2xx is done; a 404 on delete is done (the
+ * feature is already gone); 401/408/425/429 and anything 5xx or
+ * unexpected stay retryable; every other 4xx is a deterministic
+ * refusal and parks the row as 'rejected'. Change both together.
+ */
+function replayOutcomeForStatus(status, op) {
+  if (status >= 200 && status < 300) return 'done';
+  if (op === 'delete' && status === 404) return 'done';
+  if (status >= 400 && status < 500) {
+    return status === 401 || status === 408 || status === 425 || status === 429
+      ? 'retry'
+      : 'rejected';
+  }
+  return 'retry';
+}
+
+/**
  * Drain the feature-edit queue ('gratisgis-offline' / 'queue') with
  * the same bookkeeping the in-app drain (offline-sync.ts) uses:
- * success deletes the row, an HTTP failure keeps it as 'failed' with
- * failureReason and an incremented retryCount, and a network failure
+ * success deletes the row, a transient HTTP failure keeps it as
+ * 'failed' with failureReason and an incremented retryCount, a
+ * deterministic refusal parks it as 'rejected' (never claimed again
+ * here; the runtime offers retry or discard), and a network failure
  * leaves it 'pending' for the browser's sync retry. Also reclaims
  * rows stranded in 'syncing' by a page that died mid-drain (the
  * in-app drain never re-lists those, so before this handler they
@@ -621,7 +638,7 @@ async function drainFeatureQueue() {
             db,
             OFFLINE_QUEUE_STORE,
             Object.assign({}, claimed, {
-              syncStatus: 'failed',
+              syncStatus: outcome.terminal ? 'rejected' : 'failed',
               failureReason: outcome.reason,
               retryCount: (record.retryCount || 0) + 1,
             }),

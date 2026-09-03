@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import {
+  AlertTriangle,
   ArrowLeft,
   Check,
   ChevronUp,
@@ -69,7 +70,13 @@ import {
   type QueueRecord,
 } from '@/lib/offline-store';
 import { formatBytes } from '@/lib/format-bytes';
-import { newGlobalId, syncQueue, type SyncResult } from '@/lib/offline-sync';
+import {
+  listRejected,
+  newGlobalId,
+  syncQueue,
+  type SyncResult,
+} from '@/lib/offline-sync';
+import { RejectedEditsDialog } from './rejected-edits-dialog';
 import {
   downloadDeployment,
   type DownloadLayer,
@@ -783,6 +790,10 @@ export function FieldRuntime({
   // further down with the other Slice 5 logic.
   const [offlineWriteCounter, setOfflineWriteCounter] = useState(0);
   const [queueCount, setQueueCount] = useState(0);
+  // Rows the server refused deterministically. Not part of queueCount:
+  // the sync chip promises "tap to send", and these will not send.
+  const [rejectedRecords, setRejectedRecords] = useState<QueueRecord[]>([]);
+  const [rejectedOpen, setRejectedOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
   useEffect(() => {
@@ -937,7 +948,8 @@ export function FieldRuntime({
   useEffect(() => {
     void (async () => {
       const records = await listQueue(dataCollectionId);
-      setQueueCount(records.length);
+      setQueueCount(records.filter((r) => r.syncStatus !== 'rejected').length);
+      setRejectedRecords(await listRejected(dataCollectionId));
     })();
   }, [dataCollectionId, offlineWriteCounter, lastSyncResult]);
 
@@ -1933,6 +1945,17 @@ export function FieldRuntime({
             }}
           />
         ) : null}
+        {rejectedRecords.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setRejectedOpen(true)}
+            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-danger/30 bg-danger/10 px-2 py-0.5 text-2xs font-medium text-danger hover:bg-danger/20"
+            title={t('fieldQueue.rejectedChipTitle')}
+          >
+            <AlertTriangle className="h-3 w-3" />
+            {t('fieldQueue.rejectedChip', { count: rejectedRecords.length })}
+          </button>
+        ) : null}
         {/* The More menu collects every status pill + secondary
             action that used to crowd the header (connectivity,
             persistence, download, install). Field Maps does the
@@ -1949,7 +1972,9 @@ export function FieldRuntime({
             downloadProgress.phase !== 'failed'
           }
           hasCache={cachedDeployment !== null}
-          queueCount={queueCount}
+          // Rejected rows are unsynced too: removing the cache loses
+          // them just the same, so the warnings count both.
+          queueCount={queueCount + rejectedRecords.length}
           gpsStatus={gps.status}
           gpsAccuracyM={gps.position?.accuracyM ?? null}
           onDownload={() => void startDownload()}
@@ -1957,6 +1982,24 @@ export function FieldRuntime({
         />
       </header>
       ) : null}
+
+      <RejectedEditsDialog
+        open={rejectedOpen}
+        onOpenChange={setRejectedOpen}
+        records={rejectedRecords}
+        layerLabelFor={(record) => {
+          const layer = editableLayers.find(
+            (l) =>
+              l.dataLayerId === record.dataLayerId &&
+              l.layerKey === record.layerKey,
+          );
+          return layer ? layer.layerLabel : null;
+        }}
+        onChanged={(action) => {
+          setOfflineWriteCounter((n) => n + 1);
+          if (action === 'retried' && isOnline) void runSync('manual');
+        }}
+      />
 
       {/* #249.18: persistent GPS accuracy strip below the header.
           Field Maps shows accuracy in a thin always-visible band so

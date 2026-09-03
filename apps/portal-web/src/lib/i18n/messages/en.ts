@@ -258,6 +258,32 @@ export const en = {
     copied: 'Copied',
     openOnPhone: 'Open on a phone',
   },
+  // Offline queue rows the server refused for a reason a retry cannot
+  // change. Shown from the field runtime header chip.
+  fieldQueue: {
+    rejectedChip: '{count, plural, one {# edit needs attention} other {# edits need attention}}',
+    rejectedChipTitle:
+      'The server refused these edits. Open to see why and retry or discard them.',
+    rejectedTitle: 'Edits the server refused',
+    rejectedIntro:
+      'These edits were sent but not accepted, and sending them again unchanged would get the same answer. Fix what the message names and retry, or discard the edit.',
+    rejectedEmpty: 'Nothing here. Every edit has been accepted.',
+    op: {
+      insert: 'New feature in {layer}',
+      update: 'Change to a feature in {layer}',
+      delete: 'Deletion in {layer}',
+    },
+    unknownLayer: 'a layer no longer in this deployment',
+    noReason: 'The server did not say why.',
+    retry: 'Retry',
+    retryAll: 'Retry all {count}',
+    discard: 'Discard',
+    discardTitle: 'Discard this edit?',
+    discardMessage:
+      'It exists only on this device. Once discarded it cannot be recovered.',
+    discardAction: 'Discard edit',
+    close: 'Close',
+  },
   itemDetail: {
     // Access pills. Plain English rather than the stored enum value:
     // "org" is not a word a reader should have to decode.
