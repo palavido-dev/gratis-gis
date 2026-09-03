@@ -243,7 +243,7 @@ export default async function ItemDetailPage(props: Props) {
   // max-of-7-fetches. Failures are non-fatal per-fetch (same as the
   // sequential version was).
   const needsThemes = isCustomAppItem(item);
-  // #81: the layers this map draws, so the batch permissions call
+  // Map-builder editing: the layers this map draws, so the batch permissions call
   // below can ask "may this person edit each of these?". Read from
   // the map's own data rather than the dependency walk: what matters
   // for an edit control is the data_layer a layer actually points
@@ -360,7 +360,7 @@ export default async function ItemDetailPage(props: Props) {
           .then((p) => p.canDownload)
           .catch(() => viewerCanDownload)
       : Promise.resolve(true),
-    // #81: the map item's REAL edit permission. `canManage` is
+    // Map-builder editing: the map item's REAL edit permission. `canManage` is
     // owner-or-admin, so the map builder silently hid its write
     // affordances from anyone holding an explicit edit share, which
     // no share tier could ever satisfy. Owners and admins skip the
@@ -370,7 +370,7 @@ export default async function ItemDetailPage(props: Props) {
           .then((p) => p.canEdit)
           .catch(() => false)
       : Promise.resolve(canManage),
-    // #81: and the per-LAYER answer, which is a different question:
+    // Map-builder editing: and the per-LAYER answer, which is a different question:
     // this permission is about the map item, while every edit target
     // is a separate data_layer item with its own sharing. One batch
     // call so a twelve-layer map is one round trip, not twelve.

@@ -1552,32 +1552,25 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
         // edit, where the parent owns the click).
       }
 
-      // tool === 'off' → popup behaviour, unless the parent told
-      // us to skip (field-runtime opens its own form modal on tap).
-      if (suppressPopup) {
-        popupRef.current?.remove();
-        popupRef.current = null;
-        return;
-      }
       const hit = hits[0];
-      if (!hit) {
-        popupRef.current?.remove();
-        popupRef.current = null;
-        return;
-      }
-      const layer = map.layers.find((l) =>
-        overlayLayerIds(l.id).some((id) => id === hit.layer.id),
-      );
-      // #89 -- edit-claimed layers intercept the click and forward
-      // to the parent's onEditClaimedClick instead of opening a
-      // popup.  When the Edit widget's mode toggle is ON for a set
-      // of editable target layers, every click on those layers
-      // opens the edit form rather than the read-only popup.  We
-      // resolve the matched layer first because the popup-skip
-      // decision is keyed by the MapLayer.id our parent supplied,
-      // not the raw maplibre paint-layer id (which has e.g. -hover
-      // suffixes the parent doesn't know about).
+      const layer = hit
+        ? map.layers.find((l) =>
+            overlayLayerIds(l.id).some((id) => id === hit.layer.id),
+          )
+        : undefined;
+      // Edit-claimed layers intercept the click and forward to the
+      // parent's onEditClaimedClick instead of opening a popup: with
+      // an edit tool armed, a click on an editable layer is a pick,
+      // not an inspect. This runs BEFORE the suppressPopup check on
+      // purpose. The map builder sets both at once (it suppresses the
+      // popup for the whole time a tool is armed), and when the
+      // suppress check came first the pick never fired, so Edit shape
+      // and Delete could not select anything. We resolve the matched
+      // layer first because the claim is keyed by the MapLayer.id our
+      // parent supplied, not the raw maplibre paint-layer id (which
+      // has e.g. -hover suffixes the parent doesn't know about).
       if (
+        hit &&
         layer &&
         editClaimedLayerIdsRef.current &&
         editClaimedLayerIdsRef.current.has(layer.id)
@@ -1602,6 +1595,13 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
             });
           }
         }
+        return;
+      }
+      // tool === 'off' → popup behaviour, unless the parent told
+      // us to skip (field-runtime opens its own form modal on tap).
+      if (suppressPopup || !hit) {
+        popupRef.current?.remove();
+        popupRef.current = null;
         return;
       }
       // Honour server-computed permissions when present: viewers

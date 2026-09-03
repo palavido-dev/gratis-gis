@@ -51,6 +51,25 @@ function isBlank(v: unknown): boolean {
 }
 
 /**
+ * Declared columns the server fills on create, so no form should ask
+ * a person for them. The map builder's New feature form once did: it
+ * rendered `submitted_at` as a required date input and refused to
+ * submit until the user typed one, for a value portal-api was about
+ * to stamp anyway. `schema_version` is listed too: it is set only by
+ * the forms service and stays blank on a direct feature write, and a
+ * person has nothing correct to put in it.
+ */
+export const SERVER_STAMPED_FIELDS: ReadonlySet<string> = new Set([
+  'submitted_at',
+  'submitted_by',
+  'schema_version',
+]);
+
+export function isServerStampedField(name: string): boolean {
+  return SERVER_STAMPED_FIELDS.has(name);
+}
+
+/**
  * Return a copy of `properties` with `submitted_at` / `submitted_by`
  * filled in, for whichever of them the layer actually declares.
  *

@@ -80,11 +80,11 @@ interface Props {
   /**
    * May this person change the MAP: its layers, styling, extent,
    * basemap. Resolved from SharingService, not from owner-or-admin
-   * (#81); the two differ for anyone holding an explicit edit share.
+   * (map-builder editing); the two differ for anyone holding an explicit edit share.
    */
   canEdit: boolean;
   /**
-   * data_layer item ids this person may WRITE FEATURES to (#81).
+   * data_layer item ids this person may WRITE FEATURES to.
    *
    * A separate question from `canEdit` above, and deliberately not
    * derived from it: editing a map's styling and editing the data a
@@ -756,7 +756,7 @@ export function MapEditor({
 
   /**
    * Map layers whose underlying data_layer item the signed-in user
-   * may edit (#81). Keyed by MAP layer id, because that is what the
+   * may edit. Keyed by MAP layer id, because that is what the
    * attribute table addresses rows by; `editableLayerItemIds` arrives
    * from the server keyed by ITEM id, and one item can appear as
    * several map layers.
@@ -765,21 +765,73 @@ export function MapEditor({
    * server-side against the same permission, so a stale client that
    * offers an editable cell it should not still fails closed.
    */
+  /**
+   * The server answers for the layers the map had when the page
+   * rendered. A layer added in this session is not in that answer, so
+   * without this the edit tools stayed hidden until the map was saved
+   * and reopened, which read as "editing does not work on new
+   * layers". Any data_layer item the server has not been asked about
+   * is asked about here, once, through the same batch endpoint.
+   */
+  const [layerWritePermissions, setLayerWritePermissions] = useState<
+    Record<string, boolean>
+  >(() => Object.fromEntries(editableLayerItemIds.map((id) => [id, true])));
+  const askedItemIdsRef = useRef<Set<string>>(new Set(editableLayerItemIds));
+  const dataLayerItemIdsKey = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          map.layers
+            .filter((l) => l.source.kind === 'data-layer')
+            .map((l) => (l.source as { itemId: string }).itemId),
+        ),
+      )
+        .sort()
+        .join(','),
+    [map.layers],
+  );
+  useEffect(() => {
+    const unknown = dataLayerItemIdsKey
+      .split(',')
+      .filter((id) => id.length > 0 && !askedItemIdsRef.current.has(id));
+    if (unknown.length === 0) return;
+    for (const id of unknown) askedItemIdsRef.current.add(id);
+    // No cancellation on re-run: the ids are already marked asked, so
+    // dropping the answer would leave them unknown for the session.
+    // The endpoint caps a request at 100 ids; a map with more freshly
+    // added layers than that is not a realistic session.
+    void fetch(`/api/portal/items/permissions?ids=${unknown.join(',')}`)
+      .then(async (res) =>
+        res.ok
+          ? ((await res.json()) as Record<string, { canEdit?: boolean }>)
+          : {},
+      )
+      .catch(() => ({}) as Record<string, { canEdit?: boolean }>)
+      .then((answer) => {
+        setLayerWritePermissions((cur) => {
+          const next = { ...cur };
+          // An id the server omitted is one the caller cannot read;
+          // record the refusal so it is not asked again.
+          for (const id of unknown) next[id] = answer[id]?.canEdit === true;
+          return next;
+        });
+      });
+  }, [dataLayerItemIdsKey]);
+
   const editableLayerIds = useMemo(() => {
-    const items = new Set(editableLayerItemIds);
     const out = new Set<string>();
     for (const l of map.layers) {
       if (
         l.source.kind === 'data-layer' &&
         typeof l.source.layerKey === 'string' &&
         l.source.layerKey.length > 0 &&
-        items.has(l.source.itemId)
+        layerWritePermissions[l.source.itemId] === true
       ) {
         out.add(l.id);
       }
     }
     return out;
-  }, [map.layers, editableLayerItemIds]);
+  }, [map.layers, layerWritePermissions]);
 
   /**
    * Declared field schemas for the editable layers, keyed by map layer
@@ -794,7 +846,7 @@ export function MapEditor({
    */
   const [editSchemas, setEditSchemas] = useState<{
     fieldsByLayer: Record<string, FeatureField[]>;
-    /** Declared geometry per editable map layer; null for a table. Drives which layers the Add tool can draw into (#82). */
+    /** Declared geometry per editable map layer; null for a table. Drives which layers the Add tool can draw into. */
     geometryTypeByLayer: Record<string, DrawGeometryType | null>;
     pickLists: Record<string, PickListData>;
   }>({ fieldsByLayer: {}, geometryTypeByLayer: {}, pickLists: {} });
@@ -900,7 +952,7 @@ export function MapEditor({
   }, [editableSchemaKey]);
 
   /**
-   * Geometry editing tools (#82): move vertices, add, delete, on the
+   * Geometry editing tools: move vertices, add, delete, on the
    * layers this viewer may write to. Owns its own terra-draw instance
    * on the canvas's map through the shared hooks, and hands the canvas
    * the click routing it needs.

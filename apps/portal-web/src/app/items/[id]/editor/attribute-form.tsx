@@ -3,7 +3,11 @@
 
 import { useState } from 'react';
 import { Loader2, X } from 'lucide-react';
-import type { FeatureField, PickListData } from '@gratis-gis/shared-types';
+import {
+  isServerStampedField,
+  type FeatureField,
+  type PickListData,
+} from '@gratis-gis/shared-types';
 
 interface Props {
   /** Layer schema. Non-system fields drive the form inputs. */
@@ -75,6 +79,12 @@ interface Props {
  *   - System metadata fields (created_by, edited_at, etc.) are not
  *     part of the user-facing schema and never appear here. They
  *     are stamped server-side.
+ *   - Declared bookkeeping columns the server also stamps
+ *     (`submitted_at`, `submitted_by`, `schema_version`; see
+ *     isServerStampedField) are never editable and never required.
+ *     With a value they show read-only; blank, they are left out, so
+ *     a create form does not ask for a date the server is about to
+ *     write.
  */
 export function AttributeForm({
   fields,
@@ -106,11 +116,18 @@ export function AttributeForm({
   // user to fill it (i.e. it's editable). A required non-editable
   // field would already need to have come from a prior write, so
   // we don't block on it.
+  const isEditable = (f: FeatureField) =>
+    !isServerStampedField(f.name) &&
+    (editableFieldNames === null || editableFieldNames.has(f.name));
+  const isShown = (f: FeatureField) => {
+    if (!isServerStampedField(f.name)) return true;
+    const v = values[f.name];
+    return !(v === null || v === undefined || v === '');
+  };
+
   const missing: string[] = [];
   for (const f of fields) {
-    const editable =
-      editableFieldNames === null || editableFieldNames.has(f.name);
-    if (!editable) continue;
+    if (!isEditable(f)) continue;
     if (f.nullable) continue;
     const v = values[f.name];
     if (v === null || v === undefined || v === '') {
@@ -138,27 +155,22 @@ export function AttributeForm({
       </div>
 
       <div className="flex-1 space-y-3 overflow-auto px-3 py-3">
-        {fields.length === 0 ? (
+        {fields.filter(isShown).length === 0 ? (
           <p className="text-sm text-muted">
             This layer has no editable fields. Save to drop a feature with
             just geometry and system metadata.
           </p>
         ) : null}
-        {fields.map((f) => {
-          const editable =
-            editableFieldNames === null ||
-            editableFieldNames.has(f.name);
-          return (
-            <FieldRow
-              key={f.name}
-              field={f}
-              value={values[f.name]}
-              editable={editable}
-              pickLists={pickLists}
-              onChange={(v) => set(f.name, v)}
-            />
-          );
-        })}
+        {fields.filter(isShown).map((f) => (
+          <FieldRow
+            key={f.name}
+            field={f}
+            value={values[f.name]}
+            editable={isEditable(f)}
+            pickLists={pickLists}
+            onChange={(v) => set(f.name, v)}
+          />
+        ))}
         {missing.length > 0 && !submitting ? (
           <p className="text-xs text-warn">
             Required: {missing.join(', ')}

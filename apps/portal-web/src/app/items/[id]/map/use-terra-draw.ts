@@ -9,7 +9,7 @@
  * across five effects and seven structurally-typed casts of a
  * `useRef<unknown>`, and the geo-boundary editor had grown a second
  * copy with different precision and no snapping. Giving the map builder
- * geometry editing (#82) would have made three. This is the extraction
+ * map-builder geometry editing would have made three. This is the extraction
  * the editor's own comments kept deferring, done once so the next
  * surface that wants to move a vertex mounts a hook rather than
  * copying 400 lines.

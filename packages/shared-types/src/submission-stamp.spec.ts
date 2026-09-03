@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { stampSubmissionMetadata } from './submission-stamp.js';
+import {
+  isServerStampedField,
+  SERVER_STAMPED_FIELDS,
+  stampSubmissionMetadata,
+} from './submission-stamp.js';
 import { validateFeatureProperties } from './feature-validate.js';
 import type { FeatureField } from './data-layer.js';
 
@@ -88,5 +92,20 @@ describe('stampSubmissionMetadata', () => {
   it('is a no-op on a layer with no declared fields', () => {
     expect(stampSubmissionMetadata(undefined, { a: 1 }, CTX)).toEqual({ a: 1 });
     expect(stampSubmissionMetadata([], { a: 1 }, CTX)).toEqual({ a: 1 });
+  });
+});
+
+describe('isServerStampedField', () => {
+  it('covers exactly the columns the stamp and the forms service fill', () => {
+    // A form must never ask a person for these; the map builder's New
+    // feature form once required submitted_at and refused to submit.
+    expect([...SERVER_STAMPED_FIELDS].sort()).toEqual([
+      'schema_version',
+      'submitted_at',
+      'submitted_by',
+    ]);
+    expect(isServerStampedField('submitted_at')).toBe(true);
+    expect(isServerStampedField('issue_type')).toBe(false);
+    expect(isServerStampedField('_created_at')).toBe(false);
   });
 });

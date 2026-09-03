@@ -1561,13 +1561,13 @@ export function AttributeTable({
                     key={f}
                     onClick={() => onHeaderClick(f)}
                     onContextMenu={(e) => {
-                      // #83: right-click opens Calculate Field on this
+                      // Right-click opens Calculate Field on this
                       // column. Only for v3 data_layer sublayers
                       // (serverMode); the legacy geojson client-cache
                       // path cannot write back per-row.
                       //
                       // Gated on the LAYER's edit right, not the map's
-                      // (#81): this writes rows in the data layer, so
+                      // (map-builder editing): this writes rows in the data layer, so
                       // offering it to someone who merely owns the map
                       // is offering a 403.
                       if (!serverMode || !canEditActiveLayer) return;

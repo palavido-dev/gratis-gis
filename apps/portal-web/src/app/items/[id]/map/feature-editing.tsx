@@ -2,7 +2,7 @@
 'use client';
 
 /**
- * Feature editing inside the map builder (#82): move a feature's
+ * Feature editing inside the map builder (geometry stage): move a feature's
  * vertices, add a feature, delete a feature, on any data layer the
  * viewer may write to. The steward's tools, not the editor item's:
  * no templates, no per-field allowlists, no snapping profiles, no
@@ -11,7 +11,7 @@
  *
  * Why this exists at all: a person who created a layer could not fix
  * one wrong vertex without first standing up a dedicated editing app
- * on top of it. #81 covered attributes through the attribute table;
+ * on top of it. The attribute stage covered attributes through the attribute table;
  * this covers the shape.
  *
  * Shape of the integration:
@@ -76,7 +76,7 @@ import type { MapCanvasHandle } from './map-canvas';
 
 export type FeatureEditTool = 'off' | 'edit' | 'add' | 'delete';
 
-/** What the builder already knows per editable map layer (#81). */
+/** What the builder already knows per editable map layer (attribute stage). */
 export interface EditableLayerInfo {
   fields: FeatureField[];
   geometryType: DrawGeometryType | null;
@@ -526,7 +526,9 @@ export function useFeatureEditing({
             if (!open) cancelCreate();
           }}
         >
-          <DialogContent>
+          {/* AttributeForm draws its own close affordance; a second X
+              from the dialog chrome read as two different actions. */}
+          <DialogContent hideCloseButton>
             <DialogHeader>
               <DialogTitle>{t('featureEdit.newFeatureTitle')}</DialogTitle>
             </DialogHeader>
