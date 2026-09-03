@@ -48,6 +48,8 @@ import { Legend } from './legend';
 import { AttributeTable } from './attribute-table';
 import { SearchBar } from './search-bar';
 import { SelectToolbar, type SelectToolMode } from './select-tool';
+import { useFeatureEditing, type EditableLayerInfo } from './feature-editing';
+import type { DrawGeometryType } from './use-terra-draw';
 import { BuilderShell } from '@/components/builder-shell/builder-shell';
 import { ChartSpline, Layers as LayersIcon, MessageSquare, PencilLine, Printer, Settings as SettingsIcon } from 'lucide-react';
 import { MarkupPanel } from './markup-panel';
@@ -792,8 +794,10 @@ export function MapEditor({
    */
   const [editSchemas, setEditSchemas] = useState<{
     fieldsByLayer: Record<string, FeatureField[]>;
+    /** Declared geometry per editable map layer; null for a table. Drives which layers the Add tool can draw into (#82). */
+    geometryTypeByLayer: Record<string, DrawGeometryType | null>;
     pickLists: Record<string, PickListData>;
-  }>({ fieldsByLayer: {}, pickLists: {} });
+  }>({ fieldsByLayer: {}, geometryTypeByLayer: {}, pickLists: {} });
 
   const editableSchemaKey = useMemo(
     () =>
@@ -811,7 +815,7 @@ export function MapEditor({
 
   useEffect(() => {
     if (!editableSchemaKey) {
-      setEditSchemas({ fieldsByLayer: {}, pickLists: {} });
+      setEditSchemas({ fieldsByLayer: {}, geometryTypeByLayer: {}, pickLists: {} });
       return;
     }
     const controller = new AbortController();
@@ -825,6 +829,7 @@ export function MapEditor({
         return [layerId, itemId, rest.join(':')] as const;
       });
       const fieldsByLayer: Record<string, FeatureField[]> = {};
+      const geometryTypeByLayer: Record<string, DrawGeometryType | null> = {};
       // One fetch per distinct ITEM, not per layer: two sublayers of
       // the same data_layer share a parent document.
       const byItem = new Map<string, string[]>();
@@ -842,13 +847,21 @@ export function MapEditor({
             if (!res.ok) return;
             const item = (await res.json()) as {
               data?: {
-                layers?: Array<{ id?: string; fields?: FeatureField[] }>;
+                layers?: Array<{
+                  id?: string;
+                  fields?: FeatureField[];
+                  geometryType?: DrawGeometryType | null;
+                }>;
               };
             };
             for (const [layerId, itemId, layerKey] of entries) {
               if (itemId !== id || !layerId) continue;
               const sub = item.data?.layers?.find((l) => l.id === layerKey);
-              if (!Array.isArray(sub?.fields)) continue;
+              if (!sub) continue;
+              const gt = sub.geometryType;
+              geometryTypeByLayer[layerId] =
+                gt === 'point' || gt === 'line' || gt === 'polygon' ? gt : null;
+              if (!Array.isArray(sub.fields)) continue;
               fieldsByLayer[layerId] = sub.fields;
               for (const f of sub.fields) {
                 if (f.domain?.type === 'coded-value-ref') {
@@ -881,10 +894,42 @@ export function MapEditor({
         }),
       );
       if (controller.signal.aborted) return;
-      setEditSchemas({ fieldsByLayer, pickLists });
+      setEditSchemas({ fieldsByLayer, geometryTypeByLayer, pickLists });
     })();
     return () => controller.abort();
   }, [editableSchemaKey]);
+
+  /**
+   * Geometry editing tools (#82): move vertices, add, delete, on the
+   * layers this viewer may write to. Owns its own terra-draw instance
+   * on the canvas's map through the shared hooks, and hands the canvas
+   * the click routing it needs.
+   */
+  const featureEditLayerInfo = useMemo(() => {
+    const out: Record<string, EditableLayerInfo> = {};
+    for (const id of editableLayerIds) {
+      out[id] = {
+        fields: editSchemas.fieldsByLayer[id] ?? [],
+        geometryType: editSchemas.geometryTypeByLayer[id] ?? null,
+      };
+    }
+    return out;
+  }, [editableLayerIds, editSchemas]);
+
+  const featureEditing = useFeatureEditing({
+    map: mapLibre,
+    layers: map.layers,
+    editableLayerIds,
+    layerInfo: featureEditLayerInfo,
+    pickLists: editSchemas.pickLists,
+    canvasRef,
+  });
+
+  // The select tool and the edit tools both want the click. Whichever
+  // was activated last wins and the other stands down.
+  useEffect(() => {
+    if (featureEditing.active && selectTool !== 'off') setSelectTool('off');
+  }, [featureEditing.active, selectTool]);
 
   /**
    * Persist one inline attribute edit, then repaint.
@@ -1874,7 +1919,11 @@ export function MapEditor({
             onSelectionChange={setSelection}
             drawings={drawings}
             onMapReady={setMapLibre}
-            suppressPopup={profileOpen || visibilityOpen}
+            suppressPopup={
+              profileOpen || visibilityOpen || featureEditing.canvasProps.suppressPopup
+            }
+            editClaimedLayerIds={featureEditing.canvasProps.editClaimedLayerIds}
+            onEditClaimedClick={featureEditing.canvasProps.onEditClaimedClick}
           />
           <ElevationProfileTool
             map={mapLibre}
@@ -1894,10 +1943,14 @@ export function MapEditor({
           />
           <SelectToolbar
             mode={selectTool}
-            onChange={setSelectTool}
+            onChange={(next) => {
+              if (next !== 'off') featureEditing.deactivate();
+              setSelectTool(next);
+            }}
             selectedCount={selectedCount}
             onClearSelection={() => setSelection({})}
           />
+          {featureEditing.overlay}
           {map.search?.enabled !== false ? (
             <SearchBar
               layers={map.layers}

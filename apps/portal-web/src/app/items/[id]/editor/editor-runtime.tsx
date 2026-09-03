@@ -45,6 +45,13 @@ import type { FormSchema } from '@gratis-gis/form-schema';
 import { FormView } from '../responses/form-view';
 import { MapCanvas, type MapCanvasHandle } from '../map/map-canvas';
 import {
+  roundCoordsToPrecision,
+  useGeometryEdit,
+  useTerraDraw,
+} from '../map/use-terra-draw';
+import type { TerraDraw } from 'terra-draw';
+import { parseApiError } from '@/lib/api-error';
+import {
   EDITOR_TARGET_LAYER_PREFIX,
   editorTargetLayerId,
   type ResolvedTarget,
@@ -184,71 +191,6 @@ interface Props {
  * otherwise for long enough to be worth stating plainly.
  */
 
-// Decimal places terra-draw is configured to enforce on every
-// coordinate. Has to match the `coordinatePrecision` we pass to the
-// MapLibre adapter below; both reference this constant so they
-// cannot drift apart. Nine digits is roughly 0.1 mm at the equator,
-// which is well past anything that matters at portal-display scales.
-const EDITOR_COORD_PRECISION = 9;
-
-// Round every numeric coordinate component in a GeoJSON geometry to
-// EDITOR_COORD_PRECISION decimal places, returning a fresh
-// structure. terra-draw rejects features whose coordinates exceed
-// the configured precision (its precision validator runs on every
-// addFeatures call), and PostGIS hands geometries back at full
-// double precision (15-ish digits), so any feature loaded from the
-// server has to be normalized before it can re-enter terra-draw
-// for geometry editing. We don't mutate the input.
-function roundCoordsToPrecision(
-  geom: GeoJSON.Geometry,
-  precision: number,
-): GeoJSON.Geometry {
-  const factor = Math.pow(10, precision);
-  const r = (n: number) => Math.round(n * factor) / factor;
-  const rPos = (p: GeoJSON.Position): GeoJSON.Position =>
-    p.length === 2
-      ? [r(p[0]!), r(p[1]!)]
-      : (p.map((v) => r(v)) as GeoJSON.Position);
-  switch (geom.type) {
-    case 'Point':
-      return { type: 'Point', coordinates: rPos(geom.coordinates) };
-    case 'MultiPoint':
-      return {
-        type: 'MultiPoint',
-        coordinates: geom.coordinates.map(rPos),
-      };
-    case 'LineString':
-      return {
-        type: 'LineString',
-        coordinates: geom.coordinates.map(rPos),
-      };
-    case 'MultiLineString':
-      return {
-        type: 'MultiLineString',
-        coordinates: geom.coordinates.map((line) => line.map(rPos)),
-      };
-    case 'Polygon':
-      return {
-        type: 'Polygon',
-        coordinates: geom.coordinates.map((ring) => ring.map(rPos)),
-      };
-    case 'MultiPolygon':
-      return {
-        type: 'MultiPolygon',
-        coordinates: geom.coordinates.map((poly) =>
-          poly.map((ring) => ring.map(rPos)),
-        ),
-      };
-    case 'GeometryCollection':
-      return {
-        type: 'GeometryCollection',
-        geometries: geom.geometries.map((g) =>
-          roundCoordsToPrecision(g, precision),
-        ),
-      };
-  }
-}
-
 export function EditorRuntime({
   editorId,
   editorTitle,
@@ -378,8 +320,6 @@ export function EditorRuntime({
   );
   const activeTemplateIdRef = useRef(activeTemplateId);
   activeTemplateIdRef.current = activeTemplateId;
-
-  const drawRef = useRef<unknown | null>(null);
 
   // Per-layer probe metadata. Mirrors the pattern map-editor uses:
   // when the layer list changes, fetch each layer's geojson (or
@@ -511,15 +451,18 @@ export function EditorRuntime({
     featureId: string;
     geometryType: 'point' | 'line' | 'polygon';
     originalGeometry: GeoJSON.Geometry;
-    currentGeometry: GeoJSON.Geometry;
     properties: Record<string, unknown>;
   } | null>(null);
   const [geomEditSaving, setGeomEditSaving] = useState(false);
-  const [geomEditError, setGeomEditError] = useState<string | null>(null);
-  // Internal terra-draw id for the feature we're editing; held in a
-  // ref so cleanup effects can clear it without re-creating the
-  // setup effect's closure on every render.
-  const tdEditFeatureIdRef = useRef<string | null>(null);
+  // Save-time errors only. Load-time errors (the feature could not be
+  // pushed into terra-draw) come from useGeometryEdit below and the
+  // two are merged where they render.
+  const [geomEditSaveError, setGeomEditSaveError] = useState<string | null>(null);
+  // Mirror for the 'finish' listener, which is registered once and
+  // must know whether a geometry edit is in flight without re-binding
+  // on every render.
+  const geometryEditActiveRef = useRef(false);
+  geometryEditActiveRef.current = pendingGeometryEdit !== null;
 
   // Snap-to-vertex on/off for this session. Initialized from the
   // editor item's persisted snapping config so authors who set
@@ -536,12 +479,6 @@ export function EditorRuntime({
   const [snappingEnabled, setSnappingEnabled] = useState<boolean>(
     editor.snapping.enabled,
   );
-  // Ref so the terra-draw setup closure (which only re-runs on
-  // mapInstance change, not every render) can read the latest
-  // value when constructing modes. Toggle effect below
-  // updateModeOptions for runtime changes.
-  const snappingEnabledRef = useRef(snappingEnabled);
-  snappingEnabledRef.current = snappingEnabled;
 
   // Measure tool state (#122). The measure tool is its own
   // activeTool path: when on, terra-draw enters linestring or
@@ -751,127 +688,19 @@ export function EditorRuntime({
     [],
   );
 
-  // Set up terra-draw once the map instance is ready. We import
-  // dynamically so the bundle stays small for non-runtime pages
-  // (config view, items list, etc). Single setup effect creates
-  // the instance and the finish listener; mode changes happen in
-  // a separate effect below.
-  useEffect(() => {
-    if (!mapInstance) return;
-    let cancelled = false;
-    let cleanup: (() => void) | null = null;
-
-    void (async () => {
-      const td = await import('terra-draw');
-      const adapterMod = await import('terra-draw-maplibre-gl-adapter');
-      if (cancelled) return;
-      // Snap-to-vertex initial config. terra-draw exposes snapping
-      // as a per-mode option on the line / polygon DRAW modes
-      // (snap candidates as the user clicks the next vertex) AND
-      // as a `snappable` flag on the SELECT mode's coordinate
-      // settings (snap candidates as the user drags an existing
-      // vertex during geometry edit). Point-mode has no snapping
-      // story because a point IS its vertex. We set the same
-      // toLine + toCoordinate booleans across both surfaces so
-      // the experience is consistent, then `updateModeOptions`
-      // below for runtime toggles.
-      const snapInit = snappingEnabledRef.current
-        ? { toLine: true, toCoordinate: true }
-        : undefined;
-      const draw = new td.TerraDraw({
-        adapter: new adapterMod.TerraDrawMapLibreGLAdapter({
-          map: mapInstance,
-          coordinatePrecision: EDITOR_COORD_PRECISION,
-        }),
-        // Permissive id strategy. terra-draw 1.x's default validator
-        // requires every feature id to be a UUIDv4-shaped string
-        // (length 36). The geometry-edit setup pushes the server's
-        // feature id (a UUID, but format not guaranteed across
-        // historical and engine-issued rows) into terra-draw's store,
-        // so we accept any non-empty string or number to avoid silent
-        // rejection. getId still produces a real UUIDv4 for any
-        // feature terra-draw creates internally during the draw flow.
-        idStrategy: {
-          isValidId: (id) =>
-            (typeof id === 'string' && id.length > 0) ||
-            typeof id === 'number',
-          getId: () =>
-            typeof crypto !== 'undefined' && 'randomUUID' in crypto
-              ? crypto.randomUUID()
-              : `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`,
-        },
-        modes: [
-          new td.TerraDrawPointMode(),
-          new td.TerraDrawLineStringMode(
-            snapInit ? { snapping: snapInit } : undefined,
-          ),
-          new td.TerraDrawPolygonMode(
-            snapInit ? { snapping: snapInit } : undefined,
-          ),
-          // Select mode is what powers geometry editing. The flags
-          // tell terra-draw which interactions are allowed for each
-          // geometry family the editor exposes:
-          //   - point: drag the whole feature (no vertices to drag
-          //     because a point IS the vertex).
-          //   - linestring / polygon: drag the whole feature, drag
-          //     individual vertices, click midpoints to insert new
-          //     vertices, alt-click a vertex to delete it.
-          //   - snappable on coordinates wires snap-during-drag for
-          //     the geometry edit flow (#120).
-          // We don't pass a `selectable: false` flag because the
-          // setup effect explicitly calls selectFeature() when
-          // entering geometry edit, then deselects on exit; the
-          // default click-to-select behaviour is fine here too.
-          new td.TerraDrawSelectMode({
-            flags: {
-              point: { feature: { draggable: true } },
-              linestring: {
-                feature: {
-                  draggable: true,
-                  coordinates: {
-                    midpoints: true,
-                    draggable: true,
-                    deletable: true,
-                    snappable: snapInit ?? false,
-                  },
-                },
-              },
-              polygon: {
-                feature: {
-                  draggable: true,
-                  coordinates: {
-                    midpoints: true,
-                    draggable: true,
-                    deletable: true,
-                    snappable: snapInit ?? false,
-                  },
-                },
-              },
-            },
-          }),
-        ],
-      });
-      // We don't start() yet; that happens when the user activates
-      // the Add tool. Keeping terra-draw inert until then prevents
-      // it from intercepting MapCanvas's click handlers (popups,
-      // hover, etc.) on the read-only path.
-      drawRef.current = draw;
-
-      cleanup = () => {
-        try {
-          (draw as { stop?: () => void }).stop?.();
-        } catch {
-          /* terra-draw throws if it wasn't started; ignore */
-        }
-        drawRef.current = null;
-      };
-    })();
-
-    return () => {
-      cancelled = true;
-      cleanup?.();
-    };
-  }, [mapInstance]);
+  // terra-draw lives in the shared hook (map/use-terra-draw.ts): one
+  // instance on the same MapLibre map the canvas created, imported
+  // dynamically so the bundle stays small for pages that never edit,
+  // snapping kept in sync, torn down with the map. It is NOT started
+  // here; the mode effect below starts it when a write tool activates,
+  // so an inert terra-draw does not intercept the canvas's own click
+  // handlers on the read-only path. `drawRef` survives so the handful
+  // of listener effects that read it keep their shape.
+  const { draw: terraDraw, ready: drawReady } = useTerraDraw(mapInstance, {
+    snapping: snappingEnabled,
+  });
+  const drawRef = useRef<TerraDraw | null>(null);
+  drawRef.current = terraDraw;
 
   // Magic outline (SAM). While active, a map click runs the full
   // click-to-polygon pipeline against the topmost visible imagery
@@ -1014,7 +843,7 @@ export function EditorRuntime({
         /* terra-draw race on unmount; ignore */
       }
     };
-  }, [activeTool, measureMode, mapInstance]);
+  }, [activeTool, measureMode, mapInstance, drawReady]);
 
   // Clear the in-canvas measurement(s). Drops every feature in
   // terra-draw's store; that's safe here because the only things
@@ -1217,70 +1046,10 @@ export function EditorRuntime({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canEdit, undoStack.length, redoStack.length, undoBusy]);
 
-  // Runtime snap toggle. When the user clicks the Snap tool button
-  // we flip `snappingEnabled`; this effect picks it up and patches
-  // the draw + select modes via terra-draw's `updateModeOptions`
-  // so we don't have to tear down + rebuild the whole instance
-  // (which would interrupt any in-progress draw / edit). Mirrors
-  // the per-mode shape used at construction time above.
-  useEffect(() => {
-    const draw = drawRef.current as
-      | {
-          updateModeOptions: (
-            mode: string,
-            options: Record<string, unknown>,
-          ) => void;
-        }
-      | null;
-    if (!draw) return;
-    const snap = snappingEnabled
-      ? { toLine: true, toCoordinate: true }
-      : undefined;
-    try {
-      draw.updateModeOptions('linestring', { snapping: snap });
-    } catch {
-      /* mode not available on this build; ignore */
-    }
-    try {
-      draw.updateModeOptions('polygon', { snapping: snap });
-    } catch {
-      /* same */
-    }
-    try {
-      // Select mode's snapping is per geometry family, nested under
-      // each flag profile. We match the construction-time shape so
-      // the partial update only changes the snappable bit.
-      draw.updateModeOptions('select', {
-        flags: {
-          point: { feature: { draggable: true } },
-          linestring: {
-            feature: {
-              draggable: true,
-              coordinates: {
-                midpoints: true,
-                draggable: true,
-                deletable: true,
-                snappable: snap ?? false,
-              },
-            },
-          },
-          polygon: {
-            feature: {
-              draggable: true,
-              coordinates: {
-                midpoints: true,
-                draggable: true,
-                deletable: true,
-                snappable: snap ?? false,
-              },
-            },
-          },
-        },
-      });
-    } catch {
-      /* same */
-    }
-  }, [snappingEnabled, mapInstance]);
+  // Runtime snap toggle is inside useTerraDraw: flipping
+  // `snappingEnabled` patches the draw and select modes through
+  // updateModeOptions rather than rebuilding the instance, which
+  // would interrupt an in-progress draw or edit.
 
   // Keep an "on draw finish" listener registered against the live
   // draw instance. Re-registers if the instance changes (rare; only
@@ -1314,12 +1083,9 @@ export function EditorRuntime({
       // create flow we want to handle) AND when a drag completes in
       // select mode. The latter happens during geometry-edit mode
       // (e.g. the user drags a point or vertex). Ignore those: the
-      // geometry-edit change listener already mirrors the dragged
-      // geometry into pendingGeometryEdit.currentGeometry, and the
-      // floating "Save geometry" button is what should commit it.
-      // tdEditFeatureIdRef is set whenever a geometry edit is in
-      // flight, so gate on that.
-      if (tdEditFeatureIdRef.current) return;
+      // geometry-edit hook already tracks the dragged geometry, and
+      // the floating "Save geometry" button is what should commit it.
+      if (geometryEditActiveRef.current) return;
       const snap = draw.getSnapshot();
       const f = snap.find((x) => String(x.id) === String(id));
       if (!f || !f.geometry) return;
@@ -1370,7 +1136,12 @@ export function EditorRuntime({
         /* terra-draw race on unmount; ignore */
       }
     };
-  }, [mapInstance, drawRef.current]);
+    // drawReady, not drawRef.current: a ref in a deps array only
+    // re-runs the effect if something ELSE re-renders after the
+    // import resolves. The hook's ready flag is a state change, so
+    // this listener attaches the moment the instance exists.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapInstance, drawReady]);
 
   // Switch terra-draw mode based on activeTool + activeTarget. When
   // the user activates the Add tool with a chosen target whose
@@ -1446,6 +1217,10 @@ export function EditorRuntime({
     targetByKey,
     editor.targets,
     measureMode,
+    // A tool activated before the dynamic import resolved used to be
+    // silently ignored; re-running once the instance exists closes
+    // that window.
+    drawReady,
   ]);
 
   // Map cursor override. MapLibre's pan default (grab/grabbing
@@ -1713,26 +1488,21 @@ export function EditorRuntime({
           targetByKey.get(targetKey)?.layer?.geometryType ?? 'point';
         // hit.geometry from queryRenderedFeatures is already a
         // GeoJSON.Geometry. Clone via JSON to break MapLibre's
-        // internal references, then round coordinates to terra-
-        // draw's configured precision: PostGIS returns 15-digit
-        // doubles, terra-draw rejects anything past
-        // EDITOR_COORD_PRECISION. The rounded geometry is what
-        // both originalGeometry and currentGeometry start as, so
-        // the change-detection comparison still round-trips
-        // cleanly when the user drags a vertex.
-        const cloned = roundCoordsToPrecision(
-          JSON.parse(JSON.stringify(hit.geometry)) as GeoJSON.Geometry,
-          EDITOR_COORD_PRECISION,
-        );
-        setGeomEditError(null);
+        // internal references; useGeometryEdit rounds it to the
+        // adapter's precision before loading (PostGIS returns
+        // 15-digit doubles, terra-draw rejects anything past its
+        // configured precision), and the same rounded geometry is
+        // what change detection compares against, so a vertex drag
+        // still round-trips cleanly.
+        const cloned = JSON.parse(JSON.stringify(hit.geometry)) as GeoJSON.Geometry;
+        setGeomEditSaveError(null);
         setPendingGeometryEdit({
           dataLayerId,
           layerKey,
           targetKey,
           featureId,
           geometryType: layerGeomType as 'point' | 'line' | 'polygon',
-          originalGeometry: cloned,
-          currentGeometry: cloned,
+          originalGeometry: roundCoordsToPrecision(cloned),
           properties: initialProps,
         });
         return;
@@ -1762,192 +1532,36 @@ export function EditorRuntime({
     editor.targets,
   ]);
 
-  // Geometry-edit setup. When pendingGeometryEdit is set, terra-draw
-  // takes over: switch to select mode, push the feature into its
-  // store with a `mode` property matching the geometry family (so
-  // the right flag set applies), then call selectFeature so the
-  // vertex / midpoint handles render immediately.
-  //
-  // The original feature stays rendered on the underlying MapLibre
-  // layer during the edit (we don't filter it out). terra-draw
-  // overlays the editable copy with handles on top, which is enough
-  // to communicate "this is the one being moved" without the
-  // complexity of a transient layer filter. After save, refreshTarget
-  // reloads the layer source and the styled feature snaps to the
-  // new position.
-  //
-  // tdEditFeatureIdRef holds the terra-draw id so the cleanup
-  // function can remove the feature even after the user navigates
-  // away mid-edit.
-  useEffect(() => {
-    const draw = drawRef.current as
-      | {
-          start: () => void;
-          setMode: (m: string) => void;
-          addFeatures: (
-            features: unknown[],
-          ) => Array<{ id?: string | number; valid: boolean; reason?: string }>;
-          selectFeature: (id: string) => void;
-          deselectFeature: (id: string) => void;
-          removeFeatures: (ids: Array<string | number>) => void;
-          hasFeature: (id: string | number) => boolean;
-        }
-      | null;
-    if (!draw || !pendingGeometryEdit) return;
-
-    try {
-      draw.start();
-    } catch {
-      /* already started */
-    }
-    try {
-      draw.setMode('select');
-    } catch {
-      /* not started */
-    }
-
-    // terra-draw uses `mode` on the feature properties to decide
-    // which flag profile to apply -- we want the per-geometry-type
-    // flags from the constructor above. Map our internal geometry
-    // family ('point' | 'line' | 'polygon') to terra-draw's mode
-    // names ('point' | 'linestring' | 'polygon').
-    const tdMode =
-      pendingGeometryEdit.geometryType === 'line'
-        ? 'linestring'
-        : pendingGeometryEdit.geometryType;
-    // Use the bare server feature id as terra-draw's feature id.
-    // We previously wrapped this with a `gg-edit-` prefix on the
-    // assumption that it would collide with the underlying source
-    // layer's feature id, but terra-draw maintains its own store
-    // separate from MapLibre's source, so there is no collision.
-    // The prefix made debugging harder (any rejection surfaced as
-    // "No feature with this id (gg-edit-...)") and was unnecessary.
-    const tdId = pendingGeometryEdit.featureId;
-    tdEditFeatureIdRef.current = tdId;
-
-    // Belt-and-suspenders: if a previous edit on the same feature id
-    // somehow left a record in terra-draw's store (e.g. cleanup raced
-    // with a re-entry), the duplicate check inside _store.load would
-    // reject the new feature with "Feature already exists with this id".
-    // Clear it before adding.
-    try {
-      if (draw.hasFeature(tdId)) {
-        draw.removeFeatures([tdId]);
-      }
-    } catch {
-      /* ignore */
-    }
-
-    try {
-      const results = draw.addFeatures([
-        {
-          id: tdId,
-          type: 'Feature',
+  // The vertex-editing session itself (load into terra-draw, select so
+  // the handles render, track every drag, remove on exit) is
+  // useGeometryEdit in map/use-terra-draw.ts, shared with the map
+  // builder. This component keeps the identity of what is being
+  // edited plus the properties needed to hop into attribute editing;
+  // the live geometry is read off the hook.
+  const geometryEdit = useGeometryEdit(
+    terraDraw,
+    pendingGeometryEdit
+      ? {
+          key: pendingGeometryEdit.targetKey,
+          featureId: pendingGeometryEdit.featureId,
+          geometryType: pendingGeometryEdit.geometryType,
           geometry: pendingGeometryEdit.originalGeometry,
-          properties: { mode: tdMode },
-        },
-      ]);
-      // _store.load returns a StoreValidation[]: one entry per input
-      // feature with `{valid, reason?}`. addFeatures swallows
-      // rejections silently, so a feature that fails validation never
-      // lands in the store and selectFeature then throws "No feature
-      // with this id, can not get properties copy". Read the result
-      // here so we can surface the actual reason in the in-modal error.
-      const rejection = (results ?? []).find((r) => !r.valid);
-      if (rejection) {
-        setGeomEditError(
-          `Could not load geometry: ${rejection.reason ?? 'unknown reason'}`,
-        );
-      } else {
-        draw.selectFeature(tdId);
-      }
-    } catch (err) {
-      // selectFeature throws when the feature is missing from the
-      // store. We surface this as the in-modal error so the user can
-      // cancel out cleanly rather than getting stuck.
-      setGeomEditError(
-        err instanceof Error
-          ? `Could not load geometry: ${err.message}`
-          : 'Could not load geometry into the editor.',
-      );
-    }
-
-    return () => {
-      try {
-        draw.deselectFeature(tdId);
-      } catch {
-        /* ignore: race on unmount */
-      }
-      try {
-        draw.removeFeatures([tdId]);
-      } catch {
-        /* ignore: race on unmount */
-      }
-      if (tdEditFeatureIdRef.current === tdId) {
-        tdEditFeatureIdRef.current = null;
-      }
-    };
-    // We deliberately key on the (target, feature) pair so swapping
-    // to a different feature mid-edit cleans up the previous one.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    pendingGeometryEdit?.targetKey,
-    pendingGeometryEdit?.featureId,
-  ]);
-
-  // Watch terra-draw 'change' events while a geometry edit is in
-  // flight. terra-draw emits 'change' on every drag step + every
-  // midpoint insert + every vertex delete; we read the latest
-  // geometry off getSnapshot and drop it into pendingGeometryEdit
-  // so the floating action bar can show "Save changes" enabled
-  // only when the geometry actually differs from the original.
-  useEffect(() => {
-    const draw = drawRef.current as
-      | {
-          on: (ev: 'change', cb: (ids: Array<string | number>) => void) => void;
-          off: (ev: 'change', cb: (ids: Array<string | number>) => void) => void;
-          getSnapshot: () => Array<{
-            id: string | number;
-            geometry: GeoJSON.Geometry;
-          }>;
         }
-      | null;
-    if (!draw || !pendingGeometryEdit) return;
-
-    const tdId = tdEditFeatureIdRef.current;
-    if (!tdId) return;
-
-    const handleChange = (ids: Array<string | number>) => {
-      if (!ids.includes(tdId)) return;
-      const snap = draw.getSnapshot();
-      const f = snap.find((x) => String(x.id) === tdId);
-      if (!f) return;
-      setPendingGeometryEdit((prev) =>
-        prev ? { ...prev, currentGeometry: f.geometry } : null,
-      );
-    };
-    draw.on('change', handleChange);
-    return () => {
-      try {
-        draw.off('change', handleChange);
-      } catch {
-        /* terra-draw race on unmount; ignore */
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    pendingGeometryEdit?.targetKey,
-    pendingGeometryEdit?.featureId,
-  ]);
+      : null,
+  );
+  const currentEditGeometry =
+    geometryEdit.currentGeometry ?? pendingGeometryEdit?.originalGeometry ?? null;
+  const geomEditError = geometryEdit.loadError ?? geomEditSaveError;
 
   // Save the in-flight geometry edit. PATCH only the geometry; the
   // server keeps the existing properties. On success we refresh the
   // target layer's source so the moved feature paints in its new
   // position, and exit edit mode.
   async function saveGeometryEdit() {
-    if (!pendingGeometryEdit) return;
+    if (!pendingGeometryEdit || !currentEditGeometry) return;
+    const geometry = currentEditGeometry;
     setGeomEditSaving(true);
-    setGeomEditError(null);
+    setGeomEditSaveError(null);
     try {
       const url = `/api/portal/items/${pendingGeometryEdit.dataLayerId}/layers/${pendingGeometryEdit.layerKey}/features/${pendingGeometryEdit.featureId}`;
       const res = await fetch(url, {
@@ -1956,12 +1570,10 @@ export function EditorRuntime({
           'content-type': 'application/json',
           'x-editor-id': editorId,
         },
-        body: JSON.stringify({
-          geometry: pendingGeometryEdit.currentGeometry,
-        }),
+        body: JSON.stringify({ geometry }),
       });
       if (!res.ok) {
-        setGeomEditError(`Save failed: ${res.status} ${await res.text()}`);
+        setGeomEditSaveError(await parseApiError(res, 'Save failed'));
         return;
       }
       // Push undo op (#123). Geometry-only edit: properties stay
@@ -1974,7 +1586,7 @@ export function EditorRuntime({
         featureId: pendingGeometryEdit.featureId,
         previousGeometry: pendingGeometryEdit.originalGeometry,
         previousProperties: pendingGeometryEdit.properties,
-        geometry: pendingGeometryEdit.currentGeometry,
+        geometry,
         properties: pendingGeometryEdit.properties,
       });
       const dl = pendingGeometryEdit.dataLayerId;
@@ -1983,7 +1595,7 @@ export function EditorRuntime({
       setActiveTool('off');
       refreshTarget(dl, lk);
     } catch (err) {
-      setGeomEditError(
+      setGeomEditSaveError(
         err instanceof Error
           ? err.message
           : 'Network error during geometry save.',
@@ -1996,7 +1608,7 @@ export function EditorRuntime({
   function cancelGeometryEdit() {
     if (geomEditSaving) return;
     setPendingGeometryEdit(null);
-    setGeomEditError(null);
+    setGeomEditSaveError(null);
   }
 
   /**
@@ -2010,9 +1622,7 @@ export function EditorRuntime({
    */
   async function switchToAttributeEdit() {
     if (!pendingGeometryEdit) return;
-    const moved =
-      JSON.stringify(pendingGeometryEdit.currentGeometry) !==
-      JSON.stringify(pendingGeometryEdit.originalGeometry);
+    const moved = geometryEdit.dirty;
     if (moved) {
       // Persist geometry first; if the save fails, stay in geometry
       // mode so the user can retry rather than silently losing the
@@ -2029,7 +1639,7 @@ export function EditorRuntime({
     setActiveTargetKey(targetKey);
     setPendingFeature({
       mode: 'update',
-      geometry: pendingGeometryEdit.currentGeometry,
+      geometry: currentEditGeometry ?? pendingGeometryEdit.originalGeometry,
       targetKey,
       featureId,
       initialProperties: properties,
@@ -3238,11 +2848,7 @@ export function EditorRuntime({
                     <button
                       type="button"
                       onClick={() => void saveGeometryEdit()}
-                      disabled={
-                        geomEditSaving ||
-                        JSON.stringify(pendingGeometryEdit.currentGeometry) ===
-                          JSON.stringify(pendingGeometryEdit.originalGeometry)
-                      }
+                      disabled={geomEditSaving || !geometryEdit.dirty}
                       className="inline-flex h-7 items-center gap-1 rounded bg-purple-600 px-3 text-xs font-medium text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {geomEditSaving ? 'Saving...' : 'Save geometry'}
