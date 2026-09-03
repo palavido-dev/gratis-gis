@@ -25,8 +25,8 @@ export type BuiltinBasemapSeedKey =
   | 'satellite';
 
 export const BUILTIN_BASEMAP_SEED_KEYS: BuiltinBasemapSeedKey[] = [
-  'positron',
   'osm',
+  'positron',
   'voyager',
   'dark-matter',
   'satellite',
@@ -49,14 +49,16 @@ export interface BuiltinBasemapSeed {
   attribution: string;
 }
 
+/**
+ * OpenStreetMap is first and is the default for a new map
+ * (portal-api items/default-basemap.ts): it is the only seeded basemap
+ * that needs no API key and covers the world. Carto's hosted rasters
+ * (Positron, Voyager, Dark matter) are still seeded because their
+ * styles are good, but since 2026 Carto stamps "API KEY REQUIRED"
+ * across every tile served without a key, so their descriptions say
+ * so and nothing defaults to them.
+ */
 export const BUILTIN_BASEMAP_SEEDS: BuiltinBasemapSeed[] = [
-  {
-    seededKey: 'positron',
-    title: 'Positron',
-    description: 'Light and muted. Good base for overlay data.',
-    tileUrl: 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-    attribution: '(c) OpenStreetMap contributors (c) Carto',
-  },
   {
     seededKey: 'osm',
     title: 'OpenStreetMap',
@@ -65,9 +67,18 @@ export const BUILTIN_BASEMAP_SEEDS: BuiltinBasemapSeed[] = [
     attribution: '(c) OpenStreetMap contributors',
   },
   {
+    seededKey: 'positron',
+    title: 'Positron',
+    description:
+      'Light and muted. Good base for overlay data. Carto serves these tiles watermarked unless you add your own Carto API key to the URL.',
+    tileUrl: 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+    attribution: '(c) OpenStreetMap contributors (c) Carto',
+  },
+  {
     seededKey: 'voyager',
     title: 'Voyager',
-    description: 'Balanced contrast with clear place labels.',
+    description:
+      'Balanced contrast with clear place labels. Carto serves these tiles watermarked unless you add your own Carto API key to the URL.',
     tileUrl:
       'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
     attribution: '(c) OpenStreetMap contributors (c) Carto',
@@ -75,7 +86,8 @@ export const BUILTIN_BASEMAP_SEEDS: BuiltinBasemapSeed[] = [
   {
     seededKey: 'dark-matter',
     title: 'Dark matter',
-    description: 'Dark theme for dashboards and presentations.',
+    description:
+      'Dark theme for dashboards and presentations. Carto serves these tiles watermarked unless you add your own Carto API key to the URL.',
     tileUrl: 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
     attribution: '(c) OpenStreetMap contributors (c) Carto',
   },

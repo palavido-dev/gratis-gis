@@ -7,6 +7,7 @@ import { ITEM_TYPES, defaultThumbnailDesign } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { readV3Layers } from '../data-layer/read-v3-layers.js';
+import { pickDefaultBasemap } from './default-basemap.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { SharingService } from './sharing.service.js';
 import { DataSnapshotService } from './data-snapshot.service.js';
@@ -1470,10 +1471,10 @@ export class ItemsService {
    * Map items arrive from the wizard with the DEFAULT_MAP scaffold,
    * which uses an empty-string sentinel for `basemap`. Resolve the
    * sentinel to a real basemap item UUID so every saved map references
-   * a renderable basemap from creation time. Preference order:
-   *   1. The org's seeded `positron` basemap (matches the prior default).
-   *   2. Any other seeded built-in basemap.
-   *   3. Any basemap item visible to the org.
+   * a renderable basemap from creation time. Preference order is in
+   * pickDefaultBasemap: the seeded OpenStreetMap basemap (the only
+   * seeded one that needs no API key), then any seeded built-in, then
+   * the org's oldest basemap item.
    * If none exists at all (which shouldn't happen since auth-sync seeds
    * on first login), leave the empty string in place; the canvas
    * gracefully falls back to the inline OSM raster.
@@ -1491,17 +1492,8 @@ export class ItemsService {
       select: { id: true, data: true, createdAt: true },
       orderBy: { createdAt: 'asc' },
     });
-    if (candidates.length === 0) return data;
-
-    const positron = candidates.find((c) => {
-      const k = (c.data as { seededKey?: unknown } | null)?.seededKey;
-      return k === 'positron';
-    });
-    const seeded = candidates.find((c) => {
-      const k = (c.data as { seededKey?: unknown } | null)?.seededKey;
-      return typeof k === 'string';
-    });
-    const pick = positron ?? seeded ?? candidates[0]!;
+    const pick = pickDefaultBasemap(candidates);
+    if (!pick) return data;
     return { ...obj, basemap: pick.id };
   }
 

@@ -106,7 +106,7 @@ function makePrismaMock(opts: {
     type: string;
     deletedAt: Date | null;
   };
-  /** Seeded basemap fallback returned by findFirst. */
+  /** Seeded basemap fallback, the one row findMany returns. */
   fallbackBasemap?: {
     id: string;
     title: string;
@@ -116,7 +116,7 @@ function makePrismaMock(opts: {
   return {
     item: {
       findUnique: async () => opts.basemapItem ?? null,
-      findFirst: async () => opts.fallbackBasemap ?? null,
+      findMany: async () => (opts.fallbackBasemap ? [opts.fallbackBasemap] : []),
     },
   } as unknown as ConstructorParameters<typeof WebMapJsonService>[0];
 }

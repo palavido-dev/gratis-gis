@@ -14,6 +14,7 @@ import {
 } from '@gratis-gis/engine';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { pickDefaultBasemap } from './default-basemap.js';
 
 /**
  * Build an Esri WebMapJSON document from a portal `map` item.
@@ -170,8 +171,9 @@ export class WebMapJsonService {
 
   /**
    * Resolve the map's basemap reference to a tileUrl + attribution.
-   * Falls back to the org's seeded `positron` basemap, then to a
-   * static OSM URL so the output is always renderable.
+   * Falls back to the org's default basemap (pickDefaultBasemap: the
+   * seeded OpenStreetMap one first), then to a static OSM URL so the
+   * output is always renderable.
    */
   private async resolveBasemap(map: Item): Promise<{
     id: string;
@@ -204,12 +206,15 @@ export class WebMapJsonService {
         }
       }
     }
-    // Fallback: org's seeded positron, then any seeded basemap.
-    const seeded = await this.prisma.item.findFirst({
-      where: { orgId: map.orgId, type: 'basemap', deletedAt: null },
-      orderBy: { createdAt: 'asc' },
-      select: { id: true, title: true, data: true },
-    });
+    // Fallback: the org's default basemap, chosen the same way a new
+    // map's is, so a broken reference and a missing one agree.
+    const seeded = pickDefaultBasemap(
+      await this.prisma.item.findMany({
+        where: { orgId: map.orgId, type: 'basemap', deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, title: true, data: true },
+      }),
+    );
     if (seeded) {
       const bm = seeded.data as BasemapDataShape | null;
       if (typeof bm?.tileUrl === 'string' && bm.tileUrl.length > 0) {
