@@ -5,6 +5,18 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.105] - 2026-09-03
+
+### Fixed
+
+- **Related counters answer in under a second on every map pan.** The
+  0.9.104 fix bounded how many dashboard queries ran at once, but a
+  counter that relates one layer to what is on the map (measurements
+  at the sites in view) could still take 27 seconds on its own: the
+  database picked a bad plan whenever the map extent narrowed the
+  sites. The relate is now done in two short steps that cannot be
+  misplanned.
+
 ## [0.9.104] - 2026-09-03
 
 ### Fixed
