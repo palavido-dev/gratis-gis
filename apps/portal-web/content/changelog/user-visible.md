@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-09-03 - Edit a layer straight from the map
+Open a map you can edit and an Edit toolbar appears next to the selection tools, on any layer you have permission to change. Click a feature to drag its vertices, draw a new one and fill in its attributes, or delete one, all without building an editing app first. The attribute table edits inline too, and a Calculate Field option fills a column from an expression. Every save is checked against the layer's rules, so a value the layer would not accept is refused with a plain-English reason. Field edits the server refuses now wait for you with that reason instead of retrying forever.
+
 ## 2026-08-19 - Dashboards, without a separate dashboard app
 You can now build a dashboard: big-number indicators, charts, tables,
 and maps, refreshing on their own once a minute. Start from the KPI
