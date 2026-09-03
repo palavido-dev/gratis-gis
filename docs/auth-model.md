@@ -96,6 +96,15 @@ portal-api, which Caddy routes without passing through the web tier.
 - CSRF: `portal-web` uses `next-auth`'s built-in CSRF protection for its
   own routes; API calls carry bearer tokens (not cookies), so no CSRF
   concern on the API.
+- CORS: portal-api answers cross-origin browsers per route
+  (`src/common/cors.ts`). `/api/public/*` and `/health` allow any
+  origin for GET/HEAD/OPTIONS, because the open-data endpoints exist to
+  be loaded into other sites' map pages. Every other route allows only
+  the origins in `CORS_ALLOWED_ORIGINS`, empty by default: the portal
+  UI is same-origin behind Caddy in prod and goes through the BFF in
+  dev, so nothing first-party needs an entry. Credentials are never
+  allowed, so a cookie cannot ride a cross-origin call even if one
+  were ever introduced.
 
 ## Offline Auth (field app)
 

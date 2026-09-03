@@ -4,6 +4,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module.js';
+import { corsOptionsFor, parseAllowedOrigins } from './common/cors.js';
 
 // Process-level safety net (#117). Node >= 16 exits the process on an
 // uncaughtException OR an unhandledRejection by default; in prod that
@@ -28,9 +29,24 @@ process.on('uncaughtException', (err) => {
 });
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
-    cors: true,
-  });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // Per-route CORS: the open-data surface (/api/public/*, /health)
+  // answers any origin read-only; everything else answers only the
+  // origins in CORS_ALLOWED_ORIGINS, which defaults to none. The
+  // portal's own browser traffic is same-origin in prod (Caddy) and
+  // BFF-proxied in dev, so it needs no entry. See common/cors.ts.
+  const corsLogger = new Logger('Cors');
+  const allowedOrigins = parseAllowedOrigins(
+    process.env.CORS_ALLOWED_ORIGINS,
+    (entry) =>
+      corsLogger.warn(
+        `Ignoring CORS_ALLOWED_ORIGINS entry that is not an origin: ${entry}`,
+      ),
+  );
+  if (allowedOrigins.length > 0) {
+    corsLogger.log(`Cross-origin callers allowed: ${allowedOrigins.join(', ')}`);
+  }
+  app.enableCors((req, cb) => cb(null, corsOptionsFor(req, allowedOrigins)));
   // Don't advertise the Express framework over the wire.  The
   // default `x-powered-by: Express` header is informational only,
   // but it hands an attacker exact version targeting.
