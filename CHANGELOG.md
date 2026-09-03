@@ -5,6 +5,16 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.103] - 2026-09-03
+
+### Added
+
+- **Add one layer of a data layer to a map.** On a data layer with
+  several layers, each row of the Data tab now has its own "Add to
+  map", so a map can take just the parcels from a service without the
+  zoning and easements that live beside them. The layer arrives on the
+  map under its own name. The header button still adds the whole item.
+
 ## [0.9.102] - 2026-09-03
 
 ### Changed
