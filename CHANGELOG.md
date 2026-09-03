@@ -5,6 +5,14 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.107] - 2026-09-03
+
+### Changed
+
+- Postgres: autovacuum gets an SSD-sized cost budget so it keeps up
+  with bulk imports, and the slow-statement log threshold moves into
+  the compose file with the rest of the server settings.
+
 ## [0.9.106] - 2026-09-03
 
 ### Changed
