@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { createHash } from 'node:crypto';
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
+import { Client as PgClient } from 'pg';
 
 /**
  * In-process LRU cache for MVT tile buffers.
@@ -27,19 +28,36 @@ import { Injectable } from '@nestjs/common';
  *     fraction of the 300 s public route). On TTL miss the
  *     entry is dropped and the next request recomputes.
  *
- *   - No cross-replica coordination. This is an in-process cache.
- *     Two replicas may each compute the same tile once before
- *     either fills its cache. That's acceptable for v1; phase 4
- *     (persistent MinIO-backed cache) addresses cross-replica
- *     sharing properly.
+ *   - No cross-replica SHARING. This is an in-process cache. Two
+ *     replicas may each compute the same tile once before either
+ *     fills its cache. That's acceptable for v1; phase 4
+ *     (persistent MinIO-backed cache) addresses sharing properly.
+ *
+ *   - Cross-replica INVALIDATION, though, is load-bearing and is
+ *     done. Every INSERT into `observation` fires
+ *     `pg_notify('gg_observation_written', scope)` from a row
+ *     trigger (migration 20260903150000). Each process that serves
+ *     tiles holds one dedicated LISTEN connection and drops every
+ *     cached tile for that scope the moment the write commits.
+ *     Before this, an edit made through the map builder stayed
+ *     invisible for up to the TTL: the client bumped its `?refresh`
+ *     serial, the server ignored the unknown query param, and the
+ *     cache handed back the pre-edit tile. A deleted feature that
+ *     stays on the map for a minute reads as "delete does not work".
+ *     The listener starts lazily on the first tile compute, so the
+ *     worker processes, which never serve tiles, never open the
+ *     connection.
  *
  *   - ETag generation belongs here: the cache key determines
  *     content identity, so the cache is the right place to mint
  *     a stable ETag. Controllers pass back `If-None-Match`,
  *     this service decides 304 vs 200.
  */
+export const OBSERVATION_WRITTEN_CHANNEL = 'gg_observation_written';
+
 @Injectable()
-export class TileCacheService {
+export class TileCacheService implements OnModuleDestroy {
+  private readonly log = new Logger(TileCacheService.name);
   /** Defaults sized for a 1 GB-RSS portal-api container. 200 MB
    *  cache is enough headroom for thousands of small tiles and
    *  hundreds of the worst-case 1-2 MB tiles without crowding
@@ -93,6 +111,22 @@ export class TileCacheService {
   private coalesced = 0;
   private rejectedOverload = 0;
   private activeComputes = 0;
+  private invalidations = 0;
+
+  /**
+   * When each key prefix (`<scope>|`) was last invalidated. A compute
+   * that STARTED before the invalidation is computing against the
+   * pre-write state, so its result must not be stored even though it
+   * finishes after the drop; without this a write landing mid-compute
+   * would be cached over for a full TTL.
+   */
+  private readonly invalidatedAt = new Map<string, number>();
+
+  /** Dedicated LISTEN connection; null until the first compute. */
+  private listener: PgClient | null = null;
+  private listenerStarting = false;
+  private listenerStopped = false;
+  private listenerRetryMs = 1_000;
 
   constructor() {
     this.maxBytes = parseIntEnv('TILE_CACHE_MAX_BYTES', 200 * 1024 * 1024);
@@ -223,9 +257,12 @@ export class TileCacheService {
       );
     }
 
+    this.ensureListener();
+
     // Register the in-flight slot before awaiting so concurrent
     // callers see it.
     this.activeComputes += 1;
+    const startedAt = Date.now();
     const promise: Promise<CacheHit> = (async () => {
       try {
         // Wall-clock timeout safety net. Without this, a Prisma
@@ -255,6 +292,14 @@ export class TileCacheService {
             ),
           ),
         ]);
+        // A write to this scope landed while we were computing:
+        // serve the bytes, but do not cache what may already be
+        // stale. The next request recomputes.
+        const prefix = key.slice(0, key.indexOf('|') + 1);
+        const droppedAt = this.invalidatedAt.get(prefix);
+        if (droppedAt !== undefined && droppedAt >= startedAt) {
+          return { buf, etag: computeEtag(key, buf) };
+        }
         const etag = this.set(key, buf);
         return { buf, etag };
       } finally {
@@ -274,6 +319,8 @@ export class TileCacheService {
    * lands and the next reader should see fresh state.
    */
   invalidatePrefix(prefix: string): number {
+    this.invalidatedAt.set(prefix, Date.now());
+    this.invalidations += 1;
     let dropped = 0;
     for (const key of this.entries.keys()) {
       if (key.startsWith(prefix)) {
@@ -298,6 +345,78 @@ export class TileCacheService {
   }
 
   /**
+   * Handle one write notification. Exposed so the spec can drive it
+   * without a database; production calls arrive from the LISTEN
+   * connection. The payload is the observation scope
+   * (`data_layer:<itemId>:<layerId>`), which is exactly the key
+   * prefix the tile builder uses.
+   */
+  onObservationWritten(scope: string): number {
+    if (!scope) return 0;
+    return this.invalidatePrefix(`${scope}|`);
+  }
+
+  /**
+   * Open the LISTEN connection once, on the first tile compute.
+   * Failure is logged and retried with backoff; while the listener
+   * is down the cache degrades to TTL-only staleness, which is what
+   * it was before the listener existed. Never throws into the tile
+   * path.
+   */
+  private ensureListener(): void {
+    if (this.listener || this.listenerStarting || this.listenerStopped) return;
+    const url = process.env.DATABASE_URL;
+    if (!url) return;
+    this.listenerStarting = true;
+    const client = new PgClient({ connectionString: url });
+    client.on('notification', (msg) => {
+      if (msg.channel !== OBSERVATION_WRITTEN_CHANNEL) return;
+      this.onObservationWritten(msg.payload ?? '');
+    });
+    const restart = (why: string) => {
+      if (this.listener === client) this.listener = null;
+      client.removeAllListeners();
+      void client.end().catch(() => {});
+      if (this.listenerStopped) return;
+      this.log.warn(
+        `tile invalidation listener ${why}; retrying in ${this.listenerRetryMs}ms`,
+      );
+      setTimeout(() => {
+        this.listenerStarting = false;
+        this.ensureListener();
+      }, this.listenerRetryMs).unref();
+      this.listenerRetryMs = Math.min(this.listenerRetryMs * 2, 30_000);
+    };
+    client.on('error', (err) => restart(`errored (${err.message})`));
+    client.on('end', () => restart('closed'));
+    void client
+      .connect()
+      .then(() => client.query(`LISTEN ${OBSERVATION_WRITTEN_CHANNEL}`))
+      .then(() => {
+        this.listener = client;
+        this.listenerStarting = false;
+        this.listenerRetryMs = 1_000;
+        // Anything cached before the listener was up may already be
+        // stale; start clean rather than trust it.
+        this.clear();
+        this.log.log(`listening on ${OBSERVATION_WRITTEN_CHANNEL} for tile invalidation`);
+      })
+      .catch((err: unknown) => {
+        restart(`failed to connect (${err instanceof Error ? err.message : String(err)})`);
+      });
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    this.listenerStopped = true;
+    const client = this.listener;
+    this.listener = null;
+    if (client) {
+      client.removeAllListeners();
+      await client.end().catch(() => {});
+    }
+  }
+
+  /**
    * Snapshot of cache vitals, hooked into the perf dashboard
    * workstream when it lands. Cheap; safe to call frequently.
    */
@@ -313,6 +432,8 @@ export class TileCacheService {
       evictions: this.evictions,
       coalesced: this.coalesced,
       rejectedOverload: this.rejectedOverload,
+      invalidations: this.invalidations,
+      listening: this.listener !== null,
       inFlight: this.inFlight.size,
       activeComputes: this.activeComputes,
       maxConcurrentComputes: this.maxConcurrentComputes,
@@ -450,6 +571,13 @@ export interface TileCacheStats {
    *  concurrency cap was at saturation. Maps to HTTP 503s
    *  emitted to clients. */
   rejectedOverload: number;
+  /** Times a write notification (or a manual call) dropped every
+   *  cached tile for a scope. */
+  invalidations: number;
+  /** Whether the LISTEN connection that drives invalidation is up.
+   *  False in a process that has never served a tile, and while a
+   *  dropped connection is being retried. */
+  listening: boolean;
   /** Current number of in-flight compute slots. */
   inFlight: number;
   /** Number of leaders actively running a compute (subset of

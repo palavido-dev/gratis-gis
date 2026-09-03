@@ -28,7 +28,7 @@
 //     because later migrations (20260510180000, 20260618120000)
 //     dropped them; the live index set is what prod has.
 
-import { Pool } from 'pg';
+import { Client as PgClient, Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 import type { Item } from '@prisma/client';
@@ -208,6 +208,24 @@ d('observation-log read paths against real PostGIS', () => {
     await pool.query(
       `CREATE INDEX observation_tx_time_idx ON observation (tx_time DESC)`,
     );
+    // Mirrors migration 20260903150000_observation_notify_trigger, the
+    // write-side half of tile cache invalidation. Scenario 10 proves
+    // it fires for every write path; if the migration changes, change
+    // this copy too.
+    await pool.query(`
+      CREATE OR REPLACE FUNCTION observation_notify_written() RETURNS trigger
+      LANGUAGE plpgsql AS $$
+      BEGIN
+        PERFORM pg_notify('gg_observation_written', NEW.scope);
+        RETURN NULL;
+      END
+      $$
+    `);
+    await pool.query(`
+      CREATE TRIGGER observation_notify_written
+        AFTER INSERT ON observation
+        FOR EACH ROW EXECUTE FUNCTION observation_notify_written()
+    `);
   });
 
   afterAll(async () => {
@@ -2550,6 +2568,84 @@ d('observation-log read paths against real PostGIS', () => {
       expect(await createRowCount(scope, gid)).toBe(2);
       const list = await makeEngine().listFeatures({ itemId, layerId });
       expect(list.features.some((f) => f.id === gid)).toBe(true);
+    });
+  });
+
+  describe('scenario 10: every write notifies the tile cache listener', () => {
+    // The tile cache is per process and prod runs two replicas, so the
+    // only thing that can tell replica B about a write handled by
+    // replica A is Postgres itself. This drives real writes through
+    // the engine and asserts a plain LISTEN connection hears the scope
+    // for each of them, once per transaction, on the partitioned
+    // table, which is where a trigger declared on the parent could
+    // silently fail to apply.
+    const itemId = uuidv7();
+    const layerId = 'layer-notify';
+    const scope = dataLayerScope(itemId, layerId);
+    let listener: PgClient;
+    const heard: string[] = [];
+
+    beforeAll(async () => {
+      listener = new PgClient({ connectionString: TEST_URL });
+      await listener.connect();
+      listener.on('notification', (msg) => {
+        if (msg.channel === 'gg_observation_written') heard.push(msg.payload ?? '');
+      });
+      await listener.query('LISTEN gg_observation_written');
+    });
+
+    afterAll(async () => {
+      await listener.end();
+    });
+
+    const waitForNotifications = async (atLeast: number) => {
+      const deadline = Date.now() + 2_000;
+      while (heard.filter((h) => h === scope).length < atLeast && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      return heard.filter((h) => h === scope).length;
+    };
+
+    it('fires for a single create, a batched update and a delete', async () => {
+      const { globalId } = await makeEngine().writeFeatureCreate({
+        itemId,
+        layerId,
+        geometry: { type: 'Point', coordinates: HERE },
+        properties: { STATUS: 'Open' },
+        principal: PRINCIPAL,
+      });
+      expect(await waitForNotifications(1)).toBe(1);
+
+      // Two rows in one batched INSERT: one transaction, so Postgres
+      // collapses the identical (channel, payload) pair to ONE event.
+      await makeEngine().writeFeaturesUpdate([
+        { itemId, layerId, globalId, properties: { STATUS: 'Closed' }, principal: PRINCIPAL },
+        { itemId, layerId, globalId, properties: { STATUS: 'Reopened' }, principal: PRINCIPAL },
+      ]);
+      expect(await waitForNotifications(2)).toBe(2);
+
+      await makeEngine().writeFeatureDelete({ itemId, layerId, globalId, principal: PRINCIPAL });
+      expect(await waitForNotifications(3)).toBe(3);
+
+      // A write to another scope is not this scope's business.
+      await makeEngine().writeFeatureCreate({
+        itemId: uuidv7(),
+        layerId,
+        geometry: { type: 'Point', coordinates: HERE },
+        properties: {},
+        principal: PRINCIPAL,
+      });
+      await new Promise((r) => setTimeout(r, 100));
+      expect(heard.filter((h) => h === scope).length).toBe(3);
+    });
+
+    it('drops the cached tiles for exactly that scope when the service hears it', () => {
+      const cache = new TileCacheService();
+      cache.set(`${scope}|12/1/1|`, Buffer.from('stale'));
+      cache.set(`${scope}-other|12/1/1|`, Buffer.from('other'));
+      expect(cache.onObservationWritten(scope)).toBe(1);
+      expect(cache.get(`${scope}|12/1/1|`)).toBeNull();
+      expect(cache.get(`${scope}-other|12/1/1|`)).not.toBeNull();
     });
   });
 });

@@ -133,6 +133,49 @@ describe('TileCacheService', () => {
     });
   });
 
+  describe('write invalidation', () => {
+    it('drops every tile of the written scope and nothing else', () => {
+      const cache = new TileCacheService();
+      cache.set('data_layer:i:a|6/24/17|', Buffer.from('a-1'));
+      cache.set('data_layer:i:a|7/49/35|x', Buffer.from('a-2'));
+      cache.set('data_layer:i:b|6/24/17|', Buffer.from('b-1'));
+      // The payload is the bare scope; the service appends the
+      // separator so scope 'i:a' cannot match a scope 'i:ab'.
+      cache.set('data_layer:i:ab|6/24/17|', Buffer.from('ab-1'));
+      expect(cache.onObservationWritten('data_layer:i:a')).toBe(2);
+      expect(cache.get('data_layer:i:a|6/24/17|')).toBeNull();
+      expect(cache.get('data_layer:i:b|6/24/17|')).not.toBeNull();
+      expect(cache.get('data_layer:i:ab|6/24/17|')).not.toBeNull();
+      expect(cache.onObservationWritten('')).toBe(0);
+    });
+
+    it('does not cache a compute that started before the write landed', async () => {
+      // The compute read the pre-write state; storing its result
+      // after the invalidation would pin stale bytes for a full TTL.
+      const cache = new TileCacheService();
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      const compute = jest.fn(async () => {
+        await gate;
+        return Buffer.from('pre-write');
+      });
+      const pending = cache.getOrCompute('data_layer:i:a|6/24/17|', compute);
+      await new Promise((r) => setTimeout(r, 5));
+      cache.onObservationWritten('data_layer:i:a');
+      release();
+      const result = await pending;
+      expect(result.buf.toString()).toBe('pre-write');
+      expect(result.etag).toMatch(/^"/);
+      expect(cache.get('data_layer:i:a|6/24/17|')).toBeNull();
+      // A compute that starts after the write is cached normally.
+      const fresh = await cache.getOrCompute('data_layer:i:a|6/24/17|', async () =>
+        Buffer.from('post-write'),
+      );
+      expect(fresh.buf.toString()).toBe('post-write');
+      expect(cache.get('data_layer:i:a|6/24/17|')?.buf.toString()).toBe('post-write');
+    });
+  });
+
   describe('getOrCompute single-flight', () => {
     it('returns the cached entry on hit without calling compute', async () => {
       const cache = new TileCacheService();
