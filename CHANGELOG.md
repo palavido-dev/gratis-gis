@@ -5,6 +5,23 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.101] - 2026-09-03
+
+### Fixed
+
+- **Edits show up on the map immediately, on every server.** A saved
+  shape, a new feature, or a deletion could stay invisible (or a
+  deleted feature could stay visible) for up to a minute, because the
+  map tiles were served from a per-server cache that nothing cleared
+  on a write. The database now tells every server the moment a layer
+  changes and the stale tiles are dropped.
+- **New maps start on OpenStreetMap.** Carto now watermarks its
+  hosted basemaps (Positron, Voyager, Dark matter) with "API KEY
+  REQUIRED" unless you supply your own key, and Positron was the
+  default for every new map. Those three stay in the library with a
+  note about the key; nothing defaults to them any more. Existing
+  maps keep whatever basemap they have: switch them in Map settings.
+
 ## [0.9.100] - 2026-09-03
 
 ### Added
