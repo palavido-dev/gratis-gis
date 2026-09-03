@@ -5,6 +5,50 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.99] - 2026-09-03
+
+### Added
+
+- **Edit a layer's shapes straight from a map.** The map builder gains
+  an Edit toolbar next to the selection tools, on any layer you have
+  permission to change: click a feature to drag its vertices (click a
+  midpoint to add one), draw a new feature and fill in its attributes,
+  or delete one. Together with the attribute editing added in 0.9.97,
+  fixing a layer no longer requires building an editing app on top of
+  it first. Snapping can be toggled while a tool is active.
+
+### Fixed
+
+- **Editing a record no longer clears the columns you did not touch.**
+  An update replaced the whole record with whatever the client sent,
+  so a client that sent only the fields it changed emptied every
+  other one. Records collected in the field and then edited were
+  losing their submission time this way. Updates now merge.
+- **Who submitted a record is recorded from your sign-in, not from
+  what the client sent.** The field app sends the value so it can
+  show the record while offline, but the server no longer trusts it.
+- Existing form submission layers are updated so "Schema version" is
+  no longer required on them, matching the change to new forms in
+  0.9.97. Without this, a field submission into an older form's
+  layer would have been refused.
+- A rejected save from the field app, the map builder, or Calculate
+  Field now shows the reason in plain words rather than a status code
+  or a raw error envelope.
+- Calculate Field now respects the per-field editing restrictions an
+  editor item sets, and no longer offers date or list columns, which
+  it cannot compute.
+- Bulk imports read the layer definition once per job rather than
+  once per batch.
+- A value outside a shared pick list's allowed entries is refused
+  without listing the entries, which could otherwise reveal a list
+  you were not given access to.
+
+### Security
+
+- Updated `golang.org/x/crypto` and `google.golang.org/grpc` inside the
+  bundled PMTiles converter to their patched releases (CVE-2026-56854,
+  CVE-2026-84304).
+
 ## [0.9.98] - 2026-09-02
 
 ### Security
