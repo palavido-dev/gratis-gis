@@ -54,16 +54,107 @@ services:
     # plenty for monthly partitions. The worker connects as the app
     # role to the app database (that role created the extension and
     # owns the partman config).
+    #
+    # Server tuning. Everything below the partman flags is sized for
+    # the demo host (4 vCPU, 7.6 GB RAM, one SSD, Postgres sharing the
+    # box with two API replicas, a worker, Keycloak and MinIO) and set
+    # 2026-09-03 after the water quality dashboard's aggregates went
+    # bimodal. Measured on stock defaults before the change: buffer
+    # hit rate 75.7% on a 320 MB database, 22 GB of temp files written
+    # in a day by 4 MB work_mem sorts, and a planner on
+    # random_page_cost=4 choosing seq scan + external merge sort over
+    # an index plan that needs no temp files at all. Flags rather than
+    # ALTER SYSTEM so a fresh install gets the same server and the
+    # values are reviewed in git. Scale the three memory lines with
+    # the host: shared_buffers ~1/8 of RAM on a shared box (1/4 on a
+    # dedicated one), effective_cache_size ~1/2, work_mem such that
+    # max_connections x work_mem x 3 stays well under RAM.
     command:
       - postgres
       - -c
-      - shared_preload_libraries=pg_partman_bgw
+      - shared_preload_libraries=pg_partman_bgw,pg_stat_statements
       - -c
       - pg_partman_bgw.interval=3600
       - -c
       - pg_partman_bgw.role=${POSTGRES_USER:-gratisgis}
       - -c
       - pg_partman_bgw.dbname=${POSTGRES_DB:-gratisgis}
+      # Memory. The whole database fits in shared_buffers with room
+      # to grow, so the engine's collapse-then-filter reads stop
+      # paying for disk. work_mem is per sort/hash node per backend;
+      # 32 MB lets the relate's hashed key array and the per-scope
+      # DISTINCT ON sorts on layers up to ~100k rows stay in memory.
+      # maintenance_work_mem was 1 GB, which three autovacuum workers
+      # could each claim at once; 512 MB for CREATE INDEX / VACUUM by
+      # hand, 128 MB per autovacuum worker.
+      - -c
+      - shared_buffers=1GB
+      - -c
+      - effective_cache_size=3GB
+      - -c
+      - work_mem=32MB
+      - -c
+      - maintenance_work_mem=512MB
+      - -c
+      - autovacuum_work_mem=128MB
+      # Planner. The disk is an SSD: random reads cost about the same
+      # as sequential, and the default 4.0 made the planner refuse
+      # index scans over 285k-row scopes in favour of seq scan +
+      # 110 MB external sort. effective_io_concurrency lets bitmap
+      # scans prefetch. JIT compiles every query costed above
+      # 100,000, which is exactly the tile and aggregate shapes here,
+      # and on 4 cores the compile time was pure overhead on queries
+      # that run in a second.
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - effective_io_concurrency=200
+      - -c
+      - jit=off
+      # Parallelism. 4 vCPUs: two workers per gather is right, but the
+      # default pool of 8 parallel workers lets four heavy queries take
+      # every core and starve the API's own connections. Four in total.
+      - -c
+      - max_parallel_workers=4
+      - -c
+      - max_parallel_workers_per_gather=2
+      # WAL. Bulk imports (a county of parcels is 1.4M observation
+      # rows) were forcing a checkpoint every 1 GB; 2 GB halves the
+      # checkpoint I/O during a load. zstd compression of full-page
+      # writes is cheap on CPU and cuts WAL volume after checkpoints.
+      - -c
+      - max_wal_size=2GB
+      - -c
+      - min_wal_size=512MB
+      - -c
+      - wal_buffers=32MB
+      - -c
+      - wal_compression=zstd
+      # Safety. A single runaway sort must not fill the 76 GB root
+      # disk that also holds Docker; the observation partitions are
+      # 250 MB, so 4 GB of temp per session is already absurd. A
+      # transaction left open by a crashed client holds locks and
+      # blocks autovacuum; five minutes is longer than anything the
+      # app does deliberately.
+      - -c
+      - temp_file_limit=4GB
+      - -c
+      - idle_in_transaction_session_timeout=300000
+      # Visibility. track_io_timing makes EXPLAIN (BUFFERS) report
+      # real read time and pg_stat_statements carry I/O per query.
+      # Temp files over 10 MB and lock waits over deadlock_timeout
+      # (1 s) get a log line, which is how the next slow query gets
+      # found without a reproduction.
+      - -c
+      - track_io_timing=on
+      - -c
+      - log_temp_files=10MB
+      - -c
+      - log_lock_waits=on
+      - -c
+      - pg_stat_statements.track=all
+      - -c
+      - pg_stat_statements.max=5000
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-gratisgis}
       POSTGRES_USER: ${POSTGRES_USER:-gratisgis}

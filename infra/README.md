@@ -46,3 +46,22 @@ deployments should:
   org claim" (the same failure mode that bit prod when the realm
   was first imported, fixed manually then; #71 makes it
   reproducible). Idempotent: safe to run on every deploy.
+
+### Postgres tuning
+
+`docker-compose.prod.yml` passes the server settings as `-c` flags on
+the `postgres` service so they are versioned and a fresh install gets
+the same server. They are sized for the demo host (4 vCPU, 7.6 GB,
+SSD, Postgres sharing the box with the application); the comment
+block above the `command:` says what each one is for and which three
+to scale with RAM. `pg_stat_statements` is preloaded and its
+extension created in `init-prod-db.sql`, so on a live box
+
+    SELECT calls, round(mean_exec_time) AS ms, rows, left(query, 80)
+    FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 20;
+
+lists where the time goes. Temp files over 10 MB and lock waits over
+a second are logged. Changing a memory flag needs a container
+recreate (`docker compose up -d postgres`), which the deploy script
+does when the compose file changed; expect ten to twenty seconds
+without a database while the API replicas reconnect.
