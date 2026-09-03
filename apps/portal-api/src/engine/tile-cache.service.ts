@@ -114,13 +114,16 @@ export class TileCacheService implements OnModuleDestroy {
   private invalidations = 0;
 
   /**
-   * When each key prefix (`<scope>|`) was last invalidated. A compute
-   * that STARTED before the invalidation is computing against the
-   * pre-write state, so its result must not be stored even though it
-   * finishes after the drop; without this a write landing mid-compute
-   * would be cached over for a full TTL.
+   * Which invalidation each key prefix (`<scope>|`) last saw, as a
+   * position in a monotonic sequence rather than a timestamp, so two
+   * events in the same millisecond still order. A compute that
+   * STARTED before the invalidation read the pre-write state, and its
+   * result must not be stored even though it finishes after the drop;
+   * without this a write landing mid-compute would be cached over for
+   * a full TTL.
    */
-  private readonly invalidatedAt = new Map<string, number>();
+  private invalidationSeq = 0;
+  private readonly invalidatedAtSeq = new Map<string, number>();
 
   /** Dedicated LISTEN connection; null until the first compute. */
   private listener: PgClient | null = null;
@@ -262,7 +265,7 @@ export class TileCacheService implements OnModuleDestroy {
     // Register the in-flight slot before awaiting so concurrent
     // callers see it.
     this.activeComputes += 1;
-    const startedAt = Date.now();
+    const seqAtStart = this.invalidationSeq;
     const promise: Promise<CacheHit> = (async () => {
       try {
         // Wall-clock timeout safety net. Without this, a Prisma
@@ -296,8 +299,8 @@ export class TileCacheService implements OnModuleDestroy {
         // serve the bytes, but do not cache what may already be
         // stale. The next request recomputes.
         const prefix = key.slice(0, key.indexOf('|') + 1);
-        const droppedAt = this.invalidatedAt.get(prefix);
-        if (droppedAt !== undefined && droppedAt >= startedAt) {
+        const droppedAtSeq = this.invalidatedAtSeq.get(prefix);
+        if (droppedAtSeq !== undefined && droppedAtSeq > seqAtStart) {
           return { buf, etag: computeEtag(key, buf) };
         }
         const etag = this.set(key, buf);
@@ -319,7 +322,8 @@ export class TileCacheService implements OnModuleDestroy {
    * lands and the next reader should see fresh state.
    */
   invalidatePrefix(prefix: string): number {
-    this.invalidatedAt.set(prefix, Date.now());
+    this.invalidationSeq += 1;
+    this.invalidatedAtSeq.set(prefix, this.invalidationSeq);
     this.invalidations += 1;
     let dropped = 0;
     for (const key of this.entries.keys()) {
