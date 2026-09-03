@@ -504,45 +504,59 @@ const ATTR_NAME_RE = /^[^\x00-\x1f]{1,128}$/;
 const VIA_KEYS_CTE = 'via_parent_keys';
 
 /**
- * A relate, as a CTE plus the predicate that reads it.
- *
- * It used to be one WHERE fragment holding `IN (SELECT ...)`, which
- * was correct and unusably slow. Postgres cannot estimate selectivity
- * through `attrs->>'field'` on a JSONB column, so it guessed two rows
- * for the parent set, got 862, and on that guess chose a nested loop:
- * `Nested Loop Semi Join` over `Materialize (actual rows=235,
- * loops=285788)`. It re-scanned the parent set once per child row,
- * about 67 million comparisons, for a query whose right shape is one
- * hash probe per row.
- *
- * Measured on the water quality layers, 285,788 children against
- * 1,175 parents: 28.7 seconds and then a 500 at the statement
- * timeout, against 0.68 seconds this way, for the same 273,212 rows.
- * Even with no parent predicate the old shape took 23 seconds, so
- * every map move on a dashboard with a related source paid it.
- *
- * `MATERIALIZED` is the load-bearing word. It stops the planner
- * flattening the subquery back into the outer join and gives it a
- * real row count to plan against, which is what flips it to a `Hash
- * Semi Join`. An `OFFSET 0` optimisation fence was tried first
- * because it would have kept this a single fragment with no
- * plumbing; it does not work, the plan stays a nested loop at 22.5
- * seconds.
- *
- * Callers put `cte` in their `WITH` list and `predicate` where the
- * old fragment went.
+ * Above this many surviving parent keys the relate falls back to the
+ * CTE shape instead of shipping the keys as a bind parameter. A key
+ * set this large is a relate between two big layers with no parent
+ * predicate; the array would be megabytes per request.
  */
-function compileViaFilter(args: {
-  /** Field on the CHILD holding the shared key. */
-  myField: string;
-  /** Field on the PARENT holding the shared key. */
-  parentField: string;
-  /** Engine scope key of the parent layer. */
-  parentScope: string;
-  asOf: Date;
-  /** The parent's own content predicates, already compiled. */
-  parentContentFilters: Prisma.Sql[];
-}): { cte: Prisma.Sql; predicate: Prisma.Sql } {
+const VIA_KEYS_AS_PARAM_MAX = 200_000;
+
+/**
+ * A relate, as a predicate on the child plus an optional CTE.
+ *
+ * Three shapes have been tried against the water quality layers,
+ * 285,788 children against 1,175 parents.
+ *
+ * 1. `IN (SELECT ...)` inline: Postgres cannot estimate selectivity
+ *    through `attrs->>'field'` on JSONB, guessed two parent rows, and
+ *    chose a `Nested Loop Semi Join` that re-scanned the parent set
+ *    once per child row. 28.7 s, then a 500 at the statement timeout.
+ * 2. The parent set in a `MATERIALIZED` CTE (#44). The fence gives
+ *    the planner a real row count and it flips to a `Hash Semi Join`,
+ *    0.68 s. Load-bearing for two months, and still wrong on one
+ *    input: when the PARENT carries a bbox, the planner estimates the
+ *    fenced CTE at ONE row, and one row makes the nested loop look
+ *    cheapest again. `Rows Removed by Join Filter: 81,622,603`, 27 s.
+ *    Every "widgets follow the map" dashboard sends exactly that
+ *    input on every pan, which is how the water quality KPIs died.
+ * 3. Two statements. Resolve the surviving parent keys first (cheap:
+ *    it is the parent's own collapse, index-driven), then pass them
+ *    to the child query as ONE text[] bind parameter and filter with
+ *    `= ANY($keys)`. Postgres 14+ evaluates `= ANY` against a
+ *    parameter array of nine or more elements with a hash table
+ *    (hashed ScalarArrayOp), so it is one probe per child row and
+ *    there is no join for the planner to get wrong. 0.6 s on the
+ *    bbox input that took 27 s, whether the array is a literal or a
+ *    prepared-statement parameter; both were measured.
+ *
+ * So this is async now and takes the client. `cte` is null on the
+ * normal path; callers keep the `WITH` plumbing for the fallback,
+ * which is shape 2 and only runs past VIA_KEYS_AS_PARAM_MAX.
+ */
+async function compileViaFilter(
+  prisma: PrismaService,
+  args: {
+    /** Field on the CHILD holding the shared key. */
+    myField: string;
+    /** Field on the PARENT holding the shared key. */
+    parentField: string;
+    /** Engine scope key of the parent layer. */
+    parentScope: string;
+    asOf: Date;
+    /** The parent's own content predicates, already compiled. */
+    parentContentFilters: Prisma.Sql[];
+  },
+): Promise<{ cte: Prisma.Sql | null; predicate: Prisma.Sql }> {
   for (const name of [args.myField, args.parentField]) {
     if (!ATTR_NAME_RE.test(name)) {
       throw new Error(`Invalid attribute name: ${name}`);
@@ -552,7 +566,7 @@ function compileViaFilter(args: {
     args.parentContentFilters.length > 0
       ? Prisma.join(args.parentContentFilters, ' ')
       : Prisma.empty;
-  const cte = Prisma.sql`${Prisma.raw(VIA_KEYS_CTE)} AS MATERIALIZED (
+  const parentKeys = Prisma.sql`
       SELECT DISTINCT p.attrs->>${args.parentField} AS k
       FROM (
         SELECT DISTINCT ON (entity) entity, attrs, geom, kind
@@ -563,11 +577,25 @@ function compileViaFilter(args: {
       ) p
       WHERE p.kind <> 'delete'
         AND p.attrs->>${args.parentField} IS NOT NULL
-        ${parentExtras}
+        ${parentExtras}`;
+  // One more than the cap, so "over the cap" is observable without
+  // pulling an unbounded set into memory first.
+  const rows = await prisma.$queryRaw<Array<{ k: string }>>`
+      ${parentKeys}
+      LIMIT ${VIA_KEYS_AS_PARAM_MAX + 1}`;
+  if (rows.length <= VIA_KEYS_AS_PARAM_MAX) {
+    const keys = rows.map((r) => r.k);
+    // A NULL key on the child can never match a parent, and the
+    // child side is guarded explicitly rather than left to
+    // three-valued logic.
+    return {
+      cte: null,
+      predicate: Prisma.sql`AND attrs->>${args.myField} IS NOT NULL
+    AND attrs->>${args.myField} = ANY(${keys}::text[])`,
+    };
+  }
+  const cte = Prisma.sql`${Prisma.raw(VIA_KEYS_CTE)} AS MATERIALIZED (${parentKeys}
     )`;
-  // A NULL key on the child can never match a parent, and NOT IN
-  // against a set containing NULL is a trap, so the child side is
-  // guarded explicitly rather than left to three-valued logic.
   const predicate = Prisma.sql`AND attrs->>${args.myField} IS NOT NULL
     AND attrs->>${args.myField} IN (SELECT k FROM ${Prisma.raw(VIA_KEYS_CTE)})`;
   return { cte, predicate };
@@ -2209,7 +2237,7 @@ export class DataLayerEngine {
         const sql = compileAttrFilter(args.via.parentWhere, 'p');
         if (sql) parentFilters.push(sql);
       }
-      const compiled = compileViaFilter({
+      const compiled = await compileViaFilter(this.prisma, {
         myField: args.via.myField,
         parentField: args.via.parentField,
         parentScope: this.scope(
@@ -2567,7 +2595,7 @@ export class DataLayerEngine {
         const sql = compileAttrFilter(args.via.parentWhere, 'p');
         if (sql) parentFilters.push(sql);
       }
-      const compiled = compileViaFilter({
+      const compiled = await compileViaFilter(this.prisma, {
         myField: args.via.myField,
         parentField: args.via.parentField,
         parentScope: this.scope(
@@ -3233,7 +3261,7 @@ export class DataLayerEngine {
         const sql = compileAttrFilter(args.via.parentWhere, 'p');
         if (sql) parentFilters.push(sql);
       }
-      const compiled = compileViaFilter({
+      const compiled = await compileViaFilter(this.prisma, {
         myField: args.via.myField,
         parentField: args.via.parentField,
         parentScope: this.scope(
@@ -3494,7 +3522,7 @@ export class DataLayerEngine {
         const sql = compileAttrFilter(args.via.parentWhere, 'p');
         if (sql) parentFilters.push(sql);
       }
-      const compiledVia = compileViaFilter({
+      const compiledVia = await compileViaFilter(this.prisma, {
         myField: args.via.myField,
         parentField: args.via.parentField,
         parentScope: this.scope(
