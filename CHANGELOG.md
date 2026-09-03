@@ -5,6 +5,19 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.102] - 2026-09-03
+
+### Changed
+
+- The What's new card on the landing page describes editing from the
+  map, which shipped across 0.9.97 to 0.9.101 without an entry.
+
+### Fixed
+
+- A test for the new tile invalidation was timing dependent on slow
+  machines. No user-facing change; 0.9.101 was never deployed and
+  this release carries it.
+
 ## [0.9.101] - 2026-09-03
 
 ### Fixed
