@@ -5,6 +5,20 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.104] - 2026-09-03
+
+### Fixed
+
+- **Dashboard numbers no longer time out under load.** On the water
+  quality dashboard the "Measurements taken there" counter and several
+  charts could sit on a dash or "Loading" after a couple of map pans:
+  every counter re-read the whole 285,788-row layer, and enough of
+  them at once pushed the last past the database's time limit. Answers
+  are now kept until the layer changes, identical requests share one
+  query, and the rest take turns instead of all hitting the database
+  together. A first visit still computes; every visit after is
+  instant.
+
 ## [0.9.103] - 2026-09-03
 
 ### Added
