@@ -334,6 +334,32 @@ export const en = {
     access: 'Access',
     sections: 'Item sections',
   },
+  // The card on a map item's Overview that leads into the builder.
+  // Two voices: an editor is being offered configuration, a viewer is
+  // being offered a look. The viewer copy must not describe editing
+  // controls they will not be given.
+  mapCard: {
+    editTitle: 'Map configuration',
+    editBody:
+      'Open the full-screen builder to add layers, configure basemaps and search, and arrange the canvas.',
+    editAction: 'Configure',
+    viewTitle: 'Map',
+    viewBody:
+      'Open this map to pan, zoom, switch basemaps and browse the attribute table. You have view access, so nothing you change here is saved.',
+    viewAction: 'Open map',
+  },
+  // Same shape for a custom web app. A viewer's way in is the app's
+  // runtime, not the builder, so the two actions point at different
+  // routes rather than at the same one in two modes.
+  appCard: {
+    editTitle: 'Custom web app configuration',
+    editBody:
+      'Open the full-screen builder to drag widgets onto the canvas, arrange pages, and bind data layers.',
+    editAction: 'Configure',
+    viewTitle: 'Web app',
+    viewBody: 'Open this app and use it as its readers see it.',
+    viewAction: 'Open app',
+  },
   // #76: items shared with a group, on the group detail page.
   groupItems: {
     title: 'Shared with this group',
