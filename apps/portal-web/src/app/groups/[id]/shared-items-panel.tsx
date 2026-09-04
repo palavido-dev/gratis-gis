@@ -23,7 +23,7 @@ import { useT } from '@/lib/i18n/locale-context';
  *
  * Rows link to the item detail page (not the runtime deep-link the
  * catalogue uses): from a group you're auditing access, and the
- * detail page's Access tab is where that trail continues.
+ * detail page's Share tab is where that trail continues.
  *
  * Removing an item from the group revokes the group's share row via
  * the same DELETE /items/:id/share the sharing panel uses. The

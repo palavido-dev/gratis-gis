@@ -43,13 +43,17 @@ export interface ItemTabSpec {
 
 /**
  * Hash values that should select a tab other than the one named by
- * the hash itself. `#sharing` predates the tabs and is linked from
- * the folder row menu, the sharing indicator and the paired-layer
- * notice, so it has to keep working; it now resolves to the Access
- * tab, which is where the sharing panel lives.
+ * the hash itself.
+ *
+ * The direction here reversed when the tab was renamed from Access to
+ * Share. `#sharing` is the canonical hash now, which is what the
+ * folder row menu, the sharing indicator and the paired-layer notice
+ * were already linking to; `#access` is the alias, so a bookmark or
+ * an external link from the period when the tab was called Access
+ * still lands on it.
  */
 const HASH_ALIASES: Record<string, string> = {
-  sharing: 'access',
+  access: 'sharing',
 };
 
 export function ItemTabs({

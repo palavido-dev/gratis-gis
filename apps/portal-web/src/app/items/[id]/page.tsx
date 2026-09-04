@@ -680,7 +680,11 @@ export default async function ItemDetailPage(props: Props) {
       ),
     },
     {
-      id: 'access',
+      // `sharing` is the canonical hash now that the tab is called
+      // Share. Everything in the app that deep-links here already
+      // used #sharing through an alias; `access` is the alias now, so
+      // an old bookmark still lands.
+      id: 'sharing',
       label: t('itemTabs.access', undefined, locale),
       content: accessBody,
     },
@@ -920,11 +924,10 @@ export default async function ItemDetailPage(props: Props) {
             href={`/items/${item.id}?view=configure`}
             className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground hover:opacity-90"
           >
-            {mapItemCanEdit ? (
-              <Pencil className="h-4 w-4" />
-            ) : (
-              <MapIcon className="h-4 w-4" />
-            )}
+            {/* One icon, because it is one destination. A pencil here
+                told an owner the button led to settings rather than
+                to their map. */}
+            <MapIcon className="h-4 w-4" />
             {mapItemCanEdit
               ? t('mapCard.editAction', undefined, locale)
               : t('mapCard.viewAction', undefined, locale)}

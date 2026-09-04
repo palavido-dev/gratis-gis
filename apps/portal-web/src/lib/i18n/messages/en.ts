@@ -333,31 +333,43 @@ export const en = {
     structure: 'Structure',
     source: 'Source',
     metadata: 'Metadata',
-    access: 'Access',
+    // "Access" read as an audit log or a permissions report to every
+    // tester who met it; what lives here is the sharing panel, and
+    // the thing people arrive wanting to do is share something. The
+    // tab's hash is `sharing` to match, with `access` aliased so old
+    // links still land.
+    access: 'Share',
     sections: 'Item sections',
   },
-  // The card on a map item's Overview that leads into the builder.
-  // Two voices: an editor is being offered configuration, a viewer is
-  // being offered a look. The viewer copy must not describe editing
-  // controls they will not be given.
+  // The card on a map item's Overview that leads into the map.
+  //
+  // Both audiences go to the SAME url, so they get the same verb.
+  // The editor's button used to read "Configure" with a pencil,
+  // which made the only door to your own map look like a settings
+  // screen: testers who wanted to look at their map could not find
+  // the way in, and one concluded the product had none. The two
+  // bodies still differ, because what you can DO there differs; the
+  // action does not, because the destination does not.
   mapCard: {
-    editTitle: 'Map configuration',
+    editTitle: 'Map',
     editBody:
-      'Open the full-screen builder to add layers, configure basemaps and search, and arrange the canvas.',
-    editAction: 'Configure',
+      'Open the map to pan, zoom and browse the attribute table, and to add layers, set the basemap and arrange the canvas.',
+    editAction: 'Open map',
     viewTitle: 'Map',
     viewBody:
       'Open this map to pan, zoom, switch basemaps and browse the attribute table. You have view access, so nothing you change here is saved.',
     viewAction: 'Open map',
   },
-  // Same shape for a custom web app. A viewer's way in is the app's
-  // runtime, not the builder, so the two actions point at different
-  // routes rather than at the same one in two modes.
+  // Same shape for a custom web app, but here the two audiences
+  // really do go to different routes: a viewer gets the running app,
+  // an editor gets the designer. So the actions stay distinct. They
+  // just name their destination now instead of saying "Configure",
+  // which told the reader nothing about where the button led.
   appCard: {
-    editTitle: 'Custom web app configuration',
+    editTitle: 'Custom web app',
     editBody:
-      'Open the full-screen builder to drag widgets onto the canvas, arrange pages, and bind data layers.',
-    editAction: 'Configure',
+      'Open the builder to drag widgets onto the canvas, arrange pages, and bind data layers.',
+    editAction: 'Open builder',
     viewTitle: 'Web app',
     viewBody: 'Open this app and use it as its readers see it.',
     viewAction: 'Open app',
@@ -365,7 +377,7 @@ export const en = {
   // #76: items shared with a group, on the group detail page.
   groupItems: {
     title: 'Shared with this group',
-    empty: 'Nothing is shared with this group yet. Share an item to the group from its Access tab and it will show up here.',
+    empty: 'Nothing is shared with this group yet. Share an item to the group from its Share tab and it will show up here.',
     openItem: 'Open item details',
     removeAction: 'Remove from this group',
     removeTitle: 'Remove from group',
