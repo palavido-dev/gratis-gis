@@ -1760,6 +1760,26 @@ interface ProbedLayer {
 function ImportPanel({ onClose, onImport }: ImportPanelProps) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<UploadBusy | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+
+  // Swallow drops that land anywhere else on the page while this
+  // panel is open.
+  //
+  // The browser's default action for a dropped file is to navigate to
+  // it, which throws away a half-filled wizard: title, description,
+  // tags, visibility, every layer defined so far. A near miss on the
+  // drop zone is the most likely way to trigger it, and it is the
+  // moment the user has the most to lose. Nothing here handles the
+  // file, it just declines to leave the page.
+  useEffect(() => {
+    const swallow = (e: DragEvent) => e.preventDefault();
+    window.addEventListener('dragover', swallow);
+    window.addEventListener('drop', swallow);
+    return () => {
+      window.removeEventListener('dragover', swallow);
+      window.removeEventListener('drop', swallow);
+    };
+  }, []);
   // Live XHR ref so the user can cancel a long upload mid-flight. The
   // ref is also how the abort path knows whether anything is actually
   // in flight (handles double-clicks on Cancel gracefully).
@@ -1940,12 +1960,46 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
         <UploadProgressPanel busy={busy} onCancel={cancelUpload} />
       ) : (
         <>
+          {/* A real drop target. The copy here promised one for a long
+              time while no onDrop handler existed anywhere in the
+              component, and a native file input does not receive drops
+              through its label, so dropping a file made the browser
+              navigate to it and the half-filled wizard was gone. */}
           <label
             htmlFor="fs-builder-import"
-            className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded border border-dashed border-border bg-surface-1 px-3 py-4 text-xs text-muted hover:bg-surface-2"
+            onDragOver={(e) => {
+              // Both preventDefault calls are load bearing. Without
+              // one on dragover the drop event never fires at all.
+              e.preventDefault();
+              if (!dragOver) setDragOver(true);
+            }}
+            onDragEnter={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={(e) => {
+              // Fires when crossing onto a child too, so only clear
+              // when the pointer has actually left the zone.
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                setDragOver(false);
+              }
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              const f = e.dataTransfer.files?.[0];
+              if (f) void handleFile(f);
+            }}
+            className={`flex cursor-pointer flex-col items-center justify-center gap-1 rounded border border-dashed px-3 py-4 text-xs transition-colors ${
+              dragOver
+                ? 'border-accent bg-accent/10 text-ink-1'
+                : 'border-border bg-surface-1 text-muted hover:bg-surface-2'
+            }`}
           >
             <Upload className="h-4 w-4" />
-            <span>Click to pick a file.</span>
+            <span>
+              {dragOver ? 'Drop to import.' : 'Drop a file here, or click to pick one.'}
+            </span>
             <span className="text-2xs">
               CSV / TSV with latitude and longitude columns · GeoJSON ·
               GeoParquet (.parquet) · KML / KMZ · GeoPackage (.gpkg,
