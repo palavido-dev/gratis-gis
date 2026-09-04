@@ -166,6 +166,41 @@ export async function storedBasemapSize(
   }
 }
 
+/**
+ * Forget every archive stored for a deployment, whatever its areas.
+ *
+ * `deleteDeployment` cascades through all five IndexedDB stores but
+ * never touched this cache, so removing a deployment from the device
+ * left its basemap behind: the largest single thing the download
+ * writes (10 MB for one county, and a deployment can have several
+ * areas), reported as freed and still occupying the quota. A worker
+ * clearing space to make room for the next site got none of it back.
+ *
+ * Walks the keys rather than taking an area list, because the caller
+ * is deleting the deployment precisely because it no longer wants to
+ * know what areas it had, and an archive from an area the author has
+ * since removed would otherwise be unreachable forever.
+ */
+export async function removeAllOfflineBasemaps(
+  itemId: string,
+): Promise<number> {
+  if (typeof caches === 'undefined') return 0;
+  try {
+    const cache = await caches.open(OFFLINE_BASEMAP_CACHE);
+    const prefix = `/offline-basemap/${encodeURIComponent(itemId)}/`;
+    const keys = await cache.keys();
+    let removed = 0;
+    for (const request of keys) {
+      const path = new URL(request.url).pathname;
+      if (!path.startsWith(prefix)) continue;
+      if (await cache.delete(request)) removed += 1;
+    }
+    return removed;
+  } catch {
+    return 0;
+  }
+}
+
 /** Forget a stored archive. Returns whether one was there. */
 export async function removeOfflineBasemap(
   itemId: string,

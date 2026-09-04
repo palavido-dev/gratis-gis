@@ -8,6 +8,11 @@ import { LogOut, UserCircle } from 'lucide-react';
 import { EntityBadge } from '@gratis-gis/ui';
 import { GG_VERSION, versionReleaseUrl } from '@/lib/version';
 
+import {
+  countUnsyncedEdits,
+  purgeCachedReadData,
+} from '@/lib/offline-store';
+import { useConfirm } from '@/components/dialog-provider';
 import { useT } from '@/lib/i18n/locale-context';
 import { LocaleSwitcher } from './locale-switcher';
 import { ThemeSwitcher } from './theme-switcher';
@@ -76,6 +81,20 @@ async function clearUserCaches(): Promise<void> {
  */
 export async function federatedSignOut(): Promise<void> {
   await clearUserCaches();
+  // The IndexedDB half of the same problem. The worker's purge covers
+  // its own tile / geojson / page caches; cached features, form
+  // schemas and pick lists live in IndexedDB and were left behind, so
+  // the next person on a shared tablet could read the departing user's
+  // org data out of the field runtime without signing in. The write
+  // queue and the deployment manifests deliberately survive; see
+  // purgeCachedReadData.
+  try {
+    await purgeCachedReadData();
+  } catch {
+    // Private mode, or another tab holding a version change. Never
+    // block sign-out on housekeeping: a session that will not end is
+    // worse than a cache that outlives it.
+  }
   try {
     // redirect: false so we control the navigation; signOut posts
     // to /api/auth/signout and lets NextAuth's own cookie config
@@ -97,6 +116,53 @@ export async function federatedSignOut(): Promise<void> {
 }
 
 /**
+ * Sign out, but stop first if this device is holding captures that
+ * have not reached the server.
+ *
+ * Signing out is where a field worker loses track of unsynced work:
+ * the queue survives (destroying it would be worse), but it becomes
+ * someone else's problem on a shared tablet, and the person who
+ * gathered it walks away believing it was sent. One sentence at the
+ * door is cheap; a day of survey points is not.
+ *
+ * Falls through to signing out if the count cannot be read, because a
+ * broken IndexedDB must not be able to trap someone in a session.
+ */
+export async function signOutWithUnsyncedGuard(
+  confirm: (opts: {
+    title?: string;
+    message: string;
+    confirmLabel?: string;
+    cancelLabel?: string;
+    variant?: 'default' | 'danger';
+  }) => Promise<boolean>,
+): Promise<void> {
+  let pending = 0;
+  try {
+    pending = await countUnsyncedEdits();
+  } catch {
+    pending = 0;
+  }
+  if (pending > 0) {
+    const ok = await confirm({
+      title: 'Sign out with unsynced work?',
+      message: `${pending} edit${pending === 1 ? '' : 's'} on this device ${
+        pending === 1 ? 'has' : 'have'
+      } not reached the server yet. ${
+        pending === 1 ? 'It' : 'They'
+      } will stay on this device, but nobody else can send ${
+        pending === 1 ? 'it' : 'them'
+      } for you. Sync before signing out if you can get a connection.`,
+      confirmLabel: 'Sign out anyway',
+      cancelLabel: 'Stay signed in',
+      variant: 'danger',
+    });
+    if (!ok) return;
+  }
+  await federatedSignOut();
+}
+
+/**
  * Sign-out button for server-component surfaces (e.g. the profile
  * page) that can't attach a click handler themselves. Runs the same
  * shared federatedSignOut flow as the user menu. Styling is the
@@ -110,11 +176,12 @@ export function SignOutButton({
   className?: string;
   children: React.ReactNode;
 }) {
+  const confirm = useConfirm();
   return (
     <button
       type="button"
       className={className}
-      onClick={() => void federatedSignOut()}
+      onClick={() => void signOutWithUnsyncedGuard(confirm)}
     >
       {children}
     </button>
@@ -129,6 +196,7 @@ export function SignOutButton({
  */
 export function UserMenu({ seed, displayName, orgName, avatarUrl }: Props) {
   const t = useT();
+  const confirm = useConfirm();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -210,7 +278,7 @@ export function UserMenu({ seed, displayName, orgName, avatarUrl }: Props) {
               role="menuitem"
               onClick={(e) => {
                 e.preventDefault();
-                void federatedSignOut();
+                void signOutWithUnsyncedGuard(confirm);
               }}
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-danger hover:bg-danger/5"
             >

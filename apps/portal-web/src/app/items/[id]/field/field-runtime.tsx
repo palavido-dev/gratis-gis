@@ -56,8 +56,8 @@ import {
 } from '../map/search-sources';
 import { FormRuntime } from '@/components/form-runtime';
 import { PwaInstallButton } from '@/components/pwa-install-button';
+import { removeDeploymentFromDevice } from '@/lib/offline-remove';
 import {
-  deleteDeployment,
   enqueueEdit,
   getDeployment,
   hashLayerSchema,
@@ -1378,7 +1378,10 @@ export function FieldRuntime({
   // reflects the new state.
   const removeCache = useCallback(async () => {
     try {
-      await deleteDeployment(dataCollectionId);
+      // Takes the prepared basemap archive with it. deleteDeployment
+      // alone cascaded through IndexedDB and left the archive in Cache
+      // Storage, so the storage gauge barely moved after a remove.
+      await removeDeploymentFromDevice(dataCollectionId);
       setCachedDeployment(null);
       // Clear the SW tile cache too so the storage gauge reflects
       // the removal. Best-effort: a failure here doesn't block the

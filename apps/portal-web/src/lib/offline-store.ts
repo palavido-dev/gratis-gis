@@ -358,6 +358,52 @@ export async function deleteDeployment(
   });
 }
 
+/**
+ * Drop every cached READ, across all deployments, keeping the write
+ * queue and the deployment manifests.
+ *
+ * For sign-out on a shared device. Cached features, form schemas and
+ * pick lists are the departing user's org data, fetched with their
+ * session, and left in place the next person to pick up the tablet
+ * could read all of it without ever signing in. The service worker
+ * already purged its tile and geojson caches on sign-out; the
+ * IndexedDB half was simply never joined to it.
+ *
+ * Two things are deliberately KEPT:
+ *
+ *   - The write queue. Those are captures that have not reached the
+ *     server, and destroying someone's unsynced field work to tidy up
+ *     a cache is a far worse outcome than the leak it closes. The
+ *     sign-out flow warns when any exist instead.
+ *   - The deployment manifests. They carry a title and a size, not
+ *     feature data, and dropping them would hide any queued rows from
+ *     every screen that could still drain them. Keeping them is what
+ *     makes leaving the queue in place useful rather than a trap.
+ */
+export async function purgeCachedReadData(): Promise<void> {
+  await clearStore(STORES.features);
+  await clearStore(STORES.forms);
+  await clearStore(STORES.pickLists);
+}
+
+/** Empty one store, tolerating a database that does not exist yet. */
+async function clearStore(storeName: StoreName): Promise<void> {
+  await withStore(storeName, 'readwrite', (s) => {
+    s.clear();
+  });
+}
+
+/** How many edits are still waiting to reach the server, across every
+ *  deployment on this device. Read by the sign-out flow so it can warn
+ *  before a person walks away from unsynced work. */
+export async function countUnsyncedEdits(): Promise<number> {
+  return withStore(STORES.queue, 'readonly', async (s) => {
+    const r = await reqAsPromise(s.getAll());
+    const rows = (r as QueueRecord[] | undefined) ?? [];
+    return rows.filter((row) => row.syncStatus !== 'synced').length;
+  });
+}
+
 /** Walk a store's `by_deployment` index and delete every match. */
 async function deleteByDeploymentIndex(
   storeName: StoreName,

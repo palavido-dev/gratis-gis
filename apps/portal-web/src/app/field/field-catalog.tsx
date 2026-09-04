@@ -13,11 +13,11 @@ import {
   Wifi,
 } from 'lucide-react';
 import {
-  deleteDeployment,
   listDeployments,
   listQueue,
   type CachedDeployment,
 } from '@/lib/offline-store';
+import { removeDeploymentFromDevice } from '@/lib/offline-remove';
 import { formatBytes } from '@/lib/format-bytes';
 import { postQueueManifest } from '@/lib/offline-queue-beacon';
 import { syncQueue } from '@/lib/offline-sync';
@@ -137,7 +137,10 @@ export function FieldCatalog({ rows }: { rows: FieldDeploymentRow[] }) {
     setRemoving((prev) => ({ ...prev, [id]: true }));
     setConfirmingId(null);
     try {
-      await deleteDeployment(id);
+      // Removes the prepared basemap archive too; deleteDeployment
+      // only cascades through IndexedDB and left the largest artefact
+      // of the download sitting in Cache Storage.
+      await removeDeploymentFromDevice(id);
       // Local optimistic update so the row's status dot flips back to
       // gray immediately. The next listDeployments / listQueue pass
       // would catch up on its own but this keeps the UI snappy.
