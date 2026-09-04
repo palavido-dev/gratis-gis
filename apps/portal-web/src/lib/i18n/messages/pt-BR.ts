@@ -437,7 +437,7 @@ export const ptBR: Partial<CatalogShape> = {
   itemsPage: {
     eyebrow: 'Conteúdo',
     newItem: 'Novo item',
-    openMap: 'Abrir um mapa',
+    openMap: 'Novo mapa',
     addItems: 'Adicionar itens',
     myItems: 'Meus itens',
     allItems: 'Todos os itens',

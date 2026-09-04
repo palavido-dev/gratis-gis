@@ -709,7 +709,11 @@ export const en = {
   itemsPage: {
     eyebrow: 'Content',
     newItem: 'New item',
-    openMap: 'Open a map',
+    // Not "Open a map": this starts a new, unsaved scratch map. Every
+    // tester read the old label as "open one of my maps" and was
+    // surprised by a blank canvas, which is the one thing a label
+    // must not do.
+    openMap: 'New map',
     addItems: 'Add items',
     myItems: 'My items',
     allItems: 'All items',

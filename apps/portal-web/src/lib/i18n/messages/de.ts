@@ -449,7 +449,7 @@ export const de: Partial<CatalogShape> = {
   itemsPage: {
     eyebrow: 'Inhalt',
     newItem: 'Neues Element',
-    openMap: 'Karte öffnen',
+    openMap: 'Neue Karte',
     addItems: 'Elemente hinzufügen',
     myItems: 'Meine Elemente',
     allItems: 'Alle Elemente',
