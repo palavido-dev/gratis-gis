@@ -2447,7 +2447,23 @@ function ItemGrid({
           for the checkbox. The "select all visible" checkbox only
           appears when the current user can manage at least one row
           in this group: otherwise it'd be a no-op. */}
-      <li className="hidden grid-cols-[1.5rem_1rem_minmax(0,1fr)_8rem_8rem_7rem_9rem_1.75rem] items-center gap-3 border-b border-border bg-surface-2 px-4 py-1.5 text-2xs font-medium uppercase tracking-wide text-muted sm:grid">
+      {/* Columns are added as the width to hold them appears, rather
+          than all at once. The eight-track layout needs about 696px of
+          CONTENT width (68px of fixed tracks, 128 + 128 + 112 + 144 of
+          columns, seven 12px gaps, 32px of padding) but it used to
+          switch on at the sm breakpoint, which is 640px of VIEWPORT,
+          and the list sits inside a max-w-7xl page beside a 224px
+          folder rail. At 800px that left roughly 510px for a template
+          asking for 696, and since the title track is minmax(0,1fr) it
+          is the one that collapses: it resolved to zero width, so the
+          header printed "TITMYPE" and every row showed its type where
+          its title should be. Present but invisible, on a range of
+          widths that includes any laptop at half screen.
+
+          Each tier's template must list exactly the children that are
+          not `hidden` at that tier, in DOM order, because `hidden` is
+          display:none and drops out of grid flow entirely. */}
+      <li className="hidden grid-cols-[1.5rem_1rem_minmax(0,1fr)_8rem_1.75rem] items-center gap-3 border-b border-border bg-surface-2 px-4 py-1.5 text-2xs font-medium uppercase tracking-wide text-muted md:grid lg:grid-cols-[1.5rem_1rem_minmax(0,1fr)_8rem_7rem_1.75rem] xl:grid-cols-[1.5rem_1rem_minmax(0,1fr)_8rem_8rem_7rem_9rem_1.75rem]">
         {manageableIds.size > 0 ? (
           <input
             type="checkbox"
@@ -2462,9 +2478,9 @@ function ItemGrid({
         <span className="h-4 w-4" aria-hidden="true" />
         <span>{t('items.colTitle')}</span>
         <span>{t('items.colType')}</span>
-        <span>{t('items.colOwner')}</span>
-        <span>{t('items.colUpdated')}</span>
-        <span>{t('sharing.sharing')}</span>
+        <span className="hidden xl:block">{t('items.colOwner')}</span>
+        <span className="hidden lg:block">{t('items.colUpdated')}</span>
+        <span className="hidden xl:block">{t('sharing.sharing')}</span>
         <span className="h-3.5 w-3.5" aria-hidden="true" />
       </li>
       {items.map((item) => {
@@ -2498,7 +2514,7 @@ function ItemGrid({
               e.dataTransfer.effectAllowed = 'move';
             }}
           >
-            <div className="grid grid-cols-[1.5rem_1rem_minmax(0,1fr)_1.75rem] items-center gap-3 px-4 py-2.5 hover:bg-surface-2 sm:grid-cols-[1.5rem_1rem_minmax(0,1fr)_8rem_8rem_7rem_9rem_1.75rem]">
+            <div className="grid grid-cols-[1.5rem_1rem_minmax(0,1fr)_1.75rem] items-center gap-3 px-4 py-2.5 hover:bg-surface-2 md:grid-cols-[1.5rem_1rem_minmax(0,1fr)_8rem_1.75rem] lg:grid-cols-[1.5rem_1rem_minmax(0,1fr)_8rem_7rem_1.75rem] xl:grid-cols-[1.5rem_1rem_minmax(0,1fr)_8rem_8rem_7rem_9rem_1.75rem]">
               {/* Checkbox: rendered as a label that swallows its own
                   click so the row's Link doesn't fire under it. */}
               {canManage ? (
@@ -2541,16 +2557,16 @@ function ItemGrid({
                     </p>
                   ) : null}
                 </div>
-                <p className="hidden truncate text-2xs text-muted sm:block">
+                <p className="hidden truncate text-2xs text-muted md:block">
                   {getItemDisplayLabel(item)}
                 </p>
                 <p
-                  className="hidden truncate text-2xs text-muted sm:block"
+                  className="hidden truncate text-2xs text-muted xl:block"
                   title={item.owner?.username ?? item.ownerId}
                 >
                   {ownerLabel}
                 </p>
-                <p className="hidden text-2xs text-muted sm:block">
+                <p className="hidden text-2xs text-muted lg:block">
                   {new Date(item.updatedAt).toLocaleDateString()}
                 </p>
               </Link>
@@ -2558,7 +2574,7 @@ function ItemGrid({
                   handlers don't propagate a navigation. The kebab
                   replaces the row's old hover-chevron now that
                   every row has actual actions. (#82) */}
-              <div className="hidden sm:block">
+              <div className="hidden xl:block">
                 <ItemSharingIndicator
                   itemId={item.id}
                   itemTitle={item.title}
