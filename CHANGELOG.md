@@ -5,6 +5,15 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.109] - 2026-09-04
+
+### Fixed
+
+- The offline app refreshes itself on a deploy, which 0.9.108 said it
+  would and did not. The mechanism shipped but the value it needed
+  never reached the browser, so it fell back to the old behaviour
+  silently. Found by checking the running demo rather than the code.
+
 ## [0.9.108] - 2026-09-04
 
 Field app release. An audit of the offline collection arc found two
