@@ -103,9 +103,16 @@ export function MetadataXmlImporter({ onApply }: Props) {
           <span className="mr-1 rounded border border-border bg-surface-1 px-1 py-0.5 text-2xs font-medium uppercase tracking-wide text-muted">
             Optional
           </span>
+          {/* The standard names stay, because someone holding one of
+              these files knows them and needs to see theirs listed.
+              What was missing was any clue for the reader who does
+              not: three acronyms and no sentence saying where such a
+              file comes from or why you would have one. */}
           Pre-fill title, description, and tags from a{' '}
-          <strong className="text-ink-0">metadata XML</strong> file
-          (ISO 19115, FGDC CSDGM, Dublin Core).
+          <strong className="text-ink-0">metadata XML</strong> file, the
+          kind ArcGIS, QGIS or a public data catalogue exports
+          alongside a dataset. Recognises ISO 19115, FGDC CSDGM and
+          Dublin Core.
         </div>
         <button
           type="button"
@@ -116,7 +123,7 @@ export function MetadataXmlImporter({ onApply }: Props) {
           // glancing at this card while creating a file item should
           // never be unsure which button uploads the actual content.
           className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-xs font-medium text-ink-1 hover:bg-surface-2"
-          title="Import an ISO 19115 / FGDC / Dublin Core XML file to pre-fill metadata fields"
+          title="Import a metadata XML file exported by ArcGIS, QGIS or a data catalogue (ISO 19115, FGDC CSDGM or Dublin Core) to pre-fill the fields below"
         >
           <FileCode className="h-3.5 w-3.5" />
           Import metadata XML

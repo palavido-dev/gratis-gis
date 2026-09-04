@@ -132,6 +132,22 @@ interface TypeOption {
   value: ItemType | 'viewer' | 'custom' | 'postgis_connection';
   label: string;
   desc: string;
+  /**
+   * The job someone arrives with, in their words rather than ours.
+   *
+   * Every one of the nineteen names on this screen is a system noun,
+   * and every description explains what the thing IS. A tester whose
+   * two actual jobs were "I have a spreadsheet" and "I want people to
+   * send me data from their phones" could not map either onto a
+   * label, and skipped the screen. `desc` still says what the type
+   * is, because the people who know the vocabulary need that; this
+   * says what you would have come here to do.
+   *
+   * Only set where there is an honest, common answer. Inventing a
+   * plausible-sounding job for every type would bury the four that
+   * most arrivals actually want.
+   */
+  job?: string;
   Icon: LucideIcon;
 }
 
@@ -217,6 +233,7 @@ const TYPE_GROUPS: TypeGroup[] = [
         value: 'data_layer',
         label: 'Data layer',
         desc: 'A shareable vector layer backed by PostGIS.',
+        job: 'Start here if you have a spreadsheet, a shapefile or a GeoJSON file to upload.',
         Icon: Layers,
       },
       {
@@ -272,6 +289,7 @@ const TYPE_GROUPS: TypeGroup[] = [
         value: 'map',
         label: 'Map',
         desc: 'A basemap with overlay layers and styling.',
+        job: 'Start here to put data you have already uploaded onto a map and share it.',
         Icon: MapIcon,
       },
     ],
@@ -298,12 +316,14 @@ const TYPE_GROUPS: TypeGroup[] = [
         value: 'form',
         label: 'Form',
         desc: 'A collection form for fieldwork or survey data. Submissions land in a paired data layer; the form\'s Responses tab shows every submission on a map.',
+        job: 'Start here if you want people to fill in answers, one at a time, from a link you send them.',
         Icon: FileText,
       },
       {
         value: 'data_collection',
         label: 'Data collection',
         desc: 'Field-mode deployment: tap features on a map to add or edit them. Forms come from the layer schema by default.',
+        job: 'Start here if you want a crew to record what they find on a map from their phones, offline.',
         Icon: ClipboardList,
       },
       // No 'report_template' tile. There is no report_template
@@ -1847,6 +1867,17 @@ export function NewItemWizard({
                       <span className="block text-sm font-semibold text-ink-0">
                         {opt.label}
                       </span>
+                      {/* The job goes ABOVE the description and in
+                          the stronger colour on the few types that
+                          have one. Someone who does not know the
+                          vocabulary is scanning for a sentence they
+                          recognise, and the description is written
+                          for the reader who already does. */}
+                      {opt.job ? (
+                        <span className="mt-1 block text-xs text-ink-1">
+                          {opt.job}
+                        </span>
+                      ) : null}
                       <span className="mt-0.5 block text-xs text-muted">
                         {opt.desc}
                       </span>

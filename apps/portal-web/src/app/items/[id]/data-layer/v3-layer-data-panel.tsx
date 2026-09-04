@@ -65,8 +65,12 @@ export function V3LayerDataPanel({ itemId, layers, canEdit, canDownload }: Props
       <header className="flex items-center gap-2 border-b border-border px-3 py-2">
         <Database className="h-4 w-4 text-muted" />
         <h2 className="text-sm font-semibold text-ink-0">Layer data</h2>
+        {/* Named one of the three things this panel does, and not
+            the one most people arrive for. You come to the Data tab
+            to look at the rows; importing is what you did once, at
+            the start. */}
         <p className="text-xs text-muted">
-          Import spatial data into any layer.
+          Browse the rows in each layer, add more data, or download it.
         </p>
       </header>
       <ul className="divide-y divide-border">

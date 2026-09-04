@@ -471,7 +471,7 @@ function LayerCard({
             <label
               htmlFor={`${layer.id}-name`}
               className="text-muted"
-              title="Used in the PostGIS table name and API paths"
+              title="The name this layer has in the database and in web addresses. Lower case, with underscores instead of spaces."
             >
               Table name
             </label>
@@ -480,7 +480,13 @@ function LayerCard({
               type="text"
               value={layer.name}
               onChange={(e) => onPatch({ name: slugify(e.target.value) })}
-              placeholder="snake_case"
+              // An EXAMPLE, not the name of the convention. The
+              // placeholder used to read "snake_case", which tells you
+              // what shape the answer takes only if you already knew;
+              // a tester read it as the literal value he was meant to
+              // type. Showing one makes the rule obvious without
+              // naming it.
+              placeholder="inspection_points"
               className="h-7 w-full rounded border border-border bg-surface-1 px-2 font-mono text-2xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
             />
           </div>
@@ -2000,11 +2006,21 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
             <span>
               {dragOver ? 'Drop to import.' : 'Drop a file here, or click to pick one.'}
             </span>
+            {/* Lead with what most people actually have. The list
+                below used to open with format names, and a tester who
+                had a spreadsheet did not recognise that "CSV / TSV
+                with latitude and longitude columns" described it, so
+                he skipped the feature. The full list still follows,
+                because the people who do know their format need to
+                see it supported. */}
             <span className="text-2xs">
-              CSV / TSV with latitude and longitude columns · GeoJSON ·
-              GeoParquet (.parquet) · KML / KMZ · GeoPackage (.gpkg,
-              vector tables only) · Shapefile (.zip) · File Geodatabase
-              (.gdb.zip)
+              A spreadsheet saved as CSV, with a latitude and a
+              longitude column, is the usual one.
+            </span>
+            <span className="text-2xs opacity-80">
+              Also: TSV · GeoJSON · GeoParquet (.parquet) · KML / KMZ
+              (Google Earth) · GeoPackage (.gpkg, vector tables only) ·
+              Shapefile (.zip) · File Geodatabase (.gdb.zip)
             </span>
             <input
               id="fs-builder-import"
