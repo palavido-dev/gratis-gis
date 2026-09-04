@@ -32,10 +32,23 @@
  *     shows rejected records with their reason and offers retry
  *     (`retryRejected`, back to 'pending') or discard
  *     (`discardRejected`). The split lives in shared-types
- *     `replayOutcomeForStatus` so it is unit tested. This module does
- *     NOT exponential-back-off internally; callers throttle at the
- *     trigger level (auto-sync-on-online + manual "Sync now" button)
- *     which is enough in practice.
+ *     `replayOutcomeForStatus` so it is unit tested.
+ *
+ *   - **Backoff.** A failed row waits out a ladder before it is picked
+ *     up again (shared-types `queueRetryDelayMs`), so a 500 is no
+ *     longer retried at full speed on every trigger forever. A
+ *     network-level failure is exempt: it means the radio is down, not
+ *     that the row is bad, and charging it to the ladder would make a
+ *     worker who just walked back into coverage wait. A person
+ *     pressing "Sync now" passes `manual` and skips the wait.
+ *
+ *   - **Per-feature ordering.** The queue can hold more than one
+ *     outstanding edit for a feature, so each pass replays only that
+ *     feature's OLDEST claimable row, and skips the feature entirely
+ *     while its oldest row is parked or in flight. Without that, an
+ *     update overtakes the insert it depends on, 404s, and parks as
+ *     terminally rejected. `queueChainHeads` is the rule; the service
+ *     worker mirrors it.
  *
  *   - **No conflict resolution UI here.** That belongs to the runtime
  *     (it has the FormRuntime, the user, and the original record's
@@ -54,13 +67,20 @@
  */
 
 import {
+  claimQueueRow,
   deleteQueueRecord,
+  listQueue,
   listQueueByStatus,
+  newUuid,
   updateQueueRecord,
   type QueueRecord,
 } from './offline-store';
 import { parseApiError } from './api-error';
-import { replayOutcomeForStatus } from '@gratis-gis/shared-types';
+import {
+  isQueueRowClaimable,
+  queueChainHeads,
+  replayOutcomeForStatus,
+} from '@gratis-gis/shared-types';
 
 /**
  * Outcome of a single sync run. `processed` includes successes,
@@ -97,6 +117,36 @@ class ReplayRejected extends Error {
 }
 
 /**
+ * Thrown when the request never reached a server at all: fetch itself
+ * rejected because the radio is down or we are at the edge of
+ * coverage. Distinct from an HTTP failure because it must not count
+ * against the row's retry budget; see the handler in syncQueue.
+ */
+class ReplayUnreachable extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ReplayUnreachable';
+  }
+}
+
+/** fetch, with a network-level rejection relabelled so the drain can
+ *  tell "no signal" from "the server said no". */
+async function replayFetch(
+  input: string,
+  init?: RequestInit,
+): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (err) {
+    throw new ReplayUnreachable(
+      err instanceof Error && err.message
+        ? `Network unavailable: ${err.message}`
+        : 'Network unavailable',
+    );
+  }
+}
+
+/**
  * Drain the queue for a single deployment. Caller decides when to
  * fire (online-event listener, manual button, etc). Returns a
  * structured summary so the UI can render success / mixed-result /
@@ -109,39 +159,28 @@ export async function syncQueue(
   dataCollectionId: string,
   opts: {
     onProgress?: (done: number, total: number) => void;
+    /**
+     * Set when a person pressed "Sync now". Skips the retry backoff:
+     * they are watching, and a button that silently declines to do
+     * anything because a ladder they cannot see says "not yet" reads
+     * as broken. Automatic triggers leave it unset.
+     */
+    manual?: boolean;
   } = {},
 ): Promise<SyncResult> {
-  // Reclaim rows stranded in 'syncing' by a page that died between
-  // marking a record 'syncing' and writing its result. The service
-  // worker replay does this too, but Background Sync is Chromium-only,
-  // so on Firefox / Safari this in-app drain is the only replay path
-  // and must reclaim them itself, or the edit is stuck (and not even
-  // counted as remaining) until the user re-enqueues. Only rows older
-  // than the stale window are reclaimed so a concurrent drain's
-  // in-flight record is left alone. Replays are idempotent server-side
-  // (client globalId + advisory-lock dedupe), so a reclaim at worst
-  // causes a harmless retry.
-  const STALE_SYNCING_MS = 60_000;
-  const staleCutoff = Date.now() - STALE_SYNCING_MS;
-  const stranded = await listQueueByStatus(dataCollectionId, 'syncing');
-  for (const record of stranded) {
-    const attemptedAt = record.lastAttemptAt
-      ? Date.parse(record.lastAttemptAt)
-      : 0;
-    if (!Number.isFinite(attemptedAt) || attemptedAt < staleCutoff) {
-      await updateQueueRecord({ ...record, syncStatus: 'pending' });
-    }
-  }
-
-  // Pull both pending and previously-failed records. failed records
-  // are intentional retries; the user pressing "Sync now" expects
-  // them to be tried again. New records get queueStatus='pending' on
-  // enqueue; the syncing intermediate state is set by this run only.
-  const pending = await listQueueByStatus(dataCollectionId, 'pending');
-  const failed = await listQueueByStatus(dataCollectionId, 'failed');
-  const todo = [...pending, ...failed].sort((a, b) =>
-    a.queuedAt.localeCompare(b.queuedAt),
-  );
+  const now = Date.now();
+  const claimOpts = { ignoreBackoff: opts.manual === true };
+  // One list, one policy. `queueChainHeads` picks at most ONE row per
+  // feature (the oldest) and only when that row is claimable, which
+  // is what keeps an update from overtaking the insert it depends on
+  // and taking a 404. It also decides stale-claim reclamation and the
+  // retry backoff, so this drain and the service worker's cannot
+  // disagree about any of the three. Rows stranded in 'syncing' by a
+  // page that died mid-drain are reclaimed by the same rule; on iOS
+  // and Firefox, where Background Sync does not exist, this drain is
+  // the only path that will ever free them.
+  const all = await listQueue(dataCollectionId);
+  const todo = queueChainHeads(all, now, claimOpts);
   const result: SyncResult = {
     processed: 0,
     synced: 0,
@@ -151,13 +190,13 @@ export async function syncQueue(
     errors: [],
   };
   for (const record of todo) {
-    // Mark syncing so a parallel run (rare but possible if the user
-    // navigates away mid-sync) doesn't re-attempt the same record.
-    await updateQueueRecord({
-      ...record,
-      syncStatus: 'syncing',
-      lastAttemptAt: new Date().toISOString(),
-    });
+    // Claim atomically. Listing and then writing in two transactions
+    // left a window where this drain and the service worker both
+    // replayed the same edit; only server-side idempotency hid it.
+    const claimed = await claimQueueRow(dataCollectionId, record.id, (row) =>
+      isQueueRowClaimable(row, Date.now(), claimOpts),
+    );
+    if (!claimed) continue; // another drain took it
     try {
       await replayRecord(record);
       // Synced: drop from the queue. There's no archive; once it's on
@@ -168,12 +207,40 @@ export async function syncQueue(
       result.synced += 1;
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
+      if (err instanceof ReplayUnreachable) {
+        // fetch itself threw: the radio is down or we are at the edge
+        // of coverage. That is not the row's fault, so it does NOT
+        // count as a failure. Counting it would climb the backoff
+        // ladder during an outage and then make a worker who has just
+        // walked back into signal wait fifteen minutes for data they
+        // can see is queued. Restore the pre-claim status and leave
+        // the attempt bookkeeping alone.
+        await updateQueueRecord({
+          ...record,
+          syncStatus: record.syncStatus === 'failed' ? 'failed' : 'pending',
+        });
+        result.failed += 1;
+        result.errors.push({
+          recordId: record.id,
+          op: record.op,
+          layerLabel: record.layerKey,
+          reason,
+          terminal: false,
+        });
+        result.processed += 1;
+        opts.onProgress?.(result.processed, todo.length);
+        continue;
+      }
       const terminal = err instanceof ReplayRejected;
       await updateQueueRecord({
         ...record,
         syncStatus: terminal ? 'rejected' : 'failed',
         failureReason: reason,
         retryCount: (record.retryCount ?? 0) + 1,
+        // Stamped so the backoff has something to measure from. The
+        // claim already wrote one; re-stamping here keeps the wait
+        // anchored to when the attempt finished rather than started.
+        lastAttemptAt: new Date().toISOString(),
       });
       if (terminal) result.rejected += 1;
       else result.failed += 1;
@@ -237,7 +304,7 @@ async function replayRecord(r: QueueRecord): Promise<void> {
     r.layerKey,
   )}/features`;
   if (r.op === 'insert') {
-    const res = await fetch(layerPath, {
+    const res = await replayFetch(layerPath, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -254,7 +321,7 @@ async function replayRecord(r: QueueRecord): Promise<void> {
     return;
   }
   if (r.op === 'update') {
-    const res = await fetch(`${layerPath}/${r.globalId}`, {
+    const res = await replayFetch(`${layerPath}/${r.globalId}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -266,7 +333,7 @@ async function replayRecord(r: QueueRecord): Promise<void> {
     return;
   }
   if (r.op === 'delete') {
-    const res = await fetch(`${layerPath}/${r.globalId}`, {
+    const res = await replayFetch(`${layerPath}/${r.globalId}`, {
       method: 'DELETE',
     });
     // A 404 here is classified as done by replayOutcomeForStatus: the
@@ -307,17 +374,5 @@ async function throwIfNotOk(
  * same generator.
  */
 export function newGlobalId(): string {
-  if (
-    typeof crypto !== 'undefined' &&
-    typeof crypto.randomUUID === 'function'
-  ) {
-    return crypto.randomUUID();
-  }
-  // RFC 4122 v4 fallback. Not cryptographically strong; only used on
-  // very old browsers where crypto.randomUUID isn't available.
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+  return newUuid();
 }

@@ -58,7 +58,7 @@ import { FormRuntime } from '@/components/form-runtime';
 import { PwaInstallButton } from '@/components/pwa-install-button';
 import {
   deleteDeployment,
-  enqueueRecord,
+  enqueueEdit,
   getDeployment,
   hashLayerSchema,
   listFeaturesForLayer,
@@ -4080,8 +4080,13 @@ function FormModal({
     // feature into IndexedDB so it's visible on the map immediately,
     // and bumps the runtime's refresh counter via the callback.
     const applyLocally = async (): Promise<void> => {
-      const queueRecord: QueueRecord = {
-        id: featureId, // queue id == globalId; one outstanding op per feature
+      // enqueueEdit, not a raw put. The queue can hold an earlier
+      // unsynced edit for this same feature, and folding the two
+      // inside one transaction is what keeps an offline capture that
+      // the user then corrects from being replaced by an update
+      // against a globalId the server has never seen. A raw put here
+      // is the original data-loss bug.
+      const enqueued = await enqueueEdit({
         dataCollectionId,
         op: modal.mode === 'add' ? 'insert' : 'update',
         dataLayerId: modal.layer.dataLayerId,
@@ -4089,11 +4094,16 @@ function FormModal({
         globalId: featureId,
         geometry: activeGeometry,
         properties,
-        queuedAt: new Date().toISOString(),
         schemaHash,
-        syncStatus: 'pending',
-      };
-      await enqueueRecord(queueRecord);
+      });
+      // The fold keeps the original capture time, so the cached
+      // feature's timestamps must come from the surviving row rather
+      // than from now, or the map and the queue disagree about when
+      // the observation was made.
+      const queuedAt =
+        enqueued.kind === 'annihilated'
+          ? new Date().toISOString()
+          : enqueued.record.queuedAt;
       // Mirror into the cached features store so the map shows the
       // feature on next render. For inserts this is a fresh row; for
       // updates it overwrites the prior cached copy under the same
@@ -4113,11 +4123,11 @@ function FormModal({
             _global_id: featureId,
             _created_by: currentUserId,
             _edited_by: currentUserId,
-            _created_at: queueRecord.queuedAt,
-            _edited_at: queueRecord.queuedAt,
+            _created_at: queuedAt,
+            _edited_at: new Date().toISOString(),
           },
         },
-        cachedAt: queueRecord.queuedAt,
+        cachedAt: queuedAt,
       };
       await putFeatures([cachedFeature]);
       onLocalWriteApplied();

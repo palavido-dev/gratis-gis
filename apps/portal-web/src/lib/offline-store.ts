@@ -15,6 +15,11 @@
  *     own export-able artifact.
  */
 
+import {
+  foldQueuedChain,
+  type FoldableEdit,
+  type QueueOp,
+} from '@gratis-gis/shared-types';
 import type { FeatureField, PickListData } from '@gratis-gis/shared-types';
 import type { FormSchema } from '@gratis-gis/form-schema';
 
@@ -35,7 +40,15 @@ import type { FormSchema } from '@gratis-gis/form-schema';
  * endpoints from offline-sync.ts. If you rename a store, change a
  * key path, add a syncStatus value, or move an endpoint, update
  * public/sw.js in the same change or background replay silently
- * stops matching this schema. */
+ * stops matching this schema.
+ *
+ * `id` is an OPERATION id, not the feature's globalId (see QueueRecord
+ * below), so the queue can hold more than one outstanding edit per
+ * feature. Both drains must therefore replay a feature's rows in
+ * queuedAt order and stop that feature's chain at the first failure,
+ * or an update overtakes the insert it depends on and takes a 404.
+ * `queueChainHeads` here and `chainHeads` in sw.js are the two copies
+ * of that rule. */
 export const OFFLINE_DB_NAME = 'gratisgis-offline';
 
 /**
@@ -125,6 +138,25 @@ export interface CachedDeployment {
  *  Background Sync; see the warning on OFFLINE_DB_NAME above before
  *  changing any field or status value. */
 export interface QueueRecord {
+  /**
+   * Identity of the OPERATION, not of the feature.
+   *
+   * This used to be the feature's globalId, which made the store's
+   * composite key one-row-per-feature and turned a second offline edit
+   * into a `put` over the first. An insert edited before it synced was
+   * silently replaced by an update, which replayed as a PATCH against
+   * a globalId the server had never seen, 404'd, and parked as
+   * terminally rejected. See `enqueueEdit`.
+   *
+   * The key path did not have to change to fix that: nothing outside
+   * the store ever read `id` as a feature id (the drains use it only
+   * to address the row, and the UI reads `globalId`). Making it an
+   * operation id therefore needs no IndexedDB migration, which matters
+   * because the rows at risk are unsynced field captures and a
+   * botched `onupgradeneeded` would destroy exactly what this fix
+   * exists to protect. Rows written by the old build carry
+   * `id === globalId`, which is still a valid unique operation id.
+   */
   id: string;
   dataCollectionId: string;
   op: 'insert' | 'update' | 'delete';
@@ -478,14 +510,210 @@ export function requestBackgroundSync(): void {
 // Queue
 // ---------------------------------------------------------------------------
 
+/**
+ * Generate a v4 UUID. Used for both operation ids and the client-side
+ * globalId on a queued insert, so the two share one generator.
+ */
+export function newUuid(): string {
+  if (
+    typeof crypto !== 'undefined' &&
+    typeof crypto.randomUUID === 'function'
+  ) {
+    return crypto.randomUUID();
+  }
+  // RFC 4122 v4 shape. Not cryptographically strong; only reached on
+  // browsers without crypto.randomUUID, and on a non-secure origin,
+  // where the whole offline arc is unavailable anyway.
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+/** One field edit, as the runtime hands it over. The store assigns the
+ *  operation id, the timestamp and the initial status. */
+export interface FeatureEditInput {
+  dataCollectionId: string;
+  op: QueueOp;
+  dataLayerId: string;
+  layerKey: string;
+  globalId: string;
+  geometry: GeoJSON.Geometry | null;
+  properties: Record<string, unknown> | null;
+  schemaHash: string;
+  attachments?: QueueRecord['attachments'];
+}
+
+/**
+ * What `enqueueEdit` did. `annihilated` means the queue now holds
+ * nothing for this feature: it was captured and deleted without ever
+ * reaching the server, so there is no work left to replay.
+ */
+export type EnqueueResult =
+  | { kind: 'queued'; record: QueueRecord }
+  | { kind: 'folded'; record: QueueRecord; replaced: number }
+  | { kind: 'annihilated'; replaced: number };
+
+/** A row this edit is allowed to fold into. Deliberately excludes
+ *  'syncing' (a drain owns it and would delete the merged result when
+ *  its own replay succeeds) and 'rejected' (parked for a person to
+ *  decide about; quietly rewriting it would discard their pending
+ *  decision). Both cases fall through to a second row, and the drains
+ *  order the pair per feature. */
+function isFoldable(row: QueueRecord): boolean {
+  return row.syncStatus === 'pending' || row.syncStatus === 'failed';
+}
+
+/**
+ * Queue one field edit, folding it into this feature's outstanding
+ * edit when there is one.
+ *
+ * The read-modify-write runs inside a SINGLE readwrite transaction.
+ * IndexedDB serialises readwrite transactions per store, so two
+ * enqueues racing (two taps, or a tap during a drain) cannot both read
+ * the same prior row and each write a fold of it, which would drop one
+ * of the two edits. Doing this as a separate read then write is the
+ * bug in miniature.
+ *
+ * Returns what happened so the caller can keep its badge count honest
+ * without re-listing the queue.
+ */
+export async function enqueueEdit(
+  edit: FeatureEditInput,
+): Promise<EnqueueResult> {
+  const now = new Date().toISOString();
+  const result = await withStore(STORES.queue, 'readwrite', async (store) => {
+    // Every row for this deployment, then narrowed to this feature.
+    // The queue holds tens of rows, not thousands, so a scan costs
+    // less than the schema version bump an extra index would need.
+    const idx = store.index('by_deployment');
+    const all =
+      ((await reqAsPromise(
+        idx.getAll(IDBKeyRange.only(edit.dataCollectionId)),
+      )) as QueueRecord[] | undefined) ?? [];
+    const sameFeature = all.filter(
+      (r) =>
+        r.globalId === edit.globalId &&
+        r.dataLayerId === edit.dataLayerId &&
+        r.layerKey === edit.layerKey,
+    );
+    const foldable = sameFeature
+      .filter(isFoldable)
+      .sort((a, b) => a.queuedAt.localeCompare(b.queuedAt));
+
+    const incoming: FoldableEdit = {
+      op: edit.op,
+      geometry: edit.geometry,
+      properties: edit.properties,
+    };
+
+    if (foldable.length === 0) {
+      // Either the first edit for this feature, or every existing row
+      // is in flight or parked. A fresh row; the drains will replay
+      // this feature's rows in order.
+      const record: QueueRecord = {
+        id: newUuid(),
+        dataCollectionId: edit.dataCollectionId,
+        op: edit.op,
+        dataLayerId: edit.dataLayerId,
+        layerKey: edit.layerKey,
+        globalId: edit.globalId,
+        geometry: edit.geometry,
+        properties: edit.properties,
+        queuedAt: now,
+        schemaHash: edit.schemaHash,
+        syncStatus: 'pending',
+        ...(edit.attachments ? { attachments: edit.attachments } : {}),
+      };
+      store.put(record);
+      return { kind: 'queued', record } as EnqueueResult;
+    }
+
+    const folded = foldQueuedChain([
+      ...foldable.map(
+        (r): FoldableEdit => ({
+          op: r.op,
+          geometry: r.geometry,
+          properties: r.properties,
+        }),
+      ),
+      incoming,
+    ]);
+
+    // The surviving row keeps the OLDEST row's id and queuedAt, so the
+    // feature's place in replay order is where the user first touched
+    // it, and any UI holding the id still resolves. Everything else in
+    // the chain goes; normally there is nothing else, but a queue
+    // written by a build without folding can hold several and heals
+    // here.
+    const keep = foldable[0]!;
+    for (const row of foldable) {
+      if (row.id !== keep.id) {
+        store.delete([row.dataCollectionId, row.id]);
+      }
+    }
+
+    if (folded.kind === 'annihilated') {
+      store.delete([keep.dataCollectionId, keep.id]);
+      return { kind: 'annihilated', replaced: foldable.length } as EnqueueResult;
+    }
+
+    // Destructured off rather than set to undefined: the workspace
+    // compiles with exactOptionalPropertyTypes, so an explicit
+    // undefined is not assignable to an optional field. Dropping the
+    // keys is also what we mean, since a row that has been rewritten
+    // has no last failure and no last attempt.
+    const {
+      failureReason: _priorReason,
+      lastAttemptAt: _priorAttempt,
+      ...keepRest
+    } = keep;
+    void _priorReason;
+    void _priorAttempt;
+    const record: QueueRecord = {
+      ...keepRest,
+      op: folded.edit.op,
+      geometry: (folded.edit.geometry as GeoJSON.Geometry | null) ?? null,
+      properties: folded.edit.properties,
+      // The edit was authored against the schema the user is looking
+      // at now, so the newer hash is the truthful one.
+      schemaHash: edit.schemaHash,
+      // New bytes deserve a fresh attempt: a row that had backed off
+      // after failures should not inherit that delay once the user has
+      // changed what it sends.
+      syncStatus: 'pending',
+      retryCount: 0,
+      ...(edit.attachments ? { attachments: edit.attachments } : {}),
+    };
+    store.put(record);
+    return {
+      kind: 'folded',
+      record,
+      replaced: foldable.length,
+    } as EnqueueResult;
+  });
+
+  // Arm a background replay so the edit reaches the server even if the
+  // worker pockets the phone and the tab dies before coverage returns.
+  // After the write, so a registration that fires instantly still
+  // finds the row. Nothing to replay when the edit annihilated.
+  if (result.kind !== 'annihilated') requestBackgroundSync();
+  return result;
+}
+
+/**
+ * Raw put of a queue row, bypassing the fold.
+ *
+ * Retained for callers that are rewriting a row they already hold (the
+ * drains' status bookkeeping). New EDITS must go through
+ * `enqueueEdit`: this function is where the insert-then-edit data loss
+ * lived, and calling it with a fresh edit reintroduces it.
+ */
 export async function enqueueRecord(record: QueueRecord): Promise<void> {
   await withStore(STORES.queue, 'readwrite', (s) => {
     s.put(record);
   });
-  // Arm a background replay for this record so it reaches the server
-  // even if the worker pockets the phone and the tab dies before
-  // coverage returns. Runs after the put so a registration that
-  // fires instantly still finds the row.
   requestBackgroundSync();
 }
 
@@ -509,6 +737,40 @@ export async function listQueueByStatus(
       idx.getAll(IDBKeyRange.only([dataCollectionId, status])),
     );
     return (r as QueueRecord[] | undefined) ?? [];
+  });
+}
+
+/**
+ * Claim one queue row for replay: re-read it and flip it to 'syncing'
+ * inside ONE readwrite transaction.
+ *
+ * IndexedDB serialises readwrite transactions per store, so of two
+ * concurrent claimants exactly one sees the row in a claimable state.
+ * The in-app drain used to list rows and then write them in separate
+ * transactions, which left a window where it and the service worker
+ * both replayed the same edit; only server-side idempotency kept that
+ * from double-creating features. Returns the claimed row, or null when
+ * the row is gone or someone else took it first.
+ *
+ * Mirrors `claimRow` in public/sw.js.
+ */
+export async function claimQueueRow(
+  dataCollectionId: string,
+  id: string,
+  canClaim: (row: QueueRecord) => boolean,
+): Promise<QueueRecord | null> {
+  return withStore(STORES.queue, 'readwrite', async (store) => {
+    const existing = (await reqAsPromise(
+      store.get([dataCollectionId, id]),
+    )) as QueueRecord | undefined;
+    if (!existing || !canClaim(existing)) return null;
+    const claimed: QueueRecord = {
+      ...existing,
+      syncStatus: 'syncing',
+      lastAttemptAt: new Date().toISOString(),
+    };
+    store.put(claimed);
+    return claimed;
   });
 }
 

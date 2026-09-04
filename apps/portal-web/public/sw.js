@@ -177,7 +177,67 @@ const SYNC_TAG = 'gg-offline-queue';
 // A row claimed ('syncing' / 'sending') this long ago is treated as
 // abandoned (page killed mid-drain, worker terminated) and becomes
 // claimable again. Two minutes comfortably exceeds one replay fetch.
+// MIRROR of QUEUE_CLAIM_STALE_MS in shared-types queue-replay.ts. The
+// in-app drain used 60 s here and this worker 120 s, so each could
+// steal a row the other had in flight; server-side idempotency
+// absorbed the duplicate, which is why the mismatch went unnoticed.
 const CLAIM_STALE_MS = 2 * 60 * 1000;
+// MIRROR of RETRY_BACKOFF_MS in shared-types queue-replay.ts. Indexed
+// by retryCount. Before this existed, retryCount was incremented and
+// never read, so a 500 was retried at full speed on every trigger.
+const RETRY_BACKOFF_MS = [0, 5000, 15000, 60000, 300000, 900000];
+
+/** MIRROR of queueRetryDelayMs (shared-types queue-replay.ts). */
+function queueRetryDelayMs(retryCount) {
+  const n = typeof retryCount === 'number' && retryCount > 0 ? retryCount : 0;
+  const capped = Math.min(n, RETRY_BACKOFF_MS.length - 1);
+  return RETRY_BACKOFF_MS[capped];
+}
+
+/** MIRROR of isQueueRowClaimable (shared-types queue-replay.ts).
+ *  Background replay is always automatic, so there is no
+ *  ignoreBackoff here: only a person pressing "Sync now" in the app
+ *  skips the ladder. */
+function isQueueRowClaimable(row, nowMs) {
+  if (row.syncStatus === 'rejected' || row.syncStatus === 'synced') {
+    return false;
+  }
+  if (row.syncStatus === 'syncing') {
+    const at = row.lastAttemptAt ? Date.parse(row.lastAttemptAt) : NaN;
+    if (isFinite(at) && nowMs - at < CLAIM_STALE_MS) return false;
+    return true;
+  }
+  const delay = queueRetryDelayMs(row.retryCount);
+  if (delay === 0) return true;
+  const at = row.lastAttemptAt ? Date.parse(row.lastAttemptAt) : NaN;
+  if (!isFinite(at)) return true;
+  return nowMs - at >= delay;
+}
+
+/**
+ * MIRROR of queueChainHeads (shared-types queue-replay.ts).
+ *
+ * The queue keys rows by an OPERATION id, so one feature can have
+ * several outstanding edits. Take only each feature's oldest row, and
+ * only when that row is itself claimable: if a feature's oldest row is
+ * parked ('rejected') or in flight ('syncing' and fresh), skip the
+ * feature entirely. Replaying a later row instead would PATCH a
+ * feature whose insert has not landed, take a 404, and park a second
+ * row, turning one refusal into every subsequent edit being lost.
+ */
+function chainHeads(rows, nowMs) {
+  const oldest = new Map();
+  for (const row of rows) {
+    const key = row.dataLayerId + ' ' + row.layerKey + ' ' + row.globalId;
+    const held = oldest.get(key);
+    if (!held || String(row.queuedAt).localeCompare(String(held.queuedAt)) < 0) {
+      oldest.set(key, row);
+    }
+  }
+  return Array.from(oldest.values())
+    .filter((row) => isQueueRowClaimable(row, nowMs))
+    .sort((a, b) => String(a.queuedAt).localeCompare(String(b.queuedAt)));
+}
 
 // ---------------------------------------------------------------------------
 // Tile cache cap constants.
@@ -605,16 +665,10 @@ async function drainFeatureQueue() {
   try {
     const rows = await idbGetAll(db, OFFLINE_QUEUE_STORE).catch(() => []);
     const now = Date.now();
-    const canClaim = (r) =>
-      r.syncStatus === 'pending' ||
-      r.syncStatus === 'failed' ||
-      (r.syncStatus === 'syncing' &&
-        (!r.lastAttemptAt ||
-          !(now - Date.parse(r.lastAttemptAt) < CLAIM_STALE_MS)));
-    // Replay in capture order, like the in-app drain.
-    const todo = rows
-      .filter(canClaim)
-      .sort((a, b) => String(a.queuedAt).localeCompare(String(b.queuedAt)));
+    const canClaim = (r) => isQueueRowClaimable(r, Date.now());
+    // One row per feature (its oldest claimable one), in capture
+    // order. Same rule as the in-app drain.
+    const todo = chainHeads(rows, now);
     let retry = false;
     for (const record of todo) {
       const key = [record.dataCollectionId, record.id];
