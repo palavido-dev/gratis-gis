@@ -1,0 +1,24 @@
+{
+  // ts-jest compiles each spec on its own, outside Next's bundler, so
+  // it needs CommonJS output and a resolution mode that works without
+  // one. Everything else is inherited, including the strict flags, so
+  // a test is held to the same standard as the code it covers.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    // Bundler resolution is only valid alongside an ESM module
+    // setting, so the CommonJS output above rules it out. node10 is
+    // deprecated in TS 6 and still correct here; the acknowledgement
+    // silences the error without pretending the deprecation is not
+    // coming. Revisit when ts-jest supports Node16 cleanly.
+    "moduleResolution": "Node10",
+    "ignoreDeprecations": "6.0",
+    "jsx": "react-jsx",
+    "noEmit": false,
+    // Without this TS infers the root from whichever files a run
+    // happens to include, which changes per spec file.
+    "rootDir": "./src",
+    "types": ["jest", "node"]
+  },
+  "include": ["src/**/*"]
+}
