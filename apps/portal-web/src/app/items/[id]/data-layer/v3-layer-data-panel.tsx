@@ -275,7 +275,7 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
             <input
               ref={inputRef}
               type="file"
-              accept=".geojson,.json,.parquet,.geoparquet,.kml,.kmz,.zip,.gdb"
+              accept=".csv,.tsv,.txt,.geojson,.json,.parquet,.geoparquet,.kml,.kmz,.zip,.gdb"
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0];

@@ -1945,16 +1945,17 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
             className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded border border-dashed border-border bg-surface-1 px-3 py-4 text-xs text-muted hover:bg-surface-2"
           >
             <Upload className="h-4 w-4" />
-            <span>Drop a spatial file or click to pick one.</span>
+            <span>Click to pick a file.</span>
             <span className="text-2xs">
-              GeoJSON · GeoParquet (.parquet) · KML / KMZ · GeoPackage
-              (.gpkg, vector tables only) · Shapefile (.zip) · File
-              Geodatabase (.gdb.zip)
+              CSV / TSV with latitude and longitude columns · GeoJSON ·
+              GeoParquet (.parquet) · KML / KMZ · GeoPackage (.gpkg,
+              vector tables only) · Shapefile (.zip) · File Geodatabase
+              (.gdb.zip)
             </span>
             <input
               id="fs-builder-import"
               type="file"
-              accept=".geojson,.json,.parquet,.geoparquet,.kml,.kmz,.gpkg,.zip,.gdb"
+              accept=".csv,.tsv,.txt,.geojson,.json,.parquet,.geoparquet,.kml,.kmz,.gpkg,.zip,.gdb"
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0];

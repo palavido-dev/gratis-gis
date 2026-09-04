@@ -105,8 +105,40 @@ const LNG_VOCABULARY: Array<{ pattern: RegExp; score: number }> = [
  *  GDAL. */
 const MIN_PAIR_SCORE = 110;
 
-export function detectCsvCoordinates(buffer: Buffer): SmartDetect {
-  const text = stripBom(buffer.toString('utf8'));
+/**
+ * The identified coordinate pair, without the FeatureCollection.
+ *
+ * Split out from detectCsvCoordinates because naming the columns and
+ * materialising every row are different jobs with different costs.
+ * Naming needs the header plus a validation sample, so it runs
+ * happily on the first few KB of a file; materialising needs the
+ * whole thing in memory as a string, which does not survive the 1 GB
+ * upload ceiling. The ingest path wants the first job only: once it
+ * knows which columns hold the coordinates it hands those names to
+ * GDAL and lets GDAL stream the file the same way it streams every
+ * other format.
+ */
+export interface CsvColumnPair {
+  kind: 'detected';
+  latColumn: string;
+  lngColumn: string;
+  latIndex: number;
+  lngIndex: number;
+  delimiter: string;
+  header: string[];
+}
+
+export type CsvColumnDetect =
+  | CsvColumnPair
+  | { kind: 'no-coords'; reason: string };
+
+/**
+ * Name the latitude / longitude columns, if this text has a pair
+ * confident enough to act on. Reads the header and at most
+ * VALIDATION_SAMPLE_ROWS data rows, so a prefix of a large file is a
+ * valid input.
+ */
+export function detectCsvColumnPair(text: string): CsvColumnDetect {
   if (text.length === 0) {
     return { kind: 'no-coords', reason: 'Empty file' };
   }
@@ -186,21 +218,56 @@ export function detectCsvCoordinates(buffer: Buffer): SmartDetect {
         'No (latitude, longitude) column pair survived value-range validation',
     };
   }
-  // Emit GeoJSON.
-  const fields = inferFieldTypes(header, lines, delimiter);
-  const features = emitPoints(
-    header,
-    lines,
+  return {
+    kind: 'detected',
+    latColumn: header[bestPair.lat.idx]!,
+    lngColumn: header[bestPair.lng.idx]!,
+    latIndex: bestPair.lat.idx,
+    lngIndex: bestPair.lng.idx,
     delimiter,
-    bestPair.lat.idx,
-    bestPair.lng.idx,
+    header,
+  };
+}
+
+/**
+ * Prefix-safe wrapper. `truncated` says the buffer stops at a byte
+ * cap rather than at end of file, in which case the final line is
+ * dropped: it may be half a row, or half a multi-byte character, and
+ * either way it is not worth reasoning about. Everything the
+ * detector needs is in the first handful of rows.
+ */
+export function detectCsvColumnPairFromPrefix(
+  prefix: Buffer,
+  truncated: boolean,
+): CsvColumnDetect {
+  let text = stripBom(prefix.toString('utf8'));
+  if (truncated) {
+    const lastBreak = text.lastIndexOf('\n');
+    text = lastBreak >= 0 ? text.slice(0, lastBreak) : '';
+  }
+  return detectCsvColumnPair(text);
+}
+
+export function detectCsvCoordinates(buffer: Buffer): SmartDetect {
+  const text = stripBom(buffer.toString('utf8'));
+  const pair = detectCsvColumnPair(text);
+  if (pair.kind !== 'detected') return pair;
+  // Emit GeoJSON.
+  const lines = splitLines(text);
+  const fields = inferFieldTypes(pair.header, lines, pair.delimiter);
+  const features = emitPoints(
+    pair.header,
+    lines,
+    pair.delimiter,
+    pair.latIndex,
+    pair.lngIndex,
   );
   return {
     kind: 'detected',
     geojson: { type: 'FeatureCollection', features },
     fields,
-    latColumn: header[bestPair.lat.idx]!,
-    lngColumn: header[bestPair.lng.idx]!,
+    latColumn: pair.latColumn,
+    lngColumn: pair.lngColumn,
   };
 }
 
