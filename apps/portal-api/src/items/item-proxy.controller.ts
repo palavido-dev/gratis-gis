@@ -20,6 +20,7 @@ import {
 } from './credential.service.js';
 import { exchangeBasicForArcgisToken } from './arcgis-auth.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { LastUsageStamp } from './last-usage-stamp.js';
 import { safeFetch, UnsafeOutboundUrlError } from '../common/net-guards.js';
 import {
   PROXY_FETCH_TIMEOUT_MS,
@@ -59,14 +60,20 @@ export class ItemProxyController {
    * (#50). Reset on process restart so a freshly-deployed server
    * is willing to write the first hit immediately.
    */
-  private readonly lastUsageWrittenAt = new Map<string, number>();
+  private lastUsage!: LastUsageStamp;
   private static readonly USAGE_THROTTLE_MS = 60_000;
 
   constructor(
     private readonly items: ItemsService,
     private readonly credentials: CredentialService,
     private readonly prisma: PrismaService,
-  ) {}
+  ) {
+    this.lastUsage = new LastUsageStamp(
+      this.prisma,
+      this.log,
+      ItemProxyController.USAGE_THROTTLE_MS,
+    );
+  }
 
   // Two routes wired to the same handler so a bare /proxy (no
   // sub-path, with or without query string) also matches. Nest's
@@ -197,24 +204,12 @@ export class ItemProxyController {
     // pan/zoom storm doesn't blow up DB writes; matches the
     // auth-sync lastSeenAt pattern (#50). Fire-and-forget so a slow
     // write can't tail-latency a successful response.
+    // Goes through LastUsageStamp rather than prisma.item.update so
+    // the stamp cannot drag `updatedAt` with it: a tile fetch is not
+    // an edit of the basemap or service item being proxied. See
+    // last-usage-stamp.ts.
     if (upstream.ok) {
-      const now = Date.now();
-      const last = this.lastUsageWrittenAt.get(itemId) ?? 0;
-      if (now - last >= ItemProxyController.USAGE_THROTTLE_MS) {
-        this.lastUsageWrittenAt.set(itemId, now);
-        this.prisma.item
-          .update({
-            where: { id: itemId },
-            data: { lastUsageAt: new Date(now) },
-          })
-          .catch((err) => {
-            this.log.warn(
-              `lastUsageAt stamp failed for item=${itemId}: ${
-                err instanceof Error ? err.message : err
-              }`,
-            );
-          });
-      }
+      this.lastUsage.stamp(itemId);
     }
   }
 }

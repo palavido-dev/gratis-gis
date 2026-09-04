@@ -73,6 +73,7 @@ import { WebMapJsonService } from './web-map-json.service.js';
 import { WebMapJsonImportService } from './web-map-json-import.service.js';
 import { SharingService } from './sharing.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { LastUsageStamp } from './last-usage-stamp.js';
 
 class CreateItemDto {
   @IsEnum(ITEM_TYPES) type!: ItemType;
@@ -248,12 +249,12 @@ export class ItemsController {
   private readonly log = new Logger(ItemsController.name);
 
   /**
-   * Per-process throttle for the lastUsageAt stamp on item-detail
-   * GET (#99). Mirrors the proxy controller's pattern from #96.
-   * 60s window keeps the DB write off the hot path when a busy
-   * map page revalidates the item detail many times per minute.
+   * Throttled writer for the lastUsageAt stamp on item-detail GET
+   * (#99). Mirrors the proxy controller's pattern from #96. 60s
+   * window keeps the DB write off the hot path when a busy map page
+   * revalidates the item detail many times per minute.
    */
-  private readonly lastUsageWrittenAt = new Map<string, number>();
+  private lastUsage!: LastUsageStamp;
   private static readonly USAGE_THROTTLE_MS = 60_000;
 
   /** Default page size for GET /items when the caller sends no
@@ -271,7 +272,13 @@ export class ItemsController {
     private readonly webMapJsonImport: WebMapJsonImportService,
     private readonly sharing: SharingService,
     private readonly prisma: PrismaService,
-  ) {}
+  ) {
+    this.lastUsage = new LastUsageStamp(
+      this.prisma,
+      this.log,
+      ItemsController.USAGE_THROTTLE_MS,
+    );
+  }
 
   @Get()
   async list(
@@ -466,23 +473,9 @@ export class ItemsController {
     // Internal callers (housekeeping, items.service.* helpers)
     // hit ItemsService.get directly and bypass this stamp, so
     // system reads correctly don't bump the counter.
-    const now = Date.now();
-    const last = this.lastUsageWrittenAt.get(id) ?? 0;
-    if (now - last >= ItemsController.USAGE_THROTTLE_MS) {
-      this.lastUsageWrittenAt.set(id, now);
-      this.prisma.item
-        .update({
-          where: { id },
-          data: { lastUsageAt: new Date(now) },
-        })
-        .catch((err) => {
-          this.log.warn(
-            `lastUsageAt stamp failed for item=${id}: ${
-              err instanceof Error ? err.message : err
-            }`,
-          );
-        });
-    }
+    // The write goes through LastUsageStamp, not prisma.item.update,
+    // so it cannot drag `updatedAt` along with it. See that file.
+    this.lastUsage.stamp(id);
     return item;
   }
 

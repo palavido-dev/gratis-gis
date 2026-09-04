@@ -59,9 +59,22 @@
 // cache-first path: a permanently blank basemap with no network
 // requests and no error to see. The bump also evicts entries already
 // poisoned that way on devices in the field.)
-const CACHE_VERSION = 'v7';
+// (v8 added PAGES_CACHE. An installed PWA opened with no signal
+// showed its cached deployments and then dead-ended on every one of
+// them: the shell links to /items/<id>/field, a server-rendered route
+// that was neither cached nor intercepted, so the tap landed on the
+// browser's no-internet page. Offline worked only if the runtime had
+// already been loaded in that tab before signal dropped, which is the
+// opposite of how a phone in a pocket behaves.)
+const CACHE_VERSION = 'v8';
 const STATIC_CACHE = `gratis-static-${CACHE_VERSION}`;
 const GEOJSON_CACHE = `gratis-geojson-${CACHE_VERSION}`;
+// Server-rendered HTML for the two navigations the field arc needs
+// offline: the catalog at /field and each deployment's runtime at
+// /items/<id>/field. Kept apart from STATIC_CACHE because this holds
+// AUTHENTICATED, user-specific markup and therefore has to be purged
+// on sign-out, which content-addressed assets do not.
+const PAGES_CACHE = `gratis-pages-${CACHE_VERSION}`;
 // Slice 10: basemap + reference tiles. Keyed separately from static
 // assets so the eviction policy can differ (tiles are large and we
 // retain them aggressively for offline; static assets churn with
@@ -72,6 +85,9 @@ const TILES_CACHE = `gratis-tiles-${CACHE_VERSION}`;
 // somewhere usable, online or not.
 const SHELL_CACHE = `gratis-shell-${CACHE_VERSION}`;
 const FIELD_OFFLINE_SHELL = '/field/offline.html';
+// A deployment's field runtime, e.g. /items/<uuid>/field. Anchored so
+// it cannot match a deeper route that happens to contain the segment.
+const FIELD_RUNTIME_PATH = /^\/items\/[^/]+\/field\/?$/;
 
 // Detect the Next.js dev server. Dev chunks under /_next/static/ reuse
 // filenames across restarts, so cache-first serves up stale JS whose
@@ -307,7 +323,13 @@ self.addEventListener('install', (event) => {
 // Activate: clean up old caches, then reconcile the tile write log.
 // -------------------------------------------------------------------------
 self.addEventListener('activate', (event) => {
-  const keep = new Set([STATIC_CACHE, GEOJSON_CACHE, TILES_CACHE, SHELL_CACHE]);
+  const keep = new Set([
+    STATIC_CACHE,
+    GEOJSON_CACHE,
+    TILES_CACHE,
+    SHELL_CACHE,
+    PAGES_CACHE,
+  ]);
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(
@@ -358,13 +380,23 @@ self.addEventListener('fetch', (event) => {
   // pre-cached static shell at /field/offline.html. The shell
   // hydrates from IndexedDB so the user sees their cached
   // deployments and can re-enter one.
+  // (`url.pathname` never contains a query string, so the old
+  // `startsWith('/field?')` arm here could not match anything.)
   if (
     request.mode === 'navigate' &&
-    (url.pathname === '/field' ||
-      url.pathname === '/field/' ||
-      url.pathname.startsWith('/field?'))
+    (url.pathname === '/field' || url.pathname === '/field/')
   ) {
     event.respondWith(fieldNavigateWithFallback(request));
+    return;
+  }
+
+  // A deployment's field runtime. Server-rendered, so without this it
+  // is unreachable on a cold offline launch and every row in the
+  // offline shell dead-ends. Network-first (the live page always wins
+  // when there is signal), then the last good copy of THIS deployment,
+  // then the shell so the user at least lands back on their list.
+  if (request.mode === 'navigate' && FIELD_RUNTIME_PATH.test(url.pathname)) {
+    event.respondWith(fieldRuntimeNavigate(request));
     return;
   }
 
@@ -417,18 +449,19 @@ self.addEventListener('message', (event) => {
     return;
   }
   if (data.type === 'gg:clear-user-caches') {
-    // Sign-out hook. The tile and geojson caches hold auth-gated
-    // portal responses (MVT tiles, per-layer geojson) fetched with
-    // the departing user's session; left in place, the next person
-    // on a shared machine could read that org data straight out of
-    // cache without ever signing in. The tile write log goes too:
-    // its URLs can embed provider tokens and org endpoints. Static
-    // assets and the offline shell carry no user data, so they
-    // survive. The sender waits for the ack (with a timeout) before
-    // navigating to Keycloak.
+    // Sign-out hook. The tile, geojson and page caches hold auth-gated
+    // responses (MVT tiles, per-layer geojson, server-rendered HTML)
+    // fetched with the departing user's session; left in place, the
+    // next person on a shared machine could read that org data
+    // straight out of cache without ever signing in. The tile write
+    // log goes too: its URLs can embed provider tokens and org
+    // endpoints. Static assets and the offline shell carry no user
+    // data, so they survive. The sender waits for the ack (with a
+    // timeout) before navigating to Keycloak.
     void Promise.all([
       caches.delete(TILES_CACHE),
       caches.delete(GEOJSON_CACHE),
+      caches.delete(PAGES_CACHE),
       clearTileWriteLog(),
     ]).then(() => {
       event.ports[0]?.postMessage({ ok: true });
@@ -453,8 +486,9 @@ self.addEventListener('message', (event) => {
 //      ('syncing' / 'sending') inside a single readwrite IndexedDB
 //      transaction, so two concurrent SW drains can never double-take
 //      a row, and this worker skips rows the page recently claimed.
-//      The in-app drains predate this handler and list their rows
-//      non-atomically, so a small double-replay window remains.
+//      The feature drain in the app claims atomically too now, and
+//      both read one shared claim window, so that window is closed.
+//      (The forms drain still lists non-atomically.)
 //   2. Server idempotency closes that window. Feature inserts carry
 //      the client-generated globalId into an append-only observation
 //      log whose reads collapse to one feature per entity; updates
@@ -1256,8 +1290,13 @@ async function tileCacheStats() {
 async function fieldNavigateWithFallback(request) {
   try {
     const response = await fetch(request);
+    await cachePageResponse(request, response);
     return response;
   } catch {
+    // The real catalog if we have ever loaded it, since it is richer
+    // than the static shell (and matches what the user last saw).
+    const page = await matchCachedPage(request);
+    if (page) return page;
     const cache = await caches.open(SHELL_CACHE);
     const cached = await cache.match(FIELD_OFFLINE_SHELL);
     if (cached) return cached;
@@ -1270,6 +1309,90 @@ async function fieldNavigateWithFallback(request) {
         '<h1>Offline</h1><p>The cached catalog page is missing. ' +
         'Reconnect and reload to refresh.</p></body>',
       { headers: { 'content-type': 'text/html; charset=utf-8' } },
+    );
+  }
+}
+
+/**
+ * Cache key for a navigable page: origin + pathname, query dropped.
+ *
+ * The offline shell links to `/items/<id>/field?from=field` while a
+ * tap from inside the app arrives without the query. Cache entries are
+ * keyed by full URL, so keeping the query would file those as two
+ * different pages and the shell's link would miss the copy the user
+ * actually loaded. Nothing on these two routes renders differently for
+ * the query (`from` only picks which way the back arrow points), so
+ * one entry per path is the truthful key.
+ */
+function pageCacheKey(url) {
+  return new Request(url.origin + url.pathname, { method: 'GET' });
+}
+
+/**
+ * Store a navigation response for offline reuse.
+ *
+ * Refuses anything that is not a plain 200 for the page that was asked
+ * for. A redirected response is the important case: when the session
+ * has expired the server bounces to the identity provider, and caching
+ * THAT under the runtime's path would pin a login screen as the
+ * deployment's offline page, with no network to correct it.
+ */
+async function cachePageResponse(request, response) {
+  try {
+    if (!response || !response.ok || response.redirected) return;
+    if (response.type !== 'basic' && response.type !== 'default') return;
+    const url = new URL(request.url);
+    const cache = await caches.open(PAGES_CACHE);
+    await cache.put(pageCacheKey(url), response.clone());
+  } catch {
+    // Caching is an optimisation; never fail the navigation for it.
+    // Quota is the expected reason, and the tile sweep reclaims.
+  }
+}
+
+/** The last good copy of this page, if we have one. */
+async function matchCachedPage(request) {
+  try {
+    const cache = await caches.open(PAGES_CACHE);
+    return (await cache.match(pageCacheKey(new URL(request.url)))) || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Navigation handler for a deployment's field runtime.
+ *
+ * The fallback chain matters more than the caching. Before this, an
+ * installed PWA cold-started with no signal rendered its deployment
+ * list and then dropped the user on the browser's no-internet page the
+ * moment they tapped one, which reads as "the offline app does not
+ * work offline". Now: live page, else this deployment's last good
+ * page, else the catalog shell, which at least keeps them inside the
+ * app and shows what is cached.
+ */
+async function fieldRuntimeNavigate(request) {
+  try {
+    const response = await fetch(request);
+    await cachePageResponse(request, response);
+    return response;
+  } catch {
+    const page = await matchCachedPage(request);
+    if (page) return page;
+    const cache = await caches.open(SHELL_CACHE);
+    const shell = await cache.match(FIELD_OFFLINE_SHELL);
+    if (shell) return shell;
+    return new Response(
+      '<!DOCTYPE html><meta charset="utf-8"><title>Offline</title>' +
+        '<body style="font-family:system-ui;padding:2rem;color:#333;">' +
+        '<h1>Offline</h1><p>This deployment has not been opened on ' +
+        'this device yet, so there is no cached copy to show. ' +
+        'Reconnect and open it once to make it available offline.' +
+        '</p></body>',
+      {
+        status: 503,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      },
     );
   }
 }

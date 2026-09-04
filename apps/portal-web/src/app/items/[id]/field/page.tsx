@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { notFound } from 'next/navigation';
+import type { Metadata } from 'next';
 import type {
   BasemapData,
   DataCollectionData,
@@ -16,6 +17,24 @@ import { FieldRuntime, type EditableLayer } from './field-runtime';
 interface Props {
   params: Promise<{ id: string }>;
 }
+
+/**
+ * Point this route at the FIELD manifest, not the portal's.
+ *
+ * This page is the installed app's actual home: the catalog at /field
+ * is a list you pass through once. /app/field/layout.tsx cannot supply
+ * the manifest here, because Next layouts follow the URL and this
+ * route is a different branch of the tree, so without this the runtime
+ * inherited the root manifest (start_url "/", scope "/") while the
+ * installed app was launched from one with scope "/field/". An
+ * installed PWA therefore treated every deployment as out of scope:
+ * Android opens an out-of-scope navigation in a Custom Tab and iOS
+ * drops standalone mode, so tapping a deployment ejected the collector
+ * from the app they had just installed to do that one thing.
+ */
+export const metadata: Metadata = {
+  manifest: '/field/manifest.webmanifest',
+};
 
 /**
  * Map a basemap item into the CustomBasemap shape MapCanvas
