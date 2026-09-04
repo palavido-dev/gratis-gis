@@ -22,6 +22,7 @@ import {
   type ClientExportFormat,
 } from '@/lib/layer-export';
 import { exportBundle } from '@/lib/bundle-export';
+import { parseApiError } from '@/lib/api-error';
 import { toast } from '@/lib/toast';
 import type {
   FeatureRecord,
@@ -121,9 +122,7 @@ export function V3FeatureBrowser({
           signal ? { signal } : {},
         );
         if (!res.ok) {
-          setError(
-            `Could not load features: ${res.status} ${await res.text()}`,
-          );
+          setError(await parseApiError(res, 'Could not load features'));
           return;
         }
         const body = (await res.json()) as {
@@ -174,7 +173,7 @@ export function V3FeatureBrowser({
         },
       );
       if (!res.ok) {
-        setError(`Save failed: ${res.status} ${await res.text()}`);
+        setError(await parseApiError(res, 'Save failed'));
         return;
       }
       setEditingId(null);
@@ -200,7 +199,7 @@ export function V3FeatureBrowser({
       { method: 'DELETE' },
     );
     if (!res.ok) {
-      setError(`Delete failed: ${res.status}`);
+      setError(await parseApiError(res, 'Delete failed'));
       return;
     }
     await reload();
@@ -223,7 +222,7 @@ export function V3FeatureBrowser({
         },
       );
       if (!res.ok) {
-        setError(`Add row failed: ${res.status} ${await res.text()}`);
+        setError(await parseApiError(res, 'Add row failed'));
         return;
       }
       await reload();
