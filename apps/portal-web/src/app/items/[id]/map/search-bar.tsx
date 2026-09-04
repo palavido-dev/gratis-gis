@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, MapPin, Search, Tag, X } from 'lucide-react';
 import type { MapLayer } from '@gratis-gis/shared-types';
 import {
+  GeocoderUnavailableError,
   geocode,
   geocodeViaItem,
   searchArcgisLayers,
@@ -73,6 +74,10 @@ export function SearchBar({
   const [open, setOpen] = useState(false);
   const [geocodeResults, setGeocodeResults] = useState<SearchResult[]>([]);
   const [geocodeLoading, setGeocodeLoading] = useState(false);
+  /** Why the geocoder could not be asked, or null when it answered. */
+  const [geocodeUnavailable, setGeocodeUnavailable] = useState<string | null>(
+    null,
+  );
   const [arcgisResults, setArcgisResults] = useState<SearchResult[]>([]);
   const [arcgisLoading, setArcgisLoading] = useState(false);
   const [v3Results, setV3Results] = useState<SearchResult[]>([]);
@@ -107,6 +112,7 @@ export function SearchBar({
     }
     const controller = new AbortController();
     setGeocodeLoading(true);
+    setGeocodeUnavailable(null);
     const handle = setTimeout(() => {
       const promise = geocoderItemId
         ? geocodeViaItem(q, geocoderItemId, viewportBbox ?? null, controller.signal)
@@ -114,7 +120,21 @@ export function SearchBar({
           ? geocode(q, controller.signal)
           : Promise.resolve([] as SearchResult[]);
       promise
-        .then((rows) => setGeocodeResults(rows))
+        .then((rows) => {
+          setGeocodeResults(rows);
+          setGeocodeUnavailable(null);
+        })
+        .catch((err: unknown) => {
+          // Distinguish "the geocoder has nothing for that" from "the
+          // geocoder could not be reached". Telling a user to reword
+          // a query that was never actually asked wastes their time.
+          setGeocodeResults([]);
+          setGeocodeUnavailable(
+            err instanceof GeocoderUnavailableError
+              ? err.message
+              : 'unknown error',
+          );
+        })
         .finally(() => setGeocodeLoading(false));
     }, 350);
     return () => {
@@ -346,9 +366,29 @@ export function SearchBar({
                   Places via © OpenStreetMap contributors (Nominatim)
                 </div>
               </Section>
-            ) : query.trim().length >= 3 && !geocodeLoading ? (
+            ) : geocodeUnavailable && !geocodeLoading ? (
+              /* The geocoder could not be asked. Say that, rather
+                 than reporting a confident "no matches" for a
+                 question nobody answered. On a self-hosted portal
+                 the usual cause is a Nominatim container that is
+                 down or still importing, so point at it. */
               <div className="px-3 py-2 text-xs text-muted">
-                No matches{anyLayerSearchable ? '' : ': try a longer query'}.
+                Place search is unavailable right now ({geocodeUnavailable}).
+                Layer results above are unaffected.
+              </div>
+            ) : query.trim().length >= 3 && !geocodeLoading ? (
+              /* A real zero-result answer. The old copy appended
+                 "try a longer query" here, keyed on whether any
+                 LAYER had attribute search configured, which has
+                 nothing to do with the length of the query and was
+                 shown for fully qualified 21-character place names.
+                 Advice that cannot possibly help is worse than no
+                 advice. If a self-hosted geocoder covers only part
+                 of the world, that is the likely cause and it is
+                 the thing worth naming. */
+              <div className="px-3 py-2 text-xs text-muted">
+                No places found for that. This portal&apos;s geocoder only
+                covers the area it was set up with.
               </div>
             ) : null
           ) : null}
