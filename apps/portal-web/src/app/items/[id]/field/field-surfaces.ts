@@ -66,6 +66,20 @@ export type FormModalState =
   | {
       layer: EditableLayer;
       mode: 'add';
+      /**
+       * The globalId this capture will be created with, generated when
+       * the form OPENS rather than when it submits.
+       *
+       * It used to be minted inside the submit handler, which was fine
+       * while nothing needed the id before then. Attachments do: a
+       * photo is captured against the feature minutes before the form
+       * is submitted, and it has to be filed under the id the feature
+       * will actually have. Deriving it in the form component instead
+       * would go stale the moment one add form is replaced by another
+       * without unmounting, which is exactly what "add a related
+       * record" does.
+       */
+      featureId: string;
       geometry: GeoJSON.Geometry | null;
       presetAttributes: Record<string, string>;
     }

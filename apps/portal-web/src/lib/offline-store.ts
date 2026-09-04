@@ -48,7 +48,12 @@ import type { FormSchema } from '@gratis-gis/form-schema';
  * queuedAt order and stop that feature's chain at the first failure,
  * or an update overtakes the insert it depends on and takes a 404.
  * `queueChainHeads` here and `chainHeads` in sw.js are the two copies
- * of that rule. */
+ * of that rule.
+ *
+ * The worker also reads the 'blobs' store, but only to know which
+ * features still owe a file upload so it can leave those rows alone.
+ * It never uploads: that needs the page's presign + PUT + register
+ * walk. Same division the forms outbox already uses. */
 export const OFFLINE_DB_NAME = 'gratisgis-offline';
 
 /**
@@ -58,7 +63,7 @@ export const OFFLINE_DB_NAME = 'gratisgis-offline';
  * to v2 with a breaking change, we'd issue a notice that they need
  * to re-download (better than silently truncating).
  */
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 /** Cached feature row stored in the `features` object store. */
 export interface CachedFeature {
@@ -205,12 +210,48 @@ export interface QueueRecord {
   }>;
 }
 
+/**
+ * A file captured in the field before it could be uploaded.
+ *
+ * Stored as a real Blob, not base64. The forms outbox encodes its
+ * attachments as data URLs because they ride inside the submission
+ * JSON; a feature attachment has no such constraint, and base64 costs
+ * a third more bytes of a quota that photographs exhaust quickly.
+ * IndexedDB has stored Blobs natively everywhere the rest of this
+ * arc already requires.
+ *
+ * Rows live only until the upload succeeds. The feature they belong
+ * to has to reach the server first, so the drain writes the feature,
+ * then walks that feature's blobs, then deletes each one it has
+ * uploaded.
+ */
+export interface PendingBlob {
+  /** Primary key, and the id the queue record references. */
+  blobId: string;
+  /** For the deployment cascade, and for the "remove from device"
+   *  path to reclaim the bytes. */
+  dataCollectionId: string;
+  /** Which feature this belongs to. globalId is the client-generated
+   *  id, so this resolves even before the insert has replayed. */
+  dataLayerId: string;
+  layerKey: string;
+  globalId: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  blob: Blob;
+  /** Capture time, not upload time. On a multi-day deployment these
+   *  differ by more than they look. */
+  capturedAt: string;
+}
+
 const STORES = {
   deployments: 'deployments',
   features: 'features',
   forms: 'forms',
   pickLists: 'pickLists',
   queue: 'queue',
+  blobs: 'blobs',
 } as const;
 
 type StoreName = (typeof STORES)[keyof typeof STORES];
@@ -269,6 +310,29 @@ export function openOfflineDb(): Promise<IDBDatabase> {
             { unique: false },
           );
           s.createIndex('by_deployment', 'dataCollectionId', { unique: false });
+        }
+      }
+      // v2: files captured in the field before they could be
+      // uploaded. Purely additive; every v1 store is untouched, which
+      // is the only reason this bump is safe to run on a device
+      // holding unsynced captures. Do not extend this block into
+      // rewriting an existing store without a much harder look.
+      if (e.oldVersion < 2) {
+        if (!db.objectStoreNames.contains(STORES.blobs)) {
+          const s = db.createObjectStore(STORES.blobs, {
+            keyPath: 'blobId',
+          });
+          // "What is still waiting to upload for this feature?" The
+          // drain asks it per feature after each successful write, and
+          // the collect form asks it to render what it has captured.
+          s.createIndex(
+            'by_feature',
+            ['dataCollectionId', 'dataLayerId', 'layerKey', 'globalId'],
+            { unique: false },
+          );
+          s.createIndex('by_deployment', 'dataCollectionId', {
+            unique: false,
+          });
         }
       }
     };
@@ -351,6 +415,9 @@ export async function deleteDeployment(
   // walked via its by_deployment index where present.
   await deleteByDeploymentIndex(STORES.features, dataCollectionId);
   await deleteByDeploymentIndex(STORES.queue, dataCollectionId);
+  // Blobs are the biggest rows in the database by a wide margin, so
+  // missing them here would be the loudest kind of leak.
+  await deleteByDeploymentIndex(STORES.blobs, dataCollectionId);
   await deleteByPrefix(STORES.forms, dataCollectionId);
   await deleteByPrefix(STORES.pickLists, dataCollectionId);
   await withStore(STORES.deployments, 'readwrite', (s) => {
@@ -371,10 +438,11 @@ export async function deleteDeployment(
  *
  * Two things are deliberately KEPT:
  *
- *   - The write queue. Those are captures that have not reached the
- *     server, and destroying someone's unsynced field work to tidy up
- *     a cache is a far worse outcome than the leak it closes. The
- *     sign-out flow warns when any exist instead.
+ *   - The write queue, and the pending attachments beside it. Those
+ *     are captures that have not reached the server, and destroying
+ *     someone's unsynced field work to tidy up a cache is a far worse
+ *     outcome than the leak it closes. The sign-out flow warns when
+ *     any exist instead.
  *   - The deployment manifests. They carry a title and a size, not
  *     feature data, and dropping them would hide any queued rows from
  *     every screen that could still drain them. Keeping them is what
@@ -395,13 +463,20 @@ async function clearStore(storeName: StoreName): Promise<void> {
 
 /** How many edits are still waiting to reach the server, across every
  *  deployment on this device. Read by the sign-out flow so it can warn
- *  before a person walks away from unsynced work. */
+ *  before a person walks away from unsynced work. Counts photos and
+ *  other captured files too: a record whose attachment has not
+ *  uploaded is as incomplete as one that has not been sent. */
 export async function countUnsyncedEdits(): Promise<number> {
-  return withStore(STORES.queue, 'readonly', async (s) => {
+  const edits = await withStore(STORES.queue, 'readonly', async (s) => {
     const r = await reqAsPromise(s.getAll());
     const rows = (r as QueueRecord[] | undefined) ?? [];
     return rows.filter((row) => row.syncStatus !== 'synced').length;
   });
+  const files = await withStore(STORES.blobs, 'readonly', async (s) => {
+    const r = await reqAsPromise(s.count());
+    return typeof r === 'number' ? r : 0;
+  });
+  return edits + files;
 }
 
 /** Walk a store's `by_deployment` index and delete every match. */
@@ -758,11 +833,26 @@ export async function enqueueEdit(
     } as EnqueueResult;
   });
 
+  if (result.kind === 'annihilated') {
+    // The feature was captured and deleted without ever reaching the
+    // server, so no queue row will ever visit it again. Anything
+    // captured against it has to go with it, or the largest rows in
+    // the database sit there permanently with nothing that could
+    // upload or reclaim them. Outside the transaction above because
+    // it is a different store.
+    await deletePendingBlobsForFeature(
+      edit.dataCollectionId,
+      edit.dataLayerId,
+      edit.layerKey,
+      edit.globalId,
+    );
+    return result;
+  }
   // Arm a background replay so the edit reaches the server even if the
   // worker pockets the phone and the tab dies before coverage returns.
   // After the write, so a registration that fires instantly still
-  // finds the row. Nothing to replay when the edit annihilated.
-  if (result.kind !== 'annihilated') requestBackgroundSync();
+  // finds the row.
+  requestBackgroundSync();
   return result;
 }
 
@@ -855,6 +945,92 @@ export async function deleteQueueRecord(
 
 export async function clearQueue(dataCollectionId: string): Promise<void> {
   await deleteByDeploymentIndex(STORES.queue, dataCollectionId);
+}
+
+// ---------------------------------------------------------------------------
+// Pending attachments
+// ---------------------------------------------------------------------------
+
+/** Stash a captured file until its feature has reached the server. */
+export async function putPendingBlob(row: PendingBlob): Promise<void> {
+  await withStore(STORES.blobs, 'readwrite', (s) => {
+    s.put(row);
+  });
+  // A blob is only ever queued alongside a feature edit, so the same
+  // background replay that will send the feature can send this too.
+  requestBackgroundSync();
+}
+
+/** Everything still waiting to upload for one feature, oldest first. */
+export async function listPendingBlobsForFeature(
+  dataCollectionId: string,
+  dataLayerId: string,
+  layerKey: string,
+  globalId: string,
+): Promise<PendingBlob[]> {
+  return withStore(STORES.blobs, 'readonly', async (s) => {
+    const idx = s.index('by_feature');
+    const r = await reqAsPromise(
+      idx.getAll(
+        IDBKeyRange.only([dataCollectionId, dataLayerId, layerKey, globalId]),
+      ),
+    );
+    const rows = (r as PendingBlob[] | undefined) ?? [];
+    return rows.sort((a, b) => a.capturedAt.localeCompare(b.capturedAt));
+  });
+}
+
+/** Every pending file for a deployment. Used for the queue badge and
+ *  the beacon, so a collector can see that photos are still owed. */
+export async function listPendingBlobs(
+  dataCollectionId: string,
+): Promise<PendingBlob[]> {
+  return withStore(STORES.blobs, 'readonly', async (s) => {
+    const idx = s.index('by_deployment');
+    const r = await reqAsPromise(idx.getAll(IDBKeyRange.only(dataCollectionId)));
+    return (r as PendingBlob[] | undefined) ?? [];
+  });
+}
+
+/**
+ * Feature keys that still owe an upload, as `dataLayerId layerKey
+ * globalId` strings.
+ *
+ * The service worker uses the same idea to decide which queue rows to
+ * leave alone (see sw.js). Exposed here so the in-app drain and any
+ * UI can ask the question without materialising megabytes of Blob.
+ */
+export async function pendingBlobFeatureKeys(): Promise<Set<string>> {
+  return withStore(STORES.blobs, 'readonly', async (s) => {
+    const r = await reqAsPromise(s.getAll());
+    const rows = (r as PendingBlob[] | undefined) ?? [];
+    return new Set(
+      rows.map((b) => `${b.dataLayerId} ${b.layerKey} ${b.globalId}`),
+    );
+  });
+}
+
+export async function deletePendingBlob(blobId: string): Promise<void> {
+  await withStore(STORES.blobs, 'readwrite', (s) => {
+    s.delete(blobId);
+  });
+}
+
+/** Drop every pending file for a feature. For a capture the collector
+ *  deletes before it ever syncs: the photos have nowhere to go. */
+export async function deletePendingBlobsForFeature(
+  dataCollectionId: string,
+  dataLayerId: string,
+  layerKey: string,
+  globalId: string,
+): Promise<void> {
+  const rows = await listPendingBlobsForFeature(
+    dataCollectionId,
+    dataLayerId,
+    layerKey,
+    globalId,
+  );
+  for (const row of rows) await deletePendingBlob(row.blobId);
 }
 
 // ---------------------------------------------------------------------------

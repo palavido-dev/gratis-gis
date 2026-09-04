@@ -68,11 +68,16 @@
 
 import {
   claimQueueRow,
+  deletePendingBlob,
+  deletePendingBlobsForFeature,
   deleteQueueRecord,
+  listPendingBlobs,
+  listPendingBlobsForFeature,
   listQueue,
   listQueueByStatus,
   newUuid,
   updateQueueRecord,
+  type PendingBlob,
   type QueueRecord,
 } from './offline-store';
 import { parseApiError } from './api-error';
@@ -255,6 +260,19 @@ export async function syncQueue(
     result.processed += 1;
     opts.onProgress?.(result.processed, todo.length);
   }
+  // Orphaned files: captured against a feature that has no queue row.
+  //
+  // The obvious way to get one is an ONLINE save. That path writes the
+  // feature straight to the API and never touches the queue, so a
+  // photo taken during it had nothing to ride along with and would
+  // have sat on the device forever. The other way is an online upload
+  // that failed after the feature landed. Both mean the feature is on
+  // the server already, so the upload is safe to attempt on its own.
+  //
+  // Deliberately not fatal to the run: these are best-effort, and a
+  // failure leaves the file exactly where it was for the next sync.
+  await sweepOrphanedBlobs(dataCollectionId);
+
   // Re-count what's still queued (in case parallel runs added new
   // pending records during this drain). Rejected rows are reported
   // as their own total rather than folded into `remaining`: nothing
@@ -287,6 +305,17 @@ export async function retryRejected(record: QueueRecord): Promise<void> {
 export async function discardRejected(record: QueueRecord): Promise<void> {
   if (record.syncStatus !== 'rejected') return;
   await deleteQueueRecord(record.dataCollectionId, record.id);
+  // Anything captured against this feature goes with it. Without
+  // this, discarding a refused capture would leave its photos with no
+  // queue row to carry them and no feature to attach to: the orphan
+  // sweep would then try to upload them against a feature the server
+  // has never seen, forever.
+  await deletePendingBlobsForFeature(
+    record.dataCollectionId,
+    record.dataLayerId,
+    record.layerKey,
+    record.globalId,
+  );
 }
 
 /**
@@ -318,6 +347,8 @@ async function replayRecord(r: QueueRecord): Promise<void> {
       }),
     });
     await throwIfNotOk(res, 'POST', r.op);
+    // The feature exists now, so anything captured against it can go.
+    await uploadPendingBlobsForFeature(r);
     return;
   }
   if (r.op === 'update') {
@@ -330,6 +361,10 @@ async function replayRecord(r: QueueRecord): Promise<void> {
       }),
     });
     await throwIfNotOk(res, 'PATCH', r.op);
+    // An edit can carry new photos too: the collector opens a record
+    // they captured earlier and adds the shot they could not get on
+    // the first visit.
+    await uploadPendingBlobsForFeature(r);
     return;
   }
   if (r.op === 'delete') {
@@ -340,12 +375,169 @@ async function replayRecord(r: QueueRecord): Promise<void> {
     // feature is already gone server-side (perhaps because a prior
     // sync succeeded but its response was lost).
     await throwIfNotOk(res, 'DELETE', r.op);
+    // The feature is gone, so its captured files have nowhere to be
+    // attached. Dropping them is the only option that does not leak
+    // the largest rows in the database forever.
+    await deletePendingBlobsForFeature(
+      r.dataCollectionId,
+      r.dataLayerId,
+      r.layerKey,
+      r.globalId,
+    );
     return;
   }
   // Unknown op (the type union is exhausted above, so only a row
   // written by a newer client could get here). Park it: retrying
   // cannot teach this build a new op.
   throw new ReplayRejected(`Unknown queue op: ${(r as { op: string }).op}`);
+}
+
+/**
+ * Upload the files captured against a feature, now that the feature
+ * itself exists on the server.
+ *
+ * Three steps per file, the same walk the online uploader does:
+ * presign, PUT the bytes straight to object storage, then register
+ * the metadata. The API never buffers the bytes.
+ *
+ * Ordering is the whole point. An attachment endpoint is keyed by
+ * feature id, so none of this can run until the insert has replayed;
+ * that is why it lives here, after the feature write succeeded,
+ * rather than as its own queue row.
+ *
+ * A file that fails is LEFT IN PLACE and the error propagates, so the
+ * queue row goes back to failed and the whole feature is retried.
+ * Losing the photo silently while reporting the record as synced
+ * would be the worst available outcome: the record would look
+ * complete and be missing the evidence it was collected for.
+ */
+/**
+ * Upload files whose feature has no queue row left.
+ *
+ * Their feature is necessarily on the server: either it was written
+ * directly by the online path, or its queue row already drained. So
+ * the attachment endpoint will accept them, and leaving them would
+ * mean a record that looks complete on the server while the photo it
+ * exists to carry sits on a phone.
+ *
+ * Errors are swallowed per feature. This runs at the tail of a drain
+ * whose real work has already succeeded, and a failed photo upload
+ * must not turn a successful sync into a reported failure; the file
+ * stays put and the next sync tries again.
+ */
+async function sweepOrphanedBlobs(dataCollectionId: string): Promise<void> {
+  let pending: Awaited<ReturnType<typeof listPendingBlobs>>;
+  try {
+    pending = await listPendingBlobs(dataCollectionId);
+  } catch {
+    return;
+  }
+  if (pending.length === 0) return;
+  const queued = await listQueue(dataCollectionId).catch(() => []);
+  const hasRow = new Set(
+    queued.map((r) => `${r.dataLayerId} ${r.layerKey} ${r.globalId}`),
+  );
+  const seen = new Set<string>();
+  for (const file of pending) {
+    const key = `${file.dataLayerId} ${file.layerKey} ${file.globalId}`;
+    if (hasRow.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    try {
+      await uploadPendingBlobsForFeature({
+        dataCollectionId: file.dataCollectionId,
+        dataLayerId: file.dataLayerId,
+        layerKey: file.layerKey,
+        globalId: file.globalId,
+      });
+    } catch {
+      // Still offline, or the server refused. The file is untouched.
+    }
+  }
+}
+
+export interface FeatureRef {
+  dataCollectionId: string;
+  dataLayerId: string;
+  layerKey: string;
+  globalId: string;
+}
+
+export async function uploadPendingBlobsForFeature(
+  ref: FeatureRef,
+): Promise<void> {
+  const pending = await listPendingBlobsForFeature(
+    ref.dataCollectionId,
+    ref.dataLayerId,
+    ref.layerKey,
+    ref.globalId,
+  );
+  for (const file of pending) {
+    await uploadOneBlob(ref, file);
+    // Only after the register call returned 2xx. A blob deleted
+    // before that is gone from a device that may have no way back to
+    // the subject of the photograph.
+    await deletePendingBlob(file.blobId);
+  }
+}
+
+async function uploadOneBlob(
+  ref: FeatureRef,
+  file: PendingBlob,
+): Promise<void> {
+  // The op only affects how a failure is CLASSIFIED, and an
+  // attachment failure means the same thing whatever the feature
+  // write was, so 'update' stands in for all of them here.
+  const op: QueueRecord['op'] = 'update';
+  const presignRes = await replayFetch('/api/portal/storage/presign-upload', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      kind: 'feature-attachment',
+      contentType: file.mimeType || 'application/octet-stream',
+    }),
+  });
+  await throwIfNotOk(presignRes, 'Attachment presign', op);
+  const presign = (await presignRes.json()) as {
+    uploadUrl: string;
+    publicUrl: string;
+    key: string;
+    maxBytes: number;
+  };
+  if (file.sizeBytes > presign.maxBytes) {
+    // Deterministic: the same bytes will be too large forever, so
+    // park the row rather than retrying a file the server will never
+    // take. The collector can delete it and re-shoot smaller.
+    throw new ReplayRejected(
+      `${file.fileName} is ${(file.sizeBytes / 1024 / 1024).toFixed(
+        1,
+      )} MB and the limit is ${(presign.maxBytes / 1024 / 1024).toFixed(0)} MB.`,
+    );
+  }
+
+  const putRes = await replayFetch(presign.uploadUrl, {
+    method: 'PUT',
+    headers: { 'content-type': file.mimeType || 'application/octet-stream' },
+    body: file.blob,
+  });
+  await throwIfNotOk(putRes, 'Attachment upload', op);
+
+  const registerRes = await replayFetch(
+    `/api/portal/items/${ref.dataLayerId}/layers/${encodeURIComponent(
+      ref.layerKey,
+    )}/features/${ref.globalId}/attachments`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        fileName: file.fileName,
+        mime: file.mimeType || 'application/octet-stream',
+        sizeBytes: file.sizeBytes,
+        storageKey: presign.key,
+        storageUrl: presign.publicUrl,
+      }),
+    },
+  );
+  await throwIfNotOk(registerRes, 'Attachment register', op);
 }
 
 async function throwIfNotOk(

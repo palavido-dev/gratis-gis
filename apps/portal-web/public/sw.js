@@ -214,6 +214,15 @@ function isTileRequest(url) {
 const OFFLINE_DB_NAME = 'gratisgis-offline';
 const OFFLINE_QUEUE_STORE = 'queue';
 const OFFLINE_DEPLOYMENTS_STORE = 'deployments';
+// Files captured in the field and not yet uploaded (schema v2). This
+// worker never uploads them: that needs the page's presign + PUT +
+// register walk, and replicating a three-step pipeline in a file with
+// no typechecking, no linting and no bundling would double the
+// lockstep surface for no gain. Same call the forms drain makes. What
+// this worker DOES do is leave those features alone, so it cannot
+// report a record synced and delete its queue row while the photo
+// that record exists to carry is still sitting on the device.
+const OFFLINE_BLOBS_STORE = 'blobs';
 const FORMS_DB_NAME = 'gratisgis-forms';
 const FORMS_STORE = 'submissions';
 // One-shot Background Sync tag. Lockstep with BACKGROUND_SYNC_TAG in
@@ -722,6 +731,10 @@ function replayOutcomeForStatus(status, op) {
  * rows stranded in 'syncing' by a page that died mid-drain (the
  * in-app drain never re-lists those, so before this handler they
  * were stuck forever).
+ *
+ * Features with a file still waiting to upload are SKIPPED and left
+ * for the in-app drain, exactly as the forms drain skips submissions
+ * with pending attachments and for the same reason.
  */
 async function drainFeatureQueue() {
   const db = await openAppDbIfExists(OFFLINE_DB_NAME);
@@ -730,9 +743,23 @@ async function drainFeatureQueue() {
     const rows = await idbGetAll(db, OFFLINE_QUEUE_STORE).catch(() => []);
     const now = Date.now();
     const canClaim = (r) => isQueueRowClaimable(r, Date.now());
+    // Features that still owe a file upload. Reading only the key
+    // fields would be nicer, but getAll on this store materialises the
+    // Blobs; the store is small (a handful of photos at a time) and
+    // this runs once per drain, so it is affordable. If that stops
+    // being true, add a keys-only index rather than dropping the
+    // check: skipping the check is how a record gets marked synced
+    // while its photograph is still on the phone.
+    const blobs = await idbGetAll(db, OFFLINE_BLOBS_STORE).catch(() => []);
+    const owesUpload = new Set(
+      blobs.map((b) => b.dataLayerId + ' ' + b.layerKey + ' ' + b.globalId),
+    );
     // One row per feature (its oldest claimable one), in capture
     // order. Same rule as the in-app drain.
-    const todo = chainHeads(rows, now);
+    const todo = chainHeads(rows, now).filter(
+      (r) =>
+        !owesUpload.has(r.dataLayerId + ' ' + r.layerKey + ' ' + r.globalId),
+    );
     let retry = false;
     for (const record of todo) {
       const key = [record.dataCollectionId, record.id];

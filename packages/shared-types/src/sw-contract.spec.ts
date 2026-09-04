@@ -51,6 +51,24 @@ describe('service worker offline-queue contract', () => {
     expect(sw).toContain("const OFFLINE_DB_NAME = 'gratisgis-offline'");
     expect(sw).toContain("const OFFLINE_QUEUE_STORE = 'queue'");
     expect(sw).toContain("const OFFLINE_DEPLOYMENTS_STORE = 'deployments'");
+    expect(sw).toContain("const OFFLINE_BLOBS_STORE = 'blobs'");
+  });
+
+  it('leaves features alone while they still owe a file upload', () => {
+    // The worker cannot run the presign + PUT + register walk, so it
+    // must not drain a feature whose photo is still on the device:
+    // doing so would delete the queue row and report the record
+    // synced while the file it exists to carry was never sent. The
+    // in-app drain picks those up.
+    expect(sw).toContain('owesUpload');
+    expect(sw).toMatch(/const blobs = await idbGetAll\(db, OFFLINE_BLOBS_STORE\)/);
+  });
+
+  it('opens the app database without a version', () => {
+    // The blobs store arrived as schema v2. A versionless open never
+    // up- or downgrades, which is what keeps a future bump in
+    // offline-store from making this worker throw VersionError.
+    expect(sw).toContain('indexedDB.open(name)');
   });
 
   it('arms the same Background Sync tag the app registers', () => {

@@ -62,6 +62,7 @@ import {
   getDeployment,
   hashLayerSchema,
   listFeaturesForLayer,
+  listPendingBlobs,
   listPickListsForDeployment,
   listQueue,
   putFeatures,
@@ -85,6 +86,7 @@ import {
   listRejected,
   newGlobalId,
   syncQueue,
+  uploadPendingBlobsForFeature,
   type SyncResult,
 } from '@/lib/offline-sync';
 import { RejectedEditsDialog } from './rejected-edits-dialog';
@@ -122,7 +124,7 @@ import {
 import { OfflineBasemapRow } from './offline-basemap-row';
 import { createGpsMarker, type GpsMarkerHandle } from './gps-map-marker';
 import { stampGpsMetadata } from './gps-metadata-stamp';
-import { V3FeatureAttachments } from '../data-layer/v3-feature-attachments';
+import { FieldAttachments } from './field-attachments';
 import { describeZoom } from '@/lib/map-scale';
 import { parseApiError } from '@/lib/api-error';
 import { useT } from '@/lib/i18n/locale-context';
@@ -945,8 +947,15 @@ export function FieldRuntime({
       try {
         const records = await listQueue(dataCollectionId);
         if (cancelled) return;
+        // Photos count. A record whose photograph is still on the
+        // phone is not synced in any sense the collector cares about,
+        // and after an online save that uploaded the row but not the
+        // file there is no queue row to speak for it at all.
+        const files = await listPendingBlobs(dataCollectionId);
+        if (cancelled) return;
         setQueueCount(
-          records.filter((r) => r.syncStatus !== 'rejected').length,
+          records.filter((r) => r.syncStatus !== 'rejected').length +
+            files.length,
         );
         const rejected = await listRejected(dataCollectionId);
         if (cancelled) return;
@@ -1811,6 +1820,7 @@ export function FieldRuntime({
         setFormModal({
           layer: tpl.layer,
           mode: 'add',
+          featureId: newGlobalId(),
           geometry: { type: 'Point', coordinates: [lon, lat] },
           presetAttributes: tpl.presetAttributes,
         });
@@ -1920,6 +1930,7 @@ export function FieldRuntime({
     setFormModal({
       layer: tpl.layer,
       mode: 'add',
+      featureId: newGlobalId(),
       geometry,
       presetAttributes: tpl.presetAttributes,
     });
@@ -2725,6 +2736,7 @@ export function FieldRuntime({
             setFormModal({
               layer: hit.editable,
               mode: 'add',
+              featureId: newGlobalId(),
               geometry: initialGeometry,
               presetAttributes,
             });
@@ -2768,6 +2780,7 @@ export function FieldRuntime({
             setFormModal({
               layer: childLayer,
               mode: 'add',
+              featureId: newGlobalId(),
               geometry: initialGeometry,
               presetAttributes: { [parentFkColumn]: parentFeatureId },
             });
@@ -3959,6 +3972,7 @@ function FormModal({
     | {
         layer: EditableLayer;
         mode: 'add';
+        featureId: string;
         geometry: GeoJSON.Geometry | null;
         presetAttributes: Record<string, string>;
       }
@@ -4200,14 +4214,16 @@ function FormModal({
             capturedAt: new Date().toISOString(),
           }) as FormResponse)
         : gpsStamped;
-    // Identity. For inserts we generate the globalId client-side so
+    // Identity. For inserts the globalId is generated client-side so
     // the queue and the local feature row share a key with the
-    // eventual server row -- a re-drained queue (or a sync that
+    // eventual server row: a re-drained queue (or a sync that
     // succeeded server-side but lost the success response) doesn't
     // double-create. The portal-api COALESCEs against gen_random_uuid()
     // so the server accepts our id directly.
-    const featureId =
-      modal.mode === 'add' ? newGlobalId() : modal.featureId;
+    //
+    // Minted when the form OPENED, not here, because photos are
+    // captured against it while the form is still being filled in.
+    const featureId = modal.featureId;
     // Schema hash on the queued record lets sync detect drift later
     // (Slice 5 doesn't act on it yet, but capturing it now means an
     // upgraded portal can reconcile without a queue migration).
@@ -4338,6 +4354,24 @@ function FormModal({
           if (!res.ok) {
             throw new Error(await parseApiError(res, 'Could not save'));
           }
+        }
+        // The feature is on the server, so any photo captured while
+        // this form was open can go now. The online path never touches
+        // the queue, so without this the file would have had nothing
+        // to ride along with and would have sat on the device
+        // indefinitely. A failure here is deliberately not fatal: the
+        // record saved, and the file stays queued for the sweep at the
+        // end of the next drain rather than failing a submit that
+        // actually succeeded.
+        try {
+          await uploadPendingBlobsForFeature({
+            dataCollectionId,
+            dataLayerId: modal.layer.dataLayerId,
+            layerKey: modal.layer.layerKey,
+            globalId: featureId,
+          });
+        } catch {
+          onLocalWriteApplied();
         }
       } else {
         // Offline path. The browser reports !navigator.onLine so we
@@ -4495,28 +4529,26 @@ function FormModal({
               {error}
             </p>
           ) : null}
-          {/* Phase B: per-feature attachments. Only mounted in edit
-              mode because attachments need a server-side feature row
-              to register against (the API path is keyed by featureId).
-              Add-mode features get a fresh global id but the
-              attachment endpoint requires the row to exist first;
-              users can save the feature, the form re-opens in edit
-              mode for picture/audio/video uploads. Online-only for
-              now: the offline buffer for blobs is queued separately
-              (#200). */}
-          {modal.mode === 'edit' ? (
-            <div className="mt-5 border-t border-border pt-4">
-              <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-1">
-                Attachments
-              </p>
-              <V3FeatureAttachments
-                itemId={modal.layer.dataLayerId}
-                layerId={modal.layer.layerKey}
-                featureId={modal.featureId}
-                canEdit={true}
-              />
-            </div>
-          ) : null}
+          {/* Attachments, in BOTH modes and with or without signal.
+              This used to be edit-mode and online-only: the endpoint
+              is keyed by feature id, so a feature being created had
+              nothing to attach to, and the upload needed a network.
+              That put the camera one save-and-reopen away from the
+              moment the collector is standing in front of the subject,
+              and out of reach entirely with no bars. A captured file
+              is queued against the client-generated globalId, which
+              exists as soon as the form opens, and uploaded by the
+              drain once the feature lands. See field-attachments. */}
+          <div className="mt-5 border-t border-border pt-4">
+            <FieldAttachments
+              dataCollectionId={dataCollectionId}
+              dataLayerId={modal.layer.dataLayerId}
+              layerKey={modal.layer.layerKey}
+              globalId={modal.featureId}
+              featureExistsOnServer={modal.mode === 'edit'}
+              isOnline={isOnline}
+            />
+          </div>
           {/* Phase C: child layers in the same data_layer that
               reference this layer via parentFkColumn. Each row is
               a quick-add affordance: tap to drop a fresh child
@@ -5032,18 +5064,24 @@ function FieldFeaturePopupSheet({
                 ) : null}
               </dl>
 
-              {/* #267: attachments (read-only thumbnails). Mounted
-                  only when we have an editable layer + globalId so
-                  the V3FeatureAttachments fetch URL is well-formed.
-                  canEdit=false hides the upload button -- the popup
-                  is a read view; users tap Edit to upload. */}
+              {/* #267: attachments, read-only. The popup is a read
+                  view; capture lives behind its Edit action. Uses the
+                  field component rather than the portal gallery so a
+                  photo taken minutes ago and still waiting to upload
+                  shows up here: offline the server list is empty by
+                  definition, and an empty gallery over a feature the
+                  collector has just photographed reads as the photo
+                  having been lost. */}
               {parentEditable && detailHit?.globalId ? (
                 <div className="border-t border-border bg-surface-0/50 px-3 py-3">
-                  <V3FeatureAttachments
-                    itemId={parentEditable.dataLayerId}
-                    layerId={parentEditable.layerKey}
-                    featureId={detailHit.globalId}
-                    canEdit={false}
+                  <FieldAttachments
+                    dataCollectionId={dataCollectionId}
+                    dataLayerId={parentEditable.dataLayerId}
+                    layerKey={parentEditable.layerKey}
+                    globalId={detailHit.globalId}
+                    featureExistsOnServer
+                    isOnline={isOnline}
+                    canCapture={false}
                   />
                 </div>
               ) : null}
