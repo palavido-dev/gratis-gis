@@ -51,6 +51,7 @@ import {
   type PendingBlob,
 } from '@/lib/offline-store';
 import { formatBytes } from '@/lib/format-bytes';
+import { useT } from '@/lib/i18n/locale-context';
 import { tapFeedback } from './field-sheet';
 
 interface ServerAttachment {
@@ -100,6 +101,7 @@ export function FieldAttachments({
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const confirm = useConfirm();
+  const t = useT();
 
   const basePath = `/api/portal/items/${dataLayerId}/layers/${encodeURIComponent(
     layerKey,
@@ -175,10 +177,10 @@ export function FieldAttachments({
           'QuotaExceededError';
       setError(
         quota
-          ? 'No room left on this device for another photo. Sync or free up space first.'
-          : `Could not save the file: ${
-              err instanceof Error ? err.message : 'unknown error'
-            }`,
+          ? t('fieldAttachments.quotaError')
+          : t('fieldAttachments.saveError', {
+              reason: err instanceof Error ? err.message : 'unknown error',
+            }),
       );
     } finally {
       setBusy(false);
@@ -187,9 +189,9 @@ export function FieldAttachments({
 
   async function discardPending(row: PendingBlob) {
     const ok = await confirm({
-      title: 'Discard this file?',
-      message: `${row.fileName} has not been uploaded yet. Discarding it removes it from this device and it cannot be recovered.`,
-      confirmLabel: 'Discard',
+      title: t('fieldAttachments.discardTitle'),
+      message: t('fieldAttachments.discardMessage', { name: row.fileName }),
+      confirmLabel: t('fieldAttachments.discardAction'),
       variant: 'danger',
     });
     if (!ok) return;
@@ -204,8 +206,9 @@ export function FieldAttachments({
       <div className="mb-2 flex items-center justify-between gap-2">
         <p className="inline-flex items-center gap-1.5 text-2xs font-medium uppercase tracking-wide text-muted">
           <Paperclip className="h-3.5 w-3.5" />
-          Photos and files
-          {total > 0 ? ` · ${total}` : ''}
+          {total > 0
+            ? t('fieldAttachments.headingCount', { count: total })
+            : t('fieldAttachments.heading')}
         </p>
         {canCapture ? (
           <>
@@ -236,7 +239,7 @@ export function FieldAttachments({
               ) : (
                 <Camera className="h-4 w-4" />
               )}
-              Add photo
+              {t('fieldAttachments.add')}
             </button>
           </>
         ) : null}
@@ -255,8 +258,8 @@ export function FieldAttachments({
       {total === 0 ? (
         <p className="px-1 py-2 text-2xs text-muted">
           {canCapture
-            ? 'No photos yet. They are kept on this device and uploaded with the record.'
-            : 'No photos on this record.'}
+            ? t('fieldAttachments.emptyCanCapture')
+            : t('fieldAttachments.emptyReadOnly')}
         </p>
       ) : (
         <ul className="grid grid-cols-3 gap-2">
@@ -317,6 +320,7 @@ function PendingTile({
    *  destructive action on a surface that offers no others. */
   onDiscard?: () => void;
 }) {
+  const t = useT();
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     if (!row.mimeType.startsWith('image/')) return;
@@ -339,10 +343,10 @@ function PendingTile({
       )}
       <span
         className="absolute left-1 top-1 inline-flex items-center gap-1 rounded-full bg-warn/90 px-1.5 py-0.5 text-2xs font-medium text-white"
-        title="Waiting to upload"
+        title={t('fieldAttachments.pendingBadgeTitle')}
       >
         <CloudOff className="h-3 w-3" />
-        On device
+        {t('fieldAttachments.pendingBadge')}
       </span>
       <div className="flex items-center justify-between gap-1 px-1.5 py-1">
         <span className="truncate text-2xs text-muted">
@@ -352,7 +356,9 @@ function PendingTile({
           <button
             type="button"
             onClick={onDiscard}
-            aria-label={`Discard ${row.fileName}`}
+            aria-label={t('fieldAttachments.discardLabel', {
+              name: row.fileName,
+            })}
             className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted hover:bg-danger/10 hover:text-danger active:bg-danger/20"
           >
             <Trash2 className="h-3.5 w-3.5" />

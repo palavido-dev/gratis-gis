@@ -1286,7 +1286,7 @@ export function FieldRuntime({
     if (!quota.fits) {
       setDownloadProgress({
         phase: 'failed',
-        message: 'Not enough storage for this download',
+        message: t('fieldOffline.quotaTitle'),
         estimatedSize: quota.estimatedDownloadBytes,
         layerCount: editableLayers.length,
         featuresFetched: 0,
@@ -1294,11 +1294,10 @@ export function FieldRuntime({
         pickListsFetched: 0,
         tilesFetched: 0,
         tilesTotal: 0,
-        error: `This download needs about ${formatBytes(
-          quota.estimatedDownloadBytes,
-        )} and there is ~${formatBytes(
-          quota.shortfallBytes,
-        )} too little room. Free up cached deployments or device storage, or lower the detail level, and try again.`,
+        error: t('fieldOffline.quotaBody', {
+          needed: formatBytes(quota.estimatedDownloadBytes),
+          short: formatBytes(quota.shortfallBytes),
+        }),
       });
       downloadRunningRef.current = false;
       return;
@@ -3676,13 +3675,15 @@ function LayerVisibilityPanel({
             />
             <span>
               {cachedDeployment.partial.outOfSpace
-                ? 'Incomplete: ran out of storage. '
-                : 'Incomplete: '}
+                ? panelT('fieldOffline.partialOutOfSpace')
+                : panelT('fieldOffline.partialPrefix')}
               {cachedDeployment.partial.reasons.slice(0, 2).join(', ')}
               {cachedDeployment.partial.reasons.length > 2
-                ? ` and ${cachedDeployment.partial.reasons.length - 2} more`
-                : ''}{' '}
-              did not download.
+                ? panelT('fieldOffline.partialMore', {
+                    count: cachedDeployment.partial.reasons.length - 2,
+                  })
+                : ''}
+              {panelT('fieldOffline.partialSuffix')}
             </span>
           </p>
         ) : null}
@@ -4034,6 +4035,7 @@ function FormModal({
 }) {
   const [error, setError] = useState<string | null>(null);
   const confirm = useConfirm();
+  const t = useT();
   // True once the collector has typed, picked or drawn anything.
   //
   // Cancel used to discard the form with no guard at all, so a
@@ -4056,11 +4058,10 @@ function FormModal({
       return;
     }
     void confirm({
-      title: 'Discard this record?',
-      message:
-        'You have entered information that has not been saved. Discarding it cannot be undone.',
-      confirmLabel: 'Discard',
-      cancelLabel: 'Keep editing',
+      title: t('fieldCollect.discardTitle'),
+      message: t('fieldCollect.discardMessage'),
+      confirmLabel: t('fieldCollect.discardAction'),
+      cancelLabel: t('fieldCollect.discardCancel'),
       variant: 'danger',
     }).then((ok) => {
       if (ok) onClose();
@@ -4394,8 +4395,8 @@ function FormModal({
       onClose={requestCancel}
       ariaLabel={
         modal.mode === 'add'
-          ? `Add ${modal.layer.layerLabel}`
-          : `Edit ${modal.layer.layerLabel}`
+          ? t('fieldCollect.addAria', { layer: modal.layer.layerLabel })
+          : t('fieldCollect.editAria', { layer: modal.layer.layerLabel })
       }
       // Taller than the old 60vh because the sheet now measures the
       // VISIBLE viewport, so this is 62% of what the collector can
@@ -4428,13 +4429,15 @@ function FormModal({
             onClick={requestCancel}
             className="inline-flex h-11 shrink-0 items-center justify-center rounded-md px-3 text-base font-medium text-accent hover:bg-surface-2 active:bg-surface-3"
           >
-            Cancel
+            {t('fieldCollect.cancel')}
           </button>
           <div className="min-w-0 flex-1 text-center">
             <h2 className="truncate text-base font-semibold text-ink-0">
               {modal.mode === 'add'
-                ? `New ${modal.layer.layerLabel}`
-                : `Edit ${modal.layer.layerLabel}`}
+                ? t('fieldCollect.addTitle', { layer: modal.layer.layerLabel })
+                : t('fieldCollect.editTitle', {
+                    layer: modal.layer.layerLabel,
+                  })}
             </h2>
             <p className="truncate text-2xs text-muted">
               {modal.layer.dataLayerTitle}
@@ -4445,7 +4448,7 @@ function FormModal({
             form={`field-form-${modal.layer.layerKey}`}
             className="inline-flex h-11 shrink-0 items-center justify-center rounded-md px-3 text-base font-semibold text-accent hover:bg-surface-2 active:bg-surface-3"
           >
-            Submit
+            {t('fieldCollect.submit')}
           </button>
         </header>
         {/* #249: Field Maps-style location bar. Shows the current
@@ -5218,6 +5221,7 @@ function FieldGpsStrip({
   gpsStatus: import('./use-geolocation').GpsStatus;
   accuracyM: number | null;
 }) {
+  const t = useT();
   // A refused or missing fix has to be VISIBLE. It used to live only
   // in the locate button's `title` and `aria-label`, neither of which
   // a thumb can reach: the button greyed out, tapping it did nothing,
@@ -5233,8 +5237,8 @@ function FieldGpsStrip({
         <CircleSlash className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
         <span className="min-w-0 truncate">
           {gpsStatus === 'denied'
-            ? 'Location is blocked. Allow it in your browser settings to capture at your position.'
-            : 'Location is unavailable on this device. Features will be placed at the map centre.'}
+            ? t('fieldGps.denied')
+            : t('fieldGps.unavailable')}
         </span>
       </div>
     );
@@ -5253,7 +5257,9 @@ function FieldGpsStrip({
       className={`flex shrink-0 items-center justify-center gap-1.5 border-b px-3 py-1 text-xs font-medium ${tone}`}
     >
       <LocateFixed className="h-3.5 w-3.5" aria-hidden="true" />
-      GPS accuracy {accuracyM < 1 ? '<1' : Math.round(accuracyM)} m
+      {t('fieldGps.accuracy', {
+        meters: accuracyM < 1 ? '<1' : String(Math.round(accuracyM)),
+      })}
     </div>
   );
 }

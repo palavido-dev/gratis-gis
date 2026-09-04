@@ -136,6 +136,9 @@ export async function signOutWithUnsyncedGuard(
     cancelLabel?: string;
     variant?: 'default' | 'danger';
   }) => Promise<boolean>,
+  // Not a component, so it cannot call useT itself; the caller hands
+  // its own translator down, exactly as it does with confirm.
+  t: (key: string, vars?: Record<string, string | number>) => string,
 ): Promise<void> {
   let pending = 0;
   try {
@@ -145,16 +148,10 @@ export async function signOutWithUnsyncedGuard(
   }
   if (pending > 0) {
     const ok = await confirm({
-      title: 'Sign out with unsynced work?',
-      message: `${pending} edit${pending === 1 ? '' : 's'} on this device ${
-        pending === 1 ? 'has' : 'have'
-      } not reached the server yet. ${
-        pending === 1 ? 'It' : 'They'
-      } will stay on this device, but nobody else can send ${
-        pending === 1 ? 'it' : 'them'
-      } for you. Sync before signing out if you can get a connection.`,
-      confirmLabel: 'Sign out anyway',
-      cancelLabel: 'Stay signed in',
+      title: t('signOut.unsyncedTitle'),
+      message: t('signOut.unsyncedMessage', { count: pending }),
+      confirmLabel: t('signOut.unsyncedConfirm'),
+      cancelLabel: t('signOut.unsyncedCancel'),
       variant: 'danger',
     });
     if (!ok) return;
@@ -177,11 +174,12 @@ export function SignOutButton({
   children: React.ReactNode;
 }) {
   const confirm = useConfirm();
+  const t = useT();
   return (
     <button
       type="button"
       className={className}
-      onClick={() => void signOutWithUnsyncedGuard(confirm)}
+      onClick={() => void signOutWithUnsyncedGuard(confirm, t)}
     >
       {children}
     </button>
@@ -278,7 +276,7 @@ export function UserMenu({ seed, displayName, orgName, avatarUrl }: Props) {
               role="menuitem"
               onClick={(e) => {
                 e.preventDefault();
-                void signOutWithUnsyncedGuard(confirm);
+                void signOutWithUnsyncedGuard(confirm, t);
               }}
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-danger hover:bg-danger/5"
             >

@@ -286,6 +286,73 @@ export const en = {
     discardAction: 'Discard edit',
     close: 'Close',
   },
+  // Photos and files on a feature, captured in the field. Offline
+  // capable, so most of this copy is about where a file currently is
+  // rather than about the file itself.
+  fieldAttachments: {
+    heading: 'Photos and files',
+    headingCount: 'Photos and files · {count}',
+    add: 'Add photo',
+    emptyCanCapture:
+      'No photos yet. They are kept on this device and uploaded with the record.',
+    emptyReadOnly: 'No photos on this record.',
+    pendingBadge: 'On device',
+    pendingBadgeTitle: 'Waiting to upload',
+    discardLabel: 'Discard {name}',
+    discardTitle: 'Discard this file?',
+    discardMessage:
+      '{name} has not been uploaded yet. Discarding it removes it from this device and it cannot be recovered.',
+    discardAction: 'Discard',
+    quotaError:
+      'No room left on this device for another photo. Sync or free up space first.',
+    saveError: 'Could not save the file: {reason}',
+  },
+  // The collect form's own chrome, and the states a capture can be in
+  // between the shutter and the server.
+  fieldCollect: {
+    cancel: 'Cancel',
+    submit: 'Submit',
+    addTitle: 'New {layer}',
+    editTitle: 'Edit {layer}',
+    addAria: 'Add {layer}',
+    editAria: 'Edit {layer}',
+    discardTitle: 'Discard this record?',
+    discardMessage:
+      'You have entered information that has not been saved. Discarding it cannot be undone.',
+    discardAction: 'Discard',
+    discardCancel: 'Keep editing',
+    attachmentsHeading: 'Attachments',
+  },
+  // Location permission, surfaced where a thumb can reach it. Every
+  // stamped position on a deployment depends on this working, so a
+  // refusal gets a line of the viewport rather than a tooltip.
+  fieldGps: {
+    accuracy: 'GPS accuracy {meters} m',
+    denied:
+      'Location is blocked. Allow it in your browser settings to capture at your position.',
+    unavailable:
+      'Location is unavailable on this device. Features will be placed at the map centre.',
+  },
+  // Downloading a deployment for offline use, and the truth about
+  // what actually landed.
+  fieldOffline: {
+    partialOutOfSpace: 'Incomplete: ran out of storage. ',
+    partialPrefix: 'Incomplete: ',
+    partialSuffix: ' did not download.',
+    partialMore: ' and {count} more',
+    quotaTitle: 'Not enough storage for this download',
+    quotaBody:
+      'This download needs about {needed} and there is ~{short} too little room. Free up cached deployments or device storage, or lower the detail level, and try again.',
+  },
+  // Signing out while this device still holds work nobody else can
+  // send.
+  signOut: {
+    unsyncedTitle: 'Sign out with unsynced work?',
+    unsyncedMessage:
+      '{count, plural, one {# edit on this device has not reached the server yet. It will stay on this device, but nobody else can send it for you.} other {# edits on this device have not reached the server yet. They will stay on this device, but nobody else can send them for you.}} Sync before signing out if you can get a connection.',
+    unsyncedConfirm: 'Sign out anyway',
+    unsyncedCancel: 'Stay signed in',
+  },
   itemDetail: {
     // Access pills. Plain English rather than the stored enum value:
     // "org" is not a word a reader should have to decode.
