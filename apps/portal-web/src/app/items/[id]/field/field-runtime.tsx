@@ -73,6 +73,7 @@ import { formatBytes } from '@/lib/format-bytes';
 import { holdReload } from '@/lib/sw-update-guard';
 import { isOnlineNow, useIsOnline } from '@/lib/use-is-online';
 import type {
+  BottomSheet,
   FeatureSheetHit,
   FeatureSheetState,
   FormModalState,
@@ -1505,6 +1506,26 @@ export function FieldRuntime({
     return 'inspect';
   }, [formModal, activeTemplate]);
 
+  // Which of the three competing bottom sheets is showing. See
+  // BottomSheet: the picker had no exclusion at all, so opening it
+  // over an open feature sheet stacked two sheets on the same edge.
+  const bottomSheet: BottomSheet =
+    formModal !== null
+      ? 'form'
+      : pickerOpen
+        ? 'picker'
+        : featureSheet !== null
+          ? 'feature'
+          : 'none';
+
+  // While a collect form is up it owns the viewport and the runtime's
+  // own chrome gets out of the way: header, GPS strip, layer button,
+  // nav cluster, locate button and search all hide. That was written
+  // as a bare `formModal === null ?` at each of the six sites, which
+  // is six chances to forget one and no name for what the condition
+  // means.
+  const showRuntimeChrome = formModal === null;
+
   const isPointAddCollect = interactionMode === 'collect-point';
   useEffect(() => {
     if (!isPointAddCollect) return;
@@ -1942,7 +1963,7 @@ export function FieldRuntime({
           interruptions to the focused capture flow. Field Maps does
           the same: the runtime chrome melts away once you're
           collecting. */}
-      {formModal === null ? (
+      {showRuntimeChrome ? (
       <header className="flex shrink-0 items-center gap-2 border-b border-border bg-surface-1 px-2 py-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
         <Link
           href={backHref}
@@ -2041,7 +2062,7 @@ export function FieldRuntime({
           strip is hidden entirely when GPS hasn't been requested
           yet (idle) so unauthorized users don't see a stale "no
           fix" message; once they enable location it surfaces. */}
-      {formModal === null ? (
+      {showRuntimeChrome ? (
         <FieldGpsStrip
           gpsStatus={gps.status}
           accuracyM={gps.position?.accuracyM ?? null}
@@ -2123,7 +2144,7 @@ export function FieldRuntime({
             side to avoid overlap. Compact icon-only and the panel
             drops below when tapped. Hidden during active collect
             (#249) so it doesn't compete with the form sheet. */}
-        {formModal === null ? (
+        {showRuntimeChrome ? (
         <button
           type="button"
           onClick={() => setLayerPanelOpen((v) => !v)}
@@ -2145,7 +2166,7 @@ export function FieldRuntime({
             when the bearing/pitch is non-default. Hidden during
             active collect (#249) so it doesn't compete with the
             Cancel/Submit header. */}
-        {formModal === null ? (
+        {showRuntimeChrome ? (
           <FieldNavCluster mapRef={mapRef} />
         ) : null}
 
@@ -2162,7 +2183,7 @@ export function FieldRuntime({
             collect (#249) -- the FormModal sheet covers most of the
             canvas, AND the form's own "Update Point" button serves
             the same re-snap-to-GPS purpose. */}
-        {formModal === null ? (
+        {showRuntimeChrome ? (
         <FieldLocateButton
           gpsStatus={gps.status}
           hasPosition={gps.position !== null}
@@ -2197,7 +2218,7 @@ export function FieldRuntime({
             top-right. Hidden during active collect (#249) -- the worker
             is committing a feature, not navigating, and the form sheet
             sits where the search bar would otherwise extend. */}
-        {formModal === null ? (
+        {showRuntimeChrome ? (
           searchExpanded ? (
             <div className="absolute left-[3.75rem] right-14 top-3 z-10">
               <div className="w-full max-w-xs">
@@ -2275,7 +2296,7 @@ export function FieldRuntime({
             nothing behind it: `disabled` then greyed it to 50% on a
             dark FAB, which reads as an enabled button that ignores
             you. Reported as "I press this and nothing happens". */}
-        {formModal === null &&
+        {showRuntimeChrome &&
         activeTemplate === null &&
         templates.length > 0 ? (
           <button
@@ -2320,7 +2341,7 @@ export function FieldRuntime({
             the confusion, so say what is wrong and where it is fixed.
             Only in the idle state, and only when the deployment really
             has nothing to add to. */}
-        {formModal === null &&
+        {showRuntimeChrome &&
         activeTemplate === null &&
         templates.length === 0 ? (
           <div
@@ -2565,7 +2586,7 @@ export function FieldRuntime({
       </footer>
       ) : null}
 
-      {pickerOpen ? (
+      {bottomSheet === 'picker' ? (
         <TemplatePicker
           templates={templates}
           onPick={(tpl) => {
@@ -2597,10 +2618,11 @@ export function FieldRuntime({
 
       {/* #253: Field-Maps-style feature popup. Bottom sheet that
           surfaces tapped-feature info; expandable to fullscreen via
-          the chevron in the header. Hidden whenever the FormModal
-          is open (the form sheet owns the bottom half of the
-          viewport in that mode). */}
-      {featureSheet && formModal === null ? (
+          the chevron in the header. `bottomSheet` decides which of
+          the three sheets owns the bottom edge; this used to carry
+          its own `&& formModal === null`, which covered the form but
+          not the picker. */}
+      {bottomSheet === 'feature' && featureSheet ? (
         <FieldFeaturePopupSheet
           state={featureSheet}
           dataCollectionId={dataCollectionId}
@@ -2680,7 +2702,7 @@ export function FieldRuntime({
         />
       ) : null}
 
-      {formModal ? (
+      {bottomSheet === 'form' && formModal ? (
         <FormModal
           dataCollectionId={dataCollectionId}
           modal={formModal}

@@ -102,3 +102,24 @@ export type MapInteractionMode =
   | 'collect-vertex'
   | 'inspect'
   | 'inert';
+
+/**
+ * Which sheet owns the bottom of the viewport.
+ *
+ * Three surfaces compete for the same space and only one can have it:
+ * the collect form, the tapped-feature popup, and the template picker.
+ * That exclusivity used to be hand-written per pair, and only for the
+ * pair somebody had noticed. The feature sheet carried an explicit
+ * `&& formModal === null`; the picker carried nothing, so opening it
+ * while a feature sheet was up stacked two sheets on the same edge.
+ * Resolving it in one place makes the precedence a fact rather than a
+ * set of conditions that happen to agree.
+ *
+ * The runtime's OTHER overlays are deliberately not in here. The
+ * layer panel, the download modal, the rejected-edits dialog and the
+ * search bar are not bottom sheets and genuinely do coexist: the
+ * download modal is opened FROM the layer panel and has to render over
+ * it. Folding all seven into one union, as the audit proposed, would
+ * have invented an exclusivity the product does not have.
+ */
+export type BottomSheet = 'none' | 'form' | 'picker' | 'feature';
