@@ -27,7 +27,17 @@ import { isReloadHeld, onReloadHoldChange } from '@/lib/sw-update-guard';
  * closed-tab safety net (Chromium only; elsewhere requestBackgroundSync
  * is a silent no-op).
  */
-export function SwRegistrar({ deploymentId }: { deploymentId?: string }) {
+export function SwRegistrar() {
+  // Read here, in a CLIENT component, so Next inlines the literal at
+  // build time. Threading it down from the root layout looked
+  // equivalent and was not: the layout is a server component, so it
+  // read process.env at RUNTIME, where the variable does not exist
+  // (the Dockerfile sets it only for the duration of the build). The
+  // registrar therefore received undefined in production and quietly
+  // fell back to an unversioned worker, which is exactly the failure
+  // the version is supposed to prevent. Only NEXT_PUBLIC_ names are
+  // inlined, which is why this one is spelled that way.
+  const deploymentId = process.env.NEXT_PUBLIC_GG_DEPLOYMENT_ID;
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
 

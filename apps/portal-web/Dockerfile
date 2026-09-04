@@ -151,7 +151,20 @@ RUN mkdir -p apps/portal-web/public/models/ort \
 # indefinitely. The nanosecond timestamp makes each image build a
 # distinct deployment, so caches revalidate exactly once per
 # deploy.
-RUN GG_DEPLOYMENT_ID="$(date +%s%N)" pnpm -C apps/portal-web build
+#
+# The same id is exported a second time under a NEXT_PUBLIC_ name, and
+# that is not redundant. GG_DEPLOYMENT_ID is consumed by
+# next.config.mjs, which runs in this build step, so a plain env var
+# reaches it. The service worker registrar needs the value in the
+# BROWSER, and it is set only for the duration of this RUN: the
+# runtime stage has no such variable, so a server component reading
+# process.env.GG_DEPLOYMENT_ID gets undefined and the registrar
+# silently falls back to an unversioned worker. Only NEXT_PUBLIC_ vars
+# are inlined into the bundle at build time, which is what makes the
+# value survive into the running app.
+RUN export GG_DEPLOYMENT_ID="$(date +%s%N)" \
+ && export NEXT_PUBLIC_GG_DEPLOYMENT_ID="$GG_DEPLOYMENT_ID" \
+ && pnpm -C apps/portal-web build
 
 FROM base AS runtime
 WORKDIR /app
