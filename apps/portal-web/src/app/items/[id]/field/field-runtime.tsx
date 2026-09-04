@@ -71,6 +71,8 @@ import {
 } from '@/lib/offline-store';
 import { formatBytes } from '@/lib/format-bytes';
 import { holdReload } from '@/lib/sw-update-guard';
+import { FieldSheet } from './field-sheet';
+import { useConfirm } from '@/components/dialog-provider';
 import { isOnlineNow, useIsOnline } from '@/lib/use-is-online';
 import type {
   BottomSheet,
@@ -1526,6 +1528,26 @@ export function FieldRuntime({
   // means.
   const showRuntimeChrome = formModal === null;
 
+  // How much of the map an open sheet is covering. Fed to MapLibre as
+  // bottom padding so the camera keeps the live part of the canvas
+  // centred: tapping a feature in the lower half used to open a sheet
+  // directly over the feature you had just tapped.
+  const [sheetCoveredPx, setSheetCoveredPx] = useState(0);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    // Guard the animation: MapLibre throws if the padding exceeds the
+    // canvas, which a nearly-fullscreen sheet on a short viewport can
+    // do.
+    const container = map.getContainer().clientHeight;
+    const bottom = Math.max(0, Math.min(sheetCoveredPx, container * 0.6));
+    try {
+      map.easeTo({ padding: { top: 0, right: 0, bottom, left: 0 }, duration: 220 });
+    } catch {
+      /* A style still loading refuses easeTo; the next one lands. */
+    }
+  }, [sheetCoveredPx]);
+
   const isPointAddCollect = interactionMode === 'collect-point';
   useEffect(() => {
     if (!isPointAddCollect) return;
@@ -1950,7 +1972,11 @@ export function FieldRuntime({
     // mid-scroll. The bottom sheets below honor env(safe-area-inset-
     // bottom) so iPhones with rounded corners don't clip the action
     // buttons.
-    <div className="flex h-[100dvh] flex-col bg-surface-1">
+    // overscroll-none: in an installed PWA a downward drag on the
+    // shell otherwise rubber-bands on iOS and triggers pull-to-refresh
+    // on Android, which reloads the runtime mid-collect. The sheets
+    // contain their own overscroll separately.
+    <div className="flex h-[100dvh] flex-col overscroll-none bg-surface-1">
       {/* Header reserves env(safe-area-inset-top) so iOS status bar
           / dynamic island doesn't sit on top of the back arrow when
           the runtime is launched from a home-screen PWA install
@@ -2629,6 +2655,7 @@ export function FieldRuntime({
           isOnline={isOnline}
           editableLayers={editableLayers}
           onChangeState={setFeatureSheet}
+          onCoveredHeightChange={setSheetCoveredPx}
           onClose={() => setFeatureSheet(null)}
           onOpenRelated={(childLayer, feature) => {
             // #265: tap a related row in the popup -> jump straight
@@ -3104,17 +3131,17 @@ function TemplatePicker({
   }, [templates, filter]);
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Pick a feature type to add"
-      className="fixed inset-0 z-30 flex items-end bg-black/40"
-      onClick={onClose}
+    <FieldSheet
+      open
+      onClose={onClose}
+      ariaLabel="Pick a feature type to add"
+      // Was max-h-[75vh]. On iOS that measures against a viewport
+      // pretending the URL bar is hidden, so the bottom of the list
+      // sat under the browser chrome. The sheet measures the visible
+      // viewport instead.
+      snapPoints={[0.75, 0.92]}
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[75vh] w-full flex-col rounded-t-xl border-t border-border bg-surface-1 shadow-overlay pb-[env(safe-area-inset-bottom)] sm:max-h-[80vh]"
-      >
+      <div className="flex min-h-0 flex-1 flex-col">
         <div className="shrink-0 border-b border-border px-3 py-2">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-ink-0">Add feature</h2>
@@ -3122,7 +3149,7 @@ function TemplatePicker({
               type="button"
               onClick={onClose}
               aria-label="Close"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ink-1 hover:bg-surface-2"
+              className="inline-flex h-11 w-11 items-center justify-center rounded-md text-ink-1 hover:bg-surface-2 active:bg-surface-3"
             >
               <X className="h-4 w-4" />
             </button>
@@ -3135,7 +3162,7 @@ function TemplatePicker({
             className="mt-2 h-9 w-full rounded-md border border-border bg-surface-0 px-3 text-sm text-ink-0 outline-none placeholder:text-muted focus:border-accent"
           />
         </div>
-        <div className="flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           {groups.length === 0 ? (
             <p className="p-4 text-center text-xs text-muted">
               {templates.length === 0
@@ -3154,7 +3181,7 @@ function TemplatePicker({
                       <button
                         type="button"
                         onClick={() => onPick(t)}
-                        className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-surface-2"
+                        className="flex min-h-[2.75rem] w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-surface-2 active:bg-surface-3"
                       >
                         <span
                           aria-hidden="true"
@@ -3173,7 +3200,7 @@ function TemplatePicker({
           )}
         </div>
       </div>
-    </div>
+    </FieldSheet>
   );
 }
 
@@ -3989,6 +4016,40 @@ function FormModal({
   onUpdateGeometry: (geom: GeoJSON.Geometry) => void;
 }) {
   const [error, setError] = useState<string | null>(null);
+  const confirm = useConfirm();
+  // True once the collector has typed, picked or drawn anything.
+  //
+  // Cancel used to discard the form with no guard at all, so a
+  // mis-tap next to Submit threw away everything gathered at that
+  // stop. Tracked by listening for input/change events as they bubble
+  // out of the form rather than by asking FormRuntime, because
+  // "has the user touched this" is exactly what those events mean and
+  // it needs no new prop threaded through the runtime. A ref, not
+  // state: nothing renders differently for it, and re-rendering the
+  // whole form on the first keystroke would be a real cost on a
+  // low-end handset.
+  const dirtyRef = useRef(false);
+  const markDirty = useCallback(() => {
+    dirtyRef.current = true;
+  }, []);
+
+  const requestCancel = useCallback(() => {
+    if (!dirtyRef.current) {
+      onClose();
+      return;
+    }
+    void confirm({
+      title: 'Discard this record?',
+      message:
+        'You have entered information that has not been saved. Discarding it cannot be undone.',
+      confirmLabel: 'Discard',
+      cancelLabel: 'Keep editing',
+      variant: 'danger',
+    }).then((ok) => {
+      if (ok) onClose();
+    });
+  }, [confirm, onClose]);
+
   // #249: working copy of the feature's geometry. The Field Maps
   // pattern lets the user re-snap the position to the current GPS
   // fix from inside the form (the "Update Point" button) instead of
@@ -4291,39 +4352,44 @@ function FormModal({
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={
+    <FieldSheet
+      open
+      onClose={requestCancel}
+      ariaLabel={
         modal.mode === 'add'
           ? `Add ${modal.layer.layerLabel}`
           : `Edit ${modal.layer.layerLabel}`
       }
-      // #249: bottom-anchored only. Field Maps doesn't dim the map
-      // while a collect is in progress -- the collector wants to keep
-      // panning, zooming, and (next slice) tap-to-override the
-      // location while the form is open. Drop the full-viewport
-      // wrapper that captured every tap; Cancel in the header is the
-      // dismiss path now. inset-x-0 + bottom-0 keeps the sheet
-      // pinned to the bottom edge across iPhone safe-area variants.
-      className="fixed inset-x-0 bottom-0 z-30 flex flex-col"
+      // Taller than the old 60vh because the sheet now measures the
+      // VISIBLE viewport, so this is 62% of what the collector can
+      // actually see rather than 60% of a viewport that pretends the
+      // iOS URL bar is hidden. Expanding to 92% is for long forms.
+      snapPoints={[0.62, 0.92]}
+      // A downward flick must not be able to throw away a filled-in
+      // form. Dragging still moves between the two snap points.
+      dismissOnDrag={false}
     >
+      {/* #249: Field Maps-style three-section header for the active
+          collect. Cancel (left, text button) | layer-name title
+          (center) | Submit (right, text button). The Submit button
+          doesn't sit inside the FormRuntime tree -- it associates
+          via the formId prop / HTML form attribute, so the click
+          triggers the form's existing onSubmit + validation. The
+          FormRuntime's own submit button stays at the bottom of
+          the scroll for users who reach the end of a long form. */}
+      {/* input and change both bubble, so one listener here sees any
+          interaction anywhere in the form without FormRuntime having
+          to report dirtiness. */}
       <div
-        className="flex max-h-[60vh] w-full flex-col overflow-hidden rounded-t-xl border-t border-border bg-surface-1 shadow-overlay pb-[env(safe-area-inset-bottom)] sm:max-h-[55vh]"
+        className="flex min-h-0 flex-1 flex-col"
+        onInput={markDirty}
+        onChange={markDirty}
       >
-        {/* #249: Field Maps-style three-section header for the active
-            collect. Cancel (left, text button) | layer-name title
-            (center) | Submit (right, text button). The Submit button
-            doesn't sit inside the FormRuntime tree -- it associates
-            via the formId prop / HTML form attribute, so the click
-            triggers the form's existing onSubmit + validation. The
-            FormRuntime's own submit button stays at the bottom of
-            the scroll for users who reach the end of a long form. */}
         <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border bg-surface-1 px-2 py-2.5">
           <button
             type="button"
-            onClick={onClose}
-            className="inline-flex h-10 shrink-0 items-center justify-center rounded-md px-3 text-base font-medium text-accent hover:bg-surface-2"
+            onClick={requestCancel}
+            className="inline-flex h-11 shrink-0 items-center justify-center rounded-md px-3 text-base font-medium text-accent hover:bg-surface-2 active:bg-surface-3"
           >
             Cancel
           </button>
@@ -4340,7 +4406,7 @@ function FormModal({
           <button
             type="submit"
             form={`field-form-${modal.layer.layerKey}`}
-            className="inline-flex h-10 shrink-0 items-center justify-center rounded-md px-3 text-base font-semibold text-accent hover:bg-surface-2"
+            className="inline-flex h-11 shrink-0 items-center justify-center rounded-md px-3 text-base font-semibold text-accent hover:bg-surface-2 active:bg-surface-3"
           >
             Submit
           </button>
@@ -4593,7 +4659,7 @@ function FormModal({
           ) : null}
         </div>
       </div>
-    </div>
+    </FieldSheet>
   );
 }
 
@@ -4718,6 +4784,7 @@ function FieldFeaturePopupSheet({
   onEdit,
   onCopy,
   onOpenRelated,
+  onCoveredHeightChange,
 }: {
   state: NonNullable<FeatureSheetState>;
   /** #265: data_collection id for the offline-queue read in
@@ -4736,6 +4803,9 @@ function FieldFeaturePopupSheet({
   onClose: () => void;
   onEdit: (hit: FeatureSheetHit) => void;
   onCopy: (hit: FeatureSheetHit) => void;
+  /** Reports how much of the map this sheet covers, so the runtime can
+   *  pad the camera out from under it. */
+  onCoveredHeightChange: (px: number) => void;
   /** #265: open a child related record straight from the popup. The
    *  runtime owns the FormModal so the popup just hands off the
    *  resolved (childLayer, feature) pair. */
@@ -4754,9 +4824,6 @@ function FieldFeaturePopupSheet({
   const concrete = state;
 
   const expanded = concrete.expanded;
-  const sheetClass = expanded
-    ? 'max-h-[92dvh] min-h-[92dvh]'
-    : 'max-h-[55dvh] min-h-[55dvh]';
 
   // #265: in detail mode, surface the parent feature's child-layer
   // rows under the attribute table. We pull the editable layer's
@@ -4780,15 +4847,23 @@ function FieldFeaturePopupSheet({
   });
 
   return (
-    <div
-      className="fixed inset-x-0 bottom-0 z-30 flex flex-col"
-      // The sheet itself blocks the canvas; backdrop area above is
-      // pointer-events-none so the user can still tap the map (which
-      // queries new features and replaces the sheet).
+    // The sheet covers the lower part of the canvas; everything above
+    // it stays tappable, so a tap on the map queries new features and
+    // replaces the sheet.
+    <FieldSheet
+      open
+      onClose={onClose}
+      ariaLabel="Feature details"
+      snapPoints={[0.55, 0.92]}
+      initialSnap={expanded ? 1 : 0}
+      onCoveredHeightChange={onCoveredHeightChange}
+      // The chevron in the header and a drag now do the same thing,
+      // so the two cannot disagree about how tall the sheet is.
+      onSnapChange={(index) => {
+        onChangeState({ ...concrete, expanded: index === 1 });
+      }}
     >
-      <div
-        className={`flex w-full flex-col overflow-hidden rounded-t-xl border-t border-border bg-surface-1 shadow-overlay pb-[env(safe-area-inset-bottom)] ${sheetClass}`}
-      >
+      <div className="flex min-h-0 flex-1 flex-col">
         {/* Header: back-or-X button on the left, title in the
             middle, expand-chevron + X on the right. The back button
             only appears when we drilled in from a list. */}
@@ -4804,7 +4879,7 @@ function FieldFeaturePopupSheet({
                 });
               }}
               aria-label="Back to list"
-              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-ink-1 hover:bg-surface-2"
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-ink-1 hover:bg-surface-2 active:bg-surface-3"
             >
               <ArrowLeft className="h-5 w-5" />
             </button>
@@ -4838,7 +4913,7 @@ function FieldFeaturePopupSheet({
               } as typeof concrete);
             }}
             aria-label={expanded ? 'Collapse sheet' : 'Expand sheet'}
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-ink-1 hover:bg-surface-2"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-ink-1 hover:bg-surface-2 active:bg-surface-3"
           >
             <ChevronUp
               className={`h-5 w-5 transition-transform ${
@@ -4850,7 +4925,7 @@ function FieldFeaturePopupSheet({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-ink-1 hover:bg-surface-2"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-ink-1 hover:bg-surface-2 active:bg-surface-3"
           >
             <X className="h-5 w-5" />
           </button>
@@ -5072,7 +5147,7 @@ function FieldFeaturePopupSheet({
           )}
         </div>
       </div>
-    </div>
+    </FieldSheet>
   );
 }
 
@@ -5102,6 +5177,27 @@ function FieldGpsStrip({
   gpsStatus: import('./use-geolocation').GpsStatus;
   accuracyM: number | null;
 }) {
+  // A refused or missing fix has to be VISIBLE. It used to live only
+  // in the locate button's `title` and `aria-label`, neither of which
+  // a thumb can reach: the button greyed out, tapping it did nothing,
+  // and the collector had no way to learn why or what to do. Every
+  // stamped position on the deployment depends on this working, so it
+  // is worth a line of the viewport.
+  if (gpsStatus === 'denied' || gpsStatus === 'unavailable') {
+    return (
+      <div
+        aria-live="polite"
+        className="flex shrink-0 items-center justify-center gap-1.5 border-b border-warn/30 bg-warn/10 px-3 py-1 text-xs font-medium text-warn"
+      >
+        <CircleSlash className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        <span className="min-w-0 truncate">
+          {gpsStatus === 'denied'
+            ? 'Location is blocked. Allow it in your browser settings to capture at your position.'
+            : 'Location is unavailable on this device. Features will be placed at the map centre.'}
+        </span>
+      </div>
+    );
+  }
   if (gpsStatus !== 'watching' || accuracyM === null) return null;
   const band = gpsAccuracyBand(accuracyM);
   const tone =

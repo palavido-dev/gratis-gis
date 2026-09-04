@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Camera,
   Check,
@@ -107,6 +107,10 @@ export function FormRuntime({
   const [errors, setErrors] = useState<ValidationError[]>([]);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
+  // Scope for the "scroll to the first invalid question" lookup after
+  // a refused submit, so a second form on the same page cannot be
+  // scrolled instead of this one.
+  const rootRef = useRef<HTMLDivElement | null>(null);
 
   // Re-run calculations whenever a referenced value might have
   // changed. Cheap because applyCalculations short-circuits on
@@ -141,6 +145,28 @@ export function FormRuntime({
           setPageIndex(i);
           break;
         }
+      }
+      // ...and then to the question itself. Changing the page is not
+      // enough on a phone: a long form in a bottom sheet can put the
+      // offending field several screens down, so a failed submit
+      // rendered a message the collector never saw and the Submit
+      // button looked simply dead. After paint, because the error
+      // markers do not exist until this render commits.
+      const firstErrorId = result.errors[0]?.questionId;
+      if (firstErrorId) {
+        requestAnimationFrame(() => {
+          const el =
+            rootRef.current?.querySelector(
+              `[data-question-id="${CSS.escape(firstErrorId)}"]`,
+            ) ?? null;
+          el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          // Focus the control so the next keystroke lands in the field
+          // that needs fixing, and so screen readers announce it.
+          const focusable = el?.querySelector<HTMLElement>(
+            'input, select, textarea, button, [tabindex]:not([tabindex="-1"])',
+          );
+          focusable?.focus({ preventScroll: true });
+        });
       }
       return;
     }
@@ -185,7 +211,7 @@ export function FormRuntime({
   }
 
   return (
-    <div className="mx-auto w-full max-w-xl px-4 pb-24 pt-4 sm:pt-6">
+    <div ref={rootRef} className="mx-auto w-full max-w-xl px-4 pb-24 pt-4 sm:pt-6">
       <header className="mb-4">
         <h1 className="text-xl font-semibold tracking-tight text-ink-0 sm:text-2xl">
           {form.title}
@@ -358,7 +384,11 @@ function QuestionField({
   ) : null;
 
   return (
-    <div className="space-y-1">
+    // data-invalid is what the submit handler scrolls to. Marked on
+    // the wrapper rather than the control because a question can
+    // render several inputs (a matrix, a select-many) and the label is
+    // the part worth bringing into view.
+    <div className="space-y-1" data-question-id={q.id} data-invalid={error ? '' : undefined}>
       <label
         className="block text-sm font-medium text-ink-0"
         htmlFor={q.id}
@@ -377,9 +407,23 @@ function QuestionField({
           </p>
         </details>
       ) : null}
-      <Input q={q} value={value} readOnly={readOnly} onChange={onChange} />
+      {/* aria-invalid on a wrapper is not what assistive tech reads,
+          so it goes on the control itself; the describedby ties the
+          message to it so a screen reader announces the reason rather
+          than just "invalid". */}
+      <div
+        {...(error
+          ? { 'aria-invalid': true, 'aria-describedby': `${q.id}-error` }
+          : {})}
+      >
+        <Input q={q} value={value} readOnly={readOnly} onChange={onChange} />
+      </div>
       {error ? (
-        <p className="text-xs text-danger" role="alert">
+        <p
+          id={`${q.id}-error`}
+          className="text-xs font-medium text-danger"
+          role="alert"
+        >
           {error}
         </p>
       ) : null}
