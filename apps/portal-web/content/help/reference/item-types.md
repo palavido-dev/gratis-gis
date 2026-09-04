@@ -74,10 +74,10 @@ Regardless of type, every item carries:
 
 ## Where item-type labels live
 
-The user-facing label for each type lives in
-`apps/portal-web/src/lib/item-type-icon.tsx::getItemTypeLabel()`.
-Any UI surface that renders an item type calls this helper rather
-than reading `item.type` raw, so renames happen in one place.
+Every surface that shows an item's type reads its label from a single
+shared helper rather than printing the raw type, so a rename lands
+everywhere at once and no two screens disagree about what a type is
+called.
 
 ## Notes
 

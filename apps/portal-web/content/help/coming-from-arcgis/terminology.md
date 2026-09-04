@@ -84,7 +84,5 @@ Second, plainness: "data layer" tells you what the thing is in a
 way "feature service" doesn't. "Contributor" is a recognizable
 word; "publisher" is overloaded with "publish to the public."
 
-The single source of truth for the GratisGIS-side label is the
-function `getItemTypeLabel()` in
-`apps/portal-web/src/lib/item-type-icon.tsx`. UIs that show item
-types in chips, badges, and lists all read from there.
+Type names come from one place, so a chip, a badge and a list will
+always call the same thing by the same name.

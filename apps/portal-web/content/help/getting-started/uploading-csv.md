@@ -1,7 +1,7 @@
 ---
 id: getting-started-uploading-csv
 title: Uploading a CSV with coordinates
-summary: Drop a CSV onto the New Data Layer page and get a mapped layer in one step, even when the latitude / longitude columns aren't named perfectly.
+summary: Pick a CSV on the New Data Layer page and get a mapped layer in one step, even when the latitude / longitude columns aren't named perfectly.
 category: getting-started
 order: 35
 complexity: basic
@@ -16,9 +16,13 @@ related:
 
 If your spreadsheet has latitude and longitude columns, you can
 turn it into a mapped data layer without renaming anything
-first. Drop the file onto the New Data Layer page and the
-ingest service figures out which columns are the coordinates
-and which are the attributes.
+first. On the New Data Layer page choose **Import**, pick the
+file, and the ingest service works out which columns are the
+coordinates and which are the attributes.
+
+If your data is in Excel, save it as CSV first: **File → Save As
+→ CSV**. The portal reads `.csv`, `.tsv` and `.txt`, but not
+`.xlsx` directly.
 
 ## How the detection works
 
