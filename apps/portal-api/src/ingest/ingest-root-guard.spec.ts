@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { IngestService } from './ingest.service';
 
 /**
@@ -17,9 +17,9 @@ describe('IngestService ingest-root containment', () => {
   const isInside = (p: string): boolean =>
     (
       IngestService.prototype as unknown as {
-        isInsideIngestRoot(c: string): boolean;
+        resolveInsideIngestRoot(c: string): string | null;
       }
-    ).isInsideIngestRoot.call({}, p);
+    ).resolveInsideIngestRoot.call({}, p) !== null;
 
   const savedStagingDir = process.env.STAGING_DIR;
   afterEach(() => {
@@ -71,5 +71,21 @@ describe('IngestService ingest-root containment', () => {
   it('still accepts the temp root when STAGING_DIR is set elsewhere', () => {
     process.env.STAGING_DIR = resolve('/srv/staging');
     expect(isInside(join(tmpdir(), 'gg-ingest-abc', 'f.csv'))).toBe(true);
+  });
+
+  it('returns the RESOLVED path, so the caller opens what was checked', () => {
+    // The guard hands back a normalised path rather than a boolean
+    // precisely so a caller cannot validate one spelling of a path
+    // and then open another.
+    delete process.env.STAGING_DIR;
+    const messy = join(tmpdir(), 'gg-staging', 'abc', '.', 'sightings.csv');
+    const out = (
+      IngestService.prototype as unknown as {
+        resolveInsideIngestRoot(c: string): string | null;
+      }
+    ).resolveInsideIngestRoot.call({}, messy);
+    expect(out).toBe(resolve(messy));
+    // Normalised: the redundant "." segment is gone.
+    expect(out).not.toContain(`${sep}.${sep}`);
   });
 });

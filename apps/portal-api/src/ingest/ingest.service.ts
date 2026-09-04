@@ -830,8 +830,15 @@ export class IngestService {
   }
 
   /**
-   * True when `candidate` resolves to somewhere inside a directory
-   * ingest is allowed to read from.
+   * Resolve `candidate` and return it only if it lands inside a
+   * directory ingest is allowed to read from. Null otherwise.
+   *
+   * Returns the resolved path rather than a boolean on purpose: the
+   * caller must open the value that was checked, not the string that
+   * was handed in. Validating one representation of a path and then
+   * opening another is the shape that defeats this kind of guard,
+   * and it is also what a taint analyser will (correctly) refuse to
+   * treat as sanitised.
    *
    * Two roots are legitimate. Staged uploads live under STAGING_DIR
    * when prod sets it (a named volume shared with portal-worker), and
@@ -841,14 +848,15 @@ export class IngestService {
    * Compared with path.relative rather than a string prefix, because
    * a prefix test says /tmp/gg-staging-evil is inside /tmp/gg-staging.
    */
-  private isInsideIngestRoot(candidate: string): boolean {
+  private resolveInsideIngestRoot(candidate: string): string | null {
     const target = resolve(candidate);
     const staging = process.env.STAGING_DIR?.trim();
     const roots = [resolve(tmpdir()), ...(staging ? [resolve(staging)] : [])];
-    return roots.some((root) => {
+    const inside = roots.some((root) => {
       const rel = relative(root, target);
       return rel.length > 0 && !rel.startsWith('..') && !isAbsolute(rel);
     });
+    return inside ? target : null;
   }
 
   /**
@@ -870,7 +878,8 @@ export class IngestService {
     // sink is worth closing even when the value reaching it happens
     // to be clean today, because the thing that changes is the
     // caller.
-    if (!this.isInsideIngestRoot(filePath)) {
+    const safePath = this.resolveInsideIngestRoot(filePath);
+    if (safePath === null) {
       this.log.warn(
         `Refusing to sniff a path outside the ingest roots: ${basename(
           filePath,
@@ -880,7 +889,8 @@ export class IngestService {
     }
     let handle: FileHandle | undefined;
     try {
-      handle = await open(filePath, 'r');
+      // Open the checked value, never the caller's original string.
+      handle = await open(safePath, 'r');
       const buf = Buffer.alloc(IngestService.CSV_SNIFF_BYTES);
       const { bytesRead } = await handle.read(buf, 0, buf.length, 0);
       const truncated = bytesRead === buf.length;
