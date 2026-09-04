@@ -87,7 +87,7 @@ export const DialogContent = forwardRef<
       <DialogOverlay />
       <DialogPrimitive.Content
         ref={ref}
-        className={`fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] ${SIZE_CLASS[size]} -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-surface-1 text-ink-1 shadow-overlay animate-slide-up focus:outline-none ${className}`}
+        className={`fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] ${SIZE_CLASS[size]} -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-surface-1 text-ink-1 shadow-overlay animate-dialog-in focus:outline-none ${className}`}
         {...props}
       >
         {srTitle ? (
