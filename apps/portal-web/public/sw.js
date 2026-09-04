@@ -66,7 +66,37 @@
 // browser's no-internet page. Offline worked only if the runtime had
 // already been loaded in that tab before signal dropped, which is the
 // opposite of how a phone in a pocket behaves.)
-const CACHE_VERSION = 'v8';
+/**
+ * Cache namespace for this deploy.
+ *
+ * This was a hand-bumped literal, which made every deploy depend on
+ * somebody remembering to edit it, and made two other things silently
+ * wrong. The worker is served verbatim from /public so there is no
+ * build-time injection, and the browser only reinstalls a worker when
+ * the SCRIPT BYTES change, so editing anything the worker precaches
+ * (the offline shell) never reached installed PWAs unless sw.js
+ * happened to change too.
+ *
+ * The registrar registers `/sw.js?v=<deploymentId>` instead, so the
+ * script URL differs every deploy: the browser fetches and installs a
+ * new worker, the install step re-runs and re-precaches the shell, and
+ * the version below rotates without anyone touching this file. Falls
+ * back to the literal when no id is supplied (dev, or a local
+ * production build without GG_DEPLOYMENT_ID), which is exactly the
+ * old behaviour.
+ *
+ * The pattern guard keeps a hostile or malformed query out of a cache
+ * name; anything unexpected falls back rather than being used.
+ */
+const DEPLOY_ID = (() => {
+  try {
+    const v = new URL(self.location.href).searchParams.get('v');
+    return v && /^[A-Za-z0-9._-]{1,64}$/.test(v) ? v : null;
+  } catch {
+    return null;
+  }
+})();
+const CACHE_VERSION = DEPLOY_ID ? `d-${DEPLOY_ID}` : 'v8';
 const STATIC_CACHE = `gratis-static-${CACHE_VERSION}`;
 const GEOJSON_CACHE = `gratis-geojson-${CACHE_VERSION}`;
 // Server-rendered HTML for the two navigations the field arc needs

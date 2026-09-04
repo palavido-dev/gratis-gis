@@ -108,7 +108,11 @@ const DEFAULT_ZOOM: [number, number] = [12, 19];
 // comfortably (at ~25 KB/tile that's ~5 GB); a real per-download
 // UI knob (#272) is the long-term fix so the cap can stay flexible
 // per area instead of one global value.
-const DEFAULT_MAX_TILES = 200_000;
+// Exported so the pre-download quota estimate caps at exactly what
+// the warmer will walk. An estimate that ignored this cap would
+// refuse downloads the warmer would have truncated to fit.
+export const WARMER_MAX_TILES = 200_000;
+const DEFAULT_MAX_TILES = WARMER_MAX_TILES;
 const DEFAULT_CONCURRENCY = 6;
 const ESTIMATED_BYTES_PER_TILE_MISSING_HEADER = 25_000;
 

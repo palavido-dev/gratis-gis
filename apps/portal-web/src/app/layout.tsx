@@ -114,7 +114,17 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <Providers locale={locale} feedbackEnabled={features.feedback}>
           <AppShell>{children}</AppShell>
         </Providers>
-        <SwRegistrar />
+        {/* The deploy id reaches the worker through its script URL, so
+            its caches rotate per deploy without anyone hand-bumping a
+            constant. Read here because this is a server component;
+            GG_DEPLOYMENT_ID is a build-time variable with no
+            NEXT_PUBLIC_ prefix, and the same value already drives the
+            ?dpl= query on every static asset (next.config.mjs). */}
+        <SwRegistrar
+          {...(process.env.GG_DEPLOYMENT_ID
+            ? { deploymentId: process.env.GG_DEPLOYMENT_ID }
+            : {})}
+        />
       </body>
     </html>
   );
