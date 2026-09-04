@@ -64,6 +64,8 @@ export const ptBR: Partial<CatalogShape> = {
       'Escolha o que você está criando e preencha os detalhes. Para serviços e uploads, vamos coletar o necessário na próxima tela para que o item fique pronto para uso.',
     createButton: 'Criar item',
     backButton: 'Voltar',
+    viewerBlocked:
+      'Sua conta tem a função Visualizador, que pode abrir e baixar itens, mas não criá-los. Um administrador da organização pode alterar sua função ou conceder apenas a capacidade de publicar.',
   },
   mapEditor: {
     legendButton: 'Legenda',

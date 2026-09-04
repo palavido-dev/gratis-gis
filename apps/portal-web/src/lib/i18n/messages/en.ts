@@ -71,6 +71,8 @@ export const en = {
       "Pick what you're creating, then fill in the details. For services and uploads, we'll gather what we need on the next screen so the item lands ready to use.",
     createButton: 'Create item',
     backButton: 'Back',
+    viewerBlocked:
+      'Your account has the Viewer role, which can open and download items but cannot create them. An organization admin can change your role, or grant you the publish capability on its own.',
   },
   mapEditor: {
     legendButton: 'Legend',

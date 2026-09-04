@@ -68,6 +68,8 @@ export const es: Partial<CatalogShape> = {
       'Elige lo que vas a crear y luego completa los detalles. Para servicios y archivos subidos, recopilaremos lo necesario en la siguiente pantalla para que el elemento quede listo para usar.',
     createButton: 'Crear elemento',
     backButton: 'Atrás',
+    viewerBlocked:
+      'Tu cuenta tiene el rol Visor, que puede abrir y descargar elementos pero no crearlos. Un administrador de la organización puede cambiar tu rol u otorgarte solo la capacidad de publicar.',
   },
   mapEditor: {
     legendButton: 'Leyenda',

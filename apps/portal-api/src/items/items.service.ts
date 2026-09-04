@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { readV3Layers } from '../data-layer/read-v3-layers.js';
 import { pickDefaultBasemap } from './default-basemap.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { hasCapability } from '../auth/capabilities.js';
 import { SharingService } from './sharing.service.js';
 import { DataSnapshotService } from './data-snapshot.service.js';
 import { itemBbox } from './item-bbox.js';
@@ -1053,6 +1054,31 @@ export class ItemsService {
   }
 
   async create(user: AuthUser, input: CreateItemInput) {
+    // The authorization gate for creating anything at all.
+    //
+    // This had no check of any kind, which made ownership a
+    // privilege-escalation route rather than a boundary. Cedar's
+    // first rule is "owners can do anything to their own items" and
+    // is deliberately role-blind, so a viewer who POSTed here became
+    // the ownerId of the result and immediately held edit, share and
+    // delete on it. The rest of the ACL is fail-closed and correct;
+    // the hole was that a viewer could mint themselves something to
+    // be the owner of.
+    //
+    // `can_publish_items` is withheld from the viewer baseline and
+    // has been the intended gate since the capability catalog
+    // landed. AnalysisService and SamplesService were already
+    // checking it before calling this method, which is what kept the
+    // two most obvious creation paths honest and hid the gap in the
+    // general one. Checking it here covers every caller instead, and
+    // those two keep their checks because they fail earlier with a
+    // message about the specific action.
+    if (!hasCapability(user, 'can_publish_items')) {
+      throw new ForbiddenException(
+        'Creating items requires the contributor or admin role.',
+      );
+    }
+
     // For map items, resolve the empty-string basemap sentinel from
     // DEFAULT_MAP to the org's seeded positron (or any available)
     // basemap item UUID so every new map opens against a real

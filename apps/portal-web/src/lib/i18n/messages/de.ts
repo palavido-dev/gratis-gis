@@ -66,6 +66,8 @@ export const de: Partial<CatalogShape> = {
       'Wählen Sie aus, was Sie erstellen, und füllen Sie dann die Details aus. Für Dienste und Uploads sammeln wir auf dem nächsten Bildschirm, was wir benötigen, damit das Element einsatzbereit ist.',
     createButton: 'Element erstellen',
     backButton: 'Zurück',
+    viewerBlocked:
+      'Ihr Konto hat die Rolle Betrachter. Damit können Sie Elemente öffnen und herunterladen, aber nicht erstellen. Eine Organisationsadministratorin kann Ihre Rolle ändern oder Ihnen allein die Veröffentlichungsberechtigung erteilen.',
   },
   mapEditor: {
     legendButton: 'Legende',
