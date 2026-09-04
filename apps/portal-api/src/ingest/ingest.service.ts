@@ -8,7 +8,7 @@ import {
 import { mkdtemp, open, rm, writeFile } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 
 import {
   detectCsvColumnPairFromPrefix,
@@ -830,6 +830,28 @@ export class IngestService {
   }
 
   /**
+   * True when `candidate` resolves to somewhere inside a directory
+   * ingest is allowed to read from.
+   *
+   * Two roots are legitimate. Staged uploads live under STAGING_DIR
+   * when prod sets it (a named volume shared with portal-worker), and
+   * everything else, including the mkdtemp `gg-ingest-` dirs the
+   * buffer paths create, lives under the OS temp dir.
+   *
+   * Compared with path.relative rather than a string prefix, because
+   * a prefix test says /tmp/gg-staging-evil is inside /tmp/gg-staging.
+   */
+  private isInsideIngestRoot(candidate: string): boolean {
+    const target = resolve(candidate);
+    const staging = process.env.STAGING_DIR?.trim();
+    const roots = [resolve(tmpdir()), ...(staging ? [resolve(staging)] : [])];
+    return roots.some((root) => {
+      const rel = relative(root, target);
+      return rel.length > 0 && !rel.startsWith('..') && !isAbsolute(rel);
+    });
+  }
+
+  /**
    * Read the head of a delimited file and name its coordinate pair.
    * Returns null when there is no confident pair, which puts the
    * caller back on the plain GDAL path: a CSV that genuinely has no
@@ -838,6 +860,24 @@ export class IngestService {
   private async sniffCsvColumns(
     filePath: string,
   ): Promise<{ latColumn: string; lngColumn: string } | null> {
+    // Containment check before opening. Ingest paths are built by the
+    // server (join(root, <uuid>, safeFilename(name))) and
+    // safeFilename already strips traversal, so this is defence in
+    // depth rather than the only guard. It is here because this is
+    // the first plain fs sink on the ingest path: every other reader
+    // hands the path to GDAL, which a static analyser does not model,
+    // so the taint has never been visible before. An unvalidated
+    // sink is worth closing even when the value reaching it happens
+    // to be clean today, because the thing that changes is the
+    // caller.
+    if (!this.isInsideIngestRoot(filePath)) {
+      this.log.warn(
+        `Refusing to sniff a path outside the ingest roots: ${basename(
+          filePath,
+        )}`,
+      );
+      return null;
+    }
     let handle: FileHandle | undefined;
     try {
       handle = await open(filePath, 'r');
