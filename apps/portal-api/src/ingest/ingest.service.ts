@@ -5,11 +5,15 @@ import {
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, open, rm, writeFile } from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 
-import { detectCsvCoordinates } from './csv-smart-detect.js';
+import {
+  detectCsvColumnPairFromPrefix,
+  detectCsvCoordinates,
+} from './csv-smart-detect.js';
 import {
   DuckDbUnavailableError,
   ParquetUserError,
@@ -296,7 +300,7 @@ export class IngestService {
       ? `/vsizip/${filePath}`
       : filePath;
     try {
-      const ds = gdal.open(openPath);
+      const ds = await this.openVector(gdal, openPath, filePath);
       try {
         const layerCount = ds.layers.count();
         if (layerCount === 0) {
@@ -642,7 +646,7 @@ export class IngestService {
     const openPath = filePath.toLowerCase().endsWith('.zip')
       ? `/vsizip/${filePath}`
       : filePath;
-    const ds = gdal.open(openPath);
+    const ds = await this.openVector(gdal, openPath, filePath);
     try {
       const layers = ds.layers;
       const count = layers.count();
@@ -763,6 +767,157 @@ export class IngestService {
    * to the first ingest attempt and surface a friendly error if it
    * still fails then.
    */
+  /**
+   * Bytes read from the head of a delimited text file to name its
+   * coordinate columns. The detector needs the header plus at most
+   * SMART_DETECT_LIMITS.VALIDATION_SAMPLE_ROWS rows, so this is
+   * generous even for wide files, and it is a fixed cost regardless
+   * of whether the upload is 4 KB or the 1 GB ceiling.
+   */
+  private static readonly CSV_SNIFF_BYTES = 64 * 1024;
+
+  /**
+   * Open a vector dataset, telling GDAL where a delimited file keeps
+   * its coordinates when it cannot work that out on its own.
+   *
+   * GDAL's CSV driver only builds point geometry when the columns are
+   * literally named `latitude` / `longitude`, or when it is handed
+   * X_POSSIBLE_NAMES / Y_POSSIBLE_NAMES as open options. Nothing set
+   * those, so a real-world CSV with LAT / LNG or y_coord / x_coord
+   * loaded as an attribute-only table and produced an empty map. The
+   * smart-detect helper that solves the naming problem existed and
+   * was well tested, but it was only reachable from fileToGeoJson,
+   * which no UI path calls; the wizard and the detail-page import
+   * both come through probeFileFromPath / streamLayerFromPath. So the
+   * product shipped a help article describing a feature with no entry
+   * point.
+   *
+   * The fix keeps the two halves apart. Detection reads a fixed
+   * prefix and yields two column names; GDAL then streams the file
+   * exactly as it streams every other format. Materialising the whole
+   * CSV as a FeatureCollection, which is what fileToGeoJson does,
+   * would not survive the 1 GB upload ceiling.
+   *
+   * `gdal.open()` cannot carry open options (the binding passes NULL
+   * to GDALOpenEx), so this goes through the CSV driver directly,
+   * which does.
+   */
+  private async openVector(
+    gdal: typeof import('gdal-async'),
+    openPath: string,
+    filePath: string,
+  ): Promise<import('gdal-async').Dataset> {
+    // /vsizip/ paths are archives, never a bare delimited file.
+    if (looksLikeTabularText(filePath) && !openPath.startsWith('/vsizip/')) {
+      const pair = await this.sniffCsvColumns(filePath);
+      if (pair) {
+        this.log.log(
+          `CSV coordinate columns in ${basename(filePath)}: ` +
+            `lat="${pair.latColumn}", lng="${pair.lngColumn}"`,
+        );
+        // KEEP_GEOM_COLUMNS=YES leaves the source lat / lng columns in
+        // the attribute table as well. They are the user's data and
+        // they asked for a faithful import; dropping them would also
+        // make a re-export lossy.
+        return gdal.drivers.get('CSV').open(openPath, 'r', [
+          `X_POSSIBLE_NAMES=${pair.lngColumn}`,
+          `Y_POSSIBLE_NAMES=${pair.latColumn}`,
+          'KEEP_GEOM_COLUMNS=YES',
+        ]);
+      }
+    }
+    return gdal.open(openPath);
+  }
+
+  /**
+   * Resolve `candidate` and return it only if it lands inside a
+   * directory ingest is allowed to read from. Null otherwise.
+   *
+   * Returns the resolved path rather than a boolean on purpose: the
+   * caller must open the value that was checked, not the string that
+   * was handed in. Validating one representation of a path and then
+   * opening another is the shape that defeats this kind of guard,
+   * and it is also what a taint analyser will (correctly) refuse to
+   * treat as sanitised.
+   *
+   * Two roots are legitimate. Staged uploads live under STAGING_DIR
+   * when prod sets it (a named volume shared with portal-worker), and
+   * everything else, including the mkdtemp `gg-ingest-` dirs the
+   * buffer paths create, lives under the OS temp dir.
+   *
+   * Compared with path.relative rather than a string prefix, because
+   * a prefix test says /tmp/gg-staging-evil is inside /tmp/gg-staging.
+   */
+  private resolveInsideIngestRoot(candidate: string): string | null {
+    const target = resolve(candidate);
+    const staging = process.env.STAGING_DIR?.trim();
+    const roots = [resolve(tmpdir()), ...(staging ? [resolve(staging)] : [])];
+    const inside = roots.some((root) => {
+      const rel = relative(root, target);
+      return rel.length > 0 && !rel.startsWith('..') && !isAbsolute(rel);
+    });
+    return inside ? target : null;
+  }
+
+  /**
+   * Read the head of a delimited file and name its coordinate pair.
+   * Returns null when there is no confident pair, which puts the
+   * caller back on the plain GDAL path: a CSV that genuinely has no
+   * coordinates is a table, and importing it as one is correct.
+   */
+  private async sniffCsvColumns(
+    filePath: string,
+  ): Promise<{ latColumn: string; lngColumn: string } | null> {
+    // Containment check before opening. Ingest paths are built by the
+    // server (join(root, <uuid>, safeFilename(name))) and
+    // safeFilename already strips traversal, so this is defence in
+    // depth rather than the only guard. It is here because this is
+    // the first plain fs sink on the ingest path: every other reader
+    // hands the path to GDAL, which a static analyser does not model,
+    // so the taint has never been visible before. An unvalidated
+    // sink is worth closing even when the value reaching it happens
+    // to be clean today, because the thing that changes is the
+    // caller.
+    const safePath = this.resolveInsideIngestRoot(filePath);
+    if (safePath === null) {
+      this.log.warn(
+        `Refusing to sniff a path outside the ingest roots: ${basename(
+          filePath,
+        )}`,
+      );
+      return null;
+    }
+    let handle: FileHandle | undefined;
+    try {
+      // Open the checked value, never the caller's original string.
+      handle = await open(safePath, 'r');
+      const buf = Buffer.alloc(IngestService.CSV_SNIFF_BYTES);
+      const { bytesRead } = await handle.read(buf, 0, buf.length, 0);
+      const truncated = bytesRead === buf.length;
+      const pair = detectCsvColumnPairFromPrefix(
+        buf.subarray(0, bytesRead),
+        truncated,
+      );
+      if (pair.kind !== 'detected') {
+        this.log.debug?.(
+          `No coordinate columns in ${basename(filePath)}: ${pair.reason}`,
+        );
+        return null;
+      }
+      return { latColumn: pair.latColumn, lngColumn: pair.lngColumn };
+    } catch (err) {
+      // Sniffing is an enhancement, never a reason to fail an import.
+      this.log.warn(
+        `CSV coordinate sniff failed for ${basename(filePath)}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return null;
+    } finally {
+      await handle?.close().catch(() => undefined);
+    }
+  }
+
   private async loadGdal(): Promise<typeof import('gdal-async')> {
     try {
       const mod = await import('gdal-async');

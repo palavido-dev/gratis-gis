@@ -70,6 +70,7 @@ import {
   type QueueRecord,
 } from '@/lib/offline-store';
 import { formatBytes } from '@/lib/format-bytes';
+import { holdReload } from '@/lib/sw-update-guard';
 import {
   listRejected,
   newGlobalId,
@@ -79,6 +80,7 @@ import {
 import { RejectedEditsDialog } from './rejected-edits-dialog';
 import {
   downloadDeployment,
+  estimateDownloadBytes,
   type DownloadLayer,
   type DownloadProgress,
 } from '@/lib/offline-download';
@@ -931,6 +933,22 @@ export function FieldRuntime({
   const [downloadProgress, setDownloadProgress] =
     useState<DownloadProgress | null>(null);
 
+  // Hold off a service worker update reload while the collector has
+  // something to lose. A deploy landing mid-form would otherwise
+  // reload the tab and take the entry with it, and mid-download it
+  // would abandon a partly-warmed cache. See lib/sw-update-guard.
+  const downloadRunning =
+    downloadProgress !== null &&
+    downloadProgress.phase !== 'done' &&
+    downloadProgress.phase !== 'failed';
+  useEffect(() => {
+    if (formModal === null && !downloadRunning) return;
+    const release = holdReload(
+      formModal !== null ? 'field-form-open' : 'field-download',
+    );
+    return release;
+  }, [formModal, downloadRunning]);
+
   // Slice 5 (queue + sync; see docs/field-offline-recovery.md).
   // State declarations are higher up next to offlineFeatures so the
   // useEffect there can include them as deps. The pieces below own
@@ -1096,32 +1114,18 @@ export function FieldRuntime({
     const persistResult = await requestPersistentStorage();
     setPersistentState(persistResult.persistent ? 'persistent' : 'best-effort');
 
-    // Slice 6 step 2: pre-flight quota check. The download manager's
-    // estimate is rough (layers * 50 features * ~800 bytes) but
-    // close enough to detect cases where the user is about to
-    // start a download that has no chance of completing. We reuse
-    // that estimate here -- duplicating the math would risk drift.
-    const roughEstimate =
-      editableLayers.length * 50 * 800 + 5 * 1024 * 1024; // + 5MB headroom for forms+pick-lists
-    const quota = await checkDownloadFits(roughEstimate);
-    if (!quota.fits) {
-      setDownloadProgress({
-        phase: 'failed',
-        message: 'Not enough storage for this download',
-        estimatedSize: quota.estimatedDownloadBytes,
-        layerCount: editableLayers.length,
-        featuresFetched: 0,
-        formsFetched: 0,
-        pickListsFetched: 0,
-        tilesFetched: 0,
-        tilesTotal: 0,
-        error: `Need ~${formatBytes(quota.shortfallBytes)} more space. Free up cached deployments or device storage and try again.`,
-      });
-      return;
-    }
     // Refresh the persisted storage gauge so the LayerVisibilityPanel
     // reflects the post-prompt state immediately.
     void estimateStorage().then(setStorage);
+
+    // The pre-flight quota check runs BELOW, once the download input
+    // exists, because the input is what determines the size. It used
+    // to run here against `layers * 50 * 800 + 5 MB`, which left out
+    // tiles entirely: the same run could hand the warmer a bbox worth
+    // up to 200,000 tiles, so the guard compared a few hundred
+    // kilobytes against a download of several gigabytes and waved it
+    // through. Tiles usually dominate, so the guard could not refuse
+    // the downloads it exists to refuse.
 
     // Collect every pick-list id the deployment will need offline.
     // Two surfaces reference picklists, and we have to walk both:
@@ -1204,44 +1208,65 @@ export function FieldRuntime({
     const preparedAreas = offlineBasemapRef.current.areas.filter(
       (a) => a.current,
     );
+    // One description of the download, used by both the quota guard
+    // and the run itself, so the number the user is warned about is
+    // the number that gets fetched.
+    const downloadInput = {
+      dataCollectionId,
+      title,
+      mapId: '', // will be set by the caller of FieldRuntime in a future pass; not load-bearing
+      layers: downloadLayers,
+      pickListIds: Array.from(pickListIdSet),
+      ...(viewportBbox !== undefined ? { bbox: viewportBbox } : {}),
+      ...(preparedAreas.length > 0
+        ? {
+            preparedPackages: preparedAreas.map((a) => ({
+              areaId: a.area.id,
+              packageId: a.current!.id,
+            })),
+          }
+        : {}),
+      ...(preparedAreas.length === 0 && tileUrlTemplates.length > 0
+        ? {
+            tileUrlTemplates,
+            // #272: user-chosen range from the layer-panel pickers.
+            // Shrinkable for a smaller/faster cache, or expandable
+            // up to z22 when the basemap supports it. The warmer's
+            // WARMER_MAX_TILES (200k) is still the hard ceiling; the
+            // live tile-count estimate next to the picker tells the
+            // worker if they're about to hit it.
+            tileZoomRange: [tileZoomMin, tileZoomMax] as [number, number],
+          }
+        : {}),
+    };
+
+    // Pre-flight quota check against what this run will really fetch.
+    const quota = await checkDownloadFits(estimateDownloadBytes(downloadInput));
+    if (!quota.fits) {
+      setDownloadProgress({
+        phase: 'failed',
+        message: 'Not enough storage for this download',
+        estimatedSize: quota.estimatedDownloadBytes,
+        layerCount: editableLayers.length,
+        featuresFetched: 0,
+        formsFetched: 0,
+        pickListsFetched: 0,
+        tilesFetched: 0,
+        tilesTotal: 0,
+        error: `This download needs about ${formatBytes(
+          quota.estimatedDownloadBytes,
+        )} and there is ~${formatBytes(
+          quota.shortfallBytes,
+        )} too little room. Free up cached deployments or device storage, or lower the detail level, and try again.`,
+      });
+      return;
+    }
+
     const controller = new AbortController();
     downloadAbortRef.current = controller;
     try {
       const manifest = await downloadDeployment(
-        {
-          dataCollectionId,
-          title,
-          mapId: '', // will be set by the caller of FieldRuntime in a future pass; not load-bearing
-          layers: downloadLayers,
-          pickListIds: Array.from(pickListIdSet),
-          ...(viewportBbox !== undefined ? { bbox: viewportBbox } : {}),
-          ...(preparedAreas.length > 0
-            ? {
-                preparedPackages: preparedAreas.map((a) => ({
-                  areaId: a.area.id,
-                  packageId: a.current!.id,
-                })),
-              }
-            : {}),
-          ...(preparedAreas.length === 0 && tileUrlTemplates.length > 0
-            ? {
-                tileUrlTemplates,
-                // #272: user-chosen range from the layer-panel
-                // pickers. Defaults to [12, 19] (deepest most
-                // basemap providers serve), shrinkable for a
-                // smaller/faster cache, or expandable up to z22
-                // when the basemap supports it. The warmer's
-                // DEFAULT_MAX_TILES (200k) is still the hard
-                // ceiling -- the live tile-count estimate next to
-                // the picker tells the worker if they're about to
-                // hit it.
-                tileZoomRange: [tileZoomMin, tileZoomMax] as [
-                  number,
-                  number,
-                ],
-              }
-            : {}),
-        },
+        downloadInput,
         (p) => setDownloadProgress({ ...p }),
         controller.signal,
       );
@@ -3567,6 +3592,28 @@ function LayerVisibilityPanel({
           <p className="mt-1 text-2xs text-muted">
             Cached {formatRelativeTime(cachedDeployment.cachedAt)} ·{' '}
             {formatBytes(cachedDeployment.estimatedSize)}
+          </p>
+        ) : null}
+        {/* A download that skipped a layer, a pick list or part of the
+            basemap has to say so here. This line is what a collector
+            reads before deciding to drive out of signal, and it used
+            to report a cache with holes in it as simply "Cached". */}
+        {cachedDeployment?.partial ? (
+          <p className="mt-1 flex items-start gap-1 text-2xs text-amber-700 dark:text-amber-500">
+            <AlertTriangle
+              className="mt-px h-3 w-3 shrink-0"
+              aria-hidden="true"
+            />
+            <span>
+              {cachedDeployment.partial.outOfSpace
+                ? 'Incomplete: ran out of storage. '
+                : 'Incomplete: '}
+              {cachedDeployment.partial.reasons.slice(0, 2).join(', ')}
+              {cachedDeployment.partial.reasons.length > 2
+                ? ` and ${cachedDeployment.partial.reasons.length - 2} more`
+                : ''}{' '}
+              did not download.
+            </span>
           </p>
         ) : null}
         {/* #71: the prepared basemap is a separate download from the

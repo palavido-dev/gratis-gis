@@ -24,9 +24,14 @@ import {
 // Client-side formats only: this menu converts rows already loaded
 // in the table. The server-built GeoParquet export lives on the
 // layer detail page's export menu.
-import { exportFeatures, type ClientExportFormat } from '@/lib/layer-export';
+import {
+  EXPORT_FORMAT_LABEL,
+  exportFeatures,
+  type ClientExportFormat,
+} from '@/lib/layer-export';
 import { exportBundle } from '@/lib/bundle-export';
 import { parseApiError } from '@/lib/api-error';
+import { toast } from '@/lib/toast';
 import { matchesFilter } from '@gratis-gis/shared-types';
 import type {
   FeatureField,
@@ -2067,7 +2072,14 @@ function AttrTableExportMenu({
     const source = onlySelection
       ? features.filter((_, i) => activeSelection.has(featureKeyAt(i)))
       : features;
-    if (source.length === 0) return;
+    if (source.length === 0) {
+      toast.error(
+        onlySelection
+          ? 'Nothing to export: no rows are selected.'
+          : 'Nothing to export: this layer has no rows loaded.',
+      );
+      return;
+    }
     const filename = (layerTitle || 'layer')
       .trim()
       .replace(/[^\w.\- ]+/g, '_')
@@ -2103,7 +2115,22 @@ function AttrTableExportMenu({
         // empty strings -- acceptable for v1.
         includeGeometryWkt: format === 'xlsx',
       },
-    );
+    )
+      // Same silent-download problem as the data-layer browser: an
+      // anchor click on a blob URL leaves nothing on screen, so a
+      // working export and a dead button look the same.
+      .then(() => {
+        toast.success(
+          `Exported ${source.length.toLocaleString()} row${
+            source.length === 1 ? '' : 's'
+          } as ${EXPORT_FORMAT_LABEL[format]}.`,
+        );
+      })
+      .catch((err: unknown) => {
+        toast.error(
+          err instanceof Error ? err.message : `${format} export failed`,
+        );
+      });
   }
 
   return (

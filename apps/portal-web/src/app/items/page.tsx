@@ -114,6 +114,12 @@ export default async function ItemsPage(props: Props) {
 
   const me = meEarly;
 
+  // Mirrors the server's `can_publish_items` gate on item creation.
+  // Named rather than inlined because this file was already testing
+  // the same condition in three places with the raw role comparison,
+  // and a fourth spelling is how they drift apart.
+  const canPublish = me.orgRole !== 'viewer';
+
   // #80: geo_boundary items are needed by the bulk-share modal so
   // an admin flipping items to Org or Public can also pick a tier-
   // level clip boundary. Same fetch the item-detail SharingPanel
@@ -159,24 +165,32 @@ export default async function ItemsPage(props: Props) {
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">{t('nav.items', undefined, locale)}</h1>
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* #187: jump straight into a map with no item created
-              until you choose to save it. */}
-          <Link
-            href="/maps/new"
-            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 shadow-card hover:bg-surface-2"
-          >
-            <MapIcon className="h-4 w-4" />
-            {t('itemsPage.openMap', undefined, locale)}
-          </Link>
-          <Link
-            href="/items/new"
-            className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground shadow-card hover:opacity-90"
-          >
-            <Plus className="h-4 w-4" />
-            {t('itemsPage.newItem', undefined, locale)}
-          </Link>
-        </div>
+        {/* Both of these end in creating an item, which the API now
+            refuses for a viewer. Showing them to a viewer walked them
+            through a whole wizard, or a whole map, to a 403 at the
+            last step. The WelcomePanel and the empty-folder actions
+            further down this file were already gated this way; the
+            header was the hole. */}
+        {canPublish ? (
+          <div className="flex items-center gap-2">
+            {/* #187: jump straight into a map with no item created
+                until you choose to save it. */}
+            <Link
+              href="/maps/new"
+              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 shadow-card hover:bg-surface-2"
+            >
+              <MapIcon className="h-4 w-4" />
+              {t('itemsPage.openMap', undefined, locale)}
+            </Link>
+            <Link
+              href="/items/new"
+              className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground shadow-card hover:opacity-90"
+            >
+              <Plus className="h-4 w-4" />
+              {t('itemsPage.newItem', undefined, locale)}
+            </Link>
+          </div>
+        ) : null}
       </header>
       {/* Scope toggle disappears when a folder is selected: a folder
           shows its own contents intersected with what the caller can
@@ -258,7 +272,7 @@ export default async function ItemsPage(props: Props) {
                     : t('itemsPage.scopeSharedWithYou', undefined, locale),
                 query: searchParams.q,
               }, locale)}
-            />) : isMine && !activeFolder && me.orgRole !== 'viewer' ? (
+            />) : isMine && !activeFolder && canPublish ? (
               // #147 Phase 1: publishers with an empty workspace get
               // three concrete starting points (including the sample
               // data seeder) instead of a gray dashed box. Viewers
@@ -281,7 +295,7 @@ export default async function ItemsPage(props: Props) {
                     : t('itemsPage.emptySharedDescription', undefined, locale)
               }
               action={
-                activeFolder && me.orgRole !== 'viewer' ? (
+                activeFolder && canPublish ? (
                   // Empty folder: offer the add-items picker right
                   // here instead of only describing where it lives
                   // (user feedback: the described path was a dead

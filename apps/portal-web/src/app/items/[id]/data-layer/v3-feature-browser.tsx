@@ -18,9 +18,11 @@ import {
 import {
   exportFeatures,
   exportLayerGeoParquet,
+  EXPORT_FORMAT_LABEL,
   type ClientExportFormat,
 } from '@/lib/layer-export';
 import { exportBundle } from '@/lib/bundle-export';
+import { parseApiError } from '@/lib/api-error';
 import { toast } from '@/lib/toast';
 import type {
   FeatureRecord,
@@ -120,9 +122,7 @@ export function V3FeatureBrowser({
           signal ? { signal } : {},
         );
         if (!res.ok) {
-          setError(
-            `Could not load features: ${res.status} ${await res.text()}`,
-          );
+          setError(await parseApiError(res, 'Could not load features'));
           return;
         }
         const body = (await res.json()) as {
@@ -173,7 +173,7 @@ export function V3FeatureBrowser({
         },
       );
       if (!res.ok) {
-        setError(`Save failed: ${res.status} ${await res.text()}`);
+        setError(await parseApiError(res, 'Save failed'));
         return;
       }
       setEditingId(null);
@@ -199,7 +199,7 @@ export function V3FeatureBrowser({
       { method: 'DELETE' },
     );
     if (!res.ok) {
-      setError(`Delete failed: ${res.status}`);
+      setError(await parseApiError(res, 'Delete failed'));
       return;
     }
     await reload();
@@ -222,7 +222,7 @@ export function V3FeatureBrowser({
         },
       );
       if (!res.ok) {
-        setError(`Add row failed: ${res.status} ${await res.text()}`);
+        setError(await parseApiError(res, 'Add row failed'));
         return;
       }
       await reload();
@@ -604,7 +604,12 @@ function ExportMenu({
 
   function run(format: ClientExportFormat): void {
     setOpen(false);
-    if (features.length === 0) return;
+    // Silent no-op on an empty layer was indistinguishable from a
+    // silent success, which is the same complaint as below.
+    if (features.length === 0) {
+      toast.error('Nothing to export: this layer has no rows loaded.');
+      return;
+    }
     const filename = sanitizeFilename(layer.label || layer.name || 'layer');
     exportFeatures(
       features.map((f) => ({
@@ -625,7 +630,24 @@ function ExportMenu({
         // the column would just clutter the view).
         includeGeometryWkt: format === 'xlsx',
       },
-    );
+    )
+      .then(() => {
+        // The download is an anchor click on a blob URL, which leaves
+        // no trace in the page. With the browser's download shelf
+        // collapsed or auto-hidden, a successful export and a dead
+        // button look identical, and two testers said they clicked
+        // again because they could not tell which they had.
+        toast.success(
+          `Exported ${features.length.toLocaleString()} row${
+            features.length === 1 ? '' : 's'
+          } as ${EXPORT_FORMAT_LABEL[format]}.`,
+        );
+      })
+      .catch((err: unknown) => {
+        toast.error(
+          err instanceof Error ? err.message : `${format} export failed`,
+        );
+      });
   }
 
   async function runBundle(): Promise<void> {
@@ -715,6 +737,19 @@ function ExportMenu({
               className="block w-full px-3 py-1.5 text-left hover:bg-surface-2"
             >
               CSV
+            </button>
+            {/* exportFeaturesToGeoJson has existed in layer-export.ts
+                the whole time, is already in the ExportFormat union,
+                and was reachable from no menu. GeoJSON is the format
+                a desktop GIS user reaches for first, and its absence
+                next to GeoParquet read as "this portal cannot give me
+                my geometry back". */}
+            <button
+              type="button"
+              onClick={() => run('geojson')}
+              className="block w-full px-3 py-1.5 text-left hover:bg-surface-2"
+            >
+              GeoJSON
             </button>
             <button
               type="button"

@@ -3,6 +3,7 @@
 
 import { useEffect } from 'react';
 import { requestBackgroundSync } from '@/lib/offline-store';
+import { isReloadHeld, onReloadHoldChange } from '@/lib/sw-update-guard';
 
 /**
  * Registers the GratisGIS service worker. Renders nothing.
@@ -26,7 +27,7 @@ import { requestBackgroundSync } from '@/lib/offline-store';
  * closed-tab safety net (Chromium only; elsewhere requestBackgroundSync
  * is a silent no-op).
  */
-export function SwRegistrar() {
+export function SwRegistrar({ deploymentId }: { deploymentId?: string }) {
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
 
@@ -66,8 +67,54 @@ export function SwRegistrar() {
       return;
     }
 
+    // A new worker calls skipWaiting() and clients.claim(), and its
+    // activate handler deletes every cache not carrying the current
+    // CACHE_VERSION. So a deploy pulls the static cache out from under
+    // this already-loaded page while it still holds references to
+    // chunks that lived there. Reload once when that happens, so the
+    // tab is running the build whose assets are actually cached.
+    //
+    // But not while a collector has unsaved work. This is a data
+    // collection app; reloading someone halfway through a form to fix
+    // a caching problem trades one bug for a worse one. The guard
+    // holds the reload until the last busy surface clears.
+    let reloading = false;
+    let unsubscribe: (() => void) | null = null;
+    const doReload = () => {
+      if (reloading) return;
+      reloading = true;
+      window.location.reload();
+    };
+    const onControllerChange = () => {
+      if (!isReloadHeld()) {
+        doReload();
+        return;
+      }
+      // Wait it out. Nothing else re-checks, so if the hold is never
+      // released the tab simply keeps running the old build, which is
+      // the safe direction to fail in.
+      unsubscribe = onReloadHoldChange((busy) => {
+        if (!busy) doReload();
+      });
+    };
+    navigator.serviceWorker.addEventListener(
+      'controllerchange',
+      onControllerChange,
+    );
+
+    // The deploy id rides in the script URL. Same scope, so this
+    // UPDATES the existing registration rather than adding a second
+    // one, and the differing URL is what makes the browser fetch and
+    // install a new worker each deploy: it reinstalls on changed
+    // script bytes only, so before this an edit to the precached
+    // offline shell never reached an installed PWA unless sw.js
+    // happened to change in the same commit. The worker reads the
+    // same value for its cache names.
+    const swUrl = deploymentId
+      ? `/sw.js?v=${encodeURIComponent(deploymentId)}`
+      : '/sw.js';
     navigator.serviceWorker
-      .register('/sw.js', { scope: '/' })
+      .register(swUrl, { scope: '/' })
       .then(() => {
         // Catch-up arming for queued rows from earlier sessions; see
         // the component doc comment. Uses navigator.serviceWorker.ready
@@ -75,7 +122,15 @@ export function SwRegistrar() {
         requestBackgroundSync();
       })
       .catch((err) => console.warn('[SW] Registration failed:', err));
-  }, []);
+
+    return () => {
+      navigator.serviceWorker.removeEventListener(
+        'controllerchange',
+        onControllerChange,
+      );
+      unsubscribe?.();
+    };
+  }, [deploymentId]);
 
   return null;
 }

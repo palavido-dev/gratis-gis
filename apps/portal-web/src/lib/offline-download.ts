@@ -30,7 +30,11 @@ import {
   putPickList,
 } from './offline-store';
 import { formatBytes } from './format-bytes';
-import { warmTiles } from './offline-tile-warmer';
+import {
+  estimateTileCount,
+  warmTiles,
+  WARMER_MAX_TILES,
+} from './offline-tile-warmer';
 import {
   downloadOfflineBasemap,
   storedBasemapSize,
@@ -137,6 +141,108 @@ export interface DownloadInput {
  *  observation: a typical PostGIS feature with ~10 attributes
  *  serialised through ST_AsGeoJSON lands ~600 bytes. */
 const ESTIMATED_BYTES_PER_FEATURE = 800;
+/** Features assumed per layer before any are fetched. A guess, and
+ *  labelled as one wherever it surfaces. */
+const ASSUMED_FEATURES_PER_LAYER = 50;
+/** Headroom for form schemas and pick lists, which are small and
+ *  bounded. */
+const FORMS_AND_PICKLISTS_HEADROOM_BYTES = 5 * 1024 * 1024;
+/** Matches ESTIMATED_BYTES_PER_TILE_MISSING_HEADER in the warmer, so
+ *  the pre-flight estimate and the bytes the warmer reports are the
+ *  same arithmetic. */
+const ESTIMATED_BYTES_PER_TILE = 25_000;
+/** A prepared basemap package, before we have asked the server how
+ *  big it is. Randolph County measured 10.2 MB; 25 covers a larger
+ *  area without pretending to precision we do not have. */
+const ASSUMED_PREPARED_PACKAGE_BYTES = 25 * 1024 * 1024;
+/**
+ * Zoom range this module warms when the caller does not specify one.
+ *
+ * Note this is NOT the warmer's own default, which is [12, 19]. The
+ * warmer's upper bound was raised to 19 for parcel-edge work (#272)
+ * but this module has always passed [12, 17] explicitly, so that
+ * change never reached a field download. Left as it was rather than
+ * quietly multiplying every deployment's tile count by about 16;
+ * worth a decision, not a drive-by. Named here so the estimate and
+ * the warm call cannot disagree about it, which they previously did.
+ */
+const DEFAULT_WARM_ZOOM: [number, number] = [12, 17];
+
+/**
+ * Whether a thrown error is the browser refusing a write for space.
+ *
+ * Both IndexedDB and the Cache API surface this as a DOMException
+ * named QuotaExceededError, but Firefox has historically used the
+ * legacy code 22 with a different name, so both are checked. Worth
+ * distinguishing from any other failure because it is the one the
+ * user can do something about, and the message should say so.
+ */
+function isQuotaError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { name?: unknown; code?: unknown };
+  return (
+    e.name === 'QuotaExceededError' ||
+    e.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+    e.code === 22
+  );
+}
+
+/**
+ * What a download is about to cost, in bytes.
+ *
+ * The pre-flight quota guard used `layers * 50 * 800 + 5 MB` and
+ * stopped there, while the same run could hand the tile warmer a bbox
+ * worth up to 200,000 tiles: roughly 5 GB against an estimate of a few
+ * hundred kilobytes. The guard could not refuse a download that had no
+ * chance of fitting, which is the one job it has. Tiles usually
+ * dominate the total, so leaving them out did not make the estimate
+ * rough, it made it unrelated.
+ *
+ * Exported so the guard and the progress display share one
+ * implementation. Two copies of this drifting apart is how it got
+ * here.
+ */
+export function estimateDownloadBytes(input: {
+  layers: unknown[];
+  bbox?: [number, number, number, number];
+  tileUrlTemplates?: string[];
+  tileZoomRange?: [number, number];
+  preparedPackages?: Array<{ areaId: string; packageId: string }>;
+}): number {
+  const features =
+    input.layers.length *
+    ASSUMED_FEATURES_PER_LAYER *
+    ESTIMATED_BYTES_PER_FEATURE;
+
+  // A prepared package replaces tile warming outright, so the two are
+  // never both paid for. Mirrors the branch in downloadDeployment.
+  if (input.preparedPackages && input.preparedPackages.length > 0) {
+    return (
+      features +
+      FORMS_AND_PICKLISTS_HEADROOM_BYTES +
+      input.preparedPackages.length * ASSUMED_PREPARED_PACKAGE_BYTES
+    );
+  }
+
+  let tiles = 0;
+  if (
+    input.bbox &&
+    input.tileUrlTemplates &&
+    input.tileUrlTemplates.length > 0
+  ) {
+    // Count the tiles the warmer will actually walk, capped exactly
+    // as it caps, then multiply by every permitted template: the
+    // warmer fetches the bbox once per source.
+    const perTemplate = Math.min(
+      estimateTileCount(input.bbox, input.tileZoomRange ?? DEFAULT_WARM_ZOOM),
+      WARMER_MAX_TILES,
+    );
+    tiles =
+      perTemplate * input.tileUrlTemplates.length * ESTIMATED_BYTES_PER_TILE;
+  }
+
+  return features + FORMS_AND_PICKLISTS_HEADROOM_BYTES + tiles;
+}
 
 /**
  * Run the offline download for a deployment. Reports progress via
@@ -165,12 +271,23 @@ export async function downloadDeployment(
   };
   onProgress({ ...progress });
 
-  // Estimating phase: rough envelope based on the layer fields. Real
-  // size is computed during persist when we know byte counts.
-  progress.estimatedSize =
-    input.layers.length * 50 * ESTIMATED_BYTES_PER_FEATURE;
+  // Estimating phase. Same arithmetic the pre-flight quota guard
+  // used, so the number the user was shown before starting is the
+  // number they see now. Real size is computed during persist when we
+  // know byte counts.
+  progress.estimatedSize = estimateDownloadBytes(input);
   progress.message = `Estimated ~${formatBytes(progress.estimatedSize)}`;
   onProgress({ ...progress });
+
+  // Everything that did not make it into the cache. Non-empty means
+  // the manifest is written as partial rather than as ready, so the
+  // badge cannot promise offline coverage the cache does not have.
+  const shortfalls: string[] = [];
+  let outOfSpace = false;
+  const noteShortfall = (what: string, err?: unknown) => {
+    if (isQuotaError(err)) outOfSpace = true;
+    shortfalls.push(what);
+  };
 
   // Layer schemas: hash + capture every layer's field list now so
   // the deployment manifest carries the snapshot. Sync time uses
@@ -200,6 +317,7 @@ export async function downloadDeployment(
       );
       const res = await fetch(url);
       if (!res.ok) {
+        noteShortfall(`${layer.layerLabel} (HTTP ${res.status})`);
         progress.message = `${layer.layerLabel}: HTTP ${res.status}, skipping`;
         onProgress({ ...progress });
         continue;
@@ -210,6 +328,7 @@ export async function downloadDeployment(
       try {
         body = JSON.parse(text) as { features?: GeoJSON.Feature[] };
       } catch {
+        noteShortfall(`${layer.layerLabel} (malformed response)`);
         progress.message = `${layer.layerLabel}: malformed response, skipping`;
         onProgress({ ...progress });
         continue;
@@ -244,7 +363,10 @@ export async function downloadDeployment(
       // Surface a warning and move on; the deployment manifest will
       // still record what we did manage to cache.
       const reason = err instanceof Error ? err.message : String(err);
-      progress.message = `${layer.layerLabel}: ${reason} (skipped)`;
+      noteShortfall(`${layer.layerLabel} (${reason})`, err);
+      progress.message = isQuotaError(err)
+        ? `${layer.layerLabel}: out of storage space (skipped)`
+        : `${layer.layerLabel}: ${reason} (skipped)`;
       onProgress({ ...progress });
     }
   }
@@ -263,9 +385,15 @@ export async function downloadDeployment(
     onProgress({ ...progress });
     try {
       const res = await fetch(`/api/portal/items/${formId}`);
-      if (!res.ok) continue;
+      if (!res.ok) {
+        noteShortfall(`form ${formId.slice(0, 8)} (HTTP ${res.status})`);
+        continue;
+      }
       const item = (await res.json()) as { data?: FormSchema };
-      if (!item.data) continue;
+      if (!item.data) {
+        noteShortfall(`form ${formId.slice(0, 8)} (no schema)`);
+        continue;
+      }
       await putForm({
         dataCollectionId: input.dataCollectionId,
         formItemId: formId,
@@ -273,9 +401,12 @@ export async function downloadDeployment(
         cachedAt: new Date().toISOString(),
       });
       progress.formsFetched += 1;
-    } catch {
-      /* swallow individual form failures; deployment can still work
-         with auto-generated forms for the missing bindings */
+    } catch (err) {
+      // The deployment can still work with auto-generated forms for
+      // the missing bindings, so this is a shortfall rather than a
+      // failure. It is not nothing, though: the collector gets a
+      // different form offline than online, which is worth recording.
+      noteShortfall(`form ${formId.slice(0, 8)}`, err);
     }
   }
 
@@ -286,9 +417,15 @@ export async function downloadDeployment(
     onProgress({ ...progress });
     try {
       const res = await fetch(`/api/portal/items/${pickListId}`);
-      if (!res.ok) continue;
+      if (!res.ok) {
+        noteShortfall(`pick list ${pickListId.slice(0, 8)} (HTTP ${res.status})`);
+        continue;
+      }
       const item = (await res.json()) as { data?: PickListData };
-      if (!item.data) continue;
+      if (!item.data) {
+        noteShortfall(`pick list ${pickListId.slice(0, 8)} (no data)`);
+        continue;
+      }
       await putPickList({
         dataCollectionId: input.dataCollectionId,
         pickListItemId: pickListId,
@@ -296,8 +433,10 @@ export async function downloadDeployment(
         cachedAt: new Date().toISOString(),
       });
       progress.pickListsFetched += 1;
-    } catch {
-      /* same swallow rationale as forms above */
+    } catch (err) {
+      // A missing pick list means a choice field offline renders with
+      // no choices, which stops a collector mid-form. Recorded.
+      noteShortfall(`pick list ${pickListId.slice(0, 8)}`, err);
     }
   }
 
@@ -347,10 +486,15 @@ export async function downloadDeployment(
         // The data above is already cached and useful on its own,
         // and the remaining areas may still succeed, so one failed
         // map degrades to "that area stays online-only" rather than
-        // losing the whole run.
-        progress.message = `Map download failed: ${
-          err instanceof Error ? err.message : String(err)
-        }`;
+        // losing the whole run. It is still a hole in the cache: a
+        // map that does not draw is the most visible way for a
+        // collector to discover their download was incomplete.
+        noteShortfall(`basemap for area ${pkg.areaId.slice(0, 8)}`, err);
+        progress.message = isQuotaError(err)
+          ? 'Map download failed: out of storage space'
+          : `Map download failed: ${
+              err instanceof Error ? err.message : String(err)
+            }`;
         onProgress({ ...progress });
       }
     }
@@ -367,7 +511,7 @@ export async function downloadDeployment(
         {
           urlTemplates: input.tileUrlTemplates,
           bbox: input.bbox,
-          zoomRange: input.tileZoomRange ?? [12, 17],
+          zoomRange: input.tileZoomRange ?? DEFAULT_WARM_ZOOM,
         },
         (p) => {
           progress.tilesFetched = p.fetched;
@@ -398,14 +542,26 @@ export async function downloadDeployment(
         if (refused.length > 0) progress.blockedTileSources = refused;
         progress.message = `Cached ${warmResult.fetched} tiles (${warmResult.failed} failed)`;
       }
+      // Tiles that did not land mean a basemap with holes in it, so
+      // the manifest should not read as fully cached. A provider
+      // refusal is deliberately NOT counted: that is the provider's
+      // rule, reported separately as blockedTileSources, and marking
+      // the whole deployment partial for it would cry wolf on every
+      // download that uses a public basemap.
+      if (warmResult.failed > 0) {
+        noteShortfall(`${warmResult.failed} basemap tiles`);
+      }
       onProgress({ ...progress });
     } catch (err) {
       // Tile-warming is best-effort; a failure here doesn't void
       // the rest of the cache. Surface the message so the user
       // knows tiles may be incomplete, then continue to persist.
-      progress.message = `Tile cache: ${
-        err instanceof Error ? err.message : 'failed'
-      } (continuing)`;
+      noteShortfall('basemap tiles', err);
+      progress.message = isQuotaError(err)
+        ? 'Tile cache: out of storage space (continuing)'
+        : `Tile cache: ${
+            err instanceof Error ? err.message : 'failed'
+          } (continuing)`;
       onProgress({ ...progress });
     }
   }
@@ -434,6 +590,14 @@ export async function downloadDeployment(
     estimatedSize: totalFeatureBytes,
   };
   if (input.bbox !== undefined) manifest.bbox = input.bbox;
+  // Record the holes. Everything cached above stays, because a
+  // partial cache is genuinely useful, but the manifest has to carry
+  // the truth: this used to write "cached" unconditionally, and a
+  // collector reading "Ready for offline" would drive out of signal
+  // on the strength of it.
+  if (shortfalls.length > 0) {
+    manifest.partial = { reasons: shortfalls, outOfSpace };
+  }
   await putDeployment(manifest);
 
   progress.phase = 'done';
@@ -459,10 +623,23 @@ export async function downloadDeployment(
     const w = progress.pickListsFetched === 1 ? 'pick list' : 'pick lists';
     detail.push(`${progress.pickListsFetched} ${w}`);
   }
-  progress.message =
+  const summary =
     detail.length > 0
       ? `Cached ${progress.layerCount} ${layerWord} (${detail.join(', ')}).`
       : `Cached ${progress.layerCount} ${layerWord}. Sync stays current as features are added.`;
+  if (shortfalls.length > 0) {
+    // Lead with what is missing. The collector is about to decide
+    // whether to leave signal on the strength of this line, so
+    // burying the gap after the good news is the wrong order.
+    const missing = shortfalls.slice(0, 3).join(', ');
+    const more =
+      shortfalls.length > 3 ? ` and ${shortfalls.length - 3} more` : '';
+    progress.message = outOfSpace
+      ? `Partly cached: ran out of storage space. Missing ${missing}${more}. Free up space and download again.`
+      : `Partly cached. Missing ${missing}${more}. ${summary}`;
+  } else {
+    progress.message = summary;
+  }
   progress.estimatedSize = totalFeatureBytes;
   onProgress({ ...progress });
 

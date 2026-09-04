@@ -454,8 +454,31 @@ export async function geocodeViaItem(
 }
 
 /**
+ * Thrown when the geocoder could not be asked, as opposed to being
+ * asked and having nothing to say.
+ *
+ * Those two were indistinguishable: a transport failure, a non-2xx,
+ * and a genuine zero-result response all collapsed to an empty array,
+ * so a Nominatim container that was down, unreachable, or holding an
+ * OSM extract that does not cover the area in question looked exactly
+ * like "there is no such place". The proxy at /api/geocode already
+ * separates them, returning 502 with a message for an upstream error
+ * and 502 "Geocoder unreachable" for a fetch failure; the client was
+ * throwing that distinction away.
+ */
+export class GeocoderUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'GeocoderUnavailableError';
+  }
+}
+
+/**
  * Ask Nominatim for matches. The abort signal cancels stale requests
  * so the UI never applies a result that's already been superseded.
+ *
+ * Returns [] only for "asked, nothing matched". Throws
+ * GeocoderUnavailableError when the question could not be put.
  */
 export async function geocode(
   query: string,
@@ -471,10 +494,23 @@ export async function geocode(
   try {
     res = await fetch(url, init);
   } catch (err) {
+    // An abort is the caller superseding its own request, not a
+    // failure, and must stay silent.
     if (err instanceof Error && err.name === 'AbortError') return [];
-    return [];
+    throw new GeocoderUnavailableError(
+      err instanceof Error ? err.message : String(err),
+    );
   }
-  if (!res.ok) return [];
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      const body = (await res.json()) as { message?: unknown };
+      if (typeof body.message === 'string' && body.message) detail = body.message;
+    } catch {
+      /* non-JSON error body; the status is all we have */
+    }
+    throw new GeocoderUnavailableError(detail);
+  }
   const rows = (await res.json()) as Array<{
     display_name: string;
     lat: string;

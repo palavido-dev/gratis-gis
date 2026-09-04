@@ -1826,6 +1826,15 @@ export function NewItemWizard({
                   <button
                     key={opt.value}
                     type="button"
+                    // Without this the accessible name is computed
+                    // from the whole subtree, so a screen reader
+                    // announces the type name followed by its entire
+                    // description before moving to the next option.
+                    // Nineteen of those is a lot to sit through when
+                    // you are hunting for one. The description stays
+                    // visible and inside the button; it just stops
+                    // being the name.
+                    aria-label={opt.label}
                     onClick={() => pickType(opt.value)}
                     className="flex items-start gap-3 rounded-lg border border-border bg-surface-1 p-4 text-left shadow-card transition-colors hover:border-accent/50 hover:bg-surface-2 focus:outline-none focus:ring-2 focus:ring-accent/30"
                   >

@@ -66,6 +66,8 @@ export const fr: Partial<CatalogShape> = {
       "Choisissez ce que vous créez, puis remplissez les détails. Pour les services et les fichiers téléversés, nous rassemblerons les informations nécessaires sur l'écran suivant pour que l'élément soit prêt à l'emploi.",
     createButton: "Créer l'élément",
     backButton: 'Retour',
+    viewerBlocked:
+      "Votre compte a le rôle Lecteur, qui permet d'ouvrir et de télécharger des éléments mais pas d'en créer. Un administrateur de l'organisation peut changer votre rôle ou vous accorder uniquement la capacité de publication.",
   },
   mapEditor: {
     legendButton: 'Légende',
@@ -436,7 +438,7 @@ export const fr: Partial<CatalogShape> = {
   itemsPage: {
     eyebrow: 'Contenu',
     newItem: 'Nouvel élément',
-    openMap: 'Ouvrir une carte',
+    openMap: 'Nouvelle carte',
     addItems: 'Ajouter des éléments',
     myItems: 'Mes éléments',
     allItems: 'Tous les éléments',

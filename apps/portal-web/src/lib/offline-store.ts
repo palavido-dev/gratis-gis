@@ -131,6 +131,24 @@ export interface CachedDeployment {
    * UI can show "this deployment uses ~5 MB" without iterating.
    */
   estimatedSize: number;
+  /**
+   * Set when the download did not cache everything it set out to.
+   *
+   * The manifest used to be written unconditionally, so a run that
+   * skipped a layer on an HTTP error, or hit the storage quota
+   * halfway through the tiles, still ended as "Ready for offline"
+   * over a cache with holes in it. A collector then drove somewhere
+   * with no signal on the strength of that badge. A partial cache is
+   * still worth keeping, so the run persists what it got; it just has
+   * to say so.
+   */
+  partial?: {
+    /** Short reasons, one per thing that did not make it. */
+    reasons: string[];
+    /** True when at least one reason was the device running out of
+     *  storage, which is the reason the user can actually act on. */
+    outOfSpace: boolean;
+  };
 }
 
 /** Pending operation queued offline. Mirrors the doc's QueueRecord

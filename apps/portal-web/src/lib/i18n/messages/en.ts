@@ -71,6 +71,8 @@ export const en = {
       "Pick what you're creating, then fill in the details. For services and uploads, we'll gather what we need on the next screen so the item lands ready to use.",
     createButton: 'Create item',
     backButton: 'Back',
+    viewerBlocked:
+      'Your account has the Viewer role, which can open and download items but cannot create them. An organization admin can change your role, or grant you the publish capability on its own.',
   },
   mapEditor: {
     legendButton: 'Legend',
@@ -333,6 +335,32 @@ export const en = {
     metadata: 'Metadata',
     access: 'Access',
     sections: 'Item sections',
+  },
+  // The card on a map item's Overview that leads into the builder.
+  // Two voices: an editor is being offered configuration, a viewer is
+  // being offered a look. The viewer copy must not describe editing
+  // controls they will not be given.
+  mapCard: {
+    editTitle: 'Map configuration',
+    editBody:
+      'Open the full-screen builder to add layers, configure basemaps and search, and arrange the canvas.',
+    editAction: 'Configure',
+    viewTitle: 'Map',
+    viewBody:
+      'Open this map to pan, zoom, switch basemaps and browse the attribute table. You have view access, so nothing you change here is saved.',
+    viewAction: 'Open map',
+  },
+  // Same shape for a custom web app. A viewer's way in is the app's
+  // runtime, not the builder, so the two actions point at different
+  // routes rather than at the same one in two modes.
+  appCard: {
+    editTitle: 'Custom web app configuration',
+    editBody:
+      'Open the full-screen builder to drag widgets onto the canvas, arrange pages, and bind data layers.',
+    editAction: 'Configure',
+    viewTitle: 'Web app',
+    viewBody: 'Open this app and use it as its readers see it.',
+    viewAction: 'Open app',
   },
   // #76: items shared with a group, on the group detail page.
   groupItems: {
@@ -681,7 +709,11 @@ export const en = {
   itemsPage: {
     eyebrow: 'Content',
     newItem: 'New item',
-    openMap: 'Open a map',
+    // Not "Open a map": this starts a new, unsaved scratch map. Every
+    // tester read the old label as "open one of my maps" and was
+    // surprised by a blank canvas, which is the one thing a label
+    // must not do.
+    openMap: 'New map',
     addItems: 'Add items',
     myItems: 'My items',
     allItems: 'All items',

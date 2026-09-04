@@ -7,6 +7,7 @@ import {
   ClipboardList,
   ExternalLink,
   FlaskConical,
+  Map as MapIcon,
   Pencil,
   User,
   Users,
@@ -55,7 +56,7 @@ import {
   readViewerData,
 } from '@gratis-gis/shared-types';
 import { EntityBadge } from '@gratis-gis/ui';
-import { ItemTypeBadge } from '@/lib/item-type-icon';
+import { getItemHref, ItemTypeBadge } from '@/lib/item-type-icon';
 import type { CustomBasemap } from '@/lib/custom-basemap';
 import { apiFetch } from '@/lib/api';
 
@@ -891,23 +892,43 @@ export default async function ItemDetailPage(props: Props) {
           }}
         />
       ) : item.type === 'map' && !isBuilderView ? (
+        /* The way into the builder. Gated on `mapItemCanEdit`, NOT on
+           `canManage`: canManage is owner-or-org-admin, so gating the
+           link on it meant anybody else, including a holder of an
+           explicit edit share and every read-only viewer of a public
+           map, got this card with no button at all and no other route
+           in. `?view=configure` has never had its own authorization
+           (the page's only gate is the item read, which 404s), and
+           MapEditor is already branched on canEdit throughout, so the
+           read-only experience existed and was simply unreachable.
+           Anyone who can read the item can now open it; what they get
+           on arrival is still decided by canEdit. */
         <section className="mb-6 flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-1 p-4 shadow-card">
           <div className="min-w-0">
-            <p className="text-sm font-medium text-ink-0">Map configuration</p>
+            <p className="text-sm font-medium text-ink-0">
+              {mapItemCanEdit
+                ? t('mapCard.editTitle', undefined, locale)
+                : t('mapCard.viewTitle', undefined, locale)}
+            </p>
             <p className="mt-0.5 text-xs text-muted">
-              Open the full-screen builder to add layers, configure
-              basemaps and search, and arrange the canvas.
+              {mapItemCanEdit
+                ? t('mapCard.editBody', undefined, locale)
+                : t('mapCard.viewBody', undefined, locale)}
             </p>
           </div>
-          {canManage ? (
-            <Link
-              href={`/items/${item.id}?view=configure`}
-              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground hover:opacity-90"
-            >
+          <Link
+            href={`/items/${item.id}?view=configure`}
+            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground hover:opacity-90"
+          >
+            {mapItemCanEdit ? (
               <Pencil className="h-4 w-4" />
-              Configure
-            </Link>
-          ) : null}
+            ) : (
+              <MapIcon className="h-4 w-4" />
+            )}
+            {mapItemCanEdit
+              ? t('mapCard.editAction', undefined, locale)
+              : t('mapCard.viewAction', undefined, locale)}
+          </Link>
         </section>
       ) : item.type === 'data_layer' ? (
         <>
@@ -1070,25 +1091,44 @@ export default async function ItemDetailPage(props: Props) {
           themeItems={themeItems}
         />
       ) : isCustomAppItem(item) && !isBuilderView ? (
+        /* Same gap the map card had: gating the only action on
+           `canManage` left every non-owner on a dead page. A web app
+           differs from a map in that its viewer route already exists
+           and is a different URL, so the two audiences get two
+           destinations rather than one route in two modes. Readers
+           reaching the app from the items list already land on the
+           runtime via getItemHref; this is the same door for anyone
+           who arrives at the item page instead. */
         <section className="mb-6 flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-1 p-4 shadow-card">
           <div className="min-w-0">
             <p className="text-sm font-medium text-ink-0">
-              Custom web app configuration
+              {canManage
+                ? t('appCard.editTitle', undefined, locale)
+                : t('appCard.viewTitle', undefined, locale)}
             </p>
             <p className="mt-0.5 text-xs text-muted">
-              Open the full-screen builder to drag widgets onto the
-              canvas, arrange pages, and bind data layers.
+              {canManage
+                ? t('appCard.editBody', undefined, locale)
+                : t('appCard.viewBody', undefined, locale)}
             </p>
           </div>
-          {canManage ? (
-            <Link
-              href={`/items/${item.id}?view=configure`}
-              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground hover:opacity-90"
-            >
+          <Link
+            href={
+              canManage
+                ? `/items/${item.id}?view=configure`
+                : getItemHref(item)
+            }
+            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground hover:opacity-90"
+          >
+            {canManage ? (
               <Pencil className="h-4 w-4" />
-              Configure
-            </Link>
-          ) : null}
+            ) : (
+              <ExternalLink className="h-4 w-4" />
+            )}
+            {canManage
+              ? t('appCard.editAction', undefined, locale)
+              : t('appCard.viewAction', undefined, locale)}
+          </Link>
         </section>
       ) : item.type === 'data_collection' ? (
         <section className="mb-6">

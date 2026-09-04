@@ -120,17 +120,53 @@ edit access and a key without the read-only option.
 
 The first two need **download** permission and return 403 without it.
 
+## Standards endpoints
+
+Read-only, standards-compliant, and public where the item is. Each of
+these has a landing document that describes itself, so pointing a
+conforming client at the root is usually enough.
+
 ### OGC API Features
 
-Read-only, standards-compliant, and public where the item is:
-
 ```
+GET /api/public/ogc
+GET /api/public/ogc/conformance
 GET /api/public/ogc/collections
 GET /api/public/ogc/collections/{id}/items?bbox=&limit=&offset=
 ```
 
 Core, GeoJSON, and CRS conformance classes. No CQL filtering and
 `sortby` is rejected; both are planned.
+
+### OGC API Tiles
+
+Vector tiles for each collection, as a WebMercatorQuad tileset.
+Conformance covers core, tileset, tilesets-list, geodata-tilesets and
+mvt.
+
+### OGC API Styles
+
+A MapLibre style document per collection, served as
+`application/vnd.mapbox.style+json`.
+
+### OGC API Records
+
+Catalogue records for discovery, at `/api/public/ogc/records`.
+
+### STAC
+
+A full STAC API root at `/api/public/stac`, with collections and both
+GET and POST item search. This is the endpoint newer QGIS releases use
+to browse rasters without a plugin.
+
+### CSW 2.0.2
+
+A Catalog Service for the Web endpoint at `/api/public/csw`, for
+clients that expect the older OGC catalogue protocol.
+
+Authenticated equivalents of Features and STAC live at `/api/ogc` and
+`/api/stac` and apply the caller's own sharing rules, so an API key
+sees exactly what its owner sees.
 
 ## Errors
 

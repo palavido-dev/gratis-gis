@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, RotateCcw, Trash2 } from 'lucide-react';
 import type { Group, Item } from '@gratis-gis/shared-types';
+import { getItemDisplayLabel } from '@/lib/item-type-icon';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 
 /**
@@ -51,7 +52,12 @@ export function TrashTable({ kind, records, retentionDays }: Props) {
           return {
             id: it.id,
             title: it.title,
-            subtitle: it.type,
+            // The raw ItemType leaked here as "data_layer" and
+            // "data_collection" while every other surface shows the
+            // friendly label. Easy to miss because `subtitle` is
+            // generic: for groups it carries a description, so this
+            // has to be fixed in the items branch only.
+            subtitle: getItemDisplayLabel(it),
             deletedAt: it.deletedAt ? new Date(it.deletedAt) : null,
           };
         }
