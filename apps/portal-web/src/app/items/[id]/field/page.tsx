@@ -420,6 +420,7 @@ export default async function FieldRuntimePage(props: Props) {
       dataCollectionId={dcItem.id}
       title={dcItem.title}
       mapData={mapData}
+      mapId={mapItem.id}
       mapTitle={mapItem.title}
       basemaps={basemaps}
       editableLayers={editableLayers}

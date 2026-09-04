@@ -71,6 +71,13 @@ import {
 } from '@/lib/offline-store';
 import { formatBytes } from '@/lib/format-bytes';
 import { holdReload } from '@/lib/sw-update-guard';
+import { isOnlineNow, useIsOnline } from '@/lib/use-is-online';
+import type {
+  FeatureSheetHit,
+  FeatureSheetState,
+  FormModalState,
+  MapInteractionMode,
+} from './field-surfaces';
 import {
   listRejected,
   newGlobalId,
@@ -352,6 +359,11 @@ interface Props {
   dataCollectionId: string;
   title: string;
   mapData: MapData;
+  /** Item id of the bound map. Recorded in the cached deployment
+   *  manifest so an offline device can say which map its cache came
+   *  from; the manifest field existed but was written as an empty
+   *  string with a comment promising a future pass. */
+  mapId: string;
   mapTitle: string;
   basemaps: CustomBasemap[];
   editableLayers: EditableLayer[];
@@ -439,6 +451,7 @@ export function FieldRuntime({
   dataCollectionId,
   title,
   mapData,
+  mapId,
   mapTitle,
   basemaps,
   editableLayers,
@@ -454,26 +467,37 @@ export function FieldRuntime({
   // mobile-correct destination instead of falling back to item-
   // detail. Cleared on next visit when ?from is absent.
   const searchParams = useSearchParams();
-  const backHref = useMemo(() => {
-    if (typeof window === 'undefined') return `/items/${dataCollectionId}`;
-    const fromParam = searchParams?.get('from');
+  const fromParam = searchParams?.get('from') ?? null;
+  // Starts at the value the server rendered, then resolves against
+  // sessionStorage on the client. Two reasons it is not a useMemo any
+  // more: a memo that writes to sessionStorage is a side effect in
+  // render, which StrictMode runs twice; and reading storage during
+  // render returned a different href than the server had emitted,
+  // which is a hydration mismatch on every deep link that carried a
+  // stored destination.
+  const [backHref, setBackHref] = useState(`/items/${dataCollectionId}`);
+  useEffect(() => {
     const key = `gratis:field:back:${dataCollectionId}`;
     if (fromParam === 'field') {
       try {
         window.sessionStorage.setItem(key, '/field');
       } catch {
-        /* private browsing etc -- best effort */
+        /* private browsing etc; best effort */
       }
-      return '/field';
+      setBackHref('/field');
+      return;
     }
     try {
       const stored = window.sessionStorage.getItem(key);
-      if (stored) return stored;
+      if (stored) {
+        setBackHref(stored);
+        return;
+      }
     } catch {
       /* ignore */
     }
-    return `/items/${dataCollectionId}`;
-  }, [dataCollectionId, searchParams]);
+    setBackHref(`/items/${dataCollectionId}`);
+  }, [dataCollectionId, fromParam]);
 
   // The active template: which (layer, symbology class) pair is armed
   // for add-mode. null = no armed template (the user hasn't picked
@@ -503,63 +527,26 @@ export function FieldRuntime({
   // tapping the X collapses it again.
   const [searchExpanded, setSearchExpanded] = useState(false);
 
-  // #249.16 / #253: Field-Maps-style feature popup state. Tapping a
-  // feature on the map surfaces a bottom sheet (instead of a
-  // MapLibre canvas popup). Two modes:
-  //   - 'list': the user tapped a point with multiple overlapping
-  //     features; show one row per feature with the layer label,
-  //     a swatch, and the row title. Tap a row to drill into detail.
-  //   - 'detail': single feature view: title, full attribute table,
-  //     and Edit / Copy / More action buttons.
-  // The sheet is also expandable from default (~55vh) to fullscreen
-  // (~92vh) so a long attribute list can spread out without leaving
-  // the sheet.
-  type FeatureSheetHit = {
-    /** MapLayer id that produced this hit. */
-    mapLayerId: string;
-    /** Layer label rendered in the sheet header / list row. */
-    layerLabel: string;
-    /** global_id of the feature, if available -- needed for Edit. */
-    globalId: string | null;
-    /** Properties exposed to the user (underscore-prefixed system
-     *  metadata is stripped). */
-    properties: Record<string, unknown>;
-    /** Raw geometry as MapLibre returned it. */
-    geometry: GeoJSON.Geometry | null;
-    /** Editable layer if the user has edit access; null otherwise. */
-    editable: EditableLayer | null;
-  };
-  type FeatureSheetState =
-    | null
-    | { mode: 'list'; hits: FeatureSheetHit[]; expanded: boolean }
-    | {
-        mode: 'detail';
-        hit: FeatureSheetHit;
-        from: 'list' | 'direct';
-        listHits: FeatureSheetHit[];
-        expanded: boolean;
-      };
+  // #249.16 / #253: Field-Maps-style feature popup state. Both shapes
+  // live in ./field-surfaces now; declaring them in this function body
+  // is what forced FieldFeaturePopupSheet to type its props `unknown`
+  // and cast back, and what left the same hit shape written out five
+  // times.
   const [featureSheet, setFeatureSheet] = useState<FeatureSheetState>(null);
 
-  // Form modal state. mode='add' starts with the template's
-  // presetAttributes plus a geometry stamped from the map center;
-  // mode='edit' pre-fills from the tapped feature's properties.
-  const [formModal, setFormModal] = useState<
-    | null
-    | {
-        layer: EditableLayer;
-        mode: 'add';
-        geometry: GeoJSON.Geometry | null;
-        presetAttributes: Record<string, string>;
-      }
-    | {
-        layer: EditableLayer;
-        mode: 'edit';
-        featureId: string;
-        properties: Record<string, unknown>;
-        geometry: GeoJSON.Geometry | null;
-      }
-  >(null);
+  const [formModal, setFormModal] = useState<FormModalState>(null);
+
+  // False once the runtime unmounts. Several long async paths (the
+  // sync run, the deployment load, the download) resolve after a
+  // collector has navigated away, and setting state then is both a
+  // React warning and a way to resurrect a screen they have left.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const canvasRef = useRef<MapCanvasHandle | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -724,24 +711,11 @@ export function FieldRuntime({
     [],
   );
 
-  // Online/offline detection. navigator.onLine is the simplest
-  // signal; combined with online/offline events it covers the
-  // typical "connection dropped" path. We default to online during
-  // SSR-fallback (typeof navigator !== 'undefined' check), then
-  // re-evaluate on mount.
-  const [isOnline, setIsOnline] = useState(true);
-  useEffect(() => {
-    if (typeof navigator === 'undefined') return;
-    setIsOnline(navigator.onLine);
-    const onOnline = () => setIsOnline(true);
-    const onOffline = () => setIsOnline(false);
-    window.addEventListener('online', onOnline);
-    window.addEventListener('offline', onOffline);
-    return () => {
-      window.removeEventListener('online', onOnline);
-      window.removeEventListener('offline', onOffline);
-    };
-  }, []);
+  // Connectivity. One source for the whole runtime; see
+  // lib/use-is-online. This used to be a useState(true) whose comment
+  // described an initialiser that was not there, so an offline boot
+  // rendered its first pass in online mode.
+  const isOnline = useIsOnline();
 
   // Tier 4 beacon: post a queue manifest on mount so the admin view
   // sees a fresh row every time a worker opens the runtime. The
@@ -749,8 +723,7 @@ export function FieldRuntime({
   // online-flip) won't double-post inside the same window. See
   // docs/field-offline-areas.md.
   useEffect(() => {
-    if (typeof navigator === 'undefined') return;
-    if (!navigator.onLine) return;
+    if (!isOnlineNow()) return;
     void postQueueManifestThrottled();
   }, []);
 
@@ -964,11 +937,28 @@ export function FieldRuntime({
   // queue store on these dep changes is cheap (the read is keyed by
   // deployment) and avoids a separate event bus.
   useEffect(() => {
+    let cancelled = false;
     void (async () => {
-      const records = await listQueue(dataCollectionId);
-      setQueueCount(records.filter((r) => r.syncStatus !== 'rejected').length);
-      setRejectedRecords(await listRejected(dataCollectionId));
+      try {
+        const records = await listQueue(dataCollectionId);
+        if (cancelled) return;
+        setQueueCount(
+          records.filter((r) => r.syncStatus !== 'rejected').length,
+        );
+        const rejected = await listRejected(dataCollectionId);
+        if (cancelled) return;
+        setRejectedRecords(rejected);
+      } catch {
+        // IndexedDB refused (private mode, another tab holding an
+        // upgrade). The badge keeps its last value rather than the
+        // whole runtime failing on a counter; the drains surface any
+        // real problem. Previously this threw into an unhandled
+        // rejection, and a run of it could also land after unmount.
+      }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [dataCollectionId, offlineWriteCounter, lastSyncResult]);
 
   // The actual sync runner. Wrapped in a callback so both the
@@ -987,7 +977,14 @@ export function FieldRuntime({
       lastSyncAttemptRef.current = now;
       setSyncing(true);
       try {
-        const result = await syncQueue(dataCollectionId);
+        // A person pressing "Sync now" skips the retry backoff. They
+        // are watching, and a button that declines to do anything
+        // because a ladder they cannot see says "not yet" reads as
+        // broken. Automatic runs leave the ladder in place.
+        const result = await syncQueue(dataCollectionId, {
+          manual: reason === 'manual',
+        });
+        if (!mountedRef.current) return;
         setLastSyncResult(result);
         // After a successful sync the live API reflects the queued
         // edits; refresh every editable layer's source so the user
@@ -996,7 +993,7 @@ export function FieldRuntime({
         // forces the cached-features read to re-run, which keeps the
         // offline GeoJSON path consistent if the user goes back
         // offline immediately after.
-        if (typeof navigator !== 'undefined' && navigator.onLine) {
+        if (isOnlineNow()) {
           for (const ml of mapData.layers ?? []) {
             const source = ml.source;
             if (source?.kind !== 'data-layer') continue;
@@ -1009,8 +1006,34 @@ export function FieldRuntime({
         // exactly the signal admins want to see). Throttled, so the
         // mount-time + sync-time + online-flip beacons coalesce.
         void postQueueManifestThrottled();
+      } catch (err) {
+        // syncQueue isolates each record, so reaching here means the
+        // queue read itself failed (IndexedDB refused, private mode).
+        // Callers fire this with `void`, so without a catch it lands
+        // as an unhandled rejection and the user sees nothing.
+        if (mountedRef.current) {
+          setLastSyncResult({
+            processed: 0,
+            synced: 0,
+            failed: 0,
+            rejected: 0,
+            remaining: 0,
+            errors: [
+              {
+                recordId: '',
+                op: 'update',
+                layerLabel: '',
+                reason:
+                  err instanceof Error
+                    ? err.message
+                    : 'Could not read the offline queue.',
+                terminal: false,
+              },
+            ],
+          });
+        }
       } finally {
-        setSyncing(false);
+        if (mountedRef.current) setSyncing(false);
       }
     },
     [dataCollectionId, mapData.layers],
@@ -1045,6 +1068,14 @@ export function FieldRuntime({
   // because the modal's Cancel needs the CURRENT controller, and a
   // state update would hand it whichever one the closure captured.
   const downloadAbortRef = useRef<AbortController | null>(null);
+  // "Is a download already running", as a ref rather than derived from
+  // downloadProgress. startDownload read the progress state for this,
+  // which put downloadProgress in its dependency array, which rebuilt
+  // the callback on every progress tick of the very download it was
+  // guarding. It also could not stop a double tap: the guard runs
+  // before the abort controller exists, so two taps in the gap both
+  // passed. Set synchronously at entry, cleared on every exit.
+  const downloadRunningRef = useRef(false);
   // #71: prepared offline basemaps for this deployment. Held at this
   // level because two places need it: the layer panel renders the
   // download row, and MapCanvas takes the resulting style.
@@ -1101,10 +1132,8 @@ export function FieldRuntime({
   }, []);
 
   const startDownload = useCallback(async () => {
-    if (downloadProgress?.phase && downloadProgress.phase !== 'done' &&
-        downloadProgress.phase !== 'failed') {
-      return; // already running
-    }
+    if (downloadRunningRef.current) return; // already running
+    downloadRunningRef.current = true;
     // Slice 6 step 1: ask the browser to mark our origin's storage
     // as "important" before any bytes land in IndexedDB. The prompt
     // reads as natural follow-up to the user's Download click; if
@@ -1214,7 +1243,7 @@ export function FieldRuntime({
     const downloadInput = {
       dataCollectionId,
       title,
-      mapId: '', // will be set by the caller of FieldRuntime in a future pass; not load-bearing
+      mapId,
       layers: downloadLayers,
       pickListIds: Array.from(pickListIdSet),
       ...(viewportBbox !== undefined ? { bbox: viewportBbox } : {}),
@@ -1259,6 +1288,7 @@ export function FieldRuntime({
           quota.shortfallBytes,
         )} too little room. Free up cached deployments or device storage, or lower the detail level, and try again.`,
       });
+      downloadRunningRef.current = false;
       return;
     }
 
@@ -1303,6 +1333,7 @@ export function FieldRuntime({
       });
     } finally {
       downloadAbortRef.current = null;
+      downloadRunningRef.current = false;
     }
     // `boundForms` and the zoom pickers were already missing here,
     // and #71 added a third omission that made the bug visible: the
@@ -1315,10 +1346,10 @@ export function FieldRuntime({
     // told about, because neither report is wrong.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    downloadProgress,
     editableLayers,
     dataCollectionId,
     title,
+    mapId,
     offlineBasemap.areas,
     offlineBasemap.reload,
     boundForms,
@@ -1442,8 +1473,39 @@ export function FieldRuntime({
   // mode changes. The handler is a no-op outside the gated state, so
   // the existing popup/feature-tap behaviour in MapCanvas keeps
   // working in non-collect mode.
-  const isPointAddCollect =
-    formModal?.mode === 'add' && formModal.layer.geometryType === 'point';
+  //
+  // What a tap means is derived ONCE, here. It used to be three
+  // separate booleans computed in three places, each the gate for its
+  // own map.on('click'), kept disjoint only by the three conditions
+  // happening to agree. They did agree, but nothing said so and
+  // nothing checked: two of the eight combinations fell through every
+  // predicate and registered no handler at all, which is a decision
+  // ("taps do nothing here") that was never written down anywhere.
+  // One derived value makes the exclusivity structural, and names the
+  // dead combinations as 'inert' on purpose.
+  const interactionMode: MapInteractionMode = useMemo(() => {
+    if (formModal !== null) {
+      // A collect form is open. The only tap that still means
+      // something is moving the point being collected; a line or
+      // polygon is already committed by the time its form opens, and
+      // an edit form does not reposition.
+      return formModal.mode === 'add' &&
+        formModal.layer.geometryType === 'point'
+        ? 'collect-point'
+        : 'inert';
+    }
+    if (activeTemplate !== null) {
+      // A point template arms and commits in the same gesture (the
+      // picker calls commitTemplateAt), so there is no window where a
+      // point template is armed and waiting for a tap.
+      return activeTemplate.layer.geometryType === 'point'
+        ? 'inert'
+        : 'collect-vertex';
+    }
+    return 'inspect';
+  }, [formModal, activeTemplate]);
+
+  const isPointAddCollect = interactionMode === 'collect-point';
   useEffect(() => {
     if (!isPointAddCollect) return;
     const map = mapRef.current;
@@ -1478,14 +1540,9 @@ export function FieldRuntime({
   }, [isPointAddCollect]);
 
   // #273: tap-to-add-vertex during line/polygon collection. The
-  // effect itself lives below commitTemplateAt's declaration so
-  // the closure captures it without a hoist error; this gate is
-  // declared up front because featureSheetGate (next block) reads
-  // it.
-  const isLineOrPolyArming =
-    activeTemplate !== null &&
-    activeTemplate.layer.geometryType !== 'point' &&
-    formModal === null;
+  // effect itself lives below commitTemplateAt's declaration so the
+  // closure captures it without a hoist error.
+  const isLineOrPolyArming = interactionMode === 'collect-vertex';
 
   // #249.16 / #253: Field-Maps-style tap-to-popup. When the user
   // taps a feature on the canvas (and we're not in template-arming
@@ -1495,11 +1552,9 @@ export function FieldRuntime({
   // No hit -> close any open sheet so a clear-canvas tap dismisses
   // the popup.
   //
-  // Gated to formModal === null AND activeTemplate === null AND
-  // !isPointAddCollect so the existing collect / template-arming /
-  // override-tap paths stay untouched.
-  const featureSheetGate =
-    formModal === null && activeTemplate === null && !isPointAddCollect;
+  // Runs only in 'inspect' mode, so the collect and template-arming
+  // paths cannot also be listening.
+  const featureSheetGate = interactionMode === 'inspect';
   // #273: when the user cancels a line/polygon template (X on the
   // chip in the footer), drop any vertices they'd accumulated.
   // Done as an effect so the cleanup runs even if the cancel comes
@@ -1676,78 +1731,17 @@ export function FieldRuntime({
   // Edit workflow, and matches the desktop map item where popups
   // already work the same way.
   //
-  // The block below is left in place but disabled so the field
-  // runtime's onClick listener is gone. Reintroduce when the
-  // popup-with-Edit-button surface lands and we wire its Edit
-  // button to setFormModal.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  function _legacyTapToEditEffect(): void {
-    const map = mapRef.current;
-    if (!map) return;
-    const liveMap = map; // narrow non-null inside the closure below
-    const editableMapLayerIds: string[] = [];
-    for (const ml of mapData.layers ?? []) {
-      const source = ml.source;
-      if (source?.kind !== 'data-layer') continue;
-      const sourceItemId = source.itemId;
-      const sourceLayerKey = source.layerKey;
-      const matches = editableLayers.some(
-        (e) =>
-          e.dataLayerId === sourceItemId &&
-          (sourceLayerKey ? e.layerKey === sourceLayerKey : true),
-      );
-      if (matches) editableMapLayerIds.push(ml.id);
-    }
-
-    function onClick(e: maplibregl.MapMouseEvent) {
-      const styleLayerIds = new Set<string>(
-        liveMap.getStyle().layers?.map((l) => l.id) ?? [],
-      );
-      const queryLayerIds = editableMapLayerIds
-        .flatMap((id) => [`${id}-fill`, `${id}-line`, `${id}-circle`, id])
-        .filter((id) => styleLayerIds.has(id));
-      const hits = queryLayerIds.length
-        ? liveMap.queryRenderedFeatures(e.point, { layers: queryLayerIds })
-        : [];
-      const hit = hits[0];
-      if (!hit) return;
-
-      const mapLayerId = (hit.layer as { id?: string }).id ?? '';
-      const sourceMapLayer = (mapData.layers ?? []).find((ml) =>
-        mapLayerId.startsWith(ml.id),
-      );
-      if (!sourceMapLayer) return;
-      if (sourceMapLayer.source?.kind !== 'data-layer') return;
-      const sourceItemId = sourceMapLayer.source.itemId;
-      const sourceLayerKey = sourceMapLayer.source.layerKey;
-      const editable = editableLayers.find(
-        (l) =>
-          l.dataLayerId === sourceItemId && l.layerKey === sourceLayerKey,
-      );
-      if (!editable) return;
-      const props = (hit.properties as Record<string, unknown> | null) ?? {};
-      const featureId =
-        typeof props._global_id === 'string'
-          ? (props._global_id as string)
-          : null;
-      if (!featureId) return;
-      const geometry = (hit.geometry as GeoJSON.Geometry | null) ?? null;
-      const cleanProps: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(props)) {
-        if (k.startsWith('_')) continue;
-        cleanProps[k] = v;
-      }
-      setFormModal({
-        layer: editable,
-        mode: 'edit',
-        featureId,
-        properties: cleanProps,
-        geometry,
-      });
-    }
-    map.on('click', onClick);
-  }
-  void _legacyTapToEditEffect; // referenced to silence unused-warning
+  // The popup-with-Edit-button surface it was waiting for has since
+  // shipped: FieldFeaturePopupSheet's Edit action opens the form in
+  // edit mode, which is what the dead copy below was preserved to do.
+  // Deleted rather than left disabled, because it was not inert. It
+  // held a stale duplicate of the hit test keyed on the layer-id
+  // suffixes that the live copy's own comment records as the bug that
+  // made the sheet never open, and it ended in a `map.on('click')`
+  // with no matching `off`, so anything that called it would have
+  // leaked a listener that fought the live one. A function nobody
+  // calls, kept alive by a `void` reference to silence the linter, is
+  // a trap for whoever calls it next.
 
   // Commit the active template: drop a feature at the current map
   // center and open the form pre-filled with presetAttributes. Used
@@ -1794,12 +1788,11 @@ export function FieldRuntime({
       // vertex onto pendingVertices and refreshes the preview, but
       // does NOT commit -- the user has to tap Finish on the footer
       // when they have enough vertices.
-      const isPolygon = tpl.layer.geometryType === 'polygon';
-      setPendingVertices((prev) => {
-        const next: Array<[number, number]> = [...prev, [lon, lat]];
-        refreshPreviewGeom(next, tpl.color, isPolygon);
-        return next;
-      });
+      // The updater stays pure. Redrawing the MapLibre preview from
+      // inside it meant a style mutation during render, which React
+      // StrictMode runs twice.  The preview is refreshed by an effect
+      // on pendingVertices instead, one frame later and once.
+      setPendingVertices((prev) => [...prev, [lon, lat]]);
       // Vertex marker (dot at the tapped location). Smaller than the
       // point-template marker so the polyline reads as the primary
       // visual.
@@ -1823,25 +1816,37 @@ export function FieldRuntime({
   const undoLastVertex = useCallback(() => {
     const tpl = activeTemplate;
     if (!tpl) return;
-    setPendingVertices((prev) => {
-      if (prev.length === 0) return prev;
-      const next = prev.slice(0, -1);
-      const removed = vertexMarkersRef.current.pop();
-      if (removed) {
-        try {
-          removed.remove();
-        } catch {
-          /* ignore */
-        }
+    if (pendingVertices.length === 0) return;
+    // Popping the marker used to happen INSIDE the state updater, so
+    // StrictMode's double invocation removed two markers for one
+    // undo: the dots on the map and the vertex count disagreed from
+    // the first undo onward. Marker teardown is an effect on the
+    // world, so it belongs out here with the rest of them.
+    const removed = vertexMarkersRef.current.pop();
+    if (removed) {
+      try {
+        removed.remove();
+      } catch {
+        /* maplibre is forgiving here; ignore */
       }
-      refreshPreviewGeom(
-        next,
-        tpl.color,
-        tpl.layer.geometryType === 'polygon',
-      );
-      return next;
-    });
-  }, [activeTemplate, refreshPreviewGeom]);
+    }
+    setPendingVertices((prev) => (prev.length === 0 ? prev : prev.slice(0, -1)));
+  }, [activeTemplate, pendingVertices.length]);
+
+  // Keep the preview line / ring in step with the vertices. Driven
+  // off state rather than written at each mutation site, so the two
+  // cannot disagree and neither push nor undo has to remember to
+  // redraw. Clearing is still explicit (clearVertices removes the
+  // source), so this only ever draws.
+  useEffect(() => {
+    const tpl = activeTemplate;
+    if (!tpl || pendingVertices.length === 0) return;
+    refreshPreviewGeom(
+      pendingVertices,
+      tpl.color,
+      tpl.layer.geometryType === 'polygon',
+    );
+  }, [pendingVertices, activeTemplate, refreshPreviewGeom]);
 
   /**
    * #273: finalize the in-progress geometry and open the form
@@ -4692,16 +4697,7 @@ function FieldFeaturePopupSheet({
   onCopy,
   onOpenRelated,
 }: {
-  state: NonNullable<
-    | { mode: 'list'; hits: Array<unknown>; expanded: boolean }
-    | {
-        mode: 'detail';
-        hit: unknown;
-        from: 'list' | 'direct';
-        listHits: Array<unknown>;
-        expanded: boolean;
-      }
-  >;
+  state: NonNullable<FeatureSheetState>;
   /** #265: data_collection id for the offline-queue read in
    *  useRelatedRowsByChild. Same value that the runtime hands to the
    *  FormModal. */
@@ -4714,60 +4710,10 @@ function FieldFeaturePopupSheet({
    *  so the FormModal can open with the full EditableLayer (fields,
    *  form binding, etc.). */
   editableLayers: EditableLayer[];
-  onChangeState: (
-    next:
-      | null
-      | {
-          mode: 'list';
-          hits: Array<{
-            mapLayerId: string;
-            layerLabel: string;
-            globalId: string | null;
-            properties: Record<string, unknown>;
-            geometry: GeoJSON.Geometry | null;
-            editable: EditableLayer | null;
-          }>;
-          expanded: boolean;
-        }
-      | {
-          mode: 'detail';
-          hit: {
-            mapLayerId: string;
-            layerLabel: string;
-            globalId: string | null;
-            properties: Record<string, unknown>;
-            geometry: GeoJSON.Geometry | null;
-            editable: EditableLayer | null;
-          };
-          from: 'list' | 'direct';
-          listHits: Array<{
-            mapLayerId: string;
-            layerLabel: string;
-            globalId: string | null;
-            properties: Record<string, unknown>;
-            geometry: GeoJSON.Geometry | null;
-            editable: EditableLayer | null;
-          }>;
-          expanded: boolean;
-        },
-  ) => void;
+  onChangeState: (next: FeatureSheetState) => void;
   onClose: () => void;
-  onEdit: (hit: {
-    mapLayerId: string;
-    layerLabel: string;
-    globalId: string | null;
-    properties: Record<string, unknown>;
-    geometry: GeoJSON.Geometry | null;
-    editable: EditableLayer | null;
-  }) => void;
-  onCopy: (hit: {
-    mapLayerId: string;
-    layerLabel: string;
-    globalId: string | null;
-    properties: Record<string, unknown>;
-    geometry: GeoJSON.Geometry | null;
-    editable: EditableLayer | null;
-  }) => void;
+  onEdit: (hit: FeatureSheetHit) => void;
+  onCopy: (hit: FeatureSheetHit) => void;
   /** #265: open a child related record straight from the popup. The
    *  runtime owns the FormModal so the popup just hands off the
    *  resolved (childLayer, feature) pair. */
@@ -4780,26 +4726,10 @@ function FieldFeaturePopupSheet({
     },
   ) => void;
 }) {
-  // Cast through unknown to the concrete shape the parent passes; the
-  // public prop type uses unknown to avoid duplicating the type alias
-  // outside the parent's lexical scope.
-  type Hit = {
-    mapLayerId: string;
-    layerLabel: string;
-    globalId: string | null;
-    properties: Record<string, unknown>;
-    geometry: GeoJSON.Geometry | null;
-    editable: EditableLayer | null;
-  };
-  const concrete = state as
-    | { mode: 'list'; hits: Hit[]; expanded: boolean }
-    | {
-        mode: 'detail';
-        hit: Hit;
-        from: 'list' | 'direct';
-        listHits: Hit[];
-        expanded: boolean;
-      };
+  // The cast that used to be here is gone: the props are the real
+  // types now, so the sheet and the runtime are checked against the
+  // same declaration instead of agreeing by convention.
+  const concrete = state;
 
   const expanded = concrete.expanded;
   const sheetClass = expanded
