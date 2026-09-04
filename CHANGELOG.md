@@ -5,6 +5,73 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [0.9.108] - 2026-09-04
+
+Field app release. An audit of the offline collection arc found two
+ways for a collector's work to disappear and one way for the installed
+app not to work offline at all; this fixes those and the mobile
+behaviour around them.
+
+### Fixed
+
+- **An offline edit no longer destroys the capture it edits.** Adding a
+  feature with no signal and then correcting one of its attributes
+  replaced the pending create with an update, which the server refused
+  (it had never heard of the feature) and the app then parked as
+  permanently failed. The only choices offered were to retry it
+  forever or throw it away. Edits to an unsent capture now merge into
+  it, and several edits to one feature cost one upload instead of
+  several.
+- **The installed field app works when opened with no signal.** It
+  listed the deployments cached on the device and then dead-ended on
+  the browser's no-internet page when you tapped one, because the
+  deployment screen itself was never cached. It is now, with the
+  deployment list as the fallback if a deployment has never been
+  opened on that device.
+- **Tapping a deployment no longer throws you out of the installed
+  app.** The app declared a narrower scope than the pages it navigates
+  to, so Android opened them in a browser tab and iOS dropped the
+  full-screen mode. Anyone who installs the field app to their home
+  screen hit this on the first tap.
+- **The Android back button closes the open sheet instead of leaving
+  the app.** Pressing it during a collect exited and discarded the
+  form.
+- **Forms are usable with the keyboard open on iOS.** The sheet sat
+  behind the keyboard, so the field being typed into was often the one
+  that could not be seen. Both sheets a collector uses most were also
+  sized against a viewport that assumed the browser's URL bar was
+  hidden, cutting off their bottom edge.
+- **Cancelling a part-filled form asks first.** It used to discard
+  immediately, so a mis-tap beside Submit lost everything gathered at
+  that stop.
+- **A refused submit takes you to the problem.** On a long form the
+  validation message was often several screens below the fold, so
+  Submit looked like it did nothing.
+- **Tapping a feature no longer hides it.** The details sheet opened
+  over the feature that had just been tapped; the map now moves out
+  from under it.
+- **A blocked location permission says so.** Previously the locate
+  button just greyed out with no explanation of why or how to fix it.
+- **"Remove from device" reclaims the offline map.** The largest part
+  of a download, often the majority of its size, stayed on the device
+  and in the storage total after removal.
+- **Signing out clears the cached data.** Cached features, forms and
+  pick lists from the previous session stayed readable on a shared
+  tablet by whoever picked it up next. Unsent captures are deliberately
+  kept, and sign-out now warns when there are any.
+
+### Changed
+
+- Failed uploads back off between attempts instead of retrying at full
+  speed, and a lost connection no longer counts against that: walking
+  back into coverage retries immediately.
+- A download that could not fetch everything says what is missing
+  rather than reporting itself as ready for offline use, and the space
+  check before a download now accounts for map tiles, which usually
+  dominate the size.
+- Each deploy refreshes the offline app automatically, and an update
+  can no longer reload the page while a form is open.
+
 ## [0.9.107] - 2026-09-03
 
 ### Changed
