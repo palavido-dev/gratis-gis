@@ -14,12 +14,17 @@
  * default; the seeded order then the earliest item are the fallbacks.
  */
 
+import type { BuiltinBasemapSeedKey } from '@gratis-gis/shared-types';
+
 export interface BasemapCandidate {
   id: string;
   data: unknown;
 }
 
-export const DEFAULT_BASEMAP_SEED_KEY = 'osm';
+// Typed against the seeded list so a key that no seeder ever writes
+// cannot compile; untyped, a typo here would quietly demote every new
+// map to the "any seeded" fallback.
+export const DEFAULT_BASEMAP_SEED_KEY: BuiltinBasemapSeedKey = 'osm';
 
 function seededKeyOf(c: BasemapCandidate): string | null {
   const k = (c.data as { seededKey?: unknown } | null)?.seededKey;

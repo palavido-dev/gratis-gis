@@ -5,6 +5,44 @@ All notable changes to GratisGIS are recorded here. The format follows
 versioning policy, including what counts as a breaking change before
 v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
+## [Unreleased]
+
+### Added
+
+- **Photos can be taken offline, and before the record exists.** The
+  field app could not attach a photo without a connection, and could
+  not attach one to a feature that was still being created. A captured
+  file is now stored on the device against the feature and uploaded
+  once the feature itself has landed; a record is not reported as
+  synced while its photo is still on the phone. Photos follow their
+  feature if it is deleted, discarded or removed with the deployment,
+  and owed photos count as unsent work at sign-out.
+
+### Changed
+
+- The item page's "Access" tab is now "Share", which is what lives in
+  it. Old `#access` links still land. A map's card offers its owner
+  "Open map" rather than "Configure", since both led to the same place;
+  a custom web app's editor button is "Open builder".
+- Several places that named a format or a system noun now say what it
+  means where that decides whether a feature is for you: the table
+  name field shows an example instead of "snake_case", the import drop
+  zone leads with "a spreadsheet with coordinates", the metadata
+  importer says which software exports such a file, and four item
+  types on the New item page carry a plain-language job line.
+
+### Internal
+
+- portal-web has a test runner. Eighteen specs cover the offline
+  store's storage and sync layer against a spec-conformant IndexedDB:
+  the edit fold, the atomic claim, the two-enqueue race, and the
+  photo lifecycle. `src/lib` only; component tests are a separate
+  decision.
+- The field collect flow's strings go through the i18n catalogue
+  (form chrome, photos and files, GPS strip, download refusals, the
+  sign-out guard). Nothing a reader sees changes today; the other four
+  locales fall back to English.
+
 ## [0.9.109] - 2026-09-04
 
 ### Fixed
@@ -19,10 +57,48 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 Field app release. An audit of the offline collection arc found two
 ways for a collector's work to disappear and one way for the installed
 app not to work offline at all; this fixes those and the mobile
-behaviour around them.
+behaviour around them. It also carries the first round of fixes from
+a usability audit of the portal itself.
+
+### Added
+
+- **Import a CSV with coordinate columns.** (#160) The help article
+  described this and nothing accepted a `.csv`. The New Data Layer
+  wizard and the detail-page import now take one, detect the
+  coordinate columns from a sample of the file (`LAT` / `LNG`,
+  `x` / `y` and the like, not only `latitude` / `longitude`), and
+  stream it through the same path as every other format with no size
+  ceiling. The source columns stay in the attribute table.
+- **The import drop zone accepts a drop.** It had said "Drop a spatial
+  file" without ever handling one, so a drop navigated the browser to
+  the file and discarded the half-filled wizard. A stray drop anywhere
+  on the page while the panel is open is swallowed for the same reason.
+- **GeoJSON joins the export menu.** The writer existed and was
+  reachable from no UI. Both export menus also confirm what was
+  written, with a row count and the format, and say so when a layer
+  had no rows or the export failed, instead of closing silently.
 
 ### Fixed
 
+- **Anyone who can read a map or web app can open it.** The card on an
+  item's Overview showed its only button to owners and org admins, so a
+  map shared with you had no way in. Readers get "Open map" into the
+  existing read-only view; editors keep the builder.
+- **The map search bar stops guessing.** A fully qualified place name
+  that the geocoder did not know came back as "try a longer query". It
+  now distinguishes a geocoder that is unavailable from a place that
+  did not match, and says which.
+- **List view shows titles at laptop widths.** Between roughly 640 and
+  1000 pixels the title column collapsed to zero width and the type
+  column rendered where the title should be, so a search for "bridges"
+  listed three items as "Data layer", "Map", "Custom web app". Columns
+  now appear as the room for them appears.
+- **Dialogs open centred.** The open animation replaced the centring
+  transform for its first 180 ms, which put every dialog down and to
+  the right and could clip a confirm off a narrow window.
+- **Editing a row shows the validation message, not the HTTP
+  envelope.** Typing 18.5 into a whole-number field showed the JSON
+  body; it shows the sentence inside it.
 - **An offline edit no longer destroys the capture it edits.** Adding a
   feature with no signal and then correcting one of its attributes
   replaced the pending create with an update, which the server refused
@@ -80,6 +156,19 @@ behaviour around them.
   dominate the size.
 - Each deploy refreshes the offline app automatically, and an update
   can no longer reload the page while a form is open.
+
+### Security
+
+- **Creating an item requires `can_publish_items`.** `POST /api/items`
+  had no authorization check beyond a valid login, so a viewer could
+  create an item, become its owner, and hold edit, share and delete on
+  it through the owner rule. The check now sits in the one place every
+  caller passes through. portal-web stops offering viewers a wizard
+  whose last click was a 403.
+- The CSV coordinate sniff reads only files that resolve inside the
+  ingest staging roots. The path it receives is server-built, so this
+  is defence in depth against a static analysis finding rather than a
+  live hole.
 
 ## [0.9.107] - 2026-09-03
 

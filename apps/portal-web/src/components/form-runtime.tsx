@@ -384,11 +384,11 @@ function QuestionField({
   ) : null;
 
   return (
-    // data-invalid is what the submit handler scrolls to. Marked on
-    // the wrapper rather than the control because a question can
-    // render several inputs (a matrix, a select-many) and the label is
-    // the part worth bringing into view.
-    <div className="space-y-1" data-question-id={q.id} data-invalid={error ? '' : undefined}>
+    // data-question-id is what the submit handler scrolls to on a
+    // failed validation. Marked on the wrapper rather than the control
+    // because a question can render several inputs (a matrix, a
+    // select-many) and the label is the part worth bringing into view.
+    <div className="space-y-1" data-question-id={q.id}>
       <label
         className="block text-sm font-medium text-ink-0"
         htmlFor={q.id}
@@ -407,10 +407,15 @@ function QuestionField({
           </p>
         </details>
       ) : null}
-      {/* aria-invalid on a wrapper is not what assistive tech reads,
-          so it goes on the control itself; the describedby ties the
-          message to it so a screen reader announces the reason rather
-          than just "invalid". */}
+      {/* A wrapper, not the control, carries aria-invalid and the
+          describedby because `Input` is a switch over every question
+          type and does not forward attributes, and a matrix or a
+          select-many renders several controls with no single one to
+          mark. Assistive tech reads these reliably only off the
+          focused control, so today the announcement comes from the
+          role="alert" message below; moving the attributes onto each
+          control means threading them through `Input`, which is the
+          real fix and is still owed. */}
       <div
         {...(error
           ? { 'aria-invalid': true, 'aria-describedby': `${q.id}-error` }

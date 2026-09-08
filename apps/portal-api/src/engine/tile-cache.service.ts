@@ -5,7 +5,10 @@ import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { Client as PgClient } from 'pg';
 
 /**
- * In-process LRU cache for MVT tile buffers.
+ * In-process LRU cache for MVT tile buffers and, since the dashboard
+ * work, aggregate result JSON (`DataLayerEngine.aggregateFeatures`
+ * stores its answers here under `<scope>|agg|<hash>` with a longer
+ * TTL and a waiting lane; see `getOrCompute`'s options).
  *
  * The mvtTile path is a hot read: a single map view can fan out
  * to 20-50 tile requests, multiple anonymous clients hit the
@@ -75,9 +78,11 @@ export class TileCacheService implements OnModuleDestroy {
    *  cap saves us from N hot tiles each running ONE query and
    *  collectively draining the Prisma pool.
    *
-   *  Pool size on prod is currently 9 per replica (memory:
-   *  `project_gratisgis_ogc_tiles_pool_storm_2026_05_21`). 8
-   *  leaves room for non-tile traffic. */
+   *  The Prisma pool is 25 per replica by default (`DB_POOL_MAX` in
+   *  prisma.service.ts; it was 9 when this cap was chosen, memory:
+   *  `project_gratisgis_ogc_tiles_pool_storm_2026_05_21`). 8 keeps
+   *  tile computes to a third of it so item reads, auth upserts and
+   *  writes are never queued behind a pan. */
   private readonly maxConcurrentComputes: number;
 
   /** Wall-clock cap on a single compute callback. The DB's
@@ -124,14 +129,28 @@ export class TileCacheService implements OnModuleDestroy {
    */
   private invalidationSeq = 0;
   private readonly invalidatedAtSeq = new Map<string, number>();
+  /**
+   * Sequence position of the last `clear()`. A compute that straddles
+   * a clear read state of unknown freshness relative to whatever
+   * prompted the clear (the listener coming up, an operator reset),
+   * so it is served but not stored, the same as a mid-compute write.
+   */
+  private clearedAtSeq = 0;
 
   /**
    * Keys that must ALSO drop when some other prefix is invalidated.
    * A via aggregate is keyed under the child scope but its answer
    * depends on the parent scope's rows too; a write to the parent
    * would otherwise leave it stale for a TTL.
+   *
+   * `dependencyPrefixes` is the reverse index (key to the prefixes it
+   * registered under) so that evicting, expiring or clearing a key
+   * removes it from every set it sits in. Without it the sets only
+   * ever grew: an aggregate that was evicted for space stayed listed
+   * under its parent until that parent was next written.
    */
   private readonly dependents = new Map<string, Set<string>>();
+  private readonly dependencyPrefixes = new Map<string, Set<string>>();
 
   /**
    * Named concurrency lanes for computes that should WAIT when the
@@ -177,8 +196,7 @@ export class TileCacheService implements OnModuleDestroy {
       return null;
     }
     if (entry.expiresAt < Date.now()) {
-      this.entries.delete(key);
-      this.currentBytes -= entry.buf.length;
+      this.dropEntry(key);
       this.misses += 1;
       return null;
     }
@@ -201,6 +219,8 @@ export class TileCacheService implements OnModuleDestroy {
   set(key: string, buf: Buffer, ttlMs: number = this.ttlMs): string {
     const prior = this.entries.get(key);
     if (prior !== undefined) {
+      // Replace bytes only; a dependency the caller registered for
+      // this key before storing it must survive the store.
       this.currentBytes -= prior.buf.length;
       this.entries.delete(key);
     }
@@ -221,14 +241,38 @@ export class TileCacheService implements OnModuleDestroy {
     ) {
       const oldestKey = this.entries.keys().next().value;
       if (oldestKey === undefined) break;
-      const oldest = this.entries.get(oldestKey);
-      if (oldest === undefined) break;
-      this.currentBytes -= oldest.buf.length;
-      this.entries.delete(oldestKey);
+      if (!this.dropEntry(oldestKey)) break;
       this.evictions += 1;
     }
 
     return etag;
+  }
+
+  /**
+   * Remove one entry and every dependency registration that points at
+   * it. The single exit for a key, whatever the reason (eviction,
+   * expiry, invalidation), so the dependents index cannot outlive the
+   * entries it describes. Returns false when the key was not stored.
+   */
+  private dropEntry(key: string): boolean {
+    const entry = this.entries.get(key);
+    if (entry === undefined) return false;
+    this.currentBytes -= entry.buf.length;
+    this.entries.delete(key);
+    this.unregisterDependencies(key);
+    return true;
+  }
+
+  private unregisterDependencies(key: string): void {
+    const prefixes = this.dependencyPrefixes.get(key);
+    if (!prefixes) return;
+    this.dependencyPrefixes.delete(key);
+    for (const prefix of prefixes) {
+      const set = this.dependents.get(prefix);
+      if (!set) continue;
+      set.delete(key);
+      if (set.size === 0) this.dependents.delete(prefix);
+    }
   }
 
   /**
@@ -343,16 +387,23 @@ export class TileCacheService implements OnModuleDestroy {
           // held the process open for 35 s after every tile in tests.
           if (timer) clearTimeout(timer);
         });
-        // A write to this scope landed while we were computing:
-        // serve the bytes, but do not cache what may already be
-        // stale. The next request recomputes.
-        const prefix = key.slice(0, key.indexOf('|') + 1);
-        const droppedAtSeq = this.invalidatedAtSeq.get(prefix);
-        if (droppedAtSeq !== undefined && droppedAtSeq > seqAtStart) {
+        // A write to this scope, or to any scope this entry depends
+        // on, landed while we were computing: serve the bytes, but do
+        // not cache what may already be stale. The next request
+        // recomputes. Checking the parents here matters because the
+        // dependency is not registered until the store below, so an
+        // `invalidatePrefix(parent)` during the compute had nothing
+        // to drop.
+        if (this.invalidatedSince(seqAtStart, key, opts.dependsOn)) {
           return { buf, etag: computeEtag(key, buf) };
         }
-        const etag = this.set(key, buf, opts.ttlMs);
+        // Register before storing, not after: nothing yields between
+        // the two, but a store that evicts this very key (a buffer
+        // larger than the byte cap) prunes the registration on the
+        // way out, whereas registering afterwards would leave a
+        // dependent with no entry behind it.
         for (const dep of opts.dependsOn ?? []) this.registerDependency(dep, key);
+        const etag = this.set(key, buf, opts.ttlMs);
         return { buf, etag };
       } finally {
         if (lane) this.releaseLane(lane.name);
@@ -376,29 +427,47 @@ export class TileCacheService implements OnModuleDestroy {
     this.invalidatedAtSeq.set(prefix, this.invalidationSeq);
     this.invalidations += 1;
     let dropped = 0;
+    // Deleting from a Map while iterating its keys is defined
+    // behaviour in JS (the iterator skips deleted entries).
     for (const key of this.entries.keys()) {
-      if (key.startsWith(prefix)) {
-        const entry = this.entries.get(key);
-        if (entry !== undefined) {
-          this.currentBytes -= entry.buf.length;
-        }
-        this.entries.delete(key);
-        dropped += 1;
-      }
+      if (key.startsWith(prefix) && this.dropEntry(key)) dropped += 1;
     }
     const dependents = this.dependents.get(prefix);
     if (dependents) {
+      // Copy first: dropEntry mutates this set through the reverse index.
+      for (const key of [...dependents]) {
+        if (this.dropEntry(key)) dropped += 1;
+      }
+      // Whatever is left registered a dependency but was never stored
+      // (or was stored and replaced by a plain set()); its promise to
+      // drop has been kept, so forget it.
       this.dependents.delete(prefix);
       for (const key of dependents) {
-        const entry = this.entries.get(key);
-        if (entry !== undefined) {
-          this.currentBytes -= entry.buf.length;
-          this.entries.delete(key);
-          dropped += 1;
-        }
+        const prefixes = this.dependencyPrefixes.get(key);
+        if (!prefixes) continue;
+        prefixes.delete(prefix);
+        if (prefixes.size === 0) this.dependencyPrefixes.delete(key);
       }
     }
     return dropped;
+  }
+
+  /**
+   * Whether `key`'s own prefix, any prefix in `dependsOn`, or a full
+   * clear was invalidated after sequence position `since`.
+   */
+  private invalidatedSince(
+    since: number,
+    key: string,
+    dependsOn: readonly string[] | undefined,
+  ): boolean {
+    if (this.clearedAtSeq > since) return true;
+    const own = key.slice(0, key.indexOf('|') + 1);
+    if ((this.invalidatedAtSeq.get(own) ?? 0) > since) return true;
+    for (const dep of dependsOn ?? []) {
+      if ((this.invalidatedAtSeq.get(dep) ?? 0) > since) return true;
+    }
+    return false;
   }
 
   /** Make `key` drop whenever `prefix` is invalidated. */
@@ -409,6 +478,22 @@ export class TileCacheService implements OnModuleDestroy {
       this.dependents.set(prefix, set);
     }
     set.add(key);
+    let prefixes = this.dependencyPrefixes.get(key);
+    if (!prefixes) {
+      prefixes = new Set();
+      this.dependencyPrefixes.set(key, prefixes);
+    }
+    prefixes.add(prefix);
+  }
+
+  /**
+   * Number of stored keys registered to drop when `prefix` is
+   * invalidated. Exposed for the spec, which needs to see that
+   * eviction, expiry and clear prune the index; production code has
+   * no reason to call it.
+   */
+  dependentCount(prefix: string): number {
+    return this.dependents.get(prefix)?.size ?? 0;
   }
 
   private acquireLane(name: string, limit: number): Promise<void> {
@@ -445,6 +530,17 @@ export class TileCacheService implements OnModuleDestroy {
   clear(): void {
     this.entries.clear();
     this.currentBytes = 0;
+    this.dependents.clear();
+    this.dependencyPrefixes.clear();
+    // The per-prefix record exists only to judge computes that were
+    // in flight when a prefix dropped; with nothing stored it is dead
+    // weight, and it would otherwise grow by one entry per distinct
+    // scope ever written for the life of the process. The clear
+    // itself takes a sequence position so those in-flight computes
+    // still refuse to store.
+    this.invalidatedAtSeq.clear();
+    this.invalidationSeq += 1;
+    this.clearedAtSeq = this.invalidationSeq;
   }
 
   /**
@@ -562,6 +658,23 @@ export function tileCacheKey(args: {
   optsFingerprint: string;
 }): string {
   return `${args.scope}|${args.z}/${args.x}/${args.y}|${args.optsFingerprint}`;
+}
+
+/**
+ * Compose the cache key for an aggregate result: the whole request,
+ * hashed, under the layer's scope prefix so a write to the layer drops
+ * it along with the layer's tiles. `request` is hashed through
+ * `stableJson`, so callers may pass it in any key order and with
+ * optional fields left undefined. What the request contains (how
+ * `asOf` is keyed, for one) is the caller's business; see
+ * `DataLayerEngine.aggregateFeatures`.
+ */
+export function aggregateCacheKey(scope: string, request: unknown): string {
+  const hash = createHash('sha256')
+    .update(stableJson(request))
+    .digest('base64url')
+    .slice(0, 32);
+  return `${scope}|agg|${hash}`;
 }
 
 /**
@@ -707,20 +820,28 @@ function computeEtag(key: string, buf: Buffer): string {
  * JSON.stringify isn't stable across key orderings; round-trip
  * through sorted keys so `{a:1,b:2}` and `{b:2,a:1}` produce the
  * same fingerprint.
+ *
+ * Follows JSON.stringify on the two things it does with `undefined`:
+ * a key whose value is undefined is omitted, so `{ a: 1, b: undefined }`
+ * and `{ a: 1 }` hash alike (callers spread optional request fields
+ * and must not fragment the cache for it), and a bare undefined (or
+ * a function) becomes `null` rather than the text "undefined", which
+ * is not JSON. Shared by the tile fingerprint and the aggregate cache
+ * key; it used to exist twice with those two behaviours differing.
  */
-function stableJson(value: unknown): string {
-  if (value === null || typeof value !== 'object') {
-    return JSON.stringify(value);
-  }
+export function stableJson(value: unknown): string {
   if (Array.isArray(value)) {
     return '[' + value.map((v) => stableJson(v)).join(',') + ']';
   }
-  const keys = Object.keys(value as Record<string, unknown>).sort();
-  const parts = keys.map((k) => {
-    const v = (value as Record<string, unknown>)[k];
-    return JSON.stringify(k) + ':' + stableJson(v);
-  });
-  return '{' + parts.join(',') + '}';
+  if (value !== null && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const parts = Object.keys(record)
+      .sort()
+      .filter((k) => record[k] !== undefined)
+      .map((k) => JSON.stringify(k) + ':' + stableJson(record[k]));
+    return '{' + parts.join(',') + '}';
+  }
+  return JSON.stringify(value) ?? 'null';
 }
 
 /**
@@ -768,9 +889,20 @@ function normalizeEtag(etag: string): string {
   return v;
 }
 
-function parseIntEnv(name: string, fallback: number): number {
+/**
+ * Read an integer tuning knob from the environment, falling back when
+ * it is unset, empty, not a number, or below `min`. The cache bounds
+ * accept zero (a zero byte cap is a legitimate "cache off"), while a
+ * concurrency lane or a TTL that must stay usable passes `min: 1`.
+ * Shared with the aggregate knobs in data-layer.ts.
+ */
+export function parseIntEnv(
+  name: string,
+  fallback: number,
+  { min = 0 }: { min?: number } = {},
+): number {
   const raw = process.env[name];
   if (!raw) return fallback;
   const n = parseInt(raw, 10);
-  return Number.isFinite(n) && n >= 0 ? n : fallback;
+  return Number.isFinite(n) && n >= min ? n : fallback;
 }

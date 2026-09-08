@@ -21,6 +21,7 @@ import {
   uploadWithProgress,
   type UploadBusy,
 } from '@/components/upload-progress-panel';
+import { useT } from '@/lib/i18n/locale-context';
 import { V3FeatureBrowser } from './v3-feature-browser';
 import { AddToMapButton } from '../add-to-map-button';
 
@@ -57,6 +58,7 @@ interface Props {
 }
 
 export function V3LayerDataPanel({ itemId, layers, canEdit, canDownload }: Props) {
+  const t = useT();
   if (layers.length === 0) {
     return null;
   }
@@ -64,14 +66,12 @@ export function V3LayerDataPanel({ itemId, layers, canEdit, canDownload }: Props
     <section className="rounded-lg border border-border bg-surface-1">
       <header className="flex items-center gap-2 border-b border-border px-3 py-2">
         <Database className="h-4 w-4 text-muted" />
-        <h2 className="text-sm font-semibold text-ink-0">Layer data</h2>
+        <h2 className="text-sm font-semibold text-ink-0">{t('v3Editor.dataTitle')}</h2>
         {/* Named one of the three things this panel does, and not
             the one most people arrive for. You come to the Data tab
             to look at the rows; importing is what you did once, at
             the start. */}
-        <p className="text-xs text-muted">
-          Browse the rows in each layer, add more data, or download it.
-        </p>
+        <p className="text-xs text-muted">{t('v3Editor.dataIntro')}</p>
       </header>
       <ul className="divide-y divide-border">
         {layers.map((layer) => (

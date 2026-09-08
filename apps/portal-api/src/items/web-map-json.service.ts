@@ -36,9 +36,10 @@ import { pickDefaultBasemap } from './default-basemap.js';
  * The basemap reference on the map item is resolved to its
  * basemap item; the resulting tileUrl + attribution flow into the
  * WebMap's BaseMap.baseMapLayers[]. If the basemap item is missing
- * or has no tileUrl, the converter falls back to the seeded
- * `positron` basemap in the same org so the output document
- * stays renderable in third-party clients.
+ * or has no tileUrl, the converter falls back to the org's default
+ * seeded basemap (OpenStreetMap, chosen by `pickDefaultBasemap` in
+ * default-basemap.ts) so the output document stays renderable in
+ * third-party clients.
  *
  * The map's saved camera (center / zoom / bearing / pitch) becomes
  * `initialState.viewpoint`. A map without saved camera state omits

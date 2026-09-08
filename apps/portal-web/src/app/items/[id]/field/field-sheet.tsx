@@ -12,8 +12,10 @@
  * panning, zooming and tapping to move the point while the form is
  * open. A modal dialog would break the one interaction the screen
  * exists for. What Radix would have given us for free and we have to
- * supply here is Escape handling and a portal; what it would have
- * taken away is the whole point. The repo rule that sends new dialogs
+ * supply here is Escape handling (there is no portal: the sheet
+ * renders in place, inside the runtime's own layout, which is what
+ * lets the map behind it stay live); what it would have taken away is
+ * the whole point. The repo rule that sends new dialogs
  * to ui/dialog is aimed at hand-rolled `fixed inset-0` backdrops;
  * these sheets have no backdrop at all.
  *

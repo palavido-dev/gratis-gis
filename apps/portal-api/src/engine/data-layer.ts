@@ -15,8 +15,6 @@
 // `DataLayerFeaturesService` is unchanged. Phase 2.2 swaps the v3 service's
 // internals to call into this adapter.
 
-import { createHash } from 'node:crypto';
-
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
@@ -35,7 +33,9 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { LensPolicyService } from '../policy/lens-policy.service.js';
 import {
   TileCacheService,
+  aggregateCacheKey,
   optsFingerprint,
+  parseIntEnv,
   tileCacheKey,
 } from './tile-cache.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
@@ -853,36 +853,21 @@ export interface AggregateFeaturesResult {
  * cache's one, because a dashboard number is a much cheaper thing to
  * hold than a tile and a much more expensive one to recompute.
  */
-const AGGREGATE_CACHE_TTL_MS = parseIntEnvLocal('AGGREGATE_CACHE_TTL_MS', 600_000);
+const AGGREGATE_CACHE_TTL_MS = parseIntEnv('AGGREGATE_CACHE_TTL_MS', 600_000, {
+  min: 1,
+});
 /**
  * Concurrent aggregate queries per replica. Each one can spawn two
  * parallel workers and spill a 110 MB sort to disk; with two replicas
  * this keeps Postgres at six such queries at most while the rest wait
  * in order, which on a 4-core box finishes sooner than letting all of
- * them thrash.
+ * them thrash. A zero here would be a lane nothing ever leaves, hence
+ * the floor of one; the tile knobs accept zero because for them it
+ * means "off", not "stuck".
  */
-const AGGREGATE_MAX_CONCURRENT = parseIntEnvLocal('AGGREGATE_MAX_CONCURRENT', 3);
-
-function parseIntEnvLocal(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (raw === undefined || raw === '') return fallback;
-  const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
-
-/** JSON with object keys sorted at every level, so equal requests hash equal. */
-export function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
-  if (value && typeof value === 'object') {
-    const o = value as Record<string, unknown>;
-    return `{${Object.keys(o)
-      .sort()
-      .filter((k) => o[k] !== undefined)
-      .map((k) => `${JSON.stringify(k)}:${stableStringify(o[k])}`)
-      .join(',')}}`;
-  }
-  return JSON.stringify(value) ?? 'null';
-}
+const AGGREGATE_MAX_CONCURRENT = parseIntEnv('AGGREGATE_MAX_CONCURRENT', 3, {
+  min: 1,
+});
 
 @Injectable()
 export class DataLayerEngine {
@@ -2416,15 +2401,11 @@ export class DataLayerEngine {
     const scope = this.scope(args.itemId, args.layerId);
     const { asOf, ...rest } = args;
     const keyed = { ...rest, asOf: asOf ? asOf.toISOString() : 'now' };
-    const hash = createHash('sha256')
-      .update(stableStringify(keyed))
-      .digest('base64url')
-      .slice(0, 32);
     const dependsOn = args.via
       ? [`${this.scope(args.via.parentItemId, args.via.parentLayerId)}|`]
       : [];
     const hit = await this.tileCache.getOrCompute(
-      `${scope}|agg|${hash}`,
+      aggregateCacheKey(scope, keyed),
       async () =>
         Buffer.from(JSON.stringify(await this.aggregateFeaturesUncached(args))),
       {

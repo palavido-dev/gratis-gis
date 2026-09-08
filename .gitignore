@@ -7,6 +7,11 @@ logs/
 
 # Local Claude session state
 .claude/
+# The same for other agent tooling that keeps per-checkout state here
+# (Codex, its agents directory, and the session monitor). Local only.
+.agents/
+.codex/
+.monitoring/
 
 # Build output
 dist/
@@ -85,6 +90,8 @@ run-dev.bat
 # Claude session handoff notes. Local only; these are for Claude
 # continuity across sessions, not for the public repo.
 CLAUDE.md
+# Codex-side copy of the same local notes; same rule.
+AGENTS.md
 HANDOFF.md
 DECISIONS.md
 docs/handoff/
@@ -93,6 +100,7 @@ docs/handoff/
 # Release-notes scratch files pasted into gh release create; the
 # published release body is the source of truth once the tag is up.
 .release-notes-*.md
+/.gg_rel*.txt
 # Stray temp files left behind by some Windows tools (#42 followup)
 _tmp_*
 
@@ -157,7 +165,11 @@ page-head.tsx
 !infra/**/*.zip
 !docs/**/*.geojson
 !docs/**/*.zip
-  
+# Small CSVs written to the root to exercise the coordinate-column
+# import (#160). Root-anchored so fixture CSVs inside packages stay
+# tracked.
+/test-*.csv
+
 # Personal preparation notes, not project documentation. Kept locally.  
 OSGEO-SUBMISSION.md  
 

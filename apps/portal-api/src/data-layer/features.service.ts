@@ -129,6 +129,15 @@ function stripUnderscoreKeys(
   return out;
 }
 
+/**
+ * Whether a submission stamp column should be treated as unfilled.
+ * Mirrors the private `isBlank` in shared-types' submission-stamp.ts so
+ * the server and the field runtime agree on what "absent" means.
+ */
+function isBlankStamp(v: unknown): boolean {
+  return v === undefined || v === null || (typeof v === 'string' && v.trim() === '');
+}
+
 @Injectable()
 export class DataLayerFeaturesService {
   private readonly log = new Logger(DataLayerFeaturesService.name);
@@ -166,6 +175,15 @@ export class DataLayerFeaturesService {
    * only after years of distinct drift.
    */
   private readonly reportedUnknownKeys = new Set<string>();
+
+  /**
+   * Dangling pick-list references already reported, by
+   * `itemId:layerId:pickListItemId`. Same reasoning as above: the
+   * schema is loaded per write (or per import batch), so an unfixed
+   * reference would otherwise log on every edit to the layer for as
+   * long as it stays unfixed.
+   */
+  private readonly reportedUnresolvedPickLists = new Set<string>();
 
   /**
    * The layer's declared fields plus any pick lists its domains point
@@ -260,7 +278,14 @@ export class DataLayerFeaturesService {
           select: { id: true, data: true },
         })
       : [];
-    const unresolved = refIds.filter((id) => !lists.some((l) => l.id === id));
+    const unresolved = refIds.filter((id) => {
+      if (lists.some((l) => l.id === id)) return false;
+      const key = `${itemId}:${layerId}:${id}`;
+      if (this.reportedUnresolvedPickLists.has(key)) return false;
+      if (this.reportedUnresolvedPickLists.size > 5000) this.reportedUnresolvedPickLists.clear();
+      this.reportedUnresolvedPickLists.add(key);
+      return true;
+    });
     if (unresolved.length > 0) {
       this.log.warn(
         `data_layer:${itemId}:${layerId} references pick list(s) its owner cannot read or that no longer exist (${unresolved.join(', ')}); those domains are not enforced`,
@@ -367,10 +392,12 @@ export class DataLayerFeaturesService {
       if (mode === 'create' && (declaresSubmittedBy || declaresSubmittedAt)) {
         properties = { ...original };
         if (declaresSubmittedBy) properties.submitted_by = user.id;
-        if (
-          declaresSubmittedAt &&
-          (properties.submitted_at === undefined || properties.submitted_at === null)
-        ) {
+        // Blank means what shared-types' stampSubmissionMetadata means
+        // by it (its isBlank is not exported): absent, null, or a
+        // string that is only whitespace. A form that renders the
+        // column as an input and submits it empty sends '', and the
+        // required check would refuse that on every sync.
+        if (declaresSubmittedAt && isBlankStamp(properties.submitted_at)) {
           properties.submitted_at = new Date().toISOString();
         }
       }

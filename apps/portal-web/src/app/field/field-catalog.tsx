@@ -18,6 +18,7 @@ import {
   type CachedDeployment,
 } from '@/lib/offline-store';
 import { removeDeploymentFromDevice } from '@/lib/offline-remove';
+import { useIsOnline } from '@/lib/use-is-online';
 import { formatBytes } from '@/lib/format-bytes';
 import { postQueueManifest } from '@/lib/offline-queue-beacon';
 import { syncQueue } from '@/lib/offline-sync';
@@ -57,7 +58,7 @@ interface DeploymentOverlay {
  *     online. Drains just that deployment's queue.
  *   - "Cached / Not cached" indicator with size + age.
  *
- * The catalog itself doesn't hold any storage estimate -- the
+ * The catalog itself doesn't hold any storage estimate; the
  * runtime header does that for the active deployment. Per-deployment
  * size from the manifest is enough here.
  */
@@ -65,9 +66,7 @@ export function FieldCatalog({ rows }: { rows: FieldDeploymentRow[] }) {
   const [overlays, setOverlays] = useState<Record<string, DeploymentOverlay>>(
     {},
   );
-  const [isOnline, setIsOnline] = useState(
-    typeof navigator !== 'undefined' ? navigator.onLine : true,
-  );
+  const isOnline = useIsOnline();
   const [syncing, setSyncing] = useState<Record<string, boolean>>({});
   // Two-tap confirmation for the destructive Remove action: first tap
   // sets confirmingId, the affordance morphs to a red Confirm button,
@@ -76,18 +75,6 @@ export function FieldCatalog({ rows }: { rows: FieldDeploymentRow[] }) {
   // on a phone and matches the runtime More menu's pattern.
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [removing, setRemoving] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const onUp = () => setIsOnline(true);
-    const onDown = () => setIsOnline(false);
-    window.addEventListener('online', onUp);
-    window.addEventListener('offline', onDown);
-    return () => {
-      window.removeEventListener('online', onUp);
-      window.removeEventListener('offline', onDown);
-    };
-  }, []);
 
   // Initial load: walk every cached deployment + every queue read
   // once so the rows render with current state. Cheap (a few
@@ -137,9 +124,9 @@ export function FieldCatalog({ rows }: { rows: FieldDeploymentRow[] }) {
     setRemoving((prev) => ({ ...prev, [id]: true }));
     setConfirmingId(null);
     try {
-      // Removes the prepared basemap archive too; deleteDeployment
-      // only cascades through IndexedDB and left the largest artefact
-      // of the download sitting in Cache Storage.
+      // The whole cascade: IndexedDB, the prepared basemap archive
+      // and the service worker tile cache. deleteDeployment alone only
+      // covered the first and left the largest artefacts behind.
       await removeDeploymentFromDevice(id);
       // Local optimistic update so the row's status dot flips back to
       // gray immediately. The next listDeployments / listQueue pass

@@ -27,6 +27,7 @@ import type {
 import { layersForPortalItem } from './portal-item-layers';
 import { toast } from '@/lib/toast';
 import { parseApiError } from '@/lib/api-error';
+import { useT } from '@/lib/i18n/locale-context';
 import {
   DEFAULT_LAYER_ACCESS,
   DEFAULT_LAYER_INTERACTIONS,
@@ -94,6 +95,15 @@ interface Props {
    * none, which is the common case for a shared read-only map.
    */
   editableLayerItemIds?: string[];
+  /**
+   * Every data_layer item id the server has already answered a write
+   * permission for, whether yes or no. A superset of
+   * `editableLayerItemIds`. The builder asks the permissions endpoint
+   * only about ids outside this set (layers added this session); before
+   * it existed the builder re-asked about every layer the server had
+   * just refused, on every page load.
+   */
+  resolvedPermissionItemIds?: string[];
   /**
    * Basemap items from the org's library (items of type=basemap).
    * Includes the seeded built-ins and any user-authored basemaps.
@@ -206,6 +216,7 @@ export function MapEditor({
   initial,
   canEdit,
   editableLayerItemIds = [],
+  resolvedPermissionItemIds = [],
   basemaps = [],
   defaultExtentBoundary = null,
   geoBoundaries = [],
@@ -214,6 +225,7 @@ export function MapEditor({
   addItemId,
   addLayerKey,
 }: Props) {
+  const t = useT();
   // Hydrate older persisted maps. Each bump in the schema lands a new
   // migrator here; the goal is that any v2.x map still opens cleanly.
   const seed = useMemo<MapData>(() => {
@@ -345,8 +357,8 @@ export function MapEditor({
   useEffect(() => {
     if (!basemapMenuOpen) return;
     function onDocClick(e: MouseEvent) {
-      const t = e.target as Node;
-      if (basemapMenuRef.current && !basemapMenuRef.current.contains(t)) {
+      const target = e.target as Node;
+      if (basemapMenuRef.current && !basemapMenuRef.current.contains(target)) {
         setBasemapMenuOpen(false);
       }
     }
@@ -779,11 +791,24 @@ export function MapEditor({
    * and reopened, which read as "editing does not work on new
    * layers". Any data_layer item the server has not been asked about
    * is asked about here, once, through the same batch endpoint.
+   *
+   * "Asked about" is `resolvedPermissionItemIds`, not the editable
+   * subset: a refusal is an answer, and seeding from the editable ids
+   * alone re-asked about every refused layer on every load. The
+   * editable ids are unioned in for a caller that passes only those.
    */
   const [layerWritePermissions, setLayerWritePermissions] = useState<
     Record<string, boolean>
-  >(() => Object.fromEntries(editableLayerItemIds.map((id) => [id, true])));
-  const askedItemIdsRef = useRef<Set<string>>(new Set(editableLayerItemIds));
+  >(() => {
+    const editable = new Set(editableLayerItemIds);
+    const out: Record<string, boolean> = {};
+    for (const id of resolvedPermissionItemIds) out[id] = editable.has(id);
+    for (const id of editable) out[id] = true;
+    return out;
+  });
+  const askedItemIdsRef = useRef<Set<string>>(
+    new Set([...resolvedPermissionItemIds, ...editableLayerItemIds]),
+  );
   const dataLayerItemIdsKey = useMemo(
     () =>
       Array.from(
@@ -1482,7 +1507,7 @@ export function MapEditor({
         const item = (await res.json()) as Item;
         const { layers, error: addError } = await layersForPortalItem(
           item,
-          addLayerKey !== undefined ? { layerKey: addLayerKey } : {},
+          addLayerKey !== undefined ? { layerKey: addLayerKey, t } : { t },
         );
         if (addError) {
           setError(addError);
@@ -1522,7 +1547,7 @@ export function MapEditor({
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addItemId, addLayerKey, canEdit]);
+  }, [addItemId, addLayerKey, canEdit, t]);
 
   /**
    * Create an empty group at the top of the layer list (#70). The

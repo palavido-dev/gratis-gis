@@ -45,10 +45,14 @@ import type { FormSchema } from '@gratis-gis/form-schema';
 import { FormView } from '../responses/form-view';
 import { MapCanvas, type MapCanvasHandle } from '../map/map-canvas';
 import {
+  drawModeFor,
   roundCoordsToPrecision,
+  setDrawMode,
+  startDraw,
   useGeometryEdit,
   useTerraDraw,
 } from '../map/use-terra-draw';
+import { fetchFeatureFromServer } from '../map/fetch-feature';
 import type { TerraDraw } from 'terra-draw';
 import { parseApiError } from '@/lib/api-error';
 import {
@@ -1149,9 +1153,7 @@ export function EditorRuntime({
   // drawing mode. Otherwise we keep terra-draw in 'select' mode so
   // it doesn't interfere with map interactions.
   useEffect(() => {
-    const draw = drawRef.current as
-      | { start: () => void; setMode: (m: string) => void }
-      | null;
+    const draw = drawRef.current;
     if (!draw) return;
     // Measure tool path (#122). Independent of editor targets:
     // entering measure mode + sub-mode flips terra-draw into the
@@ -1159,24 +1161,12 @@ export function EditorRuntime({
     // change-listener effect below picks up the in-progress
     // geometry and updates the readout.
     if (activeTool === 'measure') {
-      try {
-        draw.start();
-      } catch {
-        /* already started */
-      }
-      try {
-        draw.setMode(measureMode === 'area' ? 'polygon' : 'linestring');
-      } catch {
-        /* not started yet */
-      }
+      startDraw(draw);
+      setDrawMode(draw, measureMode === 'area' ? 'polygon' : 'linestring');
       return;
     }
     if (activeTool !== 'add' || !activeTargetKey) {
-      try {
-        draw.setMode('select');
-      } catch {
-        /* not started yet */
-      }
+      setDrawMode(draw, 'select');
       return;
     }
     const target = targetByKey.get(activeTargetKey);
@@ -1198,18 +1188,8 @@ export function EditorRuntime({
       );
       if (tpl) geomTool = tpl.geometryTool;
     }
-    const mode =
-      geomTool === 'point'
-        ? 'point'
-        : geomTool === 'line'
-          ? 'linestring'
-          : 'polygon';
-    try {
-      draw.start();
-    } catch {
-      /* already started */
-    }
-    draw.setMode(mode);
+    startDraw(draw);
+    setDrawMode(draw, drawModeFor(geomTool));
   }, [
     activeTool,
     activeTargetKey,
@@ -1429,6 +1409,11 @@ export function EditorRuntime({
     const m = mapInstance;
     if (!m) return;
     if (activeTool !== 'edit') return;
+    // The geometry-edit branch awaits a server fetch. Only the most
+    // recent click may open a session, and none may once this effect
+    // has torn down (tool changed, map remounted).
+    let cancelled = false;
+    let latestPick = 0;
     const handler = (e: maplibregl.MapMouseEvent) => {
       const features = m.queryRenderedFeatures(e.point);
       const hit = features.find((f) => {
@@ -1486,25 +1471,59 @@ export function EditorRuntime({
         setActiveTargetKey(targetKey);
         const layerGeomType =
           targetByKey.get(targetKey)?.layer?.geometryType ?? 'point';
-        // hit.geometry from queryRenderedFeatures is already a
-        // GeoJSON.Geometry. Clone via JSON to break MapLibre's
-        // internal references; useGeometryEdit rounds it to the
-        // adapter's precision before loading (PostGIS returns
-        // 15-digit doubles, terra-draw rejects anything past its
-        // configured precision), and the same rounded geometry is
-        // what change detection compares against, so a vertex drag
-        // still round-trips cleanly.
-        const cloned = JSON.parse(JSON.stringify(hit.geometry)) as GeoJSON.Geometry;
+        // hit.geometry from queryRenderedFeatures is clipped to the
+        // tile the click landed in (MapLibre tiles geojson-url sources
+        // internally too), so a feature crossing a tile edge would be
+        // saved as the fragment under the cursor. Ask the server for
+        // the whole geometry; the rendered fragment is the fallback
+        // only when the server has no current row for this id (a tile
+        // painted before a concurrent delete, or a share geo limit
+        // hiding it from the read path), so the click still opens a
+        // session and the PATCH is what decides, with its error shown
+        // in the panel. Clone via JSON to break MapLibre's internal
+        // references. useGeometryEdit rounds to the adapter's
+        // precision before loading (PostGIS returns 15-digit doubles,
+        // terra-draw rejects anything past its configured precision),
+        // and compares against the same rounded geometry, so a vertex
+        // drag still round-trips cleanly.
+        const rendered = JSON.parse(JSON.stringify(hit.geometry)) as GeoJSON.Geometry;
+        const pick = ++latestPick;
         setGeomEditSaveError(null);
-        setPendingGeometryEdit({
-          dataLayerId,
-          layerKey,
-          targetKey,
-          featureId,
-          geometryType: layerGeomType as 'point' | 'line' | 'polygon',
-          originalGeometry: roundCoordsToPrecision(cloned),
-          properties: initialProps,
-        });
+        void (async () => {
+          let geometry = rendered;
+          let properties = initialProps;
+          try {
+            const full = await fetchFeatureFromServer(dataLayerId, layerKey, featureId);
+            if (cancelled || pick !== latestPick) return;
+            if (full) {
+              geometry = full.geometry;
+              const fullProps: Record<string, unknown> = {};
+              for (const [k, v] of Object.entries(full.properties)) {
+                if (k.startsWith('_')) continue;
+                fullProps[k] = v;
+              }
+              properties = fullProps;
+            }
+          } catch (err) {
+            if (cancelled || pick !== latestPick) return;
+            // No session yet, so the panel's error slot is not on
+            // screen; the toast is the handler's existing channel.
+            setToast(
+              err instanceof Error ? err.message : 'Could not load the feature.',
+            );
+            scheduleToastClear();
+            return;
+          }
+          setPendingGeometryEdit({
+            dataLayerId,
+            layerKey,
+            targetKey,
+            featureId,
+            geometryType: layerGeomType as 'point' | 'line' | 'polygon',
+            originalGeometry: roundCoordsToPrecision(geometry),
+            properties,
+          });
+        })();
         return;
       }
       setActiveTargetKey(targetKey);
@@ -1518,6 +1537,7 @@ export function EditorRuntime({
     };
     m.on('click', handler);
     return () => {
+      cancelled = true;
       try {
         m.off('click', handler);
       } catch {

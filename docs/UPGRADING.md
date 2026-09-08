@@ -86,6 +86,33 @@ half-migrated schema.
 
 Migrations are forward-only. Down migrations are not provided.
 
+### Release-specific steps
+
+Most releases need nothing beyond `deploy.sh`. The exceptions:
+
+**v0.9.107 or later, on an install created before it.** The
+production compose file preloads `pg_stat_statements` so slow
+queries can be read off the server, and `infra/init-prod-db.sql`
+creates the extension in the application database. That init script
+runs only on a fresh data directory, so an existing database gets the
+library loaded but never gets the extension created, and the
+`pg_stat_statements` view is absent. Prisma migrations do not create
+it either. After the deploy has restarted Postgres, run this once from
+the checkout, as the database superuser (the compose stack's
+`POSTGRES_USER`, `gratisgis` by default):
+
+```bash
+cd /opt/gratis-gis
+docker compose -f infra/docker-compose.prod.yml --env-file infra/.env.prod \
+  exec postgres psql -U gratisgis -d gratisgis \
+  -c 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements;'
+```
+
+Substitute your `POSTGRES_USER` and `POSTGRES_DB` if you changed them
+in `infra/.env.prod`. Nothing in the application depends on the view,
+so skipping this loses only the per-query timing; it is safe to run
+at any later time.
+
 ## 4. Rollback
 
 Two situations, depending on whether the new release's migrations ran.

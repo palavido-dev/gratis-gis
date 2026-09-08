@@ -20,6 +20,9 @@
  * is false; the queue drain re-runs this helper to upload pending
  * attachments before posting the submission.
  */
+import { formatBytes } from '@/lib/format-bytes';
+import { presignUpload } from '@/lib/presign-upload';
+
 export interface UploadedAttachment {
   /** Original filename or a synthesized one for camera captures. */
   name: string;
@@ -71,24 +74,17 @@ export async function uploadFormAttachment(file: File): Promise<UploadedAttachme
   // of which are right for form attachments too. Adding a separate
   // 'form-attachment' kind would just duplicate config without changing
   // behavior.
-  const presignRes = await fetch('/api/portal/storage/presign-upload', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ kind: 'feature-attachment', contentType }),
+  const presign = await presignUpload({
+    kind: 'feature-attachment',
+    contentType,
+    sizeBytes: file.size,
   });
-  if (!presignRes.ok) {
-    throw new Error(`Could not start upload: HTTP ${presignRes.status}`);
-  }
-  const presign = (await presignRes.json()) as {
-    uploadUrl: string;
-    publicUrl: string;
-    key: string;
-    maxBytes: number;
-  };
+  // The server already refused an over-cap size before signing; this
+  // only guards against a signer that did not enforce it.
   if (file.size > presign.maxBytes) {
-    const sizeMB = (file.size / 1024 / 1024).toFixed(1);
-    const capMB = (presign.maxBytes / 1024 / 1024).toFixed(0);
-    throw new Error(`File is ${sizeMB} MB; limit is ${capMB} MB.`);
+    throw new Error(
+      `File is ${formatBytes(file.size)}; limit is ${formatBytes(presign.maxBytes)}.`,
+    );
   }
   const putRes = await fetch(presign.uploadUrl, {
     method: 'PUT',

@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-09-08 - The field app works where the signal does not
+Take a photo with no connection, and take it while you are still filling in the record: it stays on the device with the record and uploads once the record itself has landed, and nothing is reported as sent while its photo is still on the phone. Edits the server refuses, because a value breaks the layer's rules or you have lost access to the layer, no longer retry forever or vanish. A red "edits need attention" chip lists them with the reason; fix the value and retry, or discard the edit. Correcting a record you added offline no longer loses the original. And if your data lives in a spreadsheet, the New Data Layer wizard now takes a CSV and finds the coordinate columns itself, whether they are called latitude and longitude, LAT and LNG, or x and y.
+
 ## 2026-09-03 - Edit a layer straight from the map
 Open a map you can edit and an Edit toolbar appears next to the selection tools, on any layer you have permission to change. Click a feature to drag its vertices, draw a new one and fill in its attributes, or delete one, all without building an editing app first. The attribute table edits inline too, and a Calculate Field option fills a column from an expression. Every save is checked against the layer's rules, so a value the layer would not accept is refused with a plain-English reason. Field edits the server refuses now wait for you with that reason instead of retrying forever.
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Drains the offline write queue against the live API. Slice 5 of the
- * Field Maps arc (#199) — the part that turns the runtime from
+ * Field Maps arc (#199): the part that turns the runtime from
  * "offline-readable" into "offline-editable with eventual consistency."
  *
  * Pairs with offline-store's queue store: feature edits captured while
@@ -55,15 +55,13 @@
  *     view of the world). This module surfaces failures via
  *     QueueRecord.failureReason; the runtime renders them.
  *
- *   - **Best-effort ordering.** Pending records are drained in
- *     queuedAt order so the user's edits play back in roughly the
- *     same sequence the server would have seen had they been online.
- *     A single failed record doesn't pause the run; subsequent
- *     records still attempt. This means a delete that depends on a
- *     prior insert can in theory race; we accept that risk in v1
- *     because the alternative (full transaction-style ordering) adds
- *     significant complexity for an edge case that field workflows
- *     rarely hit.
+ *   - **Global order is queuedAt, and only best-effort.** Across
+ *     DIFFERENT features the heads are replayed oldest first so the
+ *     server sees roughly the sequence it would have online, but a
+ *     failure on one feature does not pause the others. That is safe
+ *     because features are independent on the server; the one real
+ *     dependency, between edits to the SAME feature, is handled by
+ *     the per-feature rule above and does not rely on this ordering.
  */
 
 import {
@@ -393,25 +391,6 @@ async function replayRecord(r: QueueRecord): Promise<void> {
 }
 
 /**
- * Upload the files captured against a feature, now that the feature
- * itself exists on the server.
- *
- * Three steps per file, the same walk the online uploader does:
- * presign, PUT the bytes straight to object storage, then register
- * the metadata. The API never buffers the bytes.
- *
- * Ordering is the whole point. An attachment endpoint is keyed by
- * feature id, so none of this can run until the insert has replayed;
- * that is why it lives here, after the feature write succeeded,
- * rather than as its own queue row.
- *
- * A file that fails is LEFT IN PLACE and the error propagates, so the
- * queue row goes back to failed and the whole feature is retried.
- * Losing the photo silently while reporting the record as synced
- * would be the worst available outcome: the record would look
- * complete and be missing the evidence it was collected for.
- */
-/**
  * Upload files whose feature has no queue row left.
  *
  * Their feature is necessarily on the server: either it was written
@@ -462,6 +441,25 @@ export interface FeatureRef {
   globalId: string;
 }
 
+/**
+ * Upload the files captured against a feature, now that the feature
+ * itself exists on the server.
+ *
+ * Three steps per file, the same walk the online uploader does:
+ * presign, PUT the bytes straight to object storage, then register
+ * the metadata. The API never buffers the bytes.
+ *
+ * Ordering is the whole point. An attachment endpoint is keyed by
+ * feature id, so none of this can run until the insert has replayed;
+ * that is why replayRecord calls it after the feature write succeeded,
+ * rather than giving files their own queue rows.
+ *
+ * A file that fails is LEFT IN PLACE and the error propagates, so the
+ * queue row goes back to failed and the whole feature is retried.
+ * Losing the photo silently while reporting the record as synced
+ * would be the worst available outcome: the record would look
+ * complete and be missing the evidence it was collected for.
+ */
 export async function uploadPendingBlobsForFeature(
   ref: FeatureRef,
 ): Promise<void> {
@@ -494,6 +492,14 @@ async function uploadOneBlob(
     body: JSON.stringify({
       kind: 'feature-attachment',
       contentType: file.mimeType || 'application/octet-stream',
+      // Declared up front so the server can refuse an over-cap file
+      // before minting a URL, and sign the Content-Length into the
+      // presigned PUT so the bytes that land cannot exceed the size it
+      // validated. Without it the cap below is the only check, and it
+      // runs in the client. Read from the Blob, not the row: the row's
+      // sizeBytes was written by the capture path and is what the
+      // register call reports, but the PUT sends the Blob.
+      sizeBytes: file.blob.size,
     }),
   });
   await throwIfNotOk(presignRes, 'Attachment presign', op);

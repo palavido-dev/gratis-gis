@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 
 import { formatBytes } from '@/lib/format-bytes';
+import { useT } from '@/lib/i18n/locale-context';
 import { useConfirm } from '@/components/dialog-provider';
 
 /**
@@ -244,6 +245,7 @@ function DeviceRow({
   forgetting: boolean;
   disabled: boolean;
 }) {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
   const confirm = useConfirm();
   const stuck = countQueued(row);
@@ -294,7 +296,7 @@ function DeviceRow({
             {rejected > 0 ? (
               <span className="inline-flex items-center gap-1 rounded-full border border-danger/30 bg-danger/10 px-2 py-0.5 font-medium text-danger">
                 <AlertTriangle className="h-3 w-3" />
-                {rejected} rejected by the server
+                {t('adminFieldQueues.rejectedByServer', { count: rejected })}
               </span>
             ) : null}
             {stuck === 0 ? (
@@ -392,6 +394,7 @@ function DeviceRow({
 }
 
 function DeploymentEntry({ entry }: { entry: FieldQueueManifestEntry }) {
+  const t = useT();
   const queued = entry.queuedRecords.length;
   const failed = entry.queuedRecords.filter((r) => r.status === 'failed');
   const rejected = entry.queuedRecords.filter((r) => r.status === 'rejected');
@@ -446,8 +449,16 @@ function DeploymentEntry({ entry }: { entry: FieldQueueManifestEntry }) {
         <p className="mt-1 text-2xs text-muted">No queued records.</p>
       ) : (
         <p className="mt-1 text-2xs text-ink-1">
-          {queued} queued ({failed.length} failed
-          {rejected.length > 0 ? `, ${rejected.length} rejected` : ''})
+          {rejected.length > 0
+            ? t('adminFieldQueues.queuedSummaryWithRejected', {
+                queued,
+                failed: failed.length,
+                rejected: rejected.length,
+              })
+            : t('adminFieldQueues.queuedSummary', {
+                queued,
+                failed: failed.length,
+              })}
         </p>
       )}
       {problems.length > 0 ? (
@@ -458,14 +469,16 @@ function DeploymentEntry({ entry }: { entry: FieldQueueManifestEntry }) {
               className="rounded border border-danger/20 bg-danger/5 px-2 py-1 text-2xs text-danger"
             >
               <span className="font-mono">{r.op}</span>
-              {r.status === 'rejected' ? ' · rejected, waiting on the worker' : ''}
+              {r.status === 'rejected'
+                ? ` · ${t('adminFieldQueues.rejectedWaiting')}`
+                : ''}
               {' '}· attempts {r.attempts ?? 0}
               {r.lastError ? <span> · {r.lastError}</span> : null}
             </div>
           ))}
           {problems.length > 5 ? (
             <p className="text-2xs text-muted">
-              + {problems.length - 5} more records with errors.
+              {t('adminFieldQueues.moreWithErrors', { count: problems.length - 5 })}
             </p>
           ) : null}
         </div>

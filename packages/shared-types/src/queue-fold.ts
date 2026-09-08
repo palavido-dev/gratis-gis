@@ -24,8 +24,11 @@
  * ('rejected') is never folded into, because the drain that owns it
  * would delete the merged result on success.
  *
- * It lives in shared-types because portal-web has no test runner, and
- * an untested decision table about data loss is not worth much.
+ * It lives in shared-types because it is pure and both the store and
+ * its tests want it without IndexedDB in the way. (It was originally
+ * pushed here because portal-web had no test runner at all; portal-web
+ * now runs jest over src/lib, and offline-store.spec.ts there covers
+ * the transaction side of the same fold.)
  */
 
 /** The three things a field edit can be. */

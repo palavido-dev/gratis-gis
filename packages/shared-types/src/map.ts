@@ -9,28 +9,25 @@
  */
 /**
  * Well-known marker stored in `data_json.seededKey` on the five built-in
- * basemap items that every org gets seeded with on creation. The union
- * stays here as a convenience for callers that want to pick a specific
- * built-in (e.g. `DEFAULT_MAP` resolves to whichever item has
- * `seededKey === 'positron'` in the viewing org). Do NOT treat these
- * as a closed set of valid basemaps; they are just the seeded
- * defaults. Users can delete or rename the seeded items, and add any
- * number of their own basemap items.
+ * basemap items that every org gets seeded with on creation. The list
+ * is the source of truth and the union is derived from it, so a caller
+ * that names a specific built-in (portal-api's `DEFAULT_BASEMAP_SEED_KEY`
+ * resolves a new map to whichever item has `seededKey === 'osm'` in
+ * the viewing org) fails typecheck on a typo instead of silently
+ * matching nothing. Do NOT treat these as a closed set of valid
+ * basemaps; they are just the seeded defaults. Users can delete or
+ * rename the seeded items, and add any number of their own basemap
+ * items.
  */
-export type BuiltinBasemapSeedKey =
-  | 'osm'
-  | 'positron'
-  | 'dark-matter'
-  | 'voyager'
-  | 'satellite';
-
-export const BUILTIN_BASEMAP_SEED_KEYS: BuiltinBasemapSeedKey[] = [
+export const BUILTIN_BASEMAP_SEED_KEYS = [
   'osm',
   'positron',
   'voyager',
   'dark-matter',
   'satellite',
-];
+] as const;
+
+export type BuiltinBasemapSeedKey = (typeof BUILTIN_BASEMAP_SEED_KEYS)[number];
 
 /**
  * Seeded by the portal on org creation so every org has a working set

@@ -52,13 +52,16 @@ export type ExportFormat = 'csv' | 'xlsx' | 'geojson' | 'geoparquet';
  */
 export type ClientExportFormat = Exclude<ExportFormat, 'geoparquet'>;
 
-/** Human names for the formats, for confirmation messages. Keyed on
- *  ExportFormat so a new format cannot be added without naming it. */
-export const EXPORT_FORMAT_LABEL: Record<ExportFormat, string> = {
-  csv: 'CSV',
-  xlsx: 'Excel',
-  geojson: 'GeoJSON',
-  geoparquet: 'GeoParquet',
+/** Catalog keys for the formats' human names, for confirmation
+ *  messages: `t(EXPORT_FORMAT_LABEL_KEY[format])`. This module has no
+ *  locale of its own, so it hands back the key and the component
+ *  resolves it. Keyed on ExportFormat so a new format cannot be added
+ *  without naming it. */
+export const EXPORT_FORMAT_LABEL_KEY: Record<ExportFormat, string> = {
+  csv: 'layerExport.format.csv',
+  xlsx: 'layerExport.format.xlsx',
+  geojson: 'layerExport.format.geojson',
+  geoparquet: 'layerExport.format.geoparquet',
 };
 
 interface ExportOptions {

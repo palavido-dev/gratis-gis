@@ -179,7 +179,8 @@ export function FieldAttachments({
         quota
           ? t('fieldAttachments.quotaError')
           : t('fieldAttachments.saveError', {
-              reason: err instanceof Error ? err.message : 'unknown error',
+              reason:
+                err instanceof Error ? err.message : t('errorReason.unknown'),
             }),
       );
     } finally {

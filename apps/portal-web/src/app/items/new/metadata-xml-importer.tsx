@@ -8,6 +8,7 @@ import {
   parseMetadataXml,
   type ParsedMetadata,
 } from '@/lib/metadata-xml';
+import { useT } from '@/lib/i18n/locale-context';
 
 interface Props {
   /**
@@ -37,7 +38,15 @@ interface Props {
  * `apps/portal-web/src/lib/metadata-xml.ts`.
  */
 export function MetadataXmlImporter({ onApply }: Props) {
+  const t = useT();
   const inputRef = useRef<HTMLInputElement | null>(null);
+  // The intro emphasises "metadata XML" without being split into
+  // translated fragments: the sentence carries a {term} slot, and the
+  // rendered string is cut around the term to wrap it. A translation
+  // that drops the slot renders as one plain sentence.
+  const term = t('metadataXml.term');
+  const [introBefore, ...introRest] = t('metadataXml.intro', { term }).split(term);
+  const introAfter = introRest.length > 0 ? introRest.join(term) : null;
   const [status, setStatus] = useState<
     | { kind: 'idle' }
     | { kind: 'parsed'; meta: ParsedMetadata }
@@ -108,11 +117,13 @@ export function MetadataXmlImporter({ onApply }: Props) {
               What was missing was any clue for the reader who does
               not: three acronyms and no sentence saying where such a
               file comes from or why you would have one. */}
-          Pre-fill title, description, and tags from a{' '}
-          <strong className="text-ink-0">metadata XML</strong> file, the
-          kind ArcGIS, QGIS or a public data catalogue exports
-          alongside a dataset. Recognises ISO 19115, FGDC CSDGM and
-          Dublin Core.
+          {introBefore}
+          {introAfter !== null ? (
+            <>
+              <strong className="text-ink-0">{term}</strong>
+              {introAfter}
+            </>
+          ) : null}
         </div>
         <button
           type="button"
@@ -123,7 +134,7 @@ export function MetadataXmlImporter({ onApply }: Props) {
           // glancing at this card while creating a file item should
           // never be unsure which button uploads the actual content.
           className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-xs font-medium text-ink-1 hover:bg-surface-2"
-          title="Import a metadata XML file exported by ArcGIS, QGIS or a data catalogue (ISO 19115, FGDC CSDGM or Dublin Core) to pre-fill the fields below"
+          title={t('metadataXml.importTitle')}
         >
           <FileCode className="h-3.5 w-3.5" />
           Import metadata XML

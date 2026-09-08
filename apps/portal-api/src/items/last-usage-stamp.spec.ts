@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Logger } from '@nestjs/common';
-import type { PrismaService } from '../prisma/prisma.service';
-import { LastUsageStamp } from './last-usage-stamp';
+import type { PrismaService } from '../prisma/prisma.service.js';
+import { LastUsageStamp } from './last-usage-stamp.js';
 
 /**
  * These tests exist because the bug they pin was invisible to every

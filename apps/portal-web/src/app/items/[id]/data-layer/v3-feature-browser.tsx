@@ -18,12 +18,13 @@ import {
 import {
   exportFeatures,
   exportLayerGeoParquet,
-  EXPORT_FORMAT_LABEL,
+  EXPORT_FORMAT_LABEL_KEY,
   type ClientExportFormat,
 } from '@/lib/layer-export';
 import { exportBundle } from '@/lib/bundle-export';
 import { parseApiError } from '@/lib/api-error';
 import { toast } from '@/lib/toast';
+import { useT } from '@/lib/i18n/locale-context';
 import type {
   FeatureRecord,
   DataLayerSublayer,
@@ -554,6 +555,7 @@ function ExportMenu({
   allLayers?: DataLayerSublayer[];
   disabled: boolean;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   // Bundle export modal state.  Lives inside the menu so the menu
   // can collapse while the modal stays up; "Export" -> Bundle
@@ -607,7 +609,7 @@ function ExportMenu({
     // Silent no-op on an empty layer was indistinguishable from a
     // silent success, which is the same complaint as below.
     if (features.length === 0) {
-      toast.error('Nothing to export: this layer has no rows loaded.');
+      toast.error(t('layerExport.nothingLoaded'));
       return;
     }
     const filename = sanitizeFilename(layer.label || layer.name || 'layer');
@@ -638,14 +640,17 @@ function ExportMenu({
         // button look identical, and two testers said they clicked
         // again because they could not tell which they had.
         toast.success(
-          `Exported ${features.length.toLocaleString()} row${
-            features.length === 1 ? '' : 's'
-          } as ${EXPORT_FORMAT_LABEL[format]}.`,
+          t('layerExport.exported', {
+            count: features.length,
+            format: t(EXPORT_FORMAT_LABEL_KEY[format]),
+          }),
         );
       })
       .catch((err: unknown) => {
         toast.error(
-          err instanceof Error ? err.message : `${format} export failed`,
+          err instanceof Error
+            ? err.message
+            : t('layerExport.failed', { format: t(EXPORT_FORMAT_LABEL_KEY[format]) }),
         );
       });
   }

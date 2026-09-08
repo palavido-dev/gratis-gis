@@ -37,10 +37,11 @@ export interface LocaleInfo {
   /** English label used by admin / debug surfaces. */
   englishName: string;
   /**
-   * Translation completeness as a percentage. Updated by the
-   * contribution platform on every catalog merge. Phase 1 ships
-   * English at 100 and the others at 0; community contributions
-   * fill the rest in.
+   * Translation completeness as a percentage: the share of English
+   * leaf keys this catalog defines. Maintained by hand as a floor,
+   * and `locales.spec.ts` fails when a catalog drops below its
+   * declared figure, so adding English keys without translating them
+   * eventually forces this number down rather than letting it lie.
    */
   completeness: number;
   /**
@@ -61,38 +62,43 @@ export const LOCALES: LocaleInfo[] = [
     completeness: 100,
     machineTranslated: false,
   },
-  // Phase 1.1 ships machine-translated seed catalogs covering
-  // every key the English reference catalog defines. They render
-  // a usable non-English UI today and ask for native-speaker
-  // review (the locale picker tags them with an "MT" badge and
-  // links to the contributor guide). `completeness: 80` reflects
-  // "every key translated, accuracy not yet validated."
+  // Phase 1.1 seeded these four by machine translation and they still
+  // await native-speaker review (the locale picker tags them with an
+  // "MT" badge and links to the contributor guide). They covered the
+  // whole English catalog when seeded, but sections added since
+  // (feature editing, the field runtime's queue, attachments,
+  // collect, GPS and offline copy, sign-out, the map and app cards,
+  // and this review's additions) exist only in English and fall back
+  // to it at runtime. Measured 2026-09-08: each defines 59 percent of
+  // the English keys. The figure below is a floor a little under that
+  // so a handful of new English keys does not fail the suite; when
+  // the gap is translated, raise it.
   {
     code: 'es',
     nativeName: 'Español',
     englishName: 'Spanish',
-    completeness: 80,
+    completeness: 55,
     machineTranslated: true,
   },
   {
     code: 'pt-BR',
     nativeName: 'Português (Brasil)',
     englishName: 'Portuguese (Brazil)',
-    completeness: 80,
+    completeness: 55,
     machineTranslated: true,
   },
   {
     code: 'fr',
     nativeName: 'Français',
     englishName: 'French',
-    completeness: 80,
+    completeness: 55,
     machineTranslated: true,
   },
   {
     code: 'de',
     nativeName: 'Deutsch',
     englishName: 'German',
-    completeness: 80,
+    completeness: 55,
     machineTranslated: true,
   },
 ];

@@ -122,19 +122,19 @@ export function AddToMapButton({
             className="flex w-full items-center gap-2 px-3 py-2 text-left text-ink-0 hover:bg-surface-2"
           >
             <Plus className="h-4 w-4 text-accent" />
-            New map
+            {t('addToMap.newMap')}
           </button>
           <div className="border-t border-border bg-surface-2 px-3 py-1.5 text-2xs font-semibold uppercase tracking-wide text-muted">
-            An existing map
+            {t('addToMap.existingMap')}
           </div>
           {maps === null ? (
             <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Loading maps...
+              {t('addToMap.loadingMaps')}
             </div>
           ) : maps.length === 0 ? (
             <div className="px-3 py-2 text-xs italic text-muted">
-              No maps yet
+              {t('addToMap.noMaps')}
             </div>
           ) : (
             <ul className="max-h-64 overflow-auto py-1">

@@ -128,6 +128,7 @@ import { FieldAttachments } from './field-attachments';
 import { describeZoom } from '@/lib/map-scale';
 import { parseApiError } from '@/lib/api-error';
 import { useT } from '@/lib/i18n/locale-context';
+import type { Translator } from '@/lib/i18n';
 
 /**
  * Per-layer descriptor the field runtime consumes. Server-built (see
@@ -915,17 +916,28 @@ export function FieldRuntime({
   // something to lose. A deploy landing mid-form would otherwise
   // reload the tab and take the entry with it, and mid-download it
   // would abandon a partly-warmed cache. See lib/sw-update-guard.
+  //
+  // Two effects, each keyed on a BOOLEAN, on purpose. One effect keyed
+  // on `formModal` itself re-ran on every change to the modal object
+  // (the collector moving the point, say), and each re-run is a
+  // release-then-hold; a download finishing while a form was open
+  // released the download's hold and, because the single effect
+  // picked one reason, the form's as well. The guard now defers its
+  // idle notice past a same-tick re-hold, but the truthful fix is not
+  // to churn the hold in the first place.
+  const formOpen = formModal !== null;
+  useEffect(() => {
+    if (!formOpen) return;
+    return holdReload('field-form-open');
+  }, [formOpen]);
   const downloadRunning =
     downloadProgress !== null &&
     downloadProgress.phase !== 'done' &&
     downloadProgress.phase !== 'failed';
   useEffect(() => {
-    if (formModal === null && !downloadRunning) return;
-    const release = holdReload(
-      formModal !== null ? 'field-form-open' : 'field-download',
-    );
-    return release;
-  }, [formModal, downloadRunning]);
+    if (!downloadRunning) return;
+    return holdReload('field-download');
+  }, [downloadRunning]);
 
   // Slice 5 (queue + sync; see docs/field-offline-recovery.md).
   // State declarations are higher up next to offlineFeatures so the
@@ -972,6 +984,8 @@ export function FieldRuntime({
       cancelled = true;
     };
   }, [dataCollectionId, offlineWriteCounter, lastSyncResult]);
+
+  const t = useT();
 
   // The actual sync runner. Wrapped in a callback so both the
   // online-flip auto-trigger and the manual button share the same
@@ -1038,7 +1052,7 @@ export function FieldRuntime({
                 reason:
                   err instanceof Error
                     ? err.message
-                    : 'Could not read the offline queue.',
+                    : t('fieldRuntime.queueReadFailed'),
                 terminal: false,
               },
             ],
@@ -1048,7 +1062,7 @@ export function FieldRuntime({
         if (mountedRef.current) setSyncing(false);
       }
     },
-    [dataCollectionId, mapData.layers],
+    [dataCollectionId, mapData.layers, t],
   );
 
   // Auto-sync when isOnline flips from false -> true. Captured via a
@@ -1075,7 +1089,6 @@ export function FieldRuntime({
     'unknown' | 'persistent' | 'best-effort'
   >('unknown');
   const [storage, setStorage] = useState<StorageEstimate | null>(null);
-  const t = useT();
   // Lets the user stop a download. Held in a ref rather than state
   // because the modal's Cancel needs the CURRENT controller, and a
   // state update would hand it whichever one the closure captured.
@@ -1368,38 +1381,16 @@ export function FieldRuntime({
     tileZoomMax,
   ]);
 
-  // Remove this deployment from the device. Cascades through every
-  // IDB store keyed on dataCollectionId (features, queue, forms,
-  // pick lists, manifest), AND clears the tile cache (#270).
-  //
-  // The original design left the tile cache alone on remove because
-  // it's a shared origin-wide cache and other deployments may still
-  // need those tiles. In practice that means a worker who removes a
-  // city-scale offline area and downloads a smaller one keeps paying
-  // for the old area's tiles forever -- the storage gauge never goes
-  // down even though the IDB rows are gone. For a small org with one
-  // or two active deployments at a time, clearing the tile cache on
-  // remove is the right tradeoff: a tiny re-download cost on the
-  // next download in exchange for honest storage accounting and
-  // actually reclaiming the bytes the user just asked us to free.
-  // The user is sent back to /field afterwards so the catalog
-  // reflects the new state.
+  // Remove this deployment from the device. `removeDeploymentFromDevice`
+  // owns the whole cascade (IndexedDB stores, the prepared basemap
+  // archive, and the service worker tile cache) so this and the
+  // catalog's Remove button cannot drift apart; the reasoning for
+  // clearing the shared tile cache lives with it. The user is sent
+  // back to /field afterwards so the catalog reflects the new state.
   const removeCache = useCallback(async () => {
     try {
-      // Takes the prepared basemap archive with it. deleteDeployment
-      // alone cascaded through IndexedDB and left the archive in Cache
-      // Storage, so the storage gauge barely moved after a remove.
       await removeDeploymentFromDevice(dataCollectionId);
       setCachedDeployment(null);
-      // Clear the SW tile cache too so the storage gauge reflects
-      // the removal. Best-effort: a failure here doesn't block the
-      // remove (the IDB rows are gone regardless).
-      try {
-        await clearTileCache();
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.warn('Tile cache clear failed during remove:', err);
-      }
       // Beacon the now-empty manifest so the admin's field-queues
       // view stops showing this deployment as cached. Bypasses the
       // throttle because this is a meaningful state change, not the
@@ -3123,6 +3114,7 @@ function TemplatePicker({
   onPick: (tpl: FieldTemplate) => void;
   onClose: () => void;
 }) {
+  const t = useT();
   const [filter, setFilter] = useState('');
   const groups = useMemo(() => {
     const term = filter.trim().toLowerCase();
@@ -3149,7 +3141,7 @@ function TemplatePicker({
     <FieldSheet
       open
       onClose={onClose}
-      ariaLabel="Pick a feature type to add"
+      ariaLabel={t('fieldRuntime.pickTypeSheet')}
       // Was max-h-[75vh]. On iOS that measures against a viewport
       // pretending the URL bar is hidden, so the bottom of the list
       // sat under the browser chrome. The sheet measures the visible
@@ -3674,16 +3666,12 @@ function LayerVisibilityPanel({
               aria-hidden="true"
             />
             <span>
-              {cachedDeployment.partial.outOfSpace
-                ? panelT('fieldOffline.partialOutOfSpace')
-                : panelT('fieldOffline.partialPrefix')}
-              {cachedDeployment.partial.reasons.slice(0, 2).join(', ')}
-              {cachedDeployment.partial.reasons.length > 2
-                ? panelT('fieldOffline.partialMore', {
-                    count: cachedDeployment.partial.reasons.length - 2,
-                  })
-                : ''}
-              {panelT('fieldOffline.partialSuffix')}
+              {panelT(
+                cachedDeployment.partial.outOfSpace
+                  ? 'fieldOffline.partialOutOfSpace'
+                  : 'fieldOffline.partial',
+                { missing: describeMissing(cachedDeployment.partial.reasons, panelT) },
+              )}
             </span>
           </p>
         ) : null}
@@ -4856,6 +4844,7 @@ function FieldFeaturePopupSheet({
     },
   ) => void;
 }) {
+  const t = useT();
   // The cast that used to be here is gone: the props are the real
   // types now, so the sheet and the runtime are checked against the
   // same declaration instead of agreeing by convention.
@@ -4891,7 +4880,7 @@ function FieldFeaturePopupSheet({
     <FieldSheet
       open
       onClose={onClose}
-      ariaLabel="Feature details"
+      ariaLabel={t('fieldRuntime.featureDetailsSheet')}
       snapPoints={[0.55, 0.92]}
       initialSnap={expanded ? 1 : 0}
       onCoveredHeightChange={onCoveredHeightChange}
@@ -6218,4 +6207,20 @@ function formatRelativeTime(iso: string): string {
   if (day === 1) return 'yesterday';
   if (day < 30) return `${day}d ago`;
   return new Date(iso).toLocaleDateString();
+}
+
+/**
+ * The list of what an offline download skipped, for the {missing}
+ * slot of the fieldOffline.partial* sentences. Two names fit on the
+ * one line a collector reads before leaving signal; the rest becomes
+ * a count so the line never scrolls.
+ */
+function describeMissing(reasons: string[], t: Translator): string {
+  const shown = reasons.slice(0, 2).join(', ');
+  return reasons.length > 2
+    ? t('fieldOffline.partialMissingMore', {
+        missing: shown,
+        count: reasons.length - 2,
+      })
+    : shown;
 }

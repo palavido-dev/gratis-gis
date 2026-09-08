@@ -41,7 +41,7 @@
  * `refreshLayerSource`), undo/redo, templates, and the attribute form.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type maplibregl from 'maplibre-gl';
 import type { TerraDraw } from 'terra-draw';
 
@@ -404,10 +404,21 @@ export function useGeometryEdit(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draw, key, featureId]);
 
-  const dirty =
-    currentGeometry !== null &&
-    originalRef.current !== null &&
-    JSON.stringify(currentGeometry) !== JSON.stringify(originalRef.current);
+  // Memoised on the two geometry identities: the original only changes
+  // when a session starts and the current one only on a drag, but the
+  // owning component re-renders far more often than that (toolbar
+  // hover, toasts), and two full serialisations of a large polygon per
+  // render is noticeable. originalRef is written in the same effect
+  // that sets currentGeometry, so it is settled whenever the memo runs
+  // with a non-null current geometry.
+  const original = originalRef.current;
+  const dirty = useMemo(
+    () =>
+      currentGeometry !== null &&
+      original !== null &&
+      JSON.stringify(currentGeometry) !== JSON.stringify(original),
+    [currentGeometry, original],
+  );
 
   return { currentGeometry, dirty, loadError };
 }

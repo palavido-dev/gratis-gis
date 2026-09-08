@@ -1080,9 +1080,10 @@ export class ItemsService {
     }
 
     // For map items, resolve the empty-string basemap sentinel from
-    // DEFAULT_MAP to the org's seeded positron (or any available)
-    // basemap item UUID so every new map opens against a real
-    // basemap without the client needing to know any UUIDs up front.
+    // DEFAULT_MAP to the org's default seeded basemap (OpenStreetMap,
+    // see default-basemap.ts, then any seeded, then any) item UUID so
+    // every new map opens against a real basemap without the client
+    // needing to know any UUIDs up front.
     let resolvedData: Prisma.InputJsonValue =
       input.type === 'map'
         ? ((await this.resolveDefaultBasemap(

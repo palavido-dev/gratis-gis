@@ -21,6 +21,11 @@ import {
 import { exchangeBasicForArcgisToken } from './arcgis-auth.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { LastUsageStamp } from './last-usage-stamp.js';
+import {
+  ProxyPathError,
+  composeUpstreamUrl,
+  extractSubPath,
+} from './proxy-subpath.js';
 import { safeFetch, UnsafeOutboundUrlError } from '../common/net-guards.js';
 import {
   PROXY_FETCH_TIMEOUT_MS,
@@ -53,12 +58,10 @@ export class ItemProxyController {
   private readonly log = new Logger(ItemProxyController.name);
 
   /**
-   * Per-process cache of the last time we wrote `lastUsageAt` for
-   * each item. Throttles the UPDATE so a busy map tile spew (one
-   * request per pan / per tile) doesn't translate into one DB
-   * write per request. Matches the auth-sync lastSeenAt pattern
-   * (#50). Reset on process restart so a freshly-deployed server
-   * is willing to write the first hit immediately.
+   * Throttled `lastUsageAt` writer. The per-item "last stamped"
+   * map and the throttle live in `LastUsageStamp` so this controller
+   * and `ItemsController` share one implementation; the interval
+   * below is the only knob kept here.
    */
   private lastUsage!: LastUsageStamp;
   private static readonly USAGE_THROTTLE_MS = 60_000;
@@ -158,9 +161,10 @@ export class ItemProxyController {
     // The wildcard captures the path AFTER /proxy/. Express puts
     // it on the params object under a numeric key, but it can also
     // be reconstructed from req.url which is more portable across
-    // route nesting changes.
-    const subPath = extractSubPath(req.url);
-    const target = composeUpstreamUrl(itemUrl, subPath, credential);
+    // route nesting changes. The helper refuses dot segments and any
+    // composition whose pathname leaves the stored URL; see
+    // proxy-subpath.ts for why that is load bearing.
+    const target = resolveProxyTarget(itemUrl, req.url, credential);
     const headers = composeUpstreamHeaders(credential);
 
     // SSRF guard.  An item with a malicious data.url that pointed
@@ -214,47 +218,26 @@ export class ItemProxyController {
   }
 }
 
-/** Pull everything after `/proxy/` from the request URL. Returns
- *  '' when the request hits exactly /proxy with no trailing path. */
-export function extractSubPath(url: string): string {
-  const idx = url.indexOf('/proxy');
-  if (idx < 0) return '';
-  let after = url.slice(idx + '/proxy'.length);
-  if (after.startsWith('/')) after = after.slice(1);
-  return after;
-}
-
-/** Compose the final upstream URL: <item.data.url> + '/' +
- *  <subPath>, preserving query params on both sides. arcgis_token
- *  credentials are appended as a query param here so they end up
- *  in the URL the upstream sees. Null credential = no token to
- *  inject (item doesn't require auth). */
-export function composeUpstreamUrl(
-  base: string,
-  subPath: string,
+/**
+ * Turn the request URL into the upstream target, mapping a refused
+ * sub-path to the 400 both proxy controllers answer with. Shared by
+ * the anonymous twin so the two cannot disagree about what is
+ * refused.
+ */
+export function resolveProxyTarget(
+  itemUrl: string,
+  requestUrl: string,
   credential: CredentialPayload | null,
 ): string {
-  // Strip a trailing slash on the base so we can join with
-  // subPath cleanly without a double slash.
-  const trimmed = base.replace(/\/$/, '');
-  let joined: string;
-  if (subPath.length === 0) {
-    joined = trimmed;
-  } else if (subPath.startsWith('?')) {
-    // subPath is just a query string (e.g. probing the service
-    // root with ?f=json from the detail page's Probe button).
-    // Don't insert a slash before the '?' or we'd produce an
-    // empty path segment that some servers reject.
-    joined = `${trimmed}${subPath}`;
-  } else {
-    joined = `${trimmed}/${subPath}`;
+  try {
+    const subPath = extractSubPath(requestUrl);
+    return composeUpstreamUrl(itemUrl, subPath, credential);
+  } catch (err) {
+    if (err instanceof ProxyPathError) {
+      throw new BadRequestException(err.message);
+    }
+    throw err;
   }
-  if (credential?.kind === 'arcgis_token') {
-    const u = new URL(joined);
-    u.searchParams.set('token', credential.token);
-    return u.toString();
-  }
-  return joined;
 }
 
 /** Compose request headers based on the credential kind. Bearer

@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, MapPin, Search, Tag, X } from 'lucide-react';
 import type { MapLayer } from '@gratis-gis/shared-types';
+import { useT } from '@/lib/i18n/locale-context';
 import {
   GeocoderUnavailableError,
   geocode,
@@ -70,6 +71,7 @@ export function SearchBar({
   onPick,
   embedded = false,
 }: Props) {
+  const t = useT();
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [geocodeResults, setGeocodeResults] = useState<SearchResult[]>([]);
@@ -132,7 +134,7 @@ export function SearchBar({
           setGeocodeUnavailable(
             err instanceof GeocoderUnavailableError
               ? err.message
-              : 'unknown error',
+              : t('errorReason.unknown'),
           );
         })
         .finally(() => setGeocodeLoading(false));
@@ -141,7 +143,7 @@ export function SearchBar({
       controller.abort();
       clearTimeout(handle);
     };
-  }, [query, geocodingEnabled, geocoderItemId, viewportBbox]);
+  }, [query, geocodingEnabled, geocoderItemId, viewportBbox, t]);
 
   // Debounced ArcGIS REST attribute search. Runs only when at least
   // one visible layer is arcgis-rest and searchable; otherwise we
@@ -373,8 +375,7 @@ export function SearchBar({
                  the usual cause is a Nominatim container that is
                  down or still importing, so point at it. */
               <div className="px-3 py-2 text-xs text-muted">
-                Place search is unavailable right now ({geocodeUnavailable}).
-                Layer results above are unaffected.
+                {t('mapSearch.geocoderUnavailable', { reason: geocodeUnavailable })}
               </div>
             ) : query.trim().length >= 3 && !geocodeLoading ? (
               /* A real zero-result answer. The old copy appended
@@ -387,8 +388,7 @@ export function SearchBar({
                  of the world, that is the likely cause and it is
                  the thing worth naming. */
               <div className="px-3 py-2 text-xs text-muted">
-                No places found for that. This portal&apos;s geocoder only
-                covers the area it was set up with.
+                {t('mapSearch.noPlaces')}
               </div>
             ) : null
           ) : null}

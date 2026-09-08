@@ -7,7 +7,7 @@
  * deployment manifest record so subsequent visits can detect the
  * cached state.
  *
- * Tile caching is intentionally NOT in this module yet -- see
+ * Tile caching is intentionally NOT in this module yet; see
  * docs/field-offline-recovery.md for the staged plan. The map will
  * render with empty basemap tiles when offline at the cost of
  * pretty pictures, but feature data + forms + pick-lists work.
@@ -72,7 +72,7 @@ export interface DownloadProgress {
   /** Total number of editable layers in this deployment. Surfaced
    *  in the final summary so an empty deployment (zero features,
    *  zero forms, zero picklists) doesn't render as "nothing
-   *  happened" -- the user sees "Cached N layers offline; sync
+   *  happened"; the user sees "Cached N layers offline; sync
    *  stays current as you add features." instead. */
   layerCount: number;
   /** Counts updated as the run progresses. */
@@ -115,7 +115,7 @@ export interface DownloadInput {
    *  configured zoom range so the field map renders offline.
    *  Omitted when the deployment has no tiled basemap (vector-style
    *  basemaps, MVT-only, or admin hasn't configured a basemap on
-   *  the map yet) — the runtime degrades to blank tiles offline,
+   *  the map yet); the runtime degrades to blank tiles offline,
    *  same as today. */
   tileUrlTemplates?: string[];
   /** Inclusive zoom range to warm. Defaults to [12, 17] (urban /
@@ -176,8 +176,10 @@ const DEFAULT_WARM_ZOOM: [number, number] = [12, 17];
  * legacy code 22 with a different name, so both are checked. Worth
  * distinguishing from any other failure because it is the one the
  * user can do something about, and the message should say so.
+ *
+ * Exported for its spec; nothing outside this module calls it.
  */
-function isQuotaError(err: unknown): boolean {
+export function isQuotaError(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
   const e = err as { name?: unknown; code?: unknown };
   return (
@@ -446,7 +448,7 @@ export async function downloadDeployment(
   // fetch() for each tile coord in the bbox at the deployment's
   // configured zoom range. Skipped silently when the deployment
   // has no tile templates (vector-style basemap, MVT-only,
-  // unconfigured, etc) -- the runtime degrades to blank tiles
+  // unconfigured, etc); the runtime degrades to blank tiles
   // offline as it did before, but feature data + forms still work.
   if (input.preparedPackages && input.preparedPackages.length > 0) {
     // #71: the author prepared areas, so there are single files to

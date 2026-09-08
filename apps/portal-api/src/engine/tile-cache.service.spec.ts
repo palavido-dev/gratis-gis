@@ -1,9 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import {
+  OBSERVATION_WRITTEN_CHANNEL,
   TileCacheOverloadError,
   TileCacheService,
+  aggregateCacheKey,
   matchesIfNoneMatch,
   optsFingerprint,
+  parseIntEnv,
+  stableJson,
   tileCacheKey,
   tileOverloadRetryAfterSeconds,
 } from './tile-cache.service.js';
@@ -256,6 +263,110 @@ describe('TileCacheService', () => {
       expect(cache.get('s|agg|t')).toBeNull();
       spy.mockRestore();
     });
+
+    it('does not store a dependent compute when its parent is written mid-compute', async () => {
+      // The dependency is only registered when the result is stored,
+      // so a parent write during the compute has nothing to drop; the
+      // sequence check has to cover the parents, not just the own key.
+      const cache = new TileCacheService();
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      const pending = cache.getOrCompute(
+        'child|agg|k',
+        async () => {
+          await gate;
+          return Buffer.from('pre-parent-write');
+        },
+        { dependsOn: ['parent|'] },
+      );
+      await new Promise((r) => setTimeout(r, 5));
+      expect(cache.onObservationWritten('parent')).toBe(0);
+      release();
+      const result = await pending;
+      expect(result.buf.toString()).toBe('pre-parent-write');
+      expect(cache.get('child|agg|k')).toBeNull();
+      expect(cache.dependentCount('parent|')).toBe(0);
+      // A compute that starts after the parent write stores normally.
+      await cache.getOrCompute('child|agg|k', async () => Buffer.from('fresh'), {
+        dependsOn: ['parent|'],
+      });
+      expect(cache.get('child|agg|k')?.buf.toString()).toBe('fresh');
+      expect(cache.dependentCount('parent|')).toBe(1);
+    });
+
+    it('prunes the dependents index when a dependent entry is evicted', async () => {
+      const prevMax = process.env.TILE_CACHE_MAX_ENTRIES;
+      process.env.TILE_CACHE_MAX_ENTRIES = '1';
+      try {
+        const cache = new TileCacheService();
+        await cache.getOrCompute('child|agg|k', async () => Buffer.from('v'), {
+          dependsOn: ['parent|'],
+        });
+        expect(cache.dependentCount('parent|')).toBe(1);
+        cache.set('other|6/24/17|', Buffer.from('o'));
+        expect(cache.get('child|agg|k')).toBeNull();
+        expect(cache.dependentCount('parent|')).toBe(0);
+        // With nothing registered, a parent write drops nothing and
+        // does not throw over the missing index entry.
+        expect(cache.onObservationWritten('parent')).toBe(0);
+      } finally {
+        if (prevMax !== undefined) process.env.TILE_CACHE_MAX_ENTRIES = prevMax;
+        else delete process.env.TILE_CACHE_MAX_ENTRIES;
+      }
+    });
+
+    it('prunes the dependents index when a dependent entry expires', async () => {
+      const cache = new TileCacheService();
+      const now = Date.now();
+      const spy = jest.spyOn(Date, 'now').mockReturnValue(now);
+      try {
+        await cache.getOrCompute('child|agg|k', async () => Buffer.from('v'), {
+          dependsOn: ['parent|'],
+          ttlMs: 1_000,
+        });
+        expect(cache.dependentCount('parent|')).toBe(1);
+        spy.mockReturnValue(now + 1_001);
+        expect(cache.get('child|agg|k')).toBeNull();
+        expect(cache.dependentCount('parent|')).toBe(0);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('prunes the dependents index and the invalidation record on clear', async () => {
+      const cache = new TileCacheService();
+      await cache.getOrCompute('child|agg|k', async () => Buffer.from('v'), {
+        dependsOn: ['parent|'],
+      });
+      cache.onObservationWritten('unrelated');
+      cache.clear();
+      const internals = cache as unknown as {
+        invalidatedAtSeq: Map<string, number>;
+        dependents: Map<string, Set<string>>;
+      };
+      expect(internals.invalidatedAtSeq.size).toBe(0);
+      expect(internals.dependents.size).toBe(0);
+      expect(cache.dependentCount('parent|')).toBe(0);
+      expect(cache.onObservationWritten('parent')).toBe(0);
+    });
+
+    it('does not store a compute that straddled a clear', async () => {
+      // clear() is what the listener calls when it connects, on the
+      // grounds that anything cached before it was up may be stale;
+      // a compute in flight at that moment is in the same position.
+      const cache = new TileCacheService();
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      const pending = cache.getOrCompute('s|6/24/17|', async () => {
+        await gate;
+        return Buffer.from('old');
+      });
+      await new Promise((r) => setTimeout(r, 5));
+      cache.clear();
+      release();
+      expect((await pending).buf.toString()).toBe('old');
+      expect(cache.get('s|6/24/17|')).toBeNull();
+    });
   });
 
   describe('getOrCompute single-flight', () => {
@@ -459,6 +570,88 @@ describe('optsFingerprint', () => {
     const a = optsFingerprint({ fields: [{ name: 'a', type: 'text' }] });
     const b = optsFingerprint({ fields: [{ name: 'b', type: 'text' }] });
     expect(a).not.toBe(b);
+  });
+});
+
+describe('aggregateCacheKey', () => {
+  it('sits under the scope prefix with an agg marker', () => {
+    const key = aggregateCacheKey('data_layer:i:l', { aggs: [{ fn: 'count' }] });
+    expect(key.startsWith('data_layer:i:l|agg|')).toBe(true);
+  });
+
+  it('is stable across key order and undefined optional fields', () => {
+    const a = aggregateCacheKey('s', { groupBy: ['x'], aggs: [{ fn: 'count' }], via: undefined });
+    const b = aggregateCacheKey('s', { aggs: [{ fn: 'count' }], groupBy: ['x'] });
+    expect(a).toBe(b);
+  });
+
+  it('changes when the request changes', () => {
+    const a = aggregateCacheKey('s', { aggs: [{ fn: 'count' }] });
+    const b = aggregateCacheKey('s', { aggs: [{ fn: 'sum', field: 'v' }] });
+    expect(a).not.toBe(b);
+  });
+});
+
+describe('stableJson', () => {
+  it('sorts keys at every level', () => {
+    expect(stableJson({ b: { d: 1, c: 2 }, a: [3, { f: 1, e: 2 }] })).toBe(
+      '{"a":[3,{"e":2,"f":1}],"b":{"c":2,"d":1}}',
+    );
+  });
+
+  it('omits undefined-valued keys like JSON.stringify does', () => {
+    expect(stableJson({ a: 1, b: undefined })).toBe('{"a":1}');
+  });
+
+  it('never emits the text "undefined"', () => {
+    expect(stableJson(undefined)).toBe('null');
+    expect(stableJson([undefined])).toBe('[null]');
+  });
+});
+
+describe('parseIntEnv', () => {
+  const NAME = 'TILE_CACHE_SPEC_KNOB';
+  afterEach(() => {
+    delete process.env[NAME];
+  });
+
+  it('falls back when unset, empty or not a number', () => {
+    expect(parseIntEnv(NAME, 7)).toBe(7);
+    process.env[NAME] = '';
+    expect(parseIntEnv(NAME, 7)).toBe(7);
+    process.env[NAME] = 'many';
+    expect(parseIntEnv(NAME, 7)).toBe(7);
+  });
+
+  it('accepts zero by default and refuses it under a floor of one', () => {
+    process.env[NAME] = '0';
+    expect(parseIntEnv(NAME, 7)).toBe(0);
+    expect(parseIntEnv(NAME, 7, { min: 1 })).toBe(7);
+    process.env[NAME] = '-1';
+    expect(parseIntEnv(NAME, 7)).toBe(7);
+  });
+});
+
+describe('OBSERVATION_WRITTEN_CHANNEL', () => {
+  it('is the channel the observation trigger notifies on', () => {
+    // The constant has no importer outside this service, so nothing
+    // would fail if the two spellings drifted: the listener would
+    // simply never hear a write and the cache would fall back to TTL
+    // staleness, which is exactly the outage the trigger was added
+    // to end. Pin the migration text to the constant.
+    const sql = readFileSync(
+      join(
+        __dirname,
+        '..',
+        '..',
+        'prisma',
+        'migrations',
+        '20260903150000_observation_notify_trigger',
+        'migration.sql',
+      ),
+      'utf8',
+    );
+    expect(sql).toContain(`pg_notify('${OBSERVATION_WRITTEN_CHANNEL}'`);
   });
 });
 

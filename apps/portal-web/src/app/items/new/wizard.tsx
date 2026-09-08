@@ -9,6 +9,7 @@ import {
   useTransition,
 } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useT } from '@/lib/i18n/locale-context';
 import {
   ArrowLeft,
   Building2,
@@ -81,6 +82,8 @@ import type {
   CustomAppData,
 } from '@gratis-gis/shared-types';
 import { ThumbnailDesigner } from '@/components/thumbnail-designer';
+import { formatBytes } from '@/lib/format-bytes';
+import { presignUpload } from '@/lib/presign-upload';
 import {
   defaultThumbnailDesign,
   type ThumbnailDesign,
@@ -146,8 +149,11 @@ interface TypeOption {
    * Only set where there is an honest, common answer. Inventing a
    * plausible-sounding job for every type would bury the four that
    * most arrivals actually want.
+   *
+   * Holds the catalog key (`newItemJob.<type>`), not the sentence:
+   * this table is module level, so it cannot call `useT()` itself.
    */
-  job?: string;
+  jobKey?: string;
   Icon: LucideIcon;
 }
 
@@ -233,7 +239,7 @@ const TYPE_GROUPS: TypeGroup[] = [
         value: 'data_layer',
         label: 'Data layer',
         desc: 'A shareable vector layer backed by PostGIS.',
-        job: 'Start here if you have a spreadsheet, a shapefile or a GeoJSON file to upload.',
+        jobKey: 'newItemJob.data_layer',
         Icon: Layers,
       },
       {
@@ -289,7 +295,7 @@ const TYPE_GROUPS: TypeGroup[] = [
         value: 'map',
         label: 'Map',
         desc: 'A basemap with overlay layers and styling.',
-        job: 'Start here to put data you have already uploaded onto a map and share it.',
+        jobKey: 'newItemJob.map',
         Icon: MapIcon,
       },
     ],
@@ -316,14 +322,14 @@ const TYPE_GROUPS: TypeGroup[] = [
         value: 'form',
         label: 'Form',
         desc: 'A collection form for fieldwork or survey data. Submissions land in a paired data layer; the form\'s Responses tab shows every submission on a map.',
-        job: 'Start here if you want people to fill in answers, one at a time, from a link you send them.',
+        jobKey: 'newItemJob.form',
         Icon: FileText,
       },
       {
         value: 'data_collection',
         label: 'Data collection',
         desc: 'Field-mode deployment: tap features on a map to add or edit them. Forms come from the layer schema by default.',
-        job: 'Start here if you want a crew to record what they find on a map from their phones, offline.',
+        jobKey: 'newItemJob.data_collection',
         Icon: ClipboardList,
       },
       // No 'report_template' tile. There is no report_template
@@ -514,6 +520,7 @@ export function NewItemWizard({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const t = useT();
   // Optional `?type=<itemType>` query param lets entry points like the
   // folder rail's "Create one" link, the FolderDetail "+ New
   // subfolder" button, and any future deep-link skip the picker step
@@ -1873,9 +1880,9 @@ export function NewItemWizard({
                           vocabulary is scanning for a sentence they
                           recognise, and the description is written
                           for the reader who already does. */}
-                      {opt.job ? (
+                      {opt.jobKey ? (
                         <span className="mt-1 block text-xs text-ink-1">
-                          {opt.job}
+                          {t(opt.jobKey)}
                         </span>
                       ) : null}
                       <span className="mt-0.5 block text-xs text-muted">
@@ -2429,28 +2436,15 @@ function FileItemUploader({
     setError(null);
     setBusy(true);
     try {
-      const presignRes = await fetch('/api/portal/storage/presign-upload', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          kind: 'item-file',
-          contentType: file.type || 'application/octet-stream',
-        }),
+      // The size is signed into the URL, so the server refuses an
+      // over-cap file here rather than after the PUT.
+      const { uploadUrl, publicUrl, key, maxBytes } = await presignUpload({
+        kind: 'item-file',
+        contentType: file.type || 'application/octet-stream',
+        sizeBytes: file.size,
       });
-      if (!presignRes.ok) {
-        setError(`Could not start upload: ${presignRes.status}`);
-        return;
-      }
-      const { uploadUrl, publicUrl, key, maxBytes } =
-        (await presignRes.json()) as {
-          uploadUrl: string;
-          publicUrl: string;
-          key: string;
-          maxBytes: number;
-        };
       if (file.size > maxBytes) {
-        const maxMb = Math.round(maxBytes / (1024 * 1024));
-        setError(`File too large. Max is ${maxMb} MB.`);
+        setError(`File too large. Max is ${formatBytes(maxBytes)}.`);
         return;
       }
 

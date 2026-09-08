@@ -125,8 +125,17 @@ export class FieldQueueService {
   }
 }
 
-/** Bound the manifest size and trim error strings before persist. */
-function sanitizeManifest(input: ManifestEntry[] | null | undefined): ManifestEntry[] {
+/**
+ * Bound the manifest size and trim error strings before persist.
+ *
+ * Exported for the spec: the status coercion is the one place a new
+ * device state can silently vanish. `rejected` was added after the
+ * fact and would have been folded into `pending` by the old two-way
+ * check, which is exactly the kind of drift the admin view then
+ * reports as "device has been offline" instead of "these edits were
+ * refused".
+ */
+export function sanitizeManifest(input: ManifestEntry[] | null | undefined): ManifestEntry[] {
   if (!Array.isArray(input)) return [];
   return input.slice(0, 100).map((entry) => ({
     dataCollectionId: String(entry?.dataCollectionId ?? ''),

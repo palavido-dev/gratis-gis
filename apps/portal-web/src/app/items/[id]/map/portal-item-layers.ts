@@ -19,6 +19,7 @@
  * come back as plain-language strings for the caller to surface.
  */
 import type { Item, MapLayer, MapLayerSource } from '@gratis-gis/shared-types';
+import type { Translator } from '@/lib/i18n';
 import {
   DEFAULT_LAYER_ACCESS,
   DEFAULT_LAYER_LABELS,
@@ -301,8 +302,15 @@ export function buildTileLayer(
  */
 export async function layersForPortalItem(
   input: Item,
-  opts: { layerKey?: string } = {},
+  opts: {
+    layerKey?: string;
+    /** The caller's locale bound `t`. This module runs outside React,
+     *  so the component hands its translator in rather than the
+     *  module guessing a locale. */
+    t: Translator;
+  },
 ): Promise<{ layers?: MapLayer[]; error?: string }> {
+  const { t } = opts;
   if (
     input.type === 'service' ||
     input.type === 'wms_service' ||
@@ -372,12 +380,15 @@ export async function layersForPortalItem(
         const sub = sublayers.find((s) => s.id === opts.layerKey);
         if (!sub) {
           return {
-            error: `${input.title} no longer has a layer "${opts.layerKey}".`,
+            error: t('addToMap.layerGone', {
+              item: input.title,
+              layerKey: opts.layerKey,
+            }),
           };
         }
         if (!sub.geometryType) {
           return {
-            error: `${sub.label || sub.id} is a table with no shapes, so there is nothing to draw.`,
+            error: t('addToMap.tableNoShapes', { layer: sub.label || sub.id }),
           };
         }
         const title =

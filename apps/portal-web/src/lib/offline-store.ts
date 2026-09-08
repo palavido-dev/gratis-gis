@@ -3,9 +3,9 @@
  * IndexedDB-backed offline store for field-mode deployments.
  *
  * Implements the schema described in docs/field-offline-recovery.md:
- * five object stores (deployments, features, forms, pickLists, queue)
- * keyed by composite paths so multiple deployments cached on one
- * device don't collide. Promise-based wrapper over the native
+ * six object stores (deployments, features, forms, pickLists, queue,
+ * and since schema v2 blobs) keyed by composite paths so multiple
+ * deployments cached on one device don't collide. Promise-based wrapper over the native
  * IndexedDB API; no third-party dependencies.
  *
  * Critical design choices the doc settled:
@@ -203,11 +203,6 @@ export interface QueueRecord {
   failureReason?: string;
   lastAttemptAt?: string;
   retryCount?: number;
-  /** Slice 6 attachment refs; empty in slice 5. */
-  attachments?: Array<{
-    blobId: string;
-    mimeType: string;
-  }>;
 }
 
 /**
@@ -681,7 +676,6 @@ export interface FeatureEditInput {
   geometry: GeoJSON.Geometry | null;
   properties: Record<string, unknown> | null;
   schemaHash: string;
-  attachments?: QueueRecord['attachments'];
 }
 
 /**
@@ -763,7 +757,6 @@ export async function enqueueEdit(
         queuedAt: now,
         schemaHash: edit.schemaHash,
         syncStatus: 'pending',
-        ...(edit.attachments ? { attachments: edit.attachments } : {}),
       };
       store.put(record);
       return { kind: 'queued', record } as EnqueueResult;
@@ -823,7 +816,6 @@ export async function enqueueEdit(
       // changed what it sends.
       syncStatus: 'pending',
       retryCount: 0,
-      ...(edit.attachments ? { attachments: edit.attachments } : {}),
     };
     store.put(record);
     return {
@@ -856,20 +848,11 @@ export async function enqueueEdit(
   return result;
 }
 
-/**
- * Raw put of a queue row, bypassing the fold.
- *
- * Retained for callers that are rewriting a row they already hold (the
- * drains' status bookkeeping). New EDITS must go through
- * `enqueueEdit`: this function is where the insert-then-edit data loss
- * lived, and calling it with a fresh edit reintroduces it.
- */
-export async function enqueueRecord(record: QueueRecord): Promise<void> {
-  await withStore(STORES.queue, 'readwrite', (s) => {
-    s.put(record);
-  });
-  requestBackgroundSync();
-}
+// There is deliberately no raw "put a fresh queue row" export here. New
+// edits go through `enqueueEdit`, which folds; the drains rewrite rows
+// they already hold through `updateQueueRecord`. The unfolded put is
+// where the insert-then-edit data loss lived, and an export nobody
+// called was an open invitation to reintroduce it.
 
 export async function listQueue(
   dataCollectionId: string,
@@ -989,24 +972,6 @@ export async function listPendingBlobs(
     const idx = s.index('by_deployment');
     const r = await reqAsPromise(idx.getAll(IDBKeyRange.only(dataCollectionId)));
     return (r as PendingBlob[] | undefined) ?? [];
-  });
-}
-
-/**
- * Feature keys that still owe an upload, as `dataLayerId layerKey
- * globalId` strings.
- *
- * The service worker uses the same idea to decide which queue rows to
- * leave alone (see sw.js). Exposed here so the in-app drain and any
- * UI can ask the question without materialising megabytes of Blob.
- */
-export async function pendingBlobFeatureKeys(): Promise<Set<string>> {
-  return withStore(STORES.blobs, 'readonly', async (s) => {
-    const r = await reqAsPromise(s.getAll());
-    const rows = (r as PendingBlob[] | undefined) ?? [];
-    return new Set(
-      rows.map((b) => `${b.dataLayerId} ${b.layerKey} ${b.globalId}`),
-    );
   });
 }
 

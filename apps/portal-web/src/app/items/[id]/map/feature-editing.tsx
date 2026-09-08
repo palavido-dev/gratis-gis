@@ -30,8 +30,8 @@
  *    the rendered tile. The builder draws data layers as MVT, and a
  *    polygon that crosses a tile edge comes back from
  *    queryRenderedFeatures clipped to that edge; saving it would
- *    truncate the feature. `/features?entity=` returns the whole
- *    thing.
+ *    truncate the feature. `fetchFeatureFromServer` (fetch-feature.ts,
+ *    shared with the editor runtime) returns the whole thing.
  *
  *  - Permission is the layer's, resolved server-side once per page
  *    load (`editableLayerIds`), and re-checked by the server on every
@@ -72,6 +72,7 @@ import {
   type DrawGeometryType,
   type GeometryEditRequest,
 } from './use-terra-draw';
+import { fetchFeatureFromServer } from './fetch-feature';
 import type { MapCanvasHandle } from './map-canvas';
 
 export type FeatureEditTool = 'off' | 'edit' | 'add' | 'delete';
@@ -154,7 +155,14 @@ export function useFeatureEditing({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [loadingFeature, setLoadingFeature] = useState(false);
 
-  const { draw, ready } = useTerraDraw(map, { snapping });
+  // terra-draw is only mounted once there is something to edit. The
+  // hook's dynamic import is the whole reason the read-only path stays
+  // light, and mounting it unconditionally made every viewer of every
+  // map download it. Handing the hook null until then is the same as
+  // the map not having loaded yet, which it already handles.
+  const { draw, ready } = useTerraDraw(editableLayerIds.size > 0 ? map : null, {
+    snapping,
+  });
   const geometryEdit = useGeometryEdit(draw, pendingEdit);
 
   const drawableLayers = useMemo(
@@ -206,7 +214,7 @@ export function useFeatureEditing({
         layerId: addLayerId,
         geometry: f.geometry as GeoJSON.Geometry,
         sketchId: id,
-        layerTitle: layer?.title ?? 'layer',
+        layerTitle: layer?.title ?? t('featureEdit.unnamedLayer'),
       });
       setDrawMode(draw, 'select');
     };
@@ -218,7 +226,7 @@ export function useFeatureEditing({
         /* race on unmount */
       }
     };
-  }, [draw, ready, tool, addLayerId, layers]);
+  }, [draw, ready, tool, addLayerId, layers, t]);
 
   const clearSketch = useCallback(
     (sketchId: string | number) => {
@@ -262,26 +270,6 @@ export function useFeatureEditing({
     [tool, leaveTool, pendingCreate, clearSketch],
   );
 
-  /** Full geometry and attributes from the server, never the tile. */
-  const fetchFeature = useCallback(
-    async (layer: MapLayer, featureId: string) => {
-      const src = dataLayerSource(layer);
-      if (!src) return null;
-      const res = await fetch(
-        `/api/portal/items/${src.itemId}/layers/${encodeURIComponent(src.layerKey)}/features?entity=${encodeURIComponent(featureId)}`,
-      );
-      if (!res.ok) throw new Error(await parseApiError(res, 'Could not load the feature'));
-      const fc = (await res.json()) as GeoJSON.FeatureCollection;
-      const f = fc.features?.[0];
-      if (!f || !f.geometry) return null;
-      return {
-        geometry: f.geometry,
-        properties: (f.properties ?? {}) as Record<string, unknown>,
-      };
-    },
-    [],
-  );
-
   const onEditClaimedClick = useCallback(
     (info: { layerId: string; featureId: string | number; properties: Record<string, unknown> }) => {
       if (tool !== 'edit' && tool !== 'delete') return;
@@ -317,7 +305,7 @@ export function useFeatureEditing({
               { method: 'DELETE' },
             );
             if (!res.ok && res.status !== 204) {
-              throw new Error(await parseApiError(res, 'Delete failed'));
+              throw new Error(await parseApiError(res, t('featureEdit.deleteFailed')));
             }
             canvasRef.current?.refreshLayerSource(layer.id);
             toast.success(t('featureEdit.featureDeleted'));
@@ -343,7 +331,12 @@ export function useFeatureEditing({
       setSaveError(null);
       void (async () => {
         try {
-          const full = await fetchFeature(layer, featureId);
+          const full = await fetchFeatureFromServer(
+            src.itemId,
+            src.layerKey,
+            featureId,
+            t('featureEdit.loadFailed'),
+          );
           if (!full) {
             toast.error(t('featureEdit.notFound'));
             return;
@@ -363,7 +356,7 @@ export function useFeatureEditing({
         }
       })();
     },
-    [tool, layers, layerInfo, confirm, canvasRef, fetchFeature, pendingEdit, loadingFeature],
+    [tool, layers, layerInfo, confirm, canvasRef, pendingEdit, loadingFeature, t],
   );
 
   const saveGeometry = useCallback(async () => {
@@ -383,7 +376,7 @@ export function useFeatureEditing({
         },
       );
       if (!res.ok) {
-        setSaveError(await parseApiError(res, 'Save failed'));
+        setSaveError(await parseApiError(res, t('featureEdit.saveFailed')));
         return;
       }
       setPendingEdit(null);
@@ -394,7 +387,7 @@ export function useFeatureEditing({
     } finally {
       setBusy(false);
     }
-  }, [pendingEdit, geometryEdit.currentGeometry, layers, canvasRef]);
+  }, [pendingEdit, geometryEdit.currentGeometry, layers, canvasRef, t]);
 
   const submitCreate = useCallback(
     async (values: Record<string, unknown>) => {
@@ -422,7 +415,7 @@ export function useFeatureEditing({
           },
         );
         if (!res.ok) {
-          setSaveError(await parseApiError(res, 'Could not add the feature'));
+          setSaveError(await parseApiError(res, t('featureEdit.addFailed')));
           return;
         }
         clearSketch(pendingCreate.sketchId);
@@ -438,7 +431,7 @@ export function useFeatureEditing({
         setBusy(false);
       }
     },
-    [pendingCreate, layers, canvasRef, clearSketch, draw, layerInfo],
+    [pendingCreate, layers, canvasRef, clearSketch, draw, layerInfo, t],
   );
 
   const cancelCreate = useCallback(() => {

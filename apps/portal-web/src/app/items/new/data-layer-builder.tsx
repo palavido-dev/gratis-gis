@@ -28,6 +28,7 @@ import {
   type UploadBusy,
 } from '@/components/upload-progress-panel';
 import { CreateSharedPickListDialog } from './create-shared-pick-list-dialog';
+import { useT } from '@/lib/i18n/locale-context';
 import type {
   FeatureField,
   FeatureFieldStorage,
@@ -370,6 +371,7 @@ function LayerCard({
   onReplace,
   onRemove,
 }: LayerCardProps) {
+  const t = useT();
   const [open, setOpen] = useState(initialOpen);
   // Honor global "Collapse all" / "Expand all" commands from the
   // layers list header. Each signal is a numeric counter the parent
@@ -471,9 +473,9 @@ function LayerCard({
             <label
               htmlFor={`${layer.id}-name`}
               className="text-muted"
-              title="The name this layer has in the database and in web addresses. Lower case, with underscores instead of spaces."
+              title={t('layerBuilder.tableNameTitle')}
             >
-              Table name
+              {t('layerBuilder.tableName')}
             </label>
             <input
               id={`${layer.id}-name`}
@@ -1764,6 +1766,7 @@ interface ProbedLayer {
 }
 
 function ImportPanel({ onClose, onImport }: ImportPanelProps) {
+  const t = useT();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<UploadBusy | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -2004,7 +2007,7 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
           >
             <Upload className="h-4 w-4" />
             <span>
-              {dragOver ? 'Drop to import.' : 'Drop a file here, or click to pick one.'}
+              {dragOver ? t('layerBuilder.dropToImport') : t('layerBuilder.dropHint')}
             </span>
             {/* Lead with what most people actually have. The list
                 below used to open with format names, and a tester who
@@ -2013,14 +2016,9 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
                 he skipped the feature. The full list still follows,
                 because the people who do know their format need to
                 see it supported. */}
-            <span className="text-2xs">
-              A spreadsheet saved as CSV, with a latitude and a
-              longitude column, is the usual one.
-            </span>
+            <span className="text-2xs">{t('layerBuilder.importUsual')}</span>
             <span className="text-2xs opacity-80">
-              Also: TSV · GeoJSON · GeoParquet (.parquet) · KML / KMZ
-              (Google Earth) · GeoPackage (.gpkg, vector tables only) ·
-              Shapefile (.zip) · File Geodatabase (.gdb.zip)
+              {t('layerBuilder.importAlso')}
             </span>
             <input
               id="fs-builder-import"

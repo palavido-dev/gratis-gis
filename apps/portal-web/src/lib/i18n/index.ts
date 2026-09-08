@@ -6,7 +6,7 @@
  * a heavy library (next-intl, react-intl, FormatJS). The Phase 1.0
  * surface is intentionally small so the i18n-readiness sweep that
  * lands in Phase 1.1 can replace this with the full machinery
- * without breaking the call sites — every component just imports
+ * without breaking the call sites: every component just imports
  * `t()` and a key, and the runtime behind it is swappable.
  *
  * The Phase 1.1 swap will likely land next-intl (the current
@@ -40,7 +40,7 @@ import { ptBR } from './messages/pt-BR';
  * The non-English catalogs ship as partial dictionaries: only the
  * keys actively wired into the UI today are translated, and any
  * other lookup falls back to the English catalog. That keeps the
- * translation surface honest — a half-translated locale renders
+ * translation surface honest: a half-translated locale renders
  * the English string for unwired keys rather than displaying the
  * raw key as a placeholder.
  */
@@ -51,6 +51,17 @@ const CATALOGS: Record<SupportedLocale, Partial<CatalogShape>> = {
   fr,
   de,
 };
+
+/**
+ * A `t` already bound to a locale, as `useT()` returns. Library
+ * modules that run outside React (export helpers, layer builders)
+ * take one of these from their caller instead of importing the hook,
+ * so the string still resolves in the viewer's locale.
+ */
+export type Translator = (
+  key: string,
+  params?: Record<string, string | number>,
+) => string;
 
 /**
  * Look up `key` in the catalog for `locale`, falling back to the
@@ -125,7 +136,7 @@ function interpolate(
 }
 
 function parsePluralBody(body: string): Record<string, string> {
-  // `one {a # b} other {x #}` — pull each `<key> { ... }` pair.
+  // `one {a # b} other {x #}`: pull each `<key> { ... }` pair.
   const out: Record<string, string> = {};
   const re = /(\w+)\s*\{([^{}]*)\}/g;
   let m: RegExpExecArray | null;

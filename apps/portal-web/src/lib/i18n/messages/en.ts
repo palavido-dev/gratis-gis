@@ -4,8 +4,8 @@
  *
  * Single TypeScript object so the build-time type check enforces
  * the shape across every non-English catalog. Phase 1.0 seeds a
- * small initial slice — the most prominent surfaces a brand-new
- * visitor sees first — so the i18n plumbing is demonstrably
+ * small initial slice (the most prominent surfaces a brand-new
+ * visitor sees first) so the i18n plumbing is demonstrably
  * working without trying to translate every component in one
  * commit. Phase 1.1 ships the multi-week mechanical sweep across
  * the rest of the UI; until then, components that aren't yet
@@ -74,6 +74,41 @@ export const en = {
     viewerBlocked:
       'Your account has the Viewer role, which can open and download items but cannot create them. An organization admin can change your role, or grant you the publish capability on its own.',
   },
+  // The job someone arrives with, in their words, shown above the
+  // type description on the few new item picker tiles that have an
+  // honest common answer. Keyed by wizard type value. Its own section
+  // (not `newItem.job`) because the other locales define `newItem`
+  // and the catalog type is only partial one level deep.
+  newItemJob: {
+    data_layer:
+      'Start here if you have a spreadsheet, a shapefile or a GeoJSON file to upload.',
+    map: 'Start here to put data you have already uploaded onto a map and share it.',
+    form: 'Start here if you want people to fill in answers, one at a time, from a link you send them.',
+    data_collection:
+      'Start here if you want a crew to record what they find on a map from their phones, offline.',
+  },
+  // The optional metadata XML pre-fill card on the new item form.
+  metadataXml: {
+    // {term} is `term` below, so the render site can emphasise it
+    // without splitting the sentence into fragments.
+    intro:
+      'Pre-fill title, description, and tags from a {term} file, the kind ArcGIS, QGIS or a public data catalogue exports alongside a dataset. Recognises ISO 19115, FGDC CSDGM and Dublin Core.',
+    term: 'metadata XML',
+    importTitle:
+      'Import a metadata XML file exported by ArcGIS, QGIS or a data catalogue (ISO 19115, FGDC CSDGM or Dublin Core) to pre-fill the fields below',
+  },
+  // The data_layer builder on the new item wizard.
+  layerBuilder: {
+    tableName: 'Table name',
+    tableNameTitle:
+      'The name this layer has in the database and in web addresses. Lower case, with underscores instead of spaces.',
+    dropToImport: 'Drop to import.',
+    dropHint: 'Drop a file here, or click to pick one.',
+    importUsual:
+      'A spreadsheet saved as CSV, with a latitude and a longitude column, is the usual one.',
+    importAlso:
+      'Also: TSV · GeoJSON · GeoParquet (.parquet) · KML / KMZ (Google Earth) · GeoPackage (.gpkg, vector tables only) · Shapefile (.zip) · File Geodatabase (.gdb.zip)',
+  },
   mapEditor: {
     legendButton: 'Legend',
     tableButton: 'Attribute table',
@@ -114,10 +149,15 @@ export const en = {
     noStableId: 'This feature has no stable id and cannot be edited here.',
     noGeometry: 'This layer has no geometry to edit.',
     notFound: 'Could not find that feature on the server.',
-    loadFailed: 'Could not load the feature.',
-    saveFailed: 'Save failed.',
-    deleteFailed: 'Delete failed.',
-    addFailed: 'Could not add the feature.',
+    // No trailing period: these double as the fallback that
+    // parseApiError suffixes with " (status)." when the server sends
+    // no message of its own.
+    loadFailed: 'Could not load the feature',
+    saveFailed: 'Save failed',
+    deleteFailed: 'Delete failed',
+    addFailed: 'Could not add the feature',
+    // Stands in for a layer whose title is missing in "New {layer}".
+    unnamedLayer: 'layer',
   },
   presence: {
     youSuffix: ' (you)',
@@ -162,6 +202,11 @@ export const en = {
     notFound: 'Not found',
     sessionExpired:
       'Your sign-in expired. Sign in again to see everything you have access to.',
+  },
+  // Lower case: interpolated as the {reason} of another sentence when
+  // a thrown value carries no message of its own.
+  errorReason: {
+    unknown: 'unknown error',
   },
   addToFolder: {
     heading: 'Add {count, plural, one {# item} other {# items}} to a folder',
@@ -321,7 +366,13 @@ export const en = {
       'You have entered information that has not been saved. Discarding it cannot be undone.',
     discardAction: 'Discard',
     discardCancel: 'Keep editing',
-    attachmentsHeading: 'Attachments',
+  },
+  // Bottom sheets and failure copy owned by the field runtime itself
+  // rather than by one form.
+  fieldRuntime: {
+    pickTypeSheet: 'Pick a feature type to add',
+    featureDetailsSheet: 'Feature details',
+    queueReadFailed: 'Could not read the offline queue.',
   },
   // Location permission, surfaced where a thumb can reach it. Every
   // stamped position on a deployment depends on this working, so a
@@ -336,10 +387,12 @@ export const en = {
   // Downloading a deployment for offline use, and the truth about
   // what actually landed.
   fieldOffline: {
-    partialOutOfSpace: 'Incomplete: ran out of storage. ',
-    partialPrefix: 'Incomplete: ',
-    partialSuffix: ' did not download.',
-    partialMore: ' and {count} more',
+    // {missing} is the comma separated list of what was skipped, run
+    // through partialMissingMore first when it was truncated.
+    partial: 'Incomplete: {missing} did not download.',
+    partialOutOfSpace:
+      'Incomplete: ran out of storage. {missing} did not download.',
+    partialMissingMore: '{missing} and {count} more',
     quotaTitle: 'Not enough storage for this download',
     quotaBody:
       'This download needs about {needed} and there is ~{short} too little room. Free up cached deployments or device storage, or lower the detail level, and try again.',
@@ -468,6 +521,52 @@ export const en = {
     structureTitle: 'Layer structure',
     structureIntro:
       'Edit layers, fields, domains and constraints here. Saving takes effect immediately; importing and browsing rows lives on the Data tab.',
+    dataTitle: 'Layer data',
+    dataIntro: 'Browse the rows in each layer, add more data, or download it.',
+  },
+  // Client side export of loaded rows (attribute table, feature
+  // browser). Format names are catalogued so a locale can pick its
+  // own spelling of "Excel".
+  layerExport: {
+    format: {
+      csv: 'CSV',
+      xlsx: 'Excel',
+      geojson: 'GeoJSON',
+      geoparquet: 'GeoParquet',
+    },
+    exported: 'Exported {count, plural, one {# row} other {# rows}} as {format}.',
+    failed: '{format} export failed',
+    nothingLoaded: 'Nothing to export: this layer has no rows loaded.',
+    nothingSelected: 'Nothing to export: no rows are selected.',
+    exportRows: 'Export {count, plural, one {# row} other {# rows}}',
+    noRows: 'No rows to export',
+  },
+  // Sending a portal item to a map, from its detail page and from the
+  // map builder's auto add.
+  addToMap: {
+    newMap: 'New map',
+    existingMap: 'An existing map',
+    loadingMaps: 'Loading maps...',
+    noMaps: 'No maps yet',
+    layerGone: '{item} no longer has a layer "{layerKey}".',
+    tableNoShapes:
+      '{layer} is a table with no shapes, so there is nothing to draw.',
+  },
+  // The map builder's search bar: place results from the geocoder.
+  mapSearch: {
+    geocoderUnavailable:
+      'Place search is unavailable right now ({reason}). Layer results above are unaffected.',
+    noPlaces:
+      "No places found for that. This portal's geocoder only covers the area it was set up with.",
+  },
+  // /admin/field-queues: per device and per deployment queue health.
+  adminFieldQueues: {
+    rejectedByServer: '{count} rejected by the server',
+    queuedSummary: '{queued} queued ({failed} failed)',
+    queuedSummaryWithRejected:
+      '{queued} queued ({failed} failed, {rejected} rejected)',
+    rejectedWaiting: 'rejected, waiting on the worker',
+    moreWithErrors: '+ {count} more records with errors.',
   },
   metadataPanel: {
     description: 'Description',

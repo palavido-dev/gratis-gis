@@ -8,7 +8,7 @@
  * Accept-Language header) and renders <LocaleProvider locale={...}>
  * around the React tree. Client components reach the active locale
  * through useLocale(), and the convenient useT() hook returns a
- * `t(key, params?)` function pre-bound to that locale — so call
+ * `t(key, params?)` function pre-bound to that locale, so call
  * sites can stay terse:
  *
  *   const t = useT();

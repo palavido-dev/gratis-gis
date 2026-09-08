@@ -19,6 +19,19 @@
  * So surfaces that would lose something register as busy, and the
  * reload waits for them. The reload happens the moment the last of
  * them clears, which in practice is when the form closes.
+ *
+ * The idle notification is deferred by one microtask, and the reason
+ * is React. A hold is typically taken in an effect and released in
+ * that effect's cleanup, and when the effect's dependencies change
+ * React runs the OLD cleanup before the NEW body: a dependency change
+ * is release-then-hold inside one synchronous tick. With a synchronous
+ * notify, the release fired busy=false, the registrar reloaded the
+ * page on the spot, and the re-hold that followed a few microseconds
+ * later never ran. That is exactly the mid-form reload this module
+ * exists to prevent, arriving through the module's own API. Taking a
+ * hold stays synchronous so `isReloadHeld()` is true the instant the
+ * caller asked for it; only "we are idle now" waits until the end of
+ * the tick to see whether anyone re-held.
  */
 
 type Listener = (busy: boolean) => void;
@@ -26,8 +39,7 @@ type Listener = (busy: boolean) => void;
 const busyReasons = new Set<string>();
 const listeners = new Set<Listener>();
 
-function notify(): void {
-  const busy = busyReasons.size > 0;
+function notify(busy: boolean): void {
   for (const l of listeners) {
     try {
       l(busy);
@@ -48,13 +60,18 @@ function notify(): void {
  */
 export function holdReload(reason: string): () => void {
   busyReasons.add(reason);
-  notify();
+  notify(true);
   let released = false;
   return () => {
     if (released) return;
     released = true;
     busyReasons.delete(reason);
-    notify();
+    // Re-checked at flush time, not captured here: a hold taken later
+    // in the same tick (see the module comment) must turn this into a
+    // no-op rather than a reload.
+    queueMicrotask(() => {
+      if (busyReasons.size === 0) notify(false);
+    });
   };
 }
 

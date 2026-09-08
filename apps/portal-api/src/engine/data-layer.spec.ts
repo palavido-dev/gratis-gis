@@ -948,3 +948,104 @@ describe('DataLayerEngine.iterateFeatures', () => {
     });
   });
 });
+
+/**
+ * aggregateFeatures is a cached, coalesced read. What it hands the
+ * tile cache is the whole contract: the key decides which requests
+ * share an answer, `dependsOn` decides which writes drop it, and the
+ * lane decides how it queues. Pinned by spying on the cache rather
+ * than by running the query, because a wrong key still returns a
+ * plausible number.
+ */
+describe('DataLayerEngine.aggregateFeatures cache composition', () => {
+  const PARENT_ITEM = '55555555-5555-7555-8555-555555555555';
+  const PARENT_LAYER = '66666666-6666-7666-8666-666666666666';
+
+  function makeSpiedAdapter() {
+    const cache = makeTileCache();
+    const getOrCompute = jest.spyOn(cache, 'getOrCompute').mockResolvedValue({
+      buf: Buffer.from(JSON.stringify({ groups: [], truncated: false })),
+      etag: '"stub"',
+    });
+    const adapter = new DataLayerEngine(
+      makeFakeEngine().fake,
+      makeFakePrisma().fake,
+      makeFakeLensPolicy(),
+      cache,
+    );
+    return { adapter, getOrCompute };
+  }
+
+  const baseArgs = () => ({
+    itemId: ITEM_ID,
+    layerId: LAYER_ID,
+    aggs: [{ op: 'count' as const, as: 'n' }],
+    groupBy: ['kind'],
+  });
+
+  it('keys two identical "now" requests alike, under the layer scope', async () => {
+    const { adapter, getOrCompute } = makeSpiedAdapter();
+    await adapter.aggregateFeatures(baseArgs());
+    // Same request, later, with an optional field spelled as undefined
+    // rather than omitted (the controller spreads parsed query params,
+    // which is how that shape reaches the engine at runtime despite
+    // exactOptionalPropertyTypes), and keys in another order.
+    await adapter.aggregateFeatures({
+      groupBy: ['kind'],
+      aggs: [{ op: 'count', as: 'n' }],
+      layerId: LAYER_ID,
+      itemId: ITEM_ID,
+      ...({ bbox: undefined } as object),
+    });
+    const [firstKey] = getOrCompute.mock.calls[0]!;
+    const [secondKey] = getOrCompute.mock.calls[1]!;
+    expect(firstKey).toBe(secondKey);
+    expect(firstKey.startsWith(`${dataLayerScope(ITEM_ID, LAYER_ID)}|agg|`)).toBe(true);
+  });
+
+  it('keys an explicit asOf by its value, apart from the default', async () => {
+    const { adapter, getOrCompute } = makeSpiedAdapter();
+    await adapter.aggregateFeatures(baseArgs());
+    await adapter.aggregateFeatures({ ...baseArgs(), asOf: new Date('2026-01-01T00:00:00Z') });
+    await adapter.aggregateFeatures({ ...baseArgs(), asOf: new Date('2026-01-01T00:00:00Z') });
+    const keys = getOrCompute.mock.calls.map(([k]) => k);
+    expect(keys[0]).not.toBe(keys[1]);
+    expect(keys[1]).toBe(keys[2]);
+  });
+
+  it('changes the key when the request changes', async () => {
+    const { adapter, getOrCompute } = makeSpiedAdapter();
+    await adapter.aggregateFeatures(baseArgs());
+    await adapter.aggregateFeatures({ ...baseArgs(), groupBy: ['status'] });
+    await adapter.aggregateFeatures({ ...baseArgs(), ownRowsOnly: { userId: 'u1' } });
+    const keys = getOrCompute.mock.calls.map(([k]) => k);
+    expect(new Set(keys).size).toBe(3);
+  });
+
+  it('depends on nothing beyond its own scope without a relate', async () => {
+    const { adapter, getOrCompute } = makeSpiedAdapter();
+    await adapter.aggregateFeatures(baseArgs());
+    const [, , opts] = getOrCompute.mock.calls[0]!;
+    expect(opts?.dependsOn).toEqual([]);
+    expect(opts?.lane).toEqual({ name: 'aggregate', limit: expect.any(Number) });
+    expect(opts?.ttlMs).toBeGreaterThan(0);
+  });
+
+  it('passes the parent scope prefix in dependsOn for a via request', async () => {
+    const { adapter, getOrCompute } = makeSpiedAdapter();
+    await adapter.aggregateFeatures({
+      ...baseArgs(),
+      via: {
+        myField: 'parent_id',
+        parentField: 'id',
+        parentItemId: PARENT_ITEM,
+        parentLayerId: PARENT_LAYER,
+      },
+    });
+    const [key, , opts] = getOrCompute.mock.calls[0]!;
+    // Keyed under the CHILD scope; the parent is a dependency, not the
+    // key, so a child write and a parent write both drop it.
+    expect(key.startsWith(`${dataLayerScope(ITEM_ID, LAYER_ID)}|agg|`)).toBe(true);
+    expect(opts?.dependsOn).toEqual([`${dataLayerScope(PARENT_ITEM, PARENT_LAYER)}|`]);
+  });
+});

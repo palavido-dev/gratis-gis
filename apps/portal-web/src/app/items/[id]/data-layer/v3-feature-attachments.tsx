@@ -12,6 +12,8 @@ import {
   Upload,
 } from 'lucide-react';
 import { useConfirm } from '@/components/dialog-provider';
+import { formatBytes } from '@/lib/format-bytes';
+import { presignUpload } from '@/lib/presign-upload';
 
 interface Attachment {
   id: string;
@@ -34,7 +36,7 @@ interface Props {
  * Per-feature attachment gallery + uploader.
  *
  * Upload flow matches the rest of the app:
- *  1. POST /storage/presign-upload { kind: 'feature-attachment', contentType }
+ *  1. presignUpload({ kind: 'feature-attachment', contentType, sizeBytes })
  *     → { uploadUrl, publicUrl, key, maxBytes }
  *  2. PUT the bytes directly to MinIO (uploadUrl). The API never
  *     buffers the bytes.
@@ -104,32 +106,16 @@ export function V3FeatureAttachments({
     setError(null);
     setUploading(true);
     try {
-      // 1. Presign.
-      const presignRes = await fetch('/api/portal/storage/presign-upload', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          kind: 'feature-attachment',
-          contentType: file.type || 'application/octet-stream',
-        }),
+      // 1. Presign. The size is signed into the URL, so the server
+      //    refuses an over-cap file here rather than after the PUT.
+      const presign = await presignUpload({
+        kind: 'feature-attachment',
+        contentType: file.type || 'application/octet-stream',
+        sizeBytes: file.size,
       });
-      if (!presignRes.ok) {
-        setError(`Could not start upload: ${presignRes.status}`);
-        return;
-      }
-      const presign = (await presignRes.json()) as {
-        uploadUrl: string;
-        publicUrl: string;
-        key: string;
-        maxBytes: number;
-      };
       if (file.size > presign.maxBytes) {
         setError(
-          `File is ${(file.size / 1024 / 1024).toFixed(1)} MB; limit is ${(
-            presign.maxBytes /
-            1024 /
-            1024
-          ).toFixed(0)} MB.`,
+          `File is ${formatBytes(file.size)}; limit is ${formatBytes(presign.maxBytes)}.`,
         );
         return;
       }

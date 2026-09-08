@@ -13,16 +13,21 @@
  * flight.
  *
  * So the mirror gets a test. This reads the worker as text and checks
- * it still agrees with the values the app actually uses. It cannot
- * prove the logic matches, only that the constants and shapes do,
- * which is where the drift has historically been.
+ * it still agrees with the values the app actually uses. For the pure
+ * functions it goes one step further: it lifts the worker's own source
+ * for a function (and the constants it closes over) into a Function
+ * and runs it against the shared-types original, so the LOGIC is
+ * compared and not just the spelling.
  *
- * It lives in shared-types because portal-web has no test runner; if
- * one is ever added, this belongs closer to the file it guards.
+ * It lives in shared-types because the functions it compares against
+ * are exported from here. portal-web does have a jest runner now
+ * (src/lib only), so a check that needs portal-web modules on the
+ * other side belongs there instead.
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { QUEUE_CLAIM_STALE_MS } from './queue-replay.js';
+import { replayOutcomeForStatus } from './sync-outcome.js';
 
 // packages/shared-types/src -> repo root -> the worker.
 const SW_PATH = join(
@@ -35,6 +40,43 @@ const SW_PATH = join(
   'public',
   'sw.js',
 );
+
+/** Source of a top-level `function name(...) { ... }` in the worker.
+ *  The worker's functions all close at a brace in column 0, so the
+ *  first `\n}` after the signature ends the body; nested braces are
+ *  indented and never match. */
+function functionSource(sw: string, name: string): string {
+  const m = sw.match(new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}`));
+  if (!m) throw new Error(`sw.js no longer defines function ${name}`);
+  return m[0];
+}
+
+/** Source of a top-level `const NAME = <expr>;` in the worker. */
+function constSource(sw: string, name: string): string {
+  const m = sw.match(new RegExp(`const ${name} =\\s*([^;]+);`));
+  if (!m) throw new Error(`sw.js no longer defines const ${name}`);
+  return `const ${name} = ${m[1]};`;
+}
+
+/**
+ * Lift a worker function out of sw.js as a live function, in a scope
+ * holding the named top-level constants and helper functions it
+ * closes over. This is how the spec compares the worker's LOGIC with
+ * shared-types rather than grepping for strings.
+ */
+function liftFunction<T>(
+  sw: string,
+  name: string,
+  deps: { constants?: string[]; functions?: string[] } = {},
+): T {
+  const scope = [
+    ...(deps.constants ?? []).map((c) => constSource(sw, c)),
+    ...(deps.functions ?? []).map((f) => functionSource(sw, f)),
+    functionSource(sw, name),
+  ];
+  // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+  return new Function(`${scope.join('\n')}\nreturn ${name};`)() as T;
+}
 
 describe('service worker offline-queue contract', () => {
   // Fail loudly rather than skipping. A silent skip is how the
@@ -110,12 +152,38 @@ describe('service worker offline-queue contract', () => {
     );
   });
 
-  it('recognises every syncStatus the app can write', () => {
+  it('never claims a parked or finished row', () => {
     // 'rejected' is the one that matters: the worker must never claim
     // a parked row, and it learned that value later than the others.
-    for (const status of ['pending', 'syncing', 'synced', 'failed', 'rejected']) {
-      expect(sw).toContain(`'${status}'`);
-    }
+    // Run the worker's own claimability rule rather than grepping for
+    // the string.
+    const claimable = liftFunction<
+      (row: Record<string, unknown>, nowMs: number) => boolean
+    >(sw, 'isQueueRowClaimable', {
+      constants: ['CLAIM_STALE_MS', 'RETRY_BACKOFF_MS'],
+      functions: ['queueRetryDelayMs'],
+    });
+    const now = Date.now();
+    expect(claimable({ syncStatus: 'rejected' }, now)).toBe(false);
+    expect(claimable({ syncStatus: 'synced' }, now)).toBe(false);
+    expect(claimable({ syncStatus: 'pending' }, now)).toBe(true);
+    expect(claimable({ syncStatus: 'failed' }, now)).toBe(true);
+    // A fresh claim is left alone; a stale one is reclaimed.
+    expect(
+      claimable(
+        { syncStatus: 'syncing', lastAttemptAt: new Date(now).toISOString() },
+        now,
+      ),
+    ).toBe(false);
+    expect(
+      claimable(
+        {
+          syncStatus: 'syncing',
+          lastAttemptAt: new Date(now - QUEUE_CLAIM_STALE_MS - 1).toISOString(),
+        },
+        now,
+      ),
+    ).toBe(true);
   });
 
   it('replays against the same endpoints as the in-app drain', () => {
@@ -128,15 +196,58 @@ describe('service worker offline-queue contract', () => {
   });
 
   it('classifies replay outcomes the same way shared-types does', () => {
-    // Mirror of replayOutcomeForStatus. Checking the transient set is
-    // enough to catch the drift that matters: adding a status to one
-    // table and not the other changes whether an edit is retried or
-    // thrown away.
-    expect(sw).toContain('function replayOutcomeForStatus(status, op)');
-    for (const code of ['401', '408', '425', '429']) {
-      expect(sw).toContain(code);
+    // The worker's replayOutcomeForStatus, run over every status for
+    // every op and compared with the export. Adding a transient code
+    // to one table and not the other changes whether an edit is
+    // retried or thrown away, and this used to be checked by grepping
+    // for '425', which would have passed with the number in a comment.
+    const swOutcome = liftFunction<
+      (status: number, op: 'insert' | 'update' | 'delete') => string
+    >(sw, 'replayOutcomeForStatus');
+    for (const op of ['insert', 'update', 'delete'] as const) {
+      for (let status = 0; status < 600; status += 1) {
+        expect(swOutcome(status, op)).toBe(replayOutcomeForStatus(status, op));
+      }
     }
-    expect(sw).toContain("op === 'delete' && status === 404");
+  });
+
+  it('does not treat data-layer MVT tiles as cacheable tiles', () => {
+    // Our own /items/:id/layers/:key/tile/z/x/y.mvt ends like a slippy
+    // tile, but the server invalidates it on every write and sets a
+    // short private max-age. The cache-first tile path has no TTL, so
+    // caching it there hid every edit from every other tab. Basemap
+    // tiles, cross-origin or relayed through an item proxy, must still
+    // be cached: the field map needs them offline.
+    const isTileRequest = liftFunction<(url: URL) => boolean>(
+      sw,
+      'isTileRequest',
+      {
+        constants: [
+          'DATA_LAYER_TILE_PATTERN',
+          'TILE_PATH_PATTERN',
+          'TILE_QUERY_PATTERN',
+          'STYLE_JSON_PATTERN',
+        ],
+      },
+    );
+    expect(
+      isTileRequest(new URL('https://x/api/portal/items/a/layers/b/tile/14/1/2.mvt')),
+    ).toBe(false);
+    expect(
+      isTileRequest(
+        new URL('https://x/api/public/items/a/layers/b/tile/14/1/2.mvt?refresh=1'),
+      ),
+    ).toBe(false);
+    expect(isTileRequest(new URL('https://tile.openstreetmap.org/14/1/2.png'))).toBe(
+      true,
+    );
+    expect(
+      isTileRequest(new URL('https://x/api/portal/items/a/proxy/14/1/2.png')),
+    ).toBe(true);
+    expect(
+      isTileRequest(new URL('https://wms.example/ows?SERVICE=WMS&REQUEST=GetMap')),
+    ).toBe(true);
+    expect(isTileRequest(new URL('https://x/api/portal/items/a/geojson'))).toBe(false);
   });
 
   it('orders replay per feature instead of globally', () => {

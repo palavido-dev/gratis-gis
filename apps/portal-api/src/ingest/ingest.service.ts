@@ -5,7 +5,7 @@ import {
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
-import { mkdtemp, open, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, open, realpath, rm, writeFile } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
@@ -762,12 +762,6 @@ export class IngestService {
   }
 
   /**
-   * gdal-async is a native addon; loading it eagerly would crash the
-   * whole portal-api on platforms whose prebuilds are missing. Defer
-   * to the first ingest attempt and surface a friendly error if it
-   * still fails then.
-   */
-  /**
    * Bytes read from the head of a delimited text file to name its
    * coordinate columns. The detector needs the header plus at most
    * SMART_DETECT_LIMITS.VALIDATION_SAMPLE_ROWS rows, so this is
@@ -845,13 +839,41 @@ export class IngestService {
    * everything else, including the mkdtemp `gg-ingest-` dirs the
    * buffer paths create, lives under the OS temp dir.
    *
+   * Compared on realpaths, not on `path.resolve` output. Resolving
+   * only normalises the string, so a symlink planted under a root and
+   * pointing outside it passed as inside while the open followed the
+   * link out; and on macOS `/tmp` is itself a link to `/private/tmp`,
+   * so the same file spelled two ways compared unequal. The candidate
+   * has to exist to be realpathed, which is fine: a file that cannot
+   * be resolved cannot be sniffed either, and refusing it here keeps
+   * the failure on the guard's side.
+   *
    * Compared with path.relative rather than a string prefix, because
    * a prefix test says /tmp/gg-staging-evil is inside /tmp/gg-staging.
    */
-  private resolveInsideIngestRoot(candidate: string): string | null {
-    const target = resolve(candidate);
+  private async resolveInsideIngestRoot(candidate: string): Promise<string | null> {
+    let target: string;
+    try {
+      target = await realpath(candidate);
+    } catch {
+      return null;
+    }
     const staging = process.env.STAGING_DIR?.trim();
-    const roots = [resolve(tmpdir()), ...(staging ? [resolve(staging)] : [])];
+    const roots = await Promise.all(
+      [tmpdir(), ...(staging ? [staging] : [])].map(async (root) => {
+        try {
+          return await realpath(root);
+        } catch {
+          // STAGING_DIR is created on the first upload, so in a fresh
+          // container it may not exist yet. Nothing can be inside a
+          // directory that does not exist, so falling back to the
+          // resolved string for that root alone cannot widen the
+          // check; it only keeps a transient ENOENT (a volume that
+          // mounts late) from turning into a rejection of every path.
+          return resolve(root);
+        }
+      }),
+    );
     const inside = roots.some((root) => {
       const rel = relative(root, target);
       return rel.length > 0 && !rel.startsWith('..') && !isAbsolute(rel);
@@ -878,7 +900,7 @@ export class IngestService {
     // sink is worth closing even when the value reaching it happens
     // to be clean today, because the thing that changes is the
     // caller.
-    const safePath = this.resolveInsideIngestRoot(filePath);
+    const safePath = await this.resolveInsideIngestRoot(filePath);
     if (safePath === null) {
       this.log.warn(
         `Refusing to sniff a path outside the ingest roots: ${basename(
@@ -899,7 +921,7 @@ export class IngestService {
         truncated,
       );
       if (pair.kind !== 'detected') {
-        this.log.debug?.(
+        this.log.debug(
           `No coordinate columns in ${basename(filePath)}: ${pair.reason}`,
         );
         return null;
@@ -918,6 +940,12 @@ export class IngestService {
     }
   }
 
+  /**
+   * gdal-async is a native addon; loading it eagerly would crash the
+   * whole portal-api on platforms whose prebuilds are missing. Defer
+   * to the first ingest attempt and surface a friendly error if it
+   * still fails then.
+   */
   private async loadGdal(): Promise<typeof import('gdal-async')> {
     try {
       const mod = await import('gdal-async');

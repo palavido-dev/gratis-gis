@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { ForbiddenException } from '@nestjs/common';
-import type { AuthUser } from '../auth/auth-sync.service';
+import type { AuthUser } from '../auth/auth-sync.service.js';
 import {
   ROLE_BASELINES,
   hasCapability,
   type CapabilityKey,
-} from '../auth/capabilities';
-import { ItemsService } from './items.service';
+} from '../auth/capabilities.js';
+import { ItemsService } from './items.service.js';
 
 /**
  * ItemsService.create had no authorization check of any kind. That is

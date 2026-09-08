@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Logger } from '@nestjs/common';
-import type { PrismaService } from '../prisma/prisma.service';
+import type { PrismaService } from '../prisma/prisma.service.js';
 
 /**
  * Throttled writer for `item.last_usage_at`, the signal behind the

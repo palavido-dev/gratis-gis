@@ -526,6 +526,28 @@ describe('DataLayerFeaturesService.insertFeatures submission stamp', () => {
     expect(Number.isNaN(Date.parse(args[0]!.properties.submitted_at as string))).toBe(false);
   });
 
+  it.each([null, '', '   '])(
+    'treats submitted_at=%j as blank, the way the field runtime stamp does',
+    async (blank) => {
+      // shared-types' stampSubmissionMetadata fills null, undefined
+      // and whitespace-only strings; a form that renders the column
+      // as an input and submits it empty sends ''.
+      const { service, writeFeaturesCreateIdempotent } = makeService(PAIRED);
+      await service.insertFeatures(
+        ITEM_ID,
+        LAYER_ID,
+        [{ properties: { issue: 'x', submitted_at: blank } }],
+        makeUser(),
+      );
+      const args = writeFeaturesCreateIdempotent.mock.calls[0]![0] as Array<{
+        properties: Record<string, unknown>;
+      }>;
+      const stamped = args[0]!.properties.submitted_at;
+      expect(typeof stamped).toBe('string');
+      expect(Number.isNaN(Date.parse(stamped as string))).toBe(false);
+    },
+  );
+
   it('does not invent the columns on a layer that does not declare them', async () => {
     const { service, writeFeaturesCreateIdempotent } = makeService([
       { name: 'species', type: 'string', label: 'Species', nullable: true },
@@ -854,5 +876,22 @@ describe('DataLayerFeaturesService.loadLayerSchema pick-list resolution', () => 
     expect(findMany).not.toHaveBeenCalled();
     expect(schema.pickLists).toEqual({});
     expect(schema.fields).toHaveLength(1);
+  });
+
+  it('warns about a dangling reference once per layer and list, not per write', async () => {
+    // The schema is loaded on every write, so without the dedupe an
+    // unfixed reference logs a line per edit for as long as it stays
+    // unfixed. The unknown-keys warning below it already dedupes; this
+    // one did not.
+    const { service } = makeSchemaService({ owner: null });
+    const warn = jest
+      .spyOn((service as unknown as { log: { warn: (m: string) => void } }).log, 'warn')
+      .mockImplementation(() => undefined);
+    await service.loadLayerSchema(ITEM_ID, LAYER_ID);
+    await service.loadLayerSchema(ITEM_ID, LAYER_ID);
+    const dangling = warn.mock.calls.filter(([m]) => m.includes('references pick list'));
+    expect(dangling).toHaveLength(1);
+    expect(dangling[0]![0]).toContain(PL);
+    warn.mockRestore();
   });
 });

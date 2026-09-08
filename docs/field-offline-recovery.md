@@ -1,7 +1,11 @@
 # Field-mode offline + recovery design
 
-Status: design — drafted before Slices 4-6 implementation as the
-contract those slices honour. Last revised 2026-04-30.
+Status: design, drafted before Slices 4-6 as the contract those slices
+honour, with "as built" notes where the implementation settled on
+something simpler. Where this doc and the code disagree, the code
+wins: `apps/portal-web/src/lib/offline-store.ts`, `offline-sync.ts`,
+`public/sw.js` and `packages/shared-types/src/queue-replay.ts`. Last
+revised 2026-09-08.
 
 ## Why this doc exists
 
@@ -104,7 +108,12 @@ mid-download.
 
 ```ts
 interface QueueRecord {
-  /** Stable id within this queue. UUID, but never user-facing. */
+  /**
+   * Stable id within this queue. UUID, but never user-facing.
+   * As built this identifies the OPERATION, not the feature, so the
+   * queue can hold more than one outstanding edit per feature. See
+   * "Sync protocol" for why that matters.
+   */
   id: string;
   /**
    * Operation kind. The shape of the rest of the record depends on
@@ -154,13 +163,36 @@ interface QueueRecord {
   failureReason?: string;
   /** ISO 8601, last sync attempt. */
   lastAttemptAt?: string;
-  /** Attachment refs (slice 6); not populated in slice 5. */
-  attachments?: Array<{
-    /** Local blob id in the offline-attachments store. */
-    blobId: string;
-    /** MIME type, used to label the attachment server-side. */
-    mimeType: string;
-  }>;
+  /** How many attempts have failed. Drives the retry backoff. */
+  retryCount?: number;
+}
+```
+
+Files captured in the field are NOT referenced from the queue record.
+The sketch had an `attachments` array of blob ids on it; that field
+was never populated and has been removed. As built, a captured file
+is its own row in a `blobs` store,
+keyed by the feature it belongs to (see the store table), and the
+drain looks those rows up per feature after the feature write
+succeeds. The queue record therefore needs no knowledge of them.
+
+```ts
+interface PendingBlob {
+  /** Primary key. */
+  blobId: string;
+  dataCollectionId: string;
+  /** The feature this belongs to. globalId is client-generated, so
+   *  this resolves even before the insert has replayed. */
+  dataLayerId: string;
+  layerKey: string;
+  globalId: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  /** A real Blob, not base64. */
+  blob: Blob;
+  /** Capture time, not upload time. */
+  capturedAt: string;
 }
 ```
 
@@ -223,12 +255,19 @@ deployments cached on one device don't collide.
 | `features`          | `[dataCollectionId, dataLayerId, layerKey, globalId]` | Cached features per editable layer. Indexed by `[dataCollectionId, dataLayerId, layerKey]` for "give me all features of layer X" queries. |
 | `forms`             | `[dataCollectionId, formItemId]`           | Bound form schemas. |
 | `pickLists`         | `[dataCollectionId, pickListItemId]`       | Pick-list contents. |
-| `queue`             | `[dataCollectionId, recordId]`             | Pending queue records. Indexed by `[dataCollectionId, syncStatus]` for the field UI's "show me pending / failed" filters. |
-| `attachments`       | `[dataCollectionId, blobId]`               | Photo/video Blob payloads. (Slice 6.) |
+| `queue`             | `[dataCollectionId, id]`                   | Pending queue records, one per operation. Indexed `by_status` on `[dataCollectionId, syncStatus]` for the field UI's "show me pending / failed" filters, and `by_deployment` on `dataCollectionId`. |
+| `blobs`             | `blobId`                                   | Photo/video Blob payloads captured before they could be uploaded (schema v2). Indexed `by_feature` on `[dataCollectionId, dataLayerId, layerKey, globalId]` and `by_deployment` on `dataCollectionId`. A row lives only until its upload has been registered. |
+
+Schema v1 created the first five stores; v2 added `blobs` and touched
+nothing else, which is the only reason the bump was safe on a device
+holding unsynced captures. Bumps that rewrite an existing store need a
+much harder look, because the rows at risk are exactly the field
+captures this design exists to protect.
 
 The deployments-manifest is the discovery root: any cleanup or
 migration walks `deployments` first and fans out to the other stores
-keyed off `dataCollectionId`.
+keyed off `dataCollectionId`. Removing a deployment cascades through
+every store, `blobs` included.
 
 ## Service worker strategy
 
@@ -260,9 +299,82 @@ go through the explicit queue.
 ## Sync protocol
 
 Sync runs when the runtime detects connectivity (online/offline state
-changes via `navigator.onLine` + an explicit "Sync now" button).
+changes via `navigator.onLine` + an explicit "Sync now" button). As
+built there is a second drain: the service worker registers a one-shot
+Background Sync (tag `gg-offline-queue`) on every queue write and
+replays the queue with no tab open. Background Sync is Chromium-only,
+so on iOS and Firefox the in-app drain is the only path. Both drains
+read the same store and must apply the same rules, which is why those
+rules live in one tested module, `packages/shared-types/src/queue-replay.ts`,
+mirrored by hand in `public/sw.js` (marked there as a MIRROR).
 
-For each pending queue record, in queue order:
+### Capturing an edit: the fold
+
+As built, an edit does not simply append a row. `enqueueEdit` in
+`offline-store.ts` reads the feature's outstanding rows and, inside
+ONE readwrite transaction, folds the new edit into the oldest one that
+is `pending` or `failed`: an update over an unsent insert stays an
+insert with the new attributes, a delete over an unsent insert removes
+the row entirely (and the feature's pending files with it), several
+edits to one feature cost one upload. The surviving row keeps the
+oldest row's `id` and `queuedAt`, so the feature holds its place in
+replay order, and its `retryCount` resets because new bytes deserve a
+fresh attempt.
+
+The single transaction is the point. IndexedDB serialises readwrite
+transactions per store, so two enqueues racing (two taps, or a tap
+during a drain) cannot both read the same prior row and each write a
+fold of it, which would drop one edit. Before the fold existed the
+queue was keyed one-row-per-feature and a second edit was a `put`
+over the first: an insert edited before it synced became an update
+against a globalId the server had never seen, took a 404, and parked
+as permanently rejected. That was the first data-loss bug the audit
+found.
+
+Two statuses are never folded into: `syncing` (a drain owns the row
+and would delete the merged result when its own replay succeeds) and
+`rejected` (parked for a person to decide about; rewriting it would
+discard their pending decision). An edit arriving in either case
+becomes a second row for the feature, which is why the queue key is
+the operation id and why replay has to be ordered per feature.
+
+### Replaying: chain heads, claims, backoff
+
+Each drain pass does the following.
+
+1. **Pick the chain heads.** `queueChainHeads` lists at most ONE row
+   per feature, the oldest by `queuedAt`, and only when that row is
+   itself claimable. If a feature's oldest row is parked (`rejected`)
+   or freshly in flight (`syncing`), every later row for that feature
+   is skipped too: replaying it would send an update for a feature
+   whose insert has not landed, 404, and park a second row. One
+   blocked feature never holds up another. Heads are returned in
+   `queuedAt` order across features, so replay still roughly follows
+   capture order.
+2. **Claim atomically.** `claimQueueRow` re-reads the row and flips it
+   to `syncing` with a fresh `lastAttemptAt` inside one readwrite
+   transaction, so of two concurrent claimants (the page and the
+   worker) exactly one wins. Listing then writing in two transactions
+   used to let both replay the same edit; only server-side idempotency
+   hid it.
+3. **Stale claims.** A row in `syncing` for longer than
+   `QUEUE_CLAIM_STALE_MS` (two minutes, one value for both drains) is
+   treated as abandoned by a page that died mid-drain or a worker the
+   browser killed, and becomes claimable again. When the two drains
+   had different windows, the shorter one stole rows the longer one
+   still had in flight.
+4. **Backoff.** A `failed` row waits out a ladder before it is
+   claimable again, measured from `lastAttemptAt` and indexed by
+   `retryCount`: 5 s after the first failure, then 15 s, 1 min, 5 min,
+   capped at 15 min so a row that will succeed after a long outage
+   still retries within a shift. There is no retry cap. A person
+   pressing "Sync now" passes `manual`, which skips the wait. A
+   network-level failure (fetch itself threw) is exempt: it means the
+   radio is down, not that the row is bad, so the row's pre-claim
+   status is restored and nothing is counted against it.
+5. **Replay** the operation against the v3 features API, as below.
+
+The original sketch of the wire protocol follows. For each record:
 
 1. Set `syncStatus = 'syncing'`, stamp `lastAttemptAt`.
 2. POST / PATCH / DELETE the operation against the v3 features API.
@@ -302,16 +414,39 @@ For each pending queue record, in queue order:
    above and lives in one tested function,
    `replayOutcomeForStatus` in `packages/shared-types`, mirrored by
    hand in `public/sw.js`: 2xx is done, a 404 on delete is done,
-   401/408/425/429 and every 5xx or network error mark the row
-   `failed` and it is retried on every sync run (no retry cap), and
-   every other 4xx marks it `rejected`, which no drain touches again.
-   There is no schema-diff or side-by-side conflict resolver; the
-   server's message is shown as the reason. A synced row is deleted,
-   not kept as `synced`.
+   401/408/425/429 and every 5xx mark the row `failed` and it is
+   retried on later runs subject to the backoff ladder above (no retry
+   cap), and every other 4xx marks it `rejected`, which no drain
+   touches again. `rejected` is the one terminal state: the server
+   refused deterministically (validator, sharing, a conflict), so the
+   same bytes would get the same answer. It leaves that state only by
+   a person's hand, `retryRejected` (back to `pending`, reason and
+   count kept) or `discardRejected` (row deleted, and the feature's
+   pending files with it). There is no schema-diff or side-by-side
+   conflict resolver; the server's message, unwrapped from the HTTP
+   envelope, is shown as the reason. A synced row is deleted, not kept
+   as `synced`.
 
-Each op is independent. One failure doesn't block the rest. The
-runtime processes the queue sequentially per layer (so two updates
-to the same feature land in order) but parallel across layers.
+   **Files.** After an insert or update lands, the drain uploads the
+   feature's pending blobs (presign, PUT to object storage, register),
+   deleting each only once the register call returned 2xx. A file that
+   fails is left in place and the error propagates, so the row goes
+   back to `failed` and the whole feature retries; reporting a record
+   synced while its photo is still on the phone would be the worst
+   available outcome. A file over the server's size limit is
+   deterministic and parks the row `rejected`. A replayed delete drops
+   the feature's files. At the end of a pass the in-app drain sweeps
+   files whose feature has no queue row at all (an online save, which
+   never touches the queue) and uploads them on their own, best
+   effort. The service worker never uploads files: it skips any row
+   whose feature still owes one and leaves those for the page, the
+   same division the forms outbox uses.
+
+Each op is independent. One failure does not block the rest, except
+within a feature: a drain pass replays one row per feature, and a
+feature whose head is parked or in flight is skipped entirely (see
+"chain heads" above). Rows are processed one at a time in `queuedAt`
+order; there is no per-layer parallelism.
 
 ## Recovery flows
 
@@ -324,10 +459,12 @@ The runtime header gains a status pill:
 - "Offline" (gray) — connectivity lost; queue grows but doesn't sync
 
 As built, the header shows two chips instead of one pill: an amber
-"Sync N" chip for retryable rows (tap to sync now) and a red "N edits
-need attention" chip for rejected rows, which opens a dialog listing
-each with its reason and Retry / Discard actions (Discard confirms
-first). The drawer described next is the original sketch.
+"Sync N" chip for retryable rows (tap to sync now, which skips the
+backoff) and a red "N edits need attention" chip for rejected rows,
+which opens a dialog listing each with its reason and Retry / Discard
+actions (Discard confirms first). Photos and files still waiting to
+upload count as unsynced work in the chip and in the sign-out warning.
+The drawer described next is the original sketch.
 
 Tapping the pill opens a queue review drawer:
 - A list of every record with status icon + timestamp + summary
@@ -341,6 +478,14 @@ Tapping the pill opens a queue review drawer:
   recovery is now an admin task).
 
 ### From the admin recovery console
+
+As built, the admin surface is `/admin/field-queues`: a list of the
+per-(user, device) manifest beacons the field client posts, so an
+admin can see who has records stuck offline, how long a device has
+been silent, and who is close to running out of storage. The record
+payloads stay on the device by design; the admin's recourse is to
+contact the worker. The envelope console below, with its per-record
+replay and JSON editing, is the original sketch and has not shipped.
 
 `/admin/stuck-queues` is org-admin-only. Lists every envelope
 across the org with: deployment, user, exported-at, record count,
@@ -414,7 +559,12 @@ These principles roll out across three implementation slices:
   schema-diff detection + Send-to-admin + admin stuck-queues page.
   This is the meat of the recovery story.
 - **Slice 6 (#200 candidate)**: Attachment offline (photo/video
-  blobs) + QR-code share for crew distribution.
+  blobs) + QR-code share for crew distribution. Shipped: files are
+  captured to the `blobs` store against the feature's client-generated
+  globalId, which exists from the moment the collect form opens, so a
+  photo can be taken with no signal and before the record itself
+  exists, and is uploaded once the feature lands (see "Files" under
+  Sync protocol).
 
 Once those land, the test that we got the design right is: an admin
 can recover a stuck deployment without ever touching the user's

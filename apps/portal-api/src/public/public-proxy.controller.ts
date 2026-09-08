@@ -22,10 +22,9 @@ import {
 import { exchangeBasicForArcgisToken } from '../items/arcgis-auth.js';
 import {
   composeUpstreamHeaders,
-  composeUpstreamUrl,
-  extractSubPath,
   isArcgisRest,
   maskCredential,
+  resolveProxyTarget,
 } from '../items/item-proxy.controller.js';
 import { isUuidShape } from './public.controller.js';
 import { safeFetch, UnsafeOutboundUrlError } from '../common/net-guards.js';
@@ -145,8 +144,11 @@ export class PublicProxyController {
       }
     }
 
-    const subPath = extractSubPath(req.url);
-    const target = composeUpstreamUrl(itemUrl, subPath, credential);
+    // Same traversal guard as the authed proxy (items/proxy-subpath.ts):
+    // this surface is anonymous, so a sub-path that walked out of the
+    // stored URL would hand any GET on the upstream host, with the
+    // stored credential, to the whole internet.
+    const target = resolveProxyTarget(itemUrl, req.url, credential);
     const headers = composeUpstreamHeaders(credential);
 
     // SSRF guard.  The public-proxy path is anonymous, so anyone on

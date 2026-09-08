@@ -15,6 +15,7 @@
  */
 
 import type { MapLayer } from '@gratis-gis/shared-types';
+import { parseApiError } from '@/lib/api-error';
 
 export type SearchResult =
   | {
@@ -502,14 +503,7 @@ export async function geocode(
     );
   }
   if (!res.ok) {
-    let detail = `HTTP ${res.status}`;
-    try {
-      const body = (await res.json()) as { message?: unknown };
-      if (typeof body.message === 'string' && body.message) detail = body.message;
-    } catch {
-      /* non-JSON error body; the status is all we have */
-    }
-    throw new GeocoderUnavailableError(detail);
+    throw new GeocoderUnavailableError(await parseApiError(res, 'HTTP error'));
   }
   const rows = (await res.json()) as Array<{
     display_name: string;

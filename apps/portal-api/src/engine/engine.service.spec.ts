@@ -152,3 +152,58 @@ describe('EngineService.writeMany', () => {
     await expect(svc.writeMany([fixture(), bad])).rejects.toThrow();
   });
 });
+
+/**
+ * DataLayerEngine drops its cached tiles and aggregates from this hook,
+ * before the write returns, so a writer that reads back through the
+ * same replica never sees the pre-write answer. A write path that
+ * forgot to report would leave the cache stale for a full TTL on that
+ * replica, and nothing but this would say so.
+ */
+describe('EngineService.onWrite', () => {
+  it('tells listeners which scopes a single write landed in, before it returns', async () => {
+    const { fake } = makeFakePrisma();
+    const svc = new EngineService(fake);
+    const seen: Array<string[]> = [];
+    svc.onWrite((scopes) => seen.push([...scopes].sort()));
+    await svc.write(fixture({ scope: 'data_layer:a:1' }));
+    expect(seen).toEqual([['data_layer:a:1']]);
+  });
+
+  it('collapses a batch to its distinct scopes and fires once per writeMany', async () => {
+    const { fake } = makeFakePrisma();
+    const svc = new EngineService(fake);
+    const seen: Array<string[]> = [];
+    svc.onWrite((scopes) => seen.push([...scopes].sort()));
+    await svc.writeMany([
+      fixture({ scope: 'data_layer:a:1' }),
+      fixture({ scope: 'data_layer:a:1' }),
+      fixture({ scope: 'data_layer:b:2' }),
+    ]);
+    expect(seen).toEqual([['data_layer:a:1', 'data_layer:b:2']]);
+  });
+
+  it('fires every registered listener', async () => {
+    const { fake } = makeFakePrisma();
+    const svc = new EngineService(fake);
+    const first = jest.fn();
+    const second = jest.fn();
+    svc.onWrite(first);
+    svc.onWrite(second);
+    await svc.write(fixture());
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fire for an empty writeMany or a failed validation', async () => {
+    const { fake } = makeFakePrisma();
+    const svc = new EngineService(fake);
+    const listener = jest.fn();
+    svc.onWrite(listener);
+    await svc.writeMany([]);
+    await expect(svc.write(fixture({ entity: 'not-a-uuid' }))).rejects.toBeInstanceOf(
+      ObservationValidationError,
+    );
+    expect(listener).not.toHaveBeenCalled();
+  });
+});

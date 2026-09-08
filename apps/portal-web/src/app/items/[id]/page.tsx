@@ -375,19 +375,28 @@ export default async function ItemDetailPage(props: Props) {
     // this permission is about the map item, while every edit target
     // is a separate data_layer item with its own sharing. One batch
     // call so a twelve-layer map is one round trip, not twelve.
+    // null, not {}, on failure: the builder must be able to tell "the
+    // server said no to all of these" from "nobody asked", because it
+    // re-asks only for the latter.
     isMap && mapLayerItemIds.length > 0
       ? apiFetch<Record<string, { canEdit: boolean }>>(
           `/api/items/permissions?ids=${mapLayerItemIds.join(',')}`,
-        ).catch(() => ({}) as Record<string, { canEdit: boolean }>)
+        ).catch(() => null)
       : Promise.resolve({} as Record<string, { canEdit: boolean }>),
   ]);
 
   // Ids of the data_layers this viewer may actually write to. Passed
   // to the map builder so an edit control appears only where an edit
   // would succeed, rather than being offered and then 403'd.
-  const editableLayerItemIds = Object.entries(layerPermissions)
+  const editableLayerItemIds = Object.entries(layerPermissions ?? {})
     .filter(([, p]) => p?.canEdit)
     .map(([id]) => id);
+  // Every id the batch answered, refusals included: an id the server
+  // omits from a successful answer is one the caller cannot read, which
+  // is an answer too. The builder seeds its asked-set from this so it
+  // only asks about layers added during the session. A failed batch
+  // resolved nothing, so the builder asks about everything.
+  const resolvedPermissionItemIds = layerPermissions === null ? [] : mapLayerItemIds;
 
   // Folder breadcrumb: walk up the parent chain so the detail page
   // can render "Project A > 2026 Surveys > (this folder)" at the
@@ -875,6 +884,7 @@ export default async function ItemDetailPage(props: Props) {
           initial={{ ...DEFAULT_MAP, ...((item.data ?? {}) as Partial<MapData>) }}
           canEdit={mapItemCanEdit}
           editableLayerItemIds={editableLayerItemIds}
+          resolvedPermissionItemIds={resolvedPermissionItemIds}
           {...(searchParams?.add ? { addItemId: searchParams.add } : {})}
           {...(searchParams?.add && searchParams.layer
             ? { addLayerKey: searchParams.layer }

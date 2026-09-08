@@ -3,7 +3,7 @@ import {
   SMART_DETECT_LIMITS,
   detectCsvColumnPair,
   detectCsvColumnPairFromPrefix,
-} from './csv-smart-detect';
+} from './csv-smart-detect.js';
 
 /**
  * The detection half, split out from emission so the ingest path can

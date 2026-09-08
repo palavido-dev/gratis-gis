@@ -171,7 +171,30 @@ const TILE_PATH_PATTERN = /\/\d+\/\d+\/\d+(?:[@.][^/?]*)?(?:\.(?:png|jpe?g|webp|
 const TILE_QUERY_PATTERN = /[?&]request=getmap\b/i;
 const STYLE_JSON_PATTERN = /\/style\.json(?:$|\?)/i;
 
+/**
+ * Our own data-layer MVT endpoint. Its path ends in /{z}/{x}/{y}.mvt,
+ * so TILE_PATH_PATTERN matches it, and until this exclusion existed
+ * those tiles went through the cache-first tile path with no TTL.
+ * That is wrong for them in a way it is not for a basemap: the server
+ * invalidates data-layer tiles on every write (LISTEN/NOTIFY, v0.9.101)
+ * and answers with `Cache-Control: private, max-age=60`, and the
+ * cache-first path hid both from every tab. An edit made in one tab
+ * never reached the map in another, and each `?refresh=` cache bust
+ * the client issued to work around it added one more permanent entry
+ * to TILES_CACHE. The field runtime never reads MVT offline (it draws
+ * cached GeoJSON), so nothing is lost by letting these fall through
+ * to the same-origin branch and the browser's HTTP cache, which does
+ * honour the header.
+ *
+ * Item-proxy basemap tiles (/items/:id/proxy/...) are deliberately NOT
+ * excluded: they are somebody else's basemap relayed through us, and
+ * the field map needs them offline.
+ */
+const DATA_LAYER_TILE_PATTERN =
+  /^\/api\/(?:portal|public)\/items\/[^/]+\/layers\/[^/]+\/tile\//;
+
 function isTileRequest(url) {
+  if (DATA_LAYER_TILE_PATTERN.test(url.pathname)) return false;
   if (TILE_PATH_PATTERN.test(url.pathname)) return true;
   if (TILE_QUERY_PATTERN.test(url.search)) return true;
   if (STYLE_JSON_PATTERN.test(url.pathname)) return true;
@@ -394,6 +417,13 @@ self.addEventListener('activate', (event) => {
 // -------------------------------------------------------------------------
 self.addEventListener('fetch', (event) => {
   const { request } = event;
+  // Nothing below caches or falls back for a write. Every strategy
+  // here is GET-shaped (cache.put refuses other methods anyway), and
+  // the queue replays that DO carry POST/PATCH/DELETE run from the
+  // 'sync' handler, not through this interception. Returning early
+  // keeps a mutation from ever being matched against a cache by a
+  // pattern that happens to fit its URL.
+  if (request.method !== 'GET') return;
   const url = new URL(request.url);
 
   // Tile caching applies to BOTH same-origin and cross-origin
@@ -402,7 +432,7 @@ self.addEventListener('fetch', (event) => {
   // never cache the actual tiles a worker needs offline. We're
   // permissive here on purpose; the URL pattern is restrictive
   // enough that we don't accidentally cache other people's APIs.
-  if (request.method === 'GET' && isTileRequest(url)) {
+  if (isTileRequest(url)) {
     event.respondWith(tileCacheFirst(request));
     return;
   }
@@ -453,8 +483,9 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Everything else: pass through to the network. This includes auth flows
-  // and API mutations which must be fresh.
+  // Everything else: pass through to the network. This includes auth
+  // flows and the other portal-api reads, which must be fresh. (API
+  // mutations never get this far; see the method check at the top.)
 });
 
 /**
@@ -698,8 +729,41 @@ async function replayFeatureRecord(r) {
   const body = await res.text().catch(() => '');
   return {
     terminal: outcome === 'rejected',
-    reason: r.op + ' failed (' + res.status + '): ' + (body || res.statusText),
+    reason: messageFromBody(body, res.status, r.op + ' failed'),
   };
+}
+
+/**
+ * MIRROR of src/lib/api-error.ts parseApiError, for a body already
+ * read as text. portal-api refuses a write in two shapes: a service
+ * check throws `{message: string}`, already a sentence naming the
+ * field, and Nest's ValidationPipe throws `{message: string[]}`, one
+ * entry per constraint. This used to store the raw JSON envelope as
+ * failureReason, so a row parked by the background drain showed
+ * `{"statusCode":400,"message":"Depth is a number field..."}` on the
+ * sync screen while the same refusal via the in-app drain showed the
+ * sentence. Same rules as the original: a non-JSON body is appended
+ * only when it is short and not an HTML error page.
+ */
+function messageFromBody(text, status, fallback) {
+  const line = fallback + ' (' + status + ').';
+  const trimmed = typeof text === 'string' ? text.trim() : '';
+  if (!trimmed) return line;
+  try {
+    const parsed = JSON.parse(trimmed);
+    const message = parsed && typeof parsed === 'object' ? parsed.message : undefined;
+    if (Array.isArray(message)) {
+      const lines = message.filter((m) => typeof m === 'string' && m.length > 0);
+      if (lines.length > 0) return lines.join(' ');
+    } else if (typeof message === 'string' && message) {
+      return message;
+    }
+    return line;
+  } catch {
+    return trimmed.length <= 300 && !trimmed.startsWith('<')
+      ? line + ' ' + trimmed
+      : line;
+  }
 }
 
 /**
@@ -790,13 +854,18 @@ async function drainFeatureQueue() {
           );
         }
       } catch {
-        // fetch itself threw: still offline / flaky. Restore the
-        // pre-claim status (keeping any failure bookkeeping) so the
-        // in-app UI shows the truth, and ask for a browser retry.
+        // fetch itself threw: still offline / flaky. That is not the
+        // row's fault, so restore the PRE-CLAIM row (`record`, not
+        // `claimed`): the claim stamped a fresh lastAttemptAt, and
+        // writing that back would charge the outage to the backoff
+        // ladder and make a worker who has just walked back into
+        // signal wait for data they can see is queued. Same rule as
+        // the in-app drain in offline-sync.ts. Then ask the browser
+        // to re-fire the sync.
         await idbPut(
           db,
           OFFLINE_QUEUE_STORE,
-          Object.assign({}, claimed, {
+          Object.assign({}, record, {
             syncStatus: record.syncStatus === 'failed' ? 'failed' : 'pending',
           }),
         ).catch(() => {});
@@ -1091,7 +1160,12 @@ async function pruneTileWriteLog() {
 }
 
 // Extraction twin of TILE_PATH_PATTERN, applied to a pathname (no
-// query part, so the terminator is end-of-string).
+// query part, so the terminator is end-of-string). It only ever sees
+// keys already in TILES_CACHE, and isTileRequest decides what gets
+// there, so it needs no DATA_LAYER_TILE_PATTERN exclusion of its own:
+// data-layer MVT entries written before that exclusion existed are
+// swept like any other tile until the next deploy rotates
+// CACHE_VERSION and drops the whole bucket.
 const TILE_ZXY_EXTRACT =
   /\/(\d+)\/(\d+)\/(\d+)(?:[@.][^/?]*)?(?:\.(?:png|jpe?g|webp|pbf|mvt))?$/i;
 

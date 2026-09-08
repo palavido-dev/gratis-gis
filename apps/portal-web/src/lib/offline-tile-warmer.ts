@@ -2,7 +2,7 @@
 /**
  * Pre-fetches basemap tiles for an offline area so the field client
  * has them available when the radio drops. Slice 10 of the offline
- * arc (#208 sub-task — the tile-cache piece). Pairs with the tile
+ * arc (#208 sub-task, the tile-cache piece). Pairs with the tile
  * cache strategy in `public/sw.js`.
  *
  * The mechanism is intentionally simple: the warmer fires plain
@@ -103,7 +103,7 @@ export interface TileWarmProgress {
 const DEFAULT_ZOOM: [number, number] = [12, 19];
 // #270 / #272: tile cap raised from 50k to 200k because the new
 // default upper zoom (19, was 17) multiplies tile count by ~16x
-// for the same bbox -- a city-scale area that fit in 5k tiles
+// for the same bbox: a city-scale area that fit in 5k tiles
 // z12-17 wants ~80k z12-19. Modern devices hold 200k tiles
 // comfortably (at ~25 KB/tile that's ~5 GB); a real per-download
 // UI knob (#272) is the long-term fix so the cap can stay flexible
@@ -115,11 +115,14 @@ export const WARMER_MAX_TILES = 200_000;
 const DEFAULT_MAX_TILES = WARMER_MAX_TILES;
 const DEFAULT_CONCURRENCY = 6;
 const ESTIMATED_BYTES_PER_TILE_MISSING_HEADER = 25_000;
+// Progress callback throttle; see the note above `report` in warmTiles.
+const PROGRESS_EVERY_TILES = 50;
+const PROGRESS_EVERY_MS = 250;
 
 /**
- * Warm the tile cache for a bbox. Reports progress per fetch via
- * the optional callback so the UI can render a counter; resolves
- * with the final tally.
+ * Warm the tile cache for a bbox. Reports progress via the optional
+ * callback (throttled, but always once more on the last tile) so the
+ * UI can render a counter; resolves with the final tally.
  *
  * Cancellation: pass an AbortSignal to halt mid-walk (the user
  * navigated away, the download was cancelled, etc). In-flight
@@ -161,7 +164,7 @@ export async function warmTiles(
 
   // Build the full URL list up front so the workers can pop from a
   // shared queue. URLs not tiles (no z/x/y placeholders) are
-  // skipped silently -- a misconfigured basemap shouldn't take down
+  // skipped silently; a misconfigured basemap shouldn't take down
   // the warm pass.
   const urls: string[] = [];
   for (const tpl of permittedTemplates) {
@@ -170,6 +173,30 @@ export async function warmTiles(
       if (url) urls.push(url);
     }
   }
+
+  // Progress is throttled. The callback ends in a React setState per
+  // call, and at six concurrent fetches against a warm cache that was
+  // hundreds of renders a second for the whole of a 200k-tile walk,
+  // on the phone whose battery the collector needs later. Every
+  // PROGRESS_EVERY_TILES tiles or PROGRESS_EVERY_MS, whichever comes
+  // first, and always on the final tile so the caller's last state is
+  // the true total.
+  let sinceReport = 0;
+  let lastReportAt = 0;
+  const report = (final: boolean) => {
+    if (!onProgress) return;
+    const now = Date.now();
+    if (
+      !final &&
+      sinceReport < PROGRESS_EVERY_TILES &&
+      now - lastReportAt < PROGRESS_EVERY_MS
+    ) {
+      return;
+    }
+    sinceReport = 0;
+    lastReportAt = now;
+    onProgress(progress);
+  };
 
   let cursor = 0;
   async function worker(): Promise<void> {
@@ -197,13 +224,18 @@ export async function warmTiles(
       } catch {
         progress.failed += 1;
       }
-      onProgress?.(progress);
+      sinceReport += 1;
+      report(progress.fetched + progress.failed >= total);
     }
   }
 
   await Promise.all(
     Array.from({ length: Math.max(1, concurrency) }, () => worker()),
   );
+  // An aborted walk never reaches the final tile, and a template that
+  // expanded to nothing leaves `total` above what was ever attempted;
+  // either way the caller still needs the closing state.
+  if (sinceReport > 0) report(true);
   return progress;
 }
 
@@ -290,7 +322,7 @@ function latToTileY(lat: number, z: number): number {
 
 /**
  * Expand a tile URL template by substituting {z}, {x}, {y}. Returns
- * null when the template has no slippy-map placeholders -- those
+ * null when the template has no slippy-map placeholders; those
  * are vector style URLs / WMS endpoints that the warmer can't
  * iterate, only the SW's passive cache can populate.
  *

@@ -25,13 +25,14 @@ import {
 // in the table. The server-built GeoParquet export lives on the
 // layer detail page's export menu.
 import {
-  EXPORT_FORMAT_LABEL,
+  EXPORT_FORMAT_LABEL_KEY,
   exportFeatures,
   type ClientExportFormat,
 } from '@/lib/layer-export';
 import { exportBundle } from '@/lib/bundle-export';
 import { parseApiError } from '@/lib/api-error';
 import { toast } from '@/lib/toast';
+import { useT } from '@/lib/i18n/locale-context';
 import { matchesFilter } from '@gratis-gis/shared-types';
 import type {
   FeatureField,
@@ -1969,6 +1970,7 @@ function AttrTableExportMenu({
   featureKeyAt: (idx: number) => number | string;
   disabled: boolean;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const hasSelection = activeSelection.size > 0;
   const canBundle = !!(dataLayerItemId && dataLayerLayerKey);
@@ -2075,8 +2077,8 @@ function AttrTableExportMenu({
     if (source.length === 0) {
       toast.error(
         onlySelection
-          ? 'Nothing to export: no rows are selected.'
-          : 'Nothing to export: this layer has no rows loaded.',
+          ? t('layerExport.nothingSelected')
+          : t('layerExport.nothingLoaded'),
       );
       return;
     }
@@ -2121,14 +2123,17 @@ function AttrTableExportMenu({
       // working export and a dead button look the same.
       .then(() => {
         toast.success(
-          `Exported ${source.length.toLocaleString()} row${
-            source.length === 1 ? '' : 's'
-          } as ${EXPORT_FORMAT_LABEL[format]}.`,
+          t('layerExport.exported', {
+            count: source.length,
+            format: t(EXPORT_FORMAT_LABEL_KEY[format]),
+          }),
         );
       })
       .catch((err: unknown) => {
         toast.error(
-          err instanceof Error ? err.message : `${format} export failed`,
+          err instanceof Error
+            ? err.message
+            : t('layerExport.failed', { format: t(EXPORT_FORMAT_LABEL_KEY[format]) }),
         );
       });
   }
@@ -2142,8 +2147,8 @@ function AttrTableExportMenu({
         className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
         title={
           disabled
-            ? 'No rows to export'
-            : `Export ${features.length} row${features.length === 1 ? '' : 's'}`
+            ? t('layerExport.noRows')
+            : t('layerExport.exportRows', { count: features.length })
         }
       >
         <Download className="h-3.5 w-3.5" />
