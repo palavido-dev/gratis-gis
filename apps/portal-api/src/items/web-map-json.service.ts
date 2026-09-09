@@ -12,6 +12,7 @@ import {
   lensesToWebMapJson,
   operationalLayerForLens,
 } from '@gratis-gis/engine';
+import { sanitizeAttributionHtml } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { pickDefaultBasemap } from './default-basemap.js';
@@ -200,8 +201,12 @@ export class WebMapJsonService {
             id: item.id,
             title: item.title || 'Basemap',
             tileUrl: bm.tileUrl,
+            // Sanitized on read, not just on write: a row stored before
+            // the write-path sanitizer landed can still hold markup,
+            // and this document is consumed by third-party clients that
+            // render copyrightText as HTML the same way MapLibre does.
             ...(typeof bm.attribution === 'string' && bm.attribution.length > 0
-              ? { attribution: bm.attribution }
+              ? { attribution: sanitizeAttributionHtml(bm.attribution) }
               : {}),
           };
         }
@@ -224,7 +229,7 @@ export class WebMapJsonService {
           title: seeded.title || 'Basemap',
           tileUrl: bm.tileUrl,
           ...(typeof bm.attribution === 'string' && bm.attribution.length > 0
-            ? { attribution: bm.attribution }
+            ? { attribution: sanitizeAttributionHtml(bm.attribution) }
             : {}),
         };
       }

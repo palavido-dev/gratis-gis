@@ -22,6 +22,7 @@ import {
   estimateMergeSeconds,
   formatRoughDuration,
   isTileLayerData,
+  sanitizeAttributionHtml,
 } from '@gratis-gis/shared-types';
 import { formatBytes } from '@/lib/format-bytes';
 import { UploadError, fileKey, uploadBatch } from '@/lib/batch-upload';
@@ -1063,6 +1064,12 @@ function TilePreview({ data }: { data: TileLayerData }) {
     // (a county-level cache against a black background reads as
     // "nothing here"; the OSM context fixes that).
     const isRaster = data.kind === 'raster';
+    // Read out of the uploaded PMTiles header by the finalize step, so
+    // it is author-supplied data arriving through a file rather than a
+    // form. portal-api cleans it on write; this covers items finalized
+    // before that landed. MapLibre renders attribution as HTML through
+    // a sanitizer that is bypassable on 5.24 (GHSA-jrc7-96c5-q579).
+    const attribution = sanitizeAttributionHtml(data.attribution);
     const style: maplibregl.StyleSpecification = {
       version: 8,
       sources: {
@@ -1084,9 +1091,7 @@ function TilePreview({ data }: { data: TileLayerData }) {
                 ...(data.maxZoom !== undefined
                   ? { maxzoom: data.maxZoom }
                   : {}),
-                ...(data.attribution
-                  ? { attribution: data.attribution }
-                  : {}),
+                ...(attribution ? { attribution } : {}),
               },
             } as maplibregl.StyleSpecification['sources'])
           : ({
@@ -1099,9 +1104,7 @@ function TilePreview({ data }: { data: TileLayerData }) {
                 ...(data.maxZoom !== undefined
                   ? { maxzoom: data.maxZoom }
                   : {}),
-                ...(data.attribution
-                  ? { attribution: data.attribution }
-                  : {}),
+                ...(attribution ? { attribution } : {}),
               },
             } as maplibregl.StyleSpecification['sources'])),
       },

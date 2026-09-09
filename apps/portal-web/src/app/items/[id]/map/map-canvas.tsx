@@ -36,6 +36,7 @@ import {
   ZOOM_MIN,
   dashArrayFor,
   effectiveLayerScale,
+  sanitizeAttributionHtml,
   scaledStyleExpression,
 } from '@gratis-gis/shared-types';
 import {
@@ -3080,7 +3081,15 @@ function syncOverlays(
         type: 'raster',
         url: src.tileUrl,
         tileSize: 256,
-        ...(src.attribution ? { attribution: src.attribution } : {}),
+        // Stamped onto the map's saved layer at add time from the
+        // tile_layer item, which lifted it out of an uploaded PMTiles
+        // header. portal-api cleans both on write; this pass covers
+        // maps saved before it did. MapLibre renders attribution as
+        // HTML through a sanitizer that is bypassable on the 5.24 line
+        // (GHSA-jrc7-96c5-q579).
+        ...(src.attribution
+          ? { attribution: sanitizeAttributionHtml(src.attribution) }
+          : {}),
       });
       m.addLayer({
         id: rasterId,

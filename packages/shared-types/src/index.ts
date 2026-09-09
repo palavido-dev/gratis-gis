@@ -30,6 +30,7 @@ export * from './arcgis-service';
 export * from './pick-list';
 export * from './geo-boundary';
 export * from './basemap';
+export * from './attribution-html';
 export * from './wms-service';
 export * from './folder';
 export * from './editor';

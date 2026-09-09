@@ -8,6 +8,7 @@ import type { PMTiles } from 'pmtiles';
 // same shape.
 import { cogProtocol } from '@geomatico/maplibre-cog-protocol';
 import type { BasemapData } from '@gratis-gis/shared-types';
+import { sanitizeAttributionHtml } from '@gratis-gis/shared-types';
 
 // Register the pmtiles:// AND cog:// protocols with MapLibre
 // once per page load.
@@ -140,6 +141,14 @@ export type CustomStyle =
   | { kind: 'url'; url: string };
 
 export function customBasemapToStyle(b: CustomBasemap): CustomStyle {
+  // A source's `attribution` is rendered as HTML by MapLibre's
+  // AttributionControl, whose internal sanitizer is bypassable on the
+  // 5.24 line we are pinned to (GHSA-jrc7-96c5-q579). portal-api cleans
+  // the value on write, so this pass exists for the rows that were
+  // written before it did: this module is the one funnel every basemap
+  // item reaches the map through, including the seven inline copies of
+  // `basemapItemToCustomBasemap` scattered across the page components.
+  const attribution = sanitizeAttributionHtml(b.attribution) || undefined;
   if (b.sourceKind === 'vector-style') {
     return { kind: 'url', url: b.url };
   }
@@ -166,7 +175,7 @@ export function customBasemapToStyle(b: CustomBasemap): CustomStyle {
               type: 'raster',
               url: b.url,
               tileSize: 256,
-              attribution: b.attribution || undefined,
+              attribution,
             },
           },
           layers: [
@@ -185,7 +194,7 @@ export function customBasemapToStyle(b: CustomBasemap): CustomStyle {
             type: 'raster',
             tiles: [b.url],
             tileSize: 256,
-            attribution: b.attribution || undefined,
+            attribution,
           },
         },
         layers: [{ id: 'raster-layer', type: 'raster', source: 'raster' }],
@@ -232,7 +241,7 @@ export function customBasemapToStyle(b: CustomBasemap): CustomStyle {
           type: 'raster',
           tiles: [tileUrl],
           tileSize: 256,
-          attribution: b.attribution || undefined,
+          attribution,
         },
       },
       layers: [{ id: 'raster-layer', type: 'raster', source: 'raster' }],
@@ -247,7 +256,10 @@ export function customBasemapToStyle(b: CustomBasemap): CustomStyle {
  * for our purposes; just different field names.
  */
 export function customBasemapToData(b: CustomBasemap): BasemapData {
-  const attribution = b.attribution || undefined;
+  // Same reasoning as customBasemapToStyle: the BasemapData this
+  // produces is handed to BasemapPreview, which renders it through
+  // basemapDataToStyle into a live map.
+  const attribution = sanitizeAttributionHtml(b.attribution) || undefined;
   if (b.sourceKind === 'vector-style') {
     return {
       version: 1,
@@ -296,6 +308,10 @@ export function customBasemapToData(b: CustomBasemap): BasemapData {
  * against undefined.
  */
 export function basemapDataToStyle(d: BasemapData): CustomStyle | null {
+  // See customBasemapToStyle. This is the other entry point into the
+  // same renderer, taken by any surface that already holds an item's
+  // BasemapData rather than a CustomBasemap row.
+  const attribution = sanitizeAttributionHtml(d.attribution) || undefined;
   if (d.kind === 'style-url') {
     if (!d.styleUrl) return null;
     return { kind: 'url', url: d.styleUrl };
@@ -313,7 +329,7 @@ export function basemapDataToStyle(d: BasemapData): CustomStyle | null {
               type: 'raster',
               url: d.tileUrl,
               tileSize: 256,
-              attribution: d.attribution || undefined,
+              attribution,
             },
           },
           layers: [{ id: 'raster-layer', type: 'raster', source: 'raster' }],
@@ -335,7 +351,7 @@ export function basemapDataToStyle(d: BasemapData): CustomStyle | null {
               type: 'raster',
               url: d.tileUrl,
               tileSize: 256,
-              attribution: d.attribution || undefined,
+              attribution,
             },
           },
           layers: [{ id: 'raster-layer', type: 'raster', source: 'raster' }],
@@ -352,7 +368,7 @@ export function basemapDataToStyle(d: BasemapData): CustomStyle | null {
             type: 'raster',
             tiles: [d.tileUrl],
             tileSize: 256,
-            attribution: d.attribution || undefined,
+            attribution,
           },
         },
         layers: [{ id: 'raster-layer', type: 'raster', source: 'raster' }],
@@ -390,7 +406,7 @@ export function basemapDataToStyle(d: BasemapData): CustomStyle | null {
             type: 'raster',
             tiles: [tileUrl],
             tileSize: 256,
-            attribution: d.attribution || undefined,
+            attribution,
           },
         },
         layers: [{ id: 'raster-layer', type: 'raster', source: 'raster' }],

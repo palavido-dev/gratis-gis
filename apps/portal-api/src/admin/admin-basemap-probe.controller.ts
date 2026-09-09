@@ -10,6 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { sanitizeAttributionHtml } from '@gratis-gis/shared-types';
 import {
   parseXml as parseXmlVendored,
   type XmlElement as VendoredXmlElement,
@@ -86,6 +87,22 @@ export class AdminBasemapProbeController {
 
   @Get('probe')
   async probe(@Query('url') rawUrl?: string): Promise<BasemapProbeResult> {
+    // Every attribution this endpoint discovers comes out of a document
+    // a third-party server wrote (ArcGIS `copyrightText`, WMS / WMTS
+    // `AccessConstraints`), goes straight into the basemap editor's form
+    // state, and is saved onto the item from there. MapLibre renders it
+    // as HTML, and the sanitizer it uses to do that is bypassable on the
+    // version we are pinned to, so it is cleaned before it leaves the
+    // API. One wrapper rather than one call per branch: `probeUrl` has
+    // five detection paths and more will be added, and a per-branch fix
+    // is a hole waiting for the sixth.
+    const result = await this.probeUrl(rawUrl);
+    return result.attribution === undefined
+      ? result
+      : { ...result, attribution: sanitizeAttributionHtml(result.attribution) };
+  }
+
+  private async probeUrl(rawUrl?: string): Promise<BasemapProbeResult> {
     if (!rawUrl || typeof rawUrl !== 'string') {
       throw new BadRequestException('Missing url parameter.');
     }

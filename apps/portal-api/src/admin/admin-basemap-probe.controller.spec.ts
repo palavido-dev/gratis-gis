@@ -468,3 +468,123 @@ describe('AdminBasemapProbeController URL handling', () => {
     );
   });
 });
+
+// ----------------------------------------------------------------
+// Discovered attribution is untrusted third-party content
+// ----------------------------------------------------------------
+
+/**
+ * The attribution this endpoint returns is lifted verbatim out of a
+ * document some other organization's server wrote. The basemap editor
+ * drops it straight into its form state and saves it onto the item,
+ * where MapLibre later renders it as HTML through a sanitizer that is
+ * bypassable on the version we are pinned to. So the probe result has
+ * to be clean before it leaves the API, on every branch that can
+ * produce one.
+ */
+describe('AdminBasemapProbeController attribution sanitizing', () => {
+  const controller = new AdminBasemapProbeController();
+
+  const PAYLOAD = '<img src=x onerror=alert(1)>Public domain';
+
+  it('sanitizes an attribution discovered from a WMS capabilities document', async () => {
+    const wmsCaps = `<?xml version="1.0" encoding="UTF-8"?>
+<WMS_Capabilities version="1.3.0">
+  <Service>
+    <Title>Hostile WMS</Title>
+    <AccessConstraints><![CDATA[${PAYLOAD}]]></AccessConstraints>
+  </Service>
+  <Capability>
+    <Layer>
+      <CRS>EPSG:3857</CRS>
+      <Layer queryable="1"><Name>x:y</Name></Layer>
+    </Layer>
+  </Capability>
+</WMS_Capabilities>`;
+    stubFetch({
+      'https://hostile.example.org/wms?service=WMS&request=GetCapabilities&version=1.3.0':
+        wmsCaps,
+    });
+    const result = await controller.probe('https://hostile.example.org/wms');
+    expect(result.attribution).toBeDefined();
+    expect(result.attribution).not.toContain('<img');
+    expect(result.attribution).toContain('&lt;img');
+  });
+
+  it('sanitizes an attribution discovered from a WMTS capabilities document', async () => {
+    const wmtsCaps = `<?xml version="1.0" encoding="UTF-8"?>
+<Capabilities xmlns:ows="http://www.opengis.net/ows/1.1" version="1.0.0">
+  <ows:ServiceIdentification>
+    <ows:Title>Hostile WMTS</ows:Title>
+    <ows:AccessConstraints><![CDATA[${PAYLOAD}]]></ows:AccessConstraints>
+  </ows:ServiceIdentification>
+  <Contents>
+    <Layer>
+      <ows:Identifier>L</ows:Identifier>
+      <Style isDefault="true"><ows:Identifier>default</ows:Identifier></Style>
+      <TileMatrixSetLink><TileMatrixSet>GoogleMapsCompatible</TileMatrixSet></TileMatrixSetLink>
+      <ResourceURL format="image/png" resourceType="tile"
+        template="https://hostile.example.org/t/{TileMatrix}/{TileRow}/{TileCol}.png"/>
+    </Layer>
+    <TileMatrixSet>
+      <ows:Identifier>GoogleMapsCompatible</ows:Identifier>
+      <ows:SupportedCRS>urn:ogc:def:crs:EPSG::3857</ows:SupportedCRS>
+      <TileMatrix><ows:Identifier>0</ows:Identifier></TileMatrix>
+      <TileMatrix><ows:Identifier>1</ows:Identifier></TileMatrix>
+    </TileMatrixSet>
+  </Contents>
+</Capabilities>`;
+    stubFetch({
+      'https://hostile.example.org/wmts?service=WMTS&request=GetCapabilities&version=1.0.0':
+        wmtsCaps,
+    });
+    const result = await controller.probe('https://hostile.example.org/wmts');
+    expect(result.attribution).toBeDefined();
+    expect(result.attribution).not.toContain('<img');
+    expect(result.attribution).toContain('&lt;img');
+  });
+
+  it('sanitizes copyrightText discovered from an ArcGIS MapServer', async () => {
+    stubFetch({
+      'https://hostile.example.org/rest/services/X/MapServer?f=json':
+        JSON.stringify({
+          mapName: 'X',
+          copyrightText: '<a href="javascript:alert(1)">County GIS</a>',
+          singleFusedMapCache: true,
+        }),
+    });
+    const result = await controller.probe(
+      'https://hostile.example.org/rest/services/X/MapServer',
+    );
+    expect(result.attribution).toBeDefined();
+    expect(result.attribution).not.toMatch(/<a\s/);
+    expect(result.attribution).toContain('County GIS');
+  });
+
+  it('leaves a benign discovered attribution with a real link intact', async () => {
+    stubFetch({
+      'https://good.example.org/rest/services/X/MapServer?f=json':
+        JSON.stringify({
+          mapName: 'X',
+          copyrightText:
+            '<a href="https://good.example.org/terms">County GIS</a>',
+          singleFusedMapCache: true,
+        }),
+    });
+    const result = await controller.probe(
+      'https://good.example.org/rest/services/X/MapServer',
+    );
+    expect(result.attribution).toBe(
+      '<a href="https://good.example.org/terms" target="_blank" ' +
+        'rel="noopener noreferrer">County GIS</a>',
+    );
+  });
+
+  it('does not invent an attribution key when the document has none', async () => {
+    stubFetch({});
+    const result = await controller.probe(
+      'https://tile.example.org/{z}/{x}/{y}.png',
+    );
+    expect('attribution' in result).toBe(false);
+  });
+});

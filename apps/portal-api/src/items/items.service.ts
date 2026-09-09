@@ -3,7 +3,11 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import type { ItemAccess, ItemType, PrincipalType, SharePermission } from '@prisma/client';
-import { ITEM_TYPES, defaultThumbnailDesign } from '@gratis-gis/shared-types';
+import {
+  ITEM_TYPES,
+  defaultThumbnailDesign,
+  sanitizeAttributionHtml,
+} from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { readV3Layers } from '../data-layer/read-v3-layers.js';
@@ -412,6 +416,72 @@ function assertItemAssetKey(itemType: string, data: unknown): void {
       ITEM_ASSET_KIND[itemType as keyof typeof ITEM_ASSET_KIND]
     }/ for a ${itemType} item.`,
   );
+}
+
+/**
+ * Depth limit for the attribution walk. Item data blobs nest (a custom
+ * app blueprint is the deepest thing we store) but nowhere near this
+ * far; the bound exists so a hand-built payload of ten thousand nested
+ * objects cannot overflow the stack on the write path.
+ */
+const ATTRIBUTION_WALK_MAX_DEPTH = 32;
+
+/**
+ * Clean every `attribution` string in an item's data blob.
+ *
+ * Attribution is rendered as HTML by MapLibre's AttributionControl, and
+ * maplibre-gl <= 6.4.0 carries an XSS bypass in the sanitizer it uses to
+ * do it (GHSA-jrc7-96c5-q579). We are pinned to 5.24.0 because maplibre
+ * 6 removed `Map.transform`, which @deck.gl/mapbox still reads, so the
+ * fix is to make sure nothing hostile is ever stored in the first
+ * place. See `sanitizeAttributionHtml` for what survives and why.
+ *
+ * This is the authoritative enforcement point: create and update are the
+ * only two ways an item's data_json changes, and every other writer goes
+ * through one of them (`TileLayerService.finalizeUpload`, which lifts an
+ * attribution out of an uploaded PMTiles header, PATCHes through
+ * `update`). The render side sanitizes again because rows written before
+ * this landed are still in the database.
+ *
+ * The walk is generic rather than a per-type list of paths, and that is
+ * a deliberate call. Four shapes carry the field today: `basemap`,
+ * `tile_layer` and `point_cloud` at the top level, and a `map` nested at
+ * `layers[].source.attribution`. A per-type list would have to be
+ * extended by whoever adds the fifth, silently ships a hole if they do
+ * not, and is exactly the kind of duplicated list this codebase has
+ * watched rot before.
+ *
+ * Returns the ORIGINAL object when nothing needed changing, so a save
+ * that touches no attribution does not pay for a deep copy.
+ */
+function sanitizeAttributionInData(data: unknown, depth = 0): unknown {
+  if (depth > ATTRIBUTION_WALK_MAX_DEPTH) return data;
+  if (Array.isArray(data)) {
+    let changed = false;
+    const next = data.map((entry) => {
+      const cleaned = sanitizeAttributionInData(entry, depth + 1);
+      if (cleaned !== entry) changed = true;
+      return cleaned;
+    });
+    return changed ? next : data;
+  }
+  if (data === null || typeof data !== 'object') return data;
+
+  const source = data as Record<string, unknown>;
+  let changed = false;
+  const next: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (key === 'attribution' && typeof value === 'string') {
+      const cleaned = sanitizeAttributionHtml(value);
+      if (cleaned !== value) changed = true;
+      next[key] = cleaned;
+      continue;
+    }
+    const cleaned = sanitizeAttributionInData(value, depth + 1);
+    if (cleaned !== value) changed = true;
+    next[key] = cleaned;
+  }
+  return changed ? next : data;
 }
 
 @Injectable()
@@ -1141,6 +1211,14 @@ export class ItemsService {
     // validates rather than strips.
     assertItemAssetKey(input.type, resolvedData);
 
+    // Attribution reaches every viewer of every map that uses this
+    // item, as HTML, through a MapLibre control whose own sanitizer is
+    // bypassable on the version we are pinned to. Clean it here rather
+    // than trusting the renderer.
+    resolvedData = sanitizeAttributionInData(
+      resolvedData,
+    ) as Prisma.InputJsonValue;
+
     const bbox = itemBbox(input.type, resolvedData);
     let row;
     try {
@@ -1703,6 +1781,14 @@ export class ItemsService {
       if (rewritten !== asText) {
         nextData = JSON.parse(rewritten) as Prisma.InputJsonValue;
       }
+    }
+
+    // Last transform before the row is written, so nothing downstream
+    // can reintroduce markup. Same reasoning as the create path: the
+    // stored value is rendered as HTML by MapLibre's attribution
+    // control for every viewer of every map using this item.
+    if (nextData !== undefined) {
+      nextData = sanitizeAttributionInData(nextData) as Prisma.InputJsonValue;
     }
 
     // Recompute the cached extent when the data blob changes; leave
