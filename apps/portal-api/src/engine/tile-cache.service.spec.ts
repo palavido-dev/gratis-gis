@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import {
   OBSERVATION_WRITTEN_CHANNEL,
+  TileCacheAbortedError,
   TileCacheOverloadError,
   TileCacheService,
   aggregateCacheKey,
@@ -13,6 +14,7 @@ import {
   stableJson,
   tileCacheKey,
   tileOverloadRetryAfterSeconds,
+  viaKeysCacheKey,
 } from './tile-cache.service.js';
 
 describe('TileCacheService', () => {
@@ -369,6 +371,184 @@ describe('TileCacheService', () => {
     });
   });
 
+  describe('lane back-pressure and client disconnect', () => {
+    const tick = () => new Promise((r) => setTimeout(r, 5));
+
+    /** Pin `limit` computes in the lane; returns their release gates. */
+    function fillLane(cache: TileCacheService, lane: { name: string; limit: number; maxQueued?: number }) {
+      const gates: Array<() => void> = [];
+      const running: Array<Promise<unknown>> = [];
+      for (let i = 0; i < lane.limit; i += 1) {
+        running.push(
+          cache.getOrCompute(
+            `s|agg|pin${i}`,
+            async () => {
+              await new Promise<void>((r) => gates.push(r));
+              return Buffer.from(`pin${i}`);
+            },
+            { lane },
+          ),
+        );
+      }
+      return { gates, running };
+    }
+
+    it('removes an aborted waiter from the queue and never runs its compute', async () => {
+      const cache = new TileCacheService();
+      const lane = { name: 'agg', limit: 1 };
+      const { gates, running } = fillLane(cache, lane);
+      await tick();
+      const ac = new AbortController();
+      const compute = jest.fn(async () => Buffer.from('never'));
+      const queued = cache.getOrCompute('s|agg|q', compute, { lane, signal: ac.signal });
+      const after = cache.getOrCompute('s|agg|after', async () => Buffer.from('after'), { lane });
+      await tick();
+      ac.abort();
+      await expect(queued).rejects.toBeInstanceOf(TileCacheAbortedError);
+      // Free the lane: the withdrawn waiter must not have taken the
+      // slot, so `after` runs next and the aborted compute never does.
+      gates.shift()!();
+      await Promise.all(running);
+      expect((await after).buf.toString()).toBe('after');
+      expect(compute).not.toHaveBeenCalled();
+      expect(cache.get('s|agg|q')).toBeNull();
+      expect(cache.getStats().abandoned).toBe(1);
+      expect(cache.getStats().inFlight).toBe(0);
+    });
+
+    it('refuses a caller whose signal is already aborted without registering anything', async () => {
+      const cache = new TileCacheService();
+      const ac = new AbortController();
+      ac.abort();
+      const compute = jest.fn(async () => Buffer.from('x'));
+      await expect(
+        cache.getOrCompute('s|agg|dead', compute, { lane: { name: 'agg', limit: 1 }, signal: ac.signal }),
+      ).rejects.toBeInstanceOf(TileCacheAbortedError);
+      expect(compute).not.toHaveBeenCalled();
+      expect(cache.getStats().inFlight).toBe(0);
+    });
+
+    it('fails fast with an overload error once the lane queue is full', async () => {
+      const cache = new TileCacheService();
+      const lane = { name: 'agg', limit: 1, maxQueued: 2 };
+      const { gates, running } = fillLane(cache, lane);
+      await tick();
+      const q1 = cache.getOrCompute('s|agg|q1', async () => Buffer.from('q1'), { lane });
+      const q2 = cache.getOrCompute('s|agg|q2', async () => Buffer.from('q2'), { lane });
+      await tick();
+      const rejected = jest.fn(async () => Buffer.from('q3'));
+      await expect(
+        cache.getOrCompute('s|agg|q3', rejected, { lane }),
+      ).rejects.toBeInstanceOf(TileCacheOverloadError);
+      expect(rejected).not.toHaveBeenCalled();
+      expect(cache.getStats().rejectedOverload).toBe(1);
+      // The queued ones are unaffected and still run in order.
+      gates.shift()!();
+      await Promise.all(running);
+      expect((await q1).buf.toString()).toBe('q1');
+      expect((await q2).buf.toString()).toBe('q2');
+      // With the queue drained, a new request queues again normally.
+      const q4 = await cache.getOrCompute('s|agg|q4', async () => Buffer.from('q4'), { lane });
+      expect(q4.buf.toString()).toBe('q4');
+    });
+
+    it('lets a joiner stop waiting without cancelling the shared compute', async () => {
+      const cache = new TileCacheService();
+      let release!: () => void;
+      const compute = jest.fn(async () => {
+        await new Promise<void>((r) => (release = r));
+        return Buffer.from('shared');
+      });
+      const leader = cache.getOrCompute('s|agg|k', compute, { lane: { name: 'agg', limit: 1 } });
+      const ac = new AbortController();
+      const joiner = cache.getOrCompute('s|agg|k', compute, {
+        lane: { name: 'agg', limit: 1 },
+        signal: ac.signal,
+      });
+      await tick();
+      ac.abort();
+      await expect(joiner).rejects.toBeInstanceOf(TileCacheAbortedError);
+      // The leader is still waiting, so the compute runs to completion
+      // and is stored.
+      release();
+      expect((await leader).buf.toString()).toBe('shared');
+      expect(compute).toHaveBeenCalledTimes(1);
+      expect(cache.get('s|agg|k')?.buf.toString()).toBe('shared');
+      expect(cache.getStats().abandoned).toBe(0);
+    });
+
+    it('keeps a queued compute alive for a joiner after its leader aborts', async () => {
+      const cache = new TileCacheService();
+      const lane = { name: 'agg', limit: 1 };
+      const { gates, running } = fillLane(cache, lane);
+      await tick();
+      const ac = new AbortController();
+      const compute = jest.fn(async () => Buffer.from('kept'));
+      const leader = cache.getOrCompute('s|agg|k', compute, { lane, signal: ac.signal });
+      // A joiner with no signal never leaves, so the leader's abort
+      // must not withdraw the compute from under it.
+      const joiner = cache.getOrCompute('s|agg|k', compute, { lane });
+      await tick();
+      ac.abort();
+      await expect(leader).rejects.toBeInstanceOf(TileCacheAbortedError);
+      gates.shift()!();
+      await Promise.all(running);
+      expect((await joiner).buf.toString()).toBe('kept');
+      expect(compute).toHaveBeenCalledTimes(1);
+      expect(cache.getStats().abandoned).toBe(0);
+    });
+
+    it('does not withdraw a compute that has already started', async () => {
+      const cache = new TileCacheService();
+      let release!: () => void;
+      const compute = jest.fn(async () => {
+        await new Promise<void>((r) => (release = r));
+        return Buffer.from('finished');
+      });
+      const ac = new AbortController();
+      const only = cache.getOrCompute('s|agg|k', compute, {
+        lane: { name: 'agg', limit: 1 },
+        signal: ac.signal,
+      });
+      await tick();
+      expect(compute).toHaveBeenCalledTimes(1);
+      ac.abort();
+      await expect(only).rejects.toBeInstanceOf(TileCacheAbortedError);
+      // The query is already running; its answer is worth keeping for
+      // the next caller, who is one pan away.
+      release();
+      await tick();
+      expect(cache.get('s|agg|k')?.buf.toString()).toBe('finished');
+      expect(cache.getStats().inFlight).toBe(0);
+    });
+
+    it('runs an exempt compute outside the tile cap and outside any lane', async () => {
+      const prev = process.env.TILE_CACHE_MAX_CONCURRENT;
+      process.env.TILE_CACHE_MAX_CONCURRENT = '1';
+      try {
+        const cache = new TileCacheService();
+        let release!: (b: Buffer) => void;
+        const pinned = cache.getOrCompute('t|0/0/0|', () => new Promise<Buffer>((r) => (release = r)));
+        // The cap is saturated; a plain compute would 503.
+        await expect(cache.getOrCompute('t|0/0/1|', async () => Buffer.from('x'))).rejects.toBeInstanceOf(
+          TileCacheOverloadError,
+        );
+        // The exempt one runs anyway and does not touch the counter.
+        const keys = await cache.getOrCompute('p|viakeys|h', async () => Buffer.from('["a"]'), {
+          exemptFromCap: true,
+        });
+        expect(keys.buf.toString()).toBe('["a"]');
+        expect(cache.getStats().activeComputes).toBe(1);
+        release(Buffer.from('t'));
+        await pinned;
+        expect(cache.getStats().activeComputes).toBe(0);
+      } finally {
+        if (prev !== undefined) process.env.TILE_CACHE_MAX_CONCURRENT = prev;
+        else delete process.env.TILE_CACHE_MAX_CONCURRENT;
+      }
+    });
+  });
+
   describe('getOrCompute single-flight', () => {
     it('returns the cached entry on hit without calling compute', async () => {
       const cache = new TileCacheService();
@@ -589,6 +769,28 @@ describe('aggregateCacheKey', () => {
     const a = aggregateCacheKey('s', { aggs: [{ fn: 'count' }] });
     const b = aggregateCacheKey('s', { aggs: [{ fn: 'sum', field: 'v' }] });
     expect(a).not.toBe(b);
+  });
+});
+
+describe('viaKeysCacheKey', () => {
+  it('sits under the parent scope prefix so a parent write drops it', () => {
+    const key = viaKeysCacheKey('data_layer:p:l', { parentField: 'id', asOf: 'now', filters: [] });
+    expect(key.startsWith('data_layer:p:l|viakeys|')).toBe(true);
+    const cache = new TileCacheService();
+    cache.set(key, Buffer.from('["a"]'));
+    expect(cache.onObservationWritten('data_layer:p:l')).toBe(1);
+    expect(cache.get(key)).toBeNull();
+  });
+
+  it('separates the default asOf from an explicit instant and one parent filter from another', () => {
+    const base = { parentField: 'id', asOf: 'now', filters: [] };
+    expect(viaKeysCacheKey('s', base)).toBe(viaKeysCacheKey('s', { ...base }));
+    expect(viaKeysCacheKey('s', base)).not.toBe(
+      viaKeysCacheKey('s', { ...base, asOf: '2026-01-01T00:00:00.000Z' }),
+    );
+    expect(viaKeysCacheKey('s', base)).not.toBe(
+      viaKeysCacheKey('s', { ...base, filters: [{ strings: ['AND x = ', ''], values: [1] }] }),
+    );
   });
 });
 

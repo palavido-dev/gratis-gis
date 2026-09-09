@@ -18,10 +18,14 @@ import {
 } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { parseIntEnv } from '../common/env.js';
 import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 import { SharingService } from '../items/sharing.service.js';
 import { DerivedLayerCacheRefreshService } from '../derived-layers/cache-refresh.service.js';
-import { ItemBboxRefreshService } from '../items/item-bbox-refresh.service.js';
+import {
+  ItemBboxRefreshService,
+  type FeatureWriteNotice,
+} from '../items/item-bbox-refresh.service.js';
 import {
   DataLayerEngine,
   type AggregateBin,
@@ -112,6 +116,14 @@ export interface LayerSchema {
   pickLists: ResolvedPickLists;
 }
 
+/** One `loadLayerSchema` answer plus what it must be checked against. */
+interface LayerSchemaMemo {
+  schema: LayerSchema;
+  /** Item id to `updatedAt` epoch ms: the layer item and each resolved pick list. */
+  stamps: Record<string, number>;
+  builtAt: number;
+}
+
 /**
  * Drop the `_`-prefixed editor-tracking keys (`_global_id`,
  * `_created_by`, ...) that the read path inlines into `properties`.
@@ -157,14 +169,17 @@ export class DataLayerFeaturesService {
    * post-engine-pivot feature writes don't touch data_json, so a
    * data_layer / map / editor that just received feature mutations
    * keeps stale bbox info and silently disappears from the area
-   * filter. This kicks off an async refresh after every successful
-   * write. Throttled per-item inside the service so a busy field-
-   * app sync doesn't write the bbox row on every observation.
-   * Errors are swallowed (logged inside the service) because a
-   * stamper failure must not break the user's save.
+   * filter. This hands the service what the write did to geometry so
+   * it can update the bbox arithmetically (inserts, and edits that
+   * stay inside the current extent) and reserve the observation table
+   * collapse for writes that may have shrunk it. Coalesced per item
+   * inside the service so a busy field-app sync doesn't write the
+   * bbox row on every observation. Errors are swallowed (logged
+   * inside the service) because a stamper failure must not break the
+   * user's save.
    */
-  private scheduleBboxRefresh(itemId: string): void {
-    void this.bboxRefresh.refreshItemBbox(itemId);
+  private scheduleBboxRefresh(itemId: string, notice: FeatureWriteNotice): void {
+    this.bboxRefresh.noteFeatureWrite(itemId, notice);
   }
 
   /**
@@ -186,6 +201,26 @@ export class DataLayerFeaturesService {
   private readonly reportedUnresolvedPickLists = new Set<string>();
 
   /**
+   * Resolved schemas by `itemId:layerId`, validated rather than trusted:
+   * each entry remembers the `updatedAt` of every item it was built
+   * from (the layer item plus each pick list that resolved), and a hit
+   * costs one `findMany` of those stamps instead of the item read, the
+   * owner's principal (three reads) and the pick-list read. A schema
+   * edit or a pick-list edit bumps a stamp and forces a rebuild on the
+   * next write. What a stamp cannot see is a sharing change on a pick
+   * list, which does not touch the list's `updatedAt` but does change
+   * whether the owner may read it; the TTL bounds how long the old
+   * answer can stand. Map insertion order is the LRU order.
+   */
+  private readonly schemaMemo = new Map<string, LayerSchemaMemo>();
+  private static readonly SCHEMA_MEMO_MAX = 2_000;
+  private static readonly SCHEMA_MEMO_TTL_MS = parseIntEnv(
+    'LAYER_SCHEMA_CACHE_TTL_MS',
+    60_000,
+    { min: 1 },
+  );
+
+  /**
    * The layer's declared fields plus any pick lists its domains point
    * at, for `validateFeatureProperties`.
    *
@@ -201,16 +236,66 @@ export class DataLayerFeaturesService {
    *
    * Public so the async import worker can load the schema once for a
    * whole job and hand it to every `bulkInsertFeatures` batch, rather
-   * than paying an item read plus a pick-list read per batch.
+   * than paying an item read plus a pick-list read per batch. Per-row
+   * writers get the same economy from the memo above.
    */
   async loadLayerSchema(itemId: string, layerId: string): Promise<LayerSchema> {
-    const empty: LayerSchema = { fields: [], pickLists: {} };
+    const memoKey = `${itemId}:${layerId}`;
+    const memo = this.schemaMemo.get(memoKey);
+    if (memo) {
+      if (Date.now() - memo.builtAt < DataLayerFeaturesService.SCHEMA_MEMO_TTL_MS) {
+        const ids = Object.keys(memo.stamps);
+        const rows = await this.prisma.item.findMany({
+          where: { id: { in: ids } },
+          select: { id: true, updatedAt: true },
+        });
+        // Every item it was built from must still exist with the same
+        // stamp. A hard-deleted pick list is a missing row; a soft
+        // deleted or edited one is a bumped stamp. Either rebuilds.
+        const fresh =
+          rows.length === ids.length &&
+          rows.every((r) => memo.stamps[r.id] === r.updatedAt.getTime());
+        if (fresh) {
+          this.schemaMemo.delete(memoKey);
+          this.schemaMemo.set(memoKey, memo);
+          return memo.schema;
+        }
+      }
+      this.schemaMemo.delete(memoKey);
+    }
+    const built = await this.buildLayerSchema(itemId, layerId);
+    if (built.stamps !== null) {
+      this.schemaMemo.set(memoKey, {
+        schema: built.schema,
+        stamps: built.stamps,
+        builtAt: Date.now(),
+      });
+      while (this.schemaMemo.size > DataLayerFeaturesService.SCHEMA_MEMO_MAX) {
+        const oldest = this.schemaMemo.keys().next().value;
+        if (oldest === undefined) break;
+        this.schemaMemo.delete(oldest);
+      }
+    }
+    return built.schema;
+  }
+
+  /**
+   * The uncached read behind `loadLayerSchema`. Returns the stamps the
+   * memo should validate against, or null when there is nothing worth
+   * remembering: a missing item, or one whose schema is empty and so
+   * cheap enough to answer from a single read every time.
+   */
+  private async buildLayerSchema(
+    itemId: string,
+    layerId: string,
+  ): Promise<{ schema: LayerSchema; stamps: Record<string, number> | null }> {
+    const empty = { schema: { fields: [], pickLists: {} }, stamps: null };
     const item = await this.prisma.item.findUnique({
       where: { id: itemId },
-      select: { data: true, ownerId: true },
+      select: { data: true, ownerId: true, updatedAt: true },
     });
     const data = item?.data;
-    if (!data || typeof data !== 'object') return empty;
+    if (!item || !data || typeof data !== 'object') return empty;
     const d = data as { version?: unknown; layers?: unknown };
     if (d.version !== 3 || !Array.isArray(d.layers)) return empty;
 
@@ -227,6 +312,7 @@ export class DataLayerFeaturesService {
         (f as FeatureField).name.length > 0,
     );
     if (fields.length === 0) return empty;
+    const stamps: Record<string, number> = { [itemId]: item.updatedAt.getTime() };
 
     const refDomains = fields
       .map((f) => f.domain)
@@ -247,7 +333,7 @@ export class DataLayerFeaturesService {
     const refIds = [
       ...new Set(refDomains.map((d) => d.pickListItemId).filter((id) => isUuid(id))),
     ];
-    if (refIds.length === 0) return { fields, pickLists: {} };
+    if (refIds.length === 0) return { schema: { fields, pickLists: {} }, stamps };
 
     // Resolve the referenced lists AS THE LAYER'S OWNER would see them.
     //
@@ -264,7 +350,7 @@ export class DataLayerFeaturesService {
     // The owner, not the caller: a share recipient writing a row must
     // be judged by the same domain the owner authored, or two people
     // editing the same layer would be held to different rules.
-    const owner = item?.ownerId
+    const owner = item.ownerId
       ? await this.authSync.principalForUserId(item.ownerId)
       : null;
     const lists = owner
@@ -275,9 +361,14 @@ export class DataLayerFeaturesService {
               this.sharing.visibleWhere(owner),
             ],
           },
-          select: { id: true, data: true },
+          select: { id: true, data: true, updatedAt: true },
         })
       : [];
+    // Only lists that resolved carry a stamp. Listing an unresolved id
+    // would make every validation miss (no row comes back for it) and
+    // rebuild on every write for as long as the reference dangles; the
+    // TTL is what picks up a list that later becomes readable.
+    for (const list of lists) stamps[list.id] = list.updatedAt.getTime();
     const unresolved = refIds.filter((id) => {
       if (lists.some((l) => l.id === id)) return false;
       const key = `${itemId}:${layerId}:${id}`;
@@ -299,7 +390,7 @@ export class DataLayerFeaturesService {
         .filter((e) => e && (typeof e.code === 'string' || typeof e.code === 'number'))
         .map((e) => ({ code: e.code as string | number }));
     }
-    return { fields, pickLists };
+    return { schema: { fields, pickLists }, stamps };
   }
 
   /**
@@ -653,7 +744,14 @@ export class DataLayerFeaturesService {
     // a fully-deduplicated retry: nothing changed.
     if (inserted > 0) {
       void this.cacheRefresh.notifySourceWrite(itemId, layerId, validated);
-      this.scheduleBboxRefresh(itemId);
+      // `written` is order aligned with `args`; only rows that were
+      // actually inserted can have grown the extent.
+      this.scheduleBboxRefresh(itemId, {
+        kind: 'insert',
+        geometries: args
+          .filter((_, i) => written[i]?.deduplicated !== true)
+          .map((a) => a.geometry ?? null),
+      });
     }
 
     return {
@@ -828,12 +926,20 @@ export class DataLayerFeaturesService {
       bin?: AggregateBin;
       limit?: number;
       asOf?: Date;
+      /**
+       * The requesting connection. Forwarded so a client that has hung
+       * up stops occupying the aggregate lane; see the engine's
+       * `AggregateFeaturesArgs.signal`. Same both-places rule as the
+       * keys above.
+       */
+      signal?: AbortSignal;
     },
   ) {
     return this.dataLayer.aggregateFeatures({
       itemId,
       layerId,
       aggs: args.aggs,
+      ...(args.signal !== undefined ? { signal: args.signal } : {}),
       ...(args.asOf !== undefined ? { asOf: args.asOf } : {}),
       ...(args.groupBy !== undefined ? { groupBy: args.groupBy } : {}),
       ...(args.bbox !== undefined ? { bbox: args.bbox } : {}),
@@ -1125,7 +1231,11 @@ export class DataLayerFeaturesService {
     }
 
     void this.cacheRefresh.notifySourceWrite(itemId, layerId, [nextProps]);
-    this.scheduleBboxRefresh(itemId);
+    this.scheduleBboxRefresh(itemId, {
+      kind: 'update',
+      before: [existing.geometry],
+      after: [nextGeometry],
+    });
     return result;
   }
 
@@ -1159,7 +1269,10 @@ export class DataLayerFeaturesService {
       globalId: featureId,
       principal,
     });
-    this.scheduleBboxRefresh(itemId);
+    this.scheduleBboxRefresh(itemId, {
+      kind: 'delete',
+      geometries: [current.features[0]!.geometry],
+    });
   }
 
   /**
@@ -1387,7 +1500,14 @@ export class DataLayerFeaturesService {
       args.layerId,
       updates.map((u) => u.newProperties),
     );
-    this.scheduleBboxRefresh(args.itemId);
+    // Attribute only: every row keeps its geometry, and the service
+    // recognises an unchanged envelope as extent neutral.
+    const geometries = updates.map((u) => u.geometry);
+    this.scheduleBboxRefresh(args.itemId, {
+      kind: 'update',
+      before: geometries,
+      after: geometries,
+    });
 
     return { totalRows: total, appliedRows: updates.length, sample, errors };
   }

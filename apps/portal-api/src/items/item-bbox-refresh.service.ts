@@ -1,15 +1,62 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { readV3Layers } from '../data-layer/read-v3-layers.js';
 import { DataLayerTablesService } from '../data-layer/tables.service.js';
 import { itemBbox } from './item-bbox.js';
-import { extractDependencies } from './dependency-extractor.js';
+import {
+  envelopeOfGeometries,
+  envelopeStrictlyInside,
+  envelopesEqual,
+  readStoredEnvelope,
+  unionEnvelopes,
+  type Envelope,
+} from './geometry-envelope.js';
+
+/**
+ * What a feature write did to geometry, as the write path knows it.
+ * Geometries are passed as `unknown` because both the request body
+ * and the engine read-back type them loosely; the envelope helper
+ * tolerates null and malformed values.
+ *
+ * - insert: the geometries that were actually written (a deduplicated
+ *   retry contributes nothing, so callers filter those out).
+ * - update: geometry before and after, position aligned. An
+ *   attribute only edit passes the same geometry on both sides and
+ *   is recognised as extent neutral without touching the database.
+ * - delete: the geometries of the rows that were tombstoned.
+ */
+export type FeatureWriteNotice =
+  | { kind: 'insert'; geometries: ReadonlyArray<unknown> }
+  | {
+      kind: 'update';
+      before: ReadonlyArray<unknown>;
+      after: ReadonlyArray<unknown>;
+    }
+  | { kind: 'delete'; geometries: ReadonlyArray<unknown> };
+
+/**
+ * Work owed to one item, accumulated between flushes. Only envelopes
+ * are kept, never geometries, so a sustained edit session costs a
+ * few numbers of memory per item no matter how many rows it writes.
+ */
+interface PendingWork {
+  /** Union of every envelope written since the last flush. The new
+   *  extent is at least `union(stored, grew)`, exactly. */
+  grew: Envelope | null;
+  /** Union of every envelope removed or moved away from since the
+   *  last flush. Only when this reaches an edge of the stored bbox
+   *  can the extent have shrunk. */
+  removed: Envelope | null;
+  /** Somebody asked for the full recompute irrespective of geometry. */
+  recompute: boolean;
+}
 
 /**
  * Per-item bbox refresh (#85). Pre-engine-pivot, item.bbox was
- * stamped on every `data_json` save and that was enough -- features
+ * stamped on every `data_json` save and that was enough: features
  * lived inline in the data blob. Post-pivot, feature writes go
  * through the observation log and don't touch data_json, so the
  * cached bbox stays whatever the item had at create time. Effect:
@@ -17,17 +64,40 @@ import { extractDependencies } from './dependency-extractor.js';
  * for the area-filter, which silently filters it (and every map /
  * editor that references it) out of "in this area" search results.
  *
- * This service computes a fresh bbox for one item and walks the
- * forward reference chain (data_layer -> map -> editor) so every
- * item that depends on the affected layer also picks up the new
- * extent. Throttled per-item so a busy field-app sync flush doesn't
- * write the bbox row on every observation -- 60s is enough to
- * coalesce a feature-by-feature flush of a thousand rows into a
- * single update.
+ * This service keeps `item.bbox` current for the written item and
+ * walks the forward reference chain (data_layer -> map -> editor) so
+ * every item whose bbox is derived from the affected layer picks up
+ * the new extent.
  *
- * Designed to be called fire-and-forget from the engine write path:
- * a stamper failure must not break the user's save, so all errors
- * are caught + logged.
+ * Two paths, chosen per flush from what the writes actually did:
+ *
+ * - Arithmetic. An insert can only grow the extent, and by exactly
+ *   the envelope of what was inserted, so the new bbox is
+ *   `union(stored, envelope(inserted))` and needs no scan. A delete
+ *   or geometry change whose old envelope sits strictly inside the
+ *   stored bbox cannot have moved any edge either. Both are exact,
+ *   not approximations, and both cost one primary key read plus one
+ *   update.
+ * - Full recompute. Needed when the stored bbox is missing, or when
+ *   a removed or moved geometry touched an edge of it, because the
+ *   extent may have shrunk and only the observation table knows by
+ *   how much. This is the `DISTINCT ON` collapse in
+ *   `DataLayerTablesService.aggregateBbox`, which on a large layer
+ *   is the most expensive query the write path can trigger.
+ *
+ * Writes are coalesced per item: the first write after a quiet
+ * period flushes immediately, everything else inside the 60 s window
+ * merges into the pending envelopes and flushes once when the window
+ * closes. Nothing is dropped: the old leading-edge throttle silently
+ * lost every write after the first, leaving the bbox stale until the
+ * next quiet write or the housekeeping recompute. Each replica keeps
+ * its own window, so prod's two replicas write at most twice per
+ * item per minute.
+ *
+ * Fire-and-forget by design: a stamper failure must not break the
+ * user's save, so every error is caught and logged, and the daily
+ * housekeeping `recompute-extents` pass is the backstop for
+ * anything lost to a crash mid window.
  */
 @Injectable()
 export class ItemBboxRefreshService {
@@ -35,7 +105,10 @@ export class ItemBboxRefreshService {
   private static readonly MAX_REVERSE_HOPS = 2;
 
   private readonly log = new Logger(ItemBboxRefreshService.name);
-  private readonly throttle = new Map<string, number>();
+  private readonly pending = new Map<string, PendingWork>();
+  private readonly timers = new Map<string, NodeJS.Timeout>();
+  private readonly lastFlushAt = new Map<string, number>();
+  private readonly inFlight = new Map<string, Promise<void>>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -43,72 +116,222 @@ export class ItemBboxRefreshService {
   ) {}
 
   /**
-   * Refresh `item.bbox` for the given id and walk reverse deps so
-   * maps + editors that reference it pick up the new extent. Skips
-   * the actual work when the same id was refreshed within the
-   * throttle window. Returns the new bbox (or null) so callers can
-   * log when useful; `null` is also returned when the call is
-   * throttled, so callers shouldn't infer "item has no bbox" from
-   * a null return value.
+   * Record what a feature write did to geometry and schedule the
+   * cheapest exact bbox update for it. Synchronous and allocation
+   * light on purpose: this runs inline on every feature mutation.
    */
-  async refreshItemBbox(
-    itemId: string,
-  ): Promise<[number, number, number, number] | null> {
-    const last = this.throttle.get(itemId) ?? 0;
-    const now = Date.now();
-    if (now - last < ItemBboxRefreshService.REFRESH_THROTTLE_MS) {
-      return null;
-    }
-    this.throttle.set(itemId, now);
-
-    try {
-      const freshById = new Map<
-        string,
-        [number, number, number, number] | null
-      >();
-      const seen = new Set<string>();
-      // Queue entries are { id, hop } so we can stop the reverse-dep
-      // walk at MAX_REVERSE_HOPS hops away from the seed. data_layer
-      // (hop 0) -> map (hop 1) -> editor (hop 2) covers every shipped
-      // referencing chain today; deeper paths are caught by the cron.
-      const queue: Array<{ id: string; hop: number }> = [
-        { id: itemId, hop: 0 },
-      ];
-      while (queue.length > 0) {
-        const entry = queue.shift()!;
-        if (seen.has(entry.id)) continue;
-        seen.add(entry.id);
-        const it = await this.prisma.item.findUnique({
-          where: { id: entry.id },
-          select: { id: true, type: true, data: true, bbox: true },
-        });
-        if (!it) continue;
-
-        const next = await this.computeBbox(it, freshById);
-        freshById.set(it.id, next);
-
-        if (!bboxEqual(it.bbox as number[] | null | undefined, next)) {
-          await this.prisma.item.update({
-            where: { id: it.id },
-            data: { bbox: next ?? [] },
-          });
-        }
-
-        if (entry.hop < ItemBboxRefreshService.MAX_REVERSE_HOPS) {
-          const reverseRefs = await this.findReferencingItems(it.id);
-          for (const r of reverseRefs) {
-            if (!seen.has(r)) queue.push({ id: r, hop: entry.hop + 1 });
-          }
-        }
+  noteFeatureWrite(itemId: string, notice: FeatureWriteNotice): void {
+    let grew: Envelope | null = null;
+    let removed: Envelope | null = null;
+    switch (notice.kind) {
+      case 'insert':
+        grew = envelopeOfGeometries(notice.geometries);
+        break;
+      case 'delete':
+        removed = envelopeOfGeometries(notice.geometries);
+        break;
+      case 'update': {
+        const before = envelopeOfGeometries(notice.before);
+        const after = envelopeOfGeometries(notice.after);
+        // The extent is a function of envelopes only, so a reshape
+        // that keeps the same envelope, and every attribute only
+        // edit, is extent neutral. Calculate Field on 10k rows lands
+        // here and costs nothing.
+        if (envelopesEqual(before, after)) return;
+        grew = after;
+        removed = before;
+        break;
       }
-      return freshById.get(itemId) ?? null;
-    } catch (err) {
-      this.log.warn(
-        `refreshItemBbox failed for item=${itemId}: ${
-          err instanceof Error ? err.message : err
-        }`,
-      );
-      return null;
+    }
+    // Rows without geometry (tables, null geometry features) never
+    // touch the extent.
+    if (grew === null && removed === null) return;
+    this.enqueue(itemId, { grew, removed, recompute: false });
+  }
+
+  /**
+   * Ask for the full recompute of one item and its dependents,
+   * subject to the same coalescing window. For callers that changed
+   * rows without knowing which geometries they touched.
+   */
+  refreshItemBbox(itemId: string): void {
+    this.enqueue(itemId, { grew: null, removed: null, recompute: true });
+  }
+
+  /**
+   * Apply whatever is pending for `itemId` right now, cancelling any
+   * scheduled flush. Public so tests and shutdown hooks can drain
+   * the queue without waiting out the window.
+   */
+  async flushPending(itemId: string): Promise<void> {
+    const timer = this.timers.get(itemId);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      this.timers.delete(itemId);
+    }
+    // One flush at a time per item. An arithmetic union and a full
+    // recompute racing each other on the same replica could otherwise
+    // land in either order, and the union would then overwrite the
+    // fresher recompute with a stale base.
+    const running = this.inFlight.get(itemId);
+    if (running !== undefined) await running;
+
+    const work = this.pending.get(itemId);
+    if (work === undefined) return;
+    this.pending.delete(itemId);
+    // Stamped before the async work so writes arriving while it runs
+    // start a fresh window instead of flushing on top of it.
+    this.lastFlushAt.set(itemId, Date.now());
+    const run = this.apply(itemId, work)
+      .catch((err: unknown) => {
+        this.log.warn(
+          `bbox refresh failed for item=${itemId}: ${
+            err instanceof Error ? err.message : err
+          }`,
+        );
+      })
+      .finally(() => {
+        if (this.inFlight.get(itemId) === run) this.inFlight.delete(itemId);
+      });
+    this.inFlight.set(itemId, run);
+    await run;
+  }
+
+  /** True while a flush is scheduled or work is waiting. */
+  hasPending(itemId: string): boolean {
+    return this.pending.has(itemId);
+  }
+
+  private enqueue(itemId: string, work: PendingWork): void {
+    const existing = this.pending.get(itemId);
+    if (existing === undefined) {
+      this.pending.set(itemId, work);
+    } else {
+      existing.grew = unionEnvelopes(existing.grew, work.grew);
+      existing.removed = unionEnvelopes(existing.removed, work.removed);
+      existing.recompute = existing.recompute || work.recompute;
+    }
+    this.schedule(itemId);
+  }
+
+  private schedule(itemId: string): void {
+    if (this.timers.has(itemId)) return;
+    const last = this.lastFlushAt.get(itemId) ?? 0;
+    const wait = last + ItemBboxRefreshService.REFRESH_THROTTLE_MS - Date.now();
+    if (wait <= 0) {
+      void this.flushPending(itemId);
+      return;
+    }
+    const timer = setTimeout(() => {
+      this.timers.delete(itemId);
+      void this.flushPending(itemId);
+    }, wait);
+    // A pending bbox write must not keep a shutting down process (or
+    // a jest worker) alive.
+    timer.unref();
+    this.timers.set(itemId, timer);
+  }
+
+  /**
+   * Decide between the arithmetic update and the full recompute from
+   * the stored bbox and what the window accumulated. The stored bbox
+   * is read here, at flush time, not when the writes happened: the
+   * "removed envelope strictly inside" test stays exact against
+   * either the pre-removal extent or a fresher one another replica
+   * already wrote, because an envelope that reached an edge of the
+   * old extent cannot lie strictly inside the shrunken one.
+   */
+  private async apply(itemId: string, work: PendingWork): Promise<void> {
+    const row = await this.prisma.item.findUnique({
+      where: { id: itemId },
+      select: { bbox: true },
+    });
+    // Item purged between the write and the flush: nothing to stamp.
+    if (!row) return;
+    const stored = readStoredEnvelope(row.bbox);
+
+    if (work.recompute || stored === null) {
+      await this.runRefresh(itemId, null);
+      return;
+    }
+    if (work.removed !== null && !envelopeStrictlyInside(work.removed, stored)) {
+      await this.runRefresh(itemId, null);
+      return;
+    }
+    if (work.grew === null) return;
+    const next = unionEnvelopes(stored, work.grew)!;
+    if (envelopesEqual(next, stored)) return;
+    await this.runRefresh(itemId, next);
+  }
+
+  /**
+   * Stamp the seed and walk reverse deps so maps + editors that
+   * reference it pick up the new extent. With `seedBbox` the seed's
+   * extent is already known exactly and is written as is; without it
+   * the seed is recomputed from the observation table. Dependents are
+   * always recomputed, which for maps and editors is a union over
+   * referenced items' stored bboxes and never touches the observation
+   * table.
+   *
+   * Breadth first, one `findMany` per level and one reverse reference
+   * query per level. data_layer (hop 0) -> map (hop 1) -> editor (hop
+   * 2) covers every shipped referencing chain today; deeper paths are
+   * caught by the housekeeping cron.
+   */
+  private async runRefresh(
+    seedId: string,
+    seedBbox: Envelope | null,
+  ): Promise<void> {
+    const freshById = new Map<string, Envelope | null>();
+    const seen = new Set<string>([seedId]);
+
+    if (seedBbox !== null) {
+      await this.prisma.item.update({
+        where: { id: seedId },
+        data: { bbox: seedBbox },
+      });
+      freshById.set(seedId, seedBbox);
+    } else {
+      const seed = await this.prisma.item.findUnique({
+        where: { id: seedId },
+        select: { id: true, type: true, data: true, bbox: true },
+      });
+      if (!seed) return;
+      await this.recomputeAndStore(seed, freshById);
+    }
+
+    let frontier = [seedId];
+    for (
+      let hop = 1;
+      hop <= ItemBboxRefreshService.MAX_REVERSE_HOPS && frontier.length > 0;
+      hop++
+    ) {
+      const referencing = await this.findReferencingItems(frontier);
+      const nextIds = referencing.filter((id) => !seen.has(id));
+      if (nextIds.length === 0) break;
+      for (const id of nextIds) seen.add(id);
+      const rows = await this.prisma.item.findMany({
+        where: { id: { in: nextIds } },
+        select: { id: true, type: true, data: true, bbox: true },
+      });
+      for (const row of rows) {
+        await this.recomputeAndStore(row, freshById);
+      }
+      frontier = rows.map((r) => r.id);
+    }
+  }
+
+  private async recomputeAndStore(
+    row: { id: string; type: string; data: unknown; bbox: unknown },
+    freshById: Map<string, Envelope | null>,
+  ): Promise<void> {
+    const next = await this.computeBbox(row, freshById);
+    freshById.set(row.id, next);
+    if (!envelopesEqual(readStoredEnvelope(row.bbox), next)) {
+      await this.prisma.item.update({
+        where: { id: row.id },
+        data: { bbox: next ?? [] },
+      });
     }
   }
 
@@ -127,8 +350,8 @@ export class ItemBboxRefreshService {
    */
   private async computeBbox(
     it: { id: string; type: string; data: unknown },
-    freshById: Map<string, [number, number, number, number] | null>,
-  ): Promise<[number, number, number, number] | null> {
+    freshById: Map<string, Envelope | null>,
+  ): Promise<Envelope | null> {
     if (it.type === 'data_layer') {
       const layers = readV3Layers(it.data);
       if (layers !== null) {
@@ -173,26 +396,16 @@ export class ItemBboxRefreshService {
    */
   private async aggregateFromReferenced(
     refs: string[],
-    freshById: Map<string, [number, number, number, number] | null>,
-  ): Promise<[number, number, number, number] | null> {
-    let w = Infinity;
-    let s = Infinity;
-    let e = -Infinity;
-    let n = -Infinity;
-    let any = false;
+    freshById: Map<string, Envelope | null>,
+  ): Promise<Envelope | null> {
+    let out: Envelope | null = null;
     const missing: string[] = [];
     for (const id of refs) {
-      const cached = freshById.has(id) ? freshById.get(id) : undefined;
-      if (cached === undefined) {
+      if (!freshById.has(id)) {
         missing.push(id);
         continue;
       }
-      if (!cached) continue;
-      w = Math.min(w, cached[0]);
-      s = Math.min(s, cached[1]);
-      e = Math.max(e, cached[2]);
-      n = Math.max(n, cached[3]);
-      any = true;
+      out = unionEnvelopes(out, freshById.get(id) ?? null);
     }
     if (missing.length > 0) {
       const rows = await this.prisma.item.findMany({
@@ -200,60 +413,78 @@ export class ItemBboxRefreshService {
         select: { bbox: true },
       });
       for (const row of rows) {
-        const b = row.bbox as number[] | null;
-        if (Array.isArray(b) && b.length === 4) {
-          w = Math.min(w, b[0]!);
-          s = Math.min(s, b[1]!);
-          e = Math.max(e, b[2]!);
-          n = Math.max(n, b[3]!);
-          any = true;
-        }
+        out = unionEnvelopes(out, readStoredEnvelope(row.bbox));
       }
-    }
-    return any ? [w, s, e, n] : null;
-  }
-
-  /**
-   * Find every item that forward-references the given id. Used to
-   * walk reverse-dep chains during refresh. Limited to the spatial
-   * referencer types because non-spatial items (folders, pick lists)
-   * don't carry a bbox and don't need refreshing.
-   */
-  private async findReferencingItems(targetId: string): Promise<string[]> {
-    const candidates = await this.prisma.item.findMany({
-      where: {
-        type: { in: ['map', 'editor', 'web_app', 'derived_layer'] },
-        deletedAt: null,
-      },
-      select: {
-        id: true,
-        type: true,
-        data: true,
-        publicGeoBoundaryId: true,
-        orgGeoBoundaryId: true,
-      },
-    });
-    const out: string[] = [];
-    for (const c of candidates) {
-      const deps = extractDependencies(c);
-      if (deps.itemIds.includes(targetId)) out.push(c.id);
     }
     return out;
   }
-}
 
-function bboxEqual(
-  a: number[] | null | undefined,
-  b: [number, number, number, number] | null,
-): boolean {
-  if (!b) return !a || a.length === 0;
-  if (!a || a.length !== 4) return false;
-  return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
+  /**
+   * Every live item whose bbox is DERIVED from one of `targetIds`,
+   * found by JSONB containment in Postgres so only matching ids come
+   * back and no unrelated data_json is ever transferred. The
+   * predicates are indexed by `item_data_gin` (jsonb_path_ops, made
+   * for `@>`), so this is an index probe per shape, not a scan.
+   *
+   * The shapes are exactly the references `computeBbox` reads back
+   * through `collectMapItemRefs` and `collectEditorItemRefs`, plus
+   * a derived_layer's source, which the cascade has always visited.
+   * The previous implementation matched on `extractDependencies`,
+   * which also follows basemaps, boundaries, terrain, custom app
+   * widgets and print templates; none of those feed a bbox, so
+   * refreshing them recomputed the same value from the same inputs.
+   * Matching only bbox bearing references drops that wasted work
+   * without changing any stored result.
+   *
+   * Two spellings on purpose: the `type` column holds the Prisma
+   * `@map` kebab form, so raw SQL must say 'web-app' and
+   * 'derived-layer' where TypeScript says web_app / derived_layer.
+   */
+  private async findReferencingItems(targetIds: string[]): Promise<string[]> {
+    if (targetIds.length === 0) return [];
+    const contains = (shape: unknown): Prisma.Sql =>
+      Prisma.sql`data_json @> ${JSON.stringify(shape)}::jsonb`;
+    const anyOf = (shapes: unknown[]): Prisma.Sql =>
+      Prisma.sql`(${Prisma.join(shapes.map(contains), ' OR ')})`;
+
+    // Map layers: a portal data_layer by itemId, or an ArcGIS REST
+    // layer added from a service item by sourceItemId.
+    const mapShapes = targetIds.flatMap((id) => [
+      { layers: [{ source: { kind: 'data-layer', itemId: id } }] },
+      { layers: [{ source: { kind: 'arcgis-rest', sourceItemId: id } }] },
+    ]);
+    // Editor data, either as the whole blob (legacy `editor` type and
+    // the unwrapped web_app tolerance shape) or wrapped under
+    // config.editor on a web_app with template 'editor'.
+    const editorShapes = targetIds.flatMap((id) => [
+      { mapId: id },
+      { targets: [{ dataLayerId: id }] },
+    ]);
+    const wrappedEditorShapes = targetIds.flatMap((id) => [
+      { template: 'editor', config: { editor: { mapId: id } } },
+      { template: 'editor', config: { editor: { targets: [{ dataLayerId: id }] } } },
+    ]);
+    const derivedShapes = targetIds.map((id) => ({ source: { itemId: id } }));
+
+    const rows = await this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id
+      FROM "item"
+      WHERE deleted_at IS NULL
+        AND (
+          (type = 'map'::"ItemType" AND ${anyOf(mapShapes)})
+          OR (type IN ('editor'::"ItemType", 'web-app'::"ItemType") AND ${anyOf(editorShapes)})
+          OR (type = 'web-app'::"ItemType" AND ${anyOf(wrappedEditorShapes)})
+          OR (type = 'derived-layer'::"ItemType" AND ${anyOf(derivedShapes)})
+        )
+    `);
+    return rows.map((r) => r.id);
+  }
 }
 
 /** Walk a map's data.layers[] and return the underlying portal
  *  item ids the layers reference. Mirrors the helper in
- *  housekeeping.service. */
+ *  housekeeping.service. The JSONB shapes in `findReferencingItems`
+ *  must match what this reads; change both together. */
 function collectMapItemRefs(data: unknown): string[] {
   if (!data || typeof data !== 'object') return [];
   const layers = (data as { layers?: unknown }).layers;
@@ -278,7 +509,9 @@ function collectMapItemRefs(data: unknown): string[] {
 /** Walk an editor (legacy `editor` or migrated `web_app`+template)
  *  data and return the runtime map id + each target's data_layer
  *  id. Both shapes are supported so an in-flight migration doesn't
- *  hide editors from the area filter. */
+ *  hide editors from the area filter. The JSONB shapes in
+ *  `findReferencingItems` must match what this reads; change both
+ *  together. */
 function collectEditorItemRefs(data: unknown): string[] {
   if (!data || typeof data !== 'object') return [];
   const out = new Set<string>();

@@ -55,6 +55,14 @@
  *     view of the world). This module surfaces failures via
  *     QueueRecord.failureReason; the runtime renders them.
  *
+ *   - **Rows belong to the account that captured them.** The drain
+ *     runs as `currentUserId` and sees only rows that account owns,
+ *     plus legacy rows with no owner (shared-types
+ *     `isQueueRowOwnedBy`). A row another account parked on this
+ *     device is never claimed, never counted in `remaining`, never
+ *     sent: the server stamps `submitted_by` from the caller, so
+ *     sending it would attribute one person's capture to another.
+ *
  *   - **Global order is queuedAt, and only best-effort.** Across
  *     DIFFERENT features the heads are replayed oldest first so the
  *     server sees roughly the sequence it would have online, but a
@@ -72,6 +80,7 @@ import {
   listPendingBlobs,
   listPendingBlobsForFeature,
   listQueue,
+  listQueueAllOwners,
   listQueueByStatus,
   newUuid,
   updateQueueRecord,
@@ -81,6 +90,7 @@ import {
 import { parseApiError } from './api-error';
 import {
   isQueueRowClaimable,
+  isQueueRowOwnedBy,
   queueChainHeads,
   replayOutcomeForStatus,
 } from '@gratis-gis/shared-types';
@@ -161,6 +171,15 @@ async function replayFetch(
 export async function syncQueue(
   dataCollectionId: string,
   opts: {
+    /**
+     * The account this drain runs as: the signed-in user's portal id,
+     * which the page already holds from its server render. Only rows
+     * this account owns (or legacy rows with no owner) are listed,
+     * claimed, sent or counted. Required rather than read from the
+     * persisted device identity so a page cannot drain before the
+     * identity guard has written it.
+     */
+    currentUserId: string;
     onProgress?: (done: number, total: number) => void;
     /**
      * Set when a person pressed "Sync now". Skips the retry backoff:
@@ -169,9 +188,10 @@ export async function syncQueue(
      * as broken. Automatic triggers leave it unset.
      */
     manual?: boolean;
-  } = {},
+  },
 ): Promise<SyncResult> {
   const now = Date.now();
+  const { currentUserId } = opts;
   const claimOpts = { ignoreBackoff: opts.manual === true };
   // One list, one policy. `queueChainHeads` picks at most ONE row per
   // feature (the oldest) and only when that row is claimable, which
@@ -182,7 +202,11 @@ export async function syncQueue(
   // page that died mid-drain are reclaimed by the same rule; on iOS
   // and Firefox, where Background Sync does not exist, this drain is
   // the only path that will ever free them.
-  const all = await listQueue(dataCollectionId);
+  //
+  // Listed as this account: rows another account parked here are not
+  // in `all`, so they cannot become heads, cannot be claimed below,
+  // and are not in the counts at the end.
+  const all = await listQueue(dataCollectionId, currentUserId);
   const todo = queueChainHeads(all, now, claimOpts);
   const result: SyncResult = {
     processed: 0,
@@ -196,12 +220,19 @@ export async function syncQueue(
     // Claim atomically. Listing and then writing in two transactions
     // left a window where this drain and the service worker both
     // replayed the same edit; only server-side idempotency hid it.
-    const claimed = await claimQueueRow(dataCollectionId, record.id, (row) =>
-      isQueueRowClaimable(row, Date.now(), claimOpts),
+    // The ownership re-check inside the claim is belt and braces: the
+    // row came from an owner-filtered list, but the claim re-reads it,
+    // and a row is only ever sent under the account that owns it.
+    const claimed = await claimQueueRow(
+      dataCollectionId,
+      record.id,
+      (row) =>
+        isQueueRowOwnedBy(row, currentUserId) &&
+        isQueueRowClaimable(row, Date.now(), claimOpts),
     );
     if (!claimed) continue; // another drain took it
     try {
-      await replayRecord(record);
+      await replayRecord(record, currentUserId);
       // Synced: drop from the queue. There's no archive; once it's on
       // the server the queue row's job is done. (The server-side
       // queue manifest mirror in Tier 4 of the resilience design is
@@ -269,23 +300,45 @@ export async function syncQueue(
   //
   // Deliberately not fatal to the run: these are best-effort, and a
   // failure leaves the file exactly where it was for the next sync.
-  await sweepOrphanedBlobs(dataCollectionId);
+  await sweepOrphanedBlobs(dataCollectionId, currentUserId);
 
   // Re-count what's still queued (in case parallel runs added new
   // pending records during this drain). Rejected rows are reported
   // as their own total rather than folded into `remaining`: nothing
-  // automatic will ever clear them.
-  const stillPending = await listQueueByStatus(dataCollectionId, 'pending');
-  const stillFailed = await listQueueByStatus(dataCollectionId, 'failed');
-  const allRejected = await listQueueByStatus(dataCollectionId, 'rejected');
+  // automatic will ever clear them. Both counts are this account's;
+  // rows parked for somebody else are not "remaining" for this person.
+  const stillPending = await listQueueByStatus(
+    dataCollectionId,
+    'pending',
+    currentUserId,
+  );
+  const stillFailed = await listQueueByStatus(
+    dataCollectionId,
+    'failed',
+    currentUserId,
+  );
+  const allRejected = await listQueueByStatus(
+    dataCollectionId,
+    'rejected',
+    currentUserId,
+  );
   result.remaining = stillPending.length + stillFailed.length;
   result.rejected = allRejected.length;
   return result;
 }
 
-/** Rows parked by a deterministic server refusal, oldest first. */
-export async function listRejected(dataCollectionId: string): Promise<QueueRecord[]> {
-  const rows = await listQueueByStatus(dataCollectionId, 'rejected');
+/** This account's rows parked by a deterministic server refusal,
+ *  oldest first. A row another account parked is theirs to retry or
+ *  discard, so it is not offered here. */
+export async function listRejected(
+  dataCollectionId: string,
+  currentUserId: string,
+): Promise<QueueRecord[]> {
+  const rows = await listQueueByStatus(
+    dataCollectionId,
+    'rejected',
+    currentUserId,
+  );
   return rows.sort((a, b) => a.queuedAt.localeCompare(b.queuedAt));
 }
 
@@ -326,7 +379,10 @@ export async function discardRejected(record: QueueRecord): Promise<void> {
  * the record took. Insert carries the client globalId so a successful
  * server-side write that lost its response doesn't double-create.
  */
-async function replayRecord(r: QueueRecord): Promise<void> {
+async function replayRecord(
+  r: QueueRecord,
+  currentUserId: string,
+): Promise<void> {
   const layerPath = `/api/portal/items/${r.dataLayerId}/layers/${encodeURIComponent(
     r.layerKey,
   )}/features`;
@@ -346,7 +402,7 @@ async function replayRecord(r: QueueRecord): Promise<void> {
     });
     await throwIfNotOk(res, 'POST', r.op);
     // The feature exists now, so anything captured against it can go.
-    await uploadPendingBlobsForFeature(r);
+    await uploadPendingBlobsForFeature(r, currentUserId);
     return;
   }
   if (r.op === 'update') {
@@ -362,7 +418,7 @@ async function replayRecord(r: QueueRecord): Promise<void> {
     // An edit can carry new photos too: the collector opens a record
     // they captured earlier and adds the shot they could not get on
     // the first visit.
-    await uploadPendingBlobsForFeature(r);
+    await uploadPendingBlobsForFeature(r, currentUserId);
     return;
   }
   if (r.op === 'delete') {
@@ -404,15 +460,24 @@ async function replayRecord(r: QueueRecord): Promise<void> {
  * must not turn a successful sync into a reported failure; the file
  * stays put and the next sync tries again.
  */
-async function sweepOrphanedBlobs(dataCollectionId: string): Promise<void> {
+async function sweepOrphanedBlobs(
+  dataCollectionId: string,
+  currentUserId: string,
+): Promise<void> {
   let pending: Awaited<ReturnType<typeof listPendingBlobs>>;
   try {
-    pending = await listPendingBlobs(dataCollectionId);
+    // This account's files only. A photo another account took is not
+    // this session's to upload, whatever state its feature is in.
+    pending = await listPendingBlobs(dataCollectionId, currentUserId);
   } catch {
     return;
   }
   if (pending.length === 0) return;
-  const queued = await listQueue(dataCollectionId).catch(() => []);
+  // "Has a row" is a fact about the FEATURE, so every owner's rows
+  // count: a file whose feature still has a row parked by anyone is
+  // not an orphan, and uploading it would hit an attachment endpoint
+  // for a feature the server may not have.
+  const queued = await listQueueAllOwners(dataCollectionId).catch(() => []);
   const hasRow = new Set(
     queued.map((r) => `${r.dataLayerId} ${r.layerKey} ${r.globalId}`),
   );
@@ -422,12 +487,15 @@ async function sweepOrphanedBlobs(dataCollectionId: string): Promise<void> {
     if (hasRow.has(key) || seen.has(key)) continue;
     seen.add(key);
     try {
-      await uploadPendingBlobsForFeature({
-        dataCollectionId: file.dataCollectionId,
-        dataLayerId: file.dataLayerId,
-        layerKey: file.layerKey,
-        globalId: file.globalId,
-      });
+      await uploadPendingBlobsForFeature(
+        {
+          dataCollectionId: file.dataCollectionId,
+          dataLayerId: file.dataLayerId,
+          layerKey: file.layerKey,
+          globalId: file.globalId,
+        },
+        currentUserId,
+      );
     } catch {
       // Still offline, or the server refused. The file is untouched.
     }
@@ -459,15 +527,21 @@ export interface FeatureRef {
  * Losing the photo silently while reporting the record as synced
  * would be the worst available outcome: the record would look
  * complete and be missing the evidence it was collected for.
+ *
+ * Only this account's files. Another account's photo of the same
+ * feature stays where it is until that account signs back in; sending
+ * it now would register it under the wrong person.
  */
 export async function uploadPendingBlobsForFeature(
   ref: FeatureRef,
+  currentUserId: string,
 ): Promise<void> {
   const pending = await listPendingBlobsForFeature(
     ref.dataCollectionId,
     ref.dataLayerId,
     ref.layerKey,
     ref.globalId,
+    currentUserId,
   );
   for (const file of pending) {
     await uploadOneBlob(ref, file);

@@ -1,39 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { OrgRole } from '@prisma/client';
+import {
+  CAPABILITY_KEYS,
+  isCapabilityKey,
+  type CapabilityKey,
+} from '@gratis-gis/shared-types';
 
 import type { AuthUser } from './auth-sync.service.js';
 
 /**
- * Catalog of every capability the portal recognises. Adding a new
- * capability is a code change here plus a check at the call site;
- * no schema migration needed because per-user overrides store the
- * key as a plain string and validate against this catalog.
- *
- * Naming convention: `can_<verb>_<noun>`. Keep verbs short and
- * concrete (manage, view, edit, disable, run). The noun is whatever
- * the capability gates: a resource, a surface, an action.
+ * The capability catalog itself (`CAPABILITY_KEYS`, `CapabilityKey`,
+ * `isCapabilityKey`) lives in shared-types so `/users/me` and the web
+ * app's mirror of the server gates agree on the key union. It is
+ * re-exported here so the many `./capabilities.js` imports across the
+ * API keep one import site. Baselines and override merging stay in
+ * this file: they depend on the Prisma `OrgRole` enum.
  */
-export const CAPABILITY_KEYS = [
-  'can_view_public_items',
-  'can_publish_items',
-  'can_share_items',
-  'can_edit_own_items',
-  'can_edit_any_item',
-  'can_manage_users',
-  'can_edit_branding',
-  'can_manage_basemaps',
-  'can_disable_users',
-  'can_run_housekeeping',
-] as const;
-
-export type CapabilityKey = (typeof CAPABILITY_KEYS)[number];
-
-export function isCapabilityKey(value: unknown): value is CapabilityKey {
-  return (
-    typeof value === 'string' &&
-    (CAPABILITY_KEYS as readonly string[]).includes(value)
-  );
-}
+export { CAPABILITY_KEYS, isCapabilityKey, type CapabilityKey };
 
 /**
  * Each role's baseline capability set. Per-user overrides (stored in

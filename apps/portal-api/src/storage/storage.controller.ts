@@ -13,7 +13,7 @@ import {
   Res,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { IsEnum, IsInt, IsOptional, MaxLength, Min, IsString } from 'class-validator';
+import { IsEnum, IsInt, MaxLength, Min, IsString } from 'class-validator';
 import type { Request, Response } from 'express';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
@@ -46,16 +46,18 @@ const PRIVATE_KINDS_FOR_ROUTE = new Set<AssetKind>([
   'item-point-cloud',
 ]);
 
-class PresignUploadDto {
+export class PresignUploadDto {
   @IsEnum(ASSET_KINDS) kind!: AssetKind;
   /** Thumbnails stay image-only (the service layer enforces); feature
    *  attachments accept any MIME so we only validate non-empty here. */
   @IsString() @MaxLength(255) contentType!: string;
-  /** Declared upload size in bytes. When present, the server refuses an
-   *  over-cap upload and signs the size into the presigned PUT so the
-   *  browser cannot upload more than the size we validated. Optional so
-   *  older clients keep working (they just don't get the size guard). */
-  @IsOptional() @IsInt() @Min(0) sizeBytes?: number;
+  /** Declared upload size in bytes. The server refuses an over-cap
+   *  upload and signs the size into the presigned PUT so the client
+   *  cannot upload more than the size we validated. Required: while it
+   *  was optional "for older clients", the per-kind cap was advisory
+   *  for every caller that left it out, and four call sites in our own
+   *  web app did. */
+  @IsInt() @Min(0) sizeBytes!: number;
 }
 
 /**

@@ -296,7 +296,7 @@ export class StorageService implements OnModuleInit {
   async presignUpload(
     kind: AssetKind,
     contentType: string,
-    sizeBytes?: number,
+    sizeBytes: number,
   ): Promise<PresignResult> {
     // Thumbnails/avatars stay image-only. Feature attachments + file
     // items accept any MIME type because they legitimately include
@@ -333,31 +333,31 @@ export class StorageService implements OnModuleInit {
           : isAttachment
             ? ATTACHMENT_MAX_BYTES
             : MAX_UPLOAD_BYTES;
-    // When the caller declares the upload size, refuse over-cap uploads
-    // here and sign the size into the URL. The browser's PUT must then
-    // send a matching Content-Length, so a client cannot upload more
-    // than the size we validated (MinIO enforces the signed
-    // Content-Length). Without this the per-kind cap was advisory only,
-    // and the public prefixes (avatar / hero / thumbnail) are not swept,
-    // so an over-cap blob there was permanent.
-    if (sizeBytes !== undefined) {
-      if (!Number.isFinite(sizeBytes) || sizeBytes < 0) {
-        throw new Error('Invalid upload size.');
-      }
-      if (sizeBytes > maxBytes) {
-        throw new Error(
-          `File is too large for this upload type. The cap is ${Math.round(
-            maxBytes / 1024 / 1024,
-          )} MB.`,
-        );
-      }
+    // Refuse over-cap uploads here and sign the size into the URL. The
+    // PUT must then send a matching Content-Length, so a client cannot
+    // upload more than the size we validated (MinIO enforces the signed
+    // Content-Length). The size used to be optional "so older clients
+    // keep working", which made the per-kind cap advisory for exactly
+    // the callers that skipped it, and the public prefixes (avatar /
+    // hero / thumbnail) are not swept, so an over-cap blob there was
+    // permanent. Every client now declares it; the DTO refuses a
+    // request without one.
+    if (!Number.isFinite(sizeBytes) || sizeBytes < 0) {
+      throw new Error('Invalid upload size.');
+    }
+    if (sizeBytes > maxBytes) {
+      throw new Error(
+        `File is too large for this upload type. The cap is ${Math.round(
+          maxBytes / 1024 / 1024,
+        )} MB.`,
+      );
     }
     const key = `${kind}/${randomUUID()}`;
     const cmd = new PutObjectCommand({
       Bucket: this.bucket,
       Key: key,
       ContentType: contentType,
-      ...(sizeBytes !== undefined ? { ContentLength: sizeBytes } : {}),
+      ContentLength: sizeBytes,
     });
     // Presigned-PUT expiry: tight by default so a leaked URL is
     // short-lived.  60s suffices for a 5 MB thumbnail; 180s for

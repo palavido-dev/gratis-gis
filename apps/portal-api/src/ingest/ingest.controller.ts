@@ -18,6 +18,7 @@ import type { Response } from 'express';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { hasCapability } from '../auth/capabilities.js';
 import { ItemsService } from '../items/items.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SharingService } from '../items/sharing.service.js';
@@ -58,6 +59,37 @@ export class IngestController {
   ) {}
 
   /**
+   * probe and stage exist to feed the create-item wizard, so they take
+   * the same capability the create they lead to takes. Until 2026-09
+   * they sat behind JwtAuthGuard alone while a comment claimed
+   * "admin-or-up": any signed-in viewer could park 1 GB files in the
+   * staging volume for an hour at a time. The interceptor has already
+   * written the upload to its temp dir by the time a handler runs, so
+   * a refused request removes that dir the same way a completed one
+   * does; a 403 must not leak disk.
+   *
+   * to-geojson is deliberately NOT behind this check: its callers are
+   * the data-layer, geo-boundary and map editors, which anyone with
+   * edit rights on that item can open, edit share included. Their
+   * authorization is `canEdit` on the item, applied when the parsed
+   * result is written.
+   */
+  private async assertCanImport(
+    user: AuthUser,
+    file: Express.Multer.File | undefined,
+  ): Promise<void> {
+    if (hasCapability(user, 'can_publish_items')) return;
+    if (file) {
+      await rm(file.destination, { recursive: true, force: true }).catch(
+        () => {},
+      );
+    }
+    throw new ForbiddenException(
+      'Importing files requires the contributor or admin role.',
+    );
+  }
+
+  /**
    * Probe an uploaded spatial file and return per-layer metadata
    * (name, geometry type, fields, feature count) without creating or
    * mutating any items. Backs the builder's Import tab: user picks
@@ -66,7 +98,13 @@ export class IngestController {
    */
   @Post('ingest/probe')
   @UseInterceptors(FileInterceptor('file', INGEST_DISK_UPLOAD))
-  async probe(@UploadedFile() file: Express.Multer.File | undefined) {
+  async probe(
+    @CurrentUser() user: AuthUser,
+    @UploadedFile() file: Express.Multer.File | undefined,
+  ) {
+    // Refuse before the missing-file check so a viewer learns the
+    // real reason rather than a hint about multipart field names.
+    await this.assertCanImport(user, file);
     if (!file) {
       throw new BadRequestException(
         'No file uploaded; field name must be "file".',
@@ -92,10 +130,12 @@ export class IngestController {
    * round-trip cost compared to shipping ~120 KB of shp + dbf
    * parsing code into every page that imports anything.
    *
-   * Same auth + file-size posture as /ingest/probe (admin-or-up,
-   * 1 GB cap). Driver / SRS info is returned alongside the
-   * GeoJSON so the client can surface a "Reprojected from EPSG:X"
-   * note when the source was anything other than WGS84.
+   * Any signed-in user may call this; see assertCanImport for why it
+   * is not behind the publish capability the way probe and stage are.
+   * Same 1 GB cap as the other ingest entry points. Driver / SRS info
+   * is returned alongside the GeoJSON so the client can surface a
+   * "Reprojected from EPSG:X" note when the source was anything other
+   * than WGS84.
    */
   @Post('ingest/to-geojson')
   @UseInterceptors(
@@ -130,6 +170,7 @@ export class IngestController {
     @CurrentUser() user: AuthUser,
     @UploadedFile() file: Express.Multer.File | undefined,
   ) {
+    await this.assertCanImport(user, file);
     if (!file) {
       throw new BadRequestException(
         'No file uploaded; field name must be "file".',

@@ -69,6 +69,32 @@ export const fr: Partial<CatalogShape> = {
     viewerBlocked:
       "Votre compte a le rôle Lecteur, qui permet d'ouvrir et de télécharger des éléments mais pas d'en créer. Un administrateur de l'organisation peut changer votre rôle ou vous accorder uniquement la capacité de publication.",
   },
+  newItemJob: {
+    data_layer:
+      'Commencez ici si vous avez une feuille de calcul, un shapefile ou un fichier GeoJSON à téléverser.',
+    map: 'Commencez ici pour placer sur une carte des données déjà téléversées et la partager.',
+    form: 'Commencez ici si vous voulez que des personnes saisissent des réponses, une à la fois, depuis un lien que vous leur envoyez.',
+    data_collection:
+      "Commencez ici si vous voulez qu'une équipe consigne sur une carte ce qu'elle trouve, depuis son téléphone, hors ligne.",
+  },
+  metadataXml: {
+    intro:
+      "Préremplir le titre, la description et les étiquettes à partir d'un fichier {term}, du type que ArcGIS, QGIS ou un catalogue de données public exporte avec un jeu de données. Reconnaît ISO 19115, FGDC CSDGM et Dublin Core.",
+    term: 'XML de métadonnées',
+    importTitle:
+      'Importer un fichier XML de métadonnées exporté par ArcGIS, QGIS ou un catalogue de données (ISO 19115, FGDC CSDGM ou Dublin Core) pour préremplir les champs ci-dessous',
+  },
+  layerBuilder: {
+    tableName: 'Nom de la table',
+    tableNameTitle:
+      'Le nom de cette couche dans la base de données et dans les adresses web. En minuscules, avec des tirets bas à la place des espaces.',
+    dropToImport: 'Déposez pour importer.',
+    dropHint: 'Déposez un fichier ici, ou cliquez pour en choisir un.',
+    importUsual:
+      'Le cas courant est une feuille de calcul enregistrée en CSV, avec une colonne de latitude et une colonne de longitude.',
+    importAlso:
+      'Aussi : TSV · GeoJSON · GeoParquet (.parquet) · KML / KMZ (Google Earth) · GeoPackage (.gpkg, tables vectorielles uniquement) · Shapefile (.zip) · File Geodatabase (.gdb.zip)',
+  },
   mapEditor: {
     legendButton: 'Légende',
     tableButton: 'Table attributaire',
@@ -78,6 +104,46 @@ export const fr: Partial<CatalogShape> = {
     layerAccessButton: 'Accès aux couches',
     saveMapButton: 'Enregistrer la carte',
     savedIndicator: 'Enregistré',
+  },
+  featureEdit: {
+    groupLabel: 'Modifier',
+    editShape: 'Modifier la forme',
+    addFeature: 'Ajouter une entité',
+    deleteFeature: "Supprimer l'entité",
+    layerToAddTo: 'Couche cible',
+    snappingOn: 'Accrochage activé',
+    snappingOff: 'Accrochage désactivé',
+    hintEdit:
+      "Cliquez sur une entité d'une couche modifiable pour déplacer ses sommets.",
+    hintLoading: "Chargement de l'entité...",
+    hintDelete:
+      "Cliquez sur une entité d'une couche modifiable pour la supprimer.",
+    hintAddPoint: "Cliquez sur la carte pour placer l'entité.",
+    hintAddPath:
+      'Cliquez pour ajouter des sommets ; double-cliquez ou cliquez sur le premier sommet pour terminer.',
+    editingIn:
+      "Modification d'une entité dans {layer}. Faites glisser les sommets ; cliquez sur un point médian pour en ajouter un.",
+    cancel: 'Annuler',
+    saveShape: 'Enregistrer la forme',
+    shapeSaved: 'Forme enregistrée.',
+    featureAdded: 'Entité ajoutée.',
+    featureDeleted: 'Entité supprimée.',
+    newFeatureTitle: 'Nouvelle entité',
+    newFeatureAttributes: 'Attributs de la nouvelle entité',
+    addAction: "Ajouter l'entité",
+    deleteConfirmTitle: 'Supprimer cette entité ?',
+    deleteConfirmMessage:
+      'Elle sera retirée de "{layer}". Cette action ne peut pas être annulée d\'ici.',
+    deleteAction: 'Supprimer',
+    noStableId:
+      "Cette entité n'a pas d'identifiant stable et ne peut pas être modifiée ici.",
+    noGeometry: "Cette couche n'a pas de géométrie à modifier.",
+    notFound: 'Impossible de trouver cette entité sur le serveur.',
+    loadFailed: "Impossible de charger l'entité",
+    saveFailed: "Échec de l'enregistrement",
+    deleteFailed: 'Échec de la suppression',
+    addFailed: "Impossible d'ajouter l'entité",
+    unnamedLayer: 'couche',
   },
   presence: {
     youSuffix: ' (vous)',
@@ -122,6 +188,9 @@ export const fr: Partial<CatalogShape> = {
     notFound: 'Introuvable',
     sessionExpired:
       'Votre session a expiré. Reconnectez-vous pour retrouver tout ce à quoi vous avez accès.',
+  },
+  errorReason: {
+    unknown: 'erreur inconnue',
   },
   addToFolder: {
     heading: 'Ajouter {count, plural, one {# élément} other {# éléments}} à un dossier',
@@ -209,6 +278,354 @@ export const fr: Partial<CatalogShape> = {
     trashing: 'Déplacement...',
     trashFailedTitle: 'Impossible de déplacer vers la corbeille',
     trashFailedMessage: 'Échec du déplacement vers la corbeille : {status}',
+  },
+  field: {
+    nav: 'Terrain',
+    qrAlt: 'Code QR menant à ce déploiement',
+    qrHint:
+      "Pointez l'appareil photo d'un téléphone dessus pour ouvrir le déploiement sur cet appareil.",
+    qrSignIn:
+      'La première fois, il vous sera demandé de vous connecter sur le téléphone.',
+    copyLink: 'Copier le lien',
+    copied: 'Copié',
+    openOnPhone: 'Ouvrir sur un téléphone',
+  },
+  fieldQueue: {
+    rejectedChip:
+      '{count, plural, one {# modification à examiner} other {# modifications à examiner}}',
+    rejectedChipTitle:
+      'Le serveur a refusé ces modifications. Ouvrez pour voir pourquoi, puis réessayez ou abandonnez-les.',
+    rejectedTitle: 'Modifications refusées par le serveur',
+    rejectedIntro:
+      'Ces modifications ont été envoyées mais pas acceptées, et les renvoyer telles quelles donnerait la même réponse. Corrigez ce que le message indique et réessayez, ou abandonnez la modification.',
+    rejectedEmpty: 'Rien ici. Toutes les modifications ont été acceptées.',
+    op: {
+      insert: 'Nouvelle entité dans {layer}',
+      update: 'Changement sur une entité dans {layer}',
+      delete: 'Suppression dans {layer}',
+    },
+    unknownLayer: 'une couche qui ne fait plus partie de ce déploiement',
+    noReason: "Le serveur n'a pas indiqué pourquoi.",
+    retry: 'Réessayer',
+    retryAll: 'Tout réessayer ({count})',
+    discard: 'Abandonner',
+    discardTitle: 'Abandonner cette modification ?',
+    discardMessage:
+      "Elle n'existe que sur cet appareil. Une fois abandonnée, elle ne peut pas être récupérée.",
+    discardAction: 'Abandonner la modification',
+    close: 'Fermer',
+  },
+  fieldAttachments: {
+    heading: 'Photos et fichiers',
+    headingCount: 'Photos et fichiers · {count}',
+    add: 'Ajouter une photo',
+    emptyCanCapture:
+      "Aucune photo pour le moment. Elles sont conservées sur cet appareil et téléversées avec l'enregistrement.",
+    emptyReadOnly: 'Aucune photo sur cet enregistrement.',
+    pendingBadge: "Sur l'appareil",
+    pendingBadgeTitle: 'En attente de téléversement',
+    discardLabel: 'Abandonner {name}',
+    discardTitle: 'Abandonner ce fichier ?',
+    discardMessage:
+      "{name} n'a pas encore été téléversé. L'abandonner le retire de cet appareil et il ne pourra pas être récupéré.",
+    discardAction: 'Abandonner',
+    quotaError:
+      "Plus de place sur cet appareil pour une autre photo. Synchronisez ou libérez de l'espace d'abord.",
+    saveError: "Impossible d'enregistrer le fichier : {reason}",
+  },
+  fieldCollect: {
+    cancel: 'Annuler',
+    submit: 'Envoyer',
+    addTitle: 'Nouvelle entité : {layer}',
+    editTitle: "Modifier l'entité : {layer}",
+    addAria: 'Ajouter {layer}',
+    editAria: 'Modifier {layer}',
+    discardTitle: 'Abandonner cet enregistrement ?',
+    discardMessage:
+      "Vous avez saisi des informations qui n'ont pas été enregistrées. L'abandon est irréversible.",
+    discardAction: 'Abandonner',
+    discardCancel: 'Continuer la saisie',
+  },
+  fieldRuntime: {
+    pickTypeSheet: "Choisissez un type d'entité à ajouter",
+    featureDetailsSheet: "Détails de l'entité",
+    queueReadFailed: 'Impossible de lire la file hors ligne.',
+  },
+  fieldGps: {
+    accuracy: 'Précision GPS {meters} m',
+    denied:
+      'La localisation est bloquée. Autorisez-la dans les paramètres du navigateur pour capturer à votre position.',
+    unavailable:
+      'La localisation est indisponible sur cet appareil. Les entités seront placées au centre de la carte.',
+  },
+  fieldOffline: {
+    partial: 'Incomplet. Non téléchargé : {missing}.',
+    partialOutOfSpace:
+      "Incomplet : plus d'espace de stockage. Non téléchargé : {missing}.",
+    partialMissingMore: '{missing} et {count} de plus',
+    quotaTitle: 'Pas assez de stockage pour ce téléchargement',
+    quotaBody:
+      "Ce téléchargement a besoin d'environ {needed} et il manque ~{short}. Libérez des déploiements en cache ou de l'espace sur l'appareil, ou réduisez le niveau de détail, puis réessayez.",
+    identityTitle: "Travail non synchronisé d'un autre compte",
+    identityBody:
+      "Cet appareil contient {records, plural, =0 {aucun enregistrement} one {# enregistrement non synchronisé} other {# enregistrements non synchronisés}} et {files, plural, =0 {aucune photo} one {# photo} other {# photos}} capturés par un autre compte. Ils n'ont pas atteint le serveur.",
+    identityKeepExplain:
+      'Si vous les gardez ici, ils restent en attente sur cet appareil, hors de vos compteurs de synchronisation, et sont envoyés quand ce compte se reconnecte.',
+    identityRemoveExplain:
+      "Si vous les retirez, ils sont supprimés de cet appareil. Rien d'autre n'en détient de copie.",
+    identityKeep: 'Les garder ici',
+    identityRemove: 'Les retirer de cet appareil',
+    identityRemoved:
+      '{records, plural, one {# enregistrement} other {# enregistrements}} et {files, plural, one {# photo} other {# photos}} retirés de cet appareil.',
+    identityRemoveFailed: "Impossible de retirer les données de l'autre compte.",
+    removeWillLose:
+      '{count, plural, one {# modification non synchronisée sera perdue.} other {# modifications non synchronisées seront perdues.}}',
+    removeWillLoseOthers:
+      "{count, plural, one {# d'entre elles appartient à un autre compte.} other {# d'entre elles appartiennent à un autre compte.}}",
+  },
+  signOut: {
+    unsyncedTitle: 'Se déconnecter avec du travail non synchronisé ?',
+    unsyncedMessage:
+      "{count, plural, one {# modification sur cet appareil n'a pas encore atteint le serveur. Elle restera sur cet appareil, mais personne d'autre ne peut l'envoyer à votre place.} other {# modifications sur cet appareil n'ont pas encore atteint le serveur. Elles resteront sur cet appareil, mais personne d'autre ne peut les envoyer à votre place.}} Synchronisez avant de vous déconnecter si vous pouvez obtenir une connexion.",
+    unsyncedConfirm: 'Se déconnecter quand même',
+    unsyncedCancel: 'Rester connecté',
+  },
+  itemDetail: {
+    accessPrivate: 'Privé',
+    accessOrg: 'Organisation',
+    accessPublic: 'Public',
+    accessPrivateTitle:
+      'Seulement vous et les personnes avec qui vous le partagez',
+    accessOrgTitle: 'Toute personne connectée à ce portail',
+    accessPublicTitle: "N'importe qui sur internet, sans connexion",
+    licenseTitle: 'Licence : {license}',
+    statFeatures: 'Entités',
+    statGeometry: 'Forme',
+    statCoordinates: 'Coordonnées',
+    statFields: 'Champs',
+    statLayers: 'Couches',
+    statUpdated: 'Mis à jour',
+    statFeaturesTitle:
+      'Comptées en direct et limitées à ce à quoi vous avez accès, donc parfois inférieures au total publié.',
+    statCoordinatesTitle:
+      'Stockées en latitude et longitude (EPSG:4326). {source}',
+    statCoordinatesFrom: "Converties depuis {srs} lors de l'import.",
+    statCoordinatesNative: "C'est ainsi qu'elles sont arrivées.",
+    statCoordinatesUnknown:
+      "Le fichier source ne le précisait pas, on a donc supposé qu'il s'agissait déjà de latitude et longitude.",
+    statUnavailable: 'Non disponible',
+    statMixed: 'Mixte',
+    geometryPoint: 'Points',
+    geometryLine: 'Lignes',
+    geometryPolygon: 'Surfaces',
+    geometryNone: 'Table, sans formes',
+    previewTitle: 'Aperçu',
+    previewEmpty: 'Rien à dessiner pour le moment',
+    previewEmptyHint:
+      "Cette couche n'a aucune entité localisée, il n'y a donc rien à afficher sur une carte.",
+    previewFailed: "L'aperçu n'a pas pu être chargé",
+    previewLoading: "Chargement de l'aperçu",
+  },
+  itemTabs: {
+    overview: "Vue d'ensemble",
+    data: 'Données',
+    structure: 'Structure',
+    source: 'Source',
+    metadata: 'Métadonnées',
+    access: 'Partager',
+    sections: "Sections de l'élément",
+  },
+  mapCard: {
+    editTitle: 'Carte',
+    editBody:
+      'Ouvrez la carte pour vous déplacer, zoomer et parcourir la table attributaire, ainsi que pour ajouter des couches, définir le fond de carte et organiser le canevas.',
+    editAction: 'Ouvrir la carte',
+    viewTitle: 'Carte',
+    viewBody:
+      "Ouvrez cette carte pour vous déplacer, zoomer, changer de fond de carte et parcourir la table attributaire. Vous avez un accès en lecture, donc rien de ce que vous changez ici n'est enregistré.",
+    viewAction: 'Ouvrir la carte',
+  },
+  appCard: {
+    editTitle: 'Application web personnalisée',
+    editBody:
+      'Ouvrez le constructeur pour glisser des widgets sur le canevas, organiser les pages et lier des couches de données.',
+    editAction: 'Ouvrir le constructeur',
+    viewTitle: 'Application web',
+    viewBody:
+      'Ouvrez cette application et utilisez-la telle que ses lecteurs la voient.',
+    viewAction: "Ouvrir l'application",
+  },
+  groupItems: {
+    title: 'Partagé avec ce groupe',
+    empty:
+      "Rien n'est encore partagé avec ce groupe. Partagez un élément avec le groupe depuis son onglet Partager et il apparaîtra ici.",
+    openItem: "Ouvrir les détails de l'élément",
+    removeAction: 'Retirer de ce groupe',
+    removeTitle: 'Retirer du groupe',
+    removeBody:
+      'Retirer "{title}" de ce groupe ? Les membres du groupe perdent l\'accès accordé par ce partage ; l\'élément lui-même n\'est pas touché.',
+    removeConfirm: 'Retirer',
+    removed: '"{title}" retiré du groupe.',
+    removeFailed: "Impossible de retirer l'élément : HTTP {status}.",
+  },
+  housekeepingTabs: {
+    review: 'Revue',
+    cleanup: 'Nettoyage',
+    starters: 'Modèles de départ',
+    schedule: 'Planification',
+    sections: 'Sections de maintenance',
+  },
+  v3Editor: {
+    structureTitle: 'Structure de la couche',
+    structureIntro:
+      "Modifiez ici les couches, les champs, les domaines et les contraintes. L'enregistrement prend effet immédiatement ; l'import et la consultation des lignes se trouvent dans l'onglet Données.",
+    dataTitle: 'Données de la couche',
+    dataIntro:
+      'Parcourez les lignes de chaque couche, ajoutez des données ou téléchargez-les.',
+  },
+  layerExport: {
+    format: {
+      csv: 'CSV',
+      xlsx: 'Excel',
+      geojson: 'GeoJSON',
+      geoparquet: 'GeoParquet',
+    },
+    exported:
+      '{count, plural, one {# ligne exportée} other {# lignes exportées}} en {format}.',
+    failed: "Échec de l'export {format}",
+    nothingLoaded: "Rien à exporter : cette couche n'a aucune ligne chargée.",
+    nothingSelected: "Rien à exporter : aucune ligne n'est sélectionnée.",
+    exportRows: 'Exporter {count, plural, one {# ligne} other {# lignes}}',
+    noRows: 'Aucune ligne à exporter',
+  },
+  addToMap: {
+    newMap: 'Nouvelle carte',
+    existingMap: 'Une carte existante',
+    loadingMaps: 'Chargement des cartes...',
+    noMaps: 'Aucune carte pour le moment',
+    layerGone: '{item} n\'a plus de couche "{layerKey}".',
+    tableNoShapes:
+      "{layer} est une table sans formes, il n'y a donc rien à dessiner.",
+  },
+  mapSearch: {
+    geocoderUnavailable:
+      'La recherche de lieux est indisponible pour le moment ({reason}). Les résultats de couches ci-dessus ne sont pas affectés.',
+    noPlaces:
+      'Aucun lieu trouvé pour cela. Le géocodeur de ce portail ne couvre que la zone pour laquelle il a été configuré.',
+  },
+  adminFieldQueues: {
+    rejectedByServer: '{count} refusés par le serveur',
+    queuedSummary: '{queued} en file ({failed} en échec)',
+    queuedSummaryWithRejected:
+      '{queued} en file ({failed} en échec, {rejected} refusés)',
+    rejectedWaiting: 'refusé, en attente du worker',
+    moreWithErrors: '+ {count} autres enregistrements en erreur.',
+  },
+  metadataPanel: {
+    description: 'Description',
+    noDescription:
+      "Aucune description pour le moment. Une phrase sur ce que c'est et d'où cela vient fait la différence entre un élément que quelqu'un réutilise et un élément que quelqu'un recrée.",
+    tags: 'Étiquettes',
+    noTags: 'Aucune étiquette.',
+    type: 'Type',
+    owner: 'Propriétaire',
+    created: 'Créé',
+    updated: 'Mis à jour',
+    license: 'Licence',
+    source: 'Source',
+    sourceFormat: 'Format source',
+    originalProjection: "Projection d'origine",
+    itemId: "Identifiant de l'élément",
+    storageScope: 'Portée de stockage',
+    storageScopeFor: 'Portée : {layer}',
+    storageTable: 'Table de stockage',
+    notRecorded: 'Non renseigné',
+    copyTitle: 'Copier {label}',
+    formatGeojson: 'GeoJSON',
+    formatGeoparquet: 'GeoParquet',
+    formatKml: 'KML',
+    formatKmz: 'KMZ',
+    formatShapefile: 'Shapefile',
+    formatGdb: 'Géodatabase fichier',
+    formatXlsx: 'Classeur Excel',
+    formatCsv: 'CSV',
+    formatManual: 'Saisi à la main',
+    formatApi: "Chargé via l'API",
+  },
+  copyButton: {
+    copy: 'Copier',
+    copied: 'Copié',
+  },
+  offlineAreas: {
+    title: 'Zones hors ligne',
+    intro:
+      "Le portail prépare un fichier de carte par zone, de sorte qu'un comté entier est un seul téléchargement de quelques mégaoctets plutôt qu'un million de requêtes séparées.",
+    addArea: 'Ajouter une zone',
+    loading: 'Chargement des zones...',
+    noneYet: 'Aucune zone pour le moment.',
+    noneYetNoExtent:
+      "Ajoutez d'abord des données à la carte déployée, pour qu'il y ait une emprise à préparer.",
+    noneYetHint:
+      'Ajoutez-en une et les collecteurs pourront emporter ce déploiement hors ligne.',
+    extentSummary: 'environ {width} sur {height} miles',
+    rebuildsEvery: 'reconstruite tous les {days} jours',
+    waiting: 'En attente de démarrage...',
+    preparingCount: 'Préparation de {count} tuiles...',
+    preparing: 'Préparation...',
+    ready: 'Prête',
+    builtOn: 'construite le {date}',
+    buildFailed: "N'a pas pu être préparée.",
+    notPrepared: 'Pas encore préparée.',
+    prepareAgain: 'Préparer à nouveau',
+    prepareNow: 'Préparer maintenant',
+    deleteArea: 'Supprimer la zone',
+    deleteTitle: 'Supprimer cette zone ?',
+    deleteBody:
+      'Les collecteurs ne pourront plus télécharger "{name}". Ce qui est déjà sur un appareil y reste.',
+    name: 'Nom',
+    namePlaceholder: "Relevé d'été, équipe nord...",
+    detailLabel: 'Niveau de détail',
+    detailHint:
+      "Les collecteurs peuvent toujours zoomer au-delà. Passé un certain point, la carte cesse simplement d'ajouter de nouvelles étiquettes.",
+    refreshLabel: 'Garder à jour',
+    refreshManual: 'Seulement à ma demande',
+    refreshWeekly: 'Chaque semaine',
+    refreshMonthly: 'Chaque mois',
+    refreshQuarterly: 'Tous les trois mois',
+    detailRoads: 'Routes et villes',
+    detailRoadsHint: 'Téléchargement le plus léger',
+    detailStreets: 'Rues locales',
+    detailPaths: 'Noms de rues et chemins',
+    detailPathsHint: 'Recommandé pour le terrain',
+    detailBuildings: 'Contours des bâtiments',
+    detailBuildingsHint: 'Téléchargement le plus lourd',
+    tooBig:
+      'Cette zone est trop grande à ce niveau de détail. Choisissez moins de détail, ou divisez le déploiement en plusieurs zones.',
+    sizeEstimate:
+      'Couvre {extent}. Environ {size} à télécharger. Le chiffre exact est mesuré avant toute préparation.',
+    cancel: 'Annuler',
+    addAndPrepare: 'Ajouter et préparer',
+    saveFailed: "Impossible d'enregistrer la zone : {status}",
+    buildStartFailed: 'Impossible de démarrer la construction : {status}',
+  },
+  offlineBasemap: {
+    preparedMap: 'Carte préparée',
+    preparedMaps: 'Cartes préparées',
+    onThisDevice: 'Sur cet appareil',
+    includedWithSize: '{size}, inclus dans le téléchargement ci-dessus',
+    included: 'Inclus dans le téléchargement ci-dessus',
+    removeFromDevice: 'Retirer de cet appareil',
+    removeAria: 'Retirer {name} de cet appareil',
+    explainer:
+      "Votre chef d'équipe a préparé ces cartes : elles arrivent donc en fichiers uniques plutôt que morceau par morceau, et s'affichent sans aucun réseau.",
+    unsupported:
+      "Ce navigateur ne peut pas stocker de cartes hors ligne. Essayez d'ajouter l'application à votre écran d'accueil.",
+    preparedNoticeOne:
+      'La carte de ce déploiement est déjà préparée, elle arrive donc en un seul fichier.',
+    preparedNoticeMany:
+      'Les cartes de ce déploiement sont déjà préparées, elles arrivent donc en fichiers uniques.',
+    downloadStopped:
+      'Téléchargement arrêté. Ce qui est déjà enregistré reste sur cet appareil.',
   },
   itemMenu: {
     actions: "Actions de l'élément",
@@ -590,6 +1007,18 @@ export const fr: Partial<CatalogShape> = {
     light: 'Clair',
     dark: 'Sombre',
     system: 'Système',
+  },
+  adminBackup: {
+    startFailed: "La sauvegarde n'a pas pu être démarrée.",
+    deleteFailed: "La sauvegarde n'a pas pu être supprimée.",
+    stopFailed: "La sauvegarde n'a pas pu être arrêtée.",
+    stop: 'Arrêter',
+    stopping: 'Arrêt...',
+    stopTitle:
+      "Demander à cette sauvegarde de s'arrêter. Rien n'est publié avant la fin d'une sauvegarde, donc l'arrêter est toujours sans risque.",
+    fileMissing: 'Fichier absent du serveur',
+    fileMissingTitle:
+      "Cette sauvegarde s'est terminée, mais son fichier n'est plus dans le dossier de sauvegarde. Il a peut-être été déplacé, supprimé à la main, ou appartient à une restauration antérieure de la base de données. Il ne peut être ni téléchargé ni restauré.",
   },
   welcome: {
     title: 'Bienvenue dans GratisGIS',

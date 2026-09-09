@@ -26,7 +26,7 @@
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { QUEUE_CLAIM_STALE_MS } from './queue-replay.js';
+import { isQueueRowOwnedBy, QUEUE_CLAIM_STALE_MS } from './queue-replay.js';
 import { replayOutcomeForStatus } from './sync-outcome.js';
 
 // packages/shared-types/src -> repo root -> the worker.
@@ -41,12 +41,16 @@ const SW_PATH = join(
   'sw.js',
 );
 
-/** Source of a top-level `function name(...) { ... }` in the worker.
- *  The worker's functions all close at a brace in column 0, so the
- *  first `\n}` after the signature ends the body; nested braces are
- *  indented and never match. */
+/** Source of a top-level `function name(...) { ... }` in the worker,
+ *  `async` or not. The worker's functions all close at a brace in
+ *  column 0, so the first `\n}` after the signature ends the body;
+ *  nested braces are indented and never match. The `async` keyword has
+ *  to be captured with the declaration: lifting an async body into a
+ *  plain function is a syntax error at the first `await`. */
 function functionSource(sw: string, name: string): string {
-  const m = sw.match(new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}`));
+  const m = sw.match(
+    new RegExp(`(?:async )?function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}`),
+  );
   if (!m) throw new Error(`sw.js no longer defines function ${name}`);
   return m[0];
 }
@@ -89,11 +93,63 @@ describe('service worker offline-queue contract', () => {
   const sw = existsSync(SW_PATH) ? readFileSync(SW_PATH, 'utf8') : '';
 
   it('names the same database and stores the app writes', () => {
-    // Mirrors OFFLINE_DB_NAME and STORES in portal-web offline-store.
+    // Mirrors OFFLINE_DB_NAME, STORES, OFFLINE_META_STORE and
+    // OFFLINE_IDENTITY_KEY in portal-web offline-store.
     expect(sw).toContain("const OFFLINE_DB_NAME = 'gratisgis-offline'");
     expect(sw).toContain("const OFFLINE_QUEUE_STORE = 'queue'");
     expect(sw).toContain("const OFFLINE_DEPLOYMENTS_STORE = 'deployments'");
     expect(sw).toContain("const OFFLINE_BLOBS_STORE = 'blobs'");
+    expect(sw).toContain("const OFFLINE_META_STORE = 'meta'");
+    expect(sw).toContain("const OFFLINE_IDENTITY_KEY = 'identity'");
+  });
+
+  it('sends a row only under the account that captured it', () => {
+    // The worker's ownership rule, run against the shared-types
+    // original over every combination that matters: a row owned by
+    // the current identity, a row owned by somebody else, a legacy row
+    // with no owner, and each of those with no identity on the device
+    // at all. A mismatch here is one person's captures being attributed
+    // to another, with no error anywhere.
+    const swOwned = liftFunction<
+      (row: { ownerUserId?: string }, currentUserId: string | null) => boolean
+    >(sw, 'isQueueRowOwnedBy');
+    const rows = [
+      { ownerUserId: 'alice' },
+      { ownerUserId: 'bob' },
+      {},
+    ];
+    const identities = ['alice', 'bob', null];
+    for (const row of rows) {
+      for (const identity of identities) {
+        expect(swOwned(row, identity)).toBe(isQueueRowOwnedBy(row, identity));
+      }
+    }
+    // The three outcomes the rule exists for, stated outright so the
+    // test still says something if the export ever changes shape.
+    expect(swOwned({ ownerUserId: 'alice' }, 'alice')).toBe(true);
+    expect(swOwned({ ownerUserId: 'alice' }, 'bob')).toBe(false);
+    expect(swOwned({ ownerUserId: 'alice' }, null)).toBe(false);
+    expect(swOwned({}, 'bob')).toBe(true);
+    expect(swOwned({}, null)).toBe(true);
+  });
+
+  it('reads the device identity and filters the queue by it before draining', () => {
+    // The rule above is only worth anything if the drain applies it
+    // before it picks chain heads (so a foreign row is never a head)
+    // and again inside the claim predicate (the re-read is what a
+    // concurrent drain sees). Both call sites are pinned by shape.
+    expect(sw).toMatch(/const identity = await readOfflineIdentity\(db\)/);
+    expect(sw).toMatch(
+      /const rows = allRows\.filter\(\(r\) => isQueueRowOwnedBy\(r, identity\)\)/,
+    );
+    expect(sw).toMatch(
+      /isQueueRowOwnedBy\(r, identity\) && isQueueRowClaimable\(r, Date\.now\(\)\)/,
+    );
+    // The identity read tolerates a database the page has not upgraded
+    // to v3 yet: no meta store means no identity, not a thrown drain.
+    expect(functionSource(sw, 'readOfflineIdentity')).toContain(
+      'objectStoreNames.contains(OFFLINE_META_STORE)',
+    );
   });
 
   it('leaves features alone while they still owe a file upload', () => {
@@ -256,6 +312,88 @@ describe('service worker offline-queue contract', () => {
     // depends on, 404s, and parks as terminally rejected.
     expect(sw).toContain('function chainHeads(rows, nowMs)');
     expect(sw).toContain('chainHeads(rows, now)');
+  });
+
+  it('caps the geojson and page caches and trims them oldest-first', async () => {
+    // Neither cache had a cap: every layer ever viewed and every field
+    // page ever opened stayed until the next deploy. The constants are
+    // read back as numbers (a cap of 0 or NaN would silently empty the
+    // cache on every write), and the trim itself is lifted and run
+    // against a fake Cache whose keys() is insertion-ordered, which is
+    // the only clock it has.
+    const capOf = (name: string): number => {
+      const m = sw.match(new RegExp(`const ${name} = ([^;]+);`));
+      expect(m).not.toBeNull();
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+      return Number(new Function(`return (${m![1]})`)());
+    };
+    const geojsonCap = capOf('GEOJSON_CACHE_CAP');
+    const pagesCap = capOf('PAGES_CACHE_CAP');
+    expect(Number.isInteger(geojsonCap) && geojsonCap > 0).toBe(true);
+    expect(Number.isInteger(pagesCap) && pagesCap > 0).toBe(true);
+    // Both write paths wire their cap in, and delete before put so a
+    // refetch counts as fresh rather than keeping its old slot.
+    expect(sw).toMatch(
+      /networkFirstWithCache\(request, GEOJSON_CACHE, GEOJSON_CACHE_CAP\)/,
+    );
+    expect(sw).toMatch(/trimCache\(cache, PAGES_CACHE_CAP, isPrecachedShellPath\)/);
+    expect(sw).toMatch(/cache\s*\.delete\(request\)\s*\.then\(\(\) => cache\.put\(request, copy\)\)/);
+    expect(sw).toMatch(/await cache\.delete\(key\);\s*await cache\.put\(key, response\.clone\(\)\);/);
+
+    type FakeRequest = { url: string };
+    const trimCache = liftFunction<
+      (
+        cache: {
+          keys: () => Promise<FakeRequest[]>;
+          delete: (req: FakeRequest) => Promise<boolean>;
+        },
+        cap: number,
+        isExempt: (pathname: string) => boolean,
+      ) => Promise<void>
+    >(sw, 'trimCache');
+    const entries = [
+      'https://x/field/offline.html',
+      'https://x/items/a/field',
+      'https://x/items/b/field',
+      'https://x/items/c/field',
+      'https://x/items/d/field',
+    ].map((url) => ({ url }));
+    const deleted: string[] = [];
+    const fake = {
+      keys: async () => entries.filter((e) => !deleted.includes(e.url)),
+      delete: async (req: FakeRequest) => {
+        deleted.push(req.url);
+        return true;
+      },
+    };
+    await trimCache(fake, 3, (p) => p === '/field/offline.html');
+    // Two over the cap: the two OLDEST non-exempt entries go, the
+    // exempt shell at the very front is skipped, and the newest survive.
+    expect(deleted).toEqual(['https://x/items/a/field', 'https://x/items/b/field']);
+    expect((await fake.keys()).map((e) => e.url)).toEqual([
+      'https://x/field/offline.html',
+      'https://x/items/c/field',
+      'https://x/items/d/field',
+    ]);
+    // Under the cap, nothing moves.
+    deleted.length = 0;
+    await trimCache(fake, 10, () => false);
+    expect(deleted).toEqual([]);
+  });
+
+  it('never trims the precached shell out of the page cache', () => {
+    // The install step and the trim exemption read the same list, so
+    // adding a precached page to one cannot leave it evictable in the
+    // other.
+    const isPrecachedShellPath = liftFunction<(pathname: string) => boolean>(
+      sw,
+      'isPrecachedShellPath',
+      { constants: ['FIELD_OFFLINE_SHELL', 'PRECACHED_SHELL_PATHS'] },
+    );
+    expect(sw).toMatch(/cache\.addAll\(PRECACHED_SHELL_PATHS\)/);
+    expect(isPrecachedShellPath('/field/offline.html')).toBe(true);
+    expect(isPrecachedShellPath('/items/a/field')).toBe(false);
+    expect(isPrecachedShellPath('/field')).toBe(false);
   });
 
   it('still parses as JavaScript', () => {

@@ -37,6 +37,7 @@ import {
   optsFingerprint,
   parseIntEnv,
   tileCacheKey,
+  viaKeysCacheKey,
 } from './tile-cache.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { validateGeoJson } from '../common/geometry-validation.js';
@@ -542,9 +543,22 @@ const VIA_KEYS_AS_PARAM_MAX = 200_000;
  * So this is async now and takes the client. `cte` is null on the
  * normal path; callers keep the `WITH` plumbing for the fallback,
  * which is shape 2 and only runs past VIA_KEYS_AS_PARAM_MAX.
+ *
+ * The resolved key set is cached in the tile cache under the PARENT
+ * scope (`viaKeysCacheKey`), so a parent write drops it through the
+ * same LISTEN path that drops the parent's tiles. Every tile, aggregate,
+ * list and extent call on a related child used to re-run the parent's
+ * DISTINCT ON collapse; a dashboard pan is eight to fifteen of those
+ * against the same parent within a second. What is cached is either
+ * the key array or a marker meaning "too many, use the CTE", so the
+ * fallback decision is not re-measured per call either. The asOf
+ * bucket is part of the key: a defaulted asOf is the word "now" (the
+ * keys are current until the parent is written), an explicit one is
+ * its instant.
  */
 async function compileViaFilter(
   prisma: PrismaService,
+  tileCache: TileCacheService,
   args: {
     /** Field on the CHILD holding the shared key. */
     myField: string;
@@ -553,6 +567,12 @@ async function compileViaFilter(
     /** Engine scope key of the parent layer. */
     parentScope: string;
     asOf: Date;
+    /**
+     * Cache bucket for `asOf`: 'now' when the caller defaulted it,
+     * else the explicit instant's ISO string. Two "now" requests
+     * seconds apart must share the cached keys or the cache is useless.
+     */
+    asOfKey: string;
     /** The parent's own content predicates, already compiled. */
     parentContentFilters: Prisma.Sql[];
   },
@@ -578,20 +598,53 @@ async function compileViaFilter(
       WHERE p.kind <> 'delete'
         AND p.attrs->>${args.parentField} IS NOT NULL
         ${parentExtras}`;
-  // One more than the cap, so "over the cap" is observable without
-  // pulling an unbounded set into memory first.
-  const rows = await prisma.$queryRaw<Array<{ k: string }>>`
-      ${parentKeys}
-      LIMIT ${VIA_KEYS_AS_PARAM_MAX + 1}`;
-  if (rows.length <= VIA_KEYS_AS_PARAM_MAX) {
-    const keys = rows.map((r) => r.k);
+  // The compiled predicates, not the via options they came from: the
+  // SQL text plus bound values is exactly what decides the key set, so
+  // a new kind of parent filter can never be left out of the key.
+  const cacheKey = viaKeysCacheKey(args.parentScope, {
+    parentField: args.parentField,
+    asOf: args.asOfKey,
+    filters: args.parentContentFilters.map((f) => ({
+      strings: f.strings,
+      values: f.values,
+    })),
+  });
+  const hit = await tileCache.getOrCompute(
+    cacheKey,
+    async () => {
+      // One more than the cap, so "over the cap" is observable without
+      // pulling an unbounded set into memory first.
+      const rows = await prisma.$queryRaw<Array<{ k: string }>>`
+          ${parentKeys}
+          LIMIT ${VIA_KEYS_AS_PARAM_MAX + 1}`;
+      const cached: CachedViaKeys =
+        rows.length <= VIA_KEYS_AS_PARAM_MAX
+          ? { keys: rows.map((r) => r.k) }
+          : { tooMany: true };
+      return Buffer.from(JSON.stringify(cached));
+    },
+    {
+      ttlMs: AGGREGATE_CACHE_TTL_MS,
+      // Neither laned nor counted against the tile cap. This runs
+      // INSIDE a compute that already holds a slot (an aggregate in
+      // its lane, a tile under the cap) or ahead of a plain read that
+      // has no slot to hold. Taking a lane slot here would deadlock
+      // once every slot is held by an aggregate waiting for its keys;
+      // counting it under the tile cap would 503 a tile, or an
+      // aggregate, because tiles were busy. The caller's own slot is
+      // the bound on this work.
+      exemptFromCap: true,
+    },
+  );
+  const resolved = JSON.parse(hit.buf.toString()) as CachedViaKeys;
+  if ('keys' in resolved) {
     // A NULL key on the child can never match a parent, and the
     // child side is guarded explicitly rather than left to
     // three-valued logic.
     return {
       cte: null,
       predicate: Prisma.sql`AND attrs->>${args.myField} IS NOT NULL
-    AND attrs->>${args.myField} = ANY(${keys}::text[])`,
+    AND attrs->>${args.myField} = ANY(${resolved.keys}::text[])`,
     };
   }
   const cte = Prisma.sql`${Prisma.raw(VIA_KEYS_CTE)} AS MATERIALIZED (${parentKeys}
@@ -600,6 +653,9 @@ async function compileViaFilter(
     AND attrs->>${args.myField} IN (SELECT k FROM ${Prisma.raw(VIA_KEYS_CTE)})`;
   return { cte, predicate };
 }
+
+/** What `compileViaFilter` stores in the tile cache, as JSON. */
+type CachedViaKeys = { keys: string[] } | { tooMany: true };
 
 function compileAttrFilter(
   filter: {
@@ -825,6 +881,13 @@ export interface AggregateFeaturesArgs {
     bin?: AggregateBin;
     /** Max groups returned. Server clamps to AGG_GROUP_CAP. */
     limit?: number;
+    /**
+     * The requesting client's lifetime. When it aborts while the
+     * request is queued behind other aggregates, the call rejects with
+     * `TileCacheAbortedError` and, if nobody else wants the same
+     * answer, the query never runs. Not part of the cache key.
+     */
+    signal?: AbortSignal;
 }
 
 export interface AggregateFeaturesResult {
@@ -866,6 +929,20 @@ const AGGREGATE_CACHE_TTL_MS = parseIntEnv('AGGREGATE_CACHE_TTL_MS', 600_000, {
  * means "off", not "stuck".
  */
 const AGGREGATE_MAX_CONCURRENT = parseIntEnv('AGGREGATE_MAX_CONCURRENT', 3, {
+  min: 1,
+});
+/**
+ * Aggregates allowed to WAIT for a lane slot, per replica, beyond the
+ * running ones. Past this the request fails fast with a 503 and
+ * Retry-After rather than queueing. Sized for the demo's dashboards:
+ * a pan fires 8 to 15 aggregates, so 32 waiting is two to four panning
+ * dashboards per replica; at about a second per slot the last waiter
+ * runs within 11 s, inside the 30 s statement timeout and the widget's
+ * patience. Deeper than that and the queue holds work whose requester
+ * has long since panned again, which is what the abort signal drains
+ * and what this cap stops from piling up in the first place.
+ */
+const AGGREGATE_MAX_QUEUED = parseIntEnv('AGGREGATE_MAX_QUEUED', 32, {
   min: 1,
 });
 
@@ -2222,7 +2299,7 @@ export class DataLayerEngine {
         const sql = compileAttrFilter(args.via.parentWhere, 'p');
         if (sql) parentFilters.push(sql);
       }
-      const compiled = await compileViaFilter(this.prisma, {
+      const compiled = await compileViaFilter(this.prisma, this.tileCache, {
         myField: args.via.myField,
         parentField: args.via.parentField,
         parentScope: this.scope(
@@ -2230,6 +2307,7 @@ export class DataLayerEngine {
           args.via.parentLayerId,
         ),
         asOf,
+        asOfKey: args.asOf ? args.asOf.toISOString() : 'now',
         parentContentFilters: parentFilters,
       });
       viaCte = compiled.cte;
@@ -2399,7 +2477,9 @@ export class DataLayerEngine {
     // or the cache is useless, so the default is keyed as the word,
     // not the instant. An explicit asOf is keyed by its value.
     const scope = this.scope(args.itemId, args.layerId);
-    const { asOf, ...rest } = args;
+    // The signal is the caller's connection, not part of the request:
+    // two clients asking the same question must share one entry.
+    const { asOf, signal, ...rest } = args;
     const keyed = { ...rest, asOf: asOf ? asOf.toISOString() : 'now' };
     const dependsOn = args.via
       ? [`${this.scope(args.via.parentItemId, args.via.parentLayerId)}|`]
@@ -2411,7 +2491,12 @@ export class DataLayerEngine {
       {
         ttlMs: AGGREGATE_CACHE_TTL_MS,
         dependsOn,
-        lane: { name: 'aggregate', limit: AGGREGATE_MAX_CONCURRENT },
+        lane: {
+          name: 'aggregate',
+          limit: AGGREGATE_MAX_CONCURRENT,
+          maxQueued: AGGREGATE_MAX_QUEUED,
+        },
+        ...(signal ? { signal } : {}),
       },
     );
     return JSON.parse(hit.buf.toString()) as AggregateFeaturesResult;
@@ -2431,11 +2516,21 @@ export class DataLayerEngine {
    */
   private async aggregateFeaturesUncached(
     args: AggregateFeaturesArgs,
+    /**
+     * The via key cache bucket of the request this call serves. Only
+     * the bin range probe passes it: the probe pins `asOf` to the
+     * outer call's resolved instant, which would otherwise read as an
+     * explicit asOf and key the parent's keys by a millisecond nobody
+     * will ask for again.
+     */
+    asOfKeyOverride?: string,
   ): Promise<AggregateFeaturesResult> {
     validateGeoJson(args.geoLimit);
     validateGeoJson(args.boundaryClip);
     const scope = this.scope(args.itemId, args.layerId);
     const asOf = args.asOf ?? new Date();
+    const asOfKey =
+      asOfKeyOverride ?? (args.asOf ? args.asOf.toISOString() : 'now');
     const groupBy = (args.groupBy ?? []).slice(0, AGG_MAX_GROUP_KEYS);
     if (args.aggs.length === 0 || args.aggs.length > AGG_MAX_AGGS) {
       throw new Error(
@@ -2477,29 +2572,32 @@ export class DataLayerEngine {
         // slot, and going back through the cached entry point would
         // queue for a second slot while holding the first. With every
         // slot held by a binned request doing the same, nobody moves.
-        const bounds = await this.aggregateFeaturesUncached({
-          itemId: args.itemId,
-          layerId: args.layerId,
-          // The resolved instant, not args.asOf: an unset asOf defaults
-          // to now independently in each call, and a histogram whose
-          // axis was measured a millisecond apart from its bars is the
-          // kind of inconsistency this endpoint exists to prevent.
-          asOf,
-          ...(args.bbox !== undefined ? { bbox: args.bbox } : {}),
-          ...(args.geoLimit !== undefined ? { geoLimit: args.geoLimit } : {}),
-          ...(args.boundaryClip !== undefined
-            ? { boundaryClip: args.boundaryClip }
-            : {}),
-          ...(args.ownRowsOnly !== undefined
-            ? { ownRowsOnly: args.ownRowsOnly }
-            : {}),
-          ...(args.where !== undefined ? { where: args.where } : {}),
-          ...(args.via !== undefined ? { via: args.via } : {}),
-          aggs: [
-            { op: 'min', field: args.bin.field, as: 'lo' },
-            { op: 'max', field: args.bin.field, as: 'hi' },
-          ],
-        });
+        const bounds = await this.aggregateFeaturesUncached(
+          {
+            itemId: args.itemId,
+            layerId: args.layerId,
+            // The resolved instant, not args.asOf: an unset asOf defaults
+            // to now independently in each call, and a histogram whose
+            // axis was measured a millisecond apart from its bars is the
+            // kind of inconsistency this endpoint exists to prevent.
+            asOf,
+            ...(args.bbox !== undefined ? { bbox: args.bbox } : {}),
+            ...(args.geoLimit !== undefined ? { geoLimit: args.geoLimit } : {}),
+            ...(args.boundaryClip !== undefined
+              ? { boundaryClip: args.boundaryClip }
+              : {}),
+            ...(args.ownRowsOnly !== undefined
+              ? { ownRowsOnly: args.ownRowsOnly }
+              : {}),
+            ...(args.where !== undefined ? { where: args.where } : {}),
+            ...(args.via !== undefined ? { via: args.via } : {}),
+            aggs: [
+              { op: 'min', field: args.bin.field, as: 'lo' },
+              { op: 'max', field: args.bin.field, as: 'hi' },
+            ],
+          },
+          asOfKey,
+        );
         const row = bounds.groups[0]?.values ?? {};
         binEdges = resolveBinEdges(args.bin, {
           min: row.lo ?? null,
@@ -2576,7 +2674,7 @@ export class DataLayerEngine {
         const sql = compileAttrFilter(args.via.parentWhere, 'p');
         if (sql) parentFilters.push(sql);
       }
-      const compiled = await compileViaFilter(this.prisma, {
+      const compiled = await compileViaFilter(this.prisma, this.tileCache, {
         myField: args.via.myField,
         parentField: args.via.parentField,
         parentScope: this.scope(
@@ -2584,6 +2682,7 @@ export class DataLayerEngine {
           args.via.parentLayerId,
         ),
         asOf,
+        asOfKey,
         parentContentFilters: parentFilters,
       });
       viaCte = compiled.cte;
@@ -3242,7 +3341,7 @@ export class DataLayerEngine {
         const sql = compileAttrFilter(args.via.parentWhere, 'p');
         if (sql) parentFilters.push(sql);
       }
-      const compiled = await compileViaFilter(this.prisma, {
+      const compiled = await compileViaFilter(this.prisma, this.tileCache, {
         myField: args.via.myField,
         parentField: args.via.parentField,
         parentScope: this.scope(
@@ -3250,6 +3349,7 @@ export class DataLayerEngine {
           args.via.parentLayerId,
         ),
         asOf,
+        asOfKey: args.asOf ? args.asOf.toISOString() : 'now',
         parentContentFilters: parentFilters,
       });
       viaCte = compiled.cte;
@@ -3430,8 +3530,17 @@ export class DataLayerEngine {
       y: args.y,
       optsFingerprint: optsFingerprint(args),
     });
-    const result = await this.tileCache.getOrCompute(cacheKey, () =>
-      this.computeMvtTileBytes(args, scope),
+    // A related tile's bytes depend on the parent's rows too, exactly
+    // as a via aggregate's do; without this a parent edit left the
+    // child's tile stale for the TTL even though its cached key set
+    // (see compileViaFilter) had already been dropped.
+    const dependsOn = args.via
+      ? [`${this.scope(args.via.parentItemId, args.via.parentLayerId)}|`]
+      : [];
+    const result = await this.tileCache.getOrCompute(
+      cacheKey,
+      () => this.computeMvtTileBytes(args, scope),
+      { dependsOn },
     );
     return { mvt: result.buf, etag: result.etag };
   }
@@ -3503,7 +3612,7 @@ export class DataLayerEngine {
         const sql = compileAttrFilter(args.via.parentWhere, 'p');
         if (sql) parentFilters.push(sql);
       }
-      const compiledVia = await compileViaFilter(this.prisma, {
+      const compiledVia = await compileViaFilter(this.prisma, this.tileCache, {
         myField: args.via.myField,
         parentField: args.via.parentField,
         parentScope: this.scope(
@@ -3515,6 +3624,7 @@ export class DataLayerEngine {
         // reaches this endpoint, and inventing one here would let
         // the tile and the widgets above it disagree about when.
         asOf: new Date(),
+        asOfKey: 'now',
         parentContentFilters: parentFilters,
       });
       viaCte = compiledVia.cte;

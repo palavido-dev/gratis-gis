@@ -53,10 +53,32 @@ export interface PresignUploadArgs {
 export const PRESIGN_UPLOAD_ENDPOINT = '/api/portal/storage/presign-upload';
 
 /**
- * Request a presigned PUT. Throws an Error whose message is already the
- * sentence to show (an over-cap size comes back as the server's own
- * "File is too large ..." text), so callers do not need a second
- * client-side size check.
+ * A refused presign. Carries the HTTP status because the batch
+ * uploaders (point cloud, tile layer) classify a 5xx or 429 as worth
+ * retrying and anything else as final; the message alone cannot tell
+ * them which. Everything that only wants the sentence can keep
+ * catching plain `Error`.
+ */
+export class PresignUploadError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'PresignUploadError';
+    this.status = status;
+  }
+
+  /** Transient by the same rule the batch uploader applies to the PUT. */
+  get retryable(): boolean {
+    return this.status >= 500 || this.status === 429;
+  }
+}
+
+/**
+ * Request a presigned PUT. Throws a PresignUploadError whose message is
+ * already the sentence to show (an over-cap size comes back as the
+ * server's own "File is too large ..." text), so callers do not need a
+ * second client-side size check.
  */
 export async function presignUpload({
   kind,
@@ -70,7 +92,10 @@ export async function presignUpload({
     body: JSON.stringify({ kind, contentType, sizeBytes }),
   });
   if (!res.ok) {
-    throw new Error(await parseApiError(res, 'Could not start upload'));
+    throw new PresignUploadError(
+      await parseApiError(res, 'Could not start upload'),
+      res.status,
+    );
   }
   return (await res.json()) as PresignResponse;
 }

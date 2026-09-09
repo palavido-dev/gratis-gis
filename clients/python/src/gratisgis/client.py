@@ -1248,19 +1248,26 @@ class GratisGIS:
         name = file_name or src.name
         mime = content_type or guess_type(name)[0] or "application/octet-stream"
 
+        # The size is declared up front. A current portal refuses an
+        # over-cap file here with its own message (a ValidationError)
+        # and signs the accepted size into the PUT, so the bytes that
+        # land can never exceed what it checked.
         presign = self._request(
             "POST",
             "/storage/presign-upload",
-            json={"kind": "feature-attachment", "contentType": mime},
+            json={
+                "kind": "feature-attachment",
+                "contentType": mime,
+                "sizeBytes": len(data),
+            },
         )
         upload_url = presign["uploadUrl"]
         max_bytes = presign.get("maxBytes")
-        # Checked here because the server does not check it. The
-        # presigned PUT carries no size condition and the register call
-        # believes whatever sizeBytes it is told, so without this a
-        # typo uploads a gigabyte and only fails when someone notices
-        # the disk. maxBytes is the deployment's own stated limit,
-        # echoed back to us for exactly this purpose.
+        # Kept for portals older than the size check above, which
+        # ignored sizeBytes and signed a PUT with no size condition.
+        # Against those, this is the only thing between a typo and a
+        # gigabyte on disk; maxBytes is the deployment's own stated
+        # limit, echoed back for exactly this purpose.
         if isinstance(max_bytes, int) and len(data) > max_bytes:
             raise ValueError(
                 f"{name} is {len(data)} bytes; this portal accepts at most "

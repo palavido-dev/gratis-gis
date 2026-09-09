@@ -6,6 +6,7 @@ import { apiFetch } from '@/lib/api';
 import { getPortalFeatures } from '@/lib/portal-features';
 import { isSessionStale } from '@/lib/session-state';
 import { AppShellChrome, type AppShellMe } from './app-shell-chrome';
+import { OfflineIdentityGuard } from './offline-identity-guard';
 
 /**
  * Server entry point for the global chrome. Fetches the session +
@@ -45,16 +46,24 @@ export async function AppShell({ children }: { children: ReactNode }) {
   const features = await getPortalFeatures();
 
   return (
-    <AppShellChrome
-      me={me}
-      signedIn={!!session}
-      sessionStale={stale}
-      fallbackName={session?.user?.name ?? null}
-      fallbackEmail={session?.user?.email ?? null}
-      feedbackEnabled={features.feedback}
-      appVersion={features.version}
-    >
-      {children}
-    </AppShellChrome>
+    <>
+      {/* Outside the chrome on purpose: the field runtime renders
+          without it, and that is the page where a device changing
+          hands matters most. `me` is null for a stale session, which
+          the guard reads as "no identity change", so session expiry
+          alone never purges anything. */}
+      <OfflineIdentityGuard userId={me?.id ?? null} />
+      <AppShellChrome
+        me={me}
+        signedIn={!!session}
+        sessionStale={stale}
+        fallbackName={session?.user?.name ?? null}
+        fallbackEmail={session?.user?.email ?? null}
+        feedbackEnabled={features.feedback}
+        appVersion={features.version}
+      >
+        {children}
+      </AppShellChrome>
+    </>
   );
 }

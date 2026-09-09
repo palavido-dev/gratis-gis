@@ -31,10 +31,12 @@ import type { MapLayerFilter } from '@gratis-gis/shared-types';
 import { streamFeatureCollection } from '../data-layer/feature-stream.js';
 import { loadOsmPresetCatalog } from '../osm/preset-catalog.js';
 import {
+  TileCacheAbortedError,
   TileCacheOverloadError,
   matchesIfNoneMatch,
   tileOverloadRetryAfterSeconds,
 } from '../engine/tile-cache.service.js';
+import { requestAbortSignal } from '../common/request-signal.js';
 import { synthesizeThumbnailUrl } from '../items/thumbnail-url.js';
 import {
   PUBLIC_TIER_SELECT,
@@ -563,9 +565,10 @@ export class PublicController {
   @Get('items/:id/layers/:layerId/aggregate')
   async layerAggregate(
     @Req() req: Request,
+    @Res() res: Response,
     @Param('id') itemId: string,
     @Param('layerId') layerId: string,
-  ) {
+  ): Promise<void> {
     if (!isUuidShape(itemId)) throw new NotFoundException('Item not found');
     rejectUnknownAggregateParams(Object.keys(req.query));
     const parsed = parseAggregateQuery(req.query as Record<string, unknown>);
@@ -613,7 +616,8 @@ export class PublicController {
       bin?: typeof parsed.bin;
       limit?: number;
       asOf?: Date;
-    } = { aggs: parsed.aggs };
+      signal?: AbortSignal;
+    } = { aggs: parsed.aggs, signal: requestAbortSignal(req, res) };
     if (parsed.groupBy.length > 0) opts.groupBy = parsed.groupBy;
     if (parsed.bbox) opts.bbox = parsed.bbox;
     if (parsed.where) opts.where = parsed.where;
@@ -626,7 +630,26 @@ export class PublicController {
       item.publicGeoBoundaryId,
     );
     if (tierClip) opts.geoLimit = tierClip;
-    return this.v3.aggregateFeatures(itemId, layerId, opts);
+    // Same error mapping as the authenticated endpoint; the two must
+    // not diverge, because the anonymous dashboard is the one most
+    // likely to be hammered by a stranger's browser tabs.
+    let result: Awaited<ReturnType<typeof this.v3.aggregateFeatures>>;
+    try {
+      result = await this.v3.aggregateFeatures(itemId, layerId, opts);
+    } catch (e) {
+      if (e instanceof TileCacheAbortedError) {
+        if (!res.writableEnded) res.end();
+        return;
+      }
+      if (e instanceof TileCacheOverloadError) {
+        res.setHeader('Retry-After', String(tileOverloadRetryAfterSeconds()));
+        res.setHeader('Cache-Control', 'no-store');
+        res.status(503).end();
+        return;
+      }
+      throw e;
+    }
+    res.json(result);
   }
 
   /**

@@ -3,7 +3,7 @@ import { BadRequestException, Injectable, ForbiddenException, NotFoundException 
 import type { GroupAccess, GroupRole } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
-import type { AuthUser } from '../auth/auth-sync.service.js';
+import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 
 export interface CreateGroupInput {
   title: string;
@@ -21,7 +21,10 @@ export interface UpdateGroupInput {
 
 @Injectable()
 export class GroupsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly authSync: AuthSyncService,
+  ) {}
 
   /** Groups visible to the caller: owner OR member OR org-visible
    *  OR public. The ownerId clause is critical (#102): in our model
@@ -62,7 +65,7 @@ export class GroupsService {
   }
 
   async create(user: AuthUser, input: CreateGroupInput) {
-    return this.prisma.group.create({
+    const group = await this.prisma.group.create({
       data: {
         orgId: user.orgId,
         ownerId: user.id,
@@ -74,6 +77,10 @@ export class GroupsService {
         },
       },
     });
+    // The creator's effective groups just grew; their cached principal
+    // must not answer the next request with the old list.
+    this.authSync.invalidate(user.id);
+    return group;
   }
 
   async update(user: AuthUser, groupId: string, input: UpdateGroupInput) {
@@ -102,6 +109,9 @@ export class GroupsService {
       where: { id: groupId },
       data: { deletedAt: new Date() },
     });
+    // A trashed group stops granting to every member at once; the
+    // member list is not worth reading just to forget them one by one.
+    this.authSync.invalidateAll();
   }
 
   async restore(user: AuthUser, groupId: string) {
@@ -112,10 +122,12 @@ export class GroupsService {
     if (!this.canAdmin(user, group)) {
       throw new ForbiddenException('Only the group owner or an org admin can restore a group');
     }
-    return this.prisma.group.update({
+    const restored = await this.prisma.group.update({
       where: { id: groupId },
       data: { deletedAt: null },
     });
+    this.authSync.invalidateAll();
+    return restored;
   }
 
   /**
@@ -181,11 +193,13 @@ export class GroupsService {
     if (!member || member.orgId !== group.orgId) {
       throw new NotFoundException('User not found');
     }
-    return this.prisma.groupMember.upsert({
+    const membership = await this.prisma.groupMember.upsert({
       where: { groupId_userId: { groupId, userId: memberId } },
       update: { role },
       create: { groupId, userId: memberId, role },
     });
+    this.authSync.invalidate(memberId);
+    return membership;
   }
 
   private canSee(user: AuthUser, group: { orgId: string; access: string; ownerId: string }) {
@@ -207,6 +221,7 @@ export class GroupsService {
     await this.prisma.groupMember.delete({
       where: { groupId_userId: { groupId, userId: memberId } },
     });
+    this.authSync.invalidate(memberId);
   }
 
   /**

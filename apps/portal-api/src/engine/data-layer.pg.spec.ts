@@ -913,6 +913,72 @@ d('observation-log read paths against real PostGIS', () => {
     });
   });
 
+  describe('scenario 3d: the cached parent key set follows a parent write', () => {
+    // `compileViaFilter` caches the resolved parent keys in the tile
+    // cache under the PARENT scope, and a related child tile depends on
+    // the parent scope too. Both have to drop when the parent is
+    // written, or a child tile keeps showing rows whose parent no
+    // longer passes the filter for the whole aggregate TTL.
+    const itemId = uuidv7();
+    const layerId = 'layer-viakeys-child';
+    const scope = dataLayerScope(itemId, layerId);
+    const parentItemId = uuidv7();
+    const parentLayerId = 'layer-viakeys-parent';
+    const parentScope = dataLayerScope(parentItemId, parentLayerId);
+
+    const kid1 = uuidv7();
+    const kid2 = uuidv7();
+    const site1 = uuidv7();
+    const site2 = uuidv7();
+    const NEAR: [number, number] = [HERE[0] + 0.0005, HERE[1] + 0.0005];
+
+    const viaOver = {
+      myField: 'SITE',
+      parentField: 'KEY',
+      parentItemId,
+      parentLayerId,
+      parentWhere: {
+        combinator: 'all' as const,
+        clauses: [{ field: 'OVER', op: '==', value: 'yes' }],
+      },
+    };
+
+    beforeAll(async () => {
+      await seed(scope, kid1, 'create', { SITE: 's1' }, HERE);
+      await seed(scope, kid2, 'create', { SITE: 's2' }, NEAR);
+      await seed(parentScope, site1, 'create', { KEY: 's1', OVER: 'yes' }, HERE);
+      await seed(parentScope, site2, 'create', { KEY: 's2', OVER: 'no' }, NEAR);
+    });
+
+    it('resolves the keys once for two tiles, then again after the parent changes', async () => {
+      // ONE engine with a cache we can read the counters of.
+      const cache = new TileCacheService();
+      const engine = new DataLayerEngine(engineSvc, prisma, lensPolicyPassthrough, cache);
+      const { x, y } = tileFor(14, HERE[0], HERE[1]);
+
+      const first = await engine.mvtTile({ itemId, layerId, z: 14, x, y, via: viaOver });
+      expect(tileContains(first.mvt, kid1)).toBe(true);
+      expect(tileContains(first.mvt, kid2)).toBe(false);
+
+      // A neighbouring tile is a different tile key but the same parent
+      // and the same parent filter: the tile misses, the keys hit.
+      const hitsBefore = cache.getStats().hits;
+      const neighbour = await engine.mvtTile({ itemId, layerId, z: 14, x: x + 1, y, via: viaOver });
+      expect(neighbour.mvt).toBeDefined();
+      expect(cache.getStats().hits).toBe(hitsBefore + 1);
+
+      // The parent flips: s1 is no longer over. Same engine, so the
+      // in-process write hook drops the parent's tiles, the cached key
+      // set under the parent prefix, and the child tiles that depend
+      // on it, before this read starts.
+      await seed(parentScope, site1, 'update', { KEY: 's1', OVER: 'no' }, HERE);
+      const after = await engine.mvtTile({ itemId, layerId, z: 14, x, y, via: viaOver });
+      expect(tileContains(after.mvt, kid1)).toBe(false);
+      expect(tileContains(after.mvt, kid2)).toBe(false);
+      expect(after.etag).not.toBe(first.etag);
+    });
+  });
+
   describe('scenario 3c: features-page takes via and at (#25)', () => {
     const itemId = uuidv7();
     const layerId = 'layer-page-pred';

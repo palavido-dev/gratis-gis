@@ -67,6 +67,32 @@ export const ptBR: Partial<CatalogShape> = {
     viewerBlocked:
       'Sua conta tem a função Visualizador, que pode abrir e baixar itens, mas não criá-los. Um administrador da organização pode alterar sua função ou conceder apenas a capacidade de publicar.',
   },
+  newItemJob: {
+    data_layer:
+      'Comece aqui se você tem uma planilha, um shapefile ou um arquivo GeoJSON para enviar.',
+    map: 'Comece aqui para colocar em um mapa dados que você já enviou e compartilhá-lo.',
+    form: 'Comece aqui se você quer que as pessoas preencham respostas, uma por vez, a partir de um link que você envia.',
+    data_collection:
+      'Comece aqui se você quer que uma equipe registre em um mapa o que encontra, pelo celular, offline.',
+  },
+  metadataXml: {
+    intro:
+      'Preencha previamente título, descrição e etiquetas a partir de um arquivo {term}, do tipo que o ArcGIS, o QGIS ou um catálogo de dados público exporta junto com um conjunto de dados. Reconhece ISO 19115, FGDC CSDGM e Dublin Core.',
+    term: 'XML de metadados',
+    importTitle:
+      'Importe um arquivo XML de metadados exportado pelo ArcGIS, QGIS ou por um catálogo de dados (ISO 19115, FGDC CSDGM ou Dublin Core) para preencher previamente os campos abaixo',
+  },
+  layerBuilder: {
+    tableName: 'Nome da tabela',
+    tableNameTitle:
+      'O nome desta camada no banco de dados e nos endereços web. Em minúsculas, com sublinhados no lugar de espaços.',
+    dropToImport: 'Solte para importar.',
+    dropHint: 'Solte um arquivo aqui ou clique para escolher um.',
+    importUsual:
+      'O mais comum é uma planilha salva como CSV, com uma coluna de latitude e uma de longitude.',
+    importAlso:
+      'Também: TSV · GeoJSON · GeoParquet (.parquet) · KML / KMZ (Google Earth) · GeoPackage (.gpkg, somente tabelas vetoriais) · Shapefile (.zip) · File Geodatabase (.gdb.zip)',
+  },
   mapEditor: {
     legendButton: 'Legenda',
     tableButton: 'Tabela de atributos',
@@ -76,6 +102,45 @@ export const ptBR: Partial<CatalogShape> = {
     layerAccessButton: 'Acesso às camadas',
     saveMapButton: 'Salvar mapa',
     savedIndicator: 'Salvo',
+  },
+  featureEdit: {
+    groupLabel: 'Editar',
+    editShape: 'Editar forma',
+    addFeature: 'Adicionar feição',
+    deleteFeature: 'Excluir feição',
+    layerToAddTo: 'Camada de destino',
+    snappingOn: 'Ajuste ativado',
+    snappingOff: 'Ajuste desativado',
+    hintEdit:
+      'Clique em uma feição de uma camada editável para mover seus vértices.',
+    hintLoading: 'Carregando a feição...',
+    hintDelete: 'Clique em uma feição de uma camada editável para excluí-la.',
+    hintAddPoint: 'Clique no mapa para posicionar a feição.',
+    hintAddPath:
+      'Clique para adicionar vértices; clique duas vezes ou clique no primeiro vértice para concluir.',
+    editingIn:
+      'Editando uma feição em {layer}. Arraste os vértices; clique em um ponto médio para adicionar um.',
+    cancel: 'Cancelar',
+    saveShape: 'Salvar forma',
+    shapeSaved: 'Forma salva.',
+    featureAdded: 'Feição adicionada.',
+    featureDeleted: 'Feição excluída.',
+    newFeatureTitle: 'Nova feição',
+    newFeatureAttributes: 'Atributos da nova feição',
+    addAction: 'Adicionar feição',
+    deleteConfirmTitle: 'Excluir esta feição?',
+    deleteConfirmMessage:
+      'Ela será removida de "{layer}". Isso não pode ser desfeito daqui.',
+    deleteAction: 'Excluir',
+    noStableId:
+      'Esta feição não tem um id estável e não pode ser editada aqui.',
+    noGeometry: 'Esta camada não tem geometria para editar.',
+    notFound: 'Não foi possível encontrar essa feição no servidor.',
+    loadFailed: 'Não foi possível carregar a feição',
+    saveFailed: 'Falha ao salvar',
+    deleteFailed: 'Falha ao excluir',
+    addFailed: 'Não foi possível adicionar a feição',
+    unnamedLayer: 'camada',
   },
   presence: {
     youSuffix: ' (você)',
@@ -120,6 +185,9 @@ export const ptBR: Partial<CatalogShape> = {
     notFound: 'Não encontrado',
     sessionExpired:
       'Seu login expirou. Entre novamente para ver tudo a que você tem acesso.',
+  },
+  errorReason: {
+    unknown: 'erro desconhecido',
   },
   addToFolder: {
     heading: 'Adicionar {count, plural, one {# item} other {# itens}} a uma pasta',
@@ -207,6 +275,350 @@ export const ptBR: Partial<CatalogShape> = {
     trashing: 'Movendo...',
     trashFailedTitle: 'Não foi possível mover para a lixeira',
     trashFailedMessage: 'Falha ao mover para a lixeira: {status}',
+  },
+  field: {
+    nav: 'Campo',
+    qrAlt: 'Código QR com link para esta implantação',
+    qrHint:
+      'Aponte a câmera de um celular para isto para abrir a implantação nesse dispositivo.',
+    qrSignIn: 'Na primeira vez, você precisará entrar no celular.',
+    copyLink: 'Copiar link',
+    copied: 'Copiado',
+    openOnPhone: 'Abrir em um celular',
+  },
+  fieldQueue: {
+    rejectedChip:
+      '{count, plural, one {# edição precisa de atenção} other {# edições precisam de atenção}}',
+    rejectedChipTitle:
+      'O servidor recusou estas edições. Abra para ver o motivo e tentar de novo ou descartá-las.',
+    rejectedTitle: 'Edições que o servidor recusou',
+    rejectedIntro:
+      'Estas edições foram enviadas, mas não aceitas, e enviá-las de novo sem alterações teria a mesma resposta. Corrija o que a mensagem indica e tente de novo, ou descarte a edição.',
+    rejectedEmpty: 'Nada aqui. Todas as edições foram aceitas.',
+    op: {
+      insert: 'Nova feição em {layer}',
+      update: 'Alteração em uma feição de {layer}',
+      delete: 'Exclusão em {layer}',
+    },
+    unknownLayer: 'uma camada que não está mais nesta implantação',
+    noReason: 'O servidor não disse o motivo.',
+    retry: 'Tentar de novo',
+    retryAll: 'Tentar de novo todas as {count}',
+    discard: 'Descartar',
+    discardTitle: 'Descartar esta edição?',
+    discardMessage:
+      'Ela existe apenas neste dispositivo. Depois de descartada, não pode ser recuperada.',
+    discardAction: 'Descartar edição',
+    close: 'Fechar',
+  },
+  fieldAttachments: {
+    heading: 'Fotos e arquivos',
+    headingCount: 'Fotos e arquivos · {count}',
+    add: 'Adicionar foto',
+    emptyCanCapture:
+      'Ainda sem fotos. Elas ficam neste dispositivo e são enviadas com o registro.',
+    emptyReadOnly: 'Nenhuma foto neste registro.',
+    pendingBadge: 'No dispositivo',
+    pendingBadgeTitle: 'Aguardando envio',
+    discardLabel: 'Descartar {name}',
+    discardTitle: 'Descartar este arquivo?',
+    discardMessage:
+      '{name} ainda não foi enviado. Descartá-lo o remove deste dispositivo e ele não pode ser recuperado.',
+    discardAction: 'Descartar',
+    quotaError:
+      'Não há mais espaço neste dispositivo para outra foto. Sincronize ou libere espaço primeiro.',
+    saveError: 'Não foi possível salvar o arquivo: {reason}',
+  },
+  fieldCollect: {
+    cancel: 'Cancelar',
+    submit: 'Enviar',
+    addTitle: 'Nova feição: {layer}',
+    editTitle: 'Editar feição: {layer}',
+    addAria: 'Adicionar {layer}',
+    editAria: 'Editar {layer}',
+    discardTitle: 'Descartar este registro?',
+    discardMessage:
+      'Você inseriu informações que não foram salvas. Descartá-las não pode ser desfeito.',
+    discardAction: 'Descartar',
+    discardCancel: 'Continuar editando',
+  },
+  fieldRuntime: {
+    pickTypeSheet: 'Escolha um tipo de feição para adicionar',
+    featureDetailsSheet: 'Detalhes da feição',
+    queueReadFailed: 'Não foi possível ler a fila offline.',
+  },
+  fieldGps: {
+    accuracy: 'Precisão do GPS {meters} m',
+    denied:
+      'A localização está bloqueada. Permita-a nas configurações do navegador para capturar na sua posição.',
+    unavailable:
+      'A localização não está disponível neste dispositivo. As feições serão posicionadas no centro do mapa.',
+  },
+  fieldOffline: {
+    partial: 'Incompleto. Não baixado: {missing}.',
+    partialOutOfSpace:
+      'Incompleto: o armazenamento acabou. Não baixado: {missing}.',
+    partialMissingMore: '{missing} e mais {count}',
+    quotaTitle: 'Armazenamento insuficiente para este download',
+    quotaBody:
+      'Este download precisa de cerca de {needed} e faltam ~{short}. Libere implantações em cache ou espaço no dispositivo, ou reduza o nível de detalhe, e tente de novo.',
+    identityTitle: 'Trabalho não sincronizado de outra conta',
+    identityBody:
+      'Este dispositivo contém {records, plural, =0 {nenhum registro} one {# registro não sincronizado} other {# registros não sincronizados}} e {files, plural, =0 {nenhuma foto} one {# foto} other {# fotos}} capturados por outra conta. Eles não chegaram ao servidor.',
+    identityKeepExplain:
+      'Se você os mantiver aqui, eles ficam guardados neste dispositivo, fora das suas contagens de sincronização, e são enviados quando essa conta entrar de novo.',
+    identityRemoveExplain:
+      'Se você os remover, eles são excluídos deste dispositivo. Nada mais guarda uma cópia.',
+    identityKeep: 'Manter aqui',
+    identityRemove: 'Remover deste dispositivo',
+    identityRemoved:
+      '{records, plural, one {# registro} other {# registros}} e {files, plural, one {# foto} other {# fotos}} removidos deste dispositivo.',
+    identityRemoveFailed: 'Não foi possível remover os dados da outra conta.',
+    removeWillLose:
+      '{count, plural, one {# edição não sincronizada será perdida.} other {# edições não sincronizadas serão perdidas.}}',
+    removeWillLoseOthers:
+      '{count, plural, one {# delas pertence a outra conta.} other {# delas pertencem a outra conta.}}',
+  },
+  signOut: {
+    unsyncedTitle: 'Sair com trabalho não sincronizado?',
+    unsyncedMessage:
+      '{count, plural, one {# edição neste dispositivo ainda não chegou ao servidor. Ela ficará neste dispositivo, mas ninguém mais pode enviá-la por você.} other {# edições neste dispositivo ainda não chegaram ao servidor. Elas ficarão neste dispositivo, mas ninguém mais pode enviá-las por você.}} Sincronize antes de sair se conseguir uma conexão.',
+    unsyncedConfirm: 'Sair mesmo assim',
+    unsyncedCancel: 'Continuar conectado',
+  },
+  itemDetail: {
+    accessPrivate: 'Privado',
+    accessOrg: 'Organização',
+    accessPublic: 'Público',
+    accessPrivateTitle: 'Somente você e as pessoas com quem você compartilhar',
+    accessOrgTitle: 'Todos que estão conectados a este portal',
+    accessPublicTitle: 'Qualquer pessoa na internet, sem precisar entrar',
+    licenseTitle: 'Licença: {license}',
+    statFeatures: 'Feições',
+    statGeometry: 'Forma',
+    statCoordinates: 'Coordenadas',
+    statFields: 'Campos',
+    statLayers: 'Camadas',
+    statUpdated: 'Atualizado',
+    statFeaturesTitle:
+      'Contadas ao vivo e limitadas ao que você tem acesso, então pode ser menor que o total publicado.',
+    statCoordinatesTitle:
+      'Armazenadas como latitude e longitude (EPSG:4326). {source}',
+    statCoordinatesFrom: 'Convertidas de {srs} na importação.',
+    statCoordinatesNative: 'Foi assim que chegaram.',
+    statCoordinatesUnknown:
+      'O arquivo de origem não informava, então se assumiu que já eram latitude e longitude.',
+    statUnavailable: 'Não disponível',
+    statMixed: 'Misto',
+    geometryPoint: 'Pontos',
+    geometryLine: 'Linhas',
+    geometryPolygon: 'Áreas',
+    geometryNone: 'Tabela, sem formas',
+    previewTitle: 'Pré-visualização',
+    previewEmpty: 'Nada para desenhar ainda',
+    previewEmptyHint:
+      'Esta camada não tem feições com localização, então não há nada para mostrar em um mapa.',
+    previewFailed: 'Não foi possível carregar a pré-visualização',
+    previewLoading: 'Carregando a pré-visualização',
+  },
+  itemTabs: {
+    overview: 'Visão geral',
+    data: 'Dados',
+    structure: 'Estrutura',
+    source: 'Origem',
+    metadata: 'Metadados',
+    access: 'Compartilhar',
+    sections: 'Seções do item',
+  },
+  mapCard: {
+    editTitle: 'Mapa',
+    editBody:
+      'Abra o mapa para navegar, ampliar e explorar a tabela de atributos, e para adicionar camadas, definir o mapa base e organizar a tela.',
+    editAction: 'Abrir mapa',
+    viewTitle: 'Mapa',
+    viewBody:
+      'Abra este mapa para navegar, ampliar, trocar de mapa base e explorar a tabela de atributos. Você tem acesso de visualização, então nada que você alterar aqui é salvo.',
+    viewAction: 'Abrir mapa',
+  },
+  appCard: {
+    editTitle: 'Aplicativo web personalizado',
+    editBody:
+      'Abra o construtor para arrastar widgets para a tela, organizar páginas e vincular camadas de dados.',
+    editAction: 'Abrir construtor',
+    viewTitle: 'Aplicativo web',
+    viewBody: 'Abra este aplicativo e use-o como seus leitores o veem.',
+    viewAction: 'Abrir aplicativo',
+  },
+  groupItems: {
+    title: 'Compartilhado com este grupo',
+    empty:
+      'Nada foi compartilhado com este grupo ainda. Compartilhe um item com o grupo pela aba Compartilhar dele e ele aparecerá aqui.',
+    openItem: 'Abrir detalhes do item',
+    removeAction: 'Remover deste grupo',
+    removeTitle: 'Remover do grupo',
+    removeBody:
+      'Remover "{title}" deste grupo? Os membros do grupo perdem o acesso que este compartilhamento concedia; o item em si não é alterado.',
+    removeConfirm: 'Remover',
+    removed: '"{title}" removido do grupo.',
+    removeFailed: 'Não foi possível remover o item: HTTP {status}.',
+  },
+  housekeepingTabs: {
+    review: 'Revisar',
+    cleanup: 'Limpeza',
+    starters: 'Modelos iniciais',
+    schedule: 'Agendamento',
+    sections: 'Seções de manutenção',
+  },
+  v3Editor: {
+    structureTitle: 'Estrutura da camada',
+    structureIntro:
+      'Edite camadas, campos, domínios e restrições aqui. Salvar tem efeito imediato; importar e explorar linhas fica na aba Dados.',
+    dataTitle: 'Dados da camada',
+    dataIntro: 'Explore as linhas de cada camada, adicione mais dados ou baixe-os.',
+  },
+  layerExport: {
+    format: {
+      csv: 'CSV',
+      xlsx: 'Excel',
+      geojson: 'GeoJSON',
+      geoparquet: 'GeoParquet',
+    },
+    exported:
+      '{count, plural, one {# linha exportada} other {# linhas exportadas}} como {format}.',
+    failed: 'A exportação para {format} falhou',
+    nothingLoaded: 'Nada para exportar: esta camada não tem linhas carregadas.',
+    nothingSelected: 'Nada para exportar: nenhuma linha está selecionada.',
+    exportRows: 'Exportar {count, plural, one {# linha} other {# linhas}}',
+    noRows: 'Nenhuma linha para exportar',
+  },
+  addToMap: {
+    newMap: 'Novo mapa',
+    existingMap: 'Um mapa existente',
+    loadingMaps: 'Carregando mapas...',
+    noMaps: 'Nenhum mapa ainda',
+    layerGone: '{item} não tem mais uma camada "{layerKey}".',
+    tableNoShapes:
+      '{layer} é uma tabela sem formas, então não há nada para desenhar.',
+  },
+  mapSearch: {
+    geocoderUnavailable:
+      'A busca de lugares está indisponível no momento ({reason}). Os resultados de camadas acima não são afetados.',
+    noPlaces:
+      'Nenhum lugar encontrado para isso. O geocodificador deste portal cobre apenas a área com a qual foi configurado.',
+  },
+  adminFieldQueues: {
+    rejectedByServer: '{count} recusados pelo servidor',
+    queuedSummary: '{queued} na fila ({failed} com falha)',
+    queuedSummaryWithRejected:
+      '{queued} na fila ({failed} com falha, {rejected} recusados)',
+    rejectedWaiting: 'recusado, aguardando o worker',
+    moreWithErrors: '+ {count} outros registros com erros.',
+  },
+  metadataPanel: {
+    description: 'Descrição',
+    noDescription:
+      'Ainda sem descrição. Uma frase sobre o que é isto e de onde veio é a diferença entre um item que alguém reutiliza e um que alguém recria.',
+    tags: 'Etiquetas',
+    noTags: 'Sem etiquetas.',
+    type: 'Tipo',
+    owner: 'Proprietário',
+    created: 'Criado',
+    updated: 'Atualizado',
+    license: 'Licença',
+    source: 'Origem',
+    sourceFormat: 'Formato de origem',
+    originalProjection: 'Projeção original',
+    itemId: 'ID do item',
+    storageScope: 'Escopo de armazenamento',
+    storageScopeFor: 'Escopo: {layer}',
+    storageTable: 'Tabela de armazenamento',
+    notRecorded: 'Não registrado',
+    copyTitle: 'Copiar {label}',
+    formatGeojson: 'GeoJSON',
+    formatGeoparquet: 'GeoParquet',
+    formatKml: 'KML',
+    formatKmz: 'KMZ',
+    formatShapefile: 'Shapefile',
+    formatGdb: 'File geodatabase',
+    formatXlsx: 'Planilha do Excel',
+    formatCsv: 'CSV',
+    formatManual: 'Inserido manualmente',
+    formatApi: 'Carregado pela API',
+  },
+  copyButton: {
+    copy: 'Copiar',
+    copied: 'Copiado',
+  },
+  offlineAreas: {
+    title: 'Áreas offline',
+    intro:
+      'O portal prepara um arquivo de mapa por área, então um condado inteiro é um único download de alguns megabytes em vez de um milhão de solicitações separadas.',
+    addArea: 'Adicionar área',
+    loading: 'Carregando áreas...',
+    noneYet: 'Nenhuma área ainda.',
+    noneYetNoExtent:
+      'Adicione alguns dados ao mapa implantado primeiro, para que haja uma extensão a preparar.',
+    noneYetHint:
+      'Adicione uma e os coletores poderão levar esta implantação offline.',
+    extentSummary: 'cerca de {width} por {height} milhas',
+    rebuildsEvery: 'reconstruída a cada {days} dias',
+    waiting: 'Aguardando para começar...',
+    preparingCount: 'Preparando {count} tiles...',
+    preparing: 'Preparando...',
+    ready: 'Pronta',
+    builtOn: 'criada em {date}',
+    buildFailed: 'Não foi possível preparar.',
+    notPrepared: 'Ainda não preparada.',
+    prepareAgain: 'Preparar de novo',
+    prepareNow: 'Preparar agora',
+    deleteArea: 'Excluir área',
+    deleteTitle: 'Excluir esta área?',
+    deleteBody:
+      'Os coletores não poderão mais baixar "{name}". O que já estiver em um dispositivo permanece lá.',
+    name: 'Nome',
+    namePlaceholder: 'Levantamento de verão, equipe norte...',
+    detailLabel: 'Quanto detalhe',
+    detailHint:
+      'Os coletores sempre podem ampliar além disso. A partir de certo ponto, o mapa apenas deixa de adicionar novos rótulos.',
+    refreshLabel: 'Manter atualizado',
+    refreshManual: 'Somente quando eu pedir',
+    refreshWeekly: 'Semanalmente',
+    refreshMonthly: 'Mensalmente',
+    refreshQuarterly: 'A cada três meses',
+    detailRoads: 'Estradas e cidades',
+    detailRoadsHint: 'Menor download',
+    detailStreets: 'Ruas locais',
+    detailPaths: 'Nomes de ruas e caminhos',
+    detailPathsHint: 'Recomendado para trabalho de campo',
+    detailBuildings: 'Contornos de edifícios',
+    detailBuildingsHint: 'Maior download',
+    tooBig:
+      'Esta área é grande demais nesse nível de detalhe. Escolha menos detalhe ou divida a implantação em mais de uma área.',
+    sizeEstimate:
+      'Cobre {extent}. Aproximadamente {size} para baixar. O valor exato é medido antes de qualquer preparação.',
+    cancel: 'Cancelar',
+    addAndPrepare: 'Adicionar e preparar',
+    saveFailed: 'Não foi possível salvar a área: {status}',
+    buildStartFailed: 'Não foi possível iniciar a preparação: {status}',
+  },
+  offlineBasemap: {
+    preparedMap: 'Mapa preparado',
+    preparedMaps: 'Mapas preparados',
+    onThisDevice: 'Neste dispositivo',
+    includedWithSize: '{size}, incluído no download acima',
+    included: 'Incluído no download acima',
+    removeFromDevice: 'Remover deste dispositivo',
+    removeAria: 'Remover {name} deste dispositivo',
+    explainer:
+      'O líder da sua equipe preparou estes mapas, então eles chegam como arquivos únicos em vez de pedaço por pedaço, e são desenhados sem nenhum sinal.',
+    unsupported:
+      'Este navegador não consegue armazenar mapas offline. Tente adicionar o aplicativo à sua tela inicial.',
+    preparedNoticeOne:
+      'O mapa desta implantação já está preparado, então ele chega como um único arquivo.',
+    preparedNoticeMany:
+      'Os mapas desta implantação já estão preparados, então eles chegam como arquivos únicos.',
+    downloadStopped:
+      'Download interrompido. O que já foi salvo continua neste dispositivo.',
   },
   itemMenu: {
     actions: 'Ações do item',
@@ -590,6 +1002,18 @@ export const ptBR: Partial<CatalogShape> = {
     light: 'Claro',
     dark: 'Escuro',
     system: 'Sistema',
+  },
+  adminBackup: {
+    startFailed: 'Não foi possível iniciar o backup.',
+    deleteFailed: 'Não foi possível excluir o backup.',
+    stopFailed: 'Não foi possível interromper o backup.',
+    stop: 'Interromper',
+    stopping: 'Interrompendo...',
+    stopTitle:
+      'Pedir que este backup seja interrompido. Nada é publicado até um backup terminar, então interromper é sempre seguro.',
+    fileMissing: 'Arquivo não está mais no servidor',
+    fileMissingTitle:
+      'Este backup terminou, mas seu arquivo não está mais na pasta de backups. Ele pode ter sido movido, excluído manualmente ou pertencer a uma restauração anterior do banco de dados. Não pode ser baixado nem restaurado.',
   },
   welcome: {
     title: 'Bem-vindo ao GratisGIS',

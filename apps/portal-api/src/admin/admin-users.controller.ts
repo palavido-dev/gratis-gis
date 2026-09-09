@@ -32,7 +32,7 @@ import {
   type KeycloakUserRep,
 } from './keycloak-admin.service.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
-import type { AuthUser } from '../auth/auth-sync.service.js';
+import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 /** Keycloak user enriched with portal-specific fields we track ourselves. */
@@ -106,6 +106,7 @@ export class AdminUsersController {
   constructor(
     private readonly kc: KeycloakAdminService,
     private readonly prisma: PrismaService,
+    private readonly authSync: AuthSyncService,
   ) {}
 
   @Get('_meta')
@@ -287,6 +288,7 @@ export class AdminUsersController {
           where: { id: localUser.id },
           data: { autoDisableAt: nextAutoDisable },
         });
+        this.authSync.invalidate(localUser.id);
       } else {
         // Genuinely no local row (user has never signed in).
         // Bootstrap one so the auto-disable timer is persisted;
@@ -395,9 +397,11 @@ export class AdminUsersController {
     let deletedLocal = false;
     if (localById) {
       await this.prisma.user.delete({ where: { id } });
+      this.authSync.invalidate(id);
       deletedLocal = true;
     } else if (localByUsername) {
       await this.prisma.user.delete({ where: { id: localByUsername.id } });
+      this.authSync.invalidate(localByUsername.id);
       deletedLocal = true;
     }
 

@@ -14,7 +14,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
-import type { AuthUser } from '../auth/auth-sync.service.js';
+import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 import {
   CAPABILITY_KEYS,
   ROLE_BASELINES,
@@ -61,6 +61,7 @@ export class AdminCapabilitiesController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly kc: KeycloakAdminService,
+    private readonly authSync: AuthSyncService,
   ) {}
 
   /**
@@ -163,6 +164,7 @@ export class AdminCapabilitiesController {
         grantedBy: actor.id,
       },
     });
+    this.authSync.invalidate(user.id);
 
     return this.list(userId, actor);
   }
@@ -188,6 +190,7 @@ export class AdminCapabilitiesController {
         // Already gone is fine; idempotent delete keeps the UI
         // tolerant of a stale list.
       });
+    this.authSync.invalidate(user.id);
 
     return this.list(userId, actor);
   }

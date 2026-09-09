@@ -632,9 +632,12 @@ class TestAttachments:
             calls.append((request.method, request.url.path))
             if request.url.path == "/api/storage/presign-upload":
                 body = json.loads(request.content)
+                # sizeBytes is the file's real length: the server checks
+                # it against the cap and signs it into the PUT.
                 assert body == {
                     "kind": "feature-attachment",
                     "contentType": "image/jpeg",
+                    "sizeBytes": 9,
                 }
                 return httpx.Response(
                     200,
@@ -703,9 +706,10 @@ class TestAttachments:
                 },
             )
 
-        # Checked here because the server does not check it: the signed
-        # PUT carries no size condition and register believes whatever
-        # sizeBytes it is told.
+        # A current portal refuses this at presign time. This handler
+        # plays an older one that ignored sizeBytes and echoed a cap, so
+        # the client's own check is what stands between the typo and a
+        # gigabyte on disk.
         with pytest.raises(ValueError, match="accepts at most 10"):
             make_client(handler).attach_file("itm", "parcels", "f1", src)
 

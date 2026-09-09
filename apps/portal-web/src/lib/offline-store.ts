@@ -3,10 +3,11 @@
  * IndexedDB-backed offline store for field-mode deployments.
  *
  * Implements the schema described in docs/field-offline-recovery.md:
- * six object stores (deployments, features, forms, pickLists, queue,
- * and since schema v2 blobs) keyed by composite paths so multiple
- * deployments cached on one device don't collide. Promise-based wrapper over the native
- * IndexedDB API; no third-party dependencies.
+ * seven object stores (deployments, features, forms, pickLists, queue,
+ * since schema v2 blobs, and since schema v3 meta) keyed by composite
+ * paths so multiple deployments cached on one device don't collide.
+ * Promise-based wrapper over the native IndexedDB API; no third-party
+ * dependencies.
  *
  * Critical design choices the doc settled:
  *   - Records are JSON, never opaque sqlite or geodatabase blobs.
@@ -17,6 +18,7 @@
 
 import {
   foldQueuedChain,
+  isQueueRowOwnedBy,
   type FoldableEdit,
   type QueueOp,
 } from '@gratis-gis/shared-types';
@@ -32,15 +34,16 @@ import type { FormSchema } from '@gratis-gis/form-schema';
  * Sync (so captures still upload after the tab closes) and reads
  * `deployments` bboxes to pin downloaded tiles against cache
  * eviction. A service worker cannot import this module, so sw.js
- * duplicates BY HAND: this DB name, the 'queue' and 'deployments'
- * store names and key paths, the QueueRecord fields it touches
- * (syncStatus, lastAttemptAt, retryCount, failureReason, op,
- * dataLayerId, layerKey, globalId, geometry, properties, queuedAt,
- * dataCollectionId, id), CachedDeployment.bbox, and the replay
- * endpoints from offline-sync.ts. If you rename a store, change a
- * key path, add a syncStatus value, or move an endpoint, update
- * public/sw.js in the same change or background replay silently
- * stops matching this schema.
+ * duplicates BY HAND: this DB name, the 'queue', 'deployments' and
+ * 'meta' store names and key paths, the identity row's key, the
+ * QueueRecord fields it touches (syncStatus, lastAttemptAt,
+ * retryCount, failureReason, op, dataLayerId, layerKey, globalId,
+ * geometry, properties, queuedAt, dataCollectionId, id, ownerUserId),
+ * CachedDeployment.bbox, and the replay endpoints from
+ * offline-sync.ts. If you rename a store, change a key path, add a
+ * syncStatus value, or move an endpoint, update public/sw.js in the
+ * same change or background replay silently stops matching this
+ * schema.
  *
  * `id` is an OPERATION id, not the feature's globalId (see QueueRecord
  * below), so the queue can hold more than one outstanding edit per
@@ -63,7 +66,25 @@ export const OFFLINE_DB_NAME = 'gratisgis-offline';
  * to v2 with a breaking change, we'd issue a notice that they need
  * to re-download (better than silently truncating).
  */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
+
+/** Store holding device-wide state that is not scoped to a deployment.
+ *  Today that is one row: which portal account this device currently
+ *  belongs to. LOCKSTEP: public/sw.js and public/field/offline.html
+ *  read the same store and key. */
+export const OFFLINE_META_STORE = 'meta';
+/** Key of the identity row in the meta store. */
+export const OFFLINE_IDENTITY_KEY = 'identity';
+
+/** The identity row. Written on every authenticated page load by the
+ *  identity guard, cleared by sign-out, read by both drains. */
+interface OfflineIdentityRow {
+  key: typeof OFFLINE_IDENTITY_KEY;
+  /** Portal user id (the `id` /users/me returns, and what the server
+   *  stamps into `submitted_by`). */
+  userId: string;
+  updatedAt: string;
+}
 
 /** Cached feature row stored in the `features` object store. */
 export interface CachedFeature {
@@ -203,6 +224,20 @@ export interface QueueRecord {
   failureReason?: string;
   lastAttemptAt?: string;
   retryCount?: number;
+  /**
+   * Portal user id of the account that captured this edit. The drains
+   * send a row only under the identity that owns it, so a shared
+   * tablet cannot attribute one person's captures to whoever signs in
+   * next (the server stamps `submitted_by` from the caller).
+   *
+   * Optional in the TYPE because rows written before schema v3 have no
+   * owner and cannot be given one truthfully: the meta store that would
+   * have recorded who was signed in is created by the same upgrade, so
+   * there is nothing to stamp them from. Those rows drain under
+   * whoever is current, exactly as they did before ownership existed;
+   * see `isQueueRowOwnedBy`. Every row `enqueueEdit` writes carries it.
+   */
+  ownerUserId?: string;
 }
 
 /**
@@ -238,6 +273,10 @@ export interface PendingBlob {
   /** Capture time, not upload time. On a multi-day deployment these
    *  differ by more than they look. */
   capturedAt: string;
+  /** Who captured it. Same rules as QueueRecord.ownerUserId: absent on
+   *  files stored before schema v3, present on everything since. A
+   *  file is uploaded only under the account that took it. */
+  ownerUserId?: string;
 }
 
 const STORES = {
@@ -247,6 +286,7 @@ const STORES = {
   pickLists: 'pickLists',
   queue: 'queue',
   blobs: 'blobs',
+  meta: OFFLINE_META_STORE,
 } as const;
 
 type StoreName = (typeof STORES)[keyof typeof STORES];
@@ -328,6 +368,24 @@ export function openOfflineDb(): Promise<IDBDatabase> {
           s.createIndex('by_deployment', 'dataCollectionId', {
             unique: false,
           });
+        }
+      }
+      // v3: which account this device belongs to, so the queue and the
+      // pending files can be scoped to the person who captured them.
+      // Additive again: one new store, no existing store rewritten.
+      //
+      // Rows already in `queue` and `blobs` are deliberately NOT
+      // stamped with an owner here. The only identity this upgrade
+      // could stamp from is the one in this very store, which did not
+      // exist a moment ago, and guessing from whoever happens to be
+      // signed in when the upgrade runs would attribute the previous
+      // user's captures to them on a shared device. Unowned rows keep
+      // the pre-ownership behaviour instead (they drain under whoever
+      // is current, see isQueueRowOwnedBy), and every row written from
+      // now on carries its owner.
+      if (e.oldVersion < 3) {
+        if (!db.objectStoreNames.contains(STORES.meta)) {
+          db.createObjectStore(STORES.meta, { keyPath: 'key' });
         }
       }
     };
@@ -456,22 +514,153 @@ async function clearStore(storeName: StoreName): Promise<void> {
   });
 }
 
-/** How many edits are still waiting to reach the server, across every
- *  deployment on this device. Read by the sign-out flow so it can warn
- *  before a person walks away from unsynced work. Counts photos and
- *  other captured files too: a record whose attachment has not
- *  uploaded is as incomplete as one that has not been sent. */
-export async function countUnsyncedEdits(): Promise<number> {
+/** How many of THIS account's edits are still waiting to reach the
+ *  server, across every deployment on this device. Read by the
+ *  sign-out flow so it can warn before a person walks away from
+ *  unsynced work. Counts photos and other captured files too: a record
+ *  whose attachment has not uploaded is as incomplete as one that has
+ *  not been sent. Rows parked for a different account are not this
+ *  person's to worry about and are left out. */
+export async function countUnsyncedEdits(
+  currentUserId: string | null,
+): Promise<number> {
   const edits = await withStore(STORES.queue, 'readonly', async (s) => {
     const r = await reqAsPromise(s.getAll());
     const rows = (r as QueueRecord[] | undefined) ?? [];
-    return rows.filter((row) => row.syncStatus !== 'synced').length;
+    return rows.filter(
+      (row) =>
+        row.syncStatus !== 'synced' && isQueueRowOwnedBy(row, currentUserId),
+    ).length;
   });
   const files = await withStore(STORES.blobs, 'readonly', async (s) => {
-    const r = await reqAsPromise(s.count());
-    return typeof r === 'number' ? r : 0;
+    const r = await reqAsPromise(s.getAll());
+    const rows = (r as PendingBlob[] | undefined) ?? [];
+    return rows.filter((row) => isQueueRowOwnedBy(row, currentUserId)).length;
   });
   return edits + files;
+}
+
+// ---------------------------------------------------------------------------
+// Device identity
+// ---------------------------------------------------------------------------
+
+/** Which portal account this device currently belongs to, or null when
+ *  nobody has signed in since the store was created or sign-out
+ *  cleared it. The service worker reads the same row (public/sw.js
+ *  readOfflineIdentity) so both drains agree on whose rows to send. */
+export async function getOfflineIdentity(): Promise<string | null> {
+  return withStore(STORES.meta, 'readonly', async (s) => {
+    const r = (await reqAsPromise(s.get(OFFLINE_IDENTITY_KEY))) as
+      | OfflineIdentityRow
+      | undefined;
+    return typeof r?.userId === 'string' && r.userId ? r.userId : null;
+  });
+}
+
+export async function setOfflineIdentity(userId: string): Promise<void> {
+  const row: OfflineIdentityRow = {
+    key: OFFLINE_IDENTITY_KEY,
+    userId,
+    updatedAt: new Date().toISOString(),
+  };
+  await withStore(STORES.meta, 'readwrite', (s) => {
+    s.put(row);
+  });
+}
+
+/** Sign-out. With no identity on the device, only rows that predate
+ *  ownership are visible to anyone; every owned row waits for its
+ *  account to sign back in. */
+export async function clearOfflineIdentity(): Promise<void> {
+  await withStore(STORES.meta, 'readwrite', (s) => {
+    s.delete(OFFLINE_IDENTITY_KEY);
+  });
+}
+
+/** True for a row that belongs to some OTHER account: owned, and not by
+ *  the person asking. Legacy rows with no owner are nobody else's. */
+function isForeignRow(
+  row: { ownerUserId?: string },
+  currentUserId: string,
+): boolean {
+  return row.ownerUserId !== undefined && row.ownerUserId !== currentUserId;
+}
+
+/** What a different account has left unsynced on this device. */
+export interface ForeignOfflineData {
+  /** Queue rows owned by an account other than `currentUserId`. */
+  records: number;
+  /** Pending files owned by an account other than `currentUserId`. */
+  files: number;
+}
+
+/**
+ * Count the unsynced work on this device that belongs to somebody
+ * other than the account now signed in. The identity guard asks this
+ * after an account change so it can tell the new person those rows
+ * exist and let them decide, rather than purging another person's
+ * field data behind their back.
+ */
+export async function describeForeignOfflineData(
+  currentUserId: string,
+): Promise<ForeignOfflineData> {
+  const records = await withStore(STORES.queue, 'readonly', async (s) => {
+    const r = await reqAsPromise(s.getAll());
+    const rows = (r as QueueRecord[] | undefined) ?? [];
+    return rows.filter((row) => isForeignRow(row, currentUserId)).length;
+  });
+  const files = await withStore(STORES.blobs, 'readonly', async (s) => {
+    const r = await reqAsPromise(s.getAll());
+    const rows = (r as PendingBlob[] | undefined) ?? [];
+    return rows.filter((row) => isForeignRow(row, currentUserId)).length;
+  });
+  return { records, files };
+}
+
+/**
+ * Delete every queue row and pending file that belongs to an account
+ * other than `currentUserId`. Rows owned by the current account and
+ * legacy rows with no owner are untouched. Only ever called after the
+ * person has chosen "Remove them from this device" in the identity
+ * dialog: this destroys captures that exist nowhere else.
+ */
+export async function removeForeignOfflineData(
+  currentUserId: string,
+): Promise<ForeignOfflineData> {
+  const records = await deleteWhere(STORES.queue, (row) =>
+    isForeignRow(row as QueueRecord, currentUserId),
+  );
+  const files = await deleteWhere(STORES.blobs, (row) =>
+    isForeignRow(row as PendingBlob, currentUserId),
+  );
+  return { records, files };
+}
+
+/** Cursor a whole store and delete the rows a predicate picks. Returns
+ *  how many went. */
+async function deleteWhere(
+  storeName: StoreName,
+  pick: (row: unknown) => boolean,
+): Promise<number> {
+  return withStore(storeName, 'readwrite', async (s) => {
+    const cursor = s.openCursor();
+    let deleted = 0;
+    return new Promise<number>((resolve, reject) => {
+      cursor.onsuccess = () => {
+        const c = cursor.result;
+        if (!c) {
+          resolve(deleted);
+          return;
+        }
+        if (pick(c.value)) {
+          c.delete();
+          deleted += 1;
+        }
+        c.continue();
+      };
+      cursor.onerror = () => reject(cursor.error ?? new Error('cursor failed'));
+    });
+  });
 }
 
 /** Walk a store's `by_deployment` index and delete every match. */
@@ -676,6 +865,10 @@ export interface FeatureEditInput {
   geometry: GeoJSON.Geometry | null;
   properties: Record<string, unknown> | null;
   schemaHash: string;
+  /** The signed-in account making this edit. Required: a row written
+   *  today with no owner would be indistinguishable from a legacy one
+   *  and drain under anybody. */
+  ownerUserId: string;
 }
 
 /**
@@ -692,10 +885,15 @@ export type EnqueueResult =
  *  'syncing' (a drain owns it and would delete the merged result when
  *  its own replay succeeds) and 'rejected' (parked for a person to
  *  decide about; quietly rewriting it would discard their pending
- *  decision). Both cases fall through to a second row, and the drains
- *  order the pair per feature. */
-function isFoldable(row: QueueRecord): boolean {
-  return row.syncStatus === 'pending' || row.syncStatus === 'failed';
+ *  decision). Also excludes a row another account captured: merging
+ *  this person's edit into it would send both under whichever of them
+ *  drains first. All three cases fall through to a second row, and
+ *  the drains order the pair per feature. */
+function isFoldable(row: QueueRecord, ownerUserId: string): boolean {
+  return (
+    (row.syncStatus === 'pending' || row.syncStatus === 'failed') &&
+    isQueueRowOwnedBy(row, ownerUserId)
+  );
 }
 
 /**
@@ -732,7 +930,7 @@ export async function enqueueEdit(
         r.layerKey === edit.layerKey,
     );
     const foldable = sameFeature
-      .filter(isFoldable)
+      .filter((r) => isFoldable(r, edit.ownerUserId))
       .sort((a, b) => a.queuedAt.localeCompare(b.queuedAt));
 
     const incoming: FoldableEdit = {
@@ -757,6 +955,7 @@ export async function enqueueEdit(
         queuedAt: now,
         schemaHash: edit.schemaHash,
         syncStatus: 'pending',
+        ownerUserId: edit.ownerUserId,
       };
       store.put(record);
       return { kind: 'queued', record } as EnqueueResult;
@@ -816,6 +1015,10 @@ export async function enqueueEdit(
       // changed what it sends.
       syncStatus: 'pending',
       retryCount: 0,
+      // A legacy row folded into by an owned edit becomes owned: the
+      // bytes it now carries were authored by this account, so this is
+      // the account that must send them.
+      ownerUserId: edit.ownerUserId,
     };
     store.put(record);
     return {
@@ -854,7 +1057,30 @@ export async function enqueueEdit(
 // where the insert-then-edit data loss lived, and an export nobody
 // called was an open invitation to reintroduce it.
 
+/**
+ * This account's queue for one deployment: rows it captured, plus
+ * legacy rows with no owner. Rows another account parked here are
+ * invisible, so a count, a chip, a beacon or a drain built on this
+ * list cannot claim or report somebody else's work.
+ *
+ * The identity is a required argument rather than read from the meta
+ * store here so that a page which knows who it is running as (every
+ * field surface receives `currentUserId` from the server render)
+ * cannot race the guard that persists it.
+ */
 export async function listQueue(
+  dataCollectionId: string,
+  currentUserId: string | null,
+): Promise<QueueRecord[]> {
+  const all = await listQueueAllOwners(dataCollectionId);
+  return all.filter((row) => isQueueRowOwnedBy(row, currentUserId));
+}
+
+/** Every queue row for a deployment regardless of owner. For the
+ *  places that reason about the feature rather than the person: the
+ *  orphan sweep asking "does this file's feature still have a row",
+ *  and the remove-from-device warning, which destroys all of them. */
+export async function listQueueAllOwners(
   dataCollectionId: string,
 ): Promise<QueueRecord[]> {
   return withStore(STORES.queue, 'readonly', async (s) => {
@@ -867,13 +1093,15 @@ export async function listQueue(
 export async function listQueueByStatus(
   dataCollectionId: string,
   status: QueueRecord['syncStatus'],
+  currentUserId: string | null,
 ): Promise<QueueRecord[]> {
   return withStore(STORES.queue, 'readonly', async (s) => {
     const idx = s.index('by_status');
     const r = await reqAsPromise(
       idx.getAll(IDBKeyRange.only([dataCollectionId, status])),
     );
-    return (r as QueueRecord[] | undefined) ?? [];
+    const rows = (r as QueueRecord[] | undefined) ?? [];
+    return rows.filter((row) => isQueueRowOwnedBy(row, currentUserId));
   });
 }
 
@@ -944,8 +1172,29 @@ export async function putPendingBlob(row: PendingBlob): Promise<void> {
   requestBackgroundSync();
 }
 
-/** Everything still waiting to upload for one feature, oldest first. */
+/** This account's files still waiting to upload for one feature,
+ *  oldest first. Another account's photo of the same feature is not
+ *  shown and not uploaded under this session. */
 export async function listPendingBlobsForFeature(
+  dataCollectionId: string,
+  dataLayerId: string,
+  layerKey: string,
+  globalId: string,
+  currentUserId: string | null,
+): Promise<PendingBlob[]> {
+  const rows = await listPendingBlobsForFeatureAllOwners(
+    dataCollectionId,
+    dataLayerId,
+    layerKey,
+    globalId,
+  );
+  return rows.filter((row) => isQueueRowOwnedBy(row, currentUserId));
+}
+
+/** Every file for one feature regardless of owner. Only for the paths
+ *  that act on the FEATURE: when it is deleted or its capture is
+ *  discarded, nobody's photo of it has anywhere left to go. */
+async function listPendingBlobsForFeatureAllOwners(
   dataCollectionId: string,
   dataLayerId: string,
   layerKey: string,
@@ -963,9 +1212,20 @@ export async function listPendingBlobsForFeature(
   });
 }
 
-/** Every pending file for a deployment. Used for the queue badge and
- *  the beacon, so a collector can see that photos are still owed. */
+/** This account's pending files for a deployment. Used for the queue
+ *  badge, the beacon and the orphan sweep, so a collector can see that
+ *  photos are still owed and only their own photos are sent. */
 export async function listPendingBlobs(
+  dataCollectionId: string,
+  currentUserId: string | null,
+): Promise<PendingBlob[]> {
+  const rows = await listPendingBlobsAllOwners(dataCollectionId);
+  return rows.filter((row) => isQueueRowOwnedBy(row, currentUserId));
+}
+
+/** Every pending file for a deployment regardless of owner. For the
+ *  remove-from-device warning, which destroys all of them. */
+export async function listPendingBlobsAllOwners(
   dataCollectionId: string,
 ): Promise<PendingBlob[]> {
   return withStore(STORES.blobs, 'readonly', async (s) => {
@@ -981,15 +1241,17 @@ export async function deletePendingBlob(blobId: string): Promise<void> {
   });
 }
 
-/** Drop every pending file for a feature. For a capture the collector
- *  deletes before it ever syncs: the photos have nowhere to go. */
+/** Drop every pending file for a feature, whoever took it. For a
+ *  capture the collector deletes before it ever syncs, or a feature a
+ *  replayed delete has just removed from the server: the photos have
+ *  nowhere to go. */
 export async function deletePendingBlobsForFeature(
   dataCollectionId: string,
   dataLayerId: string,
   layerKey: string,
   globalId: string,
 ): Promise<void> {
-  const rows = await listPendingBlobsForFeature(
+  const rows = await listPendingBlobsForFeatureAllOwners(
     dataCollectionId,
     dataLayerId,
     layerKey,

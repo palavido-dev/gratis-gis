@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import type {
   BasemapData,
+  CapabilityKey,
   DataCollectionData,
   DerivedLayerData,
   FileData,
@@ -59,6 +60,7 @@ import { EntityBadge } from '@gratis-gis/ui';
 import { getItemHref, ItemTypeBadge } from '@/lib/item-type-icon';
 import type { CustomBasemap } from '@/lib/custom-basemap';
 import { apiFetch } from '@/lib/api';
+import { hasCapability } from '@/lib/capabilities';
 
 // Name the local alias so the transform signature is readable. Keeps
 // the inline type annotation in the list fetch below from ballooning.
@@ -198,6 +200,7 @@ export default async function ItemDetailPage(props: Props) {
     id: string;
     orgId: string;
     orgRole: string;
+    capabilities: CapabilityKey[];
     fullName?: string | null;
     username?: string | null;
   };
@@ -209,11 +212,13 @@ export default async function ItemDetailPage(props: Props) {
       // typed id+orgRole. Add it here so #296's view-side download
       // gate can compare item.orgId. fullName + username are
       // optional fields the markup panel uses to label the
-      // viewer's own drawing sets.
+      // viewer's own drawing sets. capabilities feeds the folder
+      // detail's "New item here" gate.
       apiFetch<{
         id: string;
         orgId: string;
         orgRole: string;
+        capabilities: CapabilityKey[];
         fullName?: string | null;
         username?: string | null;
       }>('/api/users/me'),
@@ -1061,7 +1066,7 @@ export default async function ItemDetailPage(props: Props) {
             initialChildren={folderChildren as Parameters<typeof FolderDetail>[0]['initialChildren']}
             breadcrumb={folderBreadcrumb}
             canEdit={canManage}
-            canCreate={me.orgRole !== 'viewer'}
+            canCreate={hasCapability(me, 'can_publish_items')}
             folderShares={item.shares}
             folderAccess={item.access}
           />

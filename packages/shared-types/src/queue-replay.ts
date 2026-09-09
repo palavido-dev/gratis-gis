@@ -119,6 +119,47 @@ export function isQueueRowClaimable(
   return nowMs - at >= delay;
 }
 
+/** The one ownership field a queued row or pending file carries. Both
+ *  the app's QueueRecord / PendingBlob and the worker's plain objects
+ *  satisfy it. */
+export interface OwnedRow {
+  /** Portal user id of the account that captured this row. Absent on
+   *  rows written before ownership existed (offline-store schema v2
+   *  and earlier). */
+  ownerUserId?: string;
+}
+
+/**
+ * Whether the account signed in on this device may see, count, or send
+ * this row.
+ *
+ * The queue survives sign-out on purpose (destroying unsynced field
+ * work to tidy a cache is the worse outcome), which used to mean that
+ * whoever signed in next replayed it under THEIR session: the server
+ * stamps `submitted_by` from the caller, so one person's captures were
+ * attributed to another. A row now records who captured it, and a
+ * drain claims only rows that belong to the identity it is running as.
+ *
+ * A row with no owner predates ownership. It is treated as belonging to
+ * whoever is current, because the alternative is stranding captures
+ * that were made in good faith on a build that could not record who
+ * made them; that population is finite and gone after its first sync.
+ * With no identity at all (nobody has signed in on this device since
+ * the store was created, or sign-out cleared it) only those legacy
+ * rows are visible, so an owned row can never be sent under the wrong
+ * account or under no account.
+ *
+ * MIRRORED by hand in portal-web/public/sw.js; sw-contract.spec.ts
+ * compares the two.
+ */
+export function isQueueRowOwnedBy(
+  row: OwnedRow,
+  currentUserId: string | null,
+): boolean {
+  if (row.ownerUserId === undefined) return true;
+  return currentUserId !== null && row.ownerUserId === currentUserId;
+}
+
 /** Features are identified by layer plus globalId; the same globalId
  *  under a different layer is a different feature. NUL is the separator
  *  because it cannot occur in any of the three ids, so no combination

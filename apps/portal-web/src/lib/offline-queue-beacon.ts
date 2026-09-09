@@ -19,6 +19,12 @@
  *
  * All posts are best-effort: a failed beacon is logged and dropped.
  * The next mount or sync naturally retries.
+ *
+ * The manifest is the signed-in account's. It reports the rows that
+ * account owns (plus legacy rows with no owner) and nothing another
+ * account parked on the same device: the server files the beacon under
+ * the caller, so listing somebody else's rows would tell the admin the
+ * wrong person is holding them.
  */
 
 import {
@@ -94,7 +100,9 @@ function newFingerprint(): string {
  * Build the manifest by walking IndexedDB. Cheap (a handful of cursor
  * scans); safe to call from the runtime hot path.
  */
-async function buildManifest(): Promise<ManifestEntry[]> {
+async function buildManifest(
+  currentUserId: string,
+): Promise<ManifestEntry[]> {
   const cached: CachedDeployment[] = await listDeployments();
 
   // Walk every cached deployment + the queue scoped to it. A
@@ -104,7 +112,7 @@ async function buildManifest(): Promise<ManifestEntry[]> {
   const seen = new Set<string>();
   for (const dep of cached) {
     seen.add(dep.dataCollectionId);
-    const queue = await listQueue(dep.dataCollectionId);
+    const queue = await listQueue(dep.dataCollectionId, currentUserId);
     entries.push(toEntry(dep.dataCollectionId, dep.cachedAt, queue));
   }
 
@@ -157,13 +165,19 @@ async function buildManifest(): Promise<ManifestEntry[]> {
 /**
  * Send a fresh manifest to the server. Returns true on a 2xx, false
  * otherwise; never throws. Callers fire-and-forget.
+ *
+ * `currentUserId` is the account the page is running as (the field
+ * surfaces receive it from their server render); the manifest lists
+ * that account's rows only.
  */
-export async function postQueueManifest(): Promise<boolean> {
+export async function postQueueManifest(
+  currentUserId: string,
+): Promise<boolean> {
   if (typeof window === 'undefined') return false;
   if (!navigator.onLine) return false;
 
   try {
-    const manifest = await buildManifest();
+    const manifest = await buildManifest(currentUserId);
     const estimate = await getStorageEstimate();
     const body = {
       deviceFingerprint: getDeviceFingerprint(),
@@ -200,10 +214,12 @@ export async function postQueueManifest(): Promise<boolean> {
 let lastBeaconAt = 0;
 const BEACON_MIN_INTERVAL_MS = 10_000;
 
-export async function postQueueManifestThrottled(): Promise<void> {
+export async function postQueueManifestThrottled(
+  currentUserId: string,
+): Promise<void> {
   const now = Date.now();
   if (now - lastBeaconAt < BEACON_MIN_INTERVAL_MS) return;
   lastBeaconAt = now;
   // Don't await; fire-and-forget keeps the call site clean.
-  void postQueueManifest();
+  void postQueueManifest(currentUserId);
 }

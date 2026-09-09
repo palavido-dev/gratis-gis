@@ -63,8 +63,10 @@ import {
   hashLayerSchema,
   listFeaturesForLayer,
   listPendingBlobs,
+  listPendingBlobsAllOwners,
   listPickListsForDeployment,
   listQueue,
+  listQueueAllOwners,
   putFeatures,
   type CachedDeployment,
   type CachedFeature,
@@ -229,6 +231,9 @@ function useRelatedRowsByChild(args: {
     | undefined;
   dataCollectionId: string;
   isOnline: boolean;
+  /** Pending child rows are read from the offline queue, which is
+   *  scoped to the account that captured them. */
+  currentUserId: string;
 }): Record<string, RelatedRowsState> {
   const {
     parentDataLayerId,
@@ -236,6 +241,7 @@ function useRelatedRowsByChild(args: {
     childLayers,
     dataCollectionId,
     isOnline,
+    currentUserId,
   } = args;
   const [state, setState] = useState<Record<string, RelatedRowsState>>({});
 
@@ -255,7 +261,7 @@ function useRelatedRowsByChild(args: {
     const loadQueued = async (): Promise<Map<string, RelatedFeature[]>> => {
       const out = new Map<string, RelatedFeature[]>();
       try {
-        const all = await listQueue(dataCollectionId);
+        const all = await listQueue(dataCollectionId, currentUserId);
         for (const c of children) {
           const matches: RelatedFeature[] = [];
           for (const q of all) {
@@ -356,7 +362,7 @@ function useRelatedRowsByChild(args: {
       ctrl.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [parentId, parentDataLayerId, dataCollectionId, isOnline]);
+  }, [parentId, parentDataLayerId, dataCollectionId, isOnline, currentUserId]);
 
   return state;
 }
@@ -730,7 +736,8 @@ export function FieldRuntime({
   // docs/field-offline-areas.md.
   useEffect(() => {
     if (!isOnlineNow()) return;
-    void postQueueManifestThrottled();
+    void postQueueManifestThrottled(currentUserId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Cached-deployment manifest. Loaded once on mount; refreshed
@@ -774,6 +781,12 @@ export function FieldRuntime({
   // Rows the server refused deterministically. Not part of queueCount:
   // the sync chip promises "tap to send", and these will not send.
   const [rejectedRecords, setRejectedRecords] = useState<QueueRecord[]>([]);
+  // Unsynced rows and files a DIFFERENT account left on this device.
+  // Never in queueCount (this account cannot send them) and never in
+  // the rejected list (not this account's to retry or discard), but
+  // "Remove from device" destroys them along with everything else, so
+  // that warning has to count them.
+  const [parkedForOthers, setParkedForOthers] = useState(0);
   const [rejectedOpen, setRejectedOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
@@ -957,21 +970,29 @@ export function FieldRuntime({
     let cancelled = false;
     void (async () => {
       try {
-        const records = await listQueue(dataCollectionId);
+        // This account's rows. Whatever another account parked here is
+        // counted separately below, for the one action that touches it.
+        const records = await listQueue(dataCollectionId, currentUserId);
         if (cancelled) return;
         // Photos count. A record whose photograph is still on the
         // phone is not synced in any sense the collector cares about,
         // and after an online save that uploaded the row but not the
         // file there is no queue row to speak for it at all.
-        const files = await listPendingBlobs(dataCollectionId);
+        const files = await listPendingBlobs(dataCollectionId, currentUserId);
         if (cancelled) return;
         setQueueCount(
           records.filter((r) => r.syncStatus !== 'rejected').length +
             files.length,
         );
-        const rejected = await listRejected(dataCollectionId);
+        const rejected = await listRejected(dataCollectionId, currentUserId);
         if (cancelled) return;
         setRejectedRecords(rejected);
+        const everyRow = await listQueueAllOwners(dataCollectionId);
+        const everyFile = await listPendingBlobsAllOwners(dataCollectionId);
+        if (cancelled) return;
+        setParkedForOthers(
+          everyRow.length - records.length + (everyFile.length - files.length),
+        );
       } catch {
         // IndexedDB refused (private mode, another tab holding an
         // upgrade). The badge keeps its last value rather than the
@@ -983,7 +1004,7 @@ export function FieldRuntime({
     return () => {
       cancelled = true;
     };
-  }, [dataCollectionId, offlineWriteCounter, lastSyncResult]);
+  }, [dataCollectionId, currentUserId, offlineWriteCounter, lastSyncResult]);
 
   const t = useT();
 
@@ -1008,6 +1029,7 @@ export function FieldRuntime({
         // because a ladder they cannot see says "not yet" reads as
         // broken. Automatic runs leave the ladder in place.
         const result = await syncQueue(dataCollectionId, {
+          currentUserId,
           manual: reason === 'manual',
         });
         if (!mountedRef.current) return;
@@ -1031,7 +1053,7 @@ export function FieldRuntime({
         // reflects the post-sync queue depth (often zero, which is
         // exactly the signal admins want to see). Throttled, so the
         // mount-time + sync-time + online-flip beacons coalesce.
-        void postQueueManifestThrottled();
+        void postQueueManifestThrottled(currentUserId);
       } catch (err) {
         // syncQueue isolates each record, so reaching here means the
         // queue read itself failed (IndexedDB refused, private mode).
@@ -1062,7 +1084,7 @@ export function FieldRuntime({
         if (mountedRef.current) setSyncing(false);
       }
     },
-    [dataCollectionId, mapData.layers, t],
+    [dataCollectionId, currentUserId, mapData.layers, t],
   );
 
   // Auto-sync when isOnline flips from false -> true. Captured via a
@@ -1395,7 +1417,7 @@ export function FieldRuntime({
       // view stops showing this deployment as cached. Bypasses the
       // throttle because this is a meaningful state change, not the
       // periodic chatter the throttle exists to dampen.
-      void postQueueManifest();
+      void postQueueManifest(currentUserId);
     } catch (err) {
       // Swallow + log: deletion failures are rare (IDB transaction
       // race) and a retry from the user's next tap usually succeeds.
@@ -1406,7 +1428,7 @@ export function FieldRuntime({
     if (typeof window !== 'undefined') {
       window.location.assign('/field');
     }
-  }, [dataCollectionId]);
+  }, [dataCollectionId, currentUserId]);
 
   // Templates: one row per (editable layer, symbology class) pair.
   // Computed once unless the source data changes; stable React keys
@@ -2056,6 +2078,7 @@ export function FieldRuntime({
           // Rejected rows are unsynced too: removing the cache loses
           // them just the same, so the warnings count both.
           queueCount={queueCount + rejectedRecords.length}
+          parkedForOthers={parkedForOthers}
           gpsStatus={gps.status}
           gpsAccuracyM={gps.position?.accuracyM ?? null}
           onDownload={() => void startDownload()}
@@ -2656,6 +2679,7 @@ export function FieldRuntime({
         <FieldFeaturePopupSheet
           state={featureSheet}
           dataCollectionId={dataCollectionId}
+          currentUserId={currentUserId}
           isOnline={isOnline}
           editableLayers={editableLayers}
           onChangeState={setFeatureSheet}
@@ -4087,6 +4111,7 @@ function FormModal({
     childLayers: modal.layer.childLayers,
     dataCollectionId,
     isOnline,
+    currentUserId,
   });
 
   const form = useMemo<FormSchema>(() => {
@@ -4238,6 +4263,9 @@ function FormModal({
         geometry: activeGeometry,
         properties,
         schemaHash,
+        // Who captured it, so only this account's session ever sends
+        // it. The server stamps submitted_by from the caller.
+        ownerUserId: currentUserId,
       });
       // The fold keeps the original capture time, so the cached
       // feature's timestamps must come from the surviving row rather
@@ -4353,12 +4381,15 @@ function FormModal({
         // end of the next drain rather than failing a submit that
         // actually succeeded.
         try {
-          await uploadPendingBlobsForFeature({
-            dataCollectionId,
-            dataLayerId: modal.layer.dataLayerId,
-            layerKey: modal.layer.layerKey,
-            globalId: featureId,
-          });
+          await uploadPendingBlobsForFeature(
+            {
+              dataCollectionId,
+              dataLayerId: modal.layer.dataLayerId,
+              layerKey: modal.layer.layerKey,
+              globalId: featureId,
+            },
+            currentUserId,
+          );
         } catch {
           onLocalWriteApplied();
         }
@@ -4536,6 +4567,7 @@ function FormModal({
               dataLayerId={modal.layer.dataLayerId}
               layerKey={modal.layer.layerKey}
               globalId={modal.featureId}
+              currentUserId={currentUserId}
               featureExistsOnServer={modal.mode === 'edit'}
               isOnline={isOnline}
             />
@@ -4803,6 +4835,7 @@ function FieldLocateButton({
 function FieldFeaturePopupSheet({
   state,
   dataCollectionId,
+  currentUserId,
   isOnline,
   editableLayers,
   onChangeState,
@@ -4817,6 +4850,9 @@ function FieldFeaturePopupSheet({
    *  useRelatedRowsByChild. Same value that the runtime hands to the
    *  FormModal. */
   dataCollectionId: string;
+  /** The account the queue and the pending files are read as: only
+   *  this account's queued child rows and photos are shown. */
+  currentUserId: string;
   /** #265: drives whether the related-records hook fetches from the
    *  API or only renders queued offline rows. */
   isOnline: boolean;
@@ -4871,6 +4907,7 @@ function FieldFeaturePopupSheet({
     childLayers: parentEditable?.childLayers,
     dataCollectionId,
     isOnline,
+    currentUserId,
   });
 
   return (
@@ -5071,6 +5108,7 @@ function FieldFeaturePopupSheet({
                     dataLayerId={parentEditable.dataLayerId}
                     layerKey={parentEditable.layerKey}
                     globalId={detailHit.globalId}
+                    currentUserId={currentUserId}
                     featureExistsOnServer
                     isOnline={isOnline}
                     canCapture={false}
@@ -5361,6 +5399,7 @@ function FieldMoreMenu({
   downloadInFlight,
   hasCache,
   queueCount,
+  parkedForOthers,
   gpsStatus,
   gpsAccuracyM,
   onDownload,
@@ -5372,12 +5411,19 @@ function FieldMoreMenu({
   persistentState: 'unknown' | 'persistent' | 'best-effort';
   downloadInFlight: boolean;
   hasCache: boolean;
+  /** This account's unsynced edits and files. Drives the refresh
+   *  warning and, with `parkedForOthers`, the remove warning. */
   queueCount: number;
+  /** Unsynced rows and files another account left on this device.
+   *  Not this account's to sync, so they stay out of the refresh
+   *  warning, but removing the deployment destroys them too. */
+  parkedForOthers: number;
   gpsStatus: import('./use-geolocation').GpsStatus;
   gpsAccuracyM: number | null;
   onDownload: () => void;
   onRemoveCache: () => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   // Two-tap confirm for the destructive Remove action: first tap arms
   // the button (turns red, label flips to Confirm), second tap commits.
@@ -5585,10 +5631,16 @@ function FieldMoreMenu({
                 last chance to sync first. */}
             {hasCache ? (
               <>
-                {confirmingRemove && queueCount > 0 ? (
+                {confirmingRemove && queueCount + parkedForOthers > 0 ? (
                   <p className="px-2 pt-1 text-2xs text-danger">
-                    {queueCount} unsynced edit{queueCount === 1 ? '' : 's'}{' '}
-                    will be lost.
+                    {t('fieldOffline.removeWillLose', {
+                      count: queueCount + parkedForOthers,
+                    })}
+                    {parkedForOthers > 0
+                      ? ` ${t('fieldOffline.removeWillLoseOthers', {
+                          count: parkedForOthers,
+                        })}`
+                      : null}
                   </p>
                 ) : null}
                 <button

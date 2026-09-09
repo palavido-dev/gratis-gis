@@ -191,8 +191,11 @@ async function parseShapefileZip(file: File): Promise<GeoJSON.FeatureCollection>
 /**
  * Shared helper for the formats that bounce through the server's
  * GDAL-backed parser (#50, #52). The portal-web BFF injects the
- * Keycloak access token; portal-api gates the endpoint with
- * AdminGuard the same way as /ingest/probe + /ingest/stage. The
+ * Keycloak access token; portal-api accepts any signed-in user here,
+ * unlike /ingest/probe and /ingest/stage which need the publish
+ * capability, because this helper serves the data-layer, geo-boundary
+ * and map editors, and edit rights on those come from `canEdit` on
+ * the item rather than from the caller's role. The
  * upstream error message is forwarded as-is so GDAL hints
  * ("missing .prj", "unknown driver", etc.) reach the user
  * instead of a generic "import failed".

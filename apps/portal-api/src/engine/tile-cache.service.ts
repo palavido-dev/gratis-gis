@@ -4,6 +4,13 @@ import { createHash } from 'node:crypto';
 import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { Client as PgClient } from 'pg';
 
+import { parseIntEnv } from '../common/env.js';
+
+// Re-exported because the aggregate knobs in data-layer.ts and this
+// file's own spec import it from here; the helper itself moved to
+// common/ when the auth and schema caches started reading knobs too.
+export { parseIntEnv };
+
 /**
  * In-process LRU cache for MVT tile buffers and, since the dashboard
  * work, aggregate result JSON (`DataLayerEngine.aggregateFeatures`
@@ -105,8 +112,10 @@ export class TileCacheService implements OnModuleDestroy {
    *  arrives while the same key is being computed for another
    *  caller, both await the same Promise instead of issuing two
    *  Postgres queries. Cleared in `finally` so a failed compute
-   *  doesn't poison the slot. See `coalesce()` for details. */
-  private readonly inFlight = new Map<string, Promise<CacheHit>>();
+   *  doesn't poison the slot. The entry also counts who is still
+   *  waiting for the answer, so a queued compute whose every caller
+   *  has hung up can be withdrawn from its lane (see `awaitEntry`). */
+  private readonly inFlight = new Map<string, InFlightEntry>();
 
   /** Lightweight counters surfaced through getStats() for the
    *  perf-dashboard workstream when it lands. */
@@ -115,6 +124,7 @@ export class TileCacheService implements OnModuleDestroy {
   private evictions = 0;
   private coalesced = 0;
   private rejectedOverload = 0;
+  private abandoned = 0;
   private activeComputes = 0;
   private invalidations = 0;
 
@@ -159,11 +169,14 @@ export class TileCacheService implements OnModuleDestroy {
    * pan); a dashboard widget has one shot, and 43 aggregate queries
    * in flight at once is exactly what pushed the last ones past the
    * 30 s statement timeout on the demo.
+   *
+   * The queue is bounded too (`lane.maxQueued`). Unbounded, a pan
+   * storm queued about 40 s of aggregate work that nobody was still
+   * waiting for by the time it ran; past the bound the lane fails
+   * fast like a tile does, and a waiter whose callers have all hung
+   * up is withdrawn before it ever reaches Postgres.
    */
-  private readonly lanes = new Map<
-    string,
-    { limit: number; active: number; waiters: Array<() => void> }
-  >();
+  private readonly lanes = new Map<string, Lane>();
 
   /** Dedicated LISTEN connection; null until the first compute. */
   private listener: PgClient | null = null;
@@ -294,6 +307,13 @@ export class TileCacheService implements OnModuleDestroy {
    *
    * If `compute` throws, the in-flight slot is cleared so the
    * NEXT caller can retry rather than awaiting a dead Promise.
+   *
+   * `opts.signal` is the caller's HTTP request, in effect. A caller
+   * whose signal aborts stops waiting and gets `TileCacheAbortedError`;
+   * the compute itself is withdrawn only if it is still queued in a
+   * lane AND nobody else is waiting for it. A compute that has already
+   * started, or that other callers coalesced onto, runs to completion
+   * and is stored: the work is sunk and the next request wants it.
    */
   async getOrCompute(
     key: string,
@@ -310,8 +330,22 @@ export class TileCacheService implements OnModuleDestroy {
        * Wait in a named lane instead of failing when too many
        * computes are running. Each lane has its own limit; omit it
        * to use the tile behaviour (fail fast with an overload error).
+       * `maxQueued` bounds the lane's waiting list; past it the call
+       * fails fast with `TileCacheOverloadError` like a tile does.
        */
-      lane?: { name: string; limit: number };
+      lane?: { name: string; limit: number; maxQueued?: number };
+      /**
+       * Run outside both the tile cap and any lane. For a small
+       * compute that is a prerequisite of another compute which
+       * ALREADY holds a slot (the via key resolution inside a laned
+       * aggregate or a capped tile): counting it again would make a
+       * held slot wait on a free slot, which under load is a
+       * deadlock in a lane and a spurious 503 under the tile cap.
+       * The caller's own slot is what bounds this work.
+       */
+      exemptFromCap?: boolean;
+      /** Stop waiting when this aborts; see the docblock. */
+      signal?: AbortSignal;
     } = {},
   ): Promise<CacheHit> {
     // Phase 1: cache hit.
@@ -323,8 +357,13 @@ export class TileCacheService implements OnModuleDestroy {
     const pending = this.inFlight.get(key);
     if (pending !== undefined) {
       this.coalesced += 1;
-      return pending;
+      return this.awaitEntry(pending, opts.signal);
     }
+
+    // A caller that has already hung up must not become a leader:
+    // the compute would run for nobody and the answer would be stored
+    // for a key nobody asked for.
+    if (opts.signal?.aborted) throw new TileCacheAbortedError();
 
     // Phase 3: we're the leader. Cap the number of concurrent
     // leaders so we don't drain the Prisma pool when many
@@ -332,8 +371,10 @@ export class TileCacheService implements OnModuleDestroy {
     // handles the same-tile case). Excess returns a typed
     // overload error so the controller can map it to 503 with
     // Retry-After, unless the caller asked for a lane, in which case
-    // it queues.
-    if (!opts.lane && this.activeComputes >= this.maxConcurrentComputes) {
+    // it queues, or declared itself exempt (see the option's doc).
+    const lane = opts.lane;
+    const counted = !lane && !opts.exemptFromCap;
+    if (counted && this.activeComputes >= this.maxConcurrentComputes) {
       this.rejectedOverload += 1;
       throw new TileCacheOverloadError(
         this.activeComputes,
@@ -349,11 +390,18 @@ export class TileCacheService implements OnModuleDestroy {
     // onto it instead of queueing their own copy.
     // A laned compute is bounded by its lane, not by the tile cap, so
     // queued aggregates never make the map's tiles 503.
-    const lane = opts.lane;
-    if (!lane) this.activeComputes += 1;
+    if (counted) this.activeComputes += 1;
     const seqAtStart = this.invalidationSeq;
+    const entry: InFlightEntry = {
+      promise: undefined as unknown as Promise<CacheHit>,
+      waiting: 0,
+      withdraw: null,
+    };
     const promise: Promise<CacheHit> = (async () => {
-      if (lane) await this.acquireLane(lane.name, lane.limit);
+      // Acquiring the lane is the only step that can be withdrawn
+      // (see `awaitEntry`), and a withdrawn acquire never held a slot,
+      // so it sits outside the try whose finally releases one.
+      if (lane) await this.acquireLane(lane, entry);
       try {
         // Wall-clock timeout safety net. Without this, a Prisma
         // query that never resolves AND never rejects (observed
@@ -407,12 +455,60 @@ export class TileCacheService implements OnModuleDestroy {
         return { buf, etag };
       } finally {
         if (lane) this.releaseLane(lane.name);
-        else this.activeComputes -= 1;
-        this.inFlight.delete(key);
+        else if (counted) this.activeComputes -= 1;
       }
-    })();
-    this.inFlight.set(key, promise);
-    return promise;
+    })().finally(() => {
+      this.inFlight.delete(key);
+    });
+    entry.promise = promise;
+    this.inFlight.set(key, entry);
+    return this.awaitEntry(entry, opts.signal);
+  }
+
+  /**
+   * Wait for an in-flight compute on behalf of one caller. Without a
+   * signal this is the bare promise. With one, the caller stops
+   * waiting the moment it aborts and gets `TileCacheAbortedError`;
+   * and if it was the last caller still waiting on a compute that has
+   * not yet left its lane queue, the compute is withdrawn, because
+   * running it would only warm the cache for a request nobody made.
+   *
+   * Callers without a signal are counted as waiting forever, so a
+   * signal-less joiner keeps an abandoned leader's compute alive.
+   */
+  private async awaitEntry(
+    entry: InFlightEntry,
+    signal: AbortSignal | undefined,
+  ): Promise<CacheHit> {
+    entry.waiting += 1;
+    if (!signal) return entry.promise;
+    if (signal.aborted) {
+      this.leave(entry);
+      throw new TileCacheAbortedError();
+    }
+    let onAbort: (() => void) | undefined;
+    const aborted = new Promise<never>((_, reject) => {
+      onAbort = () => reject(new TileCacheAbortedError());
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
+    try {
+      return await Promise.race([entry.promise, aborted]);
+    } finally {
+      if (onAbort) signal.removeEventListener('abort', onAbort);
+      this.leave(entry);
+    }
+  }
+
+  private leave(entry: InFlightEntry): void {
+    entry.waiting -= 1;
+    if (entry.waiting === 0 && entry.withdraw) {
+      this.abandoned += 1;
+      // The rejection this produces has no listener left by
+      // definition; swallow it so it does not surface as an unhandled
+      // rejection for a request that already went away.
+      entry.promise.catch(() => {});
+      entry.withdraw();
+    }
   }
 
   /**
@@ -496,22 +592,52 @@ export class TileCacheService implements OnModuleDestroy {
     return this.dependents.get(prefix)?.size ?? 0;
   }
 
-  private acquireLane(name: string, limit: number): Promise<void> {
-    let lane = this.lanes.get(name);
+  /**
+   * Take a slot in a lane, waiting in FIFO order when it is full.
+   * Throws `TileCacheOverloadError` synchronously (inside the caller's
+   * async wrapper, so it surfaces as a rejection) when the waiting
+   * list is already at `maxQueued`. While queued, `entry.withdraw`
+   * removes the waiter and rejects with `TileCacheAbortedError`; it is
+   * cleared the moment the waiter is granted a slot, so a compute that
+   * has started can no longer be withdrawn.
+   */
+  private acquireLane(
+    spec: { name: string; limit: number; maxQueued?: number },
+    entry: InFlightEntry,
+  ): Promise<void> {
+    let lane = this.lanes.get(spec.name);
     if (!lane) {
-      lane = { limit, active: 0, waiters: [] };
-      this.lanes.set(name, lane);
+      lane = { limit: spec.limit, maxQueued: Infinity, active: 0, waiters: [] };
+      this.lanes.set(spec.name, lane);
     }
-    lane.limit = limit;
+    lane.limit = spec.limit;
+    lane.maxQueued = spec.maxQueued ?? Infinity;
     if (lane.active < lane.limit) {
       lane.active += 1;
       return Promise.resolve();
     }
-    return new Promise<void>((resolve) => {
-      lane!.waiters.push(() => {
-        lane!.active += 1;
+    if (lane.waiters.length >= lane.maxQueued) {
+      this.rejectedOverload += 1;
+      throw new TileCacheOverloadError(
+        lane.active + lane.waiters.length,
+        lane.limit + lane.maxQueued,
+        `lane "${spec.name}" running plus queued`,
+      );
+    }
+    const held = lane;
+    return new Promise<void>((resolve, reject) => {
+      const waiter = () => {
+        entry.withdraw = null;
+        held.active += 1;
         resolve();
-      });
+      };
+      held.waiters.push(waiter);
+      entry.withdraw = () => {
+        const at = held.waiters.indexOf(waiter);
+        if (at >= 0) held.waiters.splice(at, 1);
+        entry.withdraw = null;
+        reject(new TileCacheAbortedError());
+      };
     });
   }
 
@@ -631,6 +757,7 @@ export class TileCacheService implements OnModuleDestroy {
       evictions: this.evictions,
       coalesced: this.coalesced,
       rejectedOverload: this.rejectedOverload,
+      abandoned: this.abandoned,
       invalidations: this.invalidations,
       listening: this.listener !== null,
       inFlight: this.inFlight.size,
@@ -675,6 +802,22 @@ export function aggregateCacheKey(scope: string, request: unknown): string {
     .digest('base64url')
     .slice(0, 32);
   return `${scope}|agg|${hash}`;
+}
+
+/**
+ * Compose the cache key for a relate's resolved parent key set: the
+ * parent field, the parent's compiled content predicates and the asOf
+ * bucket, hashed, under the PARENT scope's prefix. Living under the
+ * parent prefix is what makes a parent write drop it: `invalidatePrefix`
+ * matches by prefix and the mid-compute check reads the key's own
+ * prefix, so no separate dependency registration is needed.
+ */
+export function viaKeysCacheKey(parentScope: string, request: unknown): string {
+  const hash = createHash('sha256')
+    .update(stableJson(request))
+    .digest('base64url')
+    .slice(0, 32);
+  return `${parentScope}|viakeys|${hash}`;
 }
 
 /**
@@ -750,22 +893,50 @@ export interface CacheHit {
   etag: string;
 }
 
+/** One compute in progress, plus who is still waiting for it. */
+interface InFlightEntry {
+  promise: Promise<CacheHit>;
+  /** Callers awaiting the promise; signal-less ones never leave. */
+  waiting: number;
+  /** Set only while the compute is queued in a lane. */
+  withdraw: (() => void) | null;
+}
+
+interface Lane {
+  limit: number;
+  maxQueued: number;
+  active: number;
+  waiters: Array<() => void>;
+}
+
 /**
  * Thrown by `TileCacheService.getOrCompute()` when the
- * concurrency cap is exceeded. Controllers should catch this
- * specifically and map to HTTP 503 with a `Retry-After` header,
- * not 500. Carries the active/cap counts so the response or
- * log line can explain the reject.
+ * concurrency cap is exceeded, or when a lane's waiting list is
+ * full. Controllers should catch this specifically and map to HTTP
+ * 503 with a `Retry-After` header, not 500. Carries the active/cap
+ * counts so the response or log line can explain the reject.
  */
 export class TileCacheOverloadError extends Error {
   constructor(
     readonly active: number,
     readonly cap: number,
+    what = 'concurrent computes',
   ) {
-    super(
-      `Tile cache at capacity: ${active}/${cap} concurrent computes`,
-    );
+    super(`Tile cache at capacity: ${active}/${cap} ${what}`);
     this.name = 'TileCacheOverloadError';
+  }
+}
+
+/**
+ * Thrown to a `getOrCompute()` caller whose `signal` aborted before
+ * its answer arrived. The client is gone: controllers should end the
+ * response quietly rather than log or map it to a status. Never
+ * reaches a caller that did not pass a signal.
+ */
+export class TileCacheAbortedError extends Error {
+  constructor() {
+    super('Tile cache caller aborted before the compute finished');
+    this.name = 'TileCacheAbortedError';
   }
 }
 
@@ -784,9 +955,13 @@ export interface TileCacheStats {
    *  is saving by de-duplicating tile-storm traffic. */
   coalesced: number;
   /** Times getOrCompute() rejected a new compute because the
-   *  concurrency cap was at saturation. Maps to HTTP 503s
-   *  emitted to clients. */
+   *  concurrency cap was at saturation or a lane's queue was full.
+   *  Maps to HTTP 503s emitted to clients. */
   rejectedOverload: number;
+  /** Times a queued compute was withdrawn from its lane because
+   *  every caller waiting for it had aborted. Work Postgres never
+   *  saw. */
+  abandoned: number;
   /** Times a write notification (or a manual call) dropped every
    *  cached tile for a scope. */
   invalidations: number;
@@ -889,20 +1064,3 @@ function normalizeEtag(etag: string): string {
   return v;
 }
 
-/**
- * Read an integer tuning knob from the environment, falling back when
- * it is unset, empty, not a number, or below `min`. The cache bounds
- * accept zero (a zero byte cap is a legitimate "cache off"), while a
- * concurrency lane or a TTL that must stay usable passes `min: 1`.
- * Shared with the aggregate knobs in data-layer.ts.
- */
-export function parseIntEnv(
-  name: string,
-  fallback: number,
-  { min = 0 }: { min?: number } = {},
-): number {
-  const raw = process.env[name];
-  if (!raw) return fallback;
-  const n = parseInt(raw, 10);
-  return Number.isFinite(n) && n >= min ? n : fallback;
-}

@@ -396,6 +396,28 @@ export const en = {
     quotaTitle: 'Not enough storage for this download',
     quotaBody:
       'This download needs about {needed} and there is ~{short} too little room. Free up cached deployments or device storage, or lower the detail level, and try again.',
+    // A different account signed in on a device still holding the
+    // previous account's unsynced captures (offline-identity-guard).
+    identityTitle: 'Unsynced work from another account',
+    identityBody:
+      'This device holds {records, plural, one {# unsynced record} other {# unsynced records}} and {files, plural, one {# photo} other {# photos}} captured by a different account. They have not reached the server.',
+    identityKeepExplain:
+      'Keep them here and they stay parked on this device, hidden from your sync counts, and are sent when that account signs back in.',
+    identityRemoveExplain:
+      'Remove them and they are deleted from this device. Nothing else holds a copy.',
+    identityKeep: 'Keep them here',
+    identityRemove: 'Remove them from this device',
+    identityRemoved:
+      'Removed {records, plural, one {# record} other {# records}} and {files, plural, one {# photo} other {# photos}} from this device.',
+    identityRemoveFailed: 'Could not remove the other account’s data.',
+    // Remove-from-device warning in the runtime's More menu. The total
+    // counts every account's unsynced work because the removal
+    // destroys all of it; the second sentence appears only when some
+    // of it is not the reader's.
+    removeWillLose:
+      '{count, plural, one {# unsynced edit will be lost.} other {# unsynced edits will be lost.}}',
+    removeWillLoseOthers:
+      '{count, plural, one {# of them belongs to another account.} other {# of them belong to another account.}}',
   },
   // Signing out while this device still holds work nobody else can
   // send.

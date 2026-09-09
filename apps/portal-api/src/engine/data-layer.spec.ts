@@ -1027,7 +1027,11 @@ describe('DataLayerEngine.aggregateFeatures cache composition', () => {
     await adapter.aggregateFeatures(baseArgs());
     const [, , opts] = getOrCompute.mock.calls[0]!;
     expect(opts?.dependsOn).toEqual([]);
-    expect(opts?.lane).toEqual({ name: 'aggregate', limit: expect.any(Number) });
+    expect(opts?.lane).toEqual({
+      name: 'aggregate',
+      limit: expect.any(Number),
+      maxQueued: expect.any(Number),
+    });
     expect(opts?.ttlMs).toBeGreaterThan(0);
   });
 
@@ -1047,5 +1051,119 @@ describe('DataLayerEngine.aggregateFeatures cache composition', () => {
     // key, so a child write and a parent write both drop it.
     expect(key.startsWith(`${dataLayerScope(ITEM_ID, LAYER_ID)}|agg|`)).toBe(true);
     expect(opts?.dependsOn).toEqual([`${dataLayerScope(PARENT_ITEM, PARENT_LAYER)}|`]);
+  });
+
+  it('forwards the caller signal to the cache and keeps it out of the key', async () => {
+    const { adapter, getOrCompute } = makeSpiedAdapter();
+    const ac = new AbortController();
+    await adapter.aggregateFeatures({ ...baseArgs(), signal: ac.signal });
+    await adapter.aggregateFeatures(baseArgs());
+    const [keyWith, , optsWith] = getOrCompute.mock.calls[0]!;
+    const [keyWithout, , optsWithout] = getOrCompute.mock.calls[1]!;
+    // Two clients asking the same question share one entry whether or
+    // not they handed over their connection.
+    expect(keyWith).toBe(keyWithout);
+    expect(optsWith?.signal).toBe(ac.signal);
+    expect(optsWithout?.signal).toBeUndefined();
+    expect(optsWith?.lane).toEqual({
+      name: 'aggregate',
+      limit: expect.any(Number),
+      maxQueued: expect.any(Number),
+    });
+  });
+});
+
+/**
+ * The relate's parent key set is resolved once per parent state, not
+ * once per tile. Driven through the real TileCacheService with a fake
+ * Prisma so the cache's own invalidation is what is being tested.
+ */
+describe('DataLayerEngine via parent keys cache', () => {
+  const PARENT_ITEM = '55555555-5555-7555-8555-555555555555';
+  const PARENT_LAYER = '66666666-6666-7666-8666-666666666666';
+  const PARENT_SCOPE = dataLayerScope(PARENT_ITEM, PARENT_LAYER);
+  /** `compileViaFilter` asks for one more than VIA_KEYS_AS_PARAM_MAX. */
+  const VIA_KEYS_LIMIT = 200_001;
+
+  function makeViaAdapter() {
+    const cache = makeTileCache();
+    const getOrCompute = jest.spyOn(cache, 'getOrCompute');
+    const queries: Array<{ text: string; values: unknown[] }> = [];
+    const prisma = {
+      async $queryRaw(strings: TemplateStringsArray, ...values: unknown[]) {
+        queries.push({ text: strings.join('?'), values });
+        // The via key query gets two parent keys; the tile query reads
+        // `rows[0].mvt`, finds nothing, and returns an empty tile.
+        return [{ k: 'a' }, { k: 'b' }];
+      },
+    } as unknown as PrismaService;
+    const adapter = new DataLayerEngine(
+      makeFakeEngine().fake,
+      prisma,
+      makeFakeLensPolicy(),
+      cache,
+    );
+    const viaKeyQueries = () => queries.filter((q) => q.values.includes(VIA_KEYS_LIMIT));
+    const viaKeyComputes = () =>
+      getOrCompute.mock.calls.filter(([k]) => k.startsWith(`${PARENT_SCOPE}|viakeys|`));
+    return { adapter, cache, queries, viaKeyQueries, viaKeyComputes };
+  }
+
+  const via = {
+    myField: 'site_id',
+    parentField: 'id',
+    parentItemId: PARENT_ITEM,
+    parentLayerId: PARENT_LAYER,
+    parentBbox: [-80, 38, -79, 39] as [number, number, number, number],
+  };
+
+  it('resolves the parent keys once for two tiles and again after a parent write', async () => {
+    const { adapter, cache, viaKeyQueries, viaKeyComputes } = makeViaAdapter();
+    await adapter.mvtTile({ itemId: ITEM_ID, layerId: LAYER_ID, z: 6, x: 24, y: 17, via });
+    await adapter.mvtTile({ itemId: ITEM_ID, layerId: LAYER_ID, z: 6, x: 25, y: 17, via });
+    // Both tiles went through the cache for their keys, but only the
+    // first one paid the parent collapse.
+    expect(viaKeyComputes()).toHaveLength(2);
+    expect(viaKeyQueries()).toHaveLength(1);
+    const [, , opts] = viaKeyComputes()[0]!;
+    expect(opts?.exemptFromCap).toBe(true);
+    expect(opts?.lane).toBeUndefined();
+
+    // A write to the PARENT drops the keys along with the parent's own
+    // tiles; the child's next tile resolves them afresh.
+    expect(cache.onObservationWritten(PARENT_SCOPE)).toBeGreaterThanOrEqual(1);
+    await adapter.mvtTile({ itemId: ITEM_ID, layerId: LAYER_ID, z: 6, x: 26, y: 17, via });
+    expect(viaKeyQueries()).toHaveLength(2);
+  });
+
+  it('feeds the resolved keys to the child query as one array parameter', async () => {
+    const { adapter, queries, viaKeyQueries } = makeViaAdapter();
+    await adapter.mvtTile({ itemId: ITEM_ID, layerId: LAYER_ID, z: 6, x: 24, y: 17, via });
+    const tileQuery = queries.find((q) => !q.values.includes(VIA_KEYS_LIMIT));
+    expect(tileQuery).toBeDefined();
+    // The `= ANY($keys::text[])` predicate is a nested Prisma.Sql; walk
+    // the values to find the array. Duck-typed: the client's Sql class
+    // is not reliably the same constructor under the jest transform.
+    const isSql = (v: unknown): v is { values: unknown[] } =>
+      !!v &&
+      typeof v === 'object' &&
+      Array.isArray((v as { strings?: unknown }).strings) &&
+      Array.isArray((v as { values?: unknown }).values);
+    const flatten = (values: unknown[]): unknown[] =>
+      values.flatMap((v) => (isSql(v) ? flatten(v.values) : [v]));
+    expect(flatten(tileQuery!.values)).toContainEqual(['a', 'b']);
+    expect(viaKeyQueries()).toHaveLength(1);
+  });
+
+  it('keys the default asOf as one bucket across calls but an explicit asOf apart', async () => {
+    const { adapter, viaKeyQueries } = makeViaAdapter();
+    const args = { itemId: ITEM_ID, layerId: LAYER_ID, aggs: [{ op: 'count' as const, as: 'n' }], via };
+    await adapter.aggregateFeatures(args);
+    // Different request (so the aggregate itself misses), same parent
+    // and same default asOf: the keys are a hit.
+    await adapter.aggregateFeatures({ ...args, groupBy: ['kind'] });
+    expect(viaKeyQueries()).toHaveLength(1);
+    await adapter.aggregateFeatures({ ...args, asOf: new Date('2026-01-01T00:00:00Z') });
+    expect(viaKeyQueries()).toHaveLength(2);
   });
 });

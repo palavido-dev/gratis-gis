@@ -417,6 +417,55 @@ the current "select rows from `feature_v3.<table>` joined to schema"
 flow. The output shape is identical so the existing portal-web code
 does not change.
 
+### Request-path caches (as built, September 2026)
+
+Everything below is in-process and per replica. Invalidation for the
+observation-backed entries is the `gg_observation_written` NOTIFY (one
+network hop) plus the synchronous `EngineService.onWrite` hook on the
+replica that did the write, so write-then-read on one replica is exact
+and the other replica lags by the notification only.
+
+- **Tiles and aggregates** live in `TileCacheService`
+  (`apps/portal-api/src/engine/tile-cache.service.ts`), keyed under
+  the layer's scope prefix. Aggregates run through a named lane
+  (`AGGREGATE_MAX_CONCURRENT` running, `AGGREGATE_MAX_QUEUED` waiting
+  per replica). Past the queue bound the request fails fast with a 503
+  and `Retry-After`, the same shape as a tile under the tile cap. The
+  controller hands the request's abort signal down: a waiter whose
+  client hung up leaves the queue, and if nobody else is waiting for
+  the same answer the query never runs; a compute that has already
+  started, or that another caller coalesced onto, runs to completion
+  and is stored, because the work is sunk and the next pan wants it.
+- **Relate parent keys.** `compileViaFilter` resolves the parent's
+  matching key set as its own query and hands the child
+  `= ANY($keys)`. That key set is cached under the PARENT scope
+  (`<parentScope>|viakeys|<hash of parent field, compiled parent
+  filters and asOf bucket>`), so a parent write drops it by prefix
+  along with the parent's own tiles; the child tile and aggregate
+  declare the parent prefix as a dependency and drop too. What is
+  stored is either the key array or a marker meaning "over 200,000,
+  use the CTE", so the fallback decision is not re-measured per call.
+  The lookup runs exempt from both the lane and the tile cap: it
+  happens inside a compute that already holds a slot, so counting it
+  again would make a held slot wait on a free one (a lane deadlock)
+  or 503 a tile because tiles were busy.
+- **Layer schema memo.** `loadLayerSchema` in
+  `apps/portal-api/src/data-layer/features.service.ts` keeps the
+  resolved fields plus pick lists per `(itemId, layerId)`, validated
+  rather than trusted: each entry records the `updatedAt` of every
+  item it was built from (the layer item and each pick list that
+  resolved) and a hit costs one `findMany` of those stamps instead of
+  the item read, the owner's principal and the pick-list read. Any
+  moved or missing stamp rebuilds; `LAYER_SCHEMA_CACHE_TTL_MS` bounds
+  what a stamp cannot see, which is a sharing change on a pick list.
+- **Principals.** Not engine state, but the same shape: the built
+  `AuthUser` is cached per Keycloak subject for
+  `AUTH_USER_CACHE_TTL_MS` in `AuthSyncService`, with the token's
+  claims in the fingerprint, the auto-disable instant re-checked on
+  every hit, and `invalidate(userId)` called by every write that
+  changes the projection (group membership, capability override,
+  auto-disable, deletion). The other replica lags up to the TTL.
+
 ## Time travel
 
 The engine's bitemporal model means `asOf` is just a parameter on

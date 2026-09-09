@@ -2,7 +2,7 @@
 'use client';
 
 /**
- * AssetPicker — unified UI for "give me a URL to an image / file"
+ * AssetPicker: unified UI for "give me a URL to an image / file"
  * across the portal. Three modes:
  *
  *   1. Paste URL: text input. Stored as `{ kind: 'external-url' }`.
@@ -41,6 +41,7 @@ import {
   X,
 } from 'lucide-react';
 import type { AssetRef, FileData, Item } from '@gratis-gis/shared-types';
+import { presignUpload, type PresignKind } from '@/lib/presign-upload';
 
 interface Props {
   /** Current asset reference. */
@@ -67,10 +68,12 @@ interface Props {
    * shape the MinIO storage path. Defaults to 'item-thumb' which is
    * a permissive existing path; specialize for new use cases.
    */
-  uploadKind?: 'item-thumb' | 'group-thumb' | 'user-avatar' | 'org-hero';
+  uploadKind?: Extract<
+    PresignKind,
+    'item-thumb' | 'group-thumb' | 'user-avatar' | 'org-hero'
+  >;
 }
 
-const PRESIGN_ENDPOINT = '/api/portal/storage/presign-upload';
 // `lite=1` strips `data` from the server response to save
 // bandwidth on the items grid.  We CANNOT use lite here: the
 // picker filters by `data.mimeType` to surface only images (or
@@ -164,21 +167,15 @@ export function AssetPicker({
     setMode('uploading');
     try {
       // 1. Presign + PUT to MinIO (same path the existing
-      // ImageUploader uses).
-      const presignRes = await fetch(PRESIGN_ENDPOINT, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ kind: uploadKind, contentType: file.type }),
+      // ImageUploader uses). The declared size is signed into the PUT,
+      // so the maxMb check above is the friendly early answer and the
+      // server's cap is the one that holds. A refusal throws with the
+      // server's sentence and lands in the catch below.
+      const { uploadUrl, publicUrl } = await presignUpload({
+        kind: uploadKind,
+        contentType: file.type,
+        sizeBytes: file.size,
       });
-      if (!presignRes.ok) {
-        setError(`Upload start failed: ${presignRes.status}`);
-        setMode('preview');
-        return;
-      }
-      const { uploadUrl, publicUrl } = (await presignRes.json()) as {
-        uploadUrl: string;
-        publicUrl: string;
-      };
       const putRes = await fetch(uploadUrl, {
         method: 'PUT',
         headers: { 'content-type': file.type },

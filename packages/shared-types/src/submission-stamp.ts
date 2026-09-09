@@ -19,6 +19,24 @@
  * different rows for the same act. This closes that: the field runtime
  * stamps what it knows before it writes, online and queued alike.
  *
+ * This is the client half of a two-party arrangement, and the two
+ * halves treat the columns differently:
+ *
+ *  - The client stamp (this file) fills blanks and never overwrites.
+ *    Its job is to make the row complete enough for the offline queue
+ *    to render and for the required-field check to pass on sync.
+ *  - The server (portal-api `DataLayerFeaturesService.validateAll`)
+ *    ALWAYS overwrites `submitted_by` with the authenticated caller on
+ *    create, whatever the client sent, because only the server knows
+ *    who is holding the token and the responses view renders that id
+ *    as a person's name. It fills `submitted_at` only when blank:
+ *    capture time is client-authoritative, since offline is the only
+ *    place that knows the difference between captured and synced.
+ *
+ * So `userId` here is a display value for the queued row, not the
+ * value of record. Anything that reads `submitted_by` back from the
+ * server sees the caller's id regardless of what was stamped here.
+ *
  * `schema_version` is deliberately NOT stamped here. It records which
  * form schema a response was captured against, and the forms service
  * rejects a submission whose version does not match the form's current
@@ -81,7 +99,9 @@ export function isServerStampedField(name: string): boolean {
  *    inventing columns would put values somewhere the attribute table
  *    never shows them.
  *  - A value already present wins. The stamp fills blanks; it does not
- *    overwrite a form that asked the user for one of these.
+ *    overwrite a form that asked the user for one of these. That rule
+ *    holds on the client only: the server replaces `submitted_by` on
+ *    create no matter what arrives (see the file docblock).
  */
 export function stampSubmissionMetadata(
   fields: ReadonlyArray<FeatureField> | undefined,

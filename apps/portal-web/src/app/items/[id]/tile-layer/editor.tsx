@@ -25,6 +25,11 @@ import {
 } from '@gratis-gis/shared-types';
 import { formatBytes } from '@/lib/format-bytes';
 import { UploadError, fileKey, uploadBatch } from '@/lib/batch-upload';
+import {
+  presignUpload,
+  PresignUploadError,
+  type PresignResponse,
+} from '@/lib/presign-upload';
 import { DemAnalysisSection } from './dem-analysis';
 
 /** What one presigned-PUT source upload produces (#199); the shape
@@ -268,38 +273,16 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
     setUploadProgress(0);
     setUploading(true);
     try {
-      // 1) Ask the api for a presigned PUT.
-      const presignRes = await fetch('/api/portal/storage/presign-upload', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          kind: 'item-tile-layer',
-          contentType: 'application/octet-stream',
-        }),
+      // 1) Ask the api for a presigned PUT. The declared size is what
+      // the server checks against the per-kind cap and signs into the
+      // URL, so an over-cap file is refused here with the server's own
+      // message rather than compared client-side afterwards. A refusal
+      // throws and is shown by the catch below.
+      const presign = await presignUpload({
+        kind: 'item-tile-layer',
+        contentType: 'application/octet-stream',
+        sizeBytes: file.size,
       });
-      if (!presignRes.ok) {
-        let msg = `Presign failed (HTTP ${presignRes.status}).`;
-        try {
-          const body = (await presignRes.json()) as { message?: unknown };
-          if (typeof body.message === 'string') msg = body.message;
-        } catch {
-          /* keep fallback */
-        }
-        setUploadError(msg);
-        return;
-      }
-      const presign = (await presignRes.json()) as {
-        uploadUrl: string;
-        publicUrl: string;
-        key: string;
-        maxBytes: number;
-      };
-      if (file.size > presign.maxBytes) {
-        setUploadError(
-          `File is ${(file.size / 1024 / 1024).toFixed(1)} MB but the per-file limit is ${(presign.maxBytes / 1024 / 1024 / 1024).toFixed(1)} GB.`,
-        );
-        return;
-      }
 
       // 2) PUT the bytes to MinIO, tracking progress through an
       // XHR (fetch doesn't expose upload progress). XHR is the
@@ -414,30 +397,22 @@ export function TileLayerEditor({ itemId, initial, canEdit }: Props) {
    *  batch-friendly error semantics: terminal refusals are
    *  non-retryable UploadErrors, network blips retry. */
   async function mosaicUploadOne(file: File): Promise<SourceDescriptor> {
-    const presignRes = await fetch('/api/portal/storage/presign-upload', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
+    // Over-cap refusal happens server-side against the declared size;
+    // it arrives as a non-retryable 400 with the cap in the message.
+    let presign: PresignResponse;
+    try {
+      presign = await presignUpload({
         kind: 'item-tile-layer',
         contentType: 'application/octet-stream',
-      }),
-    });
-    if (!presignRes.ok) {
+        sizeBytes: file.size,
+      });
+    } catch (err) {
+      if (err instanceof PresignUploadError) {
+        throw new UploadError(err.message, err.retryable);
+      }
       throw new UploadError(
-        `Could not start the upload (HTTP ${presignRes.status}).`,
-        presignRes.status >= 500,
-      );
-    }
-    const presign = (await presignRes.json()) as {
-      uploadUrl: string;
-      key: string;
-      maxBytes: number;
-    };
-    if (file.size > presign.maxBytes) {
-      throw new UploadError(
-        `"${file.name}" is ${formatBytes(file.size)}, over the ` +
-          `${formatBytes(presign.maxBytes)} per-file limit.`,
-        false,
+        err instanceof Error ? err.message : 'Could not start the upload.',
+        true,
       );
     }
     await new Promise<void>((resolve, reject) => {

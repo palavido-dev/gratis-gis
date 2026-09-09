@@ -15,6 +15,7 @@ import {
 import {
   listDeployments,
   listQueue,
+  listQueueAllOwners,
   type CachedDeployment,
 } from '@/lib/offline-store';
 import { removeDeploymentFromDevice } from '@/lib/offline-remove';
@@ -46,7 +47,12 @@ export interface FieldDeploymentRow {
  */
 interface DeploymentOverlay {
   cached: CachedDeployment | null;
+  /** This account's queued edits: what the Sync chip will send. */
   queueCount: number;
+  /** Queued edits another account left on this device. Not this
+   *  account's to sync, so they are not in the chip, but Remove
+   *  destroys them too and its warning has to say so. */
+  parkedForOthers: number;
 }
 
 /**
@@ -62,7 +68,15 @@ interface DeploymentOverlay {
  * runtime header does that for the active deployment. Per-deployment
  * size from the manifest is enough here.
  */
-export function FieldCatalog({ rows }: { rows: FieldDeploymentRow[] }) {
+export function FieldCatalog({
+  rows,
+  currentUserId,
+}: {
+  rows: FieldDeploymentRow[];
+  /** The signed-in account's portal user id, from the server render.
+   *  Every queue read and the per-row drain run as this account. */
+  currentUserId: string;
+}) {
   const [overlays, setOverlays] = useState<Record<string, DeploymentOverlay>>(
     {},
   );
@@ -89,10 +103,12 @@ export function FieldCatalog({ rows }: { rows: FieldDeploymentRow[] }) {
       );
       const next: Record<string, DeploymentOverlay> = {};
       for (const row of rows) {
-        const queue = await listQueue(row.id);
+        const queue = await listQueue(row.id, currentUserId);
+        const everyRow = await listQueueAllOwners(row.id);
         next[row.id] = {
           cached: cachedById.get(row.id) ?? null,
           queueCount: queue.length,
+          parkedForOthers: everyRow.length - queue.length,
         };
       }
       if (!cancelled) setOverlays(next);
@@ -100,18 +116,18 @@ export function FieldCatalog({ rows }: { rows: FieldDeploymentRow[] }) {
     return () => {
       cancelled = true;
     };
-  }, [rows]);
+  }, [rows, currentUserId]);
 
   async function syncOne(id: string) {
     setSyncing((prev) => ({ ...prev, [id]: true }));
     try {
-      await syncQueue(id);
+      await syncQueue(id, { currentUserId });
       // Refresh the row's queue count after the run.
-      const remaining = await listQueue(id);
+      const remaining = await listQueue(id, currentUserId);
       setOverlays((prev) => ({
         ...prev,
         [id]: {
-          ...(prev[id] ?? { cached: null, queueCount: 0 }),
+          ...(prev[id] ?? { cached: null, queueCount: 0, parkedForOthers: 0 }),
           queueCount: remaining.length,
         },
       }));
@@ -133,12 +149,12 @@ export function FieldCatalog({ rows }: { rows: FieldDeploymentRow[] }) {
       // would catch up on its own but this keeps the UI snappy.
       setOverlays((prev) => ({
         ...prev,
-        [id]: { cached: null, queueCount: 0 },
+        [id]: { cached: null, queueCount: 0, parkedForOthers: 0 },
       }));
       // Tell the admin's field-queue mirror that this device's
       // manifest just shrank. Bypasses the throttle deliberately:
       // removal is a meaningful state change, not chatter.
-      void postQueueManifest();
+      void postQueueManifest(currentUserId);
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('Failed to remove offline cache:', err);
@@ -194,8 +210,12 @@ export function FieldCatalog({ rows }: { rows: FieldDeploymentRow[] }) {
           const overlay = overlays[row.id] ?? {
             cached: null,
             queueCount: 0,
+            parkedForOthers: 0,
           };
           const cached = overlay.cached !== null;
+          // Remove destroys every account's rows, so its warning counts
+          // them all; the Sync chip above counts only this account's.
+          const removeLoses = overlay.queueCount + overlay.parkedForOthers;
           return (
             <li key={row.id}>
               <Link
@@ -291,9 +311,9 @@ export function FieldCatalog({ rows }: { rows: FieldDeploymentRow[] }) {
                           }`}
                           title={
                             confirmingId === row.id
-                              ? overlay.queueCount > 0
-                                ? `${overlay.queueCount} unsynced edit${
-                                    overlay.queueCount === 1 ? '' : 's'
+                              ? removeLoses > 0
+                                ? `${removeLoses} unsynced edit${
+                                    removeLoses === 1 ? '' : 's'
                                   } will be lost.`
                                 : 'Tap again to remove from device.'
                               : 'Remove this deployment from your device.'
@@ -307,8 +327,8 @@ export function FieldCatalog({ rows }: { rows: FieldDeploymentRow[] }) {
                           {removing[row.id]
                             ? 'Removing...'
                             : confirmingId === row.id
-                              ? overlay.queueCount > 0
-                                ? `Confirm remove (${overlay.queueCount} unsynced)`
+                              ? removeLoses > 0
+                                ? `Confirm remove (${removeLoses} unsynced)`
                                 : 'Confirm remove'
                               : 'Remove from device'}
                         </button>

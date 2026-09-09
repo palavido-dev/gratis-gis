@@ -92,13 +92,22 @@ function makeUser(): AuthUser {
  * stay out of the way entirely.
  */
 function makePrisma(fields: unknown[] | null) {
+  // A real Prisma row always carries `updatedAt`; the schema memo
+  // stamps the layer item with it, so the fixture has to as well.
+  const updatedAt = new Date('2026-03-01T00:00:00.000Z');
   const findUnique = jest.fn(async () => ({
     data: {
       version: 3,
       layers: [{ id: LAYER_ID, ...(fields ? { fields } : {}) }],
     },
+    updatedAt,
   }));
-  const findMany = jest.fn(async () => [] as Array<{ id: string; data: unknown }>);
+  // Serves both reads the schema loader issues: the memo's stamp
+  // check (id plus updatedAt for the ids it asks about) and the
+  // pick-list read, which finds nothing here.
+  const findMany = jest.fn(async (args: { where?: { id?: { in?: string[] } } }) =>
+    (args.where?.id?.in ?? []).filter((id) => id === ITEM_ID).map((id) => ({ id, updatedAt })),
+  );
   return { item: { findUnique, findMany } };
 }
 
@@ -135,7 +144,7 @@ function makeService(fields: unknown[] | null = null) {
     notifySourceWrite: jest.fn(() => Promise.resolve()),
   };
   const bboxRefresh = {
-    refreshItemBbox: jest.fn(() => Promise.resolve()),
+    noteFeatureWrite: jest.fn(),
   };
   const service = new DataLayerFeaturesService(
     makePrisma(fields) as unknown as PrismaService,
@@ -201,7 +210,7 @@ describe('DataLayerFeaturesService.aggregateFeatures option forwarding', () => {
       makePrisma(null) as unknown as PrismaService,
       { notifySourceWrite: jest.fn() } as unknown as DerivedLayerCacheRefreshService,
       { aggregateFeatures } as unknown as DataLayerEngine,
-      { refreshItemBbox: jest.fn() } as unknown as ItemBboxRefreshService,
+      { noteFeatureWrite: jest.fn() } as unknown as ItemBboxRefreshService,
       SHARING_STUB,
       AUTH_SYNC_STUB,
     );
@@ -587,7 +596,7 @@ describe('pageFeatures forwards every option to the engine', () => {
       makePrisma(null) as unknown as PrismaService,
       { notifySourceWrite: jest.fn() } as unknown as DerivedLayerCacheRefreshService,
       { pageFeatures } as unknown as DataLayerEngine,
-      { refreshItemBbox: jest.fn() } as unknown as ItemBboxRefreshService,
+      { noteFeatureWrite: jest.fn() } as unknown as ItemBboxRefreshService,
       SHARING_STUB,
       AUTH_SYNC_STUB,
     );
@@ -676,7 +685,7 @@ describe('filteredExtent forwards every option to the engine', () => {
       makePrisma(null) as unknown as PrismaService,
       { notifySourceWrite: jest.fn() } as unknown as DerivedLayerCacheRefreshService,
       { filteredExtent } as unknown as DataLayerEngine,
-      { refreshItemBbox: jest.fn() } as unknown as ItemBboxRefreshService,
+      { noteFeatureWrite: jest.fn() } as unknown as ItemBboxRefreshService,
       SHARING_STUB,
       AUTH_SYNC_STUB,
     );
@@ -744,7 +753,7 @@ describe('mvtTile forwards every option to the engine', () => {
       makePrisma(null) as unknown as PrismaService,
       { notifySourceWrite: jest.fn() } as unknown as DerivedLayerCacheRefreshService,
       { mvtTile } as unknown as DataLayerEngine,
-      { refreshItemBbox: jest.fn() } as unknown as ItemBboxRefreshService,
+      { noteFeatureWrite: jest.fn() } as unknown as ItemBboxRefreshService,
       SHARING_STUB,
       AUTH_SYNC_STUB,
     );
@@ -833,24 +842,67 @@ describe('DataLayerFeaturesService.loadLayerSchema pick-list resolution', () => 
   ];
 
   function makeSchemaService(opts: { owner: AuthUser | null }) {
+    // Mutable stamps so a test can "edit" the item or the list between
+    // calls the way a real write bumps `updatedAt`.
+    const stamps = new Map<string, Date>([
+      [ITEM_ID, new Date('2026-03-01T00:00:00.000Z')],
+      [PL, new Date('2026-03-02T00:00:00.000Z')],
+    ]);
     const findUnique = jest.fn(async () => ({
       ownerId: 'owner-1',
       data: { version: 3, layers: [{ id: LAYER_ID, fields: SCHEMA }] },
+      updatedAt: stamps.get(ITEM_ID)!,
     }));
-    const findMany = jest.fn(async (_args: Record<string, unknown>) => [
-      { id: PL, data: { version: 3, entries: [{ code: 'tree', label: 'Tree' }] } },
-    ]);
+    // The stamp check selects `updatedAt` without `data`; the pick-list
+    // read selects `data`. Telling them apart by the select is how a
+    // test can count pick-list reads separately from stamp checks.
+    const findMany = jest.fn(
+      async (args: {
+        where: { id?: { in?: string[] }; AND?: unknown[] };
+        select: { data?: boolean; updatedAt?: boolean };
+      }) => {
+        if (!args.select.data) {
+          return (args.where.id?.in ?? [])
+            .filter((id) => stamps.has(id))
+            .map((id) => ({ id, updatedAt: stamps.get(id)! }));
+        }
+        // A list whose stamp was deleted is gone from this stub's
+        // world, so the pick-list read finds nothing either.
+        const listStamp = stamps.get(PL);
+        if (!listStamp) return [];
+        return [
+          {
+            id: PL,
+            data: { version: 3, entries: [{ code: 'tree', label: 'Tree' }] },
+            updatedAt: listStamp,
+          },
+        ];
+      },
+    );
+    const pickListReads = () =>
+      findMany.mock.calls.filter(([args]) => args.select.data === true);
+    const stampChecks = () =>
+      findMany.mock.calls.filter(([args]) => args.select.data !== true);
     const visibleWhere = jest.fn(() => ({ MARKER: 'visible-to-owner' }));
     const principalForUserId = jest.fn(async () => opts.owner);
     const service = new DataLayerFeaturesService(
       { item: { findUnique, findMany } } as unknown as PrismaService,
       { notifySourceWrite: jest.fn() } as unknown as DerivedLayerCacheRefreshService,
       {} as unknown as DataLayerEngine,
-      { refreshItemBbox: jest.fn() } as unknown as ItemBboxRefreshService,
+      { noteFeatureWrite: jest.fn() } as unknown as ItemBboxRefreshService,
       { visibleWhere } as unknown as SharingService,
       { principalForUserId } as unknown as AuthSyncService,
     );
-    return { service, findMany, visibleWhere, principalForUserId };
+    return {
+      service,
+      stamps,
+      findUnique,
+      findMany,
+      pickListReads,
+      stampChecks,
+      visibleWhere,
+      principalForUserId,
+    };
   }
 
   it('reads the list through the owner visibility clause, not by id alone', async () => {
@@ -893,5 +945,109 @@ describe('DataLayerFeaturesService.loadLayerSchema pick-list resolution', () => 
     expect(dangling).toHaveLength(1);
     expect(dangling[0]![0]).toContain(PL);
     warn.mockRestore();
+  });
+
+  /**
+   * The memo is validated, not trusted: a hit costs exactly one stamp
+   * read and nothing else, and any stamp that moved rebuilds. Time is
+   * driven through `Date.now` because the TTL is read from the
+   * environment once at module load and is not a constructor knob.
+   */
+  describe('memo', () => {
+    let now = Date.parse('2026-04-01T00:00:00.000Z');
+    let nowSpy: jest.SpiedFunction<typeof Date.now>;
+    beforeEach(() => {
+      now = Date.parse('2026-04-01T00:00:00.000Z');
+      nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    });
+    afterEach(() => nowSpy.mockRestore());
+
+    it('answers the second call from one stamp read, without the owner or the list', async () => {
+      const s = makeSchemaService({ owner: OWNER });
+      const first = await s.service.loadLayerSchema(ITEM_ID, LAYER_ID);
+      expect(s.findUnique).toHaveBeenCalledTimes(1);
+      expect(s.principalForUserId).toHaveBeenCalledTimes(1);
+      expect(s.pickListReads()).toHaveLength(1);
+
+      const second = await s.service.loadLayerSchema(ITEM_ID, LAYER_ID);
+      expect(second).toBe(first);
+      expect(s.findUnique).toHaveBeenCalledTimes(1);
+      expect(s.principalForUserId).toHaveBeenCalledTimes(1);
+      expect(s.pickListReads()).toHaveLength(1);
+      expect(s.stampChecks()).toHaveLength(1);
+      // The one read asks about every item the schema was built from,
+      // the layer and the list together, not one query each.
+      const [args] = s.stampChecks()[0]!;
+      expect(args.where).toEqual({ id: { in: expect.arrayContaining([ITEM_ID, PL]) } });
+      expect(args.where.id!.in).toHaveLength(2);
+    });
+
+    it('rebuilds when the pick list was edited, and when the layer was', async () => {
+      const s = makeSchemaService({ owner: OWNER });
+      await s.service.loadLayerSchema(ITEM_ID, LAYER_ID);
+      s.stamps.set(PL, new Date('2026-03-03T00:00:00.000Z'));
+      await s.service.loadLayerSchema(ITEM_ID, LAYER_ID);
+      expect(s.principalForUserId).toHaveBeenCalledTimes(2);
+      expect(s.pickListReads()).toHaveLength(2);
+
+      // Settled again: the rebuilt entry is reused.
+      await s.service.loadLayerSchema(ITEM_ID, LAYER_ID);
+      expect(s.pickListReads()).toHaveLength(2);
+
+      s.stamps.set(ITEM_ID, new Date('2026-03-04T00:00:00.000Z'));
+      await s.service.loadLayerSchema(ITEM_ID, LAYER_ID);
+      expect(s.findUnique).toHaveBeenCalledTimes(3);
+      expect(s.pickListReads()).toHaveLength(3);
+    });
+
+    it('rebuilds when a stamped item is gone, even with the others unchanged', async () => {
+      // A hard-deleted list comes back as a missing row rather than a
+      // moved stamp; that must read as stale, not as "nothing changed".
+      const s = makeSchemaService({ owner: OWNER });
+      await s.service.loadLayerSchema(ITEM_ID, LAYER_ID);
+      s.stamps.delete(PL);
+      await s.service.loadLayerSchema(ITEM_ID, LAYER_ID);
+      expect(s.findUnique).toHaveBeenCalledTimes(2);
+    });
+
+    it('rebuilds after the TTL even when every stamp still matches', async () => {
+      // A sharing change on the list does not touch its updatedAt, so
+      // the TTL is the only thing that lets the owner's visibility be
+      // re-evaluated.
+      const s = makeSchemaService({ owner: OWNER });
+      await s.service.loadLayerSchema(ITEM_ID, LAYER_ID);
+      now += 59_000;
+      await s.service.loadLayerSchema(ITEM_ID, LAYER_ID);
+      expect(s.principalForUserId).toHaveBeenCalledTimes(1);
+      now += 2_000;
+      await s.service.loadLayerSchema(ITEM_ID, LAYER_ID);
+      expect(s.principalForUserId).toHaveBeenCalledTimes(2);
+      // An expired entry is dropped before the rebuild, so it does not
+      // pay a stamp read it is going to ignore.
+      expect(s.stampChecks()).toHaveLength(1);
+    });
+
+    it('does not memoise a layer with no declared fields', async () => {
+      // There is nothing to save: the empty answer is one read, the
+      // same as the stamp check would be.
+      const findUnique = jest.fn(async () => ({
+        ownerId: 'owner-1',
+        data: { version: 3, layers: [{ id: LAYER_ID }] },
+        updatedAt: new Date('2026-03-01T00:00:00.000Z'),
+      }));
+      const findMany = jest.fn(async () => []);
+      const service = new DataLayerFeaturesService(
+        { item: { findUnique, findMany } } as unknown as PrismaService,
+        { notifySourceWrite: jest.fn() } as unknown as DerivedLayerCacheRefreshService,
+        {} as unknown as DataLayerEngine,
+        { noteFeatureWrite: jest.fn() } as unknown as ItemBboxRefreshService,
+        SHARING_STUB,
+        AUTH_SYNC_STUB,
+      );
+      await service.loadLayerSchema(ITEM_ID, LAYER_ID);
+      await service.loadLayerSchema(ITEM_ID, LAYER_ID);
+      expect(findUnique).toHaveBeenCalledTimes(2);
+      expect(findMany).not.toHaveBeenCalled();
+    });
   });
 });

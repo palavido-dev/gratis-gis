@@ -30,6 +30,11 @@ import {
   uploadBatch,
   UploadError,
 } from '@/lib/batch-upload';
+import {
+  presignUpload,
+  PresignUploadError,
+  type PresignResponse,
+} from '@/lib/presign-upload';
 
 // The 3D viewer carries the deck.gl + copc.js + laz-perf + proj4
 // tree (via maplibre-gl-lidar), so it loads as its own chunk only
@@ -145,30 +150,25 @@ export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
     file: File,
     onBytes?: (loaded: number) => void,
   ): Promise<SourceDescriptor> {
-    const presignRes = await fetch('/api/portal/storage/presign-upload', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
+    // The size goes to the server, which refuses an over-cap file and
+    // signs the accepted size into the PUT. The old client-side compare
+    // against the echoed maxBytes is gone with it: the server's answer
+    // is the one that holds, and its message names the cap.
+    let presign: PresignResponse;
+    try {
+      presign = await presignUpload({
         kind: 'item-point-cloud',
         contentType: 'application/octet-stream',
-      }),
-    });
-    if (!presignRes.ok) {
+        sizeBytes: file.size,
+      });
+    } catch (err) {
+      if (err instanceof PresignUploadError) {
+        throw new UploadError(err.message, err.retryable);
+      }
+      // No response at all (network) is the transient case.
       throw new UploadError(
-        await errorMessage(presignRes, 'Could not start upload'),
-        presignRes.status >= 500 || presignRes.status === 429,
-      );
-    }
-    const presign = (await presignRes.json()) as {
-      uploadUrl: string;
-      publicUrl: string;
-      key: string;
-      maxBytes: number;
-    };
-    if (file.size > presign.maxBytes) {
-      throw new UploadError(
-        `${file.name} is ${(file.size / 1024 / 1024).toFixed(1)} MB but the per-file limit is ${(presign.maxBytes / 1024 / 1024 / 1024).toFixed(1)} GB.`,
-        false,
+        err instanceof Error ? err.message : 'Could not start upload',
+        true,
       );
     }
     await new Promise<void>((resolve, reject) => {

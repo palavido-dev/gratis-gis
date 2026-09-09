@@ -64,41 +64,41 @@ export const LOCALES: LocaleInfo[] = [
   },
   // Phase 1.1 seeded these four by machine translation and they still
   // await native-speaker review (the locale picker tags them with an
-  // "MT" badge and links to the contributor guide). They covered the
-  // whole English catalog when seeded, but sections added since
-  // (feature editing, the field runtime's queue, attachments,
-  // collect, GPS and offline copy, sign-out, the map and app cards,
-  // and this review's additions) exist only in English and fall back
-  // to it at runtime. Measured 2026-09-08: each defines 59 percent of
-  // the English keys. The figure below is a floor a little under that
-  // so a handful of new English keys does not fail the suite; when
-  // the gap is translated, raise it.
+  // "MT" badge and links to the contributor guide). By 2026-09-08 they
+  // had drifted to 59 percent of the English keys, with about twenty
+  // sections (feature editing, the whole field arc, item detail, the
+  // map and app cards, exports, offline areas and more) existing only
+  // in English. The same day's translation pass closed that gap: each
+  // catalog defines every English key again, so the figure below is
+  // the measured 100 rounded down to a multiple of 5. The spec treats
+  // it as a floor, so adding English keys without translating them
+  // fails the suite until the keys are translated or this is lowered.
   {
     code: 'es',
     nativeName: 'Español',
     englishName: 'Spanish',
-    completeness: 55,
+    completeness: 100,
     machineTranslated: true,
   },
   {
     code: 'pt-BR',
     nativeName: 'Português (Brasil)',
     englishName: 'Portuguese (Brazil)',
-    completeness: 55,
+    completeness: 100,
     machineTranslated: true,
   },
   {
     code: 'fr',
     nativeName: 'Français',
     englishName: 'French',
-    completeness: 55,
+    completeness: 100,
     machineTranslated: true,
   },
   {
     code: 'de',
     nativeName: 'Deutsch',
     englishName: 'German',
-    completeness: 55,
+    completeness: 100,
     machineTranslated: true,
   },
 ];

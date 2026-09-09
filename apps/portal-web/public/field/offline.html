@@ -206,22 +206,39 @@
         });
       }
 
+      // Open the app's database only if it already exists. A versionless
+      // open of a name that does not exist CREATES an empty version 1
+      // database, and the app's own open(name, 3) would then find
+      // oldVersion 1, skip the step that creates the v1 stores, and
+      // every offline read would throw from then on. Same guard as
+      // openAppDbIfExists in sw.js; where indexedDB.databases() is
+      // missing we behave as if there were nothing cached.
       let db = null;
       try {
-        db = await new Promise(function(resolve, reject) {
-          const req = indexedDB.open('gratisgis-offline');
-          req.onsuccess = function() { resolve(req.result); };
-          req.onerror = function() { reject(req.error); };
-        });
+        if (typeof indexedDB.databases === 'function') {
+          const dbs = await indexedDB.databases();
+          if (dbs.some(function(d) { return d && d.name === 'gratisgis-offline'; })) {
+            db = await new Promise(function(resolve, reject) {
+              const req = indexedDB.open('gratisgis-offline');
+              req.onsuccess = function() { resolve(req.result); };
+              req.onerror = function() { reject(req.error); };
+            });
+          }
+        }
       } catch (err) {
         empty.hidden = false;
         empty.textContent =
           "Couldn't open the offline cache on this device.";
         return;
       }
+      if (!db) {
+        empty.hidden = false;
+        return;
+      }
 
       let deployments = [];
       let queueRows = [];
+      let identity = null;
       try {
         if (db.objectStoreNames.contains('deployments')) {
           const tx = db.transaction('deployments', 'readonly');
@@ -231,15 +248,35 @@
           const tx2 = db.transaction('queue', 'readonly');
           queueRows = await readAll(tx2.objectStore('queue'));
         }
+        // LOCKSTEP with src/lib/offline-store.ts (meta store, identity
+        // row) and readOfflineIdentity in sw.js.
+        if (db.objectStoreNames.contains('meta')) {
+          const tx3 = db.transaction('meta', 'readonly');
+          const row = await new Promise(function(resolve, reject) {
+            const req = tx3.objectStore('meta').get('identity');
+            req.onsuccess = function() { resolve(req.result); };
+            req.onerror = function() { reject(req.error); };
+          });
+          if (row && typeof row.userId === 'string' && row.userId) {
+            identity = row.userId;
+          }
+        }
       } catch (err) {
-        // empty out -- show empty state below
+        // Nothing readable; the empty state below covers it.
       }
 
-      // Per-deployment queue counts.
+      // Per-deployment queue counts, for the account this device
+      // belongs to. Rows another account left here are theirs and are
+      // not shown; rows with no owner predate ownership and count for
+      // whoever is current. MIRROR of isQueueRowOwnedBy (shared-types
+      // queue-replay.ts), which the two drains apply when sending.
       const queueByDeployment = {};
       for (const q of queueRows) {
         const id = q.dataCollectionId;
         if (!id) continue;
+        const owned = q.ownerUserId === undefined ||
+          (identity !== null && q.ownerUserId === identity);
+        if (!owned) continue;
         queueByDeployment[id] = (queueByDeployment[id] || 0) + 1;
       }
 

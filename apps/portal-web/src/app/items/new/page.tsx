@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
+import type { CapabilityKey } from '@gratis-gis/shared-types';
 import { apiFetch } from '@/lib/api';
+import { hasCapability } from '@/lib/capabilities';
 import {
   NewItemWizard,
   type AppTemplateSummary,
@@ -20,9 +22,12 @@ export default async function NewItemPage() {
   // header link before it was gated) would otherwise pick a type,
   // fill in a whole form, and collect a 403 on the last click. Say so
   // on arrival instead. This is a courtesy, not the enforcement: the
-  // gate that matters is in ItemsService.create.
-  const me = await apiFetch<{ orgRole: string }>('/api/users/me');
-  if (me.orgRole === 'viewer') {
+  // gate that matters is in ItemsService.create, and this reads the
+  // same capability it does so an admin-granted override agrees.
+  const me = await apiFetch<{ capabilities: CapabilityKey[] }>(
+    '/api/users/me',
+  );
+  if (!hasCapability(me, 'can_publish_items')) {
     return (
       <div className="mx-auto w-full max-w-4xl px-6 py-10">
         <Link

@@ -4,12 +4,12 @@
 import { useRef, useState } from 'react';
 import { Loader2, Trash2, Upload } from 'lucide-react';
 import { EntityBadge, type BadgeRounded, type BadgeSize } from '@gratis-gis/ui';
+import { presignUpload, type PresignKind } from '@/lib/presign-upload';
 
-export type AssetKind =
-  | 'item-thumb'
-  | 'group-thumb'
-  | 'user-avatar'
-  | 'org-hero';
+export type AssetKind = Extract<
+  PresignKind,
+  'item-thumb' | 'group-thumb' | 'user-avatar' | 'org-hero'
+>;
 
 interface Props {
   /** What kind of asset this uploader produces; shapes the storage path. */
@@ -32,7 +32,6 @@ interface Props {
   hint?: string;
 }
 
-const PRESIGN_ENDPOINT = '/api/portal/storage/presign-upload';
 const MAX_MB = 5;
 
 /**
@@ -74,25 +73,16 @@ export function ImageUploader({
 
     setBusy(true);
     try {
-      // 1. Ask the API to mint a presigned PUT.
-      const presignRes = await fetch(PRESIGN_ENDPOINT, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        // Send the size so the server signs it into the presigned PUT
-        // and refuses an over-cap upload: these public prefixes (avatar
-        // / hero / thumbnail) are not swept, so an over-cap blob here is
-        // permanent. The browser sets a matching Content-Length on the
-        // PUT below.
-        body: JSON.stringify({ kind, contentType: file.type, sizeBytes: file.size }),
+      // 1. Ask the API to mint a presigned PUT. The size is signed into
+      // it and an over-cap upload is refused server-side: these public
+      // prefixes (avatar / hero / thumbnail) are not swept, so an
+      // over-cap blob here is permanent. A refusal throws with the
+      // server's sentence, which the catch below shows as-is.
+      const { uploadUrl, publicUrl } = await presignUpload({
+        kind,
+        contentType: file.type,
+        sizeBytes: file.size,
       });
-      if (!presignRes.ok) {
-        setError(`Could not start upload: ${presignRes.status}`);
-        return;
-      }
-      const { uploadUrl, publicUrl } = (await presignRes.json()) as {
-        uploadUrl: string;
-        publicUrl: string;
-      };
 
       // 2. PUT directly to MinIO. Browser → storage, never through Node.
       const putRes = await fetch(uploadUrl, {

@@ -9,7 +9,9 @@ import { EntityBadge } from '@gratis-gis/ui';
 import { GG_VERSION, versionReleaseUrl } from '@/lib/version';
 
 import {
+  clearOfflineIdentity,
   countUnsyncedEdits,
+  getOfflineIdentity,
   purgeCachedReadData,
 } from '@/lib/offline-store';
 import { useConfirm } from '@/components/dialog-provider';
@@ -32,8 +34,11 @@ interface Props {
  * the next person on a shared machine even after sign-out. Resolves
  * on the worker's ack, or after a short timeout so an absent or
  * wedged worker (dev mode has none) can never block sign-out.
+ *
+ * Exported for the identity guard, which runs the same purge when a
+ * different account signs in without the previous one signing out.
  */
-async function clearUserCaches(): Promise<void> {
+export async function clearUserCaches(): Promise<void> {
   if (typeof navigator === 'undefined' || !navigator.serviceWorker) return;
   // getRegistration() resolves immediately with undefined when no
   // worker is registered; navigator.serviceWorker.ready would hang
@@ -95,6 +100,17 @@ export async function federatedSignOut(): Promise<void> {
     // block sign-out on housekeeping: a session that will not end is
     // worse than a cache that outlives it.
   }
+  // The device no longer belongs to anyone. The surviving queue rows
+  // keep their owner, so from here only rows that predate ownership
+  // are visible to any drain; everything else waits for its account to
+  // sign back in. Without this the service worker would keep reading
+  // the departing user's id and send their rows with whatever cookies
+  // the next sign-in provides.
+  try {
+    await clearOfflineIdentity();
+  } catch {
+    // Same reasoning as above.
+  }
   try {
     // redirect: false so we control the navigation; signOut posts
     // to /api/auth/signout and lets NextAuth's own cookie config
@@ -142,7 +158,12 @@ export async function signOutWithUnsyncedGuard(
 ): Promise<void> {
   let pending = 0;
   try {
-    pending = await countUnsyncedEdits();
+    // Counted as the account this device currently belongs to, which
+    // is the same identity the service worker drains as, so the
+    // warning describes exactly the rows that will be left waiting.
+    // Rows another account parked here are not this person's to be
+    // warned about.
+    pending = await countUnsyncedEdits(await getOfflineIdentity());
   } catch {
     pending = 0;
   }

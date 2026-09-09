@@ -8,6 +8,8 @@
  *   - GeoJSON feature data (/api/portal/items/:id/geojson and the v3
  *     per-layer /api/portal/items/:id/layers/:key/geojson): Network-first
  *     with cache fallback so maps render offline with the last-seen dataset.
+ *     Capped at GEOJSON_CACHE_CAP entries, oldest first; the field page
+ *     cache (PAGES_CACHE) is capped the same way at PAGES_CACHE_CAP.
  *   - Tiles (raster XYZ, vector pbf/mvt, WMS GetMap, style.json):
  *     Cache-first in TILES_CACHE. Passively cached tiles (ordinary map
  *     browsing) are capped at RUNTIME_TILE_CAP entries with oldest-write
@@ -38,6 +40,11 @@
  *     idempotent (feature inserts carry a client globalId into an
  *     append-only observation log; form submissions upsert on
  *     (formId, clientId)).
+ *   - Feature rows belong to the account that captured them. The page
+ *     persists the signed-in user's id in the offline DB's 'meta' store
+ *     and this worker drains only rows that account owns (plus rows that
+ *     predate ownership), so a shared tablet cannot send one person's
+ *     captures under whoever signs in next.
  *
  * Versioning: bump CACHE_VERSION on every deploy so stale assets are
  * evicted.
@@ -115,6 +122,24 @@ const TILES_CACHE = `gratis-tiles-${CACHE_VERSION}`;
 // somewhere usable, online or not.
 const SHELL_CACHE = `gratis-shell-${CACHE_VERSION}`;
 const FIELD_OFFLINE_SHELL = '/field/offline.html';
+// Everything the install step pre-caches. One list so the install and
+// the page-cache trim below cannot disagree about what must survive.
+const PRECACHED_SHELL_PATHS = [FIELD_OFFLINE_SHELL];
+
+// Entry caps for the two network-first caches. Neither had one: every
+// geojson layer ever viewed and every field page ever opened stayed
+// cached until the next deploy rotated CACHE_VERSION, and on a device
+// used across many maps that was the tile cap's headroom, spent on
+// bytes nobody would read offline. Trimmed oldest-first after each
+// write (trimCache below), which is cheap enough at these sizes to do
+// inline rather than through the tile write log.
+//
+// 200 geojson entries is a couple of hundred distinct layers, far more
+// than one device's deployments need and a fraction of what one large
+// layer costs. 100 pages is the catalog plus 99 deployment runtimes;
+// a device is cached for a handful.
+const GEOJSON_CACHE_CAP = 200;
+const PAGES_CACHE_CAP = 100;
 // A deployment's field runtime, e.g. /items/<uuid>/field. Anchored so
 // it cannot match a deeper route that happens to contain the segment.
 const FIELD_RUNTIME_PATH = /^\/items\/[^/]+\/field\/?$/;
@@ -214,12 +239,19 @@ function isTileRequest(url) {
 //     - store 'queue'        keyPath [dataCollectionId, id]; fields used
 //       here: op, dataLayerId, layerKey, globalId, geometry, properties,
 //       queuedAt, syncStatus ('pending'|'syncing'|'synced'|'failed'|
-//       'rejected'), lastAttemptAt, retryCount, failureReason.
+//       'rejected'), lastAttemptAt, retryCount, failureReason,
+//       ownerUserId (absent on rows written before schema v3).
 //       'rejected' is terminal and never claimed here; the status
 //       table that decides it mirrors shared-types sync-outcome.ts
 //       (replayOutcomeForStatus), see replayFeatureRecord below.
 //     - store 'deployments'  keyPath dataCollectionId; field used here:
 //       bbox [west, south, east, north] (EPSG:4326)
+//     - store 'meta'         keyPath key; one row read here, key
+//       'identity' with field userId: the portal account this device
+//       currently belongs to (schema v3). Written by the page's
+//       identity guard on every authenticated load, deleted on
+//       sign-out. This worker has no session of its own to ask, so
+//       this row is how it knows whose queue rows it may send.
 //
 //   src/lib/form-offline.ts    DB 'gratisgis-forms'
 //     - store 'submissions'  keyPath clientId; fields used here:
@@ -246,6 +278,10 @@ const OFFLINE_DEPLOYMENTS_STORE = 'deployments';
 // report a record synced and delete its queue row while the photo
 // that record exists to carry is still sitting on the device.
 const OFFLINE_BLOBS_STORE = 'blobs';
+// Device identity (schema v3). Lockstep with OFFLINE_META_STORE and
+// OFFLINE_IDENTITY_KEY in src/lib/offline-store.ts.
+const OFFLINE_META_STORE = 'meta';
+const OFFLINE_IDENTITY_KEY = 'identity';
 const FORMS_DB_NAME = 'gratisgis-forms';
 const FORMS_STORE = 'submissions';
 // One-shot Background Sync tag. Lockstep with BACKGROUND_SYNC_TAG in
@@ -290,6 +326,23 @@ function isQueueRowClaimable(row, nowMs) {
   const at = row.lastAttemptAt ? Date.parse(row.lastAttemptAt) : NaN;
   if (!isFinite(at)) return true;
   return nowMs - at >= delay;
+}
+
+/**
+ * MIRROR of isQueueRowOwnedBy (shared-types queue-replay.ts).
+ *
+ * The queue survives sign-out on purpose, which used to mean whoever
+ * signed in next replayed it under THEIR cookies and the server stamped
+ * submitted_by from the caller. A row now records who captured it and
+ * this worker sends only rows that belong to the identity the device
+ * currently holds. A row with no owner predates ownership and drains
+ * under whoever is current; with no identity at all only those legacy
+ * rows are visible, so an owned row is never sent under the wrong
+ * account or under no account.
+ */
+function isQueueRowOwnedBy(row, currentUserId) {
+  if (row.ownerUserId === undefined) return true;
+  return currentUserId !== null && row.ownerUserId === currentUserId;
 }
 
 /**
@@ -369,7 +422,7 @@ self.addEventListener('install', (event) => {
       // offline shell is a single static file so this is fine; if
       // it's missing the install fails fast and the SW falls back
       // to the previous version.
-      cache.addAll([FIELD_OFFLINE_SHELL]).catch(() => {
+      cache.addAll(PRECACHED_SHELL_PATHS).catch(() => {
         // Best-effort: don't kill SW install if the shell fetch
         // fails (dev mode 404, etc). The fallback handler below
         // tries to read it anyway; worst case the user sees the
@@ -471,7 +524,9 @@ self.addEventListener('fetch', (event) => {
 
   // GeoJSON: network-first with cache fallback (enables offline map rendering).
   if (GEOJSON_PATTERN.test(url.pathname)) {
-    event.respondWith(networkFirstWithCache(request, GEOJSON_CACHE));
+    event.respondWith(
+      networkFirstWithCache(request, GEOJSON_CACHE, GEOJSON_CACHE_CAP),
+    );
     return;
   }
 
@@ -624,6 +679,31 @@ function idbGetAll(db, storeName) {
   return idbRequest(
     db.transaction(storeName, 'readonly').objectStore(storeName).getAll(),
   );
+}
+
+/**
+ * MIRROR of getOfflineIdentity (src/lib/offline-store.ts): the portal
+ * user id this device currently belongs to, or null. Null when the
+ * store predates schema v3 (the page has not opened the database since
+ * the upgrade), when nobody has signed in since it was created, or
+ * when sign-out cleared it. In every one of those cases only legacy
+ * rows may be sent, which is what isQueueRowOwnedBy(row, null) yields.
+ */
+async function readOfflineIdentity(db) {
+  if (!db.objectStoreNames.contains(OFFLINE_META_STORE)) return null;
+  try {
+    const row = await idbRequest(
+      db
+        .transaction(OFFLINE_META_STORE, 'readonly')
+        .objectStore(OFFLINE_META_STORE)
+        .get(OFFLINE_IDENTITY_KEY),
+    );
+    return row && typeof row.userId === 'string' && row.userId
+      ? row.userId
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 /** put, resolved on transaction completion. */
@@ -799,14 +879,24 @@ function replayOutcomeForStatus(status, op) {
  * Features with a file still waiting to upload are SKIPPED and left
  * for the in-app drain, exactly as the forms drain skips submissions
  * with pending attachments and for the same reason.
+ *
+ * Rows are sent only under the account that captured them. The worker
+ * has no session of its own; it reads the device identity the page
+ * persisted and drops every row owned by anybody else BEFORE picking
+ * chain heads, so a foreign row is never a head, never claimed and
+ * never counted, and the claim predicate re-checks ownership on the
+ * re-read. Same rule as offline-sync.ts (isQueueRowOwnedBy).
  */
 async function drainFeatureQueue() {
   const db = await openAppDbIfExists(OFFLINE_DB_NAME);
   if (!db) return { retry: false };
   try {
-    const rows = await idbGetAll(db, OFFLINE_QUEUE_STORE).catch(() => []);
+    const identity = await readOfflineIdentity(db);
+    const allRows = await idbGetAll(db, OFFLINE_QUEUE_STORE).catch(() => []);
+    const rows = allRows.filter((r) => isQueueRowOwnedBy(r, identity));
     const now = Date.now();
-    const canClaim = (r) => isQueueRowClaimable(r, Date.now());
+    const canClaim = (r) =>
+      isQueueRowOwnedBy(r, identity) && isQueueRowClaimable(r, Date.now());
     // Features that still owe a file upload. Reading only the key
     // fields would be nicer, but getAll on this store materialises the
     // Blobs; the store is small (a handful of photos at a time) and
@@ -814,6 +904,11 @@ async function drainFeatureQueue() {
     // being true, add a keys-only index rather than dropping the
     // check: skipping the check is how a record gets marked synced
     // while its photograph is still on the phone.
+    //
+    // Deliberately NOT filtered by owner. "Owes a file" is a fact about
+    // the FEATURE, and the in-app drain is the only path that uploads
+    // files at all, so a row whose feature has anybody's photo waiting
+    // is left for the page whatever account took the photo.
     const blobs = await idbGetAll(db, OFFLINE_BLOBS_STORE).catch(() => []);
     const owesUpload = new Set(
       blobs.map((b) => b.dataLayerId + ' ' + b.layerKey + ' ' + b.globalId),
@@ -1297,6 +1392,52 @@ async function sweepTileCache(force) {
 // Fetch strategy helpers
 // -------------------------------------------------------------------------
 
+/**
+ * Keep an already-open Cache at or under `cap` entries by deleting the
+ * oldest ones. `isExempt(pathname)` names entries that are never
+ * evicted whatever their age.
+ *
+ * "Oldest" is the Cache API's own order: `keys()` returns entries in
+ * the order they were added, so no timestamp log is needed here. That
+ * only holds if a refresh moves an entry to the back, which is why
+ * every caller runs `cache.delete(key)` before `cache.put(key)`: the
+ * spec's put does replace-then-append, but the explicit delete is the
+ * part of that contract this trim actually depends on, and it should
+ * be visible at the call site rather than assumed.
+ *
+ * Failures are swallowed: this is hygiene and must never fail a fetch.
+ */
+async function trimCache(cache, cap, isExempt) {
+  try {
+    const keys = await cache.keys();
+    let overflow = keys.length - cap;
+    if (overflow <= 0) return;
+    for (const req of keys) {
+      if (overflow <= 0) break;
+      let pathname = '';
+      try {
+        pathname = new URL(req.url).pathname;
+      } catch {
+        pathname = '';
+      }
+      if (isExempt(pathname)) continue;
+      await cache.delete(req);
+      overflow -= 1;
+    }
+  } catch {
+    // Never let cache hygiene break the worker.
+  }
+}
+
+/** The pre-cached shell must survive any trim. It lives in SHELL_CACHE
+ *  today, so PAGES_CACHE never holds it, but the trim is the one place
+ *  that can silently delete a page, and the exemption is what keeps a
+ *  future change to where the shell is stored from turning it into the
+ *  offline entry point being evicted by ordinary browsing. */
+function isPrecachedShellPath(pathname) {
+  return PRECACHED_SHELL_PATHS.includes(pathname);
+}
+
 async function cacheFirst(request, cacheName) {
   const cache = await caches.open(cacheName);
   const cached = await cache.match(request);
@@ -1474,7 +1615,12 @@ async function cachePageResponse(request, response) {
     if (response.type !== 'basic' && response.type !== 'default') return;
     const url = new URL(request.url);
     const cache = await caches.open(PAGES_CACHE);
-    await cache.put(pageCacheKey(url), response.clone());
+    const key = pageCacheKey(url);
+    // Delete first so a page opened again counts as the newest entry
+    // for the trim's oldest-first order (see trimCache).
+    await cache.delete(key);
+    await cache.put(key, response.clone());
+    await trimCache(cache, PAGES_CACHE_CAP, isPrecachedShellPath);
   } catch {
     // Caching is an optimisation; never fail the navigation for it.
     // Quota is the expected reason, and the tile sweep reclaims.
@@ -1528,12 +1674,24 @@ async function fieldRuntimeNavigate(request) {
   }
 }
 
-async function networkFirstWithCache(request, cacheName) {
+async function networkFirstWithCache(request, cacheName, cap) {
   const cache = await caches.open(cacheName);
   try {
     const response = await fetch(request);
     if (response.ok) {
-      cache.put(request, response.clone());
+      // Clone before the write chain starts: the body can only be
+      // consumed once and the live response is returned below. Delete
+      // before put so a re-viewed layer counts as the newest entry for
+      // the trim (see trimCache). Not awaited: the response should
+      // reach the map without waiting on cache housekeeping.
+      const copy = response.clone();
+      cache
+        .delete(request)
+        .then(() => cache.put(request, copy))
+        .then(() => trimCache(cache, cap, () => false))
+        .catch(() => {
+          // Quota or storage failure; the live response still flows.
+        });
     }
     return response;
   } catch {

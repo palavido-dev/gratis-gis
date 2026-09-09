@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import Link from 'next/link';
 import { Plus, Layers, ChevronRight, Folder as FolderIcon, Map as MapIcon } from 'lucide-react';
-import type { ItemWithShares } from '@gratis-gis/shared-types';
+import type { CapabilityKey, ItemWithShares } from '@gratis-gis/shared-types';
 import { apiFetch } from '@/lib/api';
+import { hasCapability } from '@/lib/capabilities';
 import { EmptyState } from '@/components/empty-state';
 import { ItemsView } from './items-view';
 import { type FolderRailNode } from './folder-rail';
@@ -51,9 +52,11 @@ export default async function ItemsPage(props: Props) {
 
   // Need `me` early so the rail's per-row canEdit flag (owner or
   // org admin) can be computed when shaping the FolderRailNode set.
-  const meEarly = await apiFetch<{ id: string; orgRole: string }>(
-    '/api/users/me',
-  );
+  const meEarly = await apiFetch<{
+    id: string;
+    orgRole: string;
+    capabilities: CapabilityKey[];
+  }>('/api/users/me');
   // Pull every folder the caller can see in this org so the rail
   // tree can render top-level eagerly. Failure is non-fatal -- the
   // rail simply renders empty. full=1: the tree shape comes from
@@ -116,9 +119,10 @@ export default async function ItemsPage(props: Props) {
 
   // Mirrors the server's `can_publish_items` gate on item creation.
   // Named rather than inlined because this file was already testing
-  // the same condition in three places with the raw role comparison,
-  // and a fourth spelling is how they drift apart.
-  const canPublish = me.orgRole !== 'viewer';
+  // the same condition in three places, and a fourth spelling is how
+  // they drift apart. Reads the capability, not the role, so per-user
+  // overrides granted in the admin UI show up here too.
+  const canPublish = hasCapability(me, 'can_publish_items');
 
   // #80: geo_boundary items are needed by the bulk-share modal so
   // an admin flipping items to Org or Public can also pick a tier-

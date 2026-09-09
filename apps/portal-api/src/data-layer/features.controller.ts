@@ -36,10 +36,12 @@ import { Type } from 'class-transformer';
 import type { Request, Response } from 'express';
 
 import {
+  TileCacheAbortedError,
   TileCacheOverloadError,
   matchesIfNoneMatch,
   tileOverloadRetryAfterSeconds,
 } from '../engine/tile-cache.service.js';
+import { requestAbortSignal } from '../common/request-signal.js';
 import { onceDrain, streamFeatureCollection } from './feature-stream.js';
 import {
   parseAggregateQuery,
@@ -802,11 +804,12 @@ export class DataLayerFeaturesController {
   @Get('aggregate')
   async aggregate(
     @Req() req: Request,
+    @Res() res: Response,
     @CurrentUser() user: AuthUser,
     @Param('id') itemId: string,
     @Param('layerId') layerId: string,
     @Query('clip') clip?: string,
-  ) {
+  ): Promise<void> {
     rejectUnknownAggregateParams(Object.keys(req.query));
     const parsed = parseAggregateQuery(req.query as Record<string, unknown>);
     const { geoLimit, rowScope, layer } = await this.assertV3Layer(
@@ -851,7 +854,8 @@ export class DataLayerFeaturesController {
       bin?: typeof parsed.bin;
       limit?: number;
       asOf?: Date;
-    } = { aggs: parsed.aggs };
+      signal?: AbortSignal;
+    } = { aggs: parsed.aggs, signal: requestAbortSignal(req, res) };
     if (parsed.groupBy.length > 0) opts.groupBy = parsed.groupBy;
     if (parsed.bbox) opts.bbox = parsed.bbox;
     if (parsed.where) opts.where = parsed.where;
@@ -865,7 +869,29 @@ export class DataLayerFeaturesController {
       const geom = await this.resolveBoundaryGeometry(clip);
       if (geom) opts.boundaryClip = geom;
     }
-    return this.v3.aggregateFeatures(itemId, layerId, opts);
+    let result: Awaited<ReturnType<typeof this.v3.aggregateFeatures>>;
+    try {
+      result = await this.v3.aggregateFeatures(itemId, layerId, opts);
+    } catch (e) {
+      if (e instanceof TileCacheAbortedError) {
+        // The client hung up while this was queued. There is nobody to
+        // answer and nothing went wrong, so no status and no log line;
+        // ending the already-closed response just releases it.
+        if (!res.writableEnded) res.end();
+        return;
+      }
+      if (e instanceof TileCacheOverloadError) {
+        // The aggregate lane's waiting list is full. Same shape as the
+        // tile path: 503 with Retry-After so the dashboard backs off
+        // for a beat instead of amplifying the storm.
+        res.setHeader('Retry-After', String(tileOverloadRetryAfterSeconds()));
+        res.setHeader('Cache-Control', 'no-store');
+        res.status(503).end();
+        return;
+      }
+      throw e;
+    }
+    res.json(result);
   }
 
   /**

@@ -32,6 +32,8 @@ import {
 
 const DC = 'deployment-1';
 const LAYER = { dataLayerId: 'dl-1', layerKey: 'main' };
+// The account every capture in these specs is made as.
+const USER = 'user-alice';
 const FEATURES_PATH = '/api/portal/items/dl-1/layers/main/features';
 
 function edit(over: Partial<FeatureEditInput> = {}): FeatureEditInput {
@@ -44,6 +46,7 @@ function edit(over: Partial<FeatureEditInput> = {}): FeatureEditInput {
     geometry: { type: 'Point', coordinates: [1, 2] },
     properties: { species: 'oak' },
     schemaHash: 'hash-1',
+    ownerUserId: USER,
     ...over,
   };
 }
@@ -60,6 +63,7 @@ function blob(over: Partial<PendingBlob> = {}): PendingBlob {
     sizeBytes: 3,
     blob: new Blob([new Uint8Array([1, 2, 3])], { type: 'image/jpeg' }),
     capturedAt: new Date().toISOString(),
+    ownerUserId: USER,
     ...over,
   };
 }
@@ -100,12 +104,12 @@ describe('syncQueue: network failure', () => {
     await enqueueEdit(edit());
     fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
 
-    const result = await syncQueue(DC);
+    const result = await syncQueue(DC, { currentUserId: USER });
 
     expect(result.synced).toBe(0);
     expect(result.failed).toBe(1);
     expect(result.errors[0]?.terminal).toBe(false);
-    const [row] = await listQueue(DC);
+    const [row] = await listQueue(DC, USER);
     // Not the row's fault: it goes back exactly as it was, so the
     // retry ladder does not climb during an outage and the worker who
     // walks back into signal is not made to wait.
@@ -119,7 +123,7 @@ describe('syncQueue: network failure', () => {
 
   it('keeps a previously failed row failed, with its count intact', async () => {
     await enqueueEdit(edit());
-    const [row] = await listQueue(DC);
+    const [row] = await listQueue(DC, USER);
     await updateQueueRecord({
       ...row!,
       syncStatus: 'failed',
@@ -128,9 +132,9 @@ describe('syncQueue: network failure', () => {
     });
     fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
 
-    await syncQueue(DC, { manual: true });
+    await syncQueue(DC, { currentUserId: USER, manual: true });
 
-    const [after] = await listQueue(DC);
+    const [after] = await listQueue(DC, USER);
     expect(after!.syncStatus).toBe('failed');
     expect(after!.retryCount).toBe(2);
     expect(after!.failureReason).toBe('POST failed (500).');
@@ -148,11 +152,11 @@ describe('syncQueue: HTTP failure', () => {
       }),
     );
 
-    const result = await syncQueue(DC);
+    const result = await syncQueue(DC, { currentUserId: USER });
 
     expect(result.rejected).toBe(1);
     expect(result.errors[0]?.terminal).toBe(true);
-    const [row] = await listQueue(DC);
+    const [row] = await listQueue(DC, USER);
     expect(row!.syncStatus).toBe('rejected');
     expect(row!.retryCount).toBe(1);
     // The sentence, not the JSON envelope around it: this lands on
@@ -166,11 +170,11 @@ describe('syncQueue: HTTP failure', () => {
     await enqueueEdit(edit());
     fetchMock.mockResolvedValue(new Response('boom', { status: 500 }));
 
-    const result = await syncQueue(DC);
+    const result = await syncQueue(DC, { currentUserId: USER });
 
     expect(result.failed).toBe(1);
     expect(result.rejected).toBe(0);
-    const [row] = await listQueue(DC);
+    const [row] = await listQueue(DC, USER);
     expect(row!.syncStatus).toBe('failed');
     expect(row!.retryCount).toBe(1);
     expect(row!.failureReason).toBe('POST failed (500). boom');
@@ -182,11 +186,57 @@ describe('syncQueue: HTTP failure', () => {
     await enqueueEdit(edit());
     fetchMock.mockResolvedValue(json(201, { ok: true }));
 
-    const result = await syncQueue(DC);
+    const result = await syncQueue(DC, { currentUserId: USER });
 
     expect(result.synced).toBe(1);
-    expect(await listQueue(DC)).toEqual([]);
+    expect(await listQueue(DC, USER)).toEqual([]);
     expect(calls()).toEqual([{ url: FEATURES_PATH, method: 'POST' }]);
+  });
+});
+
+describe('syncQueue: ownership', () => {
+  const OTHER = 'user-bob';
+
+  it('never sends, claims or counts a row another account captured', async () => {
+    // A shared tablet: Bob captured feature-2 and did not sync before
+    // Alice signed in. Alice's drain must send her row and leave his
+    // exactly where it is, in every sense: not on the wire, not
+    // flipped to syncing, not in her remaining count.
+    await enqueueEdit(edit({ globalId: 'mine' }));
+    await enqueueEdit(edit({ globalId: 'theirs', ownerUserId: OTHER }));
+    await putPendingBlob(blob({ blobId: 'their-photo', globalId: 'theirs', ownerUserId: OTHER }));
+    fetchMock.mockResolvedValue(json(201, { ok: true }));
+
+    const result = await syncQueue(DC, { currentUserId: USER });
+
+    expect(result.processed).toBe(1);
+    expect(result.synced).toBe(1);
+    expect(result.remaining).toBe(0);
+    // One feature write, for Alice's row. No presign for Bob's photo:
+    // the orphan sweep is scoped to her files too.
+    expect(calls()).toEqual([{ url: FEATURES_PATH, method: 'POST' }]);
+    const theirs = await listQueue(DC, OTHER);
+    expect(theirs).toHaveLength(1);
+    expect(theirs[0]!.globalId).toBe('theirs');
+    expect(theirs[0]!.syncStatus).toBe('pending');
+    expect(await listPendingBlobs(DC, OTHER)).toHaveLength(1);
+  });
+
+  it('drains a legacy row with no owner under whoever is current', async () => {
+    // Rows written before ownership existed cannot be given an owner
+    // truthfully, so they keep the old behaviour rather than being
+    // stranded forever.
+    await enqueueEdit(edit());
+    const [row] = await listQueue(DC, USER);
+    const { ownerUserId: _owner, ...legacy } = row!;
+    void _owner;
+    await updateQueueRecord(legacy);
+    fetchMock.mockResolvedValue(json(201, { ok: true }));
+
+    const result = await syncQueue(DC, { currentUserId: OTHER });
+
+    expect(result.synced).toBe(1);
+    expect(await listQueue(DC, null)).toEqual([]);
   });
 });
 
@@ -194,23 +244,23 @@ describe('discardRejected', () => {
   it('takes the feature’s pending files with the row', async () => {
     await enqueueEdit(edit());
     await putPendingBlob(blob());
-    const [row] = await listQueue(DC);
+    const [row] = await listQueue(DC, USER);
     await updateQueueRecord({ ...row!, syncStatus: 'rejected' });
-    const [rejected] = await listQueue(DC);
+    const [rejected] = await listQueue(DC, USER);
 
     await discardRejected(rejected!);
 
-    expect(await listQueue(DC)).toEqual([]);
+    expect(await listQueue(DC, USER)).toEqual([]);
     // Left behind, the orphan sweep would try to upload these against
     // a feature the server has never seen, on every sync, forever.
-    expect(await listPendingBlobs(DC)).toEqual([]);
+    expect(await listPendingBlobs(DC, USER)).toEqual([]);
   });
 
   it('leaves a row alone unless it is actually rejected', async () => {
     await enqueueEdit(edit());
-    const [row] = await listQueue(DC);
+    const [row] = await listQueue(DC, USER);
     await discardRejected(row!);
-    expect(await listQueue(DC)).toHaveLength(1);
+    expect(await listQueue(DC, USER)).toHaveLength(1);
   });
 });
 
@@ -222,13 +272,13 @@ describe('orphaned file sweep', () => {
     // no row at all, so its feature is on the server and the file is
     // safe to send on its own.
     await enqueueEdit(edit());
-    const [row] = await listQueue(DC);
+    const [row] = await listQueue(DC, USER);
     await updateQueueRecord({ ...row!, syncStatus: 'rejected' });
     await putPendingBlob(blob({ blobId: 'blob-1', globalId: 'feature-1' }));
     await putPendingBlob(blob({ blobId: 'blob-2', globalId: 'feature-2' }));
     fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
 
-    await syncQueue(DC);
+    await syncQueue(DC, { currentUserId: USER });
 
     // Exactly one attempt, the presign for feature-2. Nothing for
     // feature-1.
@@ -236,7 +286,7 @@ describe('orphaned file sweep', () => {
       { url: '/api/portal/storage/presign-upload', method: 'POST' },
     ]);
     // The sweep is best-effort: a failed attempt leaves the file put.
-    expect(await listPendingBlobs(DC)).toHaveLength(2);
+    expect(await listPendingBlobs(DC, USER)).toHaveLength(2);
   });
 });
 
@@ -255,7 +305,7 @@ describe('uploadPendingBlobsForFeature', () => {
       .mockResolvedValueOnce(new Response('', { status: 200 })) // PUT
       .mockResolvedValueOnce(new Response('down', { status: 503 })); // register
 
-    await expect(uploadPendingBlobsForFeature(ref)).rejects.toThrow(
+    await expect(uploadPendingBlobsForFeature(ref, USER)).rejects.toThrow(
       'Attachment register failed (503). down',
     );
     // The bytes are in the bucket but the portal does not know about
@@ -263,7 +313,13 @@ describe('uploadPendingBlobsForFeature', () => {
     // would lose a photo from a device that may have no way back to
     // its subject.
     expect(
-      await listPendingBlobsForFeature(DC, LAYER.dataLayerId, LAYER.layerKey, 'feature-1'),
+      await listPendingBlobsForFeature(
+        DC,
+        LAYER.dataLayerId,
+        LAYER.layerKey,
+        'feature-1',
+        USER,
+      ),
     ).toHaveLength(1);
 
     fetchMock
@@ -271,9 +327,15 @@ describe('uploadPendingBlobsForFeature', () => {
       .mockResolvedValueOnce(new Response('', { status: 200 }))
       .mockResolvedValueOnce(json(201, { id: 'att-1' }));
 
-    await uploadPendingBlobsForFeature(ref);
+    await uploadPendingBlobsForFeature(ref, USER);
     expect(
-      await listPendingBlobsForFeature(DC, LAYER.dataLayerId, LAYER.layerKey, 'feature-1'),
+      await listPendingBlobsForFeature(
+        DC,
+        LAYER.dataLayerId,
+        LAYER.layerKey,
+        'feature-1',
+        USER,
+      ),
     ).toEqual([]);
     expect(calls().slice(3)).toEqual([
       { url: '/api/portal/storage/presign-upload', method: 'POST' },
@@ -289,7 +351,7 @@ describe('uploadPendingBlobsForFeature', () => {
       .mockResolvedValueOnce(new Response('', { status: 200 }))
       .mockResolvedValueOnce(json(201, { id: 'att-1' }));
 
-    await uploadPendingBlobsForFeature(ref);
+    await uploadPendingBlobsForFeature(ref, USER);
 
     const presignBody = JSON.parse(
       String(fetchMock.mock.calls[0]![1]!.body),
@@ -312,16 +374,16 @@ describe('uploadPendingBlobsForFeature', () => {
       .mockResolvedValueOnce(json(201, { ok: true })) // insert
       .mockResolvedValueOnce(json(200, { ...PRESIGN_OK, maxBytes: 1 }));
 
-    const result = await syncQueue(DC);
+    const result = await syncQueue(DC, { currentUserId: USER });
 
     expect(result.rejected).toBe(1);
-    const [row] = await listQueue(DC);
+    const [row] = await listQueue(DC, USER);
     expect(row!.syncStatus).toBe('rejected');
     expect(row!.failureReason).toContain('photo.jpg');
     expect(row!.failureReason).toContain('limit');
     // Never PUT, never registered, file still on the device for the
     // collector to delete or replace.
     expect(calls()).toHaveLength(2);
-    expect(await listPendingBlobs(DC)).toHaveLength(1);
+    expect(await listPendingBlobs(DC, USER)).toHaveLength(1);
   });
 });

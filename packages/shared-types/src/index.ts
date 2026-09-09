@@ -13,6 +13,7 @@ export * from './sharing';
 export * from './org';
 export * from './group';
 export * from './user';
+export * from './capabilities';
 export * from './item';
 export * from './map';
 export * from './drawings';

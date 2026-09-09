@@ -5,7 +5,7 @@ honour, with "as built" notes where the implementation settled on
 something simpler. Where this doc and the code disagree, the code
 wins: `apps/portal-web/src/lib/offline-store.ts`, `offline-sync.ts`,
 `public/sw.js` and `packages/shared-types/src/queue-replay.ts`. Last
-revised 2026-09-08.
+revised 2026-09-09.
 
 ## Why this doc exists
 
@@ -165,6 +165,14 @@ interface QueueRecord {
   lastAttemptAt?: string;
   /** How many attempts have failed. Drives the retry backoff. */
   retryCount?: number;
+  /**
+   * Portal user id of the account that captured this edit (schema
+   * v3, 2026-09-09). Both drains send a row only under the identity
+   * that owns it; see "Shared devices". Absent on rows written before
+   * v3, which drain under whoever is current. Every row written since
+   * carries it.
+   */
+  ownerUserId?: string;
 }
 ```
 
@@ -193,6 +201,9 @@ interface PendingBlob {
   blob: Blob;
   /** Capture time, not upload time. */
   capturedAt: string;
+  /** Who took it. Same rules as QueueRecord.ownerUserId: a file is
+   *  uploaded only under the account that captured it. */
+  ownerUserId?: string;
 }
 ```
 
@@ -255,13 +266,20 @@ deployments cached on one device don't collide.
 | `features`          | `[dataCollectionId, dataLayerId, layerKey, globalId]` | Cached features per editable layer. Indexed by `[dataCollectionId, dataLayerId, layerKey]` for "give me all features of layer X" queries. |
 | `forms`             | `[dataCollectionId, formItemId]`           | Bound form schemas. |
 | `pickLists`         | `[dataCollectionId, pickListItemId]`       | Pick-list contents. |
-| `queue`             | `[dataCollectionId, id]`                   | Pending queue records, one per operation. Indexed `by_status` on `[dataCollectionId, syncStatus]` for the field UI's "show me pending / failed" filters, and `by_deployment` on `dataCollectionId`. |
-| `blobs`             | `blobId`                                   | Photo/video Blob payloads captured before they could be uploaded (schema v2). Indexed `by_feature` on `[dataCollectionId, dataLayerId, layerKey, globalId]` and `by_deployment` on `dataCollectionId`. A row lives only until its upload has been registered. |
+| `queue`             | `[dataCollectionId, id]`                   | Pending queue records, one per operation, each stamped with the `ownerUserId` that captured it. Indexed `by_status` on `[dataCollectionId, syncStatus]` for the field UI's "show me pending / failed" filters, and `by_deployment` on `dataCollectionId`. |
+| `blobs`             | `blobId`                                   | Photo/video Blob payloads captured before they could be uploaded (schema v2), each with its `ownerUserId`. Indexed `by_feature` on `[dataCollectionId, dataLayerId, layerKey, globalId]` and `by_deployment` on `dataCollectionId`. A row lives only until its upload has been registered. |
+| `meta`              | `key`                                      | Device-wide state, not scoped to a deployment (schema v3). One row today: `identity`, holding the `userId` of the portal account this device currently belongs to. Written on every authenticated page load, deleted on sign-out, read by the page, the service worker and the offline shell. |
 
 Schema v1 created the first five stores; v2 added `blobs` and touched
 nothing else, which is the only reason the bump was safe on a device
-holding unsynced captures. Bumps that rewrite an existing store need a
-much harder look, because the rows at risk are exactly the field
+holding unsynced captures. v3 added `meta`, again touching nothing
+else. It deliberately does NOT stamp an owner onto the `queue` and
+`blobs` rows it finds: the only identity it could stamp from is the row
+in the store it is creating, and guessing from whoever is signed in
+when the upgrade runs would attribute the previous user's captures to
+them on a shared device. Unowned rows keep the pre-ownership behaviour
+instead (see "Shared devices"). Bumps that rewrite an existing store
+need a much harder look, because the rows at risk are exactly the field
 captures this design exists to protect.
 
 The deployments-manifest is the discovery root: any cleanup or
@@ -295,6 +313,17 @@ features. Those go directly to the queue manager in the field
 runtime; no fetch is made until sync time. This keeps the worker's
 behaviour predictable: reads can be served offline, writes always
 go through the explicit queue.
+
+**As built (2026-09-09), cache caps.** The geojson cache and the cache
+of server-rendered field pages (`/field`, `/items/<id>/field`) are
+capped at `GEOJSON_CACHE_CAP` (200) and `PAGES_CACHE_CAP` (100)
+entries. Neither had a cap before, so every layer ever viewed and
+every page ever opened stayed until the next deploy rotated the cache
+name. Each write deletes the entry, re-puts it, then trims the cache
+oldest-first using the Cache API's own insertion order; the explicit
+delete is what makes a refetch count as the newest entry. The trim
+never touches the precached offline shell. Tiles are governed
+separately by the pinned, timestamped `RUNTIME_TILE_CAP` sweep.
 
 ## Sync protocol
 
@@ -342,6 +371,14 @@ the operation id and why replay has to be ordered per feature.
 
 Each drain pass does the following.
 
+0. **Scope to the account.** The drain runs as one identity (the
+   page's from its server render, the worker's from the `meta` store)
+   and keeps only rows `isQueueRowOwnedBy` accepts for it: rows that
+   identity captured, plus rows with no owner. Everything below sees
+   only that list, so a row another account parked on the device is
+   never a chain head, never claimed, never sent and never counted in
+   `remaining`. The claim predicate re-checks ownership on its re-read.
+   With no identity on the device at all only the unowned rows pass.
 1. **Pick the chain heads.** `queueChainHeads` lists at most ONE row
    per feature, the oldest by `queuedAt`, and only when that row is
    itself claimable. If a feature's oldest row is parked (`rejected`)
@@ -447,6 +484,58 @@ within a feature: a drain pass replays one row per feature, and a
 feature whose head is parked or in flight is skipped entirely (see
 "chain heads" above). Rows are processed one at a time in `queuedAt`
 order; there is no per-layer parallelism.
+
+### Shared devices
+
+The queue and the pending files survive sign-out on purpose: destroying
+unsynced field work to tidy a cache is the worse outcome. Until
+2026-09-09 that meant whoever signed in next replayed them under THEIR
+session, and the server stamps `submitted_by` from the caller, so one
+crew member's captures were attributed to another. As built now:
+
+- **Every row and file records who captured it** (`ownerUserId`,
+  written by `enqueueEdit` and the attachment capture path from the
+  signed-in user's portal id). An edit folds only into a row the same
+  account owns; an edit over another account's unsent row becomes a
+  second row for the feature, and a legacy unowned row folded into by
+  an owned edit takes that owner, because the bytes it now carries are
+  theirs.
+- **The device carries one identity**, the `identity` row in `meta`.
+  `OfflineIdentityGuard` (mounted from `AppShell`, so it runs on every
+  authenticated page including the field runtime) writes the session's
+  user id there on load. The service worker has no session of its own
+  and reads this row to decide whose rows it may send; the offline shell
+  reads it to decide whose rows to count.
+- **Both drains, the beacon, the chips and the rejected list are
+  scoped to the current identity** through `listQueue`,
+  `listPendingBlobs` and their `ByStatus` / `ForFeature` variants, all
+  of which take `currentUserId`. Rows another account parked are
+  invisible to every count except the one for "Remove from device",
+  which destroys all of them and says so.
+- **When the identity changes** (a different account signs in on a
+  device the previous one did not sign out of), the guard persists the
+  new identity FIRST, so a background sync firing mid-dialog already
+  drains as the new account, then purges every cached read (features,
+  forms, pick lists in IndexedDB; tiles, geojson and pages in the
+  worker's caches: all fetched under the previous account's shares).
+  If unsynced rows or files owned by anyone else remain, a dialog says
+  how many and offers two choices. **Keep them here** parks them: they
+  stay on the device, out of this account's counts, and drain when
+  their owner signs back in. **Remove them from this device** deletes
+  exactly the foreign rows and files, nothing of the current account's
+  and no legacy row. It is a button, never a side effect of signing in.
+- **Sign-out** keeps its explicit purge of cached reads and also clears
+  the identity, so until someone signs in only unowned rows are visible
+  to any drain. **Session expiry alone purges nothing**: a stale session
+  renders the guard with no user id, and null is not an identity change.
+- **Rows from before ownership existed** (schema v2 and earlier) have no
+  `ownerUserId` and cannot be given one truthfully. They drain under
+  whoever is current, as they always did; that population is finite and
+  gone after its first successful sync.
+
+The rule itself is `isQueueRowOwnedBy` in shared-types, mirrored by hand
+in `public/sw.js` and `public/field/offline.html`; `sw-contract.spec.ts`
+runs the worker's copy against the original.
 
 ## Recovery flows
 

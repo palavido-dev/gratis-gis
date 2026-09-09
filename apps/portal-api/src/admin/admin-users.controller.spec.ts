@@ -107,6 +107,11 @@ function makeController({
   const controller = new AdminUsersController(
     kc as unknown as ConstructorParameters<typeof AdminUsersController>[0],
     prisma as unknown as ConstructorParameters<typeof AdminUsersController>[1],
+    // The guards under test never reach a write, so the principal
+    // cache has nothing to forget; a recording stub keeps that honest.
+    { invalidate: jest.fn(), invalidateAll: jest.fn() } as unknown as ConstructorParameters<
+      typeof AdminUsersController
+    >[2],
   );
   // Stash so the closure tests can read me; the controller pulls
   // it from a decorator at runtime which Jest can't drive directly,

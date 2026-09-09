@@ -70,6 +70,11 @@ interface Props {
    *  id the form will submit with, which is exactly why capture can
    *  happen before the feature exists anywhere. */
   globalId: string;
+  /** The signed-in account. Stamped onto every file captured here as
+   *  its owner, and used to list only this account's waiting files:
+   *  a photo somebody else took of the same feature on this device is
+   *  theirs to upload, not this session's. */
+  currentUserId: string;
   /** False in add mode: there is no server row to read from yet. */
   featureExistsOnServer: boolean;
   isOnline: boolean;
@@ -91,6 +96,7 @@ export function FieldAttachments({
   dataLayerId,
   layerKey,
   globalId,
+  currentUserId,
   featureExistsOnServer,
   isOnline,
   canCapture = true,
@@ -115,6 +121,7 @@ export function FieldAttachments({
           dataLayerId,
           layerKey,
           globalId,
+          currentUserId,
         ),
       );
     } catch {
@@ -122,7 +129,7 @@ export function FieldAttachments({
       // network when there is one; surfacing a storage error here
       // would be noise on top of whatever the runtime already shows.
     }
-  }, [dataCollectionId, dataLayerId, layerKey, globalId]);
+  }, [dataCollectionId, dataLayerId, layerKey, globalId, currentUserId]);
 
   useEffect(() => {
     void reloadPending();
@@ -166,6 +173,7 @@ export function FieldAttachments({
         sizeBytes: file.size,
         blob: file,
         capturedAt: new Date().toISOString(),
+        ownerUserId: currentUserId,
       });
       tapFeedback();
       await reloadPending();

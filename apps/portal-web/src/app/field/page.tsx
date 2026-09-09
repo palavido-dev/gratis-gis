@@ -32,10 +32,19 @@ export default async function FieldCatalogPage() {
   // client component merge the IDB-side state.
   let deployments: ItemWithShares[] = [];
   let sessionExpired = false;
+  // The catalog reads the offline queue as the signed-in account (its
+  // counts and its per-row Sync drain only this account's rows), so it
+  // needs the same portal user id the field runtime receives. Fetched
+  // in parallel with the list; a 401 on either means the session is
+  // dead and lands in the same branch below.
+  let currentUserId = '';
   try {
-    deployments = await apiFetch<ItemWithShares[]>(
-      '/api/items?type=data_collection&full=1',
-    );
+    const [list, me] = await Promise.all([
+      apiFetch<ItemWithShares[]>('/api/items?type=data_collection&full=1'),
+      apiFetch<{ id: string }>('/api/users/me'),
+    ]);
+    deployments = list;
+    currentUserId = me.id;
   } catch (err) {
     // #254 phase 2: distinguish auth failure (silent session expiry,
     // common after the PWA has been backgrounded for a while) from
@@ -139,7 +148,7 @@ export default async function FieldCatalogPage() {
           }
         />
       ) : (
-        <FieldCatalog rows={rows} />
+        <FieldCatalog rows={rows} currentUserId={currentUserId} />
       )}
     </div>
   );

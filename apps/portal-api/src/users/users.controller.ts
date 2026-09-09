@@ -76,6 +76,12 @@ export class UsersController {
     }
     return {
       ...user,
+      // AuthUser.capabilities is a ReadonlySet, which JSON.stringify
+      // turns into `{}`. The web app mirrors server gates such as
+      // `can_publish_items` off this response, so emit the set as a
+      // sorted array (sorted so the payload is stable across requests
+      // and diffs cleanly in tests).
+      capabilities: [...user.capabilities].sort(),
       fullName: row?.fullName ?? user.username,
       firstName: firstName ?? splitName(row?.fullName ?? '').first,
       lastName: lastName ?? splitName(row?.fullName ?? '').last,

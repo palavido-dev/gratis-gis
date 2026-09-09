@@ -8,6 +8,7 @@ import {
   THEME_STARTERS,
 } from '@gratis-gis/shared-types';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { parseIntEnv } from '../common/env.js';
 import type { KeycloakClaims } from './jwt.strategy.js';
 import {
   effectiveCapabilities,
@@ -61,10 +62,72 @@ export interface AuthUser {
  * On every request the JWT strategy calls `upsertFromClaims` to keep the
  * local `user` table in sync with Keycloak, then resolves the user's group
  * memberships so authorization checks are cheap downstream.
+ *
+ * The built `AuthUser` is cached per Keycloak `sub` for
+ * `AUTH_USER_CACHE_TTL_MS` (10 s by default). Before the cache, every
+ * authenticated request paid an org read, a user read, a group read
+ * and an override read; a 43-request dashboard burst that was all
+ * cache hits downstream still spread to 3.7 s on those four queries
+ * against the 25-connection pool. A hit now costs no database round
+ * trip at all.
+ *
+ * What the cache does NOT skip. The JWT's signature, issuer and expiry
+ * are still verified by passport on every request before this service
+ * is reached; only the database projection of the user is reused. The
+ * claims are part of the entry's fingerprint, so a token that carries
+ * a new role or email misses and goes through the write path exactly
+ * as before. `autoDisableAt` rides in the entry and the lockout is
+ * re-evaluated against the clock on every hit, so an account whose
+ * disable instant falls inside the TTL is still refused on the dot.
+ * The `lastSeenAt` throttle is unchanged: when it is due (once per
+ * minute per user), the request takes the full path and writes.
+ *
+ * What it costs. Prod runs two replicas and this is in-process, so a
+ * role change, a group membership change or a capability override made
+ * through one replica is seen by the other only when its entry
+ * expires: up to the TTL. Ten seconds is acceptable because the only
+ * things that can lag are grants and revocations of the DB-side
+ * projection, every writer of which calls `invalidate()` on its own
+ * replica, and because a revoked user's TOKEN is still checked per
+ * request. A shorter TTL buys little: the burst this exists for lands
+ * inside one second.
+ *
+ * The API key path (`ApiKeyService.resolve`) is deliberately not
+ * behind this cache. A key never revisits Keycloak, so its one row
+ * read is the revocation, expiry and lockout check and has to run on
+ * every request regardless; that read already carries the user and
+ * the org, leaving only the group and override read to save, for
+ * traffic that is scripts rather than dashboards.
  */
 @Injectable()
 export class AuthSyncService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private static readonly USER_CACHE_TTL_MS = parseIntEnv(
+    'AUTH_USER_CACHE_TTL_MS',
+    10_000,
+    { min: 1 },
+  );
+  private static readonly USER_CACHE_MAX = 5_000;
+
+  /**
+   * Built principals by JWT `sub`, in LRU order (Map insertion order;
+   * a hit deletes and re-inserts). Bounded by USER_CACHE_MAX so a
+   * token-minting script cannot grow it without limit.
+   */
+  private readonly userCache = new Map<string, CachedAuthUser>();
+  /**
+   * Local user id to the subs cached for it, so `invalidate(userId)`
+   * needs no scan. A seeded user's local id differs from their sub,
+   * and admin code paths only ever know the local id.
+   */
+  private readonly subsByUserId = new Map<string, Set<string>>();
+  /**
+   * In-flight builds by sub, so the first-sign-in stampede (NextAuth
+   * plus portal SSR firing together) resolves one user once instead of
+   * racing N identical builds. Same shape as the seeders below.
+   */
+  private readonly userBuildInFlight = new Map<string, Promise<AuthUser>>();
 
   /**
    * Per-process cache of orgs we've already confirmed have all the
@@ -139,6 +202,114 @@ export class AuthSyncService {
     if (!orgSlug) {
       throw new UnauthorizedException('JWT is missing required "org" claim');
     }
+    const fingerprint = claimsFingerprint(claims);
+    const now = Date.now();
+
+    const cached = this.userCache.get(claims.sub);
+    if (cached) {
+      const lastWrite = this.lastSeenWrittenAt.get(claims.sub) ?? 0;
+      const lastSeenDue =
+        now - lastWrite >= AuthSyncService.LAST_SEEN_THROTTLE_MS;
+      if (
+        cached.expiresAt > now &&
+        cached.fingerprint === fingerprint &&
+        !lastSeenDue
+      ) {
+        // Re-checked on every hit, not once at build time: the disable
+        // instant can fall inside the TTL, and the cron that flips the
+        // Keycloak flag may not have run yet.
+        assertNotAutoDisabled(cached.autoDisableAt, cached.user.orgRole);
+        this.userCache.delete(claims.sub);
+        this.userCache.set(claims.sub, cached);
+        return cached.user;
+      }
+      // Expired, or the token now says something different about this
+      // person, or the lastSeenAt write is due. All three take the full
+      // path, which stores a fresh entry.
+      this.dropCached(claims.sub);
+    }
+
+    let inFlight = this.userBuildInFlight.get(claims.sub);
+    if (!inFlight) {
+      inFlight = (async () => {
+        try {
+          const built = await this.buildFromClaims(claims, orgSlug);
+          this.storeCached(claims.sub, {
+            user: built.user,
+            autoDisableAt: built.autoDisableAt,
+            fingerprint,
+            expiresAt: Date.now() + AuthSyncService.USER_CACHE_TTL_MS,
+          });
+          return built.user;
+        } finally {
+          this.userBuildInFlight.delete(claims.sub);
+        }
+      })();
+      this.userBuildInFlight.set(claims.sub, inFlight);
+    }
+    return inFlight;
+  }
+
+  /**
+   * Forget the cached principal(s) for a local user id. Call after any
+   * write that changes what `AuthUser` carries for them: role, group
+   * membership, capability override, auto-disable, deletion. Only this
+   * replica forgets; the other one lags up to the TTL (see the class
+   * docblock).
+   */
+  invalidate(userId: string): void {
+    const subs = this.subsByUserId.get(userId);
+    if (!subs) return;
+    for (const sub of [...subs]) this.dropCached(sub);
+  }
+
+  /**
+   * Forget every cached principal. For writes whose affected set is not
+   * a user list worth computing: trashing or restoring a group changes
+   * the effective groups of every member at once.
+   */
+  invalidateAll(): void {
+    this.userCache.clear();
+    this.subsByUserId.clear();
+  }
+
+  private storeCached(sub: string, entry: CachedAuthUser): void {
+    this.dropCached(sub);
+    this.userCache.set(sub, entry);
+    let subs = this.subsByUserId.get(entry.user.id);
+    if (!subs) {
+      subs = new Set();
+      this.subsByUserId.set(entry.user.id, subs);
+    }
+    subs.add(sub);
+    while (this.userCache.size > AuthSyncService.USER_CACHE_MAX) {
+      const oldest = this.userCache.keys().next().value;
+      if (oldest === undefined) break;
+      this.dropCached(oldest);
+    }
+  }
+
+  private dropCached(sub: string): void {
+    const entry = this.userCache.get(sub);
+    if (!entry) return;
+    this.userCache.delete(sub);
+    const subs = this.subsByUserId.get(entry.user.id);
+    if (subs) {
+      subs.delete(sub);
+      if (subs.size === 0) this.subsByUserId.delete(entry.user.id);
+    }
+  }
+
+  /**
+   * The uncached path: sync the org and user rows from the claims,
+   * enforce the auto-disable lockout, seed the org's built-ins, and
+   * build the principal. Returns `autoDisableAt` alongside so the cache
+   * can keep re-checking the lockout without re-reading the row.
+   */
+  private async buildFromClaims(
+    claims: KeycloakClaims,
+    orgSlug: string,
+  ): Promise<{ user: AuthUser; autoDisableAt: Date | null }> {
     // Backward-compat: the role was renamed publisher -> contributor
     // (see migration 20260424230000) but existing JWTs minted before
     // the Keycloak realm was re-imported still carry 'publisher'.
@@ -169,11 +340,21 @@ export class AuthSyncService {
       ? await this.prisma.organization.findUnique({ where: { id: orgSlug } })
       : null;
     if (!org) {
-      org = await this.prisma.organization.upsert({
-        where: { slug: orgSlug },
-        update: {},
-        create: { slug: orgSlug, name: orgSlug },
-      });
+      // Read first, create only on a miss. This used to be an upsert
+      // with an empty update, which Prisma still issues as a write
+      // (row lock, WAL) on every authenticated request for an org that
+      // has existed since install. The create is an upsert so two
+      // first-ever requests racing on a brand new org cannot collide
+      // on the slug's unique index.
+      org =
+        (await this.prisma.organization.findUnique({
+          where: { slug: orgSlug },
+        })) ??
+        (await this.prisma.organization.upsert({
+          where: { slug: orgSlug },
+          update: {},
+          create: { slug: orgSlug, name: orgSlug },
+        }));
     }
 
     // We key on `username` rather than Keycloak's `sub`. The local user.id is
@@ -282,16 +463,8 @@ export class AuthSyncService {
     // Org admins are exempt via the admin form so a stray
     // auto_disable_at on an admin account can't lock them out,
     // but we double-gate here in case someone toggled the field
-    // directly in the DB.
-    if (
-      user.autoDisableAt !== null &&
-      user.autoDisableAt.getTime() <= Date.now() &&
-      user.orgRole !== 'admin'
-    ) {
-      throw new UnauthorizedException(
-        'This account is disabled. Contact your organization admin.',
-      );
-    }
+    // directly in the DB. The cached path re-runs this same check.
+    assertNotAutoDisabled(user.autoDisableAt, user.orgRole);
 
     // Seed built-in basemap items if this org is missing any. We
     // cache "this org has been verified this process lifetime" in
@@ -378,7 +551,7 @@ export class AuthSyncService {
       await inFlight;
     }
 
-    return this.principalFor(
+    const principal = await this.principalFor(
       {
         id: user.id,
         orgId: user.orgId,
@@ -388,6 +561,7 @@ export class AuthSyncService {
       },
       org.slug,
     );
+    return { user: principal, autoDisableAt: user.autoDisableAt };
   }
 
   /**
@@ -672,5 +846,51 @@ export class AuthSyncService {
       })),
       skipDuplicates: true,
     });
+  }
+}
+
+/** One cached principal and what has to still hold for it to be served. */
+interface CachedAuthUser {
+  user: AuthUser;
+  /** Re-checked against the clock on every hit; see `assertNotAutoDisabled`. */
+  autoDisableAt: Date | null;
+  /** `claimsFingerprint` of the token that built it. */
+  fingerprint: string;
+  expiresAt: number;
+}
+
+/**
+ * The claims that feed the user row. A token whose fingerprint differs
+ * from the cached entry's means Keycloak changed something about this
+ * person (role, email, name, org), and the request must take the write
+ * path so the local row and the principal follow.
+ */
+function claimsFingerprint(claims: KeycloakClaims): string {
+  return JSON.stringify([
+    claims.preferred_username,
+    claims.org ?? null,
+    claims.org_role ?? null,
+    claims.email ?? null,
+    claims.name ?? null,
+  ]);
+}
+
+/**
+ * The auto-disable lockout (#85), shared by the build path and every
+ * cache hit. Admins are exempt so a stray timestamp cannot lock the
+ * org out of its own admin.
+ */
+function assertNotAutoDisabled(
+  autoDisableAt: Date | null,
+  orgRole: OrgRole,
+): void {
+  if (
+    autoDisableAt !== null &&
+    autoDisableAt.getTime() <= Date.now() &&
+    orgRole !== 'admin'
+  ) {
+    throw new UnauthorizedException(
+      'This account is disabled. Contact your organization admin.',
+    );
   }
 }
