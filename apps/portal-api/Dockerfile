@@ -131,7 +131,14 @@ ARG PMTILES_XTEXT_VERSION=0.41.0
 # embedded in the binary. Watch for go-pmtiles adopting >=0.56.0 itself,
 # at which point this pin can drop.
 # 0.57.0 rather than 0.56.0 for the same reason as x/text above.
-ARG PMTILES_XNET_VERSION=0.57.0
+#
+# Now 0.58.0, dragged up again by the grpc bump to 1.83.2 below. The
+# assertion at the end of this stage is what caught it: the build failed
+# on the x/net check rather than quietly shipping a binary whose
+# recorded version disagreed with this line. That is the check earning
+# its keep, so leave it an exact match. Still well past the 0.56.0 that
+# fixes CVE-2026-46600.
+ARG PMTILES_XNET_VERSION=0.58.0
 # CVE-2026-56854, CRITICAL: go-pmtiles pulls golang.org/x/crypto
 # v0.53.0. Fixed upstream in 0.55.0. Same pin-and-assert treatment as
 # x/text and x/net above.
@@ -139,7 +146,14 @@ ARG PMTILES_XCRYPTO_VERSION=0.55.0
 # CVE-2026-84304, HIGH: google.golang.org/grpc v1.79.3 arrives through
 # gocloud.dev, which go-pmtiles uses for its remote-bucket support.
 # Fixed upstream in 1.83.1.
-ARG PMTILES_GRPC_VERSION=1.83.1
+#
+# Now 1.83.2, because 1.83.1 picked up CVE-2026-84445 (HIGH, xDS server
+# DoS) after it was pinned here. That is this pin doing to us what the
+# pnpm overrides have done four times: a floor tracks no advisories, so
+# the line added to clear one alert is what holds the vulnerable version
+# once the next one lands. Nothing here runs an xDS server, so it was
+# not reachable, but the pin has to move for the scan to agree.
+ARG PMTILES_GRPC_VERSION=1.83.2
 # GOTOOLCHAIN=auto (the default) lets Go honour go-pmtiles' go.mod
 # directive and pull the matching toolchain if the image's Go is
 # older than declared. CGO=0 produces a static binary that runs on
