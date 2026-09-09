@@ -37,20 +37,30 @@ module.exports = {
       },
     ],
   },
-  // `jose` v6 is ESM-only (no CJS build at all) and is reached through
-  // jwks-rsa -> JwtStrategy -> AuthModule -> AppModule. Real Node 22
-  // can `require()` an ESM module, which is why production boots fine;
-  // Jest's CommonJS runtime cannot, and fails with
-  // "SyntaxError: Unexpected token 'export'". Transforming it is the
-  // honest fix. Stubbing it via moduleNameMapper would also go green,
-  // but would mean app.module.spec.ts never loads the real AuthModule,
-  // which is the one module the boot test most needs to exercise.
+  // Two ESM-only dependency trees reach AppModule and so have to be
+  // downleveled for the CommonJS test runtime:
+  //
+  //   jose v6            <- jwks-rsa -> JwtStrategy -> AuthModule
+  //   puppeteer-core v25 <- PrintRenderService -> PrintRenderModule
+  //
+  // Neither ships a CJS build. Node >=22.12 can `require()` an ESM
+  // module, which is why production boots fine; Jest's CommonJS
+  // runtime cannot, and fails with "SyntaxError: Unexpected token
+  // 'export'" or "Cannot use import statement outside a module".
+  // Transforming them is the honest fix. Stubbing via moduleNameMapper
+  // would also go green, but would mean app.module.spec.ts never loads
+  // the real module, and that boot test is the whole point.
+  //
+  // `@puppeteer` and `chromium-bidi` are puppeteer-core's own ESM-only
+  // dependencies that its entry point pulls in eagerly. The rest of
+  // that tree (zod, yargs, modern-tar) is only reached from the
+  // browser-download path we never touch, so it stays untransformed.
   //
   // Read the pattern as "ignore everything under node_modules whose
-  // path does not mention jose". The negative lookahead has to span
-  // the whole remainder because pnpm nests the real package at
+  // path does not mention one of these". The negative lookahead has to
+  // span the whole remainder because pnpm nests the real package at
   // node_modules/.pnpm/jose@6.2.3/node_modules/jose/...: a narrower
   // pattern would still match at the inner node_modules and the file
   // would go untransformed.
-  transformIgnorePatterns: ['node_modules/(?!.*jose)'],
+  transformIgnorePatterns: ['node_modules/(?!.*(jose|puppeteer-core|@puppeteer|chromium-bidi))'],
 };

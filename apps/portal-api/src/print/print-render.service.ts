@@ -6,6 +6,11 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'node:crypto';
+// puppeteer-core has been ESM-only since v25, and this app emits
+// CommonJS. That works only because Node >=22.12 can `require()` an
+// ESM module, which is why the root `engines.node` floor is 22.12.0
+// and not 22. Dropping that floor turns this line into a boot-time
+// ERR_REQUIRE_ESM for the whole API, not just for printing.
 import puppeteer from 'puppeteer-core';
 import {
   resolvePaperInches,
