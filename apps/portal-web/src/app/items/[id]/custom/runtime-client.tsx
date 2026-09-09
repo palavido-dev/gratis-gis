@@ -51,7 +51,7 @@ import {
   ZoomIn as ZoomInIcon,
 } from 'lucide-react';
 import Link from 'next/link';
-import maplibregl from 'maplibre-gl';
+import * as maplibregl from 'maplibre-gl';
 // Recharts is imported as a namespace so the Chart widget can grab
 // the pieces it needs without polluting the top-level import list.
 // The bundler keeps the recharts chunk co-located with the chart

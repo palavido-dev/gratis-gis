@@ -16,7 +16,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type maplibregl from 'maplibre-gl';
+import type * as maplibregl from 'maplibre-gl';
 import { Eye, Loader2, X } from 'lucide-react';
 
 import type { Item, MapLayer } from '@gratis-gis/shared-types';

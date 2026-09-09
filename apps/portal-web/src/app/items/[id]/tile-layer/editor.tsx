@@ -3,8 +3,9 @@
 
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useEffect, useRef, useState } from 'react';
-import maplibregl from 'maplibre-gl';
+import * as maplibregl from 'maplibre-gl';
 import { ensureRasterProtocols } from '@/lib/custom-basemap';
+import { ensureMapLibreWorker } from '@/lib/maplibre-runtime';
 import {
   Check,
   Copy,
@@ -1131,6 +1132,7 @@ function TilePreview({ data }: { data: TileLayerData }) {
       ],
     };
 
+    ensureMapLibreWorker();
     const map = new maplibregl.Map({
       container: containerRef.current,
       style,

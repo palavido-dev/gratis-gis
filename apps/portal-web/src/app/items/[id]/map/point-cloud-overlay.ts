@@ -27,7 +27,7 @@
  * change and loads are slow (network + wasm decode), so without a
  * queue two rapid toggles could double-load a cloud.
  */
-import type maplibregl from 'maplibre-gl';
+import type * as maplibregl from 'maplibre-gl';
 import type { MapLayer } from '@gratis-gis/shared-types';
 import type { LidarControl } from 'maplibre-gl-lidar';
 

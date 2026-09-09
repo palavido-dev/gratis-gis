@@ -22,9 +22,10 @@
  * config-page case.
  */
 import { useEffect, useRef } from 'react';
-import maplibregl from 'maplibre-gl';
+import * as maplibregl from 'maplibre-gl';
 import type { BasemapData } from '@gratis-gis/shared-types';
 import { basemapDataToStyle, ensureRasterProtocols } from '@/lib/custom-basemap';
+import { ensureMapLibreWorker } from '@/lib/maplibre-runtime';
 
 interface Props {
   data: BasemapData;
@@ -69,6 +70,7 @@ export function BasemapPreview({
     const style = basemapDataToStyle(data);
     if (!style) return; // empty data: leave the placeholder visible
     ensureRasterProtocols(); // pmtiles/cog basemaps need the schemes registered (#209)
+    ensureMapLibreWorker();
     const m = new maplibregl.Map({
       container: containerRef.current,
       style: style.kind === 'url' ? style.url : style.style,

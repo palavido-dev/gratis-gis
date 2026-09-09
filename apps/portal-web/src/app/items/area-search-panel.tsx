@@ -3,7 +3,8 @@
 
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useEffect, useRef, useState } from 'react';
-import maplibregl from 'maplibre-gl';
+import * as maplibregl from 'maplibre-gl';
+import { ensureMapLibreWorker } from '@/lib/maplibre-runtime';
 import { Crosshair, MapPin, X } from 'lucide-react';
 import { useT } from '@/lib/i18n/locale-context';
 
@@ -62,6 +63,7 @@ export function AreaSearchPanel({
   // Boot a single map instance for the lifetime of this panel.
   useEffect(() => {
     if (!containerRef.current) return;
+    ensureMapLibreWorker();
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: OSM_STYLE,

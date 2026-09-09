@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { StyleSpecification } from 'maplibre-gl';
-import maplibregl from 'maplibre-gl';
+import * as maplibregl from 'maplibre-gl';
 import { Protocol } from 'pmtiles';
 import type { PMTiles } from 'pmtiles';
-// maplibre-cog-protocol 0.8 (the maplibre-gl@5 build) switched from
-// a default export to a named export; the function itself is the
-// same shape.
+// maplibre-cog-protocol 0.9 is the first build whose peer range admits
+// maplibre-gl 6; 0.8 pinned itself to 4.x/5.x. The named export and the
+// handler shape are unchanged from 0.8.
 import { cogProtocol } from '@geomatico/maplibre-cog-protocol';
 import type { BasemapData } from '@gratis-gis/shared-types';
 import { sanitizeAttributionHtml } from '@gratis-gis/shared-types';
@@ -60,14 +60,16 @@ export function ensureRasterProtocols(): void {
     console.error('failed to register the pmtiles:// map protocol', err);
   }
   try {
-    // The @geomatico plugin exports the handler as the function
-    // itself. MapLibre's addProtocol() typings disagree on the
-    // handler shape across versions, hence the unknown cast.
     // Separate try/catch so one broken plugin cannot block the other.
-    maplibregl.addProtocol(
-      'cog',
-      cogProtocol as unknown as Parameters<typeof maplibregl.addProtocol>[1],
-    );
+    //
+    // The cast this call used to carry is gone: the plugin resolves its
+    // maplibre-gl peer to the very instance this module imports, so its
+    // handler is checked against the same AddProtocolAction rather than
+    // a second copy of the type. It declares only the request
+    // parameters and ignores the abort controller, which is an ordinary
+    // narrowing. Keep it uncast so a future signature change fails the
+    // build instead of reaching the map as a broken scheme.
+    maplibregl.addProtocol('cog', cogProtocol);
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('failed to register the cog:// map protocol', err);

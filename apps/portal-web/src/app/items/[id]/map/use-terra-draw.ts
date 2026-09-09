@@ -42,7 +42,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type maplibregl from 'maplibre-gl';
+import type * as maplibregl from 'maplibre-gl';
 import type { TerraDraw } from 'terra-draw';
 
 /**

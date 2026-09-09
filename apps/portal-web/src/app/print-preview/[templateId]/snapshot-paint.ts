@@ -25,7 +25,7 @@
  * helpers are inlined and marked with a `MIRROR:` comment so the
  * unification work is easy to spot.
  */
-import type maplibregl from 'maplibre-gl';
+import type * as maplibregl from 'maplibre-gl';
 import {
   dashArrayFor,
   type MapLayer,

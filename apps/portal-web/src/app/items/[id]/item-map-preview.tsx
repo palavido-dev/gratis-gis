@@ -3,7 +3,8 @@
 
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useEffect, useRef, useState } from 'react';
-import maplibregl from 'maplibre-gl';
+import * as maplibregl from 'maplibre-gl';
+import { ensureMapLibreWorker } from '@/lib/maplibre-runtime';
 import type { LayerGeometryType } from '@gratis-gis/shared-types';
 import { useT } from '@/lib/i18n/locale-context';
 
@@ -102,6 +103,7 @@ export function ItemMapPreview({ itemId, layers, className }: Props) {
   useEffect(() => {
     const container = containerRef.current;
     if (!container || spatial.length === 0) return;
+    ensureMapLibreWorker();
     let map: maplibregl.Map;
     try {
       map = new maplibregl.Map({
