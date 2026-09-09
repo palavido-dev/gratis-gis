@@ -16,7 +16,11 @@
  * can render a live status without polling.
  */
 
-import type { FeatureField, PickListData } from '@gratis-gis/shared-types';
+import type {
+  FeatureField,
+  OfflineMessage,
+  PickListData,
+} from '@gratis-gis/shared-types';
 import type { FormSchema } from '@gratis-gis/form-schema';
 import {
   type CachedDeployment,
@@ -29,7 +33,6 @@ import {
   putForm,
   putPickList,
 } from './offline-store';
-import { formatBytes } from './format-bytes';
 import {
   estimateTileCount,
   warmTiles,
@@ -64,8 +67,15 @@ export interface DownloadProgress {
     | 'persisting'
     | 'done'
     | 'failed';
-  /** Free-text status line, e.g. "Fetching Nest features (123 so far)". */
-  message: string;
+  /**
+   * Status line, as a code plus params rather than a sentence.
+   *
+   * The download modal renders it live, but the same vocabulary is what
+   * `partial.reasons` persists into the deployment manifest, and that
+   * outlives the download by weeks. One representation for both, turned
+   * into words by `lib/offline-message.ts` at the render site.
+   */
+  message: OfflineMessage;
   /** Estimated total bytes that will be cached. Updated through the
    *  estimating phase; final value lands in the deployment manifest. */
   estimatedSize: number;
@@ -262,7 +272,7 @@ export async function downloadDeployment(
 ): Promise<CachedDeployment> {
   const progress: DownloadProgress = {
     phase: 'estimating',
-    message: 'Estimating download size...',
+    message: { code: 'download.estimating' },
     estimatedSize: 0,
     layerCount: input.layers.length,
     featuresFetched: 0,
@@ -278,15 +288,18 @@ export async function downloadDeployment(
   // number they see now. Real size is computed during persist when we
   // know byte counts.
   progress.estimatedSize = estimateDownloadBytes(input);
-  progress.message = `Estimated ~${formatBytes(progress.estimatedSize)}`;
+  progress.message = {
+    code: 'download.estimated',
+    params: { bytes: progress.estimatedSize },
+  };
   onProgress({ ...progress });
 
   // Everything that did not make it into the cache. Non-empty means
   // the manifest is written as partial rather than as ready, so the
   // badge cannot promise offline coverage the cache does not have.
-  const shortfalls: string[] = [];
+  const shortfalls: OfflineMessage[] = [];
   let outOfSpace = false;
-  const noteShortfall = (what: string, err?: unknown) => {
+  const noteShortfall = (what: OfflineMessage, err?: unknown) => {
     if (isQuotaError(err)) outOfSpace = true;
     shortfalls.push(what);
   };
@@ -309,7 +322,10 @@ export async function downloadDeployment(
   progress.phase = 'fetching-features';
   let totalFeatureBytes = 0;
   for (const layer of input.layers) {
-    progress.message = `Fetching ${layer.layerLabel} features...`;
+    progress.message = {
+      code: 'download.fetchingLayer',
+      params: { layer: layer.layerLabel },
+    };
     onProgress({ ...progress });
     try {
       const url = buildFeatureUrl(
@@ -319,8 +335,15 @@ export async function downloadDeployment(
       );
       const res = await fetch(url);
       if (!res.ok) {
-        noteShortfall(`${layer.layerLabel} (HTTP ${res.status})`);
-        progress.message = `${layer.layerLabel}: HTTP ${res.status}, skipping`;
+        // The same message serves as the live line and as the entry in
+        // the manifest's shortfall list, so the two cannot disagree
+        // about what went wrong with this layer.
+        const failure: OfflineMessage = {
+          code: 'download.layerHttpError',
+          params: { layer: layer.layerLabel, status: res.status },
+        };
+        noteShortfall(failure);
+        progress.message = failure;
         onProgress({ ...progress });
         continue;
       }
@@ -330,8 +353,12 @@ export async function downloadDeployment(
       try {
         body = JSON.parse(text) as { features?: GeoJSON.Feature[] };
       } catch {
-        noteShortfall(`${layer.layerLabel} (malformed response)`);
-        progress.message = `${layer.layerLabel}: malformed response, skipping`;
+        const failure: OfflineMessage = {
+          code: 'download.layerMalformed',
+          params: { layer: layer.layerLabel },
+        };
+        noteShortfall(failure);
+        progress.message = failure;
         onProgress({ ...progress });
         continue;
       }
@@ -358,17 +385,29 @@ export async function downloadDeployment(
       });
       await putFeatures(rows);
       progress.featuresFetched += features.length;
-      progress.message = `${layer.layerLabel}: ${features.length} features cached`;
+      progress.message = {
+        code: 'download.layerCached',
+        params: { layer: layer.layerLabel, count: features.length },
+      };
       onProgress({ ...progress });
     } catch (err) {
       // A single layer failing shouldn't take the whole download down.
       // Surface a warning and move on; the deployment manifest will
       // still record what we did manage to cache.
-      const reason = err instanceof Error ? err.message : String(err);
-      noteShortfall(`${layer.layerLabel} (${reason})`, err);
-      progress.message = isQuotaError(err)
-        ? `${layer.layerLabel}: out of storage space (skipped)`
-        : `${layer.layerLabel}: ${reason} (skipped)`;
+      const failure: OfflineMessage = isQuotaError(err)
+        ? {
+            code: 'download.layerOutOfSpace',
+            params: { layer: layer.layerLabel },
+          }
+        : {
+            code: 'download.layerFailed',
+            params: {
+              layer: layer.layerLabel,
+              error: err instanceof Error ? err.message : String(err),
+            },
+          };
+      noteShortfall(failure, err);
+      progress.message = failure;
       onProgress({ ...progress });
     }
   }
@@ -383,17 +422,21 @@ export async function downloadDeployment(
     ),
   );
   for (const formId of boundFormIds) {
-    progress.message = `Fetching form ${formId.slice(0, 8)}...`;
+    const form = formId.slice(0, 8);
+    progress.message = { code: 'download.fetchingForm', params: { form } };
     onProgress({ ...progress });
     try {
       const res = await fetch(`/api/portal/items/${formId}`);
       if (!res.ok) {
-        noteShortfall(`form ${formId.slice(0, 8)} (HTTP ${res.status})`);
+        noteShortfall({
+          code: 'download.formHttpError',
+          params: { form, status: res.status },
+        });
         continue;
       }
       const item = (await res.json()) as { data?: FormSchema };
       if (!item.data) {
-        noteShortfall(`form ${formId.slice(0, 8)} (no schema)`);
+        noteShortfall({ code: 'download.formNoSchema', params: { form } });
         continue;
       }
       await putForm({
@@ -408,24 +451,34 @@ export async function downloadDeployment(
       // the missing bindings, so this is a shortfall rather than a
       // failure. It is not nothing, though: the collector gets a
       // different form offline than online, which is worth recording.
-      noteShortfall(`form ${formId.slice(0, 8)}`, err);
+      noteShortfall({ code: 'download.formFailed', params: { form } }, err);
     }
   }
 
   // Fetch pick lists.
   progress.phase = 'fetching-picklists';
   for (const pickListId of input.pickListIds) {
-    progress.message = `Fetching pick list ${pickListId.slice(0, 8)}...`;
+    const pickList = pickListId.slice(0, 8);
+    progress.message = {
+      code: 'download.fetchingPickList',
+      params: { pickList },
+    };
     onProgress({ ...progress });
     try {
       const res = await fetch(`/api/portal/items/${pickListId}`);
       if (!res.ok) {
-        noteShortfall(`pick list ${pickListId.slice(0, 8)} (HTTP ${res.status})`);
+        noteShortfall({
+          code: 'download.pickListHttpError',
+          params: { pickList, status: res.status },
+        });
         continue;
       }
       const item = (await res.json()) as { data?: PickListData };
       if (!item.data) {
-        noteShortfall(`pick list ${pickListId.slice(0, 8)} (no data)`);
+        noteShortfall({
+          code: 'download.pickListNoData',
+          params: { pickList },
+        });
         continue;
       }
       await putPickList({
@@ -438,7 +491,10 @@ export async function downloadDeployment(
     } catch (err) {
       // A missing pick list means a choice field offline renders with
       // no choices, which stops a collector mid-form. Recorded.
-      noteShortfall(`pick list ${pickListId.slice(0, 8)}`, err);
+      noteShortfall(
+        { code: 'download.pickListFailed', params: { pickList } },
+        err,
+      );
     }
   }
 
@@ -461,9 +517,15 @@ export async function downloadDeployment(
     const count = input.preparedPackages.length;
     for (let i = 0; i < count; i += 1) {
       const pkg = input.preparedPackages[i]!;
-      const label =
-        count === 1 ? 'Downloading the map' : `Downloading map ${i + 1} of ${count}`;
-      progress.message = `${label}...`;
+      // A deployment with one prepared area should not read "map 1 of
+      // 1", and the i18n runtime cannot nest a placeholder inside a
+      // plural case, so the two shapes are separate codes rather than
+      // one message with a count.
+      const index = i + 1;
+      const only = count === 1;
+      progress.message = only
+        ? { code: 'download.basemapOne' }
+        : { code: 'download.basemapNth', params: { index, count } };
       onProgress({ ...progress });
       try {
         await downloadOfflineBasemap(
@@ -471,9 +533,25 @@ export async function downloadDeployment(
           pkg.areaId,
           pkg.packageId,
           (p) => {
-            progress.message = p.totalBytes
-              ? `${label}: ${Math.round((p.receivedBytes / p.totalBytes) * 100)}%`
-              : `${label}: ${(p.receivedBytes / 1024 / 1024).toFixed(1)} MB`;
+            if (p.totalBytes) {
+              const percent = Math.round((p.receivedBytes / p.totalBytes) * 100);
+              progress.message = only
+                ? { code: 'download.basemapOnePercent', params: { percent } }
+                : {
+                    code: 'download.basemapNthPercent',
+                    params: { index, count, percent },
+                  };
+            } else {
+              // No Content-Length: report what has arrived instead of a
+              // percentage of an unknown total.
+              const megabytes = (p.receivedBytes / 1024 / 1024).toFixed(1);
+              progress.message = only
+                ? { code: 'download.basemapOneMegabytes', params: { megabytes } }
+                : {
+                    code: 'download.basemapNthMegabytes',
+                    params: { index, count, megabytes },
+                  };
+            }
             onProgress({ ...progress });
           },
           signal,
@@ -491,12 +569,21 @@ export async function downloadDeployment(
         // losing the whole run. It is still a hole in the cache: a
         // map that does not draw is the most visible way for a
         // collector to discover their download was incomplete.
-        noteShortfall(`basemap for area ${pkg.areaId.slice(0, 8)}`, err);
+        noteShortfall(
+          {
+            code: 'download.basemapAreaMissing',
+            params: { area: pkg.areaId.slice(0, 8) },
+          },
+          err,
+        );
         progress.message = isQuotaError(err)
-          ? 'Map download failed: out of storage space'
-          : `Map download failed: ${
-              err instanceof Error ? err.message : String(err)
-            }`;
+          ? { code: 'download.basemapOutOfSpace' }
+          : {
+              code: 'download.basemapFailed',
+              params: {
+                error: err instanceof Error ? err.message : String(err),
+              },
+            };
         onProgress({ ...progress });
       }
     }
@@ -506,7 +593,7 @@ export async function downloadDeployment(
     input.bbox
   ) {
     progress.phase = 'caching-tiles';
-    progress.message = 'Caching basemap tiles...';
+    progress.message = { code: 'download.cachingTiles' };
     onProgress({ ...progress });
     try {
       const warmResult = await warmTiles(
@@ -518,7 +605,10 @@ export async function downloadDeployment(
         (p) => {
           progress.tilesFetched = p.fetched;
           progress.tilesTotal = p.total;
-          progress.message = `Caching tiles: ${p.fetched}/${p.total}`;
+          progress.message = {
+            code: 'download.tilesProgress',
+            params: { fetched: p.fetched, total: p.total },
+          };
           onProgress({ ...progress });
         },
         signal,
@@ -537,12 +627,20 @@ export async function downloadDeployment(
       const refused = warmResult.refused ?? [];
       if (refused.length > 0 && warmResult.total === 0) {
         progress.blockedTileSources = refused;
-        progress.message =
-          refused[0]?.reason ??
-          'The basemap provider does not allow offline downloads.';
+        // The provider's own sentence, worded by the tile-prefetch
+        // policy table. Carried as a param rather than restated,
+        // because only that table knows which provider said no and what
+        // the reader can do about it.
+        const reason = refused[0]?.reason;
+        progress.message = reason
+          ? { code: 'download.tilesRefused', params: { reason } }
+          : { code: 'download.tilesRefusedGeneric' };
       } else {
         if (refused.length > 0) progress.blockedTileSources = refused;
-        progress.message = `Cached ${warmResult.fetched} tiles (${warmResult.failed} failed)`;
+        progress.message = {
+          code: 'download.tilesCached',
+          params: { fetched: warmResult.fetched, failed: warmResult.failed },
+        };
       }
       // Tiles that did not land mean a basemap with holes in it, so
       // the manifest should not read as fully cached. A provider
@@ -551,19 +649,25 @@ export async function downloadDeployment(
       // the whole deployment partial for it would cry wolf on every
       // download that uses a public basemap.
       if (warmResult.failed > 0) {
-        noteShortfall(`${warmResult.failed} basemap tiles`);
+        noteShortfall({
+          code: 'download.tilesMissing',
+          params: { count: warmResult.failed },
+        });
       }
       onProgress({ ...progress });
     } catch (err) {
       // Tile-warming is best-effort; a failure here doesn't void
       // the rest of the cache. Surface the message so the user
       // knows tiles may be incomplete, then continue to persist.
-      noteShortfall('basemap tiles', err);
+      noteShortfall({ code: 'download.tilesMissingAll' }, err);
       progress.message = isQuotaError(err)
-        ? 'Tile cache: out of storage space (continuing)'
-        : `Tile cache: ${
-            err instanceof Error ? err.message : 'failed'
-          } (continuing)`;
+        ? { code: 'download.tilesOutOfSpace' }
+        : {
+            code: 'download.tilesFailed',
+            params: {
+              error: err instanceof Error ? err.message : 'failed',
+            },
+          };
       onProgress({ ...progress });
     }
   }
@@ -579,7 +683,7 @@ export async function downloadDeployment(
   // for the offline indicator; the field runtime reads it to decide
   // whether to show "cached on Apr 30" vs "Download for offline".
   progress.phase = 'persisting';
-  progress.message = 'Saving deployment manifest...';
+  progress.message = { code: 'download.saving' };
   onProgress({ ...progress });
 
   const manifest: CachedDeployment = {
@@ -603,44 +707,33 @@ export async function downloadDeployment(
   await putDeployment(manifest);
 
   progress.phase = 'done';
-  // Lead with the layer count so the summary reads as "yes, this
-  // worked" even when the data_layer is fresh and has zero
-  // features yet. The breakdown is parenthesised secondary detail.
-  // Empty deployment case: a brand-new layer with nothing in it
-  // still gets cached (schema, form, picklists, tiles), so the
-  // collector can start adding features in the field. The old
-  // "Cached 0 features, 0 forms, 0 picklists" copy made it look
-  // like the download was a no-op.
-  const layerWord = progress.layerCount === 1 ? 'layer' : 'layers';
-  const detail: string[] = [];
-  if (progress.featuresFetched > 0) {
-    const w = progress.featuresFetched === 1 ? 'feature' : 'features';
-    detail.push(`${progress.featuresFetched} ${w}`);
-  }
-  if (progress.formsFetched > 0) {
-    const w = progress.formsFetched === 1 ? 'form' : 'forms';
-    detail.push(`${progress.formsFetched} ${w}`);
-  }
-  if (progress.pickListsFetched > 0) {
-    const w = progress.pickListsFetched === 1 ? 'pick list' : 'pick lists';
-    detail.push(`${progress.pickListsFetched} ${w}`);
-  }
-  const summary =
-    detail.length > 0
-      ? `Cached ${progress.layerCount} ${layerWord} (${detail.join(', ')}).`
-      : `Cached ${progress.layerCount} ${layerWord}. Sync stays current as features are added.`;
-  if (shortfalls.length > 0) {
-    // Lead with what is missing. The collector is about to decide
-    // whether to leave signal on the strength of this line, so
-    // burying the gap after the good news is the wrong order.
-    const missing = shortfalls.slice(0, 3).join(', ');
-    const more =
-      shortfalls.length > 3 ? ` and ${shortfalls.length - 3} more` : '';
-    progress.message = outOfSpace
-      ? `Partly cached: ran out of storage space. Missing ${missing}${more}. Free up space and download again.`
-      : `Partly cached. Missing ${missing}${more}. ${summary}`;
+  // The summary carries the counts; which of them are worth naming, and
+  // in what words, is decided by the renderer. That is why a run with
+  // zero features still reports a layer count rather than the old
+  // "Cached 0 features, 0 forms, 0 picklists", which read like a
+  // download that did nothing.
+  //
+  // A run with holes in it leads with what is missing: the collector is
+  // about to decide whether to leave signal on the strength of this
+  // line, so burying the gap after the good news is the wrong order.
+  const counts = {
+    layers: progress.layerCount,
+    features: progress.featuresFetched,
+    forms: progress.formsFetched,
+    pickLists: progress.pickListsFetched,
+  };
+  if (shortfalls.length > 0 && outOfSpace) {
+    progress.message = {
+      code: 'download.donePartialOutOfSpace',
+      params: { missing: shortfalls },
+    };
+  } else if (shortfalls.length > 0) {
+    progress.message = {
+      code: 'download.donePartial',
+      params: { ...counts, missing: shortfalls },
+    };
   } else {
-    progress.message = summary;
+    progress.message = { code: 'download.done', params: counts };
   }
   progress.estimatedSize = totalFeatureBytes;
   onProgress({ ...progress });

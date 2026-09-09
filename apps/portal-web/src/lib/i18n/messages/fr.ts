@@ -368,7 +368,7 @@ export const fr: Partial<CatalogShape> = {
       "Ce téléchargement a besoin d'environ {needed} et il manque ~{short}. Libérez des déploiements en cache ou de l'espace sur l'appareil, ou réduisez le niveau de détail, puis réessayez.",
     identityTitle: "Travail non synchronisé d'un autre compte",
     identityBody:
-      "Cet appareil contient {records, plural, =0 {aucun enregistrement} one {# enregistrement non synchronisé} other {# enregistrements non synchronisés}} et {files, plural, =0 {aucune photo} one {# photo} other {# photos}} capturés par un autre compte. Ils n'ont pas atteint le serveur.",
+      "Cet appareil contient {records, plural, one {# enregistrement non synchronisé} other {# enregistrements non synchronisés}} et {files, plural, one {# photo} other {# photos}} capturés par un autre compte. Ils n'ont pas atteint le serveur.",
     identityKeepExplain:
       'Si vous les gardez ici, ils restent en attente sur cet appareil, hors de vos compteurs de synchronisation, et sont envoyés quand ce compte se reconnecte.',
     identityRemoveExplain:
@@ -382,6 +382,85 @@ export const fr: Partial<CatalogShape> = {
       '{count, plural, one {# modification non synchronisée sera perdue.} other {# modifications non synchronisées seront perdues.}}',
     removeWillLoseOthers:
       "{count, plural, one {# d'entre elles appartient à un autre compte.} other {# d'entre elles appartiennent à un autre compte.}}",
+  },
+  offlineMessage: {
+    unknown:
+      'Cet appareil a signalé quelque chose que ce portail ne reconnaît pas ({code}).',
+    download: {
+      estimating: 'Estimation de la taille du téléchargement...',
+      estimated: 'Estimé à ~{size}',
+      fetchingLayer: 'Récupération des entités de {layer}...',
+      layerCached:
+        '{layer} : {count, plural, one {# entité mise en cache} other {# entités mises en cache}}',
+      layerHttpError: '{layer} a échoué avec le code HTTP {status}',
+      layerMalformed: '{layer} a renvoyé une réponse mal formée',
+      layerOutOfSpace: "{layer} n'a plus d'espace de stockage",
+      layerFailed: '{layer} a échoué : {error}',
+      fetchingForm: 'Récupération du formulaire {form}...',
+      formHttpError: 'le formulaire {form} a échoué avec le code HTTP {status}',
+      formNoSchema: "le formulaire {form}, qui n'a pas de schéma",
+      formFailed: 'le formulaire {form}',
+      fetchingPickList: 'Récupération de la liste de valeurs {pickList}...',
+      pickListHttpError:
+        'la liste de valeurs {pickList} a échoué avec le code HTTP {status}',
+      pickListNoData: "la liste de valeurs {pickList}, qui n'a pas de données",
+      pickListFailed: 'la liste de valeurs {pickList}',
+      basemapOne: 'Téléchargement de la carte...',
+      basemapNth: 'Téléchargement de la carte {index} sur {count}...',
+      basemapOnePercent: 'Téléchargement de la carte : {percent} %',
+      basemapNthPercent:
+        'Téléchargement de la carte {index} sur {count} : {percent} %',
+      basemapOneMegabytes: 'Téléchargement de la carte : {megabytes} Mo',
+      basemapNthMegabytes:
+        'Téléchargement de la carte {index} sur {count} : {megabytes} Mo',
+      basemapOutOfSpace:
+        "Échec du téléchargement de la carte : plus d'espace de stockage",
+      basemapFailed: 'Échec du téléchargement de la carte : {error}',
+      basemapAreaMissing: 'la carte de la zone {area}',
+      cachingTiles: 'Mise en cache des tuiles du fond de carte...',
+      tilesProgress: 'Mise en cache des tuiles : {fetched}/{total}',
+      tilesRefused: '{reason}',
+      tilesRefusedGeneric:
+        'Le fournisseur du fond de carte ne permet pas les téléchargements hors ligne.',
+      tilesCached: '{fetched} tuiles mises en cache ({failed} en échec)',
+      tilesOutOfSpace:
+        "Cache de tuiles : plus d'espace de stockage (poursuite en cours)",
+      tilesFailed: 'Cache de tuiles : {error} (poursuite en cours)',
+      tilesMissing:
+        '{count, plural, one {# tuile du fond de carte} other {# tuiles du fond de carte}}',
+      tilesMissingAll: 'les tuiles du fond de carte',
+      saving: 'Enregistrement du manifeste du déploiement...',
+      layers: '{count, plural, one {# couche} other {# couches}}',
+      detailFeatures: '{count, plural, one {# entité} other {# entités}}',
+      detailForms: '{count, plural, one {# formulaire} other {# formulaires}}',
+      detailPickLists:
+        '{count, plural, one {# liste de valeurs} other {# listes de valeurs}}',
+      done: '{layers} mises en cache ({detail}).',
+      doneEmpty:
+        '{layers} mises en cache. La synchronisation reste à jour au fur et à mesure que des entités sont ajoutées.',
+      donePartial: 'Incomplet. Non téléchargé : {missing}. {summary}',
+      donePartialOutOfSpace:
+        "Incomplet : plus d'espace de stockage. Non téléchargé : {missing}. Libérez de l'espace et téléchargez à nouveau.",
+      missingMore: '{missing} et {count} de plus',
+      failed: 'Échec du téléchargement',
+    },
+    sync: {
+      networkUnavailable: 'Pas de connexion.',
+      networkUnavailableDetail: 'Pas de connexion : {error}',
+      unknownOp:
+        "Cette modification utilise une opération que cette version de l'application ne connaît pas ({op}).",
+      fileTooLarge:
+        '{fileName} pèse {sizeMb} Mo et la limite est de {limitMb} Mo.',
+      serverRefused: '{serverMessage}',
+      serverRefusedWithStatus: '{serverMessage} ({status})',
+      requestFailed: "Le serveur n'a pas accepté cette modification ({status}).",
+      attachmentPresignFailed:
+        "Impossible de démarrer l'envoi du fichier ({status}).",
+      attachmentUploadFailed: "Impossible d'envoyer le fichier ({status}).",
+      attachmentRegisterFailed:
+        "Le fichier a été envoyé mais le portail ne l'a pas enregistré ({status}).",
+      unexpected: "Une erreur s'est produite : {error}",
+    },
   },
   signOut: {
     unsyncedTitle: 'Se déconnecter avec du travail non synchronisé ?',

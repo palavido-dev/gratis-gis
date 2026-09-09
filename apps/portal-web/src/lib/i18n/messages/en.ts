@@ -419,6 +419,97 @@ export const en = {
     removeWillLoseOthers:
       '{count, plural, one {# of them belongs to another account.} other {# of them belong to another account.}}',
   },
+  // Every sentence the offline download manager and the two queue
+  // drains can produce, keyed by the code they persist instead of the
+  // English they used to write (packages/shared-types/offline-message).
+  // A row captured on one device is read back on another, days later,
+  // by somebody else: rendering happens here, not where the row was
+  // written. Keys mirror the codes exactly; offline-message.spec.ts
+  // renders all of them and fails on a leftover placeholder.
+  offlineMessage: {
+    unknown:
+      'This device reported something this portal does not recognise ({code}).',
+    download: {
+      estimating: 'Estimating download size...',
+      estimated: 'Estimated ~{size}',
+      fetchingLayer: 'Fetching {layer} features...',
+      layerCached:
+        '{layer}: {count, plural, one {# feature} other {# features}} cached',
+      // The layer, form, pick list and tile lines below are read in two
+      // places: as the live progress line, and as one entry in the
+      // "Not downloaded: ..." list a collector reads before leaving
+      // signal. They are phrased to work in both.
+      layerHttpError: '{layer} failed with HTTP {status}',
+      layerMalformed: '{layer} sent a malformed response',
+      layerOutOfSpace: '{layer} ran out of storage space',
+      layerFailed: '{layer} failed: {error}',
+      fetchingForm: 'Fetching form {form}...',
+      formHttpError: 'form {form} failed with HTTP {status}',
+      formNoSchema: 'form {form}, which has no schema',
+      formFailed: 'form {form}',
+      fetchingPickList: 'Fetching pick list {pickList}...',
+      pickListHttpError: 'pick list {pickList} failed with HTTP {status}',
+      pickListNoData: 'pick list {pickList}, which has no data',
+      pickListFailed: 'pick list {pickList}',
+      basemapOne: 'Downloading the map...',
+      basemapNth: 'Downloading map {index} of {count}...',
+      basemapOnePercent: 'Downloading the map: {percent}%',
+      basemapNthPercent: 'Downloading map {index} of {count}: {percent}%',
+      basemapOneMegabytes: 'Downloading the map: {megabytes} MB',
+      basemapNthMegabytes: 'Downloading map {index} of {count}: {megabytes} MB',
+      basemapOutOfSpace: 'Map download failed: out of storage space',
+      basemapFailed: 'Map download failed: {error}',
+      basemapAreaMissing: 'the map for area {area}',
+      cachingTiles: 'Caching basemap tiles...',
+      tilesProgress: 'Caching tiles: {fetched}/{total}',
+      // The provider's own rule, worded by the tile-prefetch policy
+      // table. Passed through rather than restated: the sentence names
+      // the provider and what to do instead, and only that table knows.
+      tilesRefused: '{reason}',
+      tilesRefusedGeneric:
+        'The basemap provider does not allow offline downloads.',
+      tilesCached: 'Cached {fetched} tiles ({failed} failed)',
+      tilesOutOfSpace: 'Tile cache: out of storage space (continuing)',
+      tilesFailed: 'Tile cache: {error} (continuing)',
+      tilesMissing:
+        '{count, plural, one {# basemap tile} other {# basemap tiles}}',
+      tilesMissingAll: 'the basemap tiles',
+      saving: 'Saving deployment manifest...',
+      layers: '{count, plural, one {# layer} other {# layers}}',
+      detailFeatures: '{count, plural, one {# feature} other {# features}}',
+      detailForms: '{count, plural, one {# form} other {# forms}}',
+      detailPickLists: '{count, plural, one {# pick list} other {# pick lists}}',
+      // Layers lead so a brand-new deployment with nothing in it still
+      // reads as a download that worked.
+      done: 'Cached {layers} ({detail}).',
+      doneEmpty: 'Cached {layers}. Sync stays current as features are added.',
+      donePartial: 'Incomplete. Not downloaded: {missing}. {summary}',
+      donePartialOutOfSpace:
+        'Incomplete: ran out of storage space. Not downloaded: {missing}. Free up space and download again.',
+      missingMore: '{missing} and {count} more',
+      // The run threw rather than reporting a shortfall. The thrown
+      // detail goes in DownloadProgress.error beside this line.
+      failed: 'Download failed',
+    },
+    sync: {
+      networkUnavailable: 'No connection.',
+      networkUnavailableDetail: 'No connection: {error}',
+      unknownOp:
+        'This edit uses an operation this version of the app does not know ({op}).',
+      fileTooLarge: '{fileName} is {sizeMb} MB and the limit is {limitMb} MB.',
+      // The server chose these words, and they name the field and what
+      // it would not accept. No client can translate them, so they are
+      // carried through rather than replaced with something vaguer.
+      serverRefused: '{serverMessage}',
+      serverRefusedWithStatus: '{serverMessage} ({status})',
+      requestFailed: 'The server did not accept this edit ({status}).',
+      attachmentPresignFailed: 'Could not start the file upload ({status}).',
+      attachmentUploadFailed: 'Could not upload the file ({status}).',
+      attachmentRegisterFailed:
+        'The file uploaded but the portal did not record it ({status}).',
+      unexpected: 'Something went wrong: {error}',
+    },
+  },
   // Signing out while this device still holds work nobody else can
   // send.
   signOut: {

@@ -25,7 +25,7 @@
  *
  *   - **Retry policy.** A transient failure (network, 5xx, expired
  *     session, rate limit) marks the record 'failed', keeping its
- *     failureReason + retryCount, and the next sync run picks it up
+ *     failure reason + retryCount, and the next sync run picks it up
  *     again. A deterministic refusal (validator 400, sharing 403, a
  *     409, and other 4xx) marks it 'rejected' instead: the same bytes
  *     would get the same answer, so no drain retries it. The runtime
@@ -53,7 +53,8 @@
  *   - **No conflict resolution UI here.** That belongs to the runtime
  *     (it has the FormRuntime, the user, and the original record's
  *     view of the world). This module surfaces failures via
- *     QueueRecord.failureReason; the runtime renders them.
+ *     QueueRecord.failure, as a code rather than a sentence, and the
+ *     runtime turns it into words in the reader's language.
  *
  *   - **Rows belong to the account that captured them.** The drain
  *     runs as `currentUserId` and sees only rows that account owns,
@@ -87,12 +88,13 @@ import {
   type PendingBlob,
   type QueueRecord,
 } from './offline-store';
-import { parseApiError } from './api-error';
+import { parseApiErrorDetail } from './api-error';
 import {
   isQueueRowClaimable,
   isQueueRowOwnedBy,
   queueChainHeads,
   replayOutcomeForStatus,
+  type OfflineMessage,
 } from '@gratis-gis/shared-types';
 
 /**
@@ -112,9 +114,28 @@ export interface SyncResult {
     recordId: string;
     op: QueueRecord['op'];
     layerLabel: string;
-    reason: string;
+    reason: OfflineMessage;
     terminal: boolean;
   }>;
+}
+
+/**
+ * A replay failure, carrying the structured reason that will be written
+ * to the row and rendered later, possibly on a different device by a
+ * different person in a different language.
+ *
+ * `Error.message` holds the code rather than a sentence: nothing reads
+ * it except a console trace, and putting English there would be the
+ * same mistake one indirection down.
+ */
+class ReplayFailure extends Error {
+  readonly offline: OfflineMessage;
+
+  constructor(offline: OfflineMessage) {
+    super(offline.code);
+    this.offline = offline;
+    this.name = 'ReplayFailure';
+  }
 }
 
 /**
@@ -122,9 +143,9 @@ export interface SyncResult {
  * reason a retry cannot change. syncQueue parks the row instead of
  * marking it failed.
  */
-class ReplayRejected extends Error {
-  constructor(message: string) {
-    super(message);
+class ReplayRejected extends ReplayFailure {
+  constructor(offline: OfflineMessage) {
+    super(offline);
     this.name = 'ReplayRejected';
   }
 }
@@ -135,9 +156,9 @@ class ReplayRejected extends Error {
  * coverage. Distinct from an HTTP failure because it must not count
  * against the row's retry budget; see the handler in syncQueue.
  */
-class ReplayUnreachable extends Error {
-  constructor(message: string) {
-    super(message);
+class ReplayUnreachable extends ReplayFailure {
+  constructor(offline: OfflineMessage) {
+    super(offline);
     this.name = 'ReplayUnreachable';
   }
 }
@@ -153,10 +174,24 @@ async function replayFetch(
   } catch (err) {
     throw new ReplayUnreachable(
       err instanceof Error && err.message
-        ? `Network unavailable: ${err.message}`
-        : 'Network unavailable',
+        ? {
+            code: 'sync.networkUnavailableDetail',
+            params: { error: err.message },
+          }
+        : { code: 'sync.networkUnavailable' },
     );
   }
+}
+
+/** The reason to record for something thrown that is not one of ours:
+ *  an IndexedDB write refused mid-drain, say. There is no code for it
+ *  because this build did not expect it, so the text is carried as is
+ *  rather than reduced to "sync failed". */
+function unexpectedReason(err: unknown): OfflineMessage {
+  return {
+    code: 'sync.unexpected',
+    params: { error: err instanceof Error ? err.message : String(err) },
+  };
 }
 
 /**
@@ -240,7 +275,8 @@ export async function syncQueue(
       await deleteQueueRecord(record.dataCollectionId, record.id);
       result.synced += 1;
     } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
+      const reason =
+        err instanceof ReplayFailure ? err.offline : unexpectedReason(err);
       if (err instanceof ReplayUnreachable) {
         // fetch itself threw: the radio is down or we are at the edge
         // of coverage. That is not the row's fault, so it does NOT
@@ -269,7 +305,7 @@ export async function syncQueue(
       await updateQueueRecord({
         ...record,
         syncStatus: terminal ? 'rejected' : 'failed',
-        failureReason: reason,
+        failure: reason,
         retryCount: (record.retryCount ?? 0) + 1,
         // Stamped so the backoff has something to measure from. The
         // claim already wrote one; re-stamping here keeps the wait
@@ -400,7 +436,7 @@ async function replayRecord(
         ],
       }),
     });
-    await throwIfNotOk(res, 'POST', r.op);
+    await throwIfNotOk(res, 'feature', r.op);
     // The feature exists now, so anything captured against it can go.
     await uploadPendingBlobsForFeature(r, currentUserId);
     return;
@@ -414,7 +450,7 @@ async function replayRecord(
         ...(r.geometry !== null ? { geometry: r.geometry } : {}),
       }),
     });
-    await throwIfNotOk(res, 'PATCH', r.op);
+    await throwIfNotOk(res, 'feature', r.op);
     // An edit can carry new photos too: the collector opens a record
     // they captured earlier and adds the shot they could not get on
     // the first visit.
@@ -428,7 +464,7 @@ async function replayRecord(
     // A 404 here is classified as done by replayOutcomeForStatus: the
     // feature is already gone server-side (perhaps because a prior
     // sync succeeded but its response was lost).
-    await throwIfNotOk(res, 'DELETE', r.op);
+    await throwIfNotOk(res, 'feature', r.op);
     // The feature is gone, so its captured files have nowhere to be
     // attached. Dropping them is the only option that does not leak
     // the largest rows in the database forever.
@@ -443,7 +479,10 @@ async function replayRecord(
   // Unknown op (the type union is exhausted above, so only a row
   // written by a newer client could get here). Park it: retrying
   // cannot teach this build a new op.
-  throw new ReplayRejected(`Unknown queue op: ${(r as { op: string }).op}`);
+  throw new ReplayRejected({
+    code: 'sync.unknownOp',
+    params: { op: String((r as { op: string }).op) },
+  });
 }
 
 /**
@@ -576,7 +615,7 @@ async function uploadOneBlob(
       sizeBytes: file.blob.size,
     }),
   });
-  await throwIfNotOk(presignRes, 'Attachment presign', op);
+  await throwIfNotOk(presignRes, 'attachment-presign', op);
   const presign = (await presignRes.json()) as {
     uploadUrl: string;
     publicUrl: string;
@@ -587,11 +626,14 @@ async function uploadOneBlob(
     // Deterministic: the same bytes will be too large forever, so
     // park the row rather than retrying a file the server will never
     // take. The collector can delete it and re-shoot smaller.
-    throw new ReplayRejected(
-      `${file.fileName} is ${(file.sizeBytes / 1024 / 1024).toFixed(
-        1,
-      )} MB and the limit is ${(presign.maxBytes / 1024 / 1024).toFixed(0)} MB.`,
-    );
+    throw new ReplayRejected({
+      code: 'sync.fileTooLarge',
+      params: {
+        fileName: file.fileName,
+        sizeMb: (file.sizeBytes / 1024 / 1024).toFixed(1),
+        limitMb: (presign.maxBytes / 1024 / 1024).toFixed(0),
+      },
+    });
   }
 
   const putRes = await replayFetch(presign.uploadUrl, {
@@ -599,7 +641,7 @@ async function uploadOneBlob(
     headers: { 'content-type': file.mimeType || 'application/octet-stream' },
     body: file.blob,
   });
-  await throwIfNotOk(putRes, 'Attachment upload', op);
+  await throwIfNotOk(putRes, 'attachment-upload', op);
 
   const registerRes = await replayFetch(
     `/api/portal/items/${ref.dataLayerId}/layers/${encodeURIComponent(
@@ -617,23 +659,64 @@ async function uploadOneBlob(
       }),
     },
   );
-  await throwIfNotOk(registerRes, 'Attachment register', op);
+  await throwIfNotOk(registerRes, 'attachment-register', op);
+}
+
+/**
+ * Which request failed, for the case where the server said nothing
+ * useful about why.
+ *
+ * The three feature ops share one code because the row already records
+ * which of them it was. The three attachment steps do not: "the file
+ * uploaded but the portal never recorded it" is a different problem
+ * from "the upload never started", and that difference is exactly what
+ * the person looking at a stuck photo needs.
+ */
+type ReplayStep =
+  | 'feature'
+  | 'attachment-presign'
+  | 'attachment-upload'
+  | 'attachment-register';
+
+function stepFailure(step: ReplayStep, status: number): OfflineMessage {
+  switch (step) {
+    case 'attachment-presign':
+      return { code: 'sync.attachmentPresignFailed', params: { status } };
+    case 'attachment-upload':
+      return { code: 'sync.attachmentUploadFailed', params: { status } };
+    case 'attachment-register':
+      return { code: 'sync.attachmentRegisterFailed', params: { status } };
+    default:
+      return { code: 'sync.requestFailed', params: { status } };
+  }
 }
 
 async function throwIfNotOk(
   res: Response,
-  verb: string,
+  step: ReplayStep,
   op: QueueRecord['op'],
 ): Promise<void> {
   const outcome = replayOutcomeForStatus(res.status, op);
   if (outcome === 'done') return;
-  // The message lands in the queue row's failureReason and on the
-  // sync screen. A refused write now usually means the schema
-  // validator said no, and its sentence names the field; the raw JSON
-  // envelope around it does not help anyone in the field.
-  const reason = await parseApiError(res, `${verb} failed`);
+  // The reason lands on the queue row and on the sync screen. A refused
+  // write usually means the schema validator said no, and its sentence
+  // names the field; it is carried through as `serverMessage` because
+  // the server chose those words and no client can translate them. The
+  // raw JSON envelope around it never helped anyone in the field.
+  const detail = await parseApiErrorDetail(res);
+  let reason: OfflineMessage;
+  if (detail.kind === 'message') {
+    reason = { code: 'sync.serverRefused', params: { serverMessage: detail.text } };
+  } else if (detail.kind === 'body') {
+    reason = {
+      code: 'sync.serverRefusedWithStatus',
+      params: { serverMessage: detail.text, status: res.status },
+    };
+  } else {
+    reason = stepFailure(step, res.status);
+  }
   if (outcome === 'rejected') throw new ReplayRejected(reason);
-  throw new Error(reason);
+  throw new ReplayFailure(reason);
 }
 
 /**

@@ -13,6 +13,7 @@
  */
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
+import type { OfflineMessage } from '@gratis-gis/shared-types';
 
 import {
   enqueueEdit,
@@ -118,17 +119,21 @@ describe('syncQueue: network failure', () => {
     // The claim stamped a lastAttemptAt; restoring the pre-claim row
     // discards it, which is the whole point.
     expect(row!.lastAttemptAt).toBeUndefined();
-    expect(row!.failureReason).toBeUndefined();
+    expect(row!.failure).toBeUndefined();
   });
 
   it('keeps a previously failed row failed, with its count intact', async () => {
     await enqueueEdit(edit());
     const [row] = await listQueue(DC, USER);
+    const priorFailure: OfflineMessage = {
+      code: 'sync.requestFailed',
+      params: { status: 500 },
+    };
     await updateQueueRecord({
       ...row!,
       syncStatus: 'failed',
       retryCount: 2,
-      failureReason: 'POST failed (500).',
+      failure: priorFailure,
     });
     fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
 
@@ -137,7 +142,7 @@ describe('syncQueue: network failure', () => {
     const [after] = await listQueue(DC, USER);
     expect(after!.syncStatus).toBe('failed');
     expect(after!.retryCount).toBe(2);
-    expect(after!.failureReason).toBe('POST failed (500).');
+    expect(after!.failure).toEqual(priorFailure);
   });
 });
 
@@ -159,11 +164,14 @@ describe('syncQueue: HTTP failure', () => {
     const [row] = await listQueue(DC, USER);
     expect(row!.syncStatus).toBe('rejected');
     expect(row!.retryCount).toBe(1);
-    // The sentence, not the JSON envelope around it: this lands on
-    // the sync screen in front of a person in the field.
-    expect(row!.failureReason).toBe(
-      'Depth must be a number. Species is required.',
-    );
+    // The server's sentence, not the JSON envelope around it, and
+    // carried as a param rather than folded into English the drain
+    // composed: the validator chose those words and this row is read
+    // back later, possibly by somebody who does not read English.
+    expect(row!.failure).toEqual({
+      code: 'sync.serverRefused',
+      params: { serverMessage: 'Depth must be a number. Species is required.' },
+    });
   });
 
   it('keeps a server error retryable and counts the attempt', async () => {
@@ -177,7 +185,10 @@ describe('syncQueue: HTTP failure', () => {
     const [row] = await listQueue(DC, USER);
     expect(row!.syncStatus).toBe('failed');
     expect(row!.retryCount).toBe(1);
-    expect(row!.failureReason).toBe('POST failed (500). boom');
+    expect(row!.failure).toEqual({
+      code: 'sync.serverRefusedWithStatus',
+      params: { serverMessage: 'boom', status: 500 },
+    });
     // Stamped so the backoff has something to measure from.
     expect(typeof row!.lastAttemptAt).toBe('string');
   });
@@ -305,9 +316,17 @@ describe('uploadPendingBlobsForFeature', () => {
       .mockResolvedValueOnce(new Response('', { status: 200 })) // PUT
       .mockResolvedValueOnce(new Response('down', { status: 503 })); // register
 
-    await expect(uploadPendingBlobsForFeature(ref, USER)).rejects.toThrow(
-      'Attachment register failed (503). down',
-    );
+    // The thrown error carries the structured reason; its `message` is
+    // only the code, because nothing but a console trace reads it and
+    // English there would be the same mistake one level down.
+    await expect(
+      uploadPendingBlobsForFeature(ref, USER),
+    ).rejects.toMatchObject({
+      offline: {
+        code: 'sync.serverRefusedWithStatus',
+        params: { serverMessage: 'down', status: 503 },
+      },
+    });
     // The bytes are in the bucket but the portal does not know about
     // them, so the file stays for the next attempt. Deleting it here
     // would lose a photo from a device that may have no way back to
@@ -379,8 +398,12 @@ describe('uploadPendingBlobsForFeature', () => {
     expect(result.rejected).toBe(1);
     const [row] = await listQueue(DC, USER);
     expect(row!.syncStatus).toBe('rejected');
-    expect(row!.failureReason).toContain('photo.jpg');
-    expect(row!.failureReason).toContain('limit');
+    // Named file, real numbers: the collector has to be able to act on
+    // this (delete it, re-shoot smaller) without a support call.
+    expect(row!.failure).toEqual({
+      code: 'sync.fileTooLarge',
+      params: { fileName: 'photo.jpg', sizeMb: '0.0', limitMb: '0' },
+    });
     // Never PUT, never registered, file still on the device for the
     // collector to delete or replace.
     expect(calls()).toHaveLength(2);

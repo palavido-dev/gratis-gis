@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
+import {
+  sanitizeOfflineMessage,
+  type OfflineMessageEnvelope,
+} from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 
@@ -23,10 +27,16 @@ export interface ManifestEntry {
      *  the edit deterministically and no drain retries it until the
      *  worker retries or discards it on the device. */
     status: 'pending' | 'failed' | 'rejected';
-    /** Optional: present when the last sync attempt errored. Trimmed to
-     *  ~200 chars on the server before persist so a chatty backend
-     *  message can't bloat the row. */
-    lastError?: string | null;
+    /**
+     * Optional: present when the last sync attempt errored.
+     *
+     * A structured `OfflineMessage` rather than a sentence, because the
+     * admin who reads it in the field-queues view is not the collector
+     * who captured the row and does not necessarily share their
+     * language. `sanitizeOfflineMessage` bounds it and coerces a plain
+     * string from a client older than schema v4 into `legacy.text`.
+     */
+    lastError?: OfflineMessageEnvelope | null;
     /** Number of failed sync attempts; helps the admin distinguish
      *  "device has been offline" from "this record keeps failing". */
     attempts?: number;
@@ -36,8 +46,6 @@ export interface ManifestEntry {
 /** Cap on the JSONB blob so a stuck or malicious client cannot fill the
  *  table. Beyond this we truncate the queuedRecords array. */
 const MAX_RECORDS_PER_DEPLOYMENT = 500;
-/** Cap on lastError length before persist. */
-const MAX_ERROR_LENGTH = 200;
 
 export interface UpsertManifestInput {
   userId: string;
@@ -126,7 +134,8 @@ export class FieldQueueService {
 }
 
 /**
- * Bound the manifest size and trim error strings before persist.
+ * Bound the manifest size and normalise the failure messages before
+ * persist.
  *
  * Exported for the spec: the status coercion is the one place a new
  * device state can silently vanish. `rejected` was added after the
@@ -134,6 +143,13 @@ export class FieldQueueService {
  * check, which is exactly the kind of drift the admin view then
  * reports as "device has been offline" instead of "these edits were
  * refused".
+ *
+ * `lastError` has the same hazard from the other direction. It arrives
+ * as an `OfflineMessage` from a current client and as a plain sentence
+ * from anything older, and the answer for a code this build has never
+ * heard of is to KEEP it, not to drop it: it came from a device on a
+ * newer build, and blanking it would destroy the only record of why a
+ * stuck edit was refused. `sanitizeOfflineMessage` owns those rules.
  */
 export function sanitizeManifest(input: ManifestEntry[] | null | undefined): ManifestEntry[] {
   if (!Array.isArray(input)) return [];
@@ -154,10 +170,7 @@ export function sanitizeManifest(input: ManifestEntry[] | null | undefined): Man
               r?.status === 'failed' || r?.status === 'rejected'
                 ? r.status
                 : 'pending',
-            lastError:
-              typeof r?.lastError === 'string'
-                ? r.lastError.slice(0, MAX_ERROR_LENGTH)
-                : null,
+            lastError: sanitizeOfflineMessage(r?.lastError),
           };
           // Only include `attempts` when the client sent a number;
           // exactOptionalPropertyTypes refuses `undefined` for an

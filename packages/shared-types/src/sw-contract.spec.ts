@@ -26,6 +26,10 @@
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import {
+  isOfflineMessageCode,
+  SW_OFFLINE_MESSAGE_CODES,
+} from './offline-message.js';
 import { isQueueRowOwnedBy, QUEUE_CLAIM_STALE_MS } from './queue-replay.js';
 import { replayOutcomeForStatus } from './sync-outcome.js';
 
@@ -265,6 +269,83 @@ describe('service worker offline-queue contract', () => {
         expect(swOutcome(status, op)).toBe(replayOutcomeForStatus(status, op));
       }
     }
+  });
+
+  it('declares the same failure codes shared-types does', () => {
+    // The worker writes the reason an edit was refused onto the row,
+    // and the page renders it days later from a catalog keyed by code.
+    // A code only the worker knows renders as a shrug in front of the
+    // field worker whose edit is stuck, so the lists are compared
+    // rather than trusted.
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+    const swCodes = new Function(
+      `${constSource(sw, 'SW_OFFLINE_MESSAGE_CODES')}\nreturn SW_OFFLINE_MESSAGE_CODES;`,
+    )() as string[];
+    expect([...swCodes].sort()).toEqual([...SW_OFFLINE_MESSAGE_CODES].sort());
+    for (const code of swCodes) {
+      expect(isOfflineMessageCode(code)).toBe(true);
+    }
+  });
+
+  it('stores a structured failure rather than a sentence', () => {
+    // The worker's own body reader, run against the four shapes
+    // portal-api answers with. This used to return English, which then
+    // sat on the device in whatever language the worker happened to be
+    // built in; it now returns the same {code, params} the in-app drain
+    // writes, and every code it can emit is one the renderer knows.
+    const messageFromBody = liftFunction<
+      (
+        text: string,
+        status: number,
+      ) => { code: string; params?: Record<string, unknown> }
+    >(sw, 'messageFromBody');
+
+    const validator = messageFromBody(
+      JSON.stringify({ statusCode: 400, message: ['Depth must be a number.'] }),
+      400,
+    );
+    expect(validator).toEqual({
+      code: 'sync.serverRefused',
+      params: { serverMessage: 'Depth must be a number.' },
+    });
+
+    const service = messageFromBody(
+      JSON.stringify({ message: 'You cannot edit this layer.' }),
+      403,
+    );
+    expect(service).toEqual({
+      code: 'sync.serverRefused',
+      params: { serverMessage: 'You cannot edit this layer.' },
+    });
+
+    const plain = messageFromBody('boom', 500);
+    expect(plain).toEqual({
+      code: 'sync.serverRefusedWithStatus',
+      params: { serverMessage: 'boom', status: 500 },
+    });
+
+    // Nothing usable: an empty body, and a proxy's HTML error page,
+    // which is long and helps nobody.
+    const statusOnly = { code: 'sync.requestFailed', params: { status: 502 } };
+    expect(messageFromBody('', 502)).toEqual(statusOnly);
+    expect(messageFromBody(`<html>${'x'.repeat(400)}</html>`, 502)).toEqual(
+      statusOnly,
+    );
+
+    for (const out of [validator, service, plain]) {
+      expect(isOfflineMessageCode(out.code)).toBe(true);
+      expect(SW_OFFLINE_MESSAGE_CODES).toContain(out.code);
+    }
+  });
+
+  it('writes the failure under the field the app reads', () => {
+    // Renamed from failureReason in offline-store schema v4 precisely
+    // so the two shapes cannot be confused. A worker still writing the
+    // old key would park rows whose reason no screen displays.
+    expect(sw).toMatch(/failure: outcome\.reason/);
+    expect(sw).not.toContain('failureReason');
+    // The one failure it composes without a response to read from.
+    expect(sw).toContain("code: 'sync.unknownOp'");
   });
 
   it('does not treat data-layer MVT tiles as cacheable tiles', () => {

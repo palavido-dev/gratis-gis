@@ -239,8 +239,13 @@ function isTileRequest(url) {
 //     - store 'queue'        keyPath [dataCollectionId, id]; fields used
 //       here: op, dataLayerId, layerKey, globalId, geometry, properties,
 //       queuedAt, syncStatus ('pending'|'syncing'|'synced'|'failed'|
-//       'rejected'), lastAttemptAt, retryCount, failureReason,
+//       'rejected'), lastAttemptAt, retryCount, failure,
 //       ownerUserId (absent on rows written before schema v3).
+//       `failure` is an OfflineMessage ({code, params}) since schema
+//       v4, never a sentence: the row is read back later by somebody
+//       else, so the words are chosen at the render site. The codes
+//       this worker can write are listed in SW_OFFLINE_MESSAGE_CODES
+//       below and pinned against shared-types by sw-contract.spec.ts.
 //       'rejected' is terminal and never claimed here; the status
 //       table that decides it mirrors shared-types sync-outcome.ts
 //       (replayOutcomeForStatus), see replayFeatureRecord below.
@@ -802,47 +807,84 @@ async function replayFeatureRecord(r) {
   } else {
     // Only a row written by a newer client can get here; retrying
     // cannot teach this worker a new op.
-    return { terminal: true, reason: 'Unknown queue op: ' + r.op };
+    return {
+      terminal: true,
+      reason: { code: 'sync.unknownOp', params: { op: String(r.op) } },
+    };
   }
   const outcome = replayOutcomeForStatus(res.status, r.op);
   if (outcome === 'done') return 'done';
   const body = await res.text().catch(() => '');
   return {
     terminal: outcome === 'rejected',
-    reason: messageFromBody(body, res.status, r.op + ' failed'),
+    reason: messageFromBody(body, res.status),
   };
 }
 
 /**
- * MIRROR of src/lib/api-error.ts parseApiError, for a body already
- * read as text. portal-api refuses a write in two shapes: a service
- * check throws `{message: string}`, already a sentence naming the
- * field, and Nest's ValidationPipe throws `{message: string[]}`, one
- * entry per constraint. This used to store the raw JSON envelope as
- * failureReason, so a row parked by the background drain showed
+ * MIRROR of SW_OFFLINE_MESSAGE_CODES in
+ * packages/shared-types/src/offline-message.ts: every code this worker
+ * can write onto a queue row. It is a subset, because the worker
+ * replays feature edits only (it cannot run the presign + PUT +
+ * register walk) and has no download manager.
+ *
+ * A code written here that the renderer does not know shows a field
+ * worker a fallback line instead of the reason their edit was refused,
+ * which is why sw-contract.spec.ts compares the two lists rather than
+ * trusting this comment.
+ */
+const SW_OFFLINE_MESSAGE_CODES = [
+  'sync.requestFailed',
+  'sync.serverRefused',
+  'sync.serverRefusedWithStatus',
+  'sync.unknownOp',
+];
+
+/**
+ * MIRROR of src/lib/api-error.ts parseApiErrorDetail plus the mapping
+ * offline-sync.ts does with it, for a body already read as text.
+ *
+ * portal-api refuses a write in two shapes: a service check throws
+ * `{message: string}`, already a sentence naming the field, and Nest's
+ * ValidationPipe throws `{message: string[]}`, one entry per
+ * constraint. This used to store the raw JSON envelope, so a row parked
+ * by the background drain showed
  * `{"statusCode":400,"message":"Depth is a number field..."}` on the
  * sync screen while the same refusal via the in-app drain showed the
- * sentence. Same rules as the original: a non-JSON body is appended
- * only when it is short and not an HTML error page.
+ * sentence.
+ *
+ * Returns an OfflineMessage rather than a string (schema v4). The
+ * server's own sentence rides through as `serverMessage`: the server
+ * chose those words and no client can translate them. A non-JSON body
+ * is carried only when it is short and not an HTML error page, and
+ * everything else falls back to the status code alone.
  */
-function messageFromBody(text, status, fallback) {
-  const line = fallback + ' (' + status + ').';
+function messageFromBody(text, status) {
   const trimmed = typeof text === 'string' ? text.trim() : '';
-  if (!trimmed) return line;
+  const statusOnly = { code: 'sync.requestFailed', params: { status: status } };
+  if (!trimmed) return statusOnly;
   try {
     const parsed = JSON.parse(trimmed);
     const message = parsed && typeof parsed === 'object' ? parsed.message : undefined;
     if (Array.isArray(message)) {
       const lines = message.filter((m) => typeof m === 'string' && m.length > 0);
-      if (lines.length > 0) return lines.join(' ');
+      if (lines.length > 0) {
+        return {
+          code: 'sync.serverRefused',
+          params: { serverMessage: lines.join(' ') },
+        };
+      }
     } else if (typeof message === 'string' && message) {
-      return message;
+      return { code: 'sync.serverRefused', params: { serverMessage: message } };
     }
-    return line;
+    return statusOnly;
   } catch {
     return trimmed.length <= 300 && !trimmed.startsWith('<')
-      ? line + ' ' + trimmed
-      : line;
+      ? {
+          code: 'sync.serverRefusedWithStatus',
+          params: { serverMessage: trimmed, status: status },
+        }
+      : statusOnly;
   }
 }
 
@@ -868,7 +910,7 @@ function replayOutcomeForStatus(status, op) {
  * Drain the feature-edit queue ('gratisgis-offline' / 'queue') with
  * the same bookkeeping the in-app drain (offline-sync.ts) uses:
  * success deletes the row, a transient HTTP failure keeps it as
- * 'failed' with failureReason and an incremented retryCount, a
+ * 'failed' with a structured `failure` and an incremented retryCount, a
  * deterministic refusal parks it as 'rejected' (never claimed again
  * here; the runtime offers retry or discard), and a network failure
  * leaves it 'pending' for the browser's sync retry. Also reclaims
@@ -943,7 +985,7 @@ async function drainFeatureQueue() {
             OFFLINE_QUEUE_STORE,
             Object.assign({}, claimed, {
               syncStatus: outcome.terminal ? 'rejected' : 'failed',
-              failureReason: outcome.reason,
+              failure: outcome.reason,
               retryCount: (record.retryCount || 0) + 1,
             }),
           );

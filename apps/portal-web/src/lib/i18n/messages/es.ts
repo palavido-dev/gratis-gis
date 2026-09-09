@@ -368,7 +368,7 @@ export const es: Partial<CatalogShape> = {
       'Esta descarga necesita unos {needed} y faltan ~{short}. Libera despliegues en caché o almacenamiento del dispositivo, o reduce el nivel de detalle, e inténtalo de nuevo.',
     identityTitle: 'Trabajo sin sincronizar de otra cuenta',
     identityBody:
-      'Este dispositivo contiene {records, plural, =0 {ningún registro} one {# registro sin sincronizar} other {# registros sin sincronizar}} y {files, plural, =0 {ninguna foto} one {# foto} other {# fotos}} capturados por otra cuenta. No han llegado al servidor.',
+      'Este dispositivo contiene {records, plural, one {# registro sin sincronizar} other {# registros sin sincronizar}} y {files, plural, one {# foto} other {# fotos}} capturados por otra cuenta. No han llegado al servidor.',
     identityKeepExplain:
       'Si los conservas aquí, se quedan aparcados en este dispositivo, ocultos de tus recuentos de sincronización, y se envían cuando esa cuenta vuelva a iniciar sesión.',
     identityRemoveExplain:
@@ -382,6 +382,84 @@ export const es: Partial<CatalogShape> = {
       '{count, plural, one {Se perderá # edición sin sincronizar.} other {Se perderán # ediciones sin sincronizar.}}',
     removeWillLoseOthers:
       '{count, plural, one {# de ellas pertenece a otra cuenta.} other {# de ellas pertenecen a otra cuenta.}}',
+  },
+  offlineMessage: {
+    unknown:
+      'Este dispositivo informó de algo que este portal no reconoce ({code}).',
+    download: {
+      estimating: 'Estimando el tamaño de la descarga...',
+      estimated: 'Estimado ~{size}',
+      fetchingLayer: 'Obteniendo las entidades de {layer}...',
+      layerCached:
+        '{layer}: {count, plural, one {# entidad guardada} other {# entidades guardadas}} en caché',
+      layerHttpError: '{layer} falló con HTTP {status}',
+      layerMalformed: '{layer} envió una respuesta malformada',
+      layerOutOfSpace: '{layer} se quedó sin espacio de almacenamiento',
+      layerFailed: '{layer} falló: {error}',
+      fetchingForm: 'Obteniendo el formulario {form}...',
+      formHttpError: 'el formulario {form} falló con HTTP {status}',
+      formNoSchema: 'el formulario {form}, que no tiene esquema',
+      formFailed: 'el formulario {form}',
+      fetchingPickList: 'Obteniendo la lista de valores {pickList}...',
+      pickListHttpError:
+        'la lista de valores {pickList} falló con HTTP {status}',
+      pickListNoData: 'la lista de valores {pickList}, que no tiene datos',
+      pickListFailed: 'la lista de valores {pickList}',
+      basemapOne: 'Descargando el mapa...',
+      basemapNth: 'Descargando el mapa {index} de {count}...',
+      basemapOnePercent: 'Descargando el mapa: {percent} %',
+      basemapNthPercent: 'Descargando el mapa {index} de {count}: {percent} %',
+      basemapOneMegabytes: 'Descargando el mapa: {megabytes} MB',
+      basemapNthMegabytes:
+        'Descargando el mapa {index} de {count}: {megabytes} MB',
+      basemapOutOfSpace:
+        'La descarga del mapa falló: se agotó el almacenamiento',
+      basemapFailed: 'La descarga del mapa falló: {error}',
+      basemapAreaMissing: 'el mapa del área {area}',
+      cachingTiles: 'Guardando en caché las teselas del mapa base...',
+      tilesProgress: 'Guardando teselas en caché: {fetched}/{total}',
+      tilesRefused: '{reason}',
+      tilesRefusedGeneric:
+        'El proveedor del mapa base no permite descargas sin conexión.',
+      tilesCached: '{fetched} teselas guardadas ({failed} con error)',
+      tilesOutOfSpace:
+        'Caché de teselas: se agotó el almacenamiento (se continúa)',
+      tilesFailed: 'Caché de teselas: {error} (se continúa)',
+      tilesMissing:
+        '{count, plural, one {# tesela del mapa base} other {# teselas del mapa base}}',
+      tilesMissingAll: 'las teselas del mapa base',
+      saving: 'Guardando el manifiesto del despliegue...',
+      layers: '{count, plural, one {# capa} other {# capas}}',
+      detailFeatures: '{count, plural, one {# entidad} other {# entidades}}',
+      detailForms: '{count, plural, one {# formulario} other {# formularios}}',
+      detailPickLists:
+        '{count, plural, one {# lista de valores} other {# listas de valores}}',
+      done: 'Se guardaron en caché {layers} ({detail}).',
+      doneEmpty:
+        'Se guardaron en caché {layers}. La sincronización se mantiene al día a medida que añadas entidades.',
+      donePartial: 'Incompleto. No se descargó: {missing}. {summary}',
+      donePartialOutOfSpace:
+        'Incompleto: se agotó el almacenamiento. No se descargó: {missing}. Libera espacio y vuelve a descargar.',
+      missingMore: '{missing} y {count} más',
+      failed: 'La descarga falló',
+    },
+    sync: {
+      networkUnavailable: 'Sin conexión.',
+      networkUnavailableDetail: 'Sin conexión: {error}',
+      unknownOp:
+        'Esta edición usa una operación que esta versión de la app no conoce ({op}).',
+      fileTooLarge:
+        '{fileName} ocupa {sizeMb} MB y el límite es de {limitMb} MB.',
+      serverRefused: '{serverMessage}',
+      serverRefusedWithStatus: '{serverMessage} ({status})',
+      requestFailed: 'El servidor no aceptó esta edición ({status}).',
+      attachmentPresignFailed:
+        'No se pudo iniciar la subida del archivo ({status}).',
+      attachmentUploadFailed: 'No se pudo subir el archivo ({status}).',
+      attachmentRegisterFailed:
+        'El archivo se subió pero el portal no lo registró ({status}).',
+      unexpected: 'Algo salió mal: {error}',
+    },
   },
   signOut: {
     unsyncedTitle: '¿Cerrar sesión con trabajo sin sincronizar?',

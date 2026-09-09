@@ -12,8 +12,11 @@ import {
   Trash2,
 } from 'lucide-react';
 
+import type { OfflineMessageEnvelope } from '@gratis-gis/shared-types';
+
 import { formatBytes } from '@/lib/format-bytes';
 import { useT } from '@/lib/i18n/locale-context';
+import { formatOfflineMessage } from '@/lib/offline-message';
 import { useConfirm } from '@/components/dialog-provider';
 
 /**
@@ -37,7 +40,13 @@ export interface FieldQueueManifestEntry {
     layerId: string;
     queuedAt: string;
     status: 'pending' | 'failed' | 'rejected';
-    lastError?: string | null;
+    /** Why the device's last attempt failed, as the code the device
+     *  recorded rather than the English it happened to compose. The
+     *  admin reading this page is not the collector who captured the
+     *  row, so the sentence is built here, in the admin's language. A
+     *  code from a newer client than this portal renders as a fallback
+     *  naming it, which is still more than nothing. */
+    lastError?: OfflineMessageEnvelope | null;
     attempts?: number;
   }>;
 }
@@ -473,7 +482,9 @@ function DeploymentEntry({ entry }: { entry: FieldQueueManifestEntry }) {
                 ? ` · ${t('adminFieldQueues.rejectedWaiting')}`
                 : ''}
               {' '}· attempts {r.attempts ?? 0}
-              {r.lastError ? <span> · {r.lastError}</span> : null}
+              {r.lastError ? (
+                <span> · {formatOfflineMessage(t, r.lastError)}</span>
+              ) : null}
             </div>
           ))}
           {problems.length > 5 ? (

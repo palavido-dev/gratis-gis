@@ -364,7 +364,7 @@ export const ptBR: Partial<CatalogShape> = {
       'Este download precisa de cerca de {needed} e faltam ~{short}. Libere implantações em cache ou espaço no dispositivo, ou reduza o nível de detalhe, e tente de novo.',
     identityTitle: 'Trabalho não sincronizado de outra conta',
     identityBody:
-      'Este dispositivo contém {records, plural, =0 {nenhum registro} one {# registro não sincronizado} other {# registros não sincronizados}} e {files, plural, =0 {nenhuma foto} one {# foto} other {# fotos}} capturados por outra conta. Eles não chegaram ao servidor.',
+      'Este dispositivo contém {records, plural, one {# registro não sincronizado} other {# registros não sincronizados}} e {files, plural, one {# foto} other {# fotos}} capturados por outra conta. Eles não chegaram ao servidor.',
     identityKeepExplain:
       'Se você os mantiver aqui, eles ficam guardados neste dispositivo, fora das suas contagens de sincronização, e são enviados quando essa conta entrar de novo.',
     identityRemoveExplain:
@@ -378,6 +378,80 @@ export const ptBR: Partial<CatalogShape> = {
       '{count, plural, one {# edição não sincronizada será perdida.} other {# edições não sincronizadas serão perdidas.}}',
     removeWillLoseOthers:
       '{count, plural, one {# delas pertence a outra conta.} other {# delas pertencem a outra conta.}}',
+  },
+  offlineMessage: {
+    unknown:
+      'Este dispositivo relatou algo que este portal não reconhece ({code}).',
+    download: {
+      estimating: 'Estimando o tamanho do download...',
+      estimated: 'Estimado em ~{size}',
+      fetchingLayer: 'Buscando as feições de {layer}...',
+      layerCached:
+        '{layer}: {count, plural, one {# feição em cache} other {# feições em cache}}',
+      layerHttpError: '{layer} falhou com HTTP {status}',
+      layerMalformed: '{layer} enviou uma resposta malformada',
+      layerOutOfSpace: '{layer} ficou sem espaço de armazenamento',
+      layerFailed: '{layer} falhou: {error}',
+      fetchingForm: 'Buscando o formulário {form}...',
+      formHttpError: 'o formulário {form} falhou com HTTP {status}',
+      formNoSchema: 'o formulário {form}, que não tem esquema',
+      formFailed: 'o formulário {form}',
+      fetchingPickList: 'Buscando a lista de valores {pickList}...',
+      pickListHttpError: 'a lista de valores {pickList} falhou com HTTP {status}',
+      pickListNoData: 'a lista de valores {pickList}, que não tem dados',
+      pickListFailed: 'a lista de valores {pickList}',
+      basemapOne: 'Baixando o mapa...',
+      basemapNth: 'Baixando o mapa {index} de {count}...',
+      basemapOnePercent: 'Baixando o mapa: {percent}%',
+      basemapNthPercent: 'Baixando o mapa {index} de {count}: {percent}%',
+      basemapOneMegabytes: 'Baixando o mapa: {megabytes} MB',
+      basemapNthMegabytes: 'Baixando o mapa {index} de {count}: {megabytes} MB',
+      basemapOutOfSpace: 'O download do mapa falhou: o armazenamento acabou',
+      basemapFailed: 'O download do mapa falhou: {error}',
+      basemapAreaMissing: 'o mapa da área {area}',
+      cachingTiles: 'Guardando em cache os ladrilhos do mapa base...',
+      tilesProgress: 'Guardando ladrilhos em cache: {fetched}/{total}',
+      tilesRefused: '{reason}',
+      tilesRefusedGeneric:
+        'O provedor do mapa base não permite downloads para uso offline.',
+      tilesCached: '{fetched} ladrilhos em cache ({failed} com falha)',
+      tilesOutOfSpace:
+        'Cache de ladrilhos: o armazenamento acabou (continuando)',
+      tilesFailed: 'Cache de ladrilhos: {error} (continuando)',
+      tilesMissing:
+        '{count, plural, one {# ladrilho do mapa base} other {# ladrilhos do mapa base}}',
+      tilesMissingAll: 'os ladrilhos do mapa base',
+      saving: 'Salvando o manifesto da implantação...',
+      layers: '{count, plural, one {# camada} other {# camadas}}',
+      detailFeatures: '{count, plural, one {# feição} other {# feições}}',
+      detailForms: '{count, plural, one {# formulário} other {# formulários}}',
+      detailPickLists:
+        '{count, plural, one {# lista de valores} other {# listas de valores}}',
+      done: '{layers} em cache ({detail}).',
+      doneEmpty:
+        '{layers} em cache. A sincronização segue em dia conforme você adiciona feições.',
+      donePartial: 'Incompleto. Não baixado: {missing}. {summary}',
+      donePartialOutOfSpace:
+        'Incompleto: o armazenamento acabou. Não baixado: {missing}. Libere espaço e baixe de novo.',
+      missingMore: '{missing} e mais {count}',
+      failed: 'O download falhou',
+    },
+    sync: {
+      networkUnavailable: 'Sem conexão.',
+      networkUnavailableDetail: 'Sem conexão: {error}',
+      unknownOp:
+        'Esta edição usa uma operação que esta versão do aplicativo não conhece ({op}).',
+      fileTooLarge: '{fileName} tem {sizeMb} MB e o limite é de {limitMb} MB.',
+      serverRefused: '{serverMessage}',
+      serverRefusedWithStatus: '{serverMessage} ({status})',
+      requestFailed: 'O servidor não aceitou esta edição ({status}).',
+      attachmentPresignFailed:
+        'Não foi possível iniciar o envio do arquivo ({status}).',
+      attachmentUploadFailed: 'Não foi possível enviar o arquivo ({status}).',
+      attachmentRegisterFailed:
+        'O arquivo foi enviado, mas o portal não o registrou ({status}).',
+      unexpected: 'Algo deu errado: {error}',
+    },
   },
   signOut: {
     unsyncedTitle: 'Sair com trabalho não sincronizado?',

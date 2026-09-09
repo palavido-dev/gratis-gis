@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
+  Allow,
   IsArray,
   IsIn,
   IsInt,
@@ -42,7 +43,18 @@ class QueuedRecordDto {
     | 'pending'
     | 'failed'
     | 'rejected';
-  @IsOptional() @IsString() @MaxLength(500) lastError?: string;
+  /**
+   * An `OfflineMessage` ({code, params}) from a current client, or a
+   * plain sentence from one older than offline schema v4.
+   *
+   * Deliberately only `@Allow()`d here rather than described as a
+   * nested DTO: the global ValidationPipe runs with `whitelist` and
+   * would strip the params off a shape it does not know, which is
+   * exactly the case that matters (a code from a newer device). The
+   * real bounds live in `sanitizeOfflineMessage`, which the service
+   * applies before persist and which the spec covers.
+   */
+  @IsOptional() @Allow() lastError?: unknown;
   @IsOptional() @IsInt() @Min(0) attempts?: number;
 }
 

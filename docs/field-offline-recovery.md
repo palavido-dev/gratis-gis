@@ -93,7 +93,43 @@ individual operations, mark queues abandoned with a reason, or export
 to CSV. The recovery console comes to the data — the data doesn't
 have to leave the system to be recovered.
 
-### 8. Storage budgets are explicit
+### 8. Messages are codes, not sentences
+
+Nothing the offline arc persists is written as English. The download
+manager's status line, the shortfall reasons in
+`CachedDeployment.partial`, and a queue row's `failure` are all
+`OfflineMessage` values (`packages/shared-types/src/offline-message.ts`):
+a `code` plus its params. `apps/portal-web/src/lib/offline-message.ts`
+turns one into text at the render site, and only there.
+
+The reason is the same one that drives the rest of this document. These
+values outlive the moment they were produced. A shortfall is written
+into IndexedDB during a download and read back weeks later; a failure
+reason is written on a device by a collector and read on the admin
+console by somebody else, who may not share their language. Swapping a
+translation key in at the render site fixes neither, because the bytes
+already on the device are English. Two things stay verbatim and are
+carried as params rather than coded: the server's own refusal sentence
+(`serverMessage`, which named the field and which no client can
+translate) and a tile provider's prefetch policy wording.
+
+Three consequences worth knowing before touching any of it:
+
+- **`public/sw.js` writes the same shape**, and declares the codes it
+  can produce in `SW_OFFLINE_MESSAGE_CODES`. `sw-contract.spec.ts` pins
+  that list against shared-types and runs the worker's own
+  `messageFromBody` to check the objects it returns.
+- **Every code needs `offlineMessage.<code>` in all five catalogs.**
+  `offline-message.spec.ts` renders every code in English and fails on a
+  leftover `{placeholder}` or a missing key; `locales.spec.ts` fails when
+  a locale falls behind the completeness it advertises.
+- **An unknown code is kept, not dropped.** A device on a newer build can
+  name a code this portal has never heard of. `sanitizeOfflineMessage`
+  stores it (bounded and character-restricted) and the renderer shows a
+  fallback naming it, because blanking the line would destroy the only
+  record of why an edit is stuck. Only a malformed code becomes null.
+
+### 9. Storage budgets are explicit
 
 IndexedDB on browsers is bounded; we can't blindly cache. The
 deployment's `offline.bbox` + zoom range determine how many basemap
@@ -153,14 +189,21 @@ interface QueueRecord {
    * Sync state. `pending` is the default; `syncing` is set while a
    * single op is in flight; `synced` clears the op from the queue
    * (kept briefly for UI confirmation, then garbage-collected);
-   * `failed` carries `failureReason` and is retried by the next
+   * `failed` carries `failure` and is retried by the next
    * sync run; `rejected` (as built, 2026-09-03) carries the reason
    * too but is terminal: the server refused the edit for a reason a
    * retry cannot change, so nothing automatic touches it until the
    * worker retries or discards it from the runtime.
    */
   syncStatus: 'pending' | 'syncing' | 'synced' | 'failed' | 'rejected';
-  failureReason?: string;
+  /**
+   * Why the last attempt did not land (schema v4, 2026-09-09). A
+   * structured `OfflineMessage` from shared-types, not a sentence: see
+   * "Messages are codes, not sentences" below. Was `failureReason:
+   * string` through v3; the v4 upgrade rewrote those into
+   * `{ code: 'legacy.text', params: { text } }`.
+   */
+  failure?: OfflineMessage;
   /** ISO 8601, last sync attempt. */
   lastAttemptAt?: string;
   /** How many attempts have failed. Drives the retry backoff. */
@@ -281,6 +324,22 @@ them on a shared device. Unowned rows keep the pre-ownership behaviour
 instead (see "Shared devices"). Bumps that rewrite an existing store
 need a much harder look, because the rows at risk are exactly the field
 captures this design exists to protect.
+
+**v4 (2026-09-09) is the first bump that rewrites rows**, and it is
+worth reading as the template for any future one. It converts the two
+fields that held English into structured messages: `queue.failureReason`
+(a string) becomes `queue.failure` (an `OfflineMessage`), and each entry
+of `deployments.partial.reasons` becomes one too, both through
+`{ code: 'legacy.text', params: { text } }` so no wording is lost. Three
+properties make it safe. It touches only those two fields, never
+geometry, properties, status or ownership. It runs inside the
+versionchange transaction, so a failure anywhere aborts the whole
+upgrade and the device stays on v3 with its rows intact rather than half
+converted. And a row it cannot make sense of is left exactly as it is
+rather than guessed at. The service worker opens the database WITHOUT a
+version and so never triggers the upgrade; it writes the new shape
+directly, and a row it wrote before the page upgraded is simply skipped
+by the conversion.
 
 The deployments-manifest is the discovery root: any cleanup or
 migration walks `deployments` first and fans out to the other stores
@@ -435,7 +494,7 @@ The original sketch of the wire protocol follows. For each record:
      row (geometry, properties, _global_id) so subsequent reads
      reflect the new state without a re-fetch.
    - `409 schema-mismatch`: `syncStatus = 'failed'` with the
-     server's diff payload as `failureReason`. The user gets a UI
+     server's diff payload as the failure reason. The user gets a UI
      surface to resolve per-field.
    - `409 conflict` (someone else edited the same feature on the
      server while we were offline): `syncStatus = 'failed'` with the

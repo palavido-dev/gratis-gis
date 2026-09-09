@@ -36,6 +36,7 @@ import type {
   MapData,
   MapLayer,
   MapLayerRenderer,
+  OfflineMessage,
   PickListData,
 } from '@gratis-gis/shared-types';
 import {
@@ -73,6 +74,7 @@ import {
   type QueueRecord,
 } from '@/lib/offline-store';
 import { formatBytes } from '@/lib/format-bytes';
+import { formatOfflineMessage } from '@/lib/offline-message';
 import { holdReload } from '@/lib/sw-update-guard';
 import { FieldSheet } from './field-sheet';
 import { useConfirm } from '@/components/dialog-provider';
@@ -1072,9 +1074,9 @@ export function FieldRuntime({
                 op: 'update',
                 layerLabel: '',
                 reason:
-                  err instanceof Error
-                    ? err.message
-                    : t('fieldRuntime.queueReadFailed'),
+                  err instanceof Error && err.message
+                    ? { code: 'sync.unexpected', params: { error: err.message } }
+                    : { code: 'sync.queueReadFailed' },
                 terminal: false,
               },
             ],
@@ -1084,7 +1086,7 @@ export function FieldRuntime({
         if (mountedRef.current) setSyncing(false);
       }
     },
-    [dataCollectionId, currentUserId, mapData.layers, t],
+    [dataCollectionId, currentUserId, mapData.layers],
   );
 
   // Auto-sync when isOnline flips from false -> true. Captured via a
@@ -1321,7 +1323,7 @@ export function FieldRuntime({
     if (!quota.fits) {
       setDownloadProgress({
         phase: 'failed',
-        message: t('fieldOffline.quotaTitle'),
+        message: { code: 'download.quotaRefused' },
         estimatedSize: quota.estimatedDownloadBytes,
         layerCount: editableLayers.length,
         featuresFetched: 0,
@@ -1363,9 +1365,7 @@ export function FieldRuntime({
         // it as one leaves the user wondering what broke and whether
         // the data they already have is trustworthy.
         phase: aborted ? 'done' : 'failed',
-        message: aborted
-          ? t('offlineBasemap.downloadStopped')
-          : 'Download failed',
+        message: aborted ? { code: 'download.stopped' } : { code: 'download.failed' },
         estimatedSize: 0,
         layerCount: editableLayers.length,
         featuresFetched: 0,
@@ -5753,6 +5753,7 @@ function DownloadProgressModal({
   onClose: () => void;
   onCancel: () => void;
 }) {
+  const t = useT();
   const finished = progress.phase === 'done' || progress.phase === 'failed';
   return (
     <div
@@ -5778,7 +5779,9 @@ function DownloadProgressModal({
                 : 'Downloading for offline'}
           </h2>
         </div>
-        <p className="mt-2 text-xs text-muted">{progress.message}</p>
+        <p className="mt-2 text-xs text-muted">
+          {formatOfflineMessage(t, progress.message)}
+        </p>
         {/* Layers leads the breakdown so the user sees a non-zero
             number even on a fresh deployment with no features yet.
             Features, Forms, and Pick lists below are secondary
@@ -6266,9 +6269,16 @@ function formatRelativeTime(iso: string): string {
  * slot of the fieldOffline.partial* sentences. Two names fit on the
  * one line a collector reads before leaving signal; the rest becomes
  * a count so the line never scrolls.
+ *
+ * The reasons are codes, not sentences, so they render in the reader's
+ * language even though the download that recorded them may have run
+ * weeks ago under a different account.
  */
-function describeMissing(reasons: string[], t: Translator): string {
-  const shown = reasons.slice(0, 2).join(', ');
+function describeMissing(reasons: OfflineMessage[], t: Translator): string {
+  const shown = reasons
+    .slice(0, 2)
+    .map((r) => formatOfflineMessage(t, r))
+    .join(', ');
   return reasons.length > 2
     ? t('fieldOffline.partialMissingMore', {
         missing: shown,

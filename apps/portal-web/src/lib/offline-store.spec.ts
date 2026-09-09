@@ -31,6 +31,7 @@ import {
   deletePendingBlobsForFeature,
   describeForeignOfflineData,
   enqueueEdit,
+  getDeployment,
   getOfflineIdentity,
   listPendingBlobs,
   listPendingBlobsForFeature,
@@ -119,14 +120,14 @@ describe('enqueueEdit', () => {
       ...row!,
       syncStatus: 'failed',
       retryCount: 4,
-      failureReason: 'server said no',
+      failure: { code: 'sync.requestFailed', params: { status: 500 } },
       lastAttemptAt: new Date().toISOString(),
     });
 
     await enqueueEdit(edit({ op: 'update', properties: { fixed: true } }));
     const [after] = await listQueue(DC, USER);
     expect(after!.retryCount).toBe(0);
-    expect(after!.failureReason).toBeUndefined();
+    expect(after!.failure).toBeUndefined();
     expect(after!.lastAttemptAt).toBeUndefined();
     expect(after!.syncStatus).toBe('pending');
   });
@@ -627,5 +628,131 @@ describe('device identity', () => {
       records: 0,
       files: 0,
     });
+  });
+});
+
+describe('schema v4 upgrade', () => {
+  /**
+   * Build the v3 database by hand and put the OLD shapes in it.
+   *
+   * Hand-built on purpose: the point of the test is that rows written
+   * by a build we no longer have survive the bump, so the seed has to
+   * state the old schema rather than reuse the current one. Only the
+   * two stores the v4 upgrade touches are created; the rest are not
+   * involved and their absence is what keeps this seed honest about
+   * what is being converted.
+   */
+  function seedV3(
+    seed: (tx: IDBTransaction) => void,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(OFFLINE_DB_NAME, 3);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        db.createObjectStore('deployments', { keyPath: 'dataCollectionId' });
+        const queue = db.createObjectStore('queue', {
+          keyPath: ['dataCollectionId', 'id'],
+        });
+        queue.createIndex('by_status', ['dataCollectionId', 'syncStatus'], {
+          unique: false,
+        });
+        queue.createIndex('by_deployment', 'dataCollectionId', {
+          unique: false,
+        });
+        seed(req.transaction!);
+      };
+      req.onsuccess = () => {
+        req.result.close();
+        resolve();
+      };
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  it('turns a stored failure sentence into legacy.text', async () => {
+    await seedV3((tx) => {
+      tx.objectStore('queue').put({
+        id: 'op-1',
+        dataCollectionId: DC,
+        op: 'insert',
+        dataLayerId: LAYER.dataLayerId,
+        layerKey: LAYER.layerKey,
+        globalId: 'feature-1',
+        geometry: null,
+        properties: { species: 'oak' },
+        queuedAt: '2026-09-01T00:00:00.000Z',
+        schemaHash: 'hash-1',
+        syncStatus: 'rejected',
+        failureReason: 'Depth must be a number.',
+        retryCount: 2,
+      });
+    });
+
+    const rows = await listQueue(DC, null);
+
+    expect(rows).toHaveLength(1);
+    // The reason survives verbatim. A collector who was told why their
+    // edit was refused must still be told the same thing after an app
+    // update, and this build cannot know what code that sentence was.
+    expect(rows[0]!.failure).toEqual({
+      code: 'legacy.text',
+      params: { text: 'Depth must be a number.' },
+    });
+    expect('failureReason' in rows[0]!).toBe(false);
+    // Nothing else about the capture moved.
+    expect(rows[0]!.properties).toEqual({ species: 'oak' });
+    expect(rows[0]!.syncStatus).toBe('rejected');
+    expect(rows[0]!.retryCount).toBe(2);
+  });
+
+  it('leaves a row that never failed exactly as it was', async () => {
+    await seedV3((tx) => {
+      tx.objectStore('queue').put({
+        id: 'op-2',
+        dataCollectionId: DC,
+        op: 'insert',
+        dataLayerId: LAYER.dataLayerId,
+        layerKey: LAYER.layerKey,
+        globalId: 'feature-2',
+        geometry: { type: 'Point', coordinates: [1, 2] },
+        properties: null,
+        queuedAt: '2026-09-01T00:00:00.000Z',
+        schemaHash: 'hash-1',
+        syncStatus: 'pending',
+      });
+    });
+
+    const rows = await listQueue(DC, null);
+
+    expect(rows[0]!.failure).toBeUndefined();
+    expect(rows[0]!.geometry).toEqual({ type: 'Point', coordinates: [1, 2] });
+  });
+
+  it('converts the download manifest’s shortfall list too', async () => {
+    await seedV3((tx) => {
+      tx.objectStore('deployments').put({
+        dataCollectionId: DC,
+        title: 'Maple Street Survey',
+        slug: 'maple-street-survey',
+        mapId: 'map-1',
+        layerSchemas: {},
+        cachedAt: '2026-09-01T00:00:00.000Z',
+        estimatedSize: 1024,
+        partial: {
+          reasons: ['Nest (HTTP 500)', '12 basemap tiles'],
+          outOfSpace: false,
+        },
+      });
+    });
+
+    const dep = await getDeployment(DC);
+
+    expect(dep!.partial!.reasons).toEqual([
+      { code: 'legacy.text', params: { text: 'Nest (HTTP 500)' } },
+      { code: 'legacy.text', params: { text: '12 basemap tiles' } },
+    ]);
+    expect(dep!.partial!.outOfSpace).toBe(false);
+    // The badge still knows which deployment it describes.
+    expect(dep!.title).toBe('Maple Street Survey');
   });
 });

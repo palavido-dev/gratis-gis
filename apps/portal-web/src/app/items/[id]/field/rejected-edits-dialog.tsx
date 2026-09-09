@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/dialog';
 import { useConfirm } from '@/components/dialog-provider';
 import { useT } from '@/lib/i18n/locale-context';
+import { formatOfflineMessage } from '@/lib/offline-message';
 import type { QueueRecord } from '@/lib/offline-store';
 import { discardRejected, retryRejected } from '@/lib/offline-sync';
 
@@ -125,7 +126,9 @@ export function RejectedEditsDialog({
                     </time>
                   </div>
                   <p className="mt-1 text-xs text-danger">
-                    {record.failureReason ?? t('fieldQueue.noReason')}
+                    {record.failure
+                      ? formatOfflineMessage(t, record.failure)
+                      : t('fieldQueue.noReason')}
                   </p>
                   <div className="mt-2 flex items-center gap-2">
                     <button

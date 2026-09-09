@@ -27,6 +27,8 @@
  * wrong person is holding them.
  */
 
+import type { OfflineMessage } from '@gratis-gis/shared-types';
+
 import {
   listDeployments,
   listQueue,
@@ -54,7 +56,12 @@ interface ManifestEntry {
     layerId: string;
     queuedAt: string;
     status: 'pending' | 'failed' | 'rejected';
-    lastError?: string;
+    /** Why the last attempt failed, as a code rather than a sentence.
+     *  The admin reading it in the field-queues view is not the person
+     *  who captured the row and may not share their language, so the
+     *  words are chosen there. The server validates the shape and
+     *  coerces a string from an older client into `legacy.text`. */
+    lastError?: OfflineMessage;
     attempts?: number;
   }>;
 }
@@ -154,7 +161,7 @@ async function buildManifest(
               ? r.syncStatus
               : 'pending',
         };
-        if (r.failureReason) out.lastError = r.failureReason.slice(0, 500);
+        if (r.failure) out.lastError = r.failure;
         if (typeof r.retryCount === 'number') out.attempts = r.retryCount;
         return out;
       }),

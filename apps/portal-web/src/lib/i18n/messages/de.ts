@@ -368,7 +368,7 @@ export const de: Partial<CatalogShape> = {
       'Dieser Download braucht etwa {needed}, und es fehlen ~{short}. Geben Sie zwischengespeicherte Bereitstellungen oder Gerätespeicher frei oder verringern Sie die Detailstufe, und versuchen Sie es erneut.',
     identityTitle: 'Nicht synchronisierte Arbeit eines anderen Kontos',
     identityBody:
-      'Auf diesem Gerät liegen {records, plural, =0 {keine Datensätze} one {# nicht synchronisierter Datensatz} other {# nicht synchronisierte Datensätze}} und {files, plural, =0 {keine Fotos} one {# Foto} other {# Fotos}}, die von einem anderen Konto erfasst wurden. Sie haben den Server nicht erreicht.',
+      'Auf diesem Gerät liegen {records, plural, one {# nicht synchronisierter Datensatz} other {# nicht synchronisierte Datensätze}} und {files, plural, one {# Foto} other {# Fotos}}, die von einem anderen Konto erfasst wurden. Sie haben den Server nicht erreicht.',
     identityKeepExplain:
       'Behalten Sie sie hier, dann bleiben sie auf diesem Gerät geparkt, tauchen nicht in Ihren Synchronisierungszählern auf und werden gesendet, sobald sich dieses Konto wieder anmeldet.',
     identityRemoveExplain:
@@ -383,6 +383,86 @@ export const de: Partial<CatalogShape> = {
       '{count, plural, one {# nicht synchronisierte Bearbeitung geht verloren.} other {# nicht synchronisierte Bearbeitungen gehen verloren.}}',
     removeWillLoseOthers:
       '{count, plural, one {# davon gehört einem anderen Konto.} other {# davon gehören einem anderen Konto.}}',
+  },
+  offlineMessage: {
+    unknown:
+      'Dieses Gerät hat etwas gemeldet, das dieses Portal nicht kennt ({code}).',
+    download: {
+      estimating: 'Downloadgröße wird geschätzt ...',
+      estimated: 'Geschätzt ~{size}',
+      fetchingLayer: 'Features von {layer} werden abgerufen ...',
+      layerCached:
+        '{layer}: {count, plural, one {# Feature} other {# Features}} zwischengespeichert',
+      layerHttpError: '{layer} ist mit HTTP {status} fehlgeschlagen',
+      layerMalformed: '{layer} hat eine fehlerhafte Antwort gesendet',
+      layerOutOfSpace: 'Für {layer} ist der Speicherplatz ausgegangen',
+      layerFailed: '{layer} ist fehlgeschlagen: {error}',
+      fetchingForm: 'Formular {form} wird abgerufen ...',
+      formHttpError: 'Formular {form} ist mit HTTP {status} fehlgeschlagen',
+      formNoSchema: 'Formular {form}, das kein Schema hat',
+      formFailed: 'Formular {form}',
+      fetchingPickList: 'Auswahlliste {pickList} wird abgerufen ...',
+      pickListHttpError:
+        'Auswahlliste {pickList} ist mit HTTP {status} fehlgeschlagen',
+      pickListNoData: 'Auswahlliste {pickList}, die keine Daten hat',
+      pickListFailed: 'Auswahlliste {pickList}',
+      basemapOne: 'Die Karte wird heruntergeladen ...',
+      basemapNth: 'Karte {index} von {count} wird heruntergeladen ...',
+      basemapOnePercent: 'Die Karte wird heruntergeladen: {percent} %',
+      basemapNthPercent:
+        'Karte {index} von {count} wird heruntergeladen: {percent} %',
+      basemapOneMegabytes: 'Die Karte wird heruntergeladen: {megabytes} MB',
+      basemapNthMegabytes:
+        'Karte {index} von {count} wird heruntergeladen: {megabytes} MB',
+      basemapOutOfSpace: 'Kartendownload fehlgeschlagen: kein Speicherplatz mehr',
+      basemapFailed: 'Kartendownload fehlgeschlagen: {error}',
+      basemapAreaMissing: 'die Karte für das Gebiet {area}',
+      cachingTiles: 'Kacheln der Basiskarte werden zwischengespeichert ...',
+      tilesProgress: 'Kacheln werden zwischengespeichert: {fetched}/{total}',
+      tilesRefused: '{reason}',
+      tilesRefusedGeneric:
+        'Der Anbieter der Basiskarte erlaubt keine Offline-Downloads.',
+      tilesCached:
+        '{fetched} Kacheln zwischengespeichert ({failed} fehlgeschlagen)',
+      tilesOutOfSpace:
+        'Kachelspeicher: kein Speicherplatz mehr (wird fortgesetzt)',
+      tilesFailed: 'Kachelspeicher: {error} (wird fortgesetzt)',
+      tilesMissing:
+        '{count, plural, one {# Kachel der Basiskarte} other {# Kacheln der Basiskarte}}',
+      tilesMissingAll: 'die Kacheln der Basiskarte',
+      saving: 'Bereitstellungsmanifest wird gespeichert ...',
+      layers: '{count, plural, one {# Layer} other {# Layer}}',
+      detailFeatures: '{count, plural, one {# Feature} other {# Features}}',
+      detailForms: '{count, plural, one {# Formular} other {# Formulare}}',
+      detailPickLists:
+        '{count, plural, one {# Auswahlliste} other {# Auswahllisten}}',
+      done: '{layers} zwischengespeichert ({detail}).',
+      doneEmpty:
+        '{layers} zwischengespeichert. Die Synchronisierung bleibt aktuell, sobald Features hinzukommen.',
+      donePartial: 'Unvollständig. Nicht heruntergeladen: {missing}. {summary}',
+      donePartialOutOfSpace:
+        'Unvollständig, der Speicherplatz ist ausgegangen. Nicht heruntergeladen: {missing}. Geben Sie Speicherplatz frei und laden Sie erneut herunter.',
+      missingMore: '{missing} und {count} weitere',
+      failed: 'Download fehlgeschlagen',
+    },
+    sync: {
+      networkUnavailable: 'Keine Verbindung.',
+      networkUnavailableDetail: 'Keine Verbindung: {error}',
+      unknownOp:
+        'Diese Änderung nutzt einen Vorgang, den diese App-Version nicht kennt ({op}).',
+      fileTooLarge:
+        '{fileName} ist {sizeMb} MB groß, das Limit liegt bei {limitMb} MB.',
+      serverRefused: '{serverMessage}',
+      serverRefusedWithStatus: '{serverMessage} ({status})',
+      requestFailed: 'Der Server hat diese Änderung nicht angenommen ({status}).',
+      attachmentPresignFailed:
+        'Der Datei-Upload konnte nicht gestartet werden ({status}).',
+      attachmentUploadFailed:
+        'Die Datei konnte nicht hochgeladen werden ({status}).',
+      attachmentRegisterFailed:
+        'Die Datei wurde hochgeladen, aber das Portal hat sie nicht erfasst ({status}).',
+      unexpected: 'Etwas ist schiefgelaufen: {error}',
+    },
   },
   signOut: {
     unsyncedTitle: 'Mit nicht synchronisierten Änderungen abmelden?',

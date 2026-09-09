@@ -20,6 +20,7 @@ import {
   foldQueuedChain,
   isQueueRowOwnedBy,
   type FoldableEdit,
+  type OfflineMessage,
   type QueueOp,
 } from '@gratis-gis/shared-types';
 import type { FeatureField, PickListData } from '@gratis-gis/shared-types';
@@ -37,13 +38,21 @@ import type { FormSchema } from '@gratis-gis/form-schema';
  * duplicates BY HAND: this DB name, the 'queue', 'deployments' and
  * 'meta' store names and key paths, the identity row's key, the
  * QueueRecord fields it touches (syncStatus, lastAttemptAt,
- * retryCount, failureReason, op, dataLayerId, layerKey, globalId,
+ * retryCount, failure, op, dataLayerId, layerKey, globalId,
  * geometry, properties, queuedAt, dataCollectionId, id, ownerUserId),
  * CachedDeployment.bbox, and the replay endpoints from
  * offline-sync.ts. If you rename a store, change a key path, add a
  * syncStatus value, or move an endpoint, update public/sw.js in the
  * same change or background replay silently stops matching this
  * schema.
+ *
+ * `failure` is an `OfflineMessage` (schema v4), not a sentence: the row
+ * is read back days later by a different person on a different device,
+ * possibly in a different language, so the code is stored and the text
+ * is produced at the render site by `lib/offline-message.ts`. The worker
+ * writes the same shape and declares the codes it can produce; the two
+ * lists are pinned in shared-types `sw-contract.spec.ts`. The v4 upgrade
+ * below rewrote every `failureReason` string a v3 device was holding.
  *
  * `id` is an OPERATION id, not the feature's globalId (see QueueRecord
  * below), so the queue can hold more than one outstanding edit per
@@ -66,7 +75,7 @@ export const OFFLINE_DB_NAME = 'gratisgis-offline';
  * to v2 with a breaking change, we'd issue a notice that they need
  * to re-download (better than silently truncating).
  */
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 /** Store holding device-wide state that is not scoped to a deployment.
  *  Today that is one row: which portal account this device currently
@@ -169,8 +178,12 @@ export interface CachedDeployment {
    * to say so.
    */
   partial?: {
-    /** Short reasons, one per thing that did not make it. */
-    reasons: string[];
+    /** One per thing that did not make it, as a code rather than a
+     *  sentence: this manifest outlives the download that wrote it and
+     *  is read by whoever picks the device up, so the words are chosen
+     *  at render time. Rows written before schema v4 hold
+     *  `legacy.text`. */
+    reasons: OfflineMessage[];
     /** True when at least one reason was the device running out of
      *  storage, which is the reason the user can actually act on. */
     outOfSpace: boolean;
@@ -221,7 +234,19 @@ export interface QueueRecord {
    * still recognises it.
    */
   syncStatus: 'pending' | 'syncing' | 'synced' | 'failed' | 'rejected';
-  failureReason?: string;
+  /**
+   * Why the last attempt did not land, as a code plus params.
+   *
+   * Was `failureReason: string` through schema v3, which meant the
+   * English the drain happened to compose was frozen onto the device:
+   * the rejected-edits dialog, the field runtime and the admin
+   * field-queues view all render it, and none of them is necessarily
+   * the person or the language that wrote it. The rename is deliberate,
+   * so a row carrying the old shape is impossible to mistake for the
+   * new one; the v4 upgrade rewrites the strings it finds into
+   * `legacy.text`.
+   */
+  failure?: OfflineMessage;
   lastAttemptAt?: string;
   retryCount?: number;
   /**
@@ -388,6 +413,29 @@ export function openOfflineDb(): Promise<IDBDatabase> {
           db.createObjectStore(STORES.meta, { keyPath: 'key' });
         }
       }
+      // v4: failure text becomes a structured OfflineMessage.
+      //
+      // The FIRST bump that rewrites rows rather than adding a store,
+      // which the doc warns about for good reason: the rows at risk are
+      // unsynced field captures. Three things keep it safe. It touches
+      // only the two fields that held English (`queue.failureReason`
+      // and `deployments.partial.reasons`), never geometry, properties,
+      // status or ownership. It runs inside the versionchange
+      // transaction, so a failure anywhere aborts the whole upgrade and
+      // the device stays on v3 with its rows intact rather than half
+      // converted. And a row it cannot make sense of is left exactly as
+      // it is instead of being guessed at.
+      //
+      // A converted reason renders as the text it always was, through
+      // `legacy.text`. Nothing on a device is lost, and no render site
+      // has to know which shape it is looking at.
+      if (e.oldVersion < 4 && e.oldVersion > 0) {
+        const tx = (e.target as IDBOpenDBRequest).transaction;
+        if (tx) {
+          upgradeQueueFailureText(tx.objectStore(STORES.queue));
+          upgradePartialReasons(tx.objectStore(STORES.deployments));
+        }
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error ?? new Error('IndexedDB open failed'));
@@ -401,6 +449,66 @@ export function openOfflineDb(): Promise<IDBDatabase> {
       );
     };
   });
+}
+
+/** Text with no code of its own. The renderer passes it through
+ *  unchanged, so a row converted by the v4 upgrade reads exactly as it
+ *  did before, in whatever language it was written in. */
+function legacyMessage(text: string): OfflineMessage {
+  return { code: 'legacy.text', params: { text } };
+}
+
+/**
+ * v4: `failureReason: string` becomes `failure: OfflineMessage`.
+ *
+ * Synchronous by necessity: this runs inside `onupgradeneeded`, and an
+ * awaited step would let the versionchange transaction commit out from
+ * under the walk. Rows without the old field are not touched at all,
+ * which covers both a row the service worker already wrote in the new
+ * shape and a row that never failed.
+ */
+function upgradeQueueFailureText(store: IDBObjectStore): void {
+  const cursor = store.openCursor();
+  cursor.onsuccess = () => {
+    const c = cursor.result;
+    if (!c) return;
+    const row = c.value as QueueRecord & { failureReason?: unknown };
+    if ('failureReason' in row) {
+      const { failureReason, ...rest } = row;
+      const next: QueueRecord =
+        typeof failureReason === 'string' && failureReason
+          ? { ...rest, failure: legacyMessage(failureReason) }
+          : rest;
+      c.update(next);
+    }
+    c.continue();
+  };
+}
+
+/** v4: the download manifest's shortfall list, same conversion. An
+ *  entry that is already an object is left alone rather than wrapped
+ *  twice. */
+function upgradePartialReasons(store: IDBObjectStore): void {
+  const cursor = store.openCursor();
+  cursor.onsuccess = () => {
+    const c = cursor.result;
+    if (!c) return;
+    const row = c.value as CachedDeployment;
+    const partial = row.partial;
+    const reasons: unknown = partial?.reasons;
+    if (partial && Array.isArray(reasons) && reasons.some((r) => typeof r === 'string')) {
+      c.update({
+        ...row,
+        partial: {
+          ...partial,
+          reasons: reasons.map((r) =>
+            typeof r === 'string' ? legacyMessage(r) : (r as OfflineMessage),
+          ),
+        },
+      });
+    }
+    c.continue();
+  };
 }
 
 /**
@@ -996,11 +1104,11 @@ export async function enqueueEdit(
     // keys is also what we mean, since a row that has been rewritten
     // has no last failure and no last attempt.
     const {
-      failureReason: _priorReason,
+      failure: _priorFailure,
       lastAttemptAt: _priorAttempt,
       ...keepRest
     } = keep;
-    void _priorReason;
+    void _priorFailure;
     void _priorAttempt;
     const record: QueueRecord = {
       ...keepRest,
