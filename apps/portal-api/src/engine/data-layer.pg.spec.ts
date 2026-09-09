@@ -42,7 +42,23 @@ import { DerivedLayersService } from '../derived-layers/derived-layers.service.j
 import { GeocodingService } from '../geocoding/geocoding.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { LensPolicyService } from '../policy/lens-policy.service.js';
-import type { AuthUser } from '../auth/auth-sync.service.js';
+import type { AuthUser, AuthSyncService } from '../auth/auth-sync.service.js';
+import type { ItemBboxRefreshService } from '../items/item-bbox-refresh.service.js';
+import type { DerivedLayerCacheRefreshService } from '../derived-layers/cache-refresh.service.js';
+import type { SharingService } from '../items/sharing.service.js';
+
+/**
+ * A collaborator stub that still fails typecheck when the real method
+ * is renamed. `as never` on a bare object literal erases the parameter
+ * type entirely, so this suite kept passing a `refreshItemBbox` stub
+ * for three commits after the method became `noteFeatureWrite`; the
+ * only thing that noticed was CI, where this suite actually runs.
+ * Requiring the keys to exist on T means a rename breaks the build on
+ * a laptop with no database.
+ */
+function stub<T>(impl: Partial<Record<keyof T, unknown>>): T {
+  return impl as T;
+}
 
 const TEST_URL = process.env.TEST_DATABASE_URL;
 const d = TEST_URL ? describe : describe.skip;
@@ -2491,14 +2507,16 @@ d('observation-log read paths against real PostGIS', () => {
             findMany: async () => [],
           },
         } as unknown as PrismaService,
-        { notifySourceWrite: async () => undefined } as never,
+        stub<DerivedLayerCacheRefreshService>({
+          notifySourceWrite: async () => undefined,
+        }),
         makeEngine(),
-        { refreshItemBbox: async () => undefined } as never,
+        stub<ItemBboxRefreshService>({ noteFeatureWrite: () => undefined }),
         // Pick-list resolution needs an owner principal and the
         // sharing clause; with no item row there is no owner, so
         // neither is ever consulted.
-        { visibleWhere: () => ({}) } as never,
-        { principalForUserId: async () => null } as never,
+        stub<SharingService>({ visibleWhere: () => ({}) }),
+        stub<AuthSyncService>({ principalForUserId: async () => null }),
       );
 
     const user = { id: 'itest-user', username: 'itest' } as AuthUser;

@@ -151,13 +151,34 @@ ENV CGO_ENABLED=0
 # main package from inside a module we control picks up our upgraded
 # x/text. Keep the two `go get` lines in this order: the second one
 # only sticks once go-pmtiles is in the graph.
+# The five `go get` lines are retried as a group because they are the
+# only network step here and sum.golang.org fails intermittently: on
+# 2026-09-09 both the build and the workflow's own retry died on
+# "reading https://sum.golang.org/tile/8/0/x016/711: stream error ...
+# INTERNAL_ERROR", minutes apart, on a dependency graph that had built
+# clean the day before. The backoff spans a longer window than two
+# back-to-back job attempts do. Checksum verification stays ON: the
+# fix for a flaky checksum server is to ask it again, never GONOSUMDB.
+# The build and the four assertions sit outside the loop on purpose,
+# because a retry around an assertion could paper over a real
+# downgrade instead of failing on it.
 RUN mkdir -p /pmtiles-build && cd /pmtiles-build \
     && go mod init pmtiles-build \
-    && go get "github.com/protomaps/go-pmtiles@v${PMTILES_VERSION}" \
-    && go get "golang.org/x/text@v${PMTILES_XTEXT_VERSION}" \
-    && go get "golang.org/x/net@v${PMTILES_XNET_VERSION}" \
-    && go get "golang.org/x/crypto@v${PMTILES_XCRYPTO_VERSION}" \
-    && go get "google.golang.org/grpc@v${PMTILES_GRPC_VERSION}" \
+    && for attempt in 1 2 3 4 5; do \
+         if go get "github.com/protomaps/go-pmtiles@v${PMTILES_VERSION}" \
+            && go get "golang.org/x/text@v${PMTILES_XTEXT_VERSION}" \
+            && go get "golang.org/x/net@v${PMTILES_XNET_VERSION}" \
+            && go get "golang.org/x/crypto@v${PMTILES_XCRYPTO_VERSION}" \
+            && go get "google.golang.org/grpc@v${PMTILES_GRPC_VERSION}"; then \
+           break; \
+         fi; \
+         if [ "$attempt" -eq 5 ]; then \
+           echo "pmtiles: module fetch failed after 5 attempts" >&2; \
+           exit 1; \
+         fi; \
+         echo "pmtiles: module fetch attempt $attempt failed, retrying" >&2; \
+         sleep $((attempt * 15)); \
+       done \
     && go build -o /go/bin/go-pmtiles github.com/protomaps/go-pmtiles \
     && go version -m /go/bin/go-pmtiles | grep -q "golang.org/x/text[[:space:]]*v${PMTILES_XTEXT_VERSION}" \
     && go version -m /go/bin/go-pmtiles | grep -q "golang.org/x/net[[:space:]]*v${PMTILES_XNET_VERSION}" \
