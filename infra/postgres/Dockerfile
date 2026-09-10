@@ -18,24 +18,37 @@
 # in case the restore needs to be reverted.
 FROM postgis/postgis:17-3.5
 
-# Check-Valid-Until=false because this image is bullseye based and
-# bullseye-security has reached end of life. Its Release file stopped
-# being refreshed and expired on 2026-09-08, at which point apt-get
-# update began failing with exit 100 and every deploy died here, on a
-# layer that has nothing to do with what was being released.
+# This image is bullseye based and bullseye reached end of life, which
+# broke every deploy here on 2026-09-08, on a layer that has nothing to
+# do with whatever was being released. Two separate failures, in order:
 #
-# This relaxes freshness, not trust. The repository is still signed and
-# the signature is still verified; the only check dropped is the
-# "Valid-Until" window, and since the suite is EOL there is no newer
-# metadata to be withheld from us. The packages we install come from
-# apt.postgresql.org anyway, which is current.
+#   1. bullseye-security's Release file stopped being refreshed and
+#      expired, so apt-get update refused to proceed.
+#   2. With freshness relaxed, the .deb files themselves 404, because
+#      EOL suites are moved off deb.debian.org onto archive.debian.org.
 #
-# Remove this when the base moves off bullseye. postgis/postgis
-# publishes no bookworm variant of 17-3.5 today (checked 2026-09-10:
-# only 17-3.5 and 17-3.5-alpine exist), so that is a base image change
-# under the production database rather than a tag bump, and wants its
-# own care.
-RUN apt-get -o Acquire::Check-Valid-Until=false update \
+# So the sources are repointed at the archive, which still carries
+# bullseye and bullseye-updates. The security lines are dropped rather
+# than repointed: the archive does not serve bullseye-security, and the
+# suite is EOL so there is nothing new in it to miss.
+#
+# Be clear about the tradeoff. This layer no longer receives Debian
+# security updates for the base OS. It does not receive them anywhere
+# else either, because none are being published for bullseye, so this
+# reflects reality rather than creating it. Check-Valid-Until stays off
+# because archive Release files are old by design. Signatures are still
+# verified. The two packages installed come from apt.postgresql.org,
+# which is current and untouched by any of this.
+#
+# The actual fix is moving off bullseye, and it is deliberately not
+# done here: postgis/postgis publishes no bookworm variant of 17-3.5
+# (checked 2026-09-10, only 17-3.5 and 17-3.5-alpine), so it is a base
+# image swap under the production database, which needs its own change
+# and its own dump-and-restore plan rather than riding along with a
+# release.
+RUN sed -i '/security/d' /etc/apt/sources.list \
+    && sed -i 's|http://deb.debian.org/debian|http://archive.debian.org/debian|g' /etc/apt/sources.list \
+    && apt-get -o Acquire::Check-Valid-Until=false update \
     && apt-get install -y --no-install-recommends \
         postgresql-17-partman \
         postgresql-17-repack \
