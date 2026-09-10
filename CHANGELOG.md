@@ -7,6 +7,15 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+## [0.9.111] - 2026-09-10
+
+### Fixed
+
+- Deployments were failing while building the database image, because
+  Debian bullseye reached end of life and its security metadata
+  expired. Nothing about the running system was affected; new
+  deployments simply could not be built until now.
+
 ## [0.9.110] - 2026-09-10
 
 ### Fixed
