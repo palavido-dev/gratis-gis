@@ -2,10 +2,15 @@
 import type { JWT } from 'next-auth/jwt';
 import type { NextAuthOptions } from 'next-auth';
 import KeycloakProvider from 'next-auth/providers/keycloak';
+import { authCookieNaming } from './auth-cookies';
 
 const keycloakUrl = process.env.KEYCLOAK_URL ?? 'http://localhost:8080';
 const realm = process.env.KEYCLOAK_REALM ?? 'gratis-gis';
 const tokenEndpoint = `${keycloakUrl}/realms/${realm}/protocol/openid-connect/token`;
+
+// Cookie naming lives in its own module because middleware has to
+// derive the same names independently. See lib/auth-cookies.ts.
+const cookieNaming = authCookieNaming(process.env.NEXTAUTH_URL);
 
 /** Refresh `expires_at` 30 seconds before the actual expiry so an in-flight
  *  request doesn't race the boundary and end up with an expired token. */
@@ -221,27 +226,36 @@ export const authOptions: NextAuthOptions = {
   // defaults are easy to silently lose on a future config change.
   // Making them explicit pins the contract and lets the CSRF
   // cookie use the stricter `__Host-` prefix + sameSite=strict.
+  //
+  // The prefixes and the `secure` flag follow `useSecureCookies` above
+  // rather than being hardcoded, because the browser refuses a
+  // `__Secure-` cookie without `secure`, and middleware derives the
+  // name it looks for the same way. See the note on that constant.
   cookies: {
     sessionToken: {
-      name: '__Secure-next-auth.session-token',
+      name: cookieNaming.sessionTokenName,
       options: {
         httpOnly: true,
         sameSite: 'lax',
         path: '/',
-        secure: true,
+        secure: cookieNaming.useSecureCookies,
       },
     },
     callbackUrl: {
-      name: '__Secure-next-auth.callback-url',
-      options: { sameSite: 'lax', path: '/', secure: true },
+      name: cookieNaming.callbackUrlName,
+      options: {
+        sameSite: 'lax',
+        path: '/',
+        secure: cookieNaming.useSecureCookies,
+      },
     },
     csrfToken: {
-      name: '__Host-next-auth.csrf-token',
+      name: cookieNaming.csrfTokenName,
       options: {
         httpOnly: true,
         sameSite: 'strict',
         path: '/',
-        secure: true,
+        secure: cookieNaming.useSecureCookies,
       },
     },
   },
