@@ -62,7 +62,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # tree before `pnpm install`, which meant every source edit busted
 # the install layer and re-resolved + re-downloaded all deps: on
 # the 4-core prod box that dominated deploy time.
+# patches/ has to be here too, not with the manifests below:
+# pnpm.patchedDependencies is resolved during fetch, so a missing patch
+# file stops the build with ERR_PNPM_PATCH_NOT_FOUND before any
+# manifest is read.
 COPY pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY patches ./patches
 RUN pnpm fetch
 
 # Manifests + sources come in only after the store is warm. pnpm's

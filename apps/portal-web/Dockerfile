@@ -38,7 +38,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # alone so source edits stop busting the dependency-download
 # layer. `pnpm fetch` ignores package.json files; this layer only
 # re-runs when pnpm-lock.yaml (or the workspace file) changes.
+# patches/ comes along because pnpm.patchedDependencies is resolved
+# during fetch, not at link time: without the patch file present,
+# `pnpm fetch` stops with ERR_PNPM_PATCH_NOT_FOUND. It is two small
+# text files and it changes about as often as the lockfile, so it does
+# not meaningfully cost cache hits.
 COPY pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY patches ./patches
 RUN pnpm fetch
 
 # Manifests + sources after the store is warm. pnpm's
