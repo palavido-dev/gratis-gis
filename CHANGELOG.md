@@ -7,6 +7,58 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+## [0.9.110] - 2026-09-10
+
+### Fixed
+
+- **A portal served over plain http could not be signed into.** Every
+  request bounced to the sign-in page, sign-in succeeded, and the next
+  request bounced again, with no error shown anywhere. The session
+  cookie was written under the hardened `__Secure-` name while the
+  route guard looked for the plain one, so it never found a session.
+  Deployments behind https, including the public demo, were unaffected
+  and their cookies do not change.
+- Attribution text on a basemap item is sanitized when it is saved and
+  again when it is drawn, so markup pasted into that field can no
+  longer run as script for anyone opening a map that uses the basemap.
+  Attribution links keep working. This also covers attribution
+  discovered from a remote WMS, WMTS or ArcGIS service and read out of
+  an uploaded PMTiles header.
+- Offline sync messages are stored as codes rather than English
+  sentences, so a queued edit that failed on one device reads correctly
+  in the reader's own language, including in the admin field queue
+  view. Text already on a device is preserved and shown as it was.
+- Field collectors are no longer asked to fill in the columns the
+  server stamps.
+- Removing a deployment from a device now clears its cached map tiles
+  from every place that offers the action.
+
+### Changed
+
+- The map engine moves to MapLibre GL JS 6.8.0, which closes a
+  critical cross-site scripting advisory in the version we shipped.
+- Unsynced offline work belongs to the account that captured it.
+  Signing in as a different person on a shared device no longer drains
+  someone else's edits under the new account; the portal says what is
+  on the device and asks whether to keep or remove it.
+- The four non-English catalogues are complete again, so nothing falls
+  back to English.
+
+### Internal
+
+- deck.gl moves to 9.4.0 and the LiDAR overlay to `@deck.gl/maplibre`,
+  which is the only build compatible with MapLibre 6. Offered upstream
+  as opengeos/maplibre-gl-lidar#93 so the local patch can be dropped.
+- Dependency floors that were pinning their own advisories are raised:
+  `next`, `sharp`, `js-yaml`, `multer`, and the pmtiles `grpc` and
+  `x/net` pins in the API image. `extract-zip`, which has no patched
+  release, is gone from the tree with puppeteer-core v25. Node >= 22.12
+  is now required, for `require(esm)`.
+- Request-path work that was repeated per tile or per row is cached:
+  the authenticated user, the related-source parent key set, and the
+  layer schema. Item extents grow arithmetically on insert instead of
+  collapsing the observation log.
+
 ### Added
 
 - **Photos can be taken offline, and before the record exists.** The
