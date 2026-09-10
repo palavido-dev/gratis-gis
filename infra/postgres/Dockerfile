@@ -18,7 +18,24 @@
 # in case the restore needs to be reverted.
 FROM postgis/postgis:17-3.5
 
-RUN apt-get update \
+# Check-Valid-Until=false because this image is bullseye based and
+# bullseye-security has reached end of life. Its Release file stopped
+# being refreshed and expired on 2026-09-08, at which point apt-get
+# update began failing with exit 100 and every deploy died here, on a
+# layer that has nothing to do with what was being released.
+#
+# This relaxes freshness, not trust. The repository is still signed and
+# the signature is still verified; the only check dropped is the
+# "Valid-Until" window, and since the suite is EOL there is no newer
+# metadata to be withheld from us. The packages we install come from
+# apt.postgresql.org anyway, which is current.
+#
+# Remove this when the base moves off bullseye. postgis/postgis
+# publishes no bookworm variant of 17-3.5 today (checked 2026-09-10:
+# only 17-3.5 and 17-3.5-alpine exist), so that is a base image change
+# under the production database rather than a tag bump, and wants its
+# own care.
+RUN apt-get -o Acquire::Check-Valid-Until=false update \
     && apt-get install -y --no-install-recommends \
         postgresql-17-partman \
         postgresql-17-repack \
