@@ -25,7 +25,7 @@
  * vector data), but vector data layers paint as path primitives.
  */
 import { useEffect, useRef, useState } from 'react';
-import maplibregl from 'maplibre-gl';
+import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { MapData } from '@gratis-gis/shared-types';
 // ensureRasterProtocols registers the pmtiles:// + cog:// MapLibre
@@ -34,6 +34,7 @@ import type { MapData } from '@gratis-gis/shared-types';
 // built (not relied on as a module-load side effect, which a bundler
 // chunk split can leave unrun before the map loads its sources; #209).
 import { basemapDataToStyle, ensureRasterProtocols } from '@/lib/custom-basemap';
+import { ensureMapLibreWorker } from '@/lib/maplibre-runtime';
 import type { BasemapData } from '@gratis-gis/shared-types';
 
 import {
@@ -104,6 +105,7 @@ export function MapSnapshot({
         : mapData.zoom;
 
     ensureRasterProtocols();
+    ensureMapLibreWorker();
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: styleArg,

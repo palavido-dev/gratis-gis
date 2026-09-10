@@ -1,0 +1,54 @@
+diff --git a/dist/LidarLayerAdapter-BCi-k0SS.js b/dist/LidarLayerAdapter-BCi-k0SS.js
+index 1e0dacaad37fa3940734874352f353f63d63c352..5baabc5cdae74a3dd894e1f422474e5c92b37c06 100644
+--- a/dist/LidarLayerAdapter-BCi-k0SS.js
++++ b/dist/LidarLayerAdapter-BCi-k0SS.js
+@@ -1,4 +1,4 @@
+-import { MapboxOverlay } from "@deck.gl/mapbox";
++import { MapLibreOverlay } from "@deck.gl/maplibre";
+ import { GeoJsonLayer, PointCloudLayer } from "@deck.gl/layers";
+ import { COORDINATE_SYSTEM } from "@deck.gl/core";
+ //#region \0rolldown/runtime.js
+@@ -20,7 +20,7 @@ var DeckOverlay = class {
+ 	constructor(map) {
+ 		this._map = map;
+ 		this._layers = /* @__PURE__ */ new Map();
+-		this._overlay = new MapboxOverlay({
++		this._overlay = new MapLibreOverlay({
+ 			interleaved: false,
+ 			layers: []
+ 		});
+diff --git a/dist/LidarLayerAdapter-D15dhfhP.cjs b/dist/LidarLayerAdapter-D15dhfhP.cjs
+index c888afc6091cc2d0090a3e375fe5e18d3c57aca8..becee518df203feaf8057b5f4aaeccee16542ac1 100644
+--- a/dist/LidarLayerAdapter-D15dhfhP.cjs
++++ b/dist/LidarLayerAdapter-D15dhfhP.cjs
+@@ -1,7 +1,7 @@
+ //#region \0rolldown/runtime.js
+ var __commonJSMin = (cb, mod) => () => (mod || (cb((mod = { exports: {} }).exports, mod), cb = null), mod.exports);
+ //#endregion
+-let _deck_gl_mapbox = require("@deck.gl/mapbox");
++let _deck_gl_maplibre = require("@deck.gl/maplibre");
+ let _deck_gl_layers = require("@deck.gl/layers");
+ let _deck_gl_core = require("@deck.gl/core");
+ //#region src/lib/core/DeckOverlay.ts
+@@ -16,7 +16,7 @@ var DeckOverlay = class {
+ 	constructor(map) {
+ 		this._map = map;
+ 		this._layers = /* @__PURE__ */ new Map();
+-		this._overlay = new _deck_gl_mapbox.MapboxOverlay({
++		this._overlay = new _deck_gl_maplibre.MapLibreOverlay({
+ 			interleaved: false,
+ 			layers: []
+ 		});
+diff --git a/package.json b/package.json
+index 5f00b2ba3f1d74558c4921fdee8a46a659137dde..1f9ccd698e0dfe509af40b1b56a1cd5d4bcfaaf4 100644
+--- a/package.json
++++ b/package.json
+@@ -87,7 +87,7 @@
+     "@deck.gl/core": ">=9.3.2",
+     "@deck.gl/extensions": ">=9.3.2",
+     "@deck.gl/layers": ">=9.3.2",
+-    "@deck.gl/mapbox": ">=9.3.2",
++    "@deck.gl/maplibre": ">=9.4.0",
+     "@loaders.gl/core": ">=4.4.2",
+     "@loaders.gl/las": ">=4.4.2",
+     "copc": ">=0.0.8",

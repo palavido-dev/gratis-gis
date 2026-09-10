@@ -11,7 +11,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import maplibregl from 'maplibre-gl';
+import * as maplibregl from 'maplibre-gl';
 import type {
   DrawingSet,
   MapData,
@@ -44,6 +44,7 @@ import {
   ensureRasterProtocols,
   type CustomBasemap,
 } from '@/lib/custom-basemap';
+import { ensureMapLibreWorker } from '@/lib/maplibre-runtime';
 import { getCachedUserName } from '@/lib/user-name-cache';
 
 // Register pmtiles:// and cog:// so raster tile layers and DEM-draped
@@ -113,6 +114,31 @@ import {
 } from './point-cloud-overlay';
 import { fetchLayerBBox } from '@/lib/arcgis-rest';
 import type { SelectToolMode } from './select-tool';
+
+/**
+ * MapLibre 6 types the style setters per property key
+ * (`setLayoutProperty<K>(id, name: K, value: AllLayoutProperties[K])`)
+ * where 5.x took a plain string and `any`. Naming the setters' own
+ * parameter types, rather than restating the key unions, keeps the
+ * layer diff below tied to whatever MapLibre's style spec currently
+ * says: a property the spec renames then lands here as a type error
+ * instead of a setter call the map silently ignores at runtime.
+ */
+type LayoutKey = Parameters<maplibregl.Map['setLayoutProperty']>[1];
+type LayoutValue = Parameters<maplibregl.Map['setLayoutProperty']>[2];
+type PaintKey = Parameters<maplibregl.Map['setPaintProperty']>[1];
+type PaintValue = Parameters<maplibregl.Map['setPaintProperty']>[2];
+
+/**
+ * `Object.keys` is typed `string[]` because a runtime object may carry
+ * keys its declared type does not. Every object read through here comes
+ * from a MapLibre `LayerSpecification`, whose layout and paint keys are
+ * style-spec property names by construction, so recovering them at that
+ * type is sound. Stated once here instead of at each setter call.
+ */
+function styleKeys<T extends object>(o: T | undefined): (keyof T)[] {
+  return Object.keys(o ?? {}) as (keyof T)[];
+}
 
 interface Props {
   /** Controlled camera + basemap + layer list. */
@@ -663,6 +689,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     // at module load above; this is the idempotent belt-and-suspenders
     // (see registerMapProtocols for the #209 history).
     registerMapProtocols();
+    ensureMapLibreWorker();
     const m = new maplibregl.Map({
       container: containerRef.current,
       style: resolveStyle(),
@@ -3237,8 +3264,8 @@ function syncOverlays(
         filter?: unknown;
         minzoom?: number;
         maxzoom?: number;
-        layout?: Record<string, unknown>;
-        paint?: Record<string, unknown>;
+        layout?: Partial<Record<LayoutKey, LayoutValue>>;
+        paint?: Partial<Record<PaintKey, PaintValue>>;
       };
       wantedIds.add(spec.id);
       const prior = kept
@@ -3269,16 +3296,16 @@ function syncOverlays(
       // Union of prior + next keys so properties the new spec drops
       // (the dash array on a now-solid stroke, icon-color when tint
       // turns off) are reset to defaults instead of lingering.
-      const layoutKeys = new Set([
-        ...Object.keys(prior.layout ?? {}),
-        ...Object.keys(spec.layout ?? {}),
+      const layoutKeys = new Set<LayoutKey>([
+        ...styleKeys(prior.layout),
+        ...styleKeys(spec.layout),
       ]);
       for (const key of layoutKeys) {
         m.setLayoutProperty(spec.id, key, spec.layout?.[key]);
       }
-      const paintKeys = new Set([
-        ...Object.keys(prior.paint ?? {}),
-        ...Object.keys(spec.paint ?? {}),
+      const paintKeys = new Set<PaintKey>([
+        ...styleKeys(prior.paint),
+        ...styleKeys(spec.paint),
       ]);
       for (const key of paintKeys) {
         m.setPaintProperty(spec.id, key, spec.paint?.[key]);

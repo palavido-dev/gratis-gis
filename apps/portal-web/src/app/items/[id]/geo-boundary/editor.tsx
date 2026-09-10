@@ -3,7 +3,8 @@
 
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useEffect, useRef, useState } from 'react';
-import maplibregl from 'maplibre-gl';
+import * as maplibregl from 'maplibre-gl';
+import { ensureMapLibreWorker } from '@/lib/maplibre-runtime';
 import {
   AlertTriangle,
   Clipboard,
@@ -264,6 +265,7 @@ function BoundaryPreview({ geometry }: { geometry: GeoBoundaryGeometry | null })
   // first boundary still see a real map even if nothing is seeded.
   useEffect(() => {
     if (!containerRef.current) return;
+    ensureMapLibreWorker();
     const m = new maplibregl.Map({
       container: containerRef.current,
       style: PREVIEW_BASEMAP_STYLE,
@@ -375,6 +377,7 @@ function DrawPanel({
   // and the other tabs is simpler than juggling state.
   useEffect(() => {
     if (!containerRef.current) return;
+    ensureMapLibreWorker();
     const m = new maplibregl.Map({
       container: containerRef.current,
       style: PREVIEW_BASEMAP_STYLE,

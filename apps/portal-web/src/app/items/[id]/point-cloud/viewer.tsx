@@ -4,7 +4,8 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 import 'maplibre-gl-lidar/style.css';
 import { useEffect, useRef, useState } from 'react';
-import maplibregl from 'maplibre-gl';
+import * as maplibregl from 'maplibre-gl';
+import { ensureMapLibreWorker } from '@/lib/maplibre-runtime';
 import { LidarControl } from 'maplibre-gl-lidar';
 import type { PointCloudData } from '@gratis-gis/shared-types';
 
@@ -69,6 +70,7 @@ export default function PointCloudViewer({
           zoom: 13,
         }
       : { center: [0, 0] as [number, number], zoom: 2 };
+    ensureMapLibreWorker();
     const map = new maplibregl.Map({
       container: containerRef.current,
       style,

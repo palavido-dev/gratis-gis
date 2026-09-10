@@ -42,7 +42,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Loader2, Pencil, X } from 'lucide-react';
-import type maplibregl from 'maplibre-gl';
+import type * as maplibregl from 'maplibre-gl';
 import type {
   DistanceParameter,
   FeatureSourceParameter,

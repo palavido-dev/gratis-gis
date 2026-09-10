@@ -3,7 +3,8 @@
 
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useEffect, useRef } from 'react';
-import maplibregl from 'maplibre-gl';
+import * as maplibregl from 'maplibre-gl';
+import { ensureMapLibreWorker } from '@/lib/maplibre-runtime';
 
 /**
  * Read-only MapLibre canvas previewing a data_layer's contents on
@@ -64,6 +65,7 @@ export function DataLayerBboxPreview({ bbox, featureSources }: Props) {
 
   useEffect(() => {
     if (!containerRef.current) return;
+    ensureMapLibreWorker();
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: OSM_STYLE,

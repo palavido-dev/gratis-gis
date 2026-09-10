@@ -55,6 +55,14 @@ workflow flag them) and on a monthly pass; an override is removed
 once every dependent in the tree requires a fixed version on its
 own.
 
+Not every entry in that block is an advisory pin. The `@deck.gl/*`
+and `@luma.gl/*` entries are compatibility pins that hold one
+version across a stack whose packages refuse to interoperate across
+minors, and the monthly pass should leave them in place; the reason
+and the removal condition are in `patches/README.md`. A compatibility
+pin can still go stale against an advisory, so treat it like any
+other floor when a scanner flags one of those packages.
+
 ## Scope
 
 In scope:

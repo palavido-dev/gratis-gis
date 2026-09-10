@@ -19,7 +19,7 @@
  */
 
 import { useEffect } from 'react';
-import maplibregl from 'maplibre-gl';
+import * as maplibregl from 'maplibre-gl';
 
 export interface OsmOverlayFeature {
   type: 'Feature';

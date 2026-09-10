@@ -40,6 +40,10 @@ module.exports = {
   modulePathIgnorePatterns: ['<rootDir>/.next/'],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
+    // MapLibre 6 is ESM only and exposes no `require` condition, so the
+    // CommonJS resolver here cannot load it. See the stub for why a
+    // stub is the right answer rather than an ESM runner.
+    '^maplibre-gl$': '<rootDir>/test/maplibre-gl-stub.ts',
     '^@gratis-gis/shared-types$':
       '<rootDir>/../../packages/shared-types/src/index.ts',
     '^@gratis-gis/form-schema$':

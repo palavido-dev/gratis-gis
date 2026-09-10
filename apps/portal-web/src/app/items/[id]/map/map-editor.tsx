@@ -61,7 +61,7 @@ import { CommentsPanel } from './comments-panel';
 import { PresenceOverlay } from './presence-overlay';
 import { PrintThisMapDialog } from './print-this-map-dialog';
 import type { DrawingSet } from '@gratis-gis/shared-types';
-import type maplibregl from 'maplibre-gl';
+import type * as maplibregl from 'maplibre-gl';
 import {
   AccessMatrix,
   unresolvedPrincipal,

@@ -13,6 +13,10 @@ Dockerfile   text eol=lf
 Caddyfile    text eol=lf
 *.yml        text eol=lf
 *.yaml       text eol=lf
+# pnpm writes patches/*.patch with LF context lines and matches them
+# against package sources that are also LF. A CRLF checkout on Windows
+# makes every context line miss and the install fails outright.
+*.patch      text eol=lf
 
 # Binary files git should never try to interpret as text.
 *.png  binary

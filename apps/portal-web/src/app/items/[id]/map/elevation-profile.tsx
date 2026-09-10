@@ -20,7 +20,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type maplibregl from 'maplibre-gl';
+import type * as maplibregl from 'maplibre-gl';
 import { ChartSpline, Loader2, Pencil, X } from 'lucide-react';
 
 import { formatLengthIn, type DistanceUnit } from '@/lib/measure';
