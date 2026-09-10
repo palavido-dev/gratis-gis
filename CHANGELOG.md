@@ -7,6 +7,14 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+## [0.9.112] - 2026-09-10
+
+### Fixed
+
+- Finishes the deployment fix started in 0.9.111. Debian bullseye's
+  packages have been moved to the archive now that it is end of life,
+  so the database image is built from there.
+
 ## [0.9.111] - 2026-09-10
 
 ### Fixed
