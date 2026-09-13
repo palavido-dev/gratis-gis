@@ -126,23 +126,18 @@ jobs:
     # `pnpm build` or any other turbo task first. That would recreate
     # the blind spot this job exists to close.
 
-    services:
-      postgres:
-        # Same image as verify, for the same reason: match prod.
-        image: postgis/postgis:17-3.5
-        env:
-          POSTGRES_USER: gratisgis
-          POSTGRES_PASSWORD: devpassword
-          POSTGRES_DB: gratisgis_smoke
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U gratisgis -d gratisgis_smoke"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+    # Deliberately no `services:` block. A stock postgis/postgis image
+    # is not a substitute for ours: migration
+    # 20260508081000_partition_observation_table needs pg_partman and
+    # dies with 0A000 "extension pg_partman is not available" without
+    # it. verify gets away with the stock image only because it never
+    # applies the migration chain. The real image is built from
+    # infra/postgres, so this job uses that, below.
 
     env:
-      DATABASE_URL: postgresql://gratisgis:devpassword@localhost:5432/gratisgis_smoke?schema=public
+      # Straight from .env.example, so the quickstart's own
+      # DATABASE_URL is what gets exercised.
+      DATABASE_URL: postgresql://gratisgis:devpassword@localhost:5432/gratisgis?schema=public
 
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -160,15 +155,22 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Create the per-app env files
-        # The quickstart step verbatim. The service container above
-        # stands in for `pnpm infra:up`, so the DB line has to be
-        # repointed; Keycloak and MinIO keep their placeholder values
-        # because nothing this job touches needs them. /health is
-        # @Public() and returns a literal.
+        # The quickstart step verbatim, no rewriting. Keycloak and
+        # MinIO keep their placeholder values because nothing this job
+        # touches needs them: /health is @Public() and returns a
+        # literal, and DATABASE_URL is the app's only boot-time env
+        # throw.
         run: |
           cp .env.example apps/portal-api/.env
           cp .env.example apps/portal-web/.env
-          sed -i "s|^DATABASE_URL=.*|DATABASE_URL=${DATABASE_URL}|" apps/portal-api/.env
+
+      - name: Start Postgres
+        # Not `pnpm infra:up`: that also starts Nominatim, which
+        # imports an OSM extract and has no business in a smoke test.
+        # Same compose file and same service definition, one service.
+        # That gets the pg_partman image, the pg_partman_bgw preload
+        # and init-db.sql, which is what the migration chain needs.
+        run: docker compose -f infra/docker-compose.yml up -d --wait postgres
 
       - name: Migrate
         # deploy, not dev: `prisma migrate dev` prompts on drift.
