@@ -16,7 +16,7 @@
 # lines do not belong under prod, and floating tags turn upstream
 # releases into unreviewed deploys. Bump this deliberately.
 
-FROM node:24.18.0-bookworm-slim AS base
+FROM node:26.7.0-bookworm-slim AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 # See apps/portal-api/Dockerfile for the rationale on this block:
