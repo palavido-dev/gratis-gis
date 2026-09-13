@@ -45,6 +45,8 @@ kotlin {
 
 dependencies {
   implementation(project(":core:engine"))
+  implementation(project(":core:network"))
+  implementation(project(":feature:auth"))
 
   val composeBom = platform(libs.androidx.compose.bom)
   implementation(composeBom)

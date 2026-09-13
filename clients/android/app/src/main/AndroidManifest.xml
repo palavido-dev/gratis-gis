@@ -12,9 +12,13 @@
         android:supportsRtl="true"
         android:windowSoftInputMode="adjustResize"
         android:theme="@style/Theme.GratisGISField">
+        <!-- singleTop so the auth redirect, forwarded by
+             AuthCallbackActivity, arrives in onNewIntent of the running
+             instance instead of stacking a second one. -->
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

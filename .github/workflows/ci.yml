@@ -278,6 +278,57 @@ jobs:
           pkill -f 'turbo run dev' 2>/dev/null || true
           exit 1
 
+  android-client:
+    name: Android client
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # clients/android is a Gradle project outside the pnpm workspace,
+    # so `pnpm test` never sees it. Its unit tests run the real field
+    # engine bundle inside QuickJS on the JVM, which is the host half of
+    # the conformance gate in docs/mobile-field-app.md: the bundle is
+    # built from this same checkout first, so a form-schema change that
+    # breaks the Kotlin marshalling fails here, not on a phone.
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the field engine bundle
+        # The Android build copies dist/ from here; it never builds the
+        # bundle itself (two toolchains producing one file is how they
+        # drift).
+        run: pnpm --filter @gratis-gis/field-engine build
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      - name: Unit tests and debug APK
+        working-directory: clients/android
+        # The runner image ships Temurin JDKs and the Android SDK;
+        # AGP fetches the platform and build-tools it needs.
+        env:
+          JAVA_HOME: ${{ env.JAVA_HOME_17_X64 }}
+        run: ./gradlew --no-daemon --console=plain testDebugUnitTest :app:assembleDebug
+
+      - name: Upload unit test reports
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-unit-test-reports
+          path: clients/android/**/build/reports/tests/testDebugUnitTest/
+
   python-client:
     name: Python client
     runs-on: ubuntu-latest

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- Receives gratisgis://auth-callback from the Custom Tab and
+             hands the URI to the launcher activity. singleTask so a
+             second redirect does not stack a second instance. The
+             scheme and host are the redirect URI registered on the
+             field-app Keycloak client (infra/keycloak). -->
+        <activity
+            android:name=".AuthCallbackActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:host="auth-callback"
+                    android:scheme="gratisgis" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>
