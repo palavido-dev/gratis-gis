@@ -165,11 +165,15 @@ packages.
   JSON shapes in `shared-types`, and nothing else. That layer is the
   only place a parity bug can now live, and it is the kind of bug a
   round-trip test catches.
-- Choice of binding is an open question below. Requirements: QuickJS
-  (not V8, which is tens of MB), maintained, exposes `evaluate` and a
-  way to call a global function with a string argument, and nothing
-  more. A JNI wrapper of a few hundred lines is acceptable if no
-  maintained binding fits.
+- Binding, decided 2026-09-13: `io.github.dokar3:quickjs-kt` (1.0.15,
+  Apache-2.0, released 2026-09-03). Chosen over Cash App's
+  `app.cash.quickjs` because it is Kotlin Multiplatform, coroutine
+  native, interruptible with a per-instance timeout, and publishes a
+  `-jvm` artifact, so `:core:engine` is unit tested on the desktop
+  against the real bundle without an emulator. It is a small project
+  (one maintainer, about 150 stars); the mitigation is that the
+  surface we use is `create`, `evaluate<String>` and `close`, which a
+  few hundred lines of JNI could replace if it ever stops moving.
 - No Android API is exposed to the engine. This is a security property
   of the design as much as a simplicity one: the bundle is trusted code
   from this repo, but the boundary should still be one-directional.
@@ -316,10 +320,19 @@ Done 2026-09-13 (checked against the live realm first):
   (not `gratisgis-field://`, which an earlier draft of this document
   proposed before the existing client was found).
 
-Still to do, on the app side: AppAuth-Android for the flow,
-requesting `openid offline_access`, refresh token in Keystore-backed
-storage. If portal-api ever starts checking `aud`, `field-app` and
-`qgis-plugin` both need to be in the accepted set.
+App side, shipped 2026-09-13 in `clients/android/feature/auth`:
+authorization code + PKCE in a Custom Tab, `openid offline_access`,
+tokens AES-GCM under an Android Keystore key. **Not AppAuth-Android**:
+its last release was 0.11.1 in December 2021, and the flow is a URL,
+one form POST and a redirect, so it is hand-rolled and unit tested
+against the RFC 7636 vector and a mock token endpoint. The access
+token's claims are read without verifying the signature, per
+`docs/auth-model.md`. If portal-api ever starts checking `aud`,
+`field-app` and `qgis-plugin` both need to be in the accepted set.
+
+Bootstrap is from one URL: `GET /api/portal-info` (already public,
+built for exactly this) returns the OIDC issuer and the API base, and
+the app caches it so a cold start offline still knows both.
 
 Dropped from the first draft, deliberately:
 
@@ -635,12 +648,16 @@ early as possible.
    tightened, reconcile in `deploy.sh` and `restore-golden.sh`. Lands
    live on the next tagged deploy.
 3. **Android skeleton on the emulator and one sideloaded handset.**
-   AppAuth sign in, list collections, load the bundle and evaluate one
-   form through it, download one offline area, queue one record, drain
-   it. Measure the engine call latency here. Also a thin BLE NMEA spike
-   on the handset: pair one receiver, print sentences. It proves the
-   thing that justified going native before any UI is built on the
-   assumption. Ugly is fine. No store involvement.
+   In progress 2026-09-13. Done: `clients/android` (AGP 9.0.1, Kotlin
+   2.3.20, Compose), `:core:engine` loading and hash-checking the
+   bundle with the sample validation matching the server on the API 37
+   emulator, `:core:network` with discovery and the error taxonomy,
+   `:feature:auth` with PKCE sign-in up to Keycloak's login page, a
+   collections list behind it, and a CI job running the JVM tests and
+   assembling the debug APK. Remaining: a person completing a sign-in
+   on the emulator (credentials), the offline area download, queue one
+   record and drain it, engine call latency measurement, and the BLE
+   NMEA spike on a handset. Ugly is fine. No store involvement.
 4. **Server slices, in parallel with 5.** Per-user throttle keying,
    `ownEditWindow` with enforcement, `baseObservationId` 409 on PATCH
    and DELETE, the conformance corpus on the TypeScript side.
@@ -669,17 +686,14 @@ device-id binding (no; Keycloak offline sessions), `formVersionId`
 offline JWKS verification (dropped), whether to port the form engine
 (no; embed it).
 
+Also resolved 2026-09-13: the app lives in this repo at
+`clients/android/` (the engine bundle is a build input copied from
+`packages/field-engine/dist/`, and CI builds both from one checkout),
+the QuickJS binding is quickjs-kt, and auth is hand-rolled rather than
+AppAuth.
+
 Still open:
 
-- Does the Android app live in this repo or its own? The engine bundle
-  strengthens the case for this repo: a Gradle task copies
-  `packages/field-engine/dist/` into `:core:engine`'s assets, and the
-  release job builds both from one tagged commit. A separate repo makes
-  the bundle a published artifact with its own versioning. Lean toward
-  this repo under `clients/android/`, matching `clients/python`,
-  excluded from the pnpm workspace glob the way `clients/python` and
-  `tools/pointcloud-worker` already are.
-- Which QuickJS binding. Requirements are in "How the app hosts it".
 - Organization or personal Play developer account, and if personal,
   who the 12 testers are.
 - Which physical receivers are in scope for v1? "Bluetooth NMEA" is not
