@@ -184,6 +184,15 @@ jobs:
         # the one that actually fires; the timeout is the backstop for
         # a server that hangs instead of dying.
         run: |
+          # GitHub runs `run:` blocks as `bash -e`. This loop is built
+          # out of commands that are supposed to fail -- curl against a
+          # port nothing is listening on yet -- so errexit has to go.
+          # An `if` condition is exempt from -e but a plain assignment
+          # is not, so `code=$(curl ...)` inherited curl's exit 7 on the
+          # first refused connection and killed the step five seconds
+          # in. Test this block with `bash -e`, not plain `bash`, or
+          # that failure is invisible.
+          set +e
           set -uo pipefail
           rm -f dev.log dev.exit
           # Record the exit status in a file rather than polling the pid.
