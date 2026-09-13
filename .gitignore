@@ -184,3 +184,8 @@ OSGEO-SUBMISSION.md
 /.m1.txt
 /.relnotes.md
 /.page.html
+
+# Vendored at build/dev time by apps/portal-web/scripts/vendor-maplibre-worker.mjs.
+# MapLibre 6 ships a worker that imports a sibling chunk; both are copied
+# here so the relative import resolves. Regenerated on every build.
+apps/portal-web/public/maplibre/
