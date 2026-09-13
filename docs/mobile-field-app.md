@@ -654,10 +654,12 @@ early as possible.
    emulator, `:core:network` with discovery and the error taxonomy,
    `:feature:auth` with PKCE sign-in up to Keycloak's login page, a
    collections list behind it, and a CI job running the JVM tests and
-   assembling the debug APK. Remaining: a person completing a sign-in
-   on the emulator (credentials), the offline area download, queue one
-   record and drain it, engine call latency measurement, and the BLE
-   NMEA spike on a handset. Ugly is fine. No store involvement.
+   assembling the debug APK. Sign-in verified end to end against
+   gratisgis.org on the emulator the same day: PKCE through Chrome,
+   redirect, exchange, bearer list of collections. Remaining: the
+   offline area download, queue one record and drain it, engine call
+   latency measurement, and the BLE NMEA spike on a handset. Ugly is
+   fine. No store involvement.
 4. **Server slices, in parallel with 5.** Per-user throttle keying,
    `ownEditWindow` with enforcement, `baseObservationId` 409 on PATCH
    and DELETE, the conformance corpus on the TypeScript side.
