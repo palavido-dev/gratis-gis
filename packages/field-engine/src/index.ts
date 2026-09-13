@@ -60,6 +60,10 @@ import {
   type SubmissionStampContext,
 } from '../../shared-types/src/submission-stamp';
 import { matchesFilter } from '../../shared-types/src/filter-match';
+import {
+  canonicalLayerSchema,
+  type LayerSchemaFieldForHash,
+} from '../../shared-types/src/layer-schema-canonical';
 import type { MapLayerFilter } from '../../shared-types/src/map';
 import { foldQueuedChain, foldQueuedEdits, type FoldableEdit } from '../../shared-types/src/queue-fold';
 import {
@@ -135,6 +139,12 @@ export const SURFACE = {
 
   /** Whether a column is one the server fills, so no form should ask. */
   'feature.isServerStampedField': (a: { name: string }) => isServerStampedField(a.name),
+
+  /** The text a layer schema hashes to. The host hashes it with
+   *  SHA-256 and keeps the first 16 hex characters, which is what the
+   *  web runtime stores as `schemaHash`. */
+  'feature.schemaCanonical': (a: { fields: LayerSchemaFieldForHash[] }) =>
+    canonicalLayerSchema(a.fields),
 
   /** Evaluate a map layer filter against one row's attributes. */
   'filter.matches': (a: {

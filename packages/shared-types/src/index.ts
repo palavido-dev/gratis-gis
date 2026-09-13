@@ -38,6 +38,7 @@ export * from './viewer';
 export * from './custom-app';
 export * from './source-scope';
 export * from './filter-match';
+export * from './layer-schema-canonical';
 export * from './app-themes';
 export * from './app-templates';
 export * from './print-template';

@@ -80,6 +80,7 @@ an argument or result shape, needs an `ENGINE_VERSION` bump in
 | `feature.validate` | `{ fields?, properties?, options? }` | `ValidateFeatureResult` (persist `value`, not the input) |
 | `feature.stamp` | `{ fields?, properties, context }` | stamped properties |
 | `feature.isServerStampedField` | `{ name }` | boolean |
+| `feature.schemaCanonical` | `{ fields }` | the string a layer schema hashes to; the host SHA-256s it and keeps 16 hex chars |
 | `filter.matches` | `{ properties?, filter? }` | boolean |
 | `queue.fold` | `{ prior, next }` | `FoldResult` |
 | `queue.foldChain` | `{ chain }` | `FoldResult` |

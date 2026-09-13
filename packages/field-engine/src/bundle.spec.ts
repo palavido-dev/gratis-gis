@@ -203,6 +203,7 @@ const cases: Array<[string, unknown]> = [
     },
   ],
   ['feature.isServerStampedField', { name: 'submitted_by' }],
+  ['feature.schemaCanonical', { fields }],
   [
     'filter.matches',
     {

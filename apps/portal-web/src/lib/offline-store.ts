@@ -17,6 +17,7 @@
  */
 
 import {
+  canonicalLayerSchema,
   foldQueuedChain,
   isQueueRowOwnedBy,
   type FoldableEdit,
@@ -1411,15 +1412,10 @@ export async function getStorageEstimate(): Promise<{
 export async function hashLayerSchema(
   fields: FeatureField[],
 ): Promise<string> {
-  const canon = fields
-    .map((f) => ({
-      name: f.name,
-      type: f.type,
-      nullable: f.nullable === true,
-      domain: f.domain ?? null,
-    }))
-    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-  const text = JSON.stringify(canon);
+  // The canonical text lives in shared-types so the native field
+  // client, which hashes with the platform's SHA-256, gets the same
+  // bytes from the engine bundle. Only the digest step is local.
+  const text = canonicalLayerSchema(fields);
   if (typeof crypto === 'undefined' || !crypto.subtle) {
     // Fallback for non-secure contexts: simple FNV-1a 32-bit. NOT a
     // real cryptographic hash, but good enough as a change-detector
