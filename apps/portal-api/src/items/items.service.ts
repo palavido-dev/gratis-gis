@@ -11,6 +11,7 @@ import {
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { readV3Layers } from '../data-layer/read-v3-layers.js';
+import { stampFormEngineVersion } from '../forms/form-engine-stamp.js';
 import { pickDefaultBasemap } from './default-basemap.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { hasCapability } from '../auth/capabilities.js';
@@ -1203,6 +1204,10 @@ export class ItemsService {
           linkedLayerKey: paired.layerKey,
         } as Prisma.InputJsonValue;
       }
+      // Same server-state rule as the link above: the engine version
+      // a form needs is derived from its content on every write and
+      // never taken from the client.
+      resolvedData = stampFormEngineVersion(resolvedData) as Prisma.InputJsonValue;
     }
 
     // Same pin as update(): a file / tile_layer / point_cloud item may
@@ -1752,7 +1757,10 @@ export class ItemsService {
       ) {
         merged.linkedLayerKey = prevData.linkedLayerKey;
       }
-      nextData = merged as Prisma.InputJsonValue;
+      // And the engine version the form needs, recomputed from what
+      // is being saved so a native client never trusts a stale or
+      // client-supplied value.
+      nextData = stampFormEngineVersion(merged) as Prisma.InputJsonValue;
     }
 
     // Round-trip footgun normalizer: any bare-MinIO URL pointing at
