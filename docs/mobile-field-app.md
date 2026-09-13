@@ -549,9 +549,15 @@ a decision for when a Mac exists.
 Room replaces IndexedDB and maps closely onto the existing stores
 (`deployments`, `features`, `forms`, `pickLists`, `queue`, `blobs`,
 `meta`), which are documented in `apps/portal-web/src/lib/offline-store.ts`
-at schema version 4. Read `QueueRecord` and `PendingBlob` there before
-designing the Room schema; the field names are contract with the drain,
-and now also with the bundle, which takes `QueueRecord` JSON as input.
+at schema version 4. `QueueRecord` and `PendingBlob` there are the
+contract with the drain, and now also with the bundle, which takes
+`QueueRecord` JSON as input. Shipped 2026-09-13 as `:core:database`
+(collection, layer, feature, form, offline_package, queue; pick lists
+and blobs still to come). The layer schema hash both clients compute
+comes from one canonical text, `feature.schemaCanonical` in the
+bundle, hashed with each platform's SHA-256; see
+`packages/shared-types/src/layer-schema-canonical.ts` for why the text
+and not the hash is what is shared.
 
 Six question types parse but have no capture control anywhere today
 (`UNCAPTURABLE_QUESTION_TYPES` at `packages/form-schema/src/index.ts:125`):
@@ -656,10 +662,20 @@ early as possible.
    collections list behind it, and a CI job running the JVM tests and
    assembling the debug APK. Sign-in verified end to end against
    gratisgis.org on the emulator the same day: PKCE through Chrome,
-   redirect, exchange, bearer list of collections. Remaining: the
-   offline area download, queue one record and drain it, engine call
-   latency measurement, and the BLE NMEA spike on a handset. Ugly is
-   fine. No store involvement.
+   redirect, exchange, bearer list of collections. Later the same
+   day: `:core:database` (Room, mirroring the web stores) and
+   `:feature:sync` (offline download, edit queue with folding, drain).
+   Verified on the emulator against production: the sample
+   collection's 3 layers, 98 features, bound form and 10.5 MB PMTiles
+   package downloaded with no shortfalls; a queued insert drained and
+   was accepted. Engine call latency, measured in-app (25-question
+   form with a repeat group, 200 calls after warm-up, x86_64 emulator,
+   debug build with CheckJNI, so a real handset on a release build
+   will be faster): `form.state` median 2.2 ms, p95 4.8 ms;
+   `form.validate` 1.1 / 2.5 ms; `form.applyCalculations` 1.1 / 2.6 ms.
+   That settles the per-keystroke question from "How the app hosts
+   it": no batching needed. Remaining: the BLE NMEA spike on a handset.
+   No store involvement.
 4. **Server slices, in parallel with 5.** Per-user throttle keying,
    `ownEditWindow` with enforcement, `baseObservationId` 409 on PATCH
    and DELETE, the conformance corpus on the TypeScript side.
