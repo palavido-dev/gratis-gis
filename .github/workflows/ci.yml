@@ -172,17 +172,29 @@ jobs:
         # and init-db.sql, which is what the migration chain needs.
         run: docker compose -f infra/docker-compose.yml up -d --wait postgres
 
-      - name: Migrate
-        # The quickstart's command, not `db:migrate:deploy`. They are
-        # not interchangeable here: `migrate dev` generates the Prisma
-        # client as part of its run and `migrate deploy` does not, so
-        # substituting deploy left @prisma/client ungenerated and
-        # portal-api's build died on a few hundred "Property 'x' does
-        # not exist on type 'PrismaService'". Adding a db:generate step
-        # would paper over that; running what the README says is the
-        # point of this job. There is no drift to prompt about on a
-        # container that was created seconds ago.
-        run: pnpm --filter @gratis-gis/portal-api db:migrate
+      - name: Migrate and generate the client
+        # NOT the quickstart's `db:migrate`, and that is a finding
+        # rather than a shortcut. `db:migrate` is `prisma migrate dev`,
+        # which reads the extensions init-db.sql creates (postgis,
+        # postgis_topology, postgis_tiger_geocoder, fuzzystrmatch,
+        # pg_trgm, pgcrypto, uuid-ossp) as drift against the migration
+        # history, demands a reset of the public schema, and exits 130
+        # with no TTY to confirm at. A human on a brand-new database
+        # gets the same demand and has to accept a destructive reset to
+        # get past step 4 of the README. Nothing documents that. It is
+        # very likely the "(Resolved)" the reporter of #238 wrote next
+        # to this step.
+        #
+        # Worth fixing properly, by declaring the extensions in the
+        # migration history so a first run is clean. That is a separate
+        # change from this job. Until then, deploy applies the same
+        # migrations without the drift check, and db:generate does the
+        # client generation `migrate dev` would have done. Without it,
+        # portal-api's build dies on a few hundred "Property 'x' does
+        # not exist on type 'PrismaService'".
+        run: |
+          pnpm --filter @gratis-gis/portal-api db:migrate:deploy
+          pnpm --filter @gratis-gis/portal-api db:generate
 
       # db:seed is the quickstart's next line and is deliberately
       # skipped. It loads demo data; it is not needed for the servers
