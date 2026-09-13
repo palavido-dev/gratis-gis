@@ -3089,6 +3089,33 @@ function syncOverlays(
     // so no {z}/{x}/{y} template is involved.
     if (layer.source.kind === 'tile') {
       const src = layer.source;
+      // A saved tile source with no tileUrl reached addSource below as
+      // `{ type: 'raster', url: undefined }`. MapLibre then reads
+      // `.length` off undefined while building the tile URL and throws
+      // inside _updateSources, on EVERY animation frame. That aborts
+      // the render pass before any later source is touched, so one
+      // malformed layer takes the entire map down with it -- the
+      // other layers never get a tile manager and never request a
+      // tile, and the canvas stays empty. Seen in production on the
+      // "Elkins in 3D" map, whose buildings layer was blamed for
+      // months of "3D is broken" when the hillshade layer beside it
+      // was the thing crashing the loop.
+      //
+      // The MapLayerSource type marks tileUrl required and the only
+      // builder (buildTileLayer in portal-item-layers.ts) always sets
+      // it, so this cannot come from the add-layer flow. It comes from
+      // maps written straight to the API, which validates item data as
+      // `@IsObject()` and nothing more. Skip the layer and say so
+      // rather than letting it kill everything else.
+      if (typeof src.tileUrl !== 'string' || src.tileUrl.length === 0) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[map] tile layer ${layer.id} (item ${src.itemId}) has no tileUrl ` +
+            'on its saved source; skipping it. Re-add the layer to the map ' +
+            'to repair the saved source.',
+        );
+        continue;
+      }
       // Last line of defense: a layer can be added to an already-open
       // map long after the create effect ran, so re-assert the schemes
       // immediately before the source that needs them (#209).
