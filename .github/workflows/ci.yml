@@ -105,6 +105,144 @@ jobs:
       - name: Build
         run: pnpm build
 
+  dev-smoke:
+    name: Fresh-clone pnpm dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # Why this job exists: discussion #238. Two separate bugs stopped
+    # `pnpm dev` working on any fresh clone, and neither was visible
+    # here, because nothing in CI ever ran the one command the README
+    # tells a new contributor to run.
+    #
+    # The verify job stays green through both of them. It never spawns
+    # a dev server, and its first turbo task populates packages/*/dist
+    # as a side effect, which is exactly the pre-warmed state that hid
+    # the second bug from every maintainer's working tree too.
+    #
+    # Keep this job dumb. It is not an integration test. It asserts one
+    # thing: a clean checkout, following the documented quickstart,
+    # gets portal-api and portal-web listening. Nothing here may run
+    # `pnpm build` or any other turbo task first. That would recreate
+    # the blind spot this job exists to close.
+
+    services:
+      postgres:
+        # Same image as verify, for the same reason: match prod.
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_USER: gratisgis
+          POSTGRES_PASSWORD: devpassword
+          POSTGRES_DB: gratisgis_smoke
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U gratisgis -d gratisgis_smoke"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://gratisgis:devpassword@localhost:5432/gratisgis_smoke?schema=public
+
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Create the per-app env files
+        # The quickstart step verbatim. The service container above
+        # stands in for `pnpm infra:up`, so the DB line has to be
+        # repointed; Keycloak and MinIO keep their placeholder values
+        # because nothing this job touches needs them. /health is
+        # @Public() and returns a literal.
+        run: |
+          cp .env.example apps/portal-api/.env
+          cp .env.example apps/portal-web/.env
+          sed -i "s|^DATABASE_URL=.*|DATABASE_URL=${DATABASE_URL}|" apps/portal-api/.env
+
+      - name: Migrate
+        # deploy, not dev: `prisma migrate dev` prompts on drift.
+        run: pnpm --filter @gratis-gis/portal-api db:migrate:deploy
+
+      - name: pnpm dev brings both servers up
+        # Start and poll in one step so the background process stays in
+        # this shell's lifetime, and so an early exit is caught as an
+        # exit rather than as a timeout. Both failure modes from #238
+        # kill the turbo process within seconds, so the exit check is
+        # the one that actually fires; the timeout is the backstop for
+        # a server that hangs instead of dying.
+        run: |
+          set -uo pipefail
+          rm -f dev.log dev.exit
+          # Record the exit status in a file rather than polling the pid.
+          # A backgrounded child that has exited but not been reaped is a
+          # zombie, and `kill -0` succeeds on a zombie, so a pid check
+          # sails straight past the exact failure this job is here to
+          # catch. Verified: with the #238 bug reintroduced, a kill -0
+          # loop ran the full timeout and never noticed turbo had died.
+          ( pnpm dev > dev.log 2>&1; echo $? > dev.exit ) &
+          api=''
+          web=''
+          for _ in $(seq 1 90); do
+            if [ -f dev.exit ]; then
+              echo "::error::pnpm dev exited ($(cat dev.exit)) before both servers were up"
+              tail -n 120 dev.log
+              exit 1
+            fi
+            # A dev task can die while the others keep running, which
+            # leaves the ports answering and the run silently failed.
+            # That is the shape the bug had on a maintainer's machine,
+            # where packages/*/dist was already warm: turbo did not tear
+            # the run down, so "both ports answer" alone would call it
+            # green. turbo prefixes each task's output, so a prefixed
+            # ELIFECYCLE is a task that exited; an unprefixed one is
+            # just the root script reacting to our own cleanup.
+            if grep -qE '@gratis-gis/[a-z-]+:dev:.*ELIFECYCLE' dev.log 2>/dev/null; then
+              echo '::error::a dev task exited while the rest of the run continued'
+              tail -n 120 dev.log
+              pkill -f 'turbo run dev' 2>/dev/null || true
+              exit 1
+            fi
+            if [ -z "$api" ] && curl -fs -o /dev/null http://localhost:4000/health 2>/dev/null; then
+              api=up
+              echo 'portal-api is up'
+            fi
+            if [ -z "$web" ]; then
+              # Any HTTP response proves the server is listening. Not -f:
+              # an unauthenticated GET / redirects to Keycloak, which is
+              # not running here, and the redirect itself is the proof.
+              # curl prints 000 on a refused connection and exits non-zero,
+              # so do not add a `|| echo 000` fallback: it appends a second
+              # 000, the compared string stops equalling 000, and every
+              # refused connection reads as a live server.
+              code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/ 2>/dev/null)
+              if [ -n "$code" ] && [ "$code" != '000' ]; then
+                web=up
+                echo "portal-web is up (HTTP $code)"
+              fi
+            fi
+            if [ -n "$api" ] && [ -n "$web" ]; then
+              echo 'both servers up from a clean checkout'
+              pkill -f 'turbo run dev' 2>/dev/null || true
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::timed out waiting for portal-api (${api:-down}) and portal-web (${web:-down})"
+          tail -n 200 dev.log
+          pkill -f 'turbo run dev' 2>/dev/null || true
+          exit 1
+
   python-client:
     name: Python client
     runs-on: ubuntu-latest
