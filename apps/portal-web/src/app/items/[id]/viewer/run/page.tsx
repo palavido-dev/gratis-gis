@@ -226,6 +226,9 @@ export default async function ViewerRuntimePage(props: Props) {
     editor,
     referencedMap,
     resolvedTargets,
+    // Read-only: never stack a second, re-styled copy over a layer the
+    // referenced map already draws. See the option's docstring.
+    reuseReferencedLayers: true,
   });
 
   const pickListItemIds = new Set<string>();
