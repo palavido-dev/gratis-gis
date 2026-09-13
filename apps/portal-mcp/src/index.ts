@@ -41,17 +41,27 @@ const BASE_URL = (
 const TOKEN = process.env.GRATIS_GIS_TOKEN ?? '';
 const USER_AGENT = 'gratis-gis-mcp/0.1';
 
+const MISSING_TOKEN_MESSAGE = [
+  'GRATIS_GIS_TOKEN is not set.',
+  'Get a bearer token from your portal session and set it via:',
+  '  export GRATIS_GIS_TOKEN=<your-token>',
+  'Or configure it inside your MCP client (Claude Desktop, Cursor, etc.).',
+].join('\n');
+
 if (!TOKEN) {
+  // Warn, but do not exit. Exiting at import time means an MCP
+  // client only ever sees "server disconnected" with no reason,
+  // and it turns a missing optional env var into a hard failure
+  // for anything that happens to spawn this process. The guard
+  // lives in requireToken() below, so list_tools still answers
+  // and every tool call returns a readable error instead.
   // eslint-disable-next-line no-console
-  console.error(
-    [
-      'GRATIS_GIS_TOKEN is not set.',
-      'Get a bearer token from your portal session and set it via:',
-      '  export GRATIS_GIS_TOKEN=<your-token>',
-      'Or configure it inside your MCP client (Claude Desktop, Cursor, etc.).',
-    ].join('\n'),
-  );
-  process.exit(1);
+  console.error(MISSING_TOKEN_MESSAGE);
+}
+
+function requireToken(): string {
+  if (!TOKEN) throw new Error(MISSING_TOKEN_MESSAGE);
+  return TOKEN;
 }
 
 const ITEM_TYPES = [
@@ -190,7 +200,7 @@ const TOOLS: Tool[] = [
 async function authedGet(path: string): Promise<unknown> {
   const res = await fetch(`${BASE_URL}${path}`, {
     headers: {
-      authorization: `Bearer ${TOKEN}`,
+      authorization: `Bearer ${requireToken()}`,
       accept: 'application/json',
       'user-agent': USER_AGENT,
     },
