@@ -173,8 +173,20 @@ jobs:
         run: docker compose -f infra/docker-compose.yml up -d --wait postgres
 
       - name: Migrate
-        # deploy, not dev: `prisma migrate dev` prompts on drift.
-        run: pnpm --filter @gratis-gis/portal-api db:migrate:deploy
+        # The quickstart's command, not `db:migrate:deploy`. They are
+        # not interchangeable here: `migrate dev` generates the Prisma
+        # client as part of its run and `migrate deploy` does not, so
+        # substituting deploy left @prisma/client ungenerated and
+        # portal-api's build died on a few hundred "Property 'x' does
+        # not exist on type 'PrismaService'". Adding a db:generate step
+        # would paper over that; running what the README says is the
+        # point of this job. There is no drift to prompt about on a
+        # container that was created seconds ago.
+        run: pnpm --filter @gratis-gis/portal-api db:migrate
+
+      # db:seed is the quickstart's next line and is deliberately
+      # skipped. It loads demo data; it is not needed for the servers
+      # to listen, which is the only thing asserted below.
 
       - name: pnpm dev brings both servers up
         # Start and poll in one step so the background process stays in
