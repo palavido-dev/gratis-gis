@@ -8,8 +8,10 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import org.gratisgis.field.core.database.FieldDatabase
 import org.gratisgis.field.core.engine.FieldEngine
 import org.gratisgis.field.core.engine.loadFromAssets
+import java.io.File
 import org.gratisgis.field.core.network.PortalClient
 import org.gratisgis.field.core.network.PortalInfo
 import org.gratisgis.field.feature.auth.AuthSession
@@ -37,6 +39,12 @@ class FieldApplication : Application() {
   lateinit var settings: PortalSettings
     private set
 
+  lateinit var db: FieldDatabase
+    private set
+
+  /** Where prepared basemap packages live: app-private, no permission. */
+  val packageDir: File get() = File(filesDir, "offline-packages")
+
   /** The client for the portal the user connected to; null until
    *  discovery has run this process. */
   @Volatile
@@ -48,6 +56,7 @@ class FieldApplication : Application() {
     engine = appScope.async { FieldEngine.loadFromAssets(this@FieldApplication) }
     settings = PortalSettings(this)
     auth = AuthSession(KeystoreTokenStore(this))
+    db = FieldDatabase.open(this)
   }
 
   fun connect(info: PortalInfo): PortalClient {

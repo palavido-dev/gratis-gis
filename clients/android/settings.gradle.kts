@@ -33,4 +33,6 @@ rootProject.name = "gratis-gis-field"
 include(":app")
 include(":core:engine")
 include(":core:network")
+include(":core:database")
 include(":feature:auth")
+include(":feature:sync")

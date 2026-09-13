@@ -12,13 +12,26 @@ import io.ktor.client.plugins.auth.providers.BearerTokens
 import io.ktor.client.plugins.auth.providers.bearer
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
+import io.ktor.client.request.patch
+import io.ktor.client.request.post
+import io.ktor.client.request.prepareGet
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
+import io.ktor.http.encodeURLPathPart
 import io.ktor.serialization.kotlinx.json.json
+import io.ktor.utils.io.readAvailable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * The portal-api client. One instance per signed-in portal.
@@ -83,6 +96,83 @@ class PortalClient(
 
   /** `GET /api/items/{id}`. */
   suspend fun getItem(id: String): ItemSummary = http.get("items/$id").body()
+
+  /** `GET /api/items/{id}/offline-areas`. */
+  suspend fun listOfflineAreas(itemId: String): OfflineAreasResponse =
+    http.get("items/$itemId/offline-areas").body()
+
+  /**
+   * `GET /api/items/{id}/layers/{layerKey}/geojson`, as text. The
+   * caller parses it; a layer can be tens of MB and the store keeps
+   * the raw feature JSON anyway.
+   */
+  suspend fun getLayerGeoJson(dataLayerId: String, layerKey: String, bbox: List<Double>? = null): String =
+    http.get("items/$dataLayerId/layers/${layerKey.encodeURLPathPart()}/geojson") {
+      if (bbox != null) parameter("bbox", bbox.joinToString(","))
+    }.bodyAsText()
+
+  /**
+   * `GET /api/items/{id}/offline-packages/{packageId}/file`, streamed
+   * to `sink`. Returns bytes written. The caller writes to a temp file
+   * and renames on success so a partial download never looks complete.
+   */
+  suspend fun downloadOfflinePackage(
+    itemId: String,
+    packageId: String,
+    sink: java.io.OutputStream,
+    onProgress: (received: Long, total: Long?) -> Unit = { _, _ -> },
+  ): Long {
+    var received = 0L
+    http.prepareGet("items/$itemId/offline-packages/$packageId/file").execute { response ->
+      val total = response.headers[HttpHeaders.ContentLength]?.toLongOrNull()
+      val channel = response.bodyAsChannel()
+      val buffer = ByteArray(64 * 1024)
+      while (true) {
+        val n = channel.readAvailable(buffer, 0, buffer.size)
+        if (n < 0) break
+        if (n == 0) {
+          if (channel.isClosedForRead) break
+          continue
+        }
+        sink.write(buffer, 0, n)
+        received += n
+        onProgress(received, total)
+      }
+    }
+    sink.flush()
+    return received
+  }
+
+  /** `POST /api/items/{id}/layers/{key}/features`. Throws PortalError on refusal. */
+  suspend fun insertFeatures(dataLayerId: String, layerKey: String, body: InsertFeaturesRequest): InsertFeaturesResponse =
+    http.post("items/$dataLayerId/layers/${layerKey.encodeURLPathPart()}/features") {
+      contentType(ContentType.Application.Json)
+      setBody(body)
+    }.body()
+
+  /** `PATCH .../features/{globalId}`. Geometry omitted when null: an
+   *  attribute-only edit must not erase the position. */
+  suspend fun patchFeature(
+    dataLayerId: String,
+    layerKey: String,
+    globalId: String,
+    properties: JsonObject,
+    geometry: kotlinx.serialization.json.JsonElement?,
+  ) {
+    val body = buildJsonObject {
+      put("properties", properties)
+      if (geometry != null && geometry !is kotlinx.serialization.json.JsonNull) put("geometry", geometry)
+    }
+    http.patch("items/$dataLayerId/layers/${layerKey.encodeURLPathPart()}/features/$globalId") {
+      contentType(ContentType.Application.Json)
+      setBody(body)
+    }
+  }
+
+  /** `DELETE .../features/{globalId}`. */
+  suspend fun deleteFeature(dataLayerId: String, layerKey: String, globalId: String) {
+    http.delete("items/$dataLayerId/layers/${layerKey.encodeURLPathPart()}/features/$globalId")
+  }
 
   override fun close() {
     http.close()

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package org.gratisgis.field.ui.home
 
+import android.app.Application
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,6 +24,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
+import org.gratisgis.field.ui.collection.CollectionScreen
+import org.gratisgis.field.ui.collection.CollectionViewModel
 
 /**
  * Placeholder UI for the skeleton. The handoff's screens 1a (sign in)
@@ -31,6 +39,18 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 @Composable
 fun HomeScreen(viewModel: HomeViewModel, modifier: Modifier = Modifier) {
   val state by viewModel.state.collectAsStateWithLifecycle()
+  val selected = state.selected
+  if (selected != null) {
+    BackHandler { viewModel.select(null) }
+    val collectionVm: CollectionViewModel = viewModel(
+      key = selected.id,
+      factory = viewModelFactory {
+        initializer { CollectionViewModel(this[APPLICATION_KEY] as Application, selected) }
+      },
+    )
+    CollectionScreen(collectionVm, onBack = { viewModel.select(null) }, modifier = modifier)
+    return
+  }
   Column(
     modifier = modifier.fillMaxSize().safeDrawingPadding().padding(24.dp),
     verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -67,7 +87,7 @@ fun HomeScreen(viewModel: HomeViewModel, modifier: Modifier = Modifier) {
       Text("Collections (${state.collections.size})", style = MaterialTheme.typography.titleMedium)
       LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         items(state.collections, key = { it.id }) { item ->
-          Card(Modifier.fillMaxWidth()) {
+          Card(onClick = { viewModel.select(item) }, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp)) {
               Text(item.title, style = MaterialTheme.typography.titleSmall)
               item.description?.takeIf { it.isNotBlank() }?.let {

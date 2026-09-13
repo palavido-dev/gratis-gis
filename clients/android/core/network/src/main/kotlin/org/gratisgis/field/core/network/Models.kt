@@ -26,6 +26,67 @@ data class PortalInfo(
   data class Auth(val type: String, val issuer: String)
 }
 
+/** `GET /api/items/{id}/offline-areas`. Mirrors OfflineAreaWithPackage. */
+@Serializable
+data class OfflineAreasResponse(
+  val areas: List<OfflineAreaWithPackage>,
+  val maxTiles: Int,
+)
+
+@Serializable
+data class OfflineAreaWithPackage(
+  val area: OfflineArea,
+  val current: OfflinePackageSummary? = null,
+  val pending: OfflinePackageSummary? = null,
+  val lastFailure: OfflinePackageSummary? = null,
+)
+
+@Serializable
+data class OfflineArea(
+  val id: String,
+  val name: String,
+  /** west, south, east, north. */
+  val bbox: List<Double>,
+  val minZoom: Int,
+  val maxZoom: Int,
+  val refreshDays: Int? = null,
+)
+
+@Serializable
+data class OfflinePackageSummary(
+  val id: String,
+  val areaId: String,
+  val status: String,
+  val bbox: List<Double>,
+  val minZoom: Int,
+  val maxZoom: Int,
+  val tileCount: Long? = null,
+  val sizeBytes: Long? = null,
+  val error: String? = null,
+  val createdAt: String,
+  val startedAt: String? = null,
+  val finishedAt: String? = null,
+)
+
+/** Request body of `POST .../features`. `globalId` is the client's. */
+@Serializable
+data class FeatureInsert(
+  val globalId: String,
+  val geometry: kotlinx.serialization.json.JsonElement?,
+  val properties: JsonObject,
+)
+
+@Serializable
+data class InsertFeaturesRequest(val features: List<FeatureInsert>)
+
+/** Response of `POST .../features`: `globalIds` is order-aligned to the request. */
+@Serializable
+data class InsertFeaturesResponse(
+  val inserted: Int = 0,
+  val deduplicated: Int = 0,
+  val globalIds: List<String> = emptyList(),
+)
+
 /** One row of `GET /api/items`. `data` is present only with `full=1`. */
 @Serializable
 data class ItemSummary(

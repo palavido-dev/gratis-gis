@@ -47,6 +47,8 @@ dependencies {
   implementation(project(":core:engine"))
   implementation(project(":core:network"))
   implementation(project(":feature:auth"))
+  implementation(project(":feature:sync"))
+  implementation(project(":core:database"))
 
   val composeBom = platform(libs.androidx.compose.bom)
   implementation(composeBom)

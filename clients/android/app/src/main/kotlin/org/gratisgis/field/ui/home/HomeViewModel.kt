@@ -30,6 +30,8 @@ data class HomeState(
   val busy: Boolean = false,
   val signedInAs: String? = null,
   val collections: List<ItemSummary> = emptyList(),
+  /** The collection whose screen is open, or null for the list. */
+  val selected: ItemSummary? = null,
   val engineVersion: Int? = null,
   val engineError: String? = null,
   val error: String? = null,
@@ -105,9 +107,13 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
   }
 
+  fun select(item: ItemSummary?) {
+    _state.update { it.copy(selected = item) }
+  }
+
   fun signOut() {
     app.auth.signOut()
-    _state.update { it.copy(signedInAs = null, collections = emptyList(), error = null) }
+    _state.update { it.copy(signedInAs = null, collections = emptyList(), selected = null, error = null) }
   }
 
   fun loadCollections() {
