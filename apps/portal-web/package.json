@@ -5,8 +5,8 @@
   "license": "AGPL-3.0-or-later",
   "author": "Matt Palavido <matthew.palavido@gmail.com>",
   "scripts": {
-    "build": "next build --webpack",
-    "dev": "next dev --port 3000",
+    "build": "node scripts/vendor-maplibre-worker.mjs && next build --webpack",
+    "dev": "node scripts/vendor-maplibre-worker.mjs && next dev --port 3000",
     "start": "next start --port 3000",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
