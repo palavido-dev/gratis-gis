@@ -16,7 +16,12 @@ Clients:
 | --- | --- | --- |
 | `portal-web` | public (PKCE) | Next.js portal frontend |
 | `portal-api` | bearer-only | NestJS API (validates JWTs) |
-| `field-app` | public (PKCE, native redirect) | React Native field app |
+| `qgis-plugin` | public (PKCE, native redirect, `offline_access`) | QGIS plugin; reconciled by `infra/deploy.sh` |
+| `field-app` | public (PKCE, native redirect `gratisgis://auth-callback`, `offline_access`) | Android field app (`docs/mobile-field-app.md`). Redirect list is reconciled by `deploy.sh` / `restore-golden.sh` to the native scheme only |
+
+`portal-api` checks issuer and signature only, not `aud`, so a token
+from any realm client is accepted. If audience checking is ever added,
+every client above has to be in the accepted set.
 
 ## Token Flow
 
@@ -91,8 +96,14 @@ portal-api, which Caddy routes without passing through the web tier.
 ## Session Security
 
 - Access token TTL: 5 minutes
-- Refresh token TTL: 1 day (web), 30 days (field app)
-- Field app tokens bind to device-id claim; revocable per device
+- Refresh token TTL: 1 day (web). Native clients (`qgis-plugin`,
+  `field-app`) request `offline_access` and get Keycloak offline
+  sessions instead, which idle out after 30 days (Keycloak's default
+  `offlineSessionIdleTimeout`; the realm template does not override it).
+- Per-device revocation is per offline session: each native sign-in is
+  its own offline session, listed and revocable per user in the Keycloak
+  admin console and Admin REST API. There is no device-id claim and no
+  portal-side device registry.
 - CSRF: `portal-web` uses `next-auth`'s built-in CSRF protection for its
   own routes; API calls carry bearer tokens (not cookies), so no CSRF
   concern on the API.
@@ -108,10 +119,14 @@ portal-api, which Caddy routes without passing through the web tier.
 
 ## Offline Auth (field app)
 
-The field app caches a short-lived offline token plus the last-synced user
-snapshot. While offline, the app verifies the token signature against a
-cached JWKS (refreshed on every online start). Once expired, the user must
-come online to refresh.
+The field app holds its access and offline refresh tokens in
+Keystore-backed storage plus the last-synced user snapshot. While
+offline it reads `exp` and the identity claims from the access token
+without verifying the signature: the token arrived from Keycloak over
+TLS, and an attacker who can tamper with the token store could replace
+a cached JWKS in the same write, so on-device verification would
+protect nothing. The server is the verifier. A past `exp` means
+"refresh when next online"; queued work is unaffected until then.
 
 ## Future
 

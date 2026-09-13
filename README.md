@@ -251,6 +251,7 @@ Deeper design references:
 - [docs/sharing-granularity.md](./docs/sharing-granularity.md): per-user + column/row-level sharing design
 - [docs/auth-model.md](./docs/auth-model.md): authentication and RBAC
 - [docs/editing-and-collection.md](./docs/editing-and-collection.md): the Editor item type design
+- [docs/mobile-field-app.md](./docs/mobile-field-app.md): the native Android field client plan, and the server work it depends on
 - [docs/folders.md](./docs/folders.md): folders + smart folders
 - [docs/web-maps.md](./docs/web-maps.md): map composition + per-layer access matrix
 - [docs/llm-integration.md](./docs/llm-integration.md): local-first LLM features (semantic search, authoring assistant, NL queries, RAG help)
