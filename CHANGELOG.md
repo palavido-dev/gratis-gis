@@ -7,6 +7,36 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+## [0.9.113] - 2026-09-13
+
+### Fixed
+
+- Maps showed a basemap but no data. Since 0.9.110 every vector and
+  GeoJSON layer in the portal rendered nothing: MapLibre 6 ships a
+  worker that imports a second file, the build shipped the worker on
+  its own, and the worker died on its missing import before it could
+  parse a single tile. Nothing reported it, because raster tiles decode
+  without the worker, so the map still panned and zoomed normally.
+  Both files are now served together, the build fails if a future
+  MapLibre release adds another one, and the app logs a named error if
+  the worker is ever unreachable again.
+
+- One broken layer no longer takes a whole map down with it. A saved
+  tile layer missing its URL threw inside MapLibre's render loop on
+  every frame, which stopped every other layer on that map from
+  loading. Such a layer is now skipped, with a console warning naming
+  the item, and the rest of the map draws.
+
+- Viewer apps stopped covering a map's own layer with a recoloured
+  copy of itself. A viewer target that the referenced map already
+  draws now reuses that layer and keeps the author's styling, instead
+  of stacking a purple duplicate on top. Editors are unchanged.
+
+- `pnpm dev` works from a fresh clone again. The MCP server's absent
+  token no longer aborts the whole dev run, and the workspace packages
+  are built before the dev servers start. CI now runs `pnpm dev` from
+  a clean checkout so this cannot regress unnoticed.
+
 ## [0.9.112] - 2026-09-10
 
 ### Fixed
