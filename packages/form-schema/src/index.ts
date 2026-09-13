@@ -1143,6 +1143,14 @@ export interface FormSchema {
   /** Designer metadata (palette state, last-edit timestamps) the
    *  runtime ignores. */
   meta?: Record<string, unknown>;
+  /**
+   * Server state, not author state: the engine version this form
+   * needs, computed by `requiredEngineVersion()` and written by
+   * portal-api on every save, overriding whatever the client sent.
+   * A native client compares it with the engine it carries before
+   * evaluating the form. See engine-version.ts.
+   */
+  requiredEngineVersion?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -2846,6 +2854,31 @@ export {
   type LayerPopupConfigForGeneration,
   type AutoFormOptions,
 } from './from-layer';
+
+// Whole-form runtime state for renderers that cannot call the
+// per-question primitives themselves (the native field client).
+export {
+  isReadOnly,
+  evaluateFormState,
+  type QuestionState,
+  type FormState,
+} from './runtime-state';
+
+// Engine versioning: which build of this evaluator a form needs. The
+// native field client carries an older build than the server for
+// months at a time; see engine-version.ts and docs/mobile-field-app.md.
+export {
+  ENGINE_VERSION,
+  QUESTION_TYPE_ENGINE_VERSION,
+  EXPRESSION_OP_ENGINE_VERSION,
+  BUILTIN_ENGINE_VERSION,
+  FORM_SCHEMA_ENGINE_VERSION,
+  engineRequirement,
+  requiredEngineVersion,
+  engineSupports,
+  type EngineRequirement,
+  type ExpressionOp,
+} from './engine-version';
 
 // #103: XLSForm / Survey123 importer.  Pure translator from a
 // parsed XLSForm workbook into a FormSchema.  See xlsform-import.ts

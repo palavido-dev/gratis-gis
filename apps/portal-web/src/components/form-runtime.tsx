@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import {
   applyCalculations,
-  evaluate,
+  isReadOnly,
   isRequired,
   isVisible,
   labelForAddressComponent,
@@ -26,7 +26,6 @@ import {
   pruneHidden,
   validate,
   walkQuestions,
-  type Expression,
   type FormSchema,
   type Question,
   type Response,
@@ -3133,18 +3132,6 @@ function collectIdsOnPage(page: Page): Set<string> {
   }
   page.questions.forEach(walk);
   return ids;
-}
-
-function isReadOnly(q: Question, response: Response): boolean {
-  // A calculated question -- whether the dedicated `calculated`
-  // type or a QuestionBase with the optional `calculate` field
-  // (#164) -- is always read-only. The respondent isn't meant to
-  // override a derived value, and applyCalculations would just
-  // overwrite their edit on the next render anyway.
-  if (q.type === 'calculated' || q.calculate) return true;
-  if (q.readOnly === undefined || q.readOnly === false) return false;
-  if (q.readOnly === true) return true;
-  return Boolean(evaluate(q.readOnly as Expression, response));
 }
 
 /**
