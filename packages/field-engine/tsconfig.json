@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // Typecheck only. The build is esbuild (build.mjs), which reads
+    // the TypeScript sources of this package and its two siblings
+    // directly, so there is no tsc emit and no rootDir: the surface
+    // imports sibling packages by relative source path on purpose,
+    // see src/index.ts.
+    "noEmit": true,
+    "types": ["node", "jest"]
+  },
+  "include": ["src/**/*"]
+}

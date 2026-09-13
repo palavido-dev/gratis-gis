@@ -1,0 +1,29 @@
+{
+  "name": "@gratis-gis/field-engine",
+  "version": "0.0.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "author": "Matt Palavido <matthew.palavido@gmail.com>",
+  "description": "The form and sync logic the native field client runs, bundled as one dependency-free JavaScript file for an embedded JS engine.",
+  "main": "./src/index.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "jest --passWithNoTests"
+  },
+  "dependencies": {
+    "@gratis-gis/form-schema": "workspace:*",
+    "@gratis-gis/shared-types": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "esbuild": "^0.28.1",
+    "jest": "^30.4.2",
+    "ts-jest": "^29.4.11",
+    "typescript": "^6.0.3"
+  }
+}

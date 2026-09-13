@@ -239,7 +239,7 @@ importers:
         version: 7.8.0(@types/node@25.9.1)(@types/react-dom@18.3.7(@types/react@18.3.29))(@types/react@18.3.29)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3)
       ts-jest:
         specifier: ^29.4.11
-        version: 29.4.11(@babel/core@7.29.7)(@jest/transform@30.4.1)(@jest/types@30.5.1)(babel-jest@30.4.1(@babel/core@7.29.7))(jest-util@30.5.1)(jest@30.4.2(@types/node@25.9.1))(typescript@6.0.3)
+        version: 29.4.11(@babel/core@7.29.7)(@jest/transform@30.4.1)(@jest/types@30.5.1)(babel-jest@30.4.1(@babel/core@7.29.7))(esbuild@0.28.1)(jest-util@30.5.1)(jest@30.4.2(@types/node@25.9.1))(typescript@6.0.3)
       tsx:
         specifier: ^4.22.3
         version: 4.22.3
@@ -391,7 +391,7 @@ importers:
         version: 3.4.19(tsx@4.22.3)(yaml@2.9.0)
       ts-jest:
         specifier: ^29.4.11
-        version: 29.4.11(@babel/core@7.29.7)(@jest/transform@30.4.1)(@jest/types@30.5.1)(babel-jest@30.4.1(@babel/core@7.29.7))(jest-util@30.5.1)(jest@30.4.2(@types/node@25.9.1))(typescript@6.0.3)
+        version: 29.4.11(@babel/core@7.29.7)(@jest/transform@30.4.1)(@jest/types@30.5.1)(babel-jest@30.4.1(@babel/core@7.29.7))(esbuild@0.28.1)(jest-util@30.5.1)(jest@30.4.2(@types/node@25.9.1))(typescript@6.0.3)
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -415,6 +415,31 @@ importers:
         specifier: ^6.0.3
         version: 6.0.3
 
+  packages/field-engine:
+    dependencies:
+      '@gratis-gis/form-schema':
+        specifier: workspace:*
+        version: link:../form-schema
+      '@gratis-gis/shared-types':
+        specifier: workspace:*
+        version: link:../shared-types
+    devDependencies:
+      '@types/jest':
+        specifier: ^30.0.0
+        version: 30.0.0
+      esbuild:
+        specifier: ^0.28.1
+        version: 0.28.1
+      jest:
+        specifier: ^30.4.2
+        version: 30.4.2(@types/node@25.9.1)
+      ts-jest:
+        specifier: ^29.4.11
+        version: 29.4.11(@babel/core@7.29.7)(@jest/transform@30.4.1)(@jest/types@30.5.1)(babel-jest@30.4.1(@babel/core@7.29.7))(esbuild@0.28.1)(jest-util@30.5.1)(jest@30.4.2(@types/node@25.9.1))(typescript@6.0.3)
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
   packages/form-schema:
     devDependencies:
       '@types/jest':
@@ -425,7 +450,7 @@ importers:
         version: 30.4.2(@types/node@25.9.1)
       ts-jest:
         specifier: ^29.4.11
-        version: 29.4.11(@babel/core@7.29.7)(@jest/transform@30.4.1)(@jest/types@30.5.1)(babel-jest@30.4.1(@babel/core@7.29.7))(jest-util@30.5.1)(jest@30.4.2(@types/node@25.9.1))(typescript@6.0.3)
+        version: 29.4.11(@babel/core@7.29.7)(@jest/transform@30.4.1)(@jest/types@30.5.1)(babel-jest@30.4.1(@babel/core@7.29.7))(esbuild@0.28.1)(jest-util@30.5.1)(jest@30.4.2(@types/node@25.9.1))(typescript@6.0.3)
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -440,7 +465,7 @@ importers:
         version: 30.4.2(@types/node@25.9.1)
       ts-jest:
         specifier: ^29.4.11
-        version: 29.4.11(@babel/core@7.29.7)(@jest/transform@30.4.1)(@jest/types@30.5.1)(babel-jest@30.4.1(@babel/core@7.29.7))(jest-util@30.5.1)(jest@30.4.2(@types/node@25.9.1))(typescript@6.0.3)
+        version: 29.4.11(@babel/core@7.29.7)(@jest/transform@30.4.1)(@jest/types@30.5.1)(babel-jest@30.4.1(@babel/core@7.29.7))(esbuild@0.28.1)(jest-util@30.5.1)(jest@30.4.2(@types/node@25.9.1))(typescript@6.0.3)
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -12907,7 +12932,7 @@ snapshots:
 
   ts-interface-checker@0.1.13: {}
 
-  ts-jest@29.4.11(@babel/core@7.29.7)(@jest/transform@30.4.1)(@jest/types@30.5.1)(babel-jest@30.4.1(@babel/core@7.29.7))(jest-util@30.5.1)(jest@30.4.2(@types/node@25.9.1))(typescript@6.0.3):
+  ts-jest@29.4.11(@babel/core@7.29.7)(@jest/transform@30.4.1)(@jest/types@30.5.1)(babel-jest@30.4.1(@babel/core@7.29.7))(esbuild@0.28.1)(jest-util@30.5.1)(jest@30.4.2(@types/node@25.9.1))(typescript@6.0.3):
     dependencies:
       bs-logger: 0.2.6
       fast-json-stable-stringify: 2.1.0
@@ -12925,6 +12950,7 @@ snapshots:
       '@jest/transform': 30.4.1
       '@jest/types': 30.5.1
       babel-jest: 30.4.1(@babel/core@7.29.7)
+      esbuild: 0.28.1
       jest-util: 30.5.1
 
   tsconfig-paths-webpack-plugin@4.2.0:

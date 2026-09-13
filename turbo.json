@@ -14,6 +14,17 @@
       "outputs": ["dist/**"],
       "inputs": ["src/**/*.ts", "tsconfig.json", "tsconfig.build.json", "package.json"]
     },
+    "@gratis-gis/field-engine#build": {
+      // The bundle is built from the SOURCE of form-schema and
+      // shared-types (relative imports in src/index.ts), not from
+      // their dist, so its own inputs are not enough to key the cache.
+      // `^build` keeps it honest: turbo folds the dependency tasks'
+      // hashes into this one, so a change in either sibling's src
+      // re-runs this build. Do not drop the dependsOn to "speed it up".
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"],
+      "inputs": ["src/**/*.ts", "build.mjs", "tsconfig.json", "package.json"]
+    },
     "dev": {
       "cache": false,
       "persistent": true,
