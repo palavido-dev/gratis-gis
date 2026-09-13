@@ -57,6 +57,34 @@ import type {
  *   anyway since each Editor target is layer-key specific.
  */
 
+/**
+ * Find a referenced-map layer that already renders a target's
+ * (dataLayerId, layerKey). Matches the `data-layer` source shape,
+ * which carries an optional `layerKey` for v3 items, and the
+ * per-sublayer `geojson-url` shape an earlier pass of this function
+ * baked into saved maps.
+ */
+function findExistingTargetLayer(
+  layers: MapLayer[] | undefined,
+  dataLayerId: string,
+  layerKey: string,
+): MapLayer | null {
+  if (!layers) return null;
+  const sublayerUrl = `/api/portal/items/${dataLayerId}/layers/${layerKey}/geojson`;
+  for (const l of layers) {
+    const src = l.source;
+    if (
+      src.kind === 'data-layer' &&
+      src.itemId === dataLayerId &&
+      src.layerKey === layerKey
+    ) {
+      return l;
+    }
+    if (src.kind === 'geojson-url' && src.url === sublayerUrl) return l;
+  }
+  return null;
+}
+
 export interface BuiltEditorMapData {
   /** Composed MapData ready to hand to MapCanvas. */
   mapData: MapData;
@@ -116,8 +144,29 @@ export function buildEditorMapData(args: {
   editor: EditorData;
   referencedMap: Item<MapData> | null;
   resolvedTargets: ResolvedTarget[];
+  /**
+   * Read-only runtimes (the Viewer) reuse a referenced-map layer that
+   * already renders a target instead of stacking a second styled copy
+   * on top of it.
+   *
+   * The purple target style exists to mark layers as EDITABLE. In a
+   * viewer nothing is editable, so a duplicate is not just redundant,
+   * it silently replaces whatever the author designed. On the public
+   * "Elkins in 3D" map the referenced layer is a fill-extrusion of
+   * building heights and the synthesized twin is a flat 30%-opacity
+   * purple fill sitting directly above it, which is what "the 3D
+   * buildings are not rendering" turned out to partly mean.
+   *
+   * The Editor keeps the old behaviour deliberately. Its runtime
+   * allowlists inline-editable layers by reconstructing the synthetic
+   * id, and reference-map layers are excluded from writes on purpose
+   * ("the UX gate matches the server policy"). Reusing a reference
+   * layer as an editable target there would move that boundary, which
+   * is a separate decision from fixing the viewer.
+   */
+  reuseReferencedLayers?: boolean;
 }): BuiltEditorMapData {
-  const { referencedMap, resolvedTargets } = args;
+  const { referencedMap, resolvedTargets, reuseReferencedLayers } = args;
 
   // The referenced map's MapData is the starting composition. Spread
   // shallow so we don't mutate the caller's reference; we only swap
@@ -139,6 +188,19 @@ export function buildEditorMapData(args: {
     // add child records via the parent feature's related-records
     // panel, slice 3b-6) but they have no map-rendering surface.
     if (t.layer.geometryType === null) continue;
+    if (reuseReferencedLayers) {
+      const existing = findExistingTargetLayer(
+        base.layers,
+        t.dataLayerId,
+        t.layerKey,
+      );
+      if (existing) {
+        // The map already draws this layer, with the author's own
+        // styling. Point the target at it and synthesize nothing.
+        targetLayerIds.push(existing.id);
+        continue;
+      }
+    }
     const id = editorTargetLayerId(t.dataLayerId, t.layerKey);
     targetLayerIds.push(id);
     const url = `/api/portal/items/${t.dataLayerId}/layers/${t.layerKey}/geojson`;
