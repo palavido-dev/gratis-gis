@@ -20,22 +20,39 @@ Phase 2 will add write tools (`run_tool`, `create_data_layer_from_geojson`).
 ## Quick start
 
 ```bash
-# From the repo root
-cd apps/portal-mcp
-npm install
-npm run build
+# From the repo root. This is a pnpm workspace: installing inside
+# apps/portal-mcp instead would build a nested node_modules and
+# bypass the lockfile.
+pnpm install
+pnpm --filter @gratis-gis/portal-mcp build
 
 # Set the portal base URL + a bearer token
 export GRATIS_GIS_BASE_URL="https://gratisgis.org"
 export GRATIS_GIS_TOKEN="<your-keycloak-access-token>"
 
 # Run directly to test
-node dist/index.js
+node apps/portal-mcp/dist/index.js
 ```
 
 The server speaks the MCP stdio transport; running it directly from a
 terminal is only useful for verifying the binary starts. Real usage is via
 an MCP client.
+
+Without `GRATIS_GIS_TOKEN` the server still starts and still answers
+`list_tools`; every tool call returns the "token is not set" message as an
+error. That is deliberate. It used to exit at startup instead, which an MCP
+client could only report as a bare "server disconnected".
+
+## Running it during development
+
+This server is deliberately **not** part of `pnpm dev`. It is a stdio server
+meant to be spawned by an MCP client, so it has no use as a watcher, and for
+a while its absent-token exit took portal-api and portal-web down with it on
+every fresh clone (discussion #238). To work on it:
+
+```bash
+pnpm --filter @gratis-gis/portal-mcp dev
+```
 
 ## Claude Desktop setup
 
