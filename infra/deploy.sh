@@ -199,15 +199,26 @@ fi
 # instead to reconcile a small, fixed set of expectations.
 #
 # Today this block ensures:
-#   1. The qgis-plugin OIDC client exists with its PKCE + redirect
-#      settings + org / org_role protocol mappers.
+#   1. The qgis-plugin and field-app OIDC clients exist with their
+#      PKCE + redirect settings + org / org_role protocol mappers,
+#      and field-app's redirect list is the native scheme only (it
+#      shipped in the first realm import with a portal-wide https
+#      redirect and web origin it never needed; the import pass will
+#      not tighten an existing client, so this does).
 #   2. Every existing realm user holds the `offline_access` role,
-#      so the QGIS plugin's refresh-token flow doesn't 400 on its
+#      so the native clients' refresh-token flow doesn't 400 on
 #      first sign-in.
-#   3. The portal-api-admin service account can authenticate against
+#   3. The realm's offline session idle timeout is pinned to 30 days
+#      (Keycloak's default, made explicit because the Android field
+#      client's sign-in lifetime depends on it).
+#   4. The portal-api-admin service account can authenticate against
 #      portal-api as an org admin (org / org_role protocol mappers on
 #      the client, org + org_role attributes on the service-account
 #      user). infra/cleanup-non-admin.mjs depends on this.
+#
+# MIRRORED in infra/restore-golden.sh: the nightly restore replaces
+# the Keycloak DB with the golden snapshot, so anything reconciled
+# only here is undone at 04:00 UTC. Change both.
 #
 # All steps are idempotent: re-running deploy.sh is a no-op when
 # everything is already in the desired state. Any failure here is a
@@ -218,7 +229,7 @@ fi
 KEYCLOAK_CONTAINER="${KEYCLOAK_CONTAINER:-gratis-gis-prod-keycloak}"
 
 echo
-echo "=== Reconciling Keycloak realm (qgis-plugin client + offline_access) ==="
+echo "=== Reconciling Keycloak realm (native clients + offline_access) ==="
 
 # Wait up to 60s for Keycloak's admin endpoint to be responsive.
 # Fresh containers take a few seconds; an already-running container
@@ -245,43 +256,87 @@ if ! kc_wait; then
 else
   KC() { docker exec "$KEYCLOAK_CONTAINER" /opt/keycloak/bin/kcadm.sh "$@"; }
 
-  # --- qgis-plugin client ---
-  if KC get clients -r gratis-gis -q clientId=qgis-plugin --fields id \
-      2>/dev/null | grep -q '"id"'; then
-    echo "qgis-plugin client already present; skipping create."
-  else
-    echo "Creating qgis-plugin client from realm import JSON..."
-    # Pull the qgis-plugin block out of the rendered realm JSON and
-    # feed it directly to kcadm. The block already has all the right
-    # fields (publicClient, PKCE S256, redirect URIs, org / org_role
-    # protocol mappers) so create-from-file matches the template.
-    python3 -c '
+  # Internal id of a client by clientId, or empty when absent.
+  kc_client_id() {
+    KC get clients -r gratis-gis -q "clientId=$1" --fields id 2>/dev/null \
+      | python3 -c 'import sys,json; arr=json.load(sys.stdin); print(arr[0]["id"] if arr else "")' \
+        2>/dev/null || true
+  }
+
+  # Create a client from its block in the rendered realm JSON when it
+  # is missing. The block already has all the right fields
+  # (publicClient, PKCE S256, redirect URIs, org / org_role protocol
+  # mappers) so create-from-file matches the template. Never updates
+  # an existing client: that is per-client below, on purpose.
+  kc_ensure_client() {
+    local cid="$1"
+    if [[ -n "$(kc_client_id "$cid")" ]]; then
+      echo "$cid client already present; skipping create."
+      return 0
+    fi
+    echo "Creating $cid client from realm import JSON..."
+    python3 -c "
 import json, sys
-realm = json.load(open("infra/keycloak/import/realm-gratis-gis.json"))
+realm = json.load(open('infra/keycloak/import/realm-gratis-gis.json'))
 client = next(
-    (c for c in realm.get("clients", []) if c.get("clientId") == "qgis-plugin"),
+    (c for c in realm.get('clients', []) if c.get('clientId') == '$cid'),
     None,
 )
 if client is None:
-    sys.exit("realm template is missing the qgis-plugin client")
+    sys.exit('realm template is missing the $cid client')
 json.dump(client, sys.stdout)
-' > /tmp/gg-qgis-plugin.json
-    docker cp /tmp/gg-qgis-plugin.json \
-      "$KEYCLOAK_CONTAINER:/tmp/gg-qgis-plugin.json"
-    if KC create clients -r gratis-gis -f /tmp/gg-qgis-plugin.json; then
-      echo "  qgis-plugin client created."
+" > "/tmp/gg-$cid.json"
+    docker cp "/tmp/gg-$cid.json" "$KEYCLOAK_CONTAINER:/tmp/gg-$cid.json"
+    if KC create clients -r gratis-gis -f "/tmp/gg-$cid.json"; then
+      echo "  $cid client created."
     else
-      echo "WARN: qgis-plugin client create failed; check kcadm output above." >&2
+      echo "WARN: $cid client create failed; check kcadm output above." >&2
     fi
-    rm -f /tmp/gg-qgis-plugin.json
+    rm -f "/tmp/gg-$cid.json"
+  }
+
+  # --- native OIDC clients ---
+  kc_ensure_client qgis-plugin
+  kc_ensure_client field-app
+
+  # --- field-app: native redirect only ---
+  # The first realm import gave field-app a portal-wide https redirect
+  # and a web origin. A native public client needs neither, and a
+  # redirect any page under the portal can receive is surface a code
+  # interception attack would start from. PKCE already blocks the
+  # exchange, so this is belt and braces, but the loose list was never
+  # a decision and an update is one line. Idempotent: PUT of the same
+  # values is a no-op.
+  GG_FIELD_CID="$(kc_client_id field-app)"
+  if [[ -n "$GG_FIELD_CID" ]]; then
+    printf '%s' '{"redirectUris":["gratisgis://auth-callback"],"webOrigins":[],"attributes":{"pkce.code.challenge.method":"S256"}}' \
+      > /tmp/gg-field-app-update.json
+    docker cp /tmp/gg-field-app-update.json \
+      "$KEYCLOAK_CONTAINER:/tmp/gg-field-app-update.json"
+    if KC update "clients/$GG_FIELD_CID" -r gratis-gis -f /tmp/gg-field-app-update.json; then
+      echo "field-app redirect list reconciled."
+    else
+      echo "WARN: field-app client update failed; check kcadm output above." >&2
+    fi
+    rm -f /tmp/gg-field-app-update.json
+  fi
+
+  # --- realm: offline session idle timeout ---
+  # 30 days is Keycloak's default; the Android field client's sign-in
+  # lifetime is exactly this value, so it is pinned rather than
+  # inherited. Matches offlineSessionIdleTimeout in the realm template.
+  if KC update realms/gratis-gis -s offlineSessionIdleTimeout=2592000; then
+    echo "offlineSessionIdleTimeout pinned to 30 days."
+  else
+    echo "WARN: realm offlineSessionIdleTimeout update failed." >&2
   fi
 
   # --- offline_access for every realm user ---
-  # The QGIS plugin asks for the offline_access scope so its
-  # refresh-token survives QGIS restarts. Keycloak gates that on
-  # the user holding the offline_access realm role; without it the
-  # PKCE code exchange returns "Offline tokens not allowed for the
-  # user or client". Grant to everyone; add-roles is idempotent.
+  # The native clients ask for the offline_access scope so their
+  # refresh-token survives restarts and weeks offline. Keycloak gates
+  # that on the user holding the offline_access realm role; without
+  # it the PKCE code exchange returns "Offline tokens not allowed for
+  # the user or client". Grant to everyone; add-roles is idempotent.
   echo "Granting offline_access to every realm user..."
   KC get users -r gratis-gis --fields username --offset 0 --limit 200 \
       2>/dev/null \

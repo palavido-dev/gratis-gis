@@ -539,21 +539,25 @@ fi
 # uses keeps the realm in the desired shape every night.
 #
 # Today this guarantees:
-#   1. The qgis-plugin OIDC client exists (PKCE, redirect URIs,
-#      org / org_role protocol mappers).
+#   1. The qgis-plugin and field-app OIDC clients exist (PKCE,
+#      redirect URIs, org / org_role protocol mappers), and
+#      field-app's redirect list is the native scheme only.
 #   2. Every restored realm user holds offline_access, so the
-#      QGIS plugin's PKCE flow doesn't 400 with "Offline tokens
+#      native clients' PKCE flow doesn't 400 with "Offline tokens
 #      not allowed for the user or client" on first sign-in.
-#   3. The portal-api-admin service account keeps its portal-admin
+#   3. The realm's offline session idle timeout is pinned to 30 days.
+#   4. The portal-api-admin service account keeps its portal-admin
 #      identity (org / org_role mappers + attributes), which the
 #      pre-snapshot cleanup in snapshot-golden.sh depends on.
+#
+# MIRROR of the block in infra/deploy.sh; change both.
 #
 # Fail open: a kcadm hiccup logs WARN but doesn't abort restore.
 # -----------------------------------------------------------
 
 KEYCLOAK_CONTAINER="${KEYCLOAK_CONTAINER:-gratis-gis-prod-keycloak}"
 
-echo "=== Reconciling Keycloak realm (qgis-plugin client + offline_access) ==="
+echo "=== Reconciling Keycloak realm (native clients + offline_access) ==="
 
 # Wait up to 60s for Keycloak's admin endpoint to be responsive
 # after the restart above.
@@ -578,38 +582,72 @@ if ! kc_wait; then
 else
   KC() { docker exec "$KEYCLOAK_CONTAINER" /opt/keycloak/bin/kcadm.sh "$@"; }
 
-  # --- qgis-plugin client ---
-  if KC get clients -r gratis-gis -q clientId=qgis-plugin --fields id \
-      2>/dev/null | grep -q '"id"'; then
-    echo "qgis-plugin client already present; skipping create."
-  else
-    echo "Creating qgis-plugin client from realm template..."
-    # Pull the block from the rendered realm template the deploy
-    # path materialized. If that file is missing (a restore on a
-    # host that never ran deploy.sh) fall back to the in-repo JSON.
-    SRC_REALM="/opt/gratis-gis/infra/keycloak/import/realm-gratis-gis.json"
-    if [[ ! -f "$SRC_REALM" ]]; then
-      SRC_REALM="/opt/gratis-gis/infra/keycloak/realm-gratis-gis.json"
+  # Internal id of a client by clientId, or empty when absent.
+  kc_client_id() {
+    KC get clients -r gratis-gis -q "clientId=$1" --fields id 2>/dev/null \
+      | python3 -c 'import sys,json; arr=json.load(sys.stdin); print(arr[0]["id"] if arr else "")' \
+        2>/dev/null || true
+  }
+
+  # Create a client from its block in the realm template when it is
+  # missing. Prefer the rendered template the deploy path
+  # materialized; a restore on a host that never ran deploy.sh falls
+  # back to the in-repo JSON. Never updates an existing client.
+  kc_ensure_client() {
+    local cid="$1"
+    if [[ -n "$(kc_client_id "$cid")" ]]; then
+      echo "$cid client already present; skipping create."
+      return 0
+    fi
+    echo "Creating $cid client from realm template..."
+    local src_realm="/opt/gratis-gis/infra/keycloak/import/realm-gratis-gis.json"
+    if [[ ! -f "$src_realm" ]]; then
+      src_realm="/opt/gratis-gis/infra/keycloak/realm-gratis-gis.json"
     fi
     python3 -c "
 import json, sys
-realm = json.load(open('$SRC_REALM'))
+realm = json.load(open('$src_realm'))
 client = next(
-    (c for c in realm.get('clients', []) if c.get('clientId') == 'qgis-plugin'),
+    (c for c in realm.get('clients', []) if c.get('clientId') == '$cid'),
     None,
 )
 if client is None:
-    sys.exit('realm template is missing the qgis-plugin client')
+    sys.exit('realm template is missing the $cid client')
 json.dump(client, sys.stdout)
-" > /tmp/gg-qgis-plugin.json
-    docker cp /tmp/gg-qgis-plugin.json \
-      "$KEYCLOAK_CONTAINER:/tmp/gg-qgis-plugin.json"
-    if KC create clients -r gratis-gis -f /tmp/gg-qgis-plugin.json; then
-      echo "  qgis-plugin client created."
+" > "/tmp/gg-$cid.json"
+    docker cp "/tmp/gg-$cid.json" "$KEYCLOAK_CONTAINER:/tmp/gg-$cid.json"
+    if KC create clients -r gratis-gis -f "/tmp/gg-$cid.json"; then
+      echo "  $cid client created."
     else
-      echo "WARN: qgis-plugin client create failed; check kcadm output above." >&2
+      echo "WARN: $cid client create failed; check kcadm output above." >&2
     fi
-    rm -f /tmp/gg-qgis-plugin.json
+    rm -f "/tmp/gg-$cid.json"
+  }
+
+  # --- native OIDC clients ---
+  kc_ensure_client qgis-plugin
+  kc_ensure_client field-app
+
+  # --- field-app: native redirect only (see deploy.sh for why) ---
+  GG_FIELD_CID="$(kc_client_id field-app)"
+  if [[ -n "$GG_FIELD_CID" ]]; then
+    printf '%s' '{"redirectUris":["gratisgis://auth-callback"],"webOrigins":[],"attributes":{"pkce.code.challenge.method":"S256"}}' \
+      > /tmp/gg-field-app-update.json
+    docker cp /tmp/gg-field-app-update.json \
+      "$KEYCLOAK_CONTAINER:/tmp/gg-field-app-update.json"
+    if KC update "clients/$GG_FIELD_CID" -r gratis-gis -f /tmp/gg-field-app-update.json; then
+      echo "field-app redirect list reconciled."
+    else
+      echo "WARN: field-app client update failed; check kcadm output above." >&2
+    fi
+    rm -f /tmp/gg-field-app-update.json
+  fi
+
+  # --- realm: offline session idle timeout (30 days, pinned) ---
+  if KC update realms/gratis-gis -s offlineSessionIdleTimeout=2592000; then
+    echo "offlineSessionIdleTimeout pinned to 30 days."
+  else
+    echo "WARN: realm offlineSessionIdleTimeout update failed." >&2
   fi
 
   # --- offline_access for every restored realm user ---

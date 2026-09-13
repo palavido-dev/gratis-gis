@@ -13,6 +13,7 @@
   "accessTokenLifespan": 300,
   "ssoSessionIdleTimeout": 3600,
   "ssoSessionMaxLifespan": 36000,
+  "offlineSessionIdleTimeout": 2592000,
   "attributes": {
     "frontendUrl": "http://localhost:8080"
   },
@@ -92,8 +93,7 @@
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
       "redirectUris": [
-        "gratisgis://auth-callback",
-        "http://localhost:19000/*"
+        "gratisgis://auth-callback"
       ],
       "attributes": {
         "pkce.code.challenge.method": "S256"

@@ -13,6 +13,7 @@
   "accessTokenLifespan": 300,
   "ssoSessionIdleTimeout": 3600,
   "ssoSessionMaxLifespan": 36000,
+  "offlineSessionIdleTimeout": 2592000,
   "bruteForceProtected": true,
   "permanentLockout": false,
   "failureFactor": 8,
@@ -101,12 +102,9 @@
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
       "redirectUris": [
-        "gratisgis://auth-callback",
-        "${PUBLIC_URL}/*"
+        "gratisgis://auth-callback"
       ],
-      "webOrigins": [
-        "${PUBLIC_URL}"
-      ],
+      "webOrigins": [],
       "attributes": {
         "pkce.code.challenge.method": "S256"
       },
