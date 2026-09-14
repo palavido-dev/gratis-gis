@@ -7,6 +7,36 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+## [0.9.114] - 2026-09-14
+
+### Added
+
+- Feature edits can now refuse to overwrite somebody else's work.
+  Every feature read carries an `_observation_id`, and a `PATCH` or
+  `DELETE` that sends it back as `baseObservationId` is refused with a
+  409 (and the feature as it is now) when another edit landed in
+  between. Without it the behaviour is unchanged. Built for the native
+  field client, whose queued edits can be hours old by the time they
+  sync.
+
+- Forms record which version of the form engine they need
+  (`requiredEngineVersion`, stamped on save), so a client carrying an
+  older engine can decline to evaluate a form it would get wrong.
+
+- The form and sync logic the portal and the web field runtime share
+  is now also built as one dependency-free JavaScript bundle
+  (`packages/field-engine`) for embedding in native clients, and the
+  Android field client that embeds it has started in
+  `clients/android`. Neither is part of a portal deployment.
+
+### Changed
+
+- The `field-app` Keycloak client now accepts only its native redirect
+  scheme; the portal-wide web redirect it shipped with was never
+  needed. The realm's offline session idle timeout is pinned to 30
+  days rather than inherited as a default. Both are reconciled onto a
+  live realm by `deploy.sh`.
+
 ## [0.9.113] - 2026-09-13
 
 ### Fixed
