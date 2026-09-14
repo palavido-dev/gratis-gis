@@ -674,8 +674,11 @@ early as possible.
    will be faster): `form.state` median 2.2 ms, p95 4.8 ms;
    `form.validate` 1.1 / 2.5 ms; `form.applyCalculations` 1.1 / 2.6 ms.
    That settles the per-keystroke question from "How the app hosts
-   it": no batching needed. Remaining: the BLE NMEA spike on a handset.
-   No store involvement.
+   it": no batching needed. The BLE NMEA spike is deferred (see step
+   6): no NMEA-capable receiver is on hand as of 2026-09-14. A Garmin
+   inReach Mini is, and it is not one: it speaks a proprietary BLE
+   protocol to Garmin's own app and exposes no position stream to
+   third parties. No store involvement.
 4. **Server slices, in parallel with 5.** Per-user throttle keying,
    `ownEditWindow` with enforcement, `baseObservationId` 409 on PATCH
    and DELETE, the conformance corpus on the TypeScript side.
@@ -685,7 +688,14 @@ early as possible.
    now handles 409 conflicts as well as 422 refusals.
 6. **The device layer.** `:device:gnss`, `:feature:camera`,
    `:device:rangefinder`, screens `1j` and `1k`. This is why the project
-   is native; do not let it slip to last and get cut.
+   is native; do not let it slip to last and get cut. **Backburnered
+   2026-09-14 for lack of hardware**: external receivers need a real
+   NMEA-over-Bluetooth or USB unit in hand (SXblue, Arrow, Bad Elf), and
+   none is available. Until then the capture loop runs on the phone's
+   own GNSS through the fused location provider, which is the path
+   every capture takes anyway; the external receiver is the "better
+   fix" upgrade on top. `:feature:camera` does not depend on any
+   hardware beyond the phone and can proceed independently.
 7. **The rest of the handoff.** Screens `1c`, `1g`, `1h`, `1l`, and the
    `1m` Material deltas throughout.
 8. **Play Store.** Closed track first (this is where the 14-day clock
@@ -716,7 +726,8 @@ Still open:
   who the 12 testers are.
 - Which physical receivers are in scope for v1? "Bluetooth NMEA" is not
   a specification; SXblue, Arrow and Bad Elf differ in pairing, in their
-  sentence mix, and in whether they present as a serial profile.
+  sentence mix, and in whether they present as a serial profile. Also
+  which one to buy or borrow for development, since none is on hand.
 - Minimum supported Android version, and whether rugged handsets in
   scope (the handoff mentions binding a programmable key) constrain it.
 
