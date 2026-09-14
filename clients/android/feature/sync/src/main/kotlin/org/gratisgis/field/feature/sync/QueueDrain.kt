@@ -101,6 +101,19 @@ class QueueDrain(
           if (outcome.terminal) rejected += 1 else failed += 1
           errors += SyncError(record.id, record.op, record.layerKey, outcome.reason, outcome.terminal)
         }
+        is Replay.Conflict -> {
+          db.queue().upsert(
+            record.copy(
+              syncStatus = "rejected",
+              failureJson = outcome.reason.toString(),
+              conflictCurrentJson = outcome.current.toString(),
+              retryCount = (record.retryCount ?: 0) + 1,
+              lastAttemptAt = Instant.now().toString(),
+            ),
+          )
+          rejected += 1
+          errors += SyncError(record.id, record.op, record.layerKey, outcome.reason, terminal = true)
+        }
       }
     }
 
@@ -114,6 +127,9 @@ class QueueDrain(
     data object Done : Replay
     data class Unreachable(val reason: JsonObject) : Replay
     data class Refused(val reason: JsonObject, val terminal: Boolean) : Replay
+    /** A 409 from the concurrency guard: parked with the server's
+     *  current version attached for the review screen. */
+    data class Conflict(val reason: JsonObject, val current: kotlinx.serialization.json.JsonElement) : Replay
   }
 
   private suspend fun replay(r: QueueEntity): Replay {
@@ -125,11 +141,27 @@ class QueueDrain(
           r.dataLayerId, r.layerKey,
           InsertFeaturesRequest(listOf(FeatureInsert(r.globalId, geometry ?: JsonNull, properties))),
         )
-        "update" -> portal.patchFeature(r.dataLayerId, r.layerKey, r.globalId, properties, geometry)
-        "delete" -> portal.deleteFeature(r.dataLayerId, r.layerKey, r.globalId)
+        "update" -> portal.patchFeature(
+          r.dataLayerId, r.layerKey, r.globalId, properties, geometry,
+          baseObservationId = r.baseObservationId,
+        )
+        "delete" -> portal.deleteFeature(
+          r.dataLayerId, r.layerKey, r.globalId,
+          baseObservationId = r.baseObservationId,
+        )
         else -> return Replay.Refused(message("sync.unknownOp", "op" to JsonPrimitive(r.op)), terminal = true)
       }
       Replay.Done
+    } catch (e: PortalError.Conflict) {
+      if (e.code == "feature-conflict") {
+        // Somebody else's edit landed between our read and this replay.
+        // Terminal: a person has to look at both versions (screen 3a).
+        return Replay.Conflict(
+          reason = message("sync.conflict", "serverMessage" to JsonPrimitive(e.message ?: "")),
+          current = e.current ?: JsonNull,
+        )
+      }
+      Replay.Refused(message("sync.serverRefused", "serverMessage" to JsonPrimitive(e.message ?: "")), terminal = true)
     } catch (e: PortalError) {
       val outcome = engine.callOrThrow(
         "sync.outcome",

@@ -32,6 +32,8 @@ interface FeatureDao {
   @Query("SELECT COUNT(*) FROM feature WHERE collectionId = :collectionId") suspend fun countForCollection(collectionId: String): Int
   @Query("SELECT * FROM feature WHERE collectionId = :collectionId AND dataLayerId = :dataLayerId AND layerKey = :layerKey AND globalId = :globalId")
   suspend fun get(collectionId: String, dataLayerId: String, layerKey: String, globalId: String): FeatureEntity?
+  @Query("SELECT * FROM feature WHERE collectionId = :collectionId AND dataLayerId = :dataLayerId AND layerKey = :layerKey ORDER BY globalId LIMIT 1")
+  suspend fun firstForLayer(collectionId: String, dataLayerId: String, layerKey: String): FeatureEntity?
   @Query("DELETE FROM feature WHERE collectionId = :collectionId AND dataLayerId = :dataLayerId AND layerKey = :layerKey")
   suspend fun deleteForLayer(collectionId: String, dataLayerId: String, layerKey: String)
   @Query("DELETE FROM feature WHERE collectionId = :collectionId") suspend fun deleteForCollection(collectionId: String)

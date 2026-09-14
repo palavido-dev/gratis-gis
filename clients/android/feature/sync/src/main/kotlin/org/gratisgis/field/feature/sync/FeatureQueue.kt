@@ -27,6 +27,9 @@ data class FeatureEdit(
   val properties: JsonObject?,
   val schemaHash: String,
   val ownerUserId: String,
+  /** `_observation_id` of the feature as read when the edit was made.
+   *  Null for an insert. */
+  val baseObservationId: String? = null,
 )
 
 sealed interface EnqueueResult {
@@ -69,6 +72,7 @@ class FeatureQueue(private val db: FieldDatabase, private val engine: FieldEngin
         lastAttemptAt = null,
         retryCount = null,
         ownerUserId = edit.ownerUserId,
+        baseObservationId = edit.baseObservationId,
       )
       db.queue().upsert(row)
       return EnqueueResult.Queued(row)
@@ -96,6 +100,10 @@ class FeatureQueue(private val db: FieldDatabase, private val engine: FieldEngin
       failureJson = null,
       lastAttemptAt = null,
       retryCount = null,
+      // The oldest row's base stays: the chain as a whole was captured
+      // against the state that row read. An insert chain has none.
+      baseObservationId = keep.baseObservationId,
+      conflictCurrentJson = null,
     )
     db.queue().replaceChain(edit.collectionId, removeIds, next)
     return EnqueueResult.Folded(next, foldable.size)

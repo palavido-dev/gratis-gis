@@ -80,6 +80,7 @@ class PortalClient(
             status = response.status.value,
             message = errorMessage(response.status, text),
             retryAfter = response.headers[HttpHeaders.RetryAfter],
+            body = runCatching { defaultJson.parseToJsonElement(text) as? JsonObject }.getOrNull(),
           )
         }
       }
@@ -151,17 +152,21 @@ class PortalClient(
     }.body()
 
   /** `PATCH .../features/{globalId}`. Geometry omitted when null: an
-   *  attribute-only edit must not erase the position. */
+   *  attribute-only edit must not erase the position. With
+   *  `baseObservationId` the server refuses a stale edit with a 409
+   *  (`PortalError.Conflict` carrying `current`). */
   suspend fun patchFeature(
     dataLayerId: String,
     layerKey: String,
     globalId: String,
     properties: JsonObject,
     geometry: kotlinx.serialization.json.JsonElement?,
+    baseObservationId: String? = null,
   ) {
     val body = buildJsonObject {
       put("properties", properties)
       if (geometry != null && geometry !is kotlinx.serialization.json.JsonNull) put("geometry", geometry)
+      if (baseObservationId != null) put("baseObservationId", baseObservationId)
     }
     http.patch("items/$dataLayerId/layers/${layerKey.encodeURLPathPart()}/features/$globalId") {
       contentType(ContentType.Application.Json)
@@ -169,9 +174,19 @@ class PortalClient(
     }
   }
 
-  /** `DELETE .../features/{globalId}`. */
-  suspend fun deleteFeature(dataLayerId: String, layerKey: String, globalId: String) {
-    http.delete("items/$dataLayerId/layers/${layerKey.encodeURLPathPart()}/features/$globalId")
+  /** `DELETE .../features/{globalId}`, with the same optional guard. */
+  suspend fun deleteFeature(
+    dataLayerId: String,
+    layerKey: String,
+    globalId: String,
+    baseObservationId: String? = null,
+  ) {
+    http.delete("items/$dataLayerId/layers/${layerKey.encodeURLPathPart()}/features/$globalId") {
+      if (baseObservationId != null) {
+        contentType(ContentType.Application.Json)
+        setBody(buildJsonObject { put("baseObservationId", baseObservationId) })
+      }
+    }
   }
 
   override fun close() {

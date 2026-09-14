@@ -186,6 +186,67 @@ class CollectionViewModel(application: Application, collection: ItemSummary) : A
     }
   }
 
+  /**
+   * Queue an attribute edit on a cached feature of the first addable
+   * layer. `stale = false` sends the `_observation_id` the cache holds,
+   * which the server accepts. `stale = true` sends a made-up one, so
+   * the server answers 409 and the row parks with the server's
+   * current version attached: the `3a` review path, provoked on
+   * purpose.
+   */
+  fun queueTestEdit(stale: Boolean) {
+    viewModelScope.launch {
+      _state.update { it.copy(error = null) }
+      try {
+        val s = _state.value
+        val layer = s.layers.firstOrNull { it.addable } ?: return@launch fail("No addable layer; download first")
+        val userId = app.auth.tokens.value?.subject ?: return@launch fail("Signed out")
+        val cached = app.db.features().firstForLayer(s.collection.id, layer.dataLayerId, layer.layerKey)
+          ?: return@launch fail("No cached features on ${layer.label}")
+        val feature = json.parseToJsonElement(cached.featureJson).jsonObject
+        val props = feature.getValue("properties").jsonObject
+        val base = if (stale) UUID.randomUUID().toString()
+        else props["_observation_id"]?.jsonPrimitive?.content ?: return@launch fail("Cached feature has no _observation_id; re-download")
+        // Touch one declared, non-server-stamped field with a marker.
+        val fields = json.parseToJsonElement(layer.fieldsJson).jsonArray
+        val target = fields.map { it.jsonObject }
+          .firstOrNull { f ->
+            f.getValue("type").jsonPrimitive.content == "string" &&
+              f.getValue("name").jsonPrimitive.content !in setOf("submitted_by", "submitted_at", "schema_version")
+          }?.getValue("name")?.jsonPrimitive?.content
+          ?: return@launch fail("No string field to edit on ${layer.label}")
+        val properties = buildJsonObject {
+          for ((k, v) in props) if (!k.startsWith("_")) put(k, v)
+          put(target, "edited from field app ${Instant.now()}")
+        }
+        val result = FeatureQueue(app.db, app.engine.await()).enqueue(
+          FeatureEdit(
+            collectionId = s.collection.id,
+            op = "update",
+            dataLayerId = layer.dataLayerId,
+            layerKey = layer.layerKey,
+            globalId = cached.globalId,
+            geometry = null,
+            properties = properties,
+            schemaHash = layer.schemaHash,
+            ownerUserId = userId,
+            baseObservationId = base,
+          ),
+        )
+        val note = when (result) {
+          is EnqueueResult.Queued -> "queued update of ${cached.globalId.take(8)} (base ${base.take(8)}${if (stale) ", stale on purpose" else ""})"
+          is EnqueueResult.Folded -> "folded into ${result.row.id.take(8)}"
+          is EnqueueResult.Annihilated -> "annihilated"
+        }
+        _state.update { it.copy(error = note) }
+      } catch (t: Throwable) {
+        fail(t.message ?: t.toString())
+      } finally {
+        refresh()
+      }
+    }
+  }
+
   fun syncNow() {
     val portal = app.portal ?: return fail("Not connected")
     viewModelScope.launch {

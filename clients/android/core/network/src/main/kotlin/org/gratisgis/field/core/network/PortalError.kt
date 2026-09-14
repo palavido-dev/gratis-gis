@@ -21,8 +21,18 @@ sealed class PortalError(
   /** 400 or 422: the server refused the bytes deterministically. */
   class Validation(status: Int, message: String) : PortalError(status, message)
 
-  /** 409. */
-  class Conflict(message: String) : PortalError(409, message)
+  /**
+   * 409. For a feature write refused by the optimistic-concurrency
+   * guard the body is `{ code: 'feature-conflict', current }`;
+   * `current` is the feature as the server has it now, or JSON null
+   * when it was deleted in between. `current` is null (Kotlin) for a
+   * 409 that is not that shape.
+   */
+  class Conflict(
+    message: String,
+    val code: String? = null,
+    val current: kotlinx.serialization.json.JsonElement? = null,
+  ) : PortalError(409, message)
 
   /** 429, or 503 with Retry-After. `retryAfterSeconds` is null when the
    *  server sent none. */
@@ -33,11 +43,21 @@ sealed class PortalError(
   class Server(status: Int, message: String) : PortalError(status, message)
 
   companion object {
-    fun forStatus(status: Int, message: String, retryAfter: String?): PortalError = when (status) {
+    fun forStatus(
+      status: Int,
+      message: String,
+      retryAfter: String?,
+      body: kotlinx.serialization.json.JsonObject? = null,
+    ): PortalError = when (status) {
       401, 403 -> Auth(status, message)
       404 -> NotFound(message)
       400, 422 -> Validation(status, message)
-      409 -> Conflict(message)
+      409 -> Conflict(
+        message,
+        code = (body?.get("code") as? kotlinx.serialization.json.JsonPrimitive)?.content,
+        // Present (possibly JSON null) only on a feature-conflict body.
+        current = if (body?.containsKey("current") == true) body["current"] else null,
+      )
       429 -> RateLimit(status, message, retryAfter?.trim()?.toLongOrNull())
       503 -> if (retryAfter != null) RateLimit(status, message, retryAfter.trim().toLongOrNull())
       else Server(status, message)

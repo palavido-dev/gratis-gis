@@ -57,6 +57,9 @@ fun CollectionScreen(viewModel: CollectionViewModel, onBack: () -> Unit, modifie
         Column(Modifier.padding(12.dp)) {
           Text("${row.op} ${row.globalId.take(8)} on ${row.layerKey}: ${row.syncStatus}", style = MaterialTheme.typography.bodyMedium)
           row.failureJson?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+          row.conflictCurrentJson?.let {
+            Text("server now has: ${it.take(200)}", style = MaterialTheme.typography.bodySmall)
+          }
           if (row.syncStatus == "rejected") {
             TextButton(onClick = { viewModel.discardRejected(row) }) { Text("Discard") }
           }
@@ -66,6 +69,10 @@ fun CollectionScreen(viewModel: CollectionViewModel, onBack: () -> Unit, modifie
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
       OutlinedButton(onClick = viewModel::queueTestRecord, enabled = !s.busy) { Text("Queue test record") }
       Button(onClick = viewModel::syncNow, enabled = !s.busy) { Text("Sync now") }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+      OutlinedButton(onClick = { viewModel.queueTestEdit(stale = false) }, enabled = !s.busy) { Text("Queue edit") }
+      OutlinedButton(onClick = { viewModel.queueTestEdit(stale = true) }, enabled = !s.busy) { Text("Queue stale edit") }
     }
     s.lastSync?.let { r ->
       Text(

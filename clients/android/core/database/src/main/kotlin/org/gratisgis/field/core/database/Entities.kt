@@ -119,4 +119,19 @@ data class QueueEntity(
   val lastAttemptAt: String?,
   val retryCount: Int?,
   val ownerUserId: String?,
+  /**
+   * The `_observation_id` the feature was read at when this edit was
+   * captured, sent as `baseObservationId` on update and delete so the
+   * server refuses the replay with a 409 if somebody else's edit
+   * landed in between. Null for inserts and for rows queued before
+   * the column existed (those replay last-writer-wins, as before).
+   * Not in the web QueueRecord yet; the web PWA opts in later.
+   */
+  val baseObservationId: String? = null,
+  /**
+   * On a 409, the server's current version of the feature as JSON
+   * (or the literal `null` when it was deleted in between), kept so
+   * the review screen can show both sides without a network call.
+   */
+  val conflictCurrentJson: String? = null,
 )
