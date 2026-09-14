@@ -2732,4 +2732,118 @@ d('observation-log read paths against real PostGIS', () => {
       expect(cache.get(`${scope}-other|12/1/1|`)).not.toBeNull();
     });
   });
+
+  describe('scenario 11: guarded writes refuse a stale head (field edit conflicts)', () => {
+    // The field client queues an edit against the `_observation_id` it
+    // read, possibly hours before it has signal. The guard makes the
+    // append conditional on that still being the head, under the
+    // per-entity advisory lock, so two devices editing one feature
+    // offline cannot both land; the second is told what is there now.
+    const itemId = uuidv7();
+    const layerId = 'layer-guard';
+
+    it('exposes the head observation id on every read, and it moves with each write', async () => {
+      const engine = makeEngine();
+      const { globalId, observationId } = await engine.writeFeatureCreate({
+        itemId,
+        layerId,
+        geometry: { type: 'Point', coordinates: HERE },
+        properties: { STATUS: 'Open' },
+        principal: PRINCIPAL,
+      });
+      const first = await engine.listFeatures({ itemId, layerId, entity: globalId });
+      expect(first.features[0]!.properties._observation_id).toBe(observationId);
+
+      const updated = await engine.writeFeatureUpdate({
+        itemId, layerId, globalId, properties: { STATUS: 'Closed' }, principal: PRINCIPAL,
+      });
+      expect('observationId' in updated).toBe(true);
+      const second = await engine.listFeatures({ itemId, layerId, entity: globalId });
+      expect(second.features[0]!.properties._observation_id).toBe(
+        (updated as { observationId: string }).observationId,
+      );
+      expect(second.features[0]!.properties._observation_id).not.toBe(observationId);
+    });
+
+    it('writes when the expected head is current, refuses when it is stale, and reports the real head', async () => {
+      const engine = makeEngine();
+      const { globalId, observationId: created } = await engine.writeFeatureCreate({
+        itemId, layerId, geometry: { type: 'Point', coordinates: HERE }, properties: { STATUS: 'Open' }, principal: PRINCIPAL,
+      });
+
+      // Device A read at `created` and edits: lands.
+      const a = await engine.writeFeatureUpdate({
+        itemId, layerId, globalId, properties: { STATUS: 'A' }, principal: PRINCIPAL,
+        expectedHeadObservationId: created,
+      });
+      expect('observationId' in a).toBe(true);
+      const aId = (a as { observationId: string }).observationId;
+
+      // Device B also read at `created`, hours ago: refused, told about A.
+      const b = await engine.writeFeatureUpdate({
+        itemId, layerId, globalId, properties: { STATUS: 'B' }, principal: PRINCIPAL,
+        expectedHeadObservationId: created,
+      });
+      expect(b).toEqual({ conflict: true, headObservationId: aId });
+
+      // Nothing was written for B: the read still says A.
+      const now = await engine.listFeatures({ itemId, layerId, entity: globalId });
+      expect(now.features[0]!.properties.STATUS).toBe('A');
+      expect(now.features[0]!.properties._observation_id).toBe(aId);
+
+      // B re-reads and retries against the real head: lands.
+      const b2 = await engine.writeFeatureUpdate({
+        itemId, layerId, globalId, properties: { STATUS: 'B' }, principal: PRINCIPAL,
+        expectedHeadObservationId: aId,
+      });
+      expect('observationId' in b2).toBe(true);
+
+      // A guarded delete follows the same rule.
+      const staleDelete = await engine.writeFeatureDelete({
+        itemId, layerId, globalId, principal: PRINCIPAL, expectedHeadObservationId: aId,
+      });
+      expect(staleDelete).toEqual({
+        conflict: true,
+        headObservationId: (b2 as { observationId: string }).observationId,
+      });
+      const freshDelete = await engine.writeFeatureDelete({
+        itemId, layerId, globalId, principal: PRINCIPAL,
+        expectedHeadObservationId: (b2 as { observationId: string }).observationId,
+      });
+      expect('observationId' in freshDelete).toBe(true);
+      const gone = await engine.listFeatures({ itemId, layerId, entity: globalId });
+      expect(gone.features).toHaveLength(0);
+    });
+
+    it('lets exactly one of N concurrent guarded writers through', async () => {
+      // The check-then-append is one transaction under the entity's
+      // advisory lock. Without the lock, every writer would read the
+      // same head, all would pass the check, and all would append.
+      const engine = makeEngine();
+      const { globalId, observationId: created } = await engine.writeFeatureCreate({
+        itemId, layerId, geometry: { type: 'Point', coordinates: HERE }, properties: { N: 0 }, principal: PRINCIPAL,
+      });
+      const results = await Promise.all(
+        Array.from({ length: 8 }, (_, i) =>
+          engine.writeFeatureUpdate({
+            itemId, layerId, globalId, properties: { N: i + 1 }, principal: PRINCIPAL,
+            expectedHeadObservationId: created,
+          }),
+        ),
+      );
+      const landed = results.filter((r) => 'observationId' in r);
+      const refused = results.filter((r) => 'conflict' in r);
+      expect(landed).toHaveLength(1);
+      expect(refused).toHaveLength(7);
+      const winner = (landed[0] as { observationId: string }).observationId;
+      for (const r of refused) {
+        expect((r as { headObservationId: string | null }).headObservationId).toBe(winner);
+      }
+      const rows = await pool.query(
+        `SELECT count(*)::int AS n FROM observation WHERE scope = $1 AND entity = $2 AND kind = 'update'`,
+        [dataLayerScope(itemId, layerId), globalId],
+      );
+      expect(rows.rows[0].n).toBe(1);
+    });
+  });
 });

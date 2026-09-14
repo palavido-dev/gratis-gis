@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { BadRequestException } from '@nestjs/common';
 
-import { DataLayerFeaturesService } from './features.service.js';
+import { DataLayerFeaturesService, FeatureConflictException } from './features.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import type { DataLayerEngine } from '../engine/data-layer.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
@@ -55,6 +55,7 @@ function feature(id: string, value: number) {
       _created_at: '2026-01-01T00:00:00.000Z',
       _edited_by: 'editor',
       _edited_at: '2026-02-01T00:00:00.000Z',
+      _observation_id: `obs-head-${id}`,
     },
   };
 }
@@ -130,6 +131,9 @@ function makeService(fields: unknown[] | null = null) {
   const writeFeatureUpdate = jest.fn(
     async (_args: Record<string, unknown>) => ({ observationId: 'obs' }),
   );
+  const writeFeatureDelete = jest.fn(
+    async (_args: Record<string, unknown>) => ({ observationId: 'obs' }),
+  );
   const writeFeaturesCreateIdempotent = jest.fn(
     async (args: Array<{ globalId?: string }>) =>
       args.map((a, i) => ({ globalId: a.globalId ?? `new-${i}`, deduplicated: false })),
@@ -138,6 +142,7 @@ function makeService(fields: unknown[] | null = null) {
     listFeatures,
     writeFeaturesUpdate,
     writeFeatureUpdate,
+    writeFeatureDelete,
     writeFeaturesCreateIdempotent,
   };
   const cacheRefresh = {
@@ -156,6 +161,7 @@ function makeService(fields: unknown[] | null = null) {
   );
   return {
     service,
+    engine,
     listFeatures,
     writeFeaturesUpdate,
     writeFeatureUpdate,
@@ -495,6 +501,88 @@ describe('DataLayerFeaturesService.updateFeature merge semantics', () => {
     await expect(
       service.updateFeature(ITEM_ID, LAYER_ID, E1, { properties: { value: '' } }, makeUser()),
     ).rejects.toThrow(/required/);
+  });
+});
+
+/**
+ * Optimistic concurrency for the field client. `baseObservationId` is
+ * the `_observation_id` the client read; the service checks it against
+ * the read (cheap, before validation) and threads it into the engine
+ * write as `expectedHeadObservationId`, which is the check that holds
+ * under a race. Absent, nothing changes: last-writer-wins.
+ */
+describe('DataLayerFeaturesService.updateFeature / deleteFeature conflict guard', () => {
+  const SCHEMA = [{ name: 'value', type: 'number', label: 'Value', nullable: true }];
+
+  it('without a base id the engine write is unguarded', async () => {
+    const { service, writeFeatureUpdate } = makeService(SCHEMA);
+    await service.updateFeature(ITEM_ID, LAYER_ID, E1, { properties: { value: 2 } }, makeUser());
+    const written = writeFeatureUpdate.mock.calls[0]![0] as Record<string, unknown>;
+    expect('expectedHeadObservationId' in written).toBe(false);
+  });
+
+  it('a current base id is threaded into the engine write', async () => {
+    const { service, writeFeatureUpdate } = makeService(SCHEMA);
+    await service.updateFeature(
+      ITEM_ID, LAYER_ID, E1, { properties: { value: 2 } }, makeUser(),
+      { baseObservationId: `obs-head-${E1}` },
+    );
+    const written = writeFeatureUpdate.mock.calls[0]![0] as Record<string, unknown>;
+    expect(written.expectedHeadObservationId).toBe(`obs-head-${E1}`);
+  });
+
+  it('a stale base id is refused with 409 carrying the current feature, before anything is written', async () => {
+    const { service, writeFeatureUpdate } = makeService(SCHEMA);
+    let caught: unknown;
+    try {
+      await service.updateFeature(
+        ITEM_ID, LAYER_ID, E1, { properties: { value: 2 } }, makeUser(),
+        { baseObservationId: 'obs-from-yesterday' },
+      );
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(FeatureConflictException);
+    const body = (caught as FeatureConflictException).getResponse() as Record<string, unknown>;
+    expect(body.statusCode).toBe(409);
+    expect(body.code).toBe('feature-conflict');
+    expect((body.current as { id: string }).id).toBe(E1);
+    expect(writeFeatureUpdate).not.toHaveBeenCalled();
+  });
+
+  it('a race the engine catches is reported the same way, with the post-race feature', async () => {
+    const { service, writeFeatureUpdate } = makeService(SCHEMA);
+    writeFeatureUpdate.mockResolvedValueOnce({ conflict: true, headObservationId: 'someone-else' } as never);
+    let caught: unknown;
+    try {
+      await service.updateFeature(
+        ITEM_ID, LAYER_ID, E1, { properties: { value: 2 } }, makeUser(),
+        { baseObservationId: `obs-head-${E1}` },
+      );
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(FeatureConflictException);
+    const body = (caught as FeatureConflictException).getResponse() as Record<string, unknown>;
+    expect((body.current as { id: string }).id).toBe(E1);
+  });
+
+  it('delete follows the same rule and reports a feature deleted in between as null', async () => {
+    const { service, engine } = makeService(SCHEMA);
+    engine.writeFeatureDelete.mockResolvedValueOnce({ conflict: true, headObservationId: 'tombstone' } as never);
+    // After the race the read finds nothing: the other party deleted it.
+    engine.listFeatures.mockResolvedValueOnce({ type: 'FeatureCollection', features: [feature(E1, 1)] } as never);
+    engine.listFeatures.mockResolvedValueOnce({ type: 'FeatureCollection', features: [] } as never);
+    let caught: unknown;
+    try {
+      await service.deleteFeature(ITEM_ID, LAYER_ID, E1, makeUser(), { baseObservationId: `obs-head-${E1}` });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(FeatureConflictException);
+    const body = (caught as FeatureConflictException).getResponse() as Record<string, unknown>;
+    expect(body.current).toBeNull();
+    expect(body.message).toMatch(/deleted/);
   });
 });
 

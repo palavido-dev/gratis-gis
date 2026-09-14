@@ -25,6 +25,7 @@ const RESERVED_FIELD_NAMES = new Set<string>([
   '_created_at',
   '_edited_by',
   '_edited_at',
+  '_observation_id',
   'global_id',
 ]);
 

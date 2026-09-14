@@ -30,6 +30,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  IsUUID,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -113,6 +114,18 @@ class AppendFeaturesBodyDto {
 class UpdateFeatureBodyDto {
   @IsOptional() @IsObject() geometry?: unknown;
   @IsOptional() @IsObject() properties?: Record<string, unknown>;
+  /**
+   * Optimistic concurrency, opt in: the `_observation_id` the client
+   * read this feature at. When it is no longer the head, 409 with the
+   * current feature in the body and nothing written. Absent means
+   * last-writer-wins, which is what the web runtime does today.
+   */
+  @IsOptional() @IsUUID() baseObservationId?: string;
+}
+
+/** DELETE takes the same guard; an empty or absent body is fine. */
+class DeleteFeatureBodyDto {
+  @IsOptional() @IsUUID() baseObservationId?: string;
 }
 
 /**
@@ -1768,6 +1781,9 @@ export class DataLayerFeaturesController {
     return this.v3.updateFeature(itemId, layerId, featureId, patch, user, {
       ownRowsOnly: rowScope === 'own',
       isTable,
+      ...(body.baseObservationId !== undefined
+        ? { baseObservationId: body.baseObservationId }
+        : {}),
     });
   }
 
@@ -1778,6 +1794,10 @@ export class DataLayerFeaturesController {
     @Param('id') itemId: string,
     @Param('layerId') layerId: string,
     @Param('fid') featureId: string,
+    // A DELETE body is unusual but legal, and the guard has to travel
+    // with the request; a header would be the alternative, and a
+    // stray UUID header is harder to see in a log than a JSON field.
+    @Body() body: DeleteFeatureBodyDto | undefined,
     @Headers('x-editor-id') editorId?: string,
   ) {
     assertFeatureIdShape(featureId);
@@ -1798,6 +1818,9 @@ export class DataLayerFeaturesController {
     }
     await this.v3.deleteFeature(itemId, layerId, featureId, user, {
       ownRowsOnly: rowScope === 'own',
+      ...(body?.baseObservationId !== undefined
+        ? { baseObservationId: body.baseObservationId }
+        : {}),
     });
   }
 

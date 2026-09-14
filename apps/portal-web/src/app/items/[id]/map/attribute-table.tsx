@@ -3008,6 +3008,9 @@ const HIDDEN_SYSTEM_FIELDS = new Set([
   '_edited_at',
   '_edited_by',
   '_global_id',
+  // The head observation id a client echoes back as baseObservationId
+  // on PATCH / DELETE. Same story as _global_id: meaningless to read.
+  '_observation_id',
 ]);
 
 /**

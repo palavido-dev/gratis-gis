@@ -386,14 +386,30 @@ whole pitch is multi-device multi-hour days, and the design has a
 review flow for schema drift (`1g`) and nothing for the more common
 case.
 
-Decision: PATCH and DELETE gain an optional `baseObservationId` in the
-body. When present and not the feature's current head observation, the
-server returns 409 with the current feature in the body. When absent,
-behaviour is unchanged. The observation log makes the check one indexed
-lookup. The Android client always sends it and parks a 409 into the
-`3a` review flow with both versions shown; the web PWA opts in when it
-is next touched. `clients/python` already has a `ConflictError`, so the
-error taxonomy does not change.
+Shipped 2026-09-14. The contract:
+
+- Every v3 feature read now carries `_observation_id` in `properties`:
+  the id of the head observation the state came from. Opaque; only
+  equality means anything. Hidden in the attribute table and reserved
+  in the derived-layer tools like the other underscore keys.
+- PATCH and DELETE take an optional `baseObservationId` (UUID) in the
+  body. When present and not the entity's head, the server writes
+  nothing and answers 409 with `{ code: 'feature-conflict', message,
+  current }`, where `current` is the feature as it is now, or `null`
+  when it was deleted in between. Absent, behaviour is unchanged:
+  last-writer-wins, which is what the web PWA does today.
+- The check runs twice on purpose: once in `FeaturesService` against
+  the read, before validation, and again inside
+  `EngineService.writeIfHead`, where the head lookup and the append
+  share one transaction under the entity's advisory lock (the same
+  lock `writeFeaturesCreateIdempotent` uses). The pg suite drives
+  eight guarded writers at one feature concurrently and asserts
+  exactly one lands and the other seven are told its id.
+
+The Android drain sends `baseObservationId` on every update and delete
+and parks a 409 into the `3a` review flow with both versions; the web
+PWA opts in when it is next touched. `clients/python` already has a
+`ConflictError`, so the error taxonomy does not change.
 
 ### 4. Rate limiting
 

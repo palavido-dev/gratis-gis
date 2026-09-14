@@ -103,6 +103,67 @@ export class EngineService {
    * with all bookkeeping fields populated.
    */
   async write(input: Observation): Promise<Observation> {
+    const obs = this.complete(input);
+    await this.insertOne(this.prisma, obs);
+    this.notifyWritten([obs]);
+    return obs;
+  }
+
+  /**
+   * Write an observation only if the entity's current head is the one
+   * the caller last saw. This is the optimistic-concurrency primitive
+   * behind the field client's edit conflicts: a device that captured
+   * an edit against observation X, hours before it had signal, must
+   * not silently overwrite an edit somebody else landed in between.
+   *
+   * The head check and the insert run in one transaction under the
+   * same per-entity advisory lock `writeFeaturesCreateIdempotent`
+   * uses, so two guarded writers cannot both pass the check. The head
+   * is defined the way every read defines it: latest `valid_from`,
+   * then latest `tx_time`. A caller whose expected head is the entity's
+   * `create` observation and who is racing nobody sees exactly the
+   * unguarded behaviour.
+   *
+   * Returns the written observation, or the current head id when the
+   * expectation did not hold and nothing was written. `headId` is null
+   * only for an entity with no observations at all, which a caller
+   * with an expectation cannot have seen; it is reported rather than
+   * thrown so the caller's 404 handling stays in one place.
+   */
+  async writeIfHead(
+    input: Observation,
+    expectedHeadId: string,
+  ): Promise<{ written: Observation } | { conflict: true; headId: string | null }> {
+    const obs = this.complete(input);
+    const lockKey = `${obs.scope}|${obs.entity}`;
+    const result = await this.prisma.$transaction(async (tx) => {
+      // See writeFeaturesCreateIdempotent for why this is $executeRaw:
+      // the void result of pg_advisory_xact_lock cannot be
+      // deserialised by the driver adapter.
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))
+      `;
+      const head = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id
+        FROM observation
+        WHERE scope = ${obs.scope} AND entity = ${obs.entity}::uuid
+        ORDER BY valid_from DESC, tx_time DESC
+        LIMIT 1
+      `;
+      const headId = head[0]?.id ?? null;
+      if (headId === null || headId !== expectedHeadId) {
+        return { conflict: true as const, headId };
+      }
+      await this.insertOne(tx, obs);
+      return { written: obs };
+    });
+    if ('written' in result) this.notifyWritten([obs]);
+    return result;
+  }
+
+  /** Fill the bookkeeping fields and validate; shared by every
+   *  single-observation write path. */
+  private complete(input: Observation): Observation {
     const obs: Observation = {
       ...input,
       id: input.id ?? uuidv7(),
@@ -110,12 +171,18 @@ export class EngineService {
       cell: input.cell ?? cellForGeometry(input.geom),
     };
     validateObservation(obs);
+    return obs;
+  }
 
+  private async insertOne(
+    db: PrismaService | Prisma.TransactionClient,
+    obs: Observation,
+  ): Promise<void> {
     const geomJson = obs.geom !== null ? JSON.stringify(obs.geom) : null;
     const attrsJson = obs.attrs !== null ? JSON.stringify(obs.attrs) : null;
     const sourceJson = JSON.stringify(obs.source);
 
-    await this.prisma.$executeRaw`
+    await db.$executeRaw`
       INSERT INTO observation (
         id, tx_time, valid_from, valid_to, scope, entity, kind,
         attrs, geom, cell, author_sub, source, parents
@@ -139,9 +206,6 @@ export class EngineService {
         ${obs.parents}::uuid[]
       )
     `;
-
-    this.notifyWritten([obs]);
-    return obs;
   }
 
   /**

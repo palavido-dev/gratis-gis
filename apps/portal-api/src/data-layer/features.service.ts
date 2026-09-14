@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 
 import { isUuid, type GeoJsonGeometry } from '@gratis-gis/engine';
 import {
@@ -108,6 +114,30 @@ export interface DataLayerFeatureOut {
   id: string;
   geometry: unknown;
   properties: Record<string, unknown>;
+}
+
+/**
+ * A guarded PATCH or DELETE lost to a concurrent edit. The body carries
+ * the feature as it is now (`null` when it was deleted in between) so
+ * the client can show both versions; `code` is stable for clients to
+ * switch on, the message is for people. Mirrors the item-level
+ * `expectedUpdatedAt` conflict, which carries no body because an item
+ * is re-fetched in one call; a queued field edit is hours old and the
+ * device may be offline again by the time a person looks at it.
+ */
+export class FeatureConflictException extends ConflictException {
+  constructor(current: DataLayerFeatureOut | null) {
+    super({
+      statusCode: 409,
+      error: 'Conflict',
+      code: 'feature-conflict',
+      message:
+        current === null
+          ? 'This feature was deleted by someone else since you last read it.'
+          : 'This feature was changed by someone else since you last read it.',
+      current,
+    });
+  }
 }
 
 /** What `loadLayerSchema` returns and `bulkInsertFeatures` optionally takes. */
@@ -1136,14 +1166,23 @@ export class DataLayerFeaturesService {
    *  patch with the current values, writes a `kind: 'update'`
    *  observation, and reads the result back. The pre-engine
    *  SELECT-FOR-UPDATE transaction is gone; the append-only log is
-   *  naturally last-writer-wins. */
+   *  naturally last-writer-wins.
+   *
+   *  Unless the caller opts in: `opts.baseObservationId` is the
+   *  `_observation_id` it last read, and when it is no longer the
+   *  head the write is refused with a 409 carrying the current
+   *  feature, so an offline client can show both versions instead of
+   *  silently clobbering somebody else's edit. The check runs twice:
+   *  once here against the read (cheap, and before validation), and
+   *  again inside the engine write under the entity's advisory lock,
+   *  which is the one that closes the race. */
   async updateFeature(
     itemId: string,
     layerId: string,
     featureId: string,
     patch: { geometry?: unknown; properties?: Record<string, unknown> },
     user: AuthUser,
-    opts: { ownRowsOnly?: boolean; isTable?: boolean } = {},
+    opts: { ownRowsOnly?: boolean; isTable?: boolean; baseObservationId?: string } = {},
   ): Promise<DataLayerFeatureOut> {
     const isTable = opts.isTable === true;
 
@@ -1165,6 +1204,12 @@ export class DataLayerFeaturesService {
       throw new NotFoundException('Feature not found');
     }
     const existing = current.features[0]!;
+    if (
+      opts.baseObservationId !== undefined &&
+      existing.properties._observation_id !== opts.baseObservationId
+    ) {
+      throw new FeatureConflictException(existing);
+    }
 
     // MERGE the patch over the current values. This is what the
     // docblock above has always promised and what every caller
@@ -1207,13 +1252,16 @@ export class DataLayerFeaturesService {
         : existing.geometry;
 
     const principal = { sub: user.id, displayName: user.username ?? '' };
-    await this.dataLayer.writeFeatureUpdate({
+    const written = await this.dataLayer.writeFeatureUpdate({
       itemId,
       layerId,
       globalId: featureId,
       principal,
       properties: nextProps,
       geometry: nextGeometry,
+      ...(opts.baseObservationId !== undefined
+        ? { expectedHeadObservationId: opts.baseObservationId }
+        : {}),
     });
 
     const refreshed = await this.dataLayer.listFeatures({
@@ -1222,6 +1270,11 @@ export class DataLayerFeaturesService {
       entity: featureId,
       ...(isTable ? { isTable: true } : {}),
     });
+    if ('conflict' in written) {
+      // Somebody landed between our read and our write. Report what is
+      // there now; the read-back is the head the guard refused against.
+      throw new FeatureConflictException(refreshed.features[0] ?? null);
+    }
     const result = refreshed.features[0];
     if (result === undefined) {
       // Defensive: writeFeatureUpdate succeeded but the read came
@@ -1248,7 +1301,7 @@ export class DataLayerFeaturesService {
     layerId: string,
     featureId: string,
     user: AuthUser,
-    opts: { ownRowsOnly?: boolean } = {},
+    opts: { ownRowsOnly?: boolean; baseObservationId?: string } = {},
   ): Promise<void> {
     const current = await this.dataLayer.listFeatures({
       itemId,
@@ -1261,14 +1314,28 @@ export class DataLayerFeaturesService {
     if (current.features.length === 0) {
       throw new NotFoundException('Feature not found');
     }
+    const existing = current.features[0]!;
+    if (
+      opts.baseObservationId !== undefined &&
+      existing.properties._observation_id !== opts.baseObservationId
+    ) {
+      throw new FeatureConflictException(existing);
+    }
 
     const principal = { sub: user.id, displayName: user.username ?? '' };
-    await this.dataLayer.writeFeatureDelete({
+    const written = await this.dataLayer.writeFeatureDelete({
       itemId,
       layerId,
       globalId: featureId,
       principal,
+      ...(opts.baseObservationId !== undefined
+        ? { expectedHeadObservationId: opts.baseObservationId }
+        : {}),
     });
+    if ('conflict' in written) {
+      const now = await this.dataLayer.listFeatures({ itemId, layerId, entity: featureId });
+      throw new FeatureConflictException(now.features[0] ?? null);
+    }
     this.scheduleBboxRefresh(itemId, {
       kind: 'delete',
       geometries: [current.features[0]!.geometry],

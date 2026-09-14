@@ -85,11 +85,26 @@ export interface UpdateFeatureArgs extends WriteCommon {
   properties?: Record<string, unknown>;
   /** Replacement geometry, or `null` to drop. */
   geometry?: GeoJsonGeometry | null;
+  /**
+   * Optimistic concurrency: the `_observation_id` the caller last
+   * read. When set, the write lands only if that is still the
+   * entity's head; otherwise nothing is written and the result
+   * reports the conflict. Absent means last-writer-wins, which is
+   * what every caller did before the field client needed better.
+   */
+  expectedHeadObservationId?: string;
 }
 
 export interface DeleteFeatureArgs extends WriteCommon {
   globalId: string;
+  /** See UpdateFeatureArgs. */
+  expectedHeadObservationId?: string;
 }
+
+/** Outcome of a guarded update or delete. */
+export type GuardedWriteResult =
+  | { observationId: string }
+  | { conflict: true; headObservationId: string | null };
 
 export interface ListFeaturesArgs {
   itemId: string;
@@ -257,6 +272,14 @@ export interface DataLayerFeature {
     _created_at: string;
     _edited_by: string;
     _edited_at: string;
+    /**
+     * Id of the observation this state was read from: the entity's
+     * head at read time. A client echoes it back as
+     * `baseObservationId` on PATCH / DELETE to be told, with a 409,
+     * when somebody else's edit landed in between. Opaque; only
+     * equality means anything.
+     */
+    _observation_id: string;
   };
 }
 
@@ -289,6 +312,7 @@ function rowToFeature(row: FeatureRow): DataLayerFeature {
       _created_at: row.created_at.toISOString(),
       _edited_by: row.edited_by,
       _edited_at: row.edited_at.toISOString(),
+      _observation_id: row.observation_id,
     },
   };
 }
@@ -1303,20 +1327,38 @@ export class DataLayerEngine {
    */
   async writeFeatureUpdate(
     args: UpdateFeatureArgs,
-  ): Promise<{ observationId: string }> {
-    const obs = await this.engine.write({
-      scope: this.scope(args.itemId, args.layerId),
-      entity: args.globalId,
-      kind: 'update',
-      validFrom: new Date(),
-      validTo: null,
-      attrs: args.properties ?? null,
-      geom: args.geometry ?? null,
-      author: args.principal,
-      source: args.source ?? DEFAULT_SOURCE,
-      parents: [],
-    });
-    return { observationId: requireId(obs.id) };
+  ): Promise<GuardedWriteResult> {
+    return this.writeGuarded(
+      {
+        scope: this.scope(args.itemId, args.layerId),
+        entity: args.globalId,
+        kind: 'update',
+        validFrom: new Date(),
+        validTo: null,
+        attrs: args.properties ?? null,
+        geom: args.geometry ?? null,
+        author: args.principal,
+        source: args.source ?? DEFAULT_SOURCE,
+        parents: [],
+      },
+      args.expectedHeadObservationId,
+    );
+  }
+
+  /** One observation, unguarded or guarded by the expected head. */
+  private async writeGuarded(
+    observation: Observation,
+    expectedHeadObservationId: string | undefined,
+  ): Promise<GuardedWriteResult> {
+    if (expectedHeadObservationId === undefined) {
+      const obs = await this.engine.write(observation);
+      return { observationId: requireId(obs.id) };
+    }
+    const result = await this.engine.writeIfHead(observation, expectedHeadObservationId);
+    if ('written' in result) {
+      return { observationId: requireId(result.written.id) };
+    }
+    return { conflict: true, headObservationId: result.headId };
   }
 
   /**
@@ -1353,20 +1395,22 @@ export class DataLayerEngine {
    */
   async writeFeatureDelete(
     args: DeleteFeatureArgs,
-  ): Promise<{ observationId: string }> {
-    const obs = await this.engine.write({
-      scope: this.scope(args.itemId, args.layerId),
-      entity: args.globalId,
-      kind: 'delete',
-      validFrom: new Date(),
-      validTo: null,
-      attrs: null,
-      geom: null,
-      author: args.principal,
-      source: args.source ?? DEFAULT_SOURCE,
-      parents: [],
-    });
-    return { observationId: requireId(obs.id) };
+  ): Promise<GuardedWriteResult> {
+    return this.writeGuarded(
+      {
+        scope: this.scope(args.itemId, args.layerId),
+        entity: args.globalId,
+        kind: 'delete',
+        validFrom: new Date(),
+        validTo: null,
+        attrs: null,
+        geom: null,
+        author: args.principal,
+        source: args.source ?? DEFAULT_SOURCE,
+        parents: [],
+      },
+      args.expectedHeadObservationId,
+    );
   }
 
   /**
