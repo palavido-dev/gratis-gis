@@ -119,7 +119,7 @@ RUN pnpm deploy --filter=@gratis-gis/portal-api /out
 # patch, which carries the stdlib fixes for CVE-2026-39823/-39825/
 # -39826. Pinned to the same version constant the runtime stage
 # uses so a bump propagates atomically.
-FROM golang:1.26-bookworm AS pmtiles-build
+FROM golang:1.27-bookworm AS pmtiles-build
 ARG PMTILES_VERSION=1.30.3
 # CVE-2026-56852, HIGH: go-pmtiles pins golang.org/x/text v0.35.0 and
 # still does at v1.31.2, so bumping PMTILES_VERSION does not clear it.
