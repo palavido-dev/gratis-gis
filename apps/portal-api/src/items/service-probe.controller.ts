@@ -25,7 +25,12 @@ import {
 } from './credential.service.js';
 import { exchangeBasicForArcgisToken } from './arcgis-auth.js';
 import { safeFetch, UnsafeOutboundUrlError } from '../common/net-guards.js';
-import { PROXY_FETCH_TIMEOUT_MS } from '../common/proxy-stream.js';
+import {
+  PROBE_MAX_BODY_BYTES,
+  PROXY_FETCH_TIMEOUT_MS,
+  readUpstreamText,
+  UpstreamBodyTooLargeError,
+} from '../common/proxy-stream.js';
 
 /**
  * Inline service probe with optional ephemeral credential (#74).
@@ -149,22 +154,26 @@ export class ServiceProbeController {
       );
     }
 
+    // Cap the body before it is parsed. The two tile proxies stream
+    // with their own ceiling; this endpoint has to JSON.parse, so it
+    // reads with the same kind of cutoff instead of Response.text(),
+    // which would buffer a multi-GB 200 in the replica heap.
+    const text = await readProbeBody(upstream);
+
     if (!upstream.ok) {
       // ArcGIS often returns 200 with an "error" body for token
       // problems, but some deployments use a real 4xx. Either way,
       // we want the wizard to recognise the auth case so it can
-      // pop the credential form. Forward status + body so the
+      // pop the credential form. Forward status + a short body so the
       // caller can branch on it; we don't mutate the body.
-      const body = await safeText(upstream);
       return {
         ok: false,
         status: upstream.status,
         statusText: upstream.statusText,
-        body,
+        body: text.slice(0, 2000),
       };
     }
 
-    const text = await upstream.text();
     let json: unknown;
     try {
       json = JSON.parse(text);
@@ -291,10 +300,20 @@ function isArcgisRest(url: string): boolean {
   }
 }
 
-async function safeText(res: Response): Promise<string> {
+async function readProbeBody(res: Response): Promise<string> {
   try {
-    return (await res.text()).slice(0, 2000);
-  } catch {
+    return await readUpstreamText(res, PROBE_MAX_BODY_BYTES);
+  } catch (err) {
+    if (err instanceof UpstreamBodyTooLargeError) {
+      throw new BadRequestException(
+        `The service response is larger than ${Math.round(
+          PROBE_MAX_BODY_BYTES / (1024 * 1024),
+        )} MB, so it was not loaded.`,
+      );
+    }
+    // A body that cannot be read at all is the old safeText failure:
+    // an empty string, which the caller treats as a soft probe miss
+    // rather than a 500.
     return '';
   }
 }

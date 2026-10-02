@@ -2,7 +2,11 @@
 import { EventEmitter } from 'node:events';
 import type { Response as ExpressResponse } from 'express';
 
-import { streamUpstreamToResponse } from './proxy-stream.js';
+import {
+  readUpstreamText,
+  streamUpstreamToResponse,
+  UpstreamBodyTooLargeError,
+} from './proxy-stream.js';
 
 /**
  * Minimal Express-response double: records status, headers, and the
@@ -102,6 +106,16 @@ describe('streamUpstreamToResponse', () => {
     expect(state.ended).toBe(true);
     expect(state.destroyed).toBe(false);
     expect(state.chunks).toHaveLength(0);
+  });
+
+  it('readUpstreamText returns the body under the cap and throws past it', async () => {
+    await expect(readUpstreamText(upstream('{"ok":true}'), 1024)).resolves.toBe(
+      '{"ok":true}',
+    );
+    const big = new Uint8Array(4096).fill(65);
+    await expect(readUpstreamText(upstream(big), 1024)).rejects.toBeInstanceOf(
+      UpstreamBodyTooLargeError,
+    );
   });
 
   it('waits for drain under backpressure and still delivers the full body', async () => {
