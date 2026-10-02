@@ -11,9 +11,34 @@
  *
  * Run: `pnpm --filter @gratis-gis/portal-api db:seed`
  */
+import fs from 'node:fs';
+import path from 'node:path';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+// Prisma 7 reads the URL from the driver adapter, not from a bare
+// constructor. Load the app .env the same way prisma.config.ts does
+// so `pnpm db:seed` works without an exported DATABASE_URL.
+const envPath = path.resolve(process.cwd(), '.env');
+if (fs.existsSync(envPath) && !process.env.DATABASE_URL) {
+  const text = fs.readFileSync(envPath, 'utf8');
+  for (const line of text.split('\n')) {
+    const m = line.match(/^DATABASE_URL=(.*)$/);
+    if (!m) continue;
+    const v = (m[1] ?? '').trim().replace(/^["']|["']$/g, '');
+    if (v) process.env.DATABASE_URL = v;
+    break;
+  }
+}
+
+const url = process.env.DATABASE_URL;
+if (!url) {
+  throw new Error('DATABASE_URL must be set before seeding.');
+}
+
+const prisma = new PrismaClient({
+  adapter: new PrismaPg({ connectionString: url, max: 4 }),
+});
 
 const ACME_ID = '11111111-1111-1111-1111-111111111111';
 // UUIDs preserved from the previous seed so existing dev databases
