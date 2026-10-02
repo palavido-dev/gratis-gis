@@ -32,6 +32,8 @@ interface LocalUser {
   orgRole: 'viewer' | 'contributor' | 'admin';
   isProtected: boolean;
   username: string;
+  lastSeenAt?: Date | null;
+  autoDisableAt?: Date | null;
 }
 
 function makeAuthUser(overrides: Partial<AuthUser> = {}): AuthUser {
@@ -56,6 +58,7 @@ function makeFakePrisma(opts: {
       findUnique: jest.fn(async ({ where }: { where: { username: string } }) => {
         return opts.localByUsername.get(where.username) ?? null;
       }),
+      findMany: jest.fn(async () => [...opts.localByUsername.values()]),
       count: jest.fn(async () => opts.adminCount),
     },
   };
@@ -78,7 +81,7 @@ function makeFakeKc(opts: {
     deleteUser: jest.fn(async () => undefined),
     sendExecuteActionsEmail: jest.fn(async () => undefined),
     createUser: jest.fn(async () => ({})),
-    listUsers: jest.fn(async () => []),
+    listUsers: jest.fn(async (): Promise<KeycloakUserRep[]> => []),
     isConfigured: jest.fn(() => true),
   };
 }
@@ -471,5 +474,158 @@ describe('AdminUsersController guards (#133 / #134)', () => {
       controller.update(caller, 'kc-other', { firstName: 'New' }),
     ).resolves.toBeDefined();
     expect(kc.updateUser).toHaveBeenCalledWith('kc-other', { firstName: 'New' });
+  });
+});
+
+describe('AdminUsersController org-scoped reads', () => {
+  function kcUser(
+    id: string,
+    username: string,
+    org: string | null,
+  ): KeycloakUserRep {
+    const attributes: Record<string, string[]> = {};
+    if (org !== null) attributes.org = [org];
+    return {
+      id,
+      username,
+      enabled: true,
+      email: `${username}@example.test`,
+      attributes,
+    };
+  }
+
+  function localUser(username: string, orgId: string): LocalUser {
+    return {
+      id: `local-${username}`,
+      orgId,
+      orgRole: 'contributor',
+      isProtected: false,
+      username,
+      lastSeenAt: new Date('2026-03-01T00:00:00Z'),
+      autoDisableAt: null,
+    };
+  }
+
+  it('lists only users in the calling admin org', async () => {
+    const caller = makeAuthUser({ orgId: 'org-1', orgSlug: 'acme', username: 'me-admin' });
+    const mine = kcUser('kc-mine', 'mine', 'acme');
+    const invitee = kcUser('kc-invitee', 'invitee', 'acme');
+    const other = kcUser('kc-other', 'other', 'beta');
+    const unscoped = kcUser('kc-svc', 'service-account', null);
+    const { controller, kc, prisma } = makeController({
+      caller,
+      targets: [
+        { id: mine.id, kc: mine, local: localUser('mine', 'org-1') },
+        { id: invitee.id, kc: invitee, local: null },
+        { id: other.id, kc: other, local: localUser('other', 'org-2') },
+        { id: unscoped.id, kc: unscoped, local: null },
+      ],
+      adminCount: 1,
+    });
+    kc.listUsers.mockResolvedValue([mine, invitee, other, unscoped]);
+
+    const rows = await controller.list(caller, 'ada', '0', '50');
+
+    expect(kc.listUsers).toHaveBeenCalledWith({ search: 'ada', first: 0, max: 50 });
+    expect(rows.map((u) => u.username)).toEqual(['mine', 'invitee']);
+    expect(rows.find((u) => u.username === 'other')).toBeUndefined();
+    expect(rows.find((u) => u.username === 'service-account')).toBeUndefined();
+    expect(rows[0]?.lastSeenAt).toBe('2026-03-01T00:00:00.000Z');
+    expect(rows[0]?.isProtected).toBe(false);
+    expect(prisma.user.findMany).toHaveBeenCalled();
+  });
+
+  it('keeps a local user in the caller org when the Keycloak org attribute is missing', async () => {
+    const caller = makeAuthUser({ orgId: 'org-1', orgSlug: 'acme' });
+    const legacy = kcUser('kc-legacy', 'legacy', null);
+    const { controller, kc } = makeController({
+      caller,
+      targets: [{ id: legacy.id, kc: legacy, local: localUser('legacy', 'org-1') }],
+      adminCount: 1,
+    });
+    kc.listUsers.mockResolvedValue([legacy]);
+
+    const rows = await controller.list(caller);
+    expect(rows.map((u) => u.username)).toEqual(['legacy']);
+  });
+
+  it('drops a user whose local org disagrees with a matching Keycloak org attribute', async () => {
+    const caller = makeAuthUser({ orgId: 'org-1', orgSlug: 'acme' });
+    const conflict = kcUser('kc-conflict', 'conflict', 'acme');
+    const { controller, kc } = makeController({
+      caller,
+      targets: [{ id: conflict.id, kc: conflict, local: localUser('conflict', 'org-2') }],
+      adminCount: 1,
+    });
+    kc.listUsers.mockResolvedValue([conflict]);
+
+    await expect(controller.list(caller)).resolves.toEqual([]);
+  });
+
+  it('treats a legacy org-id attribute as the caller org', async () => {
+    const caller = makeAuthUser({ orgId: 'org-1', orgSlug: 'acme' });
+    const legacyId = kcUser('kc-uuid', 'uuid-org', 'org-1');
+    const { controller, kc } = makeController({
+      caller,
+      targets: [{ id: legacyId.id, kc: legacyId, local: null }],
+      adminCount: 1,
+    });
+    kc.listUsers.mockResolvedValue([legacyId]);
+
+    const rows = await controller.list(caller);
+    expect(rows.map((u) => u.username)).toEqual(['uuid-org']);
+  });
+
+  it('returns a same-org user from GET /admin/users/:id', async () => {
+    const caller = makeAuthUser({ orgId: 'org-1', orgSlug: 'acme' });
+    const mine = kcUser('kc-mine', 'mine', 'acme');
+    const { controller } = makeController({
+      caller,
+      targets: [{ id: mine.id, kc: mine, local: localUser('mine', 'org-1') }],
+      adminCount: 1,
+    });
+
+    await expect(controller.get(caller, 'kc-mine')).resolves.toMatchObject({
+      id: 'kc-mine',
+      username: 'mine',
+    });
+  });
+
+  it('returns 404 for a user in another org instead of the record', async () => {
+    const caller = makeAuthUser({ orgId: 'org-1', orgSlug: 'acme' });
+    const other = kcUser('kc-other', 'other', 'beta');
+    const { controller } = makeController({
+      caller,
+      targets: [{ id: other.id, kc: other, local: localUser('other', 'org-2') }],
+      adminCount: 1,
+    });
+
+    await expect(controller.get(caller, 'kc-other')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('returns 404 when the target has no org signal at all', async () => {
+    const caller = makeAuthUser({ orgId: 'org-1', orgSlug: 'acme' });
+    const unscoped = kcUser('kc-svc', 'service-account', null);
+    const { controller } = makeController({
+      caller,
+      targets: [{ id: unscoped.id, kc: unscoped, local: null }],
+      adminCount: 1,
+    });
+
+    await expect(controller.get(caller, 'kc-svc')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('returns a never-signed-in invitee whose Keycloak org matches', async () => {
+    const caller = makeAuthUser({ orgId: 'org-1', orgSlug: 'acme' });
+    const invitee = kcUser('kc-invitee', 'invitee', 'acme');
+    const { controller } = makeController({
+      caller,
+      targets: [{ id: invitee.id, kc: invitee, local: null }],
+      adminCount: 1,
+    });
+
+    await expect(controller.get(caller, 'kc-invitee')).resolves.toMatchObject({
+      username: 'invitee',
+    });
   });
 });
