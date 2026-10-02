@@ -7,25 +7,25 @@
  * on the containers collapses that layout onto itself.
  *
  * Design intent: light page, white card, portal accent on the
- * primary button, portal system sans-serif, and the portal compass
+ * primary button, portal system sans-serif, and the contour
  * mark at the top of the card.
  */
 
 :root {
-  /* Contour brand palette (#173). These mirror the portal's
-     globals.css light-mode tokens: deep sage accent, warm paper
-     neutrals. Keep in sync with apps/portal-web/src/app/globals.css
-     and docs/design-system.md "Brand: Contour". */
-  --portal-accent: #59695a;
-  --portal-accent-hover: #4a584b;
+  /* Chart sheet (#173). These mirror the portal's globals.css
+     light-mode tokens: deep chart-blue accent, cool sheet neutrals.
+     Keep in sync with apps/portal-web/src/app/globals.css and
+     docs/design-system.md "Brand: Contour". */
+  --portal-accent: #21466e;
+  --portal-accent-hover: #1a3756;
   --portal-accent-foreground: #ffffff;
-  --portal-ink-0: #262521;
-  --portal-ink-1: #33322d;
-  --portal-muted: #78756d;
-  --portal-border: #e2ded3;
-  --portal-surface-0: #fbfaf6;
+  --portal-ink-0: #161d27;
+  --portal-ink-1: #272c35;
+  --portal-muted: #49505a;
+  --portal-border: #ccd0d7;
+  --portal-surface-0: #f6f7f9;
   --portal-surface-1: #ffffff;
-  --portal-danger: #cb2f2f;
+  --portal-danger: #9f232d;
 
   /* PF5 exposes color tokens as CSS variables. Re-map the ones the
      parent theme actually uses so every downstream rule picks up our

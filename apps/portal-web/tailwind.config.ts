@@ -13,11 +13,10 @@ const config: Config = {
     container: { center: true, padding: '1rem' },
     extend: {
       fontSize: {
-        // The one sanctioned micro size (#173). Everything that used
-        // to be an ad hoc text-[8px]..text-[11px] resolves here, so
-        // raising the floor later (e.g. to 0.75rem) is a one-line
-        // experiment instead of a 1,100-site sweep. Do not reintroduce
-        // arbitrary bracket sizes below text-xs.
+        // 11px, for dense map and table metadata only. Sentences,
+        // help, and empty-state body copy use text-sm (14px) or at
+        // least text-xs (12px). Do not reintroduce arbitrary bracket
+        // sizes below text-xs.
         '2xs': ['0.6875rem', { lineHeight: '1rem' }],
       },
       colors: {
@@ -44,6 +43,11 @@ const config: Config = {
         danger: 'hsl(var(--danger))',
         info: 'hsl(var(--info))',
         border: 'hsl(var(--border))',
+        brand: {
+          chart: 'hsl(var(--brand-chart))',
+          contour: 'hsl(var(--brand-contour))',
+          index: 'hsl(var(--brand-index))',
+        },
       },
       borderRadius: {
         sm: 'calc(var(--radius) - 4px)',
@@ -52,9 +56,9 @@ const config: Config = {
         xl: 'calc(var(--radius) + 4px)',
       },
       boxShadow: {
-        card: '0 1px 2px hsl(var(--surface-0-ink) / 0.04), 0 1px 3px hsl(var(--surface-0-ink) / 0.06)',
-        raised: '0 4px 10px hsl(var(--surface-0-ink) / 0.08), 0 2px 4px hsl(var(--surface-0-ink) / 0.05)',
-        overlay: '0 20px 40px hsl(var(--surface-0-ink) / 0.14), 0 8px 16px hsl(var(--surface-0-ink) / 0.08)',
+        card: '0 1px 1px hsl(var(--surface-0-ink) / 0.04)',
+        raised: '0 8px 20px hsl(var(--surface-0-ink) / 0.08)',
+        overlay: '0 20px 40px hsl(var(--surface-0-ink) / 0.16), 0 8px 16px hsl(var(--surface-0-ink) / 0.08)',
       },
       fontFamily: {
         // Both faces load through next/font in the root layout and

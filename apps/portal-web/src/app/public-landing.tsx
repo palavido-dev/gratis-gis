@@ -239,10 +239,10 @@ export function PublicLanding({
       ) : (
         // Logo-only mode: no grid, just a centered sign-in block so
         // the page has something the user can actually do.
-        <section className="flex flex-1 items-center justify-center px-6 py-12">
+        <section className="mx-auto w-full max-w-6xl flex-1 px-6 py-8">
           <Link
             href={ctaHref}
-            className="inline-flex h-11 items-center gap-2 rounded-md bg-accent px-5 text-base font-medium text-accent-foreground shadow-card hover:opacity-90"
+            className="inline-flex h-10 items-center gap-2 rounded-md bg-accent px-4 text-sm font-medium text-accent-foreground hover:opacity-90"
           >
             <LogIn className="h-5 w-5" />
             {ctaLabel}
@@ -328,7 +328,7 @@ function WhatsNewSection({ entries }: { entries: WhatsNewEntry[] }) {
               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                 <time
                   dateTime={e.date}
-                  className="font-mono text-2xs uppercase tracking-wide text-muted"
+                  className="font-mono text-xs uppercase tracking-wide text-muted"
                 >
                   {formatChangelogDate(e.date)}
                 </time>
@@ -648,38 +648,38 @@ function Hero({
   subtitle: string | null;
   heroImageUrl: string | null;
 }) {
-  const bg = heroImageUrl
-    ? { backgroundImage: `url(${heroImageUrl})` }
-    : undefined;
+  // A title block, not a poster. The default (no hero image) sits
+  // flush with the page sheet so the chrome does not compete with
+  // whatever maps are shared underneath. A configured image keeps
+  // the overlay so the title stays readable.
+  if (!heroImageUrl) {
+    return (
+      <section className="border-b border-border bg-surface-0 px-6 py-10 sm:py-14">
+        <div className="mx-auto w-full max-w-6xl">
+          <h1 className="max-w-3xl text-3xl font-semibold tracking-tight text-ink-0 sm:text-4xl">
+            {title}
+          </h1>
+          {subtitle ? (
+            <p className="mt-3 max-w-2xl text-base leading-relaxed text-muted">
+              {subtitle}
+            </p>
+          ) : null}
+        </div>
+      </section>
+    );
+  }
   return (
     <section
-      className={`relative flex min-h-[280px] items-center justify-center bg-surface-2 px-6 py-16 text-center ${
-        heroImageUrl ? 'bg-cover bg-center' : ''
-      }`}
-      style={bg}
+      className="relative flex min-h-[220px] items-end bg-surface-2 bg-cover bg-center px-6 py-10"
+      style={{ backgroundImage: `url(${heroImageUrl})` }}
     >
-      {heroImageUrl ? (
-        // Soft overlay so the title reads cleanly over any hero
-        // image. Purely cosmetic; no functional impact when no image
-        // is set.
-        <div className="absolute inset-0 bg-black/40" aria-hidden="true" />
-      ) : null}
-      <div className="relative z-[1] max-w-3xl">
-        <h1
-          className={`text-4xl font-semibold tracking-tight sm:text-5xl ${
-            heroImageUrl ? 'text-white' : 'text-ink-0'
-          }`}
-        >
+      <div className="absolute inset-0 bg-black/45" aria-hidden="true" />
+      <div className="relative z-[1] mx-auto w-full max-w-6xl">
+        <h1 className="max-w-3xl text-3xl font-semibold tracking-tight text-white sm:text-4xl">
           {title}
         </h1>
         {subtitle ? (
-          <p
-            className={`mt-3 text-base ${
-              heroImageUrl ? 'text-white/90' : 'text-muted'
-            }`}
-          >
-            {subtitle}
-          </p>
+          <p className="mt-3 max-w-2xl text-base text-white/90">{subtitle}</p>
         ) : null}
       </div>
     </section>
@@ -703,7 +703,7 @@ function ItemCard({ item }: { item: LandingData['items'][number] }) {
         {...(hasRuntime(item)
           ? { target: '_blank', rel: 'noopener noreferrer' }
           : {})}
-        className="flex h-full flex-col overflow-hidden rounded-lg border border-border bg-surface-1 shadow-card transition-all hover:-translate-y-0.5 hover:shadow-raised"
+        className="flex h-full flex-col overflow-hidden rounded-lg border border-border bg-surface-1 shadow-card transition-colors hover:border-accent/50"
       >
         {item.thumbnailUrl ? (
           // Hosted thumbnail path: MinIO-backed, origin-safe.
@@ -730,14 +730,14 @@ function ItemCard({ item }: { item: LandingData['items'][number] }) {
           </div>
         )}
         <div className="flex flex-1 flex-col p-3">
-          <p className="text-2xs uppercase tracking-wide text-muted">
+          <p className="text-xs uppercase tracking-wide text-muted">
             {getItemTypeLabel(item.type)}
           </p>
           <h3 className="mt-0.5 truncate text-sm font-semibold text-ink-0">
             {item.title}
           </h3>
           {item.description ? (
-            <p className="mt-1 line-clamp-2 text-xs text-muted">
+            <p className="mt-1 line-clamp-2 text-sm leading-snug text-muted">
               {item.description}
             </p>
           ) : null}

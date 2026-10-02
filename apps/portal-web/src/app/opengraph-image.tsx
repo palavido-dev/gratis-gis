@@ -36,10 +36,10 @@ export default function OgImage() {
           width: '100%',
           height: '100%',
           padding: '80px',
-          // Contour brand (#173): flat warm paper + the contour-G
-          // mark, matching the in-app --brand-* tokens.
-          background: '#f6f3ea',
-          color: '#2d3a2f',
+          // Chart sheet (#173): cool paper + the contour-G mark,
+          // matching the in-app --brand-* tokens.
+          background: '#f6f7f9',
+          color: '#161d27',
           fontFamily: 'system-ui, -apple-system, sans-serif',
         }}
       >
@@ -48,33 +48,33 @@ export default function OgImage() {
             <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
               <path
                 d="M34 8 C16 8 8 20 8 32 C8 46 19 56 34 56 C45 56 53 49 55 40 L37 40"
-                stroke="#5c6b58"
+                stroke="#21466e"
                 strokeWidth={5}
                 strokeLinecap="round"
               />
               <path
                 d="M34 18 C22 18 17 24 17 32 C17 40 24 46 34 46"
-                stroke="#b08e62"
+                stroke="#8a5e38"
                 strokeWidth={4}
                 strokeLinecap="round"
               />
               <path
                 d="M34 27 C29 27 26 29 26 32 C26 35 29 37 34 37"
-                stroke="#8a5f66"
+                stroke="#36404e"
                 strokeWidth={3.5}
                 strokeLinecap="round"
               />
             </svg>
             <div
               style={{
+                display: 'flex',
                 fontSize: 32,
-                fontWeight: 500,
-                letterSpacing: 4,
-                color: '#5c6b58',
-                textTransform: 'uppercase',
+                fontWeight: 600,
+                letterSpacing: 0,
               }}
             >
-              GratisGIS
+              <span style={{ color: '#161d27' }}>Gratis</span>
+              <span style={{ color: '#21466e' }}>GIS</span>
             </div>
           </div>
           <div
@@ -82,7 +82,7 @@ export default function OgImage() {
               fontSize: 84,
               fontWeight: 700,
               lineHeight: 1.05,
-              color: '#1f2920',
+              color: '#161d27',
               maxWidth: 980,
             }}
           >
@@ -100,7 +100,7 @@ export default function OgImage() {
             style={{
               fontSize: 36,
               fontWeight: 500,
-              color: '#5c6b58',
+              color: '#21466e',
               lineHeight: 1.3,
               maxWidth: 1040,
             }}
@@ -113,7 +113,7 @@ export default function OgImage() {
               display: 'flex',
               gap: 24,
               fontSize: 24,
-              color: '#7a8a7b',
+              color: '#49505a',
               marginTop: 16,
             }}
           >

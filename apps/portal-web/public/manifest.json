@@ -4,8 +4,8 @@
   "description": "Open-source geographic information system portal",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#fbfaf6",
-  "theme_color": "#5c6b58",
+  "background_color": "#f6f7f9",
+  "theme_color": "#21466e",
   "orientation": "any",
   "scope": "/",
   "icons": [

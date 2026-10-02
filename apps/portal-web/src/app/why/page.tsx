@@ -6,13 +6,13 @@ import {
   ArrowLeft,
   Code2,
   Coffee,
-  Compass,
   Github,
   Heart,
   LogIn,
   MessageSquarePlus,
 } from 'lucide-react';
 import { authOptions } from '@/lib/auth';
+import { BrandWordmark } from '@/components/brand-mark';
 
 /**
  * /why - the project's "why it exists" page. This is the maintainer's
@@ -201,11 +201,11 @@ export default async function WhyPage() {
 function TopBar() {
   return (
     <header className="flex items-center justify-between border-b border-border bg-surface-1 px-6 pt-[env(safe-area-inset-top)] [height:calc(3.5rem+env(safe-area-inset-top))]">
-      <Link href="/" className="flex items-center gap-2">
-        <Compass className="h-6 w-6 text-accent" />
-        <span className="text-base font-semibold tracking-tight">
-          GratisGIS
-        </span>
+      <Link
+        href="/"
+        className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      >
+        <BrandWordmark markSize={26} />
       </Link>
       <Link
         href="/signin"
