@@ -20,6 +20,23 @@ export const PROXY_FETCH_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_PROXY_BYTES = 64 * 1024 * 1024;
 
 /**
+ * Ceiling for a probe that has to hold the upstream body in memory
+ * to parse it as JSON. Capabilities documents are small; a multi-GB
+ * 200 from a hostile or misconfigured URL is the exhaustion case the
+ * streaming proxies already refuse. 8 MB is far above a real service
+ * description and far below a replica's heap.
+ */
+export const PROBE_MAX_BODY_BYTES = 8 * 1024 * 1024;
+
+/** Thrown when an upstream body crosses the byte ceiling mid-read. */
+export class UpstreamBodyTooLargeError extends Error {
+  constructor(readonly maxBytes: number) {
+    super(`Upstream response exceeded ${maxBytes} bytes`);
+    this.name = 'UpstreamBodyTooLargeError';
+  }
+}
+
+/**
  * Stream an upstream fetch Response to an Express response with a
  * hard byte ceiling and real backpressure, instead of buffering the
  * entire body in memory with `arrayBuffer()`.
@@ -101,4 +118,46 @@ export async function streamUpstreamToResponse(
     if (!res.headersSent) res.status(502).end();
     else res.destroy();
   }
+}
+
+/**
+ * Read an upstream body as text, stopping as soon as it exceeds
+ * `maxBytes`. `Response.text()` buffers the whole payload first, so a
+ * probe that used it would hold a multi-GB body on a single 200. This
+ * cancels the reader at the ceiling and throws instead.
+ */
+export async function readUpstreamText(
+  upstream: globalThis.Response,
+  maxBytes: number,
+): Promise<string> {
+  const body = upstream.body;
+  if (!body) return '';
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value || value.byteLength === 0) continue;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        throw new UpstreamBodyTooLargeError(maxBytes);
+      }
+      chunks.push(value);
+    }
+  } catch (err) {
+    if (!(err instanceof UpstreamBodyTooLargeError)) {
+      try {
+        await reader.cancel();
+      } catch {
+        /* already released */
+      }
+    }
+    throw err;
+  }
+  return Buffer.concat(
+    chunks.map((c) => Buffer.from(c.buffer, c.byteOffset, c.byteLength)),
+  ).toString('utf8');
 }
