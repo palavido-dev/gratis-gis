@@ -17,12 +17,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "zod": "^3.25.0"
+    "@modelcontextprotocol/sdk": "^1.32.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@types/node": "^25.9.1",
-    "tsx": "^4.22.3",
+    "@types/node": "^25.9.9",
+    "tsx": "^4.23.15",
     "typescript": "^6.0.3"
   },
   "engines": {
