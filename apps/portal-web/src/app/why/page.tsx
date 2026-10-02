@@ -87,6 +87,15 @@ export default async function WhyPage() {
             build on it.
           </p>
           <p>
+            What I shipped is a self-hosted portal, a field PWA, and a
+            QGIS plugin, for teams that want data custody and want out
+            of ArcGIS Online seat licenses. The parts I would call
+            credible today are the portal, sharing, field collection,
+            and QGIS. It is not a full ArcGIS Online replacement, and
+            it is not a drop-in for Experience Builder, Survey123,
+            Field Maps, or enterprise identity depth.
+          </p>
+          <p>
             I know everyone has to make a living, myself included, and I
             am not knocking that. Money just is not what drives me here. I
             am curious, I like building things, and I like sharing them.

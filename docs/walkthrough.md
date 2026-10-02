@@ -36,13 +36,17 @@ The terms are different but the mental model maps cleanly:
 | My Content | Items page |
 | Group | Group |
 | Folder (in My Content) | Folder (a first-class item) |
-| Hosted Feature Layer / Service | Data layer (`data_layer` item) |
+| Hosted Feature Layer | Data layer (`data_layer` item). The ArcGIS Online importer can copy a hosted feature service into one. A WebMap JSON import alone leaves the FeatureServer URL as a live reference. |
 | Web Map | Map (`map` item) |
-| Federated ArcGIS service | ArcGIS service (`arcgis_service` item) |
-| Tile / vector tile service | Basemap (`basemap` item) |
+| ArcGIS REST / WMS / WFS / WMTS | Connected service (`service` item). Older rows may still be `arcgis_service`, `wms_service`, or `wfs_service`. |
+| Tile / vector tile service | Basemap (`basemap`) or tile layer (`tile_layer`, a PMTiles / MBTiles / XYZ upload) |
 | Domain (coded value list) | Pick list (`pick_list` item) |
-| Boundary used as filter or extent | Geo boundary (`geo_boundary` item) |
-| Field Maps + Survey123 | Editor (`editor` item) |
+| Boundary used as filter or extent | Boundary (`geo_boundary` item) |
+| Field Maps | Field PWA and data collection (`data_collection`). Offline install, capture, and sync. Not a Field Maps drop-in. |
+| Survey123 | Form (`form`). Submissions land in a paired data layer. Not a Survey123 drop-in. |
+| Experience Builder | Web app (`web_app`). Widget layout builder, including editor and viewer starters. Not an Experience Builder drop-in. |
+| Dashboard | Web app started from the KPI Dashboard or Operations Board template. There is no dashboard item type to create. |
+| Print layout | Print template (`print_template`), used by the Print tool in a web app. This is not a document report. |
 
 
 ## Sharing and permissions
@@ -92,17 +96,26 @@ broken share.
 Click **+ Create** on the items page. The picker groups item
 types into five categories:
 
-- **Data** — data layer, ArcGIS service, WMS / WFS, file
-- **Maps** — map, basemap, geo boundary
-- **Apps** — editor (and forms / web apps when those land)
-- **Analysis** — pick list (and dashboards / reports when those
-  land)
-- **Organize** — folder
+- **Data**: data layer, connected service, live PostgreSQL /
+  PostGIS, file, basemap, boundary, geocoding service, pick
+  list, tile layer, point cloud
+- **Maps**: map
+- **Apps**: form, data collection, web app, theme, print
+  template, tool
+- **Analysis**: derived layer, and script when the portal has
+  scripts switched on
+- **Organize**: folder
 
-Pick a type → a wizard collects the minimum required input →
-you land on the item's detail page where everything else is
-edited. Saves are autosaved on most surfaces; the detail page
-header shows a dirty / saved indicator.
+The picker does not offer a dashboard item or a report
+template. A dashboard is a web app: on the template gallery,
+pick KPI Dashboard or Operations Board. Document report
+templates are not built.
+
+Pick a type, then a wizard collects the minimum required
+input, then you land on the item's detail page where
+everything else is edited. Saves are autosaved on most
+surfaces; the detail page header shows a dirty / saved
+indicator.
 
 
 ## Items currently available
@@ -111,28 +124,33 @@ Implemented and usable today:
 
 | Item type | What it is | Created from |
 | --- | --- | --- |
-| **`data_layer`** | A native PostGIS-backed dataset. One item can hold multiple sublayers (e.g. parcels + parcel-lines as one schema). | Upload GeoJSON, paste GeoJSON URL, or convert via `ogr2ogr` first. |
-| **`map`** | A web map composed of layer references, a basemap, and a viewport. | Map editor; **Add layer** picks from data layers, ArcGIS services, raw URLs, or grouped headers. |
-| **`arcgis_service`** | Reference to an external ArcGIS REST feature or map service we don't own. Credentialed services are proxied server-side; the browser never sees the secret. | Paste a service URL; the wizard walks credentials. |
-| **`basemap`** | A tile or vector basemap that maps render against. Five built-ins seeded; admins add more from MapTiler / Stadia / custom style JSON. | Admin → Branding → Basemaps. |
+| **`data_layer`** | A native PostGIS-backed dataset. One item can hold multiple sublayers (parcels and parcel lines as one schema). | Create → Data layer. Upload GeoJSON, shapefile, GeoPackage, and other OGR formats. |
+| **`map`** | A web map composed of layer references, a basemap, and a viewport. | Create → Map. Add layer picks from data layers, connected services, and URLs. |
+| **`service`** | Live pointer at an external service. The wizard recognizes ArcGIS REST, WMS, WFS, and WMTS. Credentialed services are proxied server-side. | Create → Connected service. Paste a URL. |
+| **`basemap`** | A reusable background (style URL, tile template, or WMS). | Create → Basemap. Admins can also manage org basemaps from branding. |
 | **`folder`** | Bucket for grouping items. Has its own shares, description, and optional smart-folder query. | Create → Folder. |
-| **`pick_list`** | Reusable list of code → label values. Data-layer fields can reference one as a domain. | Create → Pick list. |
-| **`geo_boundary`** | Reusable polygon. Used as a default extent on a map, a filter on a layer, or a clip on a share. | Draw on map, upload GeoJSON, or pick from admin presets. |
-| **`editor`** | A field-collection / data-editing app. References a base map and one or more data-layer targets, with per-target edit capabilities. The closest analogue to Field Maps + Survey123 in one. | Create → Editor; pick a reference map and add target layers. |
-| **`file`** | Generic uploaded asset (CSV, PDF, image, etc.). | Create → File. |
-| **`wms_service`**, **`wfs_service`** | OGC service references, similar shape to `arcgis_service`. | Create → WMS / WFS. |
+| **`pick_list`** | Reusable list of code and label values. Data-layer fields can reference one as a domain. | Create → Pick list. |
+| **`geo_boundary`** | Reusable polygon. Used as a default extent on a map, a filter on a layer, or a clip on a share. | Create → Boundary. |
+| **`form`** | A collection form. Submissions land in a paired data layer. The field PWA can run it offline. | Create → Form. |
+| **`data_collection`** | A field deployment: tap features on a map to add or edit them. | Create → Data collection. |
+| **`web_app`** | A widget layout (map, chart, indicator, table, and the rest of the built-in set). Editor, viewer, KPI Dashboard, and Operations Board are starter templates. | Create → Web app, then pick a template or start blank. |
+| **`print_template`** | Paper layout for the Print tool: map frame, legend, title block, scale bar. | Create → Print template. |
+| **`tool`** | A named action or an analysis recipe, reusable from a web-app button. OSM can be a source. The node-graph canvas is not part of this editor. | Create → Tool. |
+| **`derived_layer`** | A layer computed from another, with tools such as buffer. | Create → Derived layer. |
+| **`file`** | Generic uploaded asset (CSV, PDF, image, and so on). | Create → File. |
 
-Scaffolded but not yet usable (the type exists, the create flow
-might land on a stub):
+Not offered in the create picker, and not usable as their own
+product:
 
-- **`form`** — survey-style form authoring. Use `editor`
-  instead for now.
-- **`web_app`** — Experience Builder analogue
-- **`dashboard`** — dashboards
-- **`report_template`** — print / report generation
-- **`tool`**, **`widget_package`**, **`layer_package`** — tool
-  builder + reusable bundles
-- **`form_submission_collection`** — form responses bucket
+- **`dashboard`**: leftover rows only. Dashboards are web apps.
+  The item page says so and links to Create → Web app.
+- **`report_template`**: document reports (PDF, Word, HTML from
+  a template item) are not built. Use a print template for
+  paper output from a web app.
+- **`widget_package`**, **`layer_package`**,
+  **`form_submission_collection`**: the item page is a
+  coming-soon notice. Form responses already live on the
+  form's Responses tab.
 
 
 ## How items relate
@@ -142,11 +160,14 @@ Items reference each other to compose the bigger surfaces:
 ```
 basemap ─────────────┐
                      │
-data_layer ──┐       │
-             ├──> map ──> editor
-arcgis_service ┘       
+data_layer ──┐       ├──> map ──> web app (viewer, editor,
+             │       │              dashboard layout, …)
+service ─────┘       │
+                     │
+form ──> paired data_layer, and the field PWA
+data_collection ──> map + editable layers
                      ↑
-                     └── geo_boundary (default extent / filter)
+                     └── boundary (default extent / filter)
                      └── pick_list (referenced by data_layer fields)
 
 folder ──> contains any items as members (multi-membership allowed)
@@ -154,18 +175,23 @@ folder ──> contains any items as members (multi-membership allowed)
 
 In words:
 
-- A **map** layers data sources together (data layers, ArcGIS
-  services, WMS / WFS) on top of a **basemap**, optionally
-  fitting to a **geo boundary**.
-- An **editor** references a single **map** as its base view
-  and one or more **data layers** as edit targets.
+- A **map** layers data sources together (data layers and
+  connected services) on top of a **basemap**, optionally
+  fitting to a **boundary**.
+- A **web app** composes widgets over a map and its layers.
+  KPI Dashboard and Operations Board are starting layouts of
+  that same app, not a separate item.
+- A **form** writes submissions into a paired **data layer**.
+  The field PWA runs forms and data collection offline and
+  syncs later.
+- **Data collection** is a field-mode deployment over a map.
 - **Pick lists** are referenced by data-layer fields as
-  domains; popups, attribute tables, and editor forms all
-  resolve labels through them.
-- **Geo boundaries** can be a map's default extent, a layer's
+  domains; popups, attribute tables, and forms resolve labels
+  through them.
+- **Boundaries** can be a map's default extent, a layer's
   visibility clip, or a share's audience clip.
 - **Folders** organise items; an item can live in zero, one,
-  or many folders (unlike AGO's one-folder constraint).
+  or many folders (ArcGIS Online keeps an item in one folder).
 
 When you delete an item, the system warns you about its
 **dependents** (e.g. "this data layer is used by 3 maps"). You
@@ -190,15 +216,19 @@ the missing reference.
 
 So you don't go hunting for them:
 
-- Survey form authoring (use `editor` for data collection)
-- Experience Builder / web-app builder
-- Dashboards and printable reports
-- Tool / widget builder
-- Offline mobile field app (the editor is web-only today)
-- Map-as-basemap composition (one map can't yet act as a
-  basemap for another; basemap items are tile / style only)
-- Append mode on data-layer updates (full replace works;
-  appending rows is on the roadmap)
+- A full ArcGIS Online replacement, including drop-in ports of
+  Experience Builder, Survey123, Field Maps, and enterprise
+  identity depth. The web app builder, forms, and field PWA
+  cover the nearby jobs. They are their own surfaces.
+- Dedicated document report templates (`report_template`)
+- A `dashboard` item type. Use a web app and the KPI Dashboard
+  or Operations Board template.
+- The node-graph tool builder. Tool recipes exist. Saving a
+  recipe result as a new data layer or derived layer is still
+  disabled in the recipe editor.
+- Widget packages and layer packages
+- Using one map item as another map's basemap. Basemaps are
+  style URLs, tile templates, or tile-layer uploads.
 
 
 ## Where to dig deeper

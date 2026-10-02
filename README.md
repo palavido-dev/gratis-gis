@@ -5,12 +5,19 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.x-blue)](https://www.typescriptlang.org/)
 [![PostgreSQL + PostGIS](https://img.shields.io/badge/PostgreSQL%20%2B%20PostGIS-17%20%2F%203.5-336791?logo=postgresql&logoColor=white)](https://postgis.net/)
 
-A self-hosted, open-source platform for geospatial portals: maps, layers, forms,
-field data collection, web apps, and analysis tools. Dashboards and document
-reports are on the roadmap (the item types exist as placeholders today). Runs
-on your own infrastructure, with open file formats throughout (PostGIS,
-GeoJSON, MVT, OGC API). No license fees; your only cost is the hardware (or
-cloud bill) you choose to run it on.
+A self-hosted portal, a field PWA, and a QGIS plugin for teams that want
+their data on their own hardware and want out of ArcGIS Online seat
+licenses. What is credible today is the portal (items, groups, and
+sharing), field collection, and QGIS. GratisGIS is not a full ArcGIS
+Online replacement, and it is not a drop-in for Experience Builder,
+Survey123, Field Maps, or enterprise identity depth.
+
+The portal covers maps, PostGIS data layers, forms, web apps, and
+analysis recipes. Dashboards ship as web-app layouts (KPI Dashboard and
+Operations Board), not as their own item type. Dedicated document report
+templates are not built. Runs on your own infrastructure, with open file
+formats throughout (PostGIS, GeoJSON, MVT, OGC API). No license fees;
+your only cost is the hardware (or cloud bill) you choose to run it on.
 
 **Status:** Active development, pre-v1, with tagged releases starting
 at v0.9.0 (see [CHANGELOG.md](./CHANGELOG.md)). Until v1.0.0, minor
@@ -19,16 +26,19 @@ changelog; the full policy is in
 [docs/VERSIONING.md](./docs/VERSIONING.md). Working today: the portal (items,
 groups, sharing with row/column/geographic limits), web map authoring on
 PostGIS-backed data layers with vector-tile rendering for large datasets,
-Esri WebMap JSON import/export plus an ArcGIS Online content importer,
-form authoring + submissions, App Builder (viewer, editor, and custom
-widget apps), the offline-capable field PWA, derived-layer analysis
-tools and a visual tool builder with OSM as a first-class source, live
-PostgreSQL/PostGIS connections, print/PDF layouts, OGC API endpoints
-(Features, Tiles, Styles, Records), an open MCP server, a QGIS plugin,
-light and dark themes, five UI languages, and one-click sample data
-that seeds a complete demonstration workspace. Underneath all of it is
-the observation-log engine plus Cedar-based geometry-aware
-authorization. 700+ backend tests, CI on every push.
+Esri WebMap JSON import and export, an ArcGIS Online content importer
+(hosted feature services can be copied into portal data layers; a WebMap
+JSON file on its own keeps the original service URLs), form authoring and
+submissions, App Builder (viewer, editor, and custom widget apps,
+including KPI and operations dashboards), the offline-capable field PWA,
+derived-layer analysis and tool recipes (OSM is a first-class source; the
+node-graph canvas is not built), live PostgreSQL/PostGIS connections,
+print/PDF layouts, OGC API endpoints (Features, Tiles, Styles, Records),
+an open MCP server, a QGIS plugin, light and dark themes, five UI
+languages, and one-click sample data that seeds a complete demonstration
+workspace. Underneath all of it is the observation-log engine plus
+Cedar-based geometry-aware authorization. 700+ backend tests, CI on
+every push.
 
 **Try it:** [gratisgis.org](https://gratisgis.org) hosts a public test
 instance during the open feedback period. The landing page lists test
@@ -61,12 +71,17 @@ third party's cloud.
 - **Open standards, in and out.** GeoJSON, OGC API Features, CSW / ISO 19115
   metadata, DCAT catalog, vector tiles. WebMap JSON import preserves the
   metadata (extent, basemap, layer list, symbology, popups) and the source
-  URLs, so an AGO map referencing public FeatureServers renders against
-  AGO's hosted data; cutting the cord fully requires a separate
-  "stage as portal dataset" step. Export emits WebMap JSON pointing at the
-  portal's own layer URLs (`GET /items/:id/web-map.json`); whether ArcGIS
-  Pro / AGO / QGIS consume it natively depends on the importing tool's
-  strictness and is worth testing in your environment.
+  URLs. An unmatched FeatureServer or MapServer stays a live reference, so
+  a public layer still draws from ArcGIS Online. That import does not copy
+  the features. Cutting those layers over takes a separate "stage as
+  portal dataset" step. The ArcGIS Online content importer is that step
+  for hosted feature services: it copies schema and features into a portal
+  data layer, and a web map imported in the same run is rewritten onto
+  those layers. Referenced services that are not hosted stay as live
+  pointers. Export emits WebMap JSON pointing at the portal's own layer
+  URLs (`GET /items/:id/web-map.json`). Whether ArcGIS Pro, ArcGIS Online,
+  or QGIS open that file depends on the importing tool, and is worth
+  testing in your environment.
   Beyond the AGO bridge, the project treats OGC API conformance
   (Features, Tiles, Styles, Records, etc.) as a guiding goal: anywhere a
   new surface can be shaped to match an OGC API standard at low extra cost,
@@ -87,14 +102,23 @@ third party's cloud.
 ## The Six Pillars
 
 1. **Portal**: users, groups, organizations, items, sharing, access control
-2. **Web Maps**: interactive map authoring backed by PostGIS data layers,
-   exportable to Esri WebMap JSON for ArcGIS Pro / AGO / QGIS consumption
-3. **App Builder**: a WYSIWYG, widget-based builder for configurable web apps
-4. **Data Collection**: a single web-and-mobile app with offline support for
-   form-based collection, combining survey authoring and field geometry capture
-5. **Reporting**: turn collected data into dashboards and document reports
-6. **Tool & Widget Builder**: visual, node-graph authoring of custom
-   geospatial tools and web-app widgets, friendly to non-developers
+2. **Web Maps**: interactive map authoring backed by PostGIS data layers.
+   Export writes Esri WebMap JSON at the portal's own layer URLs
+   (`GET /items/:id/web-map.json`). Whether ArcGIS Pro, ArcGIS Online, or
+   QGIS open that file depends on the importing tool.
+3. **App Builder**: a WYSIWYG, widget-based builder for configurable web apps,
+   including KPI Dashboard and Operations Board layouts
+4. **Data Collection**: a field PWA with offline support for form-based
+   collection and geometry capture. Credible for field work. It is not a
+   Survey123 or Field Maps drop-in.
+5. **Reporting**: KPI and operations dashboards ship as web-app layouts.
+   Dedicated document report templates (a `report_template` item that
+   renders rows to PDF, Word, or HTML) are not built. Print templates for
+   the web-app Print tool are a separate, shipped item.
+6. **Tool & Widget Builder**: tool items ship a recipe editor for named
+   actions and analysis recipes, including OSM. The node-graph canvas is
+   not built, and a recipe cannot yet materialise a new data layer or
+   derived layer.
 
 External clients (VS Code, RStudio, notebooks, scheduled scripts) can
 connect to the portal API with a personal API key, created from
@@ -257,7 +281,7 @@ Deeper design references:
 - [docs/llm-integration.md](./docs/llm-integration.md): local-first LLM features (semantic search, authoring assistant, NL queries, RAG help)
 - [docs/architecture/observation-log-engine.md](./docs/architecture/observation-log-engine.md): the engine substrate (observation log, lenses, bitemporal reads, provenance)
 - [docs/architecture/cedar-policy-integration.md](./docs/architecture/cedar-policy-integration.md): Cedar as the policy engine, entity model, three-phase rollout
-- [docs/tool-builder.md](./docs/tool-builder.md): visual tool/widget builder (planned)
+- [docs/tool-builder.md](./docs/tool-builder.md): tool recipes ship; the node-graph canvas is the unbuilt part
 - [docs/design-system.md](./docs/design-system.md): UI principles, tokens, components, the Contour brand
 - [docs/sample-data.md](./docs/sample-data.md): the one-click Randolph County sample workspace
 - [docs/deployment.md](./docs/deployment.md): how admins install and operate

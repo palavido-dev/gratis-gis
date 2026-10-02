@@ -19,7 +19,7 @@ const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-mono' });
 
 const PORTAL_URL = getPortalUrl();
 const SITE_DESCRIPTION =
-  'Open-source, self-hosted geospatial portal. Web maps, app builder, offline field collection, visual tool builder. Built on PostGIS, MapLibre, and Next.js. AGPL-3.0.';
+  'Self-hosted GIS portal, field PWA, and QGIS plugin. Credible today for portal, sharing, field collection, and QGIS. Built on PostGIS, MapLibre, and Next.js. AGPL-3.0.';
 
 export const metadata: Metadata = {
   metadataBase: new URL(PORTAL_URL),

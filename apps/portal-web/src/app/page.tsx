@@ -24,7 +24,7 @@ function landingJsonLd() {
     '@type': 'SoftwareApplication',
     name: 'GratisGIS',
     description:
-      'Open-source, self-hosted geospatial portal. Web maps, app builder, offline field collection, visual tool builder. Built on PostGIS, MapLibre, and Next.js.',
+      'Self-hosted GIS portal, field PWA, and QGIS plugin. Credible today for portal, sharing, field collection, and QGIS. Built on PostGIS, MapLibre, and Next.js.',
     url: base,
     applicationCategory: 'BusinessApplication',
     applicationSubCategory: 'Geographic Information System',

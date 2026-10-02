@@ -70,8 +70,8 @@ The drag-and-drop builder (see **Custom Web App**). Pick when:
  compose widgets.
 - You need a specific dashboard-style layout that the Custom
  template's layouts cover but the Viewer / Editor don't.
-- You're recreating an Esri Web AppBuilder / Experience Builder
- app.
+- You want a widget layout in the neighborhood of a Web
+ AppBuilder app. This is not an Experience Builder drop-in.
 
 Most flexibility, slightly heavier runtime.
 

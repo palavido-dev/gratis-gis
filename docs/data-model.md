@@ -103,6 +103,14 @@ conditional FKs).
 
 ## ItemType enum
 
+The names in this table are the early sketch. The create picker
+and `packages/shared-types/src/item-types.ts` are the current
+list. For what ships, the Status section in
+[README.md](../README.md) wins. Dashboards are web-app layouts,
+not a `dashboard` item. A `tool` item stores a named action or a
+recipe. An optional workflow graph can live on a recipe. The
+visual graph editor is not built. `report-template` is not built.
+
 | value | payload in `data_json` | side-car storage |
 | --- | --- | --- |
 | `web-map` | basemap, layer refs, initial extent | - |
@@ -114,7 +122,7 @@ conditional FKs).
 | `dashboard` | panels + data bindings | - |
 | `file` | file metadata (size, mime) | MinIO object |
 | `layer-package` | style, schema | MinIO object |
-| `tool` | node-graph JSON (inputs, nodes, edges, outputs) | - |
+| `tool` | named action or recipe (optional workflow graph) | - |
 | `widget-package` | manifest of a tool-backed custom widget | - |
 
 New types are added by registering them in

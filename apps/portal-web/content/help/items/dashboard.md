@@ -1,7 +1,7 @@
 ---
 id: items-dashboard
 title: Dashboard
-summary: A grid of indicators, charts, and small maps that summarize a set of layers in one screen.
+summary: Dashboards are web apps started from the KPI Dashboard or Operations Board template. There is no dashboard item type.
 category: items
 order: 60
 complexity: intermediate
@@ -15,61 +15,27 @@ related:
   - items-report-template
 ---
 
-A **dashboard** is a screen-sized grid of widgets, each bound to a
-layer or computed metric, designed to be glanced at on a wall TV
-or a phone. Use for operational status (open work orders, active
-incidents, hydrant inspections this week) rather than detailed
-analysis.
+A **dashboard** in GratisGIS is a **web app** that starts from the
+**KPI Dashboard** or **Operations Board** template. Create one
+from **Create, Web app**, then pick that template. The old
+`dashboard` item type is not offered. A leftover row explains
+this and links to a new web app. It has no editor of its own.
 
-## What's in a dashboard
+Those layouts use the web app builder's widgets (including the
+indicator) and can grow a map, a chart, or another page. The
+dashboard templates refresh on a schedule (once a minute unless
+you change it). This is not an ArcGIS Operations Dashboard
+drop-in.
 
-- **A grid layout**. Rows and columns of widget slots.
-- **Widgets** in each slot:
-  - **Number indicator**. A single big number with a label,
-    optionally with a target / trend arrow.
-  - **List**. The top N rows of a layer, sorted.
-  - **Pie / bar chart**. Distribution of values across categories.
-  - **Time series**. A computed metric over time.
-  - **Small map**. A map item rendered at a fixed viewport.
-  - **Filter chip**. Cross-widget filter; selecting a category in
-    one widget filters every widget bound to the same layer.
-- **A refresh interval**. How often the widgets re-query. Default
-  is on page load; set to N seconds for live-board scenarios.
+Edit the layout in the web app builder, the same place you edit
+any other web app. Sharing follows the web app: sharing the app
+does not automatically share every layer it draws.
 
-## Source data
-
-Every dashboard widget sources from one of:
-
-- A **data layer** sublayer.
-- A **derived layer** result.
-- An **ArcGIS REST** external service.
-
-A dashboard can't ingest features directly. If you want to chart a
-computed metric (rolling average, weekly delta), build it as a
-derived layer first, then point a widget at it.
-
-## Sharing
-
-Standard three-tier. Public dashboards work well as a "stat board"
-URL you embed in a Confluence page or a public website. Like web
-apps, sharing the dashboard doesn't auto-share its dependencies.
-
-## Editing
-
-The dashboard editor is the detail page in `?view=configure` mode.
-Same grid you'll see on the live dashboard, but each cell shows
-the widget picker. Drag a widget in, configure its layer + field
-binding, save.
-
-## Cross-widget filtering
-
-Filter chips wire together by **shared layer + field**. Drop a
-chip widget bound to `incidents.priority`. Drop a chart widget
-bound to `incidents.status`. Clicking "High" on the chip filters
-the chart to high-priority incidents. The filter is client-side
-and ephemeral; refresh the page and you're back to unfiltered.
+Paper output from a web app is a **print template**. A dedicated
+document report item is not built.
 
 ## See also
 
-- **Report template**. When you want a printable PDF instead of an
-  interactive grid.
+- **Web app**. The item you actually create.
+- **Print template**. Paper layouts for the Print tool.
+- **Report template**. The document-report item that is not built.

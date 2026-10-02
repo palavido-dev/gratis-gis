@@ -1,7 +1,7 @@
 ---
 id: coming-from-arcgis-overview
 title: Coming from ArcGIS Online
-summary: Orientation pages for ArcGIS Online and ArcGIS Pro users moving to GratisGIS. Same workflows, different names.
+summary: Orientation for ArcGIS Online users. GratisGIS covers portal, sharing, field collection, and QGIS. It is not a full ArcGIS Online replacement.
 category: coming-from-arcgis
 order: 0
 complexity: basic
@@ -15,12 +15,18 @@ related:
   - coming-from-arcgis-web-map
 ---
 
-If you're coming to GratisGIS from ArcGIS Online or ArcGIS Pro,
-most of the workflow is going to feel familiar. You create items.
-Items have an owner and sharing tiers. Maps reference layers.
-Layers carry symbology. You can publish web apps from a map. There
-are widgets. Dashboards roll up indicators. Survey-style forms
-collect new features. The big surfaces line up.
+GratisGIS is a self-hosted portal, a field PWA, and a QGIS plugin
+for teams that want data custody and want out of ArcGIS Online seat
+licenses. What is credible today is the portal, sharing, field
+collection, and QGIS. It is not a full ArcGIS Online replacement,
+and it is not a drop-in for Experience Builder, Survey123, Field
+Maps, or enterprise identity depth.
+
+If you are coming from ArcGIS Online, some of the daily work will
+feel familiar. You create items. Items have an owner and sharing
+tiers. Maps reference layers. Forms collect features. Web apps can
+start from a dashboard layout. The names differ, and several Esri
+products do not have a matching surface here.
 
 What's different:
 

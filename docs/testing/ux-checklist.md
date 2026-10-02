@@ -297,13 +297,23 @@ one), then run through the per-type checks below.
 - [ ] **Deploy to field PWA catalog.** Item appears in `/field`.
 - [ ] **Field worker downloads for offline use.** Catalog button triggers offline cache.
 
-### 4.15 Dashboard item — **(known stub)**
+### 4.15 Dashboard
 
-- [ ] Detail page shows the "Coming soon" placeholder. No editor.
+Dashboards are web apps, not their own item type. Create a web app
+and pick KPI Dashboard or Operations Board. A leftover `dashboard`
+row explains that and links to the web app builder. It does not show
+a coming-soon placeholder.
 
-### 4.16 Report template item — **(known stub)**
+- [ ] KPI Dashboard template opens in the web app builder with an indicator or chart.
+- [ ] A legacy dashboard item points at Create a web app and does not promise a dedicated editor.
 
-- [ ] Detail page shows the "Coming soon" placeholder. No editor.
+### 4.16 Report template item
+
+Document report templates are not built. The create picker does not
+offer `report_template`. Print templates are a different, shipped
+item.
+
+- [ ] A leftover report template item shows the coming-soon notice. No editor.
 
 ---
 

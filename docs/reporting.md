@@ -1,7 +1,15 @@
 # Reporting (report_template items)
 
-Reporting turns a form submission (or a feature row, or an aggregate
-query) into a shareable document: a PDF, a Word doc, or an HTML page.
+Status: not built. The create picker does not offer
+`report_template`. KPI and operations dashboards ship as web-app
+layouts, and print templates are the shipped paper layout for the
+Print tool. This page is the design for the document-report item
+that does not exist yet. For what ships today, see the Status
+section in [README.md](../README.md).
+
+Reporting would turn a form submission (or a feature row, or an
+aggregate query) into a shareable document: a PDF, a Word doc, or
+an HTML page.
 
 ## Template shape
 

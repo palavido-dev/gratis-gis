@@ -15,10 +15,20 @@ related:
   - coming-from-arcgis-terminology
 ---
 
-A **feature service** in AGO becomes a **data layer** in GratisGIS.
-Same idea: a server-hosted dataset that maps reference. The move
-is a one-time export-and-import; the new data layer is independent
-of the source going forward.
+A hosted feature service can become a portal **data layer**. That
+copy is a separate step from importing a web map. A WebMap JSON
+import that only keeps the FeatureServer URL still draws from
+ArcGIS Online.
+
+Admins can run the copy from **Admin, Migrations, From ArcGIS
+Online**. When the preview marks a hosted feature service for
+import, the commit copies schema and features into PostGIS and,
+if a web map in the same run referenced that service, rewrites
+the map onto the new data layer. Referenced services that are
+not hosted stay as live pointers.
+
+The manual export below is the same cutover when you would rather
+move a file than use that importer.
 
 ## Two paths
 

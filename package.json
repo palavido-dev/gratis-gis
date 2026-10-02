@@ -2,7 +2,7 @@
   "name": "gratis-gis",
   "version": "0.9.114",
   "private": true,
-  "description": "Open-source, self-hosted geospatial portal. Web maps, app builder, offline field collection, and a visual tool builder. Inspired by modern cloud GIS platforms, built on Postgres + PostGIS + MapLibre.",
+  "description": "Self-hosted GIS portal, field PWA, and QGIS plugin for teams leaving ArcGIS Online seat costs. Portal, sharing, field collection, and QGIS. Built on Postgres, PostGIS, and MapLibre.",
   "keywords": [
     "gis",
     "geospatial",

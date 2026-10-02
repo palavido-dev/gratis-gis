@@ -8,9 +8,8 @@ once the repo goes public. Re-read this before any release announcement.
 Recommended:
 
 ```
-Open-source, self-hosted geospatial portal with web maps, app builder,
-offline field data collection, and a visual tool builder.
-Built on PostGIS + MapLibre. Inspired by modern cloud-GIS platforms.
+Self-hosted GIS portal, field PWA, and QGIS plugin. Portal, sharing,
+field collection, and QGIS. Built on PostGIS + MapLibre.
 ```
 
 Trim for the 160-char About field on github.com.
@@ -47,7 +46,7 @@ cmd.exe uses `^` and PowerShell uses a backtick instead of `\`):
 
 ```bash
 gh repo edit <owner>/gratis-gis \
-  --description "Open-source, self-hosted geospatial portal. Web maps, app builder, offline field collection, and a visual tool builder. Built on PostGIS + MapLibre." \
+  --description "Self-hosted GIS portal, field PWA, and QGIS plugin. Portal, sharing, field collection, and QGIS. Built on PostGIS + MapLibre." \
   --homepage "https://gratisgis.org" \
   --add-topic gis --add-topic geospatial --add-topic mapping --add-topic webgis \
   --add-topic open-source-gis --add-topic open-source --add-topic self-hosted \

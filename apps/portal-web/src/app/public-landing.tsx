@@ -399,15 +399,24 @@ function ProjectAboutSection() {
             Open source GIS portal
           </p>
           <h2 className="mt-1 text-2xl font-semibold tracking-tight text-ink-0 sm:text-3xl">
-            An open-source, self-hosted GIS portal
+            A self-hosted portal, a field PWA, and QGIS
           </h2>
           <p className="mt-2 text-sm text-muted sm:text-base">
-            GratisGIS is a portal for publishing datasets, web maps,
-            forms, and dashboards on your own infrastructure, with an
-            official QGIS plugin for desktop work. Built on open
+            GratisGIS is for teams that want their data on their own
+            hardware and want out of ArcGIS Online seat licenses. What
+            is credible today is the portal, sharing, field collection,
+            and QGIS. It is not a full ArcGIS Online replacement, and
+            it is not a drop-in for Experience Builder, Survey123,
+            Field Maps, or enterprise identity depth. Built on open
             components (PostGIS, MapLibre, Keycloak). No license fees;
             your only cost is the hardware (or cloud bill) you choose
             to run it on.
+          </p>
+          <p className="mt-2 text-sm text-muted sm:text-base">
+            Dashboards ship as web-app layouts (KPI Dashboard and
+            Operations Board). Dedicated document report templates are
+            not built. Tool recipes exist; a node-graph builder does
+            not.
           </p>
         </div>
 
@@ -430,7 +439,7 @@ function ProjectAboutSection() {
           <FeatureTile
             icon={Globe}
             title="Works with the tools you already use"
-            body="OGC API Features, Tiles, Styles, and Records; a STAC catalog; CSW 2.0.2; Schema.org JSON-LD; WMS / WFS service references; plus Esri WebMap JSON export so portal maps open in ArcGIS Pro, ArcGIS Online, and kepler.gl."
+            body="OGC API Features, Tiles, Styles, and Records; a STAC catalog; CSW 2.0.2; Schema.org JSON-LD; WMS / WFS service references. WebMap JSON export points at the portal's own layer URLs. Whether ArcGIS Pro, ArcGIS Online, or QGIS open that file depends on the importing tool. Importing a WebMap JSON file keeps FeatureServer URLs as live references; copying hosted features into the portal is a separate stage step."
           />
         </ul>
 
