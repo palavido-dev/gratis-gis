@@ -11,40 +11,27 @@ interface PillarInfo {
 }
 
 /**
- * Marketing-adjacent copy for each pillar we haven't built yet. The
- * blurb should answer "what will this let me do" in one sentence,
+ * Copy for item types that still have no editor. Shipped types
+ * (data layers, forms, web apps, files, tools) have their own
+ * detail pages and are intentionally absent here, so a fall-through
+ * does not advertise them as upcoming.
+ *
+ * The blurb should answer "what will this let me do" in one sentence,
  * because a user who lands on this page wanted to do something
  * specific and we owe them enough context to decide whether to wait
  * or pick a different tool for now.
  */
 const PILLARS: Partial<Record<ItemType, PillarInfo>> = {
-  data_layer: {
-    label: 'Data layer',
-    blurb:
-      'A shareable vector layer backed by PostGIS. Upload GeoJSON or shapefiles, tile them on demand, and share column by column.',
-    doc: 'docs/data-model.md',
-  },
-  form: {
-    label: 'Form',
-    blurb:
-      'Define a data collection form that runs both on desktop and offline on phones and tablets.',
-    doc: 'docs/field-app.md',
-  },
   form_submission_collection: {
     label: 'Form submissions',
-    blurb: 'A queryable view of submissions for a form, shareable on its own.',
-    doc: 'docs/field-app.md',
-  },
-  web_app: {
-    label: 'Web app',
     blurb:
-      'Compose maps, dashboards, and forms into a branded app you can share with anyone.',
-    doc: 'docs/app-builder.md',
+      'A standalone shareable view of one form\'s submissions. Today those rows live on the form\'s Responses tab.',
+    doc: 'docs/field-app.md',
   },
   report_template: {
     label: 'Report template',
     blurb:
-      'Design a document template that renders form submissions or feature rows into PDF, Word, and HTML.',
+      'A document layout that would render form submissions or feature rows to PDF, Word, and HTML. Not built. Paper layouts for the Print tool are print templates, a different item.',
     doc: 'docs/reporting.md',
   },
   // `dashboard` deliberately has no entry any more. Dashboards
@@ -52,28 +39,20 @@ const PILLARS: Partial<Record<ItemType, PillarInfo>> = {
   // than a type of their own, so nothing creates this type and the
   // branch below tells the handful of legacy rows what to do instead
   // of promising a dedicated editor that will never arrive.
-  tool: {
-    label: 'Tool',
-    blurb:
-      'A reusable unit of work, visually wired from inputs to outputs. Think ETL, but built in the browser.',
-    doc: 'docs/tool-builder.md',
-  },
+  // `tool` is also absent: the recipe editor is the detail page.
+  // The node-graph canvas in docs/tool-builder.md is still unbuilt,
+  // but that is a missing surface on a shipped item, not this page.
   widget_package: {
     label: 'Widget package',
     blurb:
-      'Bundle custom widgets that show up in the app builder and dashboards.',
+      'A bundle of custom widgets for the app builder. Not built. The builder already ships its built-in widget set.',
     doc: 'docs/app-builder.md',
   },
   layer_package: {
     label: 'Layer package',
     blurb:
-      'Offline-ready bundle of basemap + operational layers for the field app.',
+      'An offline bundle of a basemap plus operational layers for the field app. Not built. The field PWA downloads deployments directly.',
     doc: 'docs/field-app.md',
-  },
-  file: {
-    label: 'File',
-    blurb: 'Any uploaded file that should live alongside your content.',
-    doc: 'docs/data-model.md',
   },
 };
 
@@ -150,7 +129,7 @@ export function ComingSoon({ type, data }: Props) {
         <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-medium text-ink-0">
-            {label} &mdash; coming soon
+            {label}: coming soon
           </h3>
           <p className="mt-1 text-sm text-muted">{blurb}</p>
           {pillar?.doc ? (

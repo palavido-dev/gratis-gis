@@ -53,8 +53,9 @@ Ownership reassignment, time-bounded shares, and folder cascade are all in.
 - [x] Per-layer access matrix on web maps (override item-level sharing
       down, never up)
 - [x] Editor item type with right-docked AGO-style edit pane
-- [x] WebMap JSON export (`GET /items/:id/web-map.json`) for ArcGIS Pro,
-      AGO, QGIS, kepler.gl
+- [x] WebMap JSON export (`GET /items/:id/web-map.json`). The file
+      points at portal layer URLs. Whether ArcGIS Pro, AGO, QGIS, or
+      kepler.gl open it depends on the importing tool.
 
 ## Phase 3: Form Designer + Data Collection (pillar 4) ✅
 
@@ -103,13 +104,28 @@ the existing item-share + access flow. Possible follow-ups
   page[0]; the schema already supports multi-page).
 - Theme tokens beyond accent + background.
 
-## Phase 5: Reports + Dashboards (pillar 5) 🟦 not started
+## Phase 5: Reports + Dashboards (pillar 5) 🟨 partial
 
-The `report_template` and `dashboard` item types exist in the
-ITEM_TYPES list but neither has a `Data` shape, a detail page,
-a runtime, or any rendering surface yet. A user creating one
-gets the generic "coming soon" placeholder.
+Updated 2026-10-02 so this section stops calling shipped
+dashboards unbuilt. Phase checklists elsewhere in this file can
+still drift. For what ships today, the Status section in
+[README.md](./README.md) is the source of truth.
 
+Dashboards shipped in 0.9.32 as web-app layouts. KPI Dashboard
+and Operations Board are app templates in the web-app gallery,
+with an Indicator widget and a refresh interval. The create
+picker does not offer a `dashboard` item. Legacy dashboard rows
+explain that and link to a new web app. There is no dedicated
+dashboard editor.
+
+Document report templates are still not built. `report_template`
+is not in the create picker. A leftover row lands on the
+coming-soon page. Print templates (`print_template`) are a
+different, shipped item: paper layouts for the web-app Print
+tool.
+
+- [x] Dashboards as web-app layouts (KPI Dashboard, Operations
+      Board, Indicator widget, scheduled refresh)
 - [ ] Report template item type (markup + placeholders + chart
       specs). Needs a `ReportTemplateData` shape in
       `packages/shared-types`, a designer page in portal-web,
@@ -122,19 +138,9 @@ gets the generic "coming soon" placeholder.
       scheduled-tasks framework + notifications platform are in
       place; what's missing is a "render-and-email-report" job
       type that consumes a `report_template` item.
-- [ ] Dashboard item type (live charts over feature data). The
-      Custom Web App template covers most of the
-      "single-page dashboard" use case today (Map + Chart +
-      AttributeTable widgets in a grid); the gap is a
-      *named* dashboard surface with a refresh policy and the
-      ability to embed in a portal homepage.
 
-**Decision pending:** does Dashboard live as a separate item
-type, or as a Custom-app preset with stricter chrome? The
-Custom-app runtime already handles the visual surface; a thin
-"this is a dashboard" wrapper that refuses non-display widgets
-+ defaults a refresh interval may be the smallest possible
-shape.
+**Decision (0.9.32):** a dashboard is a custom web app that
+starts from a dashboard layout. It is not a separate item type.
 
 ## Phase 6: Tool & Widget Builder (pillar 6) 🟨 partial
 
@@ -149,15 +155,17 @@ described in `docs/tool-builder.md` remains future work.
       simplify, densify, vertices, calculate-geometry, nearest-neighbor,
       random-sample, top-n, bbox (~300 lines per tool, all engine-
       backed via the v3 cutover)
-- [ ] `apps/tool-builder`: React Flow node-graph canvas. New app
-      workspace; not started. The design doc has the node
-      taxonomy worked out; what's missing is the React Flow UI +
-      a `tool` item-type editor + the typed-port plumbing.
-- [ ] `apps/tool-runner`: server-side executor. New app workspace;
-      not started. The expected pattern is a worker that picks
-      jobs off a queue, materialises the node graph into a series
-      of PostGIS / turf.js / HTTP-fetch operations, and writes
-      results back as a new `derived_layer` or `data_layer`.
+- [x] Tool item editor: named actions plus a recipe editor
+      (`apps/portal-web/src/app/items/[id]/tool/`). Recipe outputs
+      that materialise a derived layer or a new data layer are
+      still disabled in that editor.
+- [ ] React Flow node-graph canvas. Not started. The design doc
+      has the node taxonomy; the UI is not built, and there is
+      no separate `apps/tool-builder` workspace.
+- [ ] Node-graph executor that materialises a graph into PostGIS
+      work and writes a new `derived_layer` or `data_layer`.
+      Not started. Derived-layer items already run their own
+      spatial pipelines outside this canvas.
 - [ ] Tools as draggable widgets in the App Builder. Adds a
       `tool-runner-button` widget kind to CustomWidgetKind that
       points at a `tool` item; clicking the widget triggers a

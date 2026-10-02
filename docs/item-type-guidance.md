@@ -1,5 +1,12 @@
 # Item type guidance
 
+Status (2026-10-02): viewer, editor, custom designer, and dashboard
+layouts all ship as `web_app` templates. KPI Dashboard and Operations
+Board are the dashboard starters. `report_template` is still not
+built. The May 2026 prioritization below is the record of how that
+decision was made. For what ships today, see the Status section in
+[README.md](../README.md).
+
 When to introduce a new top-level `ItemType`, when to fold something
 into an existing type as a template/variant, and what's the line
 between the two. Written when we consolidated `editor` into

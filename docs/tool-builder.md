@@ -1,7 +1,14 @@
 # Tool & Widget Builder
 
-A visual, node-graph authoring environment for building custom geospatial
-tools and web-app widgets, with no code required for common cases.
+Status: partial. Tool items ship a recipe editor (named actions and
+analysis recipes, including OSM). Materialising a recipe into a new
+data layer or derived layer is still disabled. The node-graph UI
+described below is not built. For what ships today, see the Status
+section in [README.md](../README.md).
+
+This page describes a visual, node-graph authoring environment for
+building custom geospatial tools and web-app widgets, with no code
+required for common cases.
 
 This delivers the kind of visual geoprocessing workflow analysts expect from
 a modern GIS platform, plus the extra ability to publish the same graph as a

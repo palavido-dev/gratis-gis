@@ -16,9 +16,11 @@ related:
   - coming-from-arcgis-terminology
 ---
 
-A Survey123 survey maps onto a GratisGIS **form**. The bridge is
-XLSForm: Survey123 uses it as its canonical authoring format, and
-GratisGIS imports it directly.
+A Survey123 survey can be brought over as a GratisGIS **form** by
+importing its XLSForm on the form designer. That is a file import,
+not a Survey123 drop-in. The ArcGIS Online content importer skips
+surveys and forms. The field PWA runs the form offline. It is not
+Field Maps.
 
 ## Getting the XLSForm out of Survey123
 

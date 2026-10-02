@@ -1,7 +1,7 @@
 ---
 id: coming-from-arcgis-app-builder
 title: App builders comparison
-summary: How Esri's Experience Builder, Web AppBuilder, and Dashboard Designer concepts map onto the GratisGIS Web app and Dashboard items.
+summary: How Experience Builder, Web AppBuilder, and Operations Dashboard map onto GratisGIS web apps. Not a drop-in for any of them.
 category: coming-from-arcgis
 order: 50
 complexity: basic
@@ -16,15 +16,17 @@ related:
   - web-apps-custom-app
 ---
 
-If you're used to building apps in Esri's tooling, here's where
-the equivalents live in GratisGIS.
+If you are used to building apps in Esri's tooling, the nearby
+surface in GratisGIS is a web app. It is not a drop-in for
+Experience Builder, Web AppBuilder, or Operations Dashboard.
 
 ## Esri Web AppBuilder → GratisGIS Custom Web App
 
-The closest one-for-one. AGO's Web AppBuilder is a drag-and-drop
-widget builder bound to a web map. GratisGIS's **Custom** web app
-template is the same shape: pick a layout, drag widgets in, bind
-them to a map, configure each widget's options, save.
+AGO's Web AppBuilder is a drag-and-drop widget builder bound to a
+web map. A GratisGIS **custom** web app is the nearby surface:
+pick a layout, place widgets, bind them to a map, configure each
+widget, save. The widget sets are not the same, so this is not a
+drop-in.
 
 Widget catalog overlap (incomplete, growing): map, layer list,
 basemap gallery, search, attribute table, legend, print, measure,
@@ -45,22 +47,13 @@ web app items and link between them.
 If you're recreating an Experience that was just "a map with
 widgets" (most are), the Custom template covers that today.
 
-## AGO Operations Dashboard → GratisGIS Dashboard
+## AGO Operations Dashboard → GratisGIS web app
 
-Same item type, same shape. A grid of widgets, each bound to a
-layer or query, refreshing on a configurable interval. Differences:
-
-- **Layout.** Both are grid-based; GratisGIS uses a row/column
- grid with explicit widget sizes (Esri's dashboard uses a
- flexible row/column with optional grouping). The result is
- visually similar; the editor feels slightly different.
-- **Filters.** GratisGIS's "filter chip" widget covers the
- selector / category-filter pattern; cross-widget filtering is
- by shared layer + field binding.
-- **Data sources.** GratisGIS dashboard widgets source from data
- layers, derived layers, or ArcGIS service items. There's no
- separate "data expression" concept; if you need a computed
- series, build a derived layer first and bind to it.
+There is no dashboard item. Create a web app and pick **KPI
+Dashboard** or **Operations Board**. Those layouts ship indicator,
+chart, table, and map widgets, and the templates refresh on a
+schedule. A dashboard here can grow into any other web-app layout.
+It is not an Operations Dashboard drop-in.
 
 ## AGO Instant Apps → GratisGIS Web app (Viewer / Editor)
 

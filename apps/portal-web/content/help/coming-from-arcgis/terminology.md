@@ -25,18 +25,19 @@ Esri vocabulary was already the clear word.
 | Feature service | **Data layer** | The native, PostGIS-backed dataset item. |
 | Hosted feature layer | **Data layer** | Same as above. |
 | Web map | **Map** | An item composing layers, basemap, viewport. |
-| Web AppBuilder app | **Web app** (Custom template) | The drag-and-drop app. |
-| Experience Builder app | **Web app** (Custom template) | Same item, configured differently. |
-| Survey (Survey123) | **Form** | The data-collection item. |
-| Survey responses | **Form submission collection** OR a bound data layer | Spatial → data layer; non-spatial → submission collection. |
-| Operations Dashboard | **Dashboard** | The grid-of-indicators item. |
+| Web AppBuilder app | **Web app** | Widget layout builder. Not a Web AppBuilder drop-in. |
+| Experience Builder app | **Web app** | Nearby surface for a single-page widget layout. Not an Experience Builder drop-in. |
+| Survey (Survey123) | **Form** | XLSForm import exists on the form designer. Not a Survey123 drop-in. The ArcGIS Online content importer skips surveys. |
+| Survey responses | The form's **Responses** tab, backed by a paired data layer | A standalone form-submission item is not built. |
+| Operations Dashboard | **Web app** (KPI Dashboard or Operations Board) | Dashboards are web-app layouts. There is no dashboard item type. |
+| Field Maps | Field PWA and **data collection** | Offline capture and sync. Not a Field Maps drop-in. |
 | Story Map | (no direct equivalent yet) | Future scope. |
 | Notebook | (not built in; use a Tool item or external Jupyter against the data API) | Hosted notebooks deferred indefinitely. |
 | Tile layer (cached map service) | **Tile layer** | Same term. PMTiles at rest. |
 | Vector tile layer | **Tile layer** (vector kind) | Same item, different content. |
 | Imagery layer | (no direct equivalent today) | Raster imagery support is on the roadmap; out of v1. |
 | Geoenrichment / Routing services | (not built in) | Bring your own service via a tool item. |
-| Solution template | **Layer package** + **Widget package** | Bundled artifacts shared as items. |
+| Solution template | (not built) | Layer packages and widget packages are reserved types with no editor. |
 
 ## Roles
 
