@@ -46,8 +46,14 @@ FROM postgis/postgis:17-3.5
 # image swap under the production database, which needs its own change
 # and its own dump-and-restore plan rather than riding along with a
 # release.
+#
+# PGDG dropped the live bullseye-pgdg suite as well (404 as of
+# 2026-10-02). The base image still points sources.list.d/pgdg.list at
+# apt.postgresql.org, which makes `apt-get update` fail before partman
+# can be installed. The archive still signs and serves those packages.
 RUN sed -i '/security/d' /etc/apt/sources.list \
     && sed -i 's|http://deb.debian.org/debian|http://archive.debian.org/debian|g' /etc/apt/sources.list \
+    && sed -i 's|http://apt.postgresql.org/pub/repos/apt/|https://apt-archive.postgresql.org/pub/repos/apt/|g' /etc/apt/sources.list.d/pgdg.list \
     && apt-get -o Acquire::Check-Valid-Until=false update \
     && apt-get install -y --no-install-recommends \
         postgresql-17-partman \
