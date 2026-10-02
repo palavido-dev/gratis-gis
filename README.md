@@ -278,7 +278,7 @@ Deeper design references:
 - [docs/mobile-field-app.md](./docs/mobile-field-app.md): the native Android field client plan, and the server work it depends on
 - [docs/folders.md](./docs/folders.md): folders + smart folders
 - [docs/web-maps.md](./docs/web-maps.md): map composition + per-layer access matrix
-- [docs/llm-integration.md](./docs/llm-integration.md): local-first LLM features (semantic search, authoring assistant, NL queries, RAG help)
+- [docs/llm-integration.md](./docs/llm-integration.md): optional AI providers (off by default) and item drafts
 - [docs/architecture/observation-log-engine.md](./docs/architecture/observation-log-engine.md): the engine substrate (observation log, lenses, bitemporal reads, provenance)
 - [docs/architecture/cedar-policy-integration.md](./docs/architecture/cedar-policy-integration.md): Cedar as the policy engine, entity model, three-phase rollout
 - [docs/tool-builder.md](./docs/tool-builder.md): tool recipes ship; the node-graph canvas is the unbuilt part
