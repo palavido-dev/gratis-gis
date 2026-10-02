@@ -166,6 +166,7 @@ import { ScriptPanel } from './script/panel';
 import { AppTemplateDetail } from './app-template/app-template-detail';
 import { AppThemeDetail } from './theme/theme-detail';
 import { PrintTemplateDetail } from './print-template/print-template-detail';
+import { AiDraftPanel } from './ai-draft-panel';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -876,6 +877,12 @@ export default async function ItemDetailPage(props: Props) {
           Owner: {ownerLabel}
         </span>
       </div>
+      {/* Hidden on the full-screen map builder so the canvas keeps
+          the viewport. The overview, including a map item's default
+          page, is where the draft is asked for. */}
+      {!isBuilderView ? (
+        <AiDraftPanel itemId={item.id} isAdmin={me.orgRole === 'admin'} />
+      ) : null}
       {/* #73: the scope is a no-op for everything except a v3
           data_layer, where it holds the schema draft both the Data
           and Structure tabs read. */}
