@@ -1,7 +1,7 @@
 ---
 id: items-web-app
 title: Web app
-summary: A standalone web page built from a map plus widgets. The native equivalent of an Experience Builder or Web AppBuilder app.
+summary: A standalone web page built from a map plus widgets. Nearby to Web AppBuilder. Not an Experience Builder drop-in.
 category: items
 order: 50
 complexity: basic

@@ -5,20 +5,26 @@ self-hosted GratisGIS portal. Covers what GratisGIS supports, what
 to export from AGO, how to import, what survives the round-trip,
 and what doesn't.
 
-> **Status:** all the tools described here are shipped today. The
-> platform's WebMap import + per-format ingest endpoints have unit
-> test coverage; this doc has not yet been validated against a
-> real AGO export by a real user. If you hit a snag, file an
-> issue with the source format and the failure mode.
+> **Status:** GratisGIS is a self-hosted portal, a field PWA, and
+> a QGIS plugin. Credible today for portal, sharing, field
+> collection, and QGIS. It is not a full ArcGIS Online
+> replacement. WebMap JSON import keeps FeatureServer URLs as
+> live references and does not copy features. Admins can copy a
+> hosted feature service into a portal data layer from Admin,
+> Migrations, From ArcGIS Online. That same run rewrites web maps
+> onto those layers. The importer skips apps, dashboards, and
+> forms. File upload of an exported geodatabase or shapefile is
+> still a valid copy path. This guide has not been re-checked
+> against a live ArcGIS Online org on this pass.
 
 ## Quick reference: what maps where
 
 | ArcGIS Online concept | GratisGIS equivalent | Import path |
 | --- | --- | --- |
 | Web Map | `map` item | POST `/items/web-map-json:import` (this guide) |
-| Hosted Feature Layer | `data_layer` item | Layer-by-layer file upload (see below) |
+| Hosted Feature Layer | `data_layer` item | From ArcGIS Online importer (copies features), or a file upload (see below) |
 | Hosted Tile Layer | `basemap` item OR `data_layer` ingested as features | Manual; AGO tile services don't export |
-| Service URL (Living Atlas etc.) | `arcgis_service` item | Paste URL in the new-item wizard |
+| Service URL (Living Atlas etc.) | Connected service (`service` item) | Paste URL in the new-item wizard. Older rows may still be `arcgis_service`. |
 | Group | `group` (one-for-one) | Manual recreation; no bulk import yet |
 | Sharing settings | `item_share` rows + `access` field on each item | Per-item; cascade through folders |
 | Folder | `folder` item with `childItemIds` | Manual recreation; bulk folder import is a v2 candidate |
@@ -38,10 +44,9 @@ inventory and decide:
 - **Stale / unused datasets** -> leave behind. v1 is a good
   forcing function to retire what you weren't actually using.
 - **Apps built in Web AppBuilder / Experience Builder** -> AGO
-  doesn't export these to a portable format, so they're hand-
-  rebuilt in the GratisGIS Custom App template (which is a
-  drag-drop designer with the same 18-widget kit; see
-  `docs/web-app-templates.md`).
+  does not export these to a portable format. The ArcGIS Online
+  importer skips them. A nearby surface is a GratisGIS web app.
+  It is not a drop-in, and the widget set is not the same.
 
 ## Step 1: export your data layers from AGO
 

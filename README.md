@@ -281,7 +281,7 @@ Deeper design references:
 - [docs/llm-integration.md](./docs/llm-integration.md): local-first LLM features (semantic search, authoring assistant, NL queries, RAG help)
 - [docs/architecture/observation-log-engine.md](./docs/architecture/observation-log-engine.md): the engine substrate (observation log, lenses, bitemporal reads, provenance)
 - [docs/architecture/cedar-policy-integration.md](./docs/architecture/cedar-policy-integration.md): Cedar as the policy engine, entity model, three-phase rollout
-- [docs/tool-builder.md](./docs/tool-builder.md): visual tool/widget builder (planned)
+- [docs/tool-builder.md](./docs/tool-builder.md): tool recipes ship; the node-graph canvas is the unbuilt part
 - [docs/design-system.md](./docs/design-system.md): UI principles, tokens, components, the Contour brand
 - [docs/sample-data.md](./docs/sample-data.md): the one-click Randolph County sample workspace
 - [docs/deployment.md](./docs/deployment.md): how admins install and operate
