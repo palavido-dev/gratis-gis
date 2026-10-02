@@ -9,10 +9,10 @@
 # - All PRs are assigned to palavido-dev so they don't sit unowned.
 # - Docker scanning lists each Dockerfile path explicitly because
 #   Dependabot doesn't recurse on its own.
-# - No ignore rules: this is a single-developer project that values
-#   being on the current line over avoiding work. Majors get their
-#   own PR (per the grouping below) so they can be reviewed and
-#   merged manually; we don't auto-pin away from the upgrade.
+# - Majors get their own PR (per the grouping below) so they can be
+#   reviewed and merged manually. The one ignore is the Node image
+#   major: production stays on the 24 LTS line until gdal-async
+#   builds on the next LTS. Patch and minor Node tags still open.
 
 version: 2
 
@@ -91,6 +91,14 @@ updates:
       docker-api:
         patterns:
           - "*"
+    ignore:
+      # Production images stay on the Node 24 LTS line. A Node 26 bump
+      # (PRs 163 and 164) is a non-LTS major, and portal-api does not
+      # build on it: gdal-async fails to compile against that V8.
+      # Revisit when Node 26 is LTS and gdal-async builds there.
+      - dependency-name: "node"
+        update-types:
+          - "version-update:semver-major"
 
   # Docker base images for portal-web
   - package-ecosystem: "docker"
@@ -113,6 +121,12 @@ updates:
       docker-web:
         patterns:
           - "*"
+    ignore:
+      # Same LTS policy as portal-api. The two images bump together,
+      # and only along the current LTS line.
+      - dependency-name: "node"
+        update-types:
+          - "version-update:semver-major"
 
   # Docker base image for the custom postgres image under infra/
   - package-ecosystem: "docker"
