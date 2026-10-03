@@ -7,6 +7,39 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+## [0.9.115] - 2026-10-03
+
+### Added
+
+- An organization admin can turn on an assistant that drafts item
+  text. The choices are OpenAI, Anthropic, xAI, or any
+  OpenAI-compatible endpoint, including a local one. It stays off
+  until an admin saves a key. The key is encrypted at rest and is
+  never sent back to the browser. A draft is built from the item's
+  title, description, and field names, and only when the caller can
+  already read that item.
+
+### Changed
+
+- The portal chrome is a cool chart sheet: light gray page, dark
+  ink, and a deep chart blue, in light and dark. The frame is meant
+  to sit behind the map.
+- The public Why page is gone. A visit to `/why` redirects home.
+- Admin user lists and group membership reads stay inside the
+  caller's organization.
+- Portal images run Node.js 24.21.0, the current 24 LTS line.
+  Dependabot will keep proposing patch and minor updates on that
+  line and will leave Node major bumps alone.
+- JavaScript dependencies moved forward inside their current major
+  versions, including NestJS 11.2.7, Prisma 7.10, and Next.js 16.3.8.
+
+### Fixed
+
+- A service probe no longer reads an upstream body of unlimited
+  size. A body over 8 MB is refused before it is parsed.
+- The development Postgres image builds again, and the Prisma 7
+  seed runs.
+
 ## [0.9.114] - 2026-09-14
 
 ### Added
