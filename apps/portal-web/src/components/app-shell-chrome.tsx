@@ -197,7 +197,7 @@ export function AppShellChrome({
             button when the app is launched from a home-screen PWA
             install (viewport-fit=cover puts the page under the
             status bar by design). */}
-        <header className="sticky top-0 z-10 flex h-14 items-center justify-between border-b border-border bg-surface-0/80 px-3 backdrop-blur pt-[env(safe-area-inset-top)] [height:calc(3.5rem+env(safe-area-inset-top))]">
+        <header className="sticky top-0 z-10 flex h-14 items-center justify-between border-b border-border bg-surface-1 px-3 pt-[env(safe-area-inset-top)] [height:calc(3.5rem+env(safe-area-inset-top))]">
           <div className="flex flex-1 items-center gap-2">
             <MobileNavTrigger orgRole={me?.orgRole ?? null} />
             <TopBarSearch />
@@ -300,7 +300,7 @@ function NavList({
       </NavLink>
       {orgRole === 'admin' ? (
         <>
-          <p className="mt-4 px-2 text-2xs font-medium uppercase tracking-wide text-muted">
+          <p className="mt-4 px-2 text-xs font-medium uppercase tracking-wide text-muted">
             {t('nav.admin')}
           </p>
           <GettingStartedNavLink onNavigate={cb} />
@@ -433,7 +433,7 @@ function GettingStartedNavLink({
         <Rocket className="h-4 w-4" />
       </span>
       {t('nav.gettingStarted')}
-      <span className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-accent/15 px-1.5 text-2xs font-medium text-accent">
+      <span className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-accent/15 px-1.5 text-xs font-medium text-accent">
         {openCount}
       </span>
     </Link>

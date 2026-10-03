@@ -6,8 +6,10 @@ surface must feel crafted and consistent. "Good enough" is not good enough.
 
 ## Principles
 
-1. **Calm, confident, modern.** Ample whitespace, clear hierarchy, not
-   noisy. Think Linear, Vercel, Notion, not dated enterprise admin consoles.
+1. **Calm, precise, high-contrast.** Ample whitespace and a clear
+   hierarchy, quieter than a marketing site. Chrome recedes so the
+   map stays dominant. A cartographic instrument, not a gradient
+   product page and not a dated enterprise console.
 2. **Consistency across apps.** A user who's learned the portal should feel
    at home in the field app and the report builder on day one.
 3. **Accessibility is table stakes.** Every component meets WCAG 2.2 AA;
@@ -49,8 +51,13 @@ surface must feel crafted and consistent. "Good enough" is not good enough.
 
 ## Design tokens
 
-All tokens live in `packages/ui/src/tokens.css` as CSS custom properties
-and in a Tailwind theme extension. Apps consume tokens, not raw values.
+All tokens live in `apps/portal-web/src/app/globals.css` as CSS custom
+properties and are exposed by the Tailwind theme in
+`apps/portal-web/tailwind.config.ts`. There is no separate
+`packages/ui` token sheet. Apps consume semantic utilities
+(`bg-surface-1`, `text-ink-0`, `bg-accent`), not raw palette values.
+The Keycloak login theme mirrors the light-mode hex values; keep
+that file in step when these tokens move.
 
 ### Color
 
@@ -88,8 +95,9 @@ Default for cards and inputs: `md`. Buttons: `md`. Avatars/pills: `full`.
 | `h1` | 30 / 36 | Page title |
 | `h2` | 24 / 32 | Section |
 | `h3` | 18 / 28 | Sub-section |
-| `body` | 14 / 22 | Default |
-| `small` | 12 / 18 | Meta, captions |
+| `body` (`text-sm`) | 14 / 22 | Default, including help and empty-state sentences |
+| `small` (`text-xs`) | 12 / 18 | Meta, captions, short labels |
+| `micro` (`text-2xs`) | 11 / 16 | Dense map and table metadata only. Not sentences. |
 | `mono` | 13 / 20 | Code, IDs, coordinates |
 
 Fluid type up to `lg` breakpoints; fixed beyond.
@@ -155,18 +163,26 @@ contours, the Contour identity (#173). It encodes what the product
 is (terrain, layers of information) without borrowing the layer-stack
 cliche every GIS product uses.
 
-Palette (the `--brand-*` tokens in globals.css; light / dark):
+Palette (the `--brand-*` tokens in globals.css; light / dark).
+Neutrals are a cool chart sheet, not warm paper and not a blue-gray
+SaaS wash. Status colors (success/warn/danger/info) stay functional
+hues and are not brand colors.
 
-- Sage `hsl(124 8% 40%)` / `hsl(118 16% 66%)`: primary. Also the
-  app-wide `--accent`, so interactive chrome and the brand agree.
-- Clay `hsl(33 33% 54%)` / `hsl(33 42% 67%)`: second contour, warm
-  supporting hue.
-- Mauve `hsl(350 18% 46%)` / `hsl(350 25% 66%)`: inner contour,
-  sparing use only.
+- Chart `hsl(211 54% 28%)` / `hsl(207 48% 74%)`: outer contour and
+  the wordmark's "GIS". Also the app-wide `--accent` (`#21466e` in
+  light), so interactive chrome and the brand agree. White ink on
+  the light accent, and dark ink on the dark accent, both clear AA.
+- Contour `hsl(28 42% 38%)` / `hsl(32 40% 70%)`: middle stroke,
+  topographic umber. The mark only.
+- Index `hsl(216 18% 26%)` / `hsl(214 18% 80%)`: inner stroke. The
+  mark only.
 
-Neutrals are warm (hue ~40-45 paper in light, warm charcoal in
-dark), not blue-gray. Status colors (success/warn/danger/info)
-remain functional hues and are not brand colors.
+Light surfaces: sheet `hsl(210 16% 97%)` (`#f6f7f9`), card white,
+ink `hsl(216 28% 12%)` (`#161d27`). Dark surfaces: charcoal
+`hsl(216 14% 7%)` (`#0f1114`) with ink `hsl(210 22% 94%)`. Muted
+text is darkened in light mode (`hsl(215 10% 32%)`) and lifted in
+dark mode (`hsl(214 12% 72%)`) so secondary copy stays above 7:1
+on the sheet.
 
 Usage rules:
 
@@ -175,9 +191,11 @@ Usage rules:
   Never rebuild the mark ad hoc, never use a lucide icon as a logo.
 - Below 20px, use the `small` variant (single heavy contour). The
   favicon (public/icon.svg) uses a two-contour tile for legibility.
-- The full three-hue triad appears only in the mark and marketing
-  surfaces (OG card, landing hero). In-app chrome uses sage alone.
-- The wordmark is "Gratis" in ink + "GIS" in sage, Inter semibold.
-  Do not letterspace, outline, or recolor it.
-- Static exports that must stay in sync when geometry changes:
-  public/icon.svg, app/opengraph-image.tsx, components/brand-mark.tsx.
+- The full three-hue triad appears only in the mark and the few
+  static marketing exports (OG card, favicon, login logo). In-app
+  chrome uses chart blue alone.
+- The wordmark is "Gratis" in ink + "GIS" in chart blue, Inter
+  semibold. Do not letterspace, outline, or recolor it.
+- Static exports that must stay in sync when geometry or hues change:
+  public/icon.svg, app/opengraph-image.tsx, components/brand-mark.tsx,
+  and the Keycloak login logo.

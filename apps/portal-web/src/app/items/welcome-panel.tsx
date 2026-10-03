@@ -114,7 +114,7 @@ export function WelcomePanel({
           <span className="text-sm font-medium text-ink-0">
             {t('welcome.createMap')}
           </span>
-          <span className="text-xs leading-relaxed text-muted">
+          <span className="text-sm leading-relaxed text-muted">
             {t('welcome.createMapDesc')}
           </span>
         </Link>
@@ -127,7 +127,7 @@ export function WelcomePanel({
           <span className="text-sm font-medium text-ink-0">
             {t('welcome.uploadData')}
           </span>
-          <span className="text-xs leading-relaxed text-muted">
+          <span className="text-sm leading-relaxed text-muted">
             {t('welcome.uploadDataDesc')}
           </span>
         </Link>
@@ -149,7 +149,7 @@ export function WelcomePanel({
           <span className="text-sm font-medium text-ink-0">
             {seeding ? t('welcome.loading') : t('welcome.loadSample')}
           </span>
-          <span className="text-xs leading-relaxed text-muted">
+          <span className="text-sm leading-relaxed text-muted">
             {t('welcome.loadSampleDesc')}
           </span>
         </button>
