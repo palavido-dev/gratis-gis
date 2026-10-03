@@ -7,6 +7,8 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+## [0.9.117] - 2026-10-03
+
 ### Changed
 
 - Dependencies are current through the open Dependabot set. That includes NestJS 12, React 19, Tailwind CSS 4, Zod 4, and the Go 1.27 toolchain used to build pmtiles. The portal now runs on Node 24.9 or newer, which matches the production images.
