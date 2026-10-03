@@ -36,7 +36,6 @@ fun CollectionScreen(viewModel: CollectionViewModel, onBack: () -> Unit, modifie
   val s by viewModel.state.collectAsStateWithLifecycle()
   val formTarget = s.formTarget
   if (formTarget != null) {
-    BackHandler { viewModel.closeForm() }
     val formVm: FormViewModel = viewModel(
       key = "${formTarget.formId}:${formTarget.draftId ?: "new"}",
       factory = viewModelFactory {
@@ -51,7 +50,8 @@ fun CollectionScreen(viewModel: CollectionViewModel, onBack: () -> Unit, modifie
         }
       },
     )
-    FormScreen(formVm, onBack = viewModel::closeForm, modifier = modifier)
+    BackHandler { formVm.leave { viewModel.closeForm() } }
+    FormScreen(formVm, onBack = { formVm.leave { viewModel.closeForm() } }, modifier = modifier)
     return
   }
 
@@ -69,6 +69,12 @@ fun CollectionScreen(viewModel: CollectionViewModel, onBack: () -> Unit, modifie
       else "Downloaded ${s.downloadedAt}: ${s.layers.size} layers, ${s.featureCount} features, ${s.packages.size} basemap packages",
       style = MaterialTheme.typography.bodyMedium,
     )
+    if (s.downloadedAt != null && s.packages.isEmpty()) {
+      Text(
+        "No basemap packages on device for this collection (download again if an offline area should appear).",
+        style = MaterialTheme.typography.bodySmall,
+      )
+    }
     s.packages.forEach { Text("  ${it.areaName}: ${it.sizeBytes / 1024} KB", style = MaterialTheme.typography.bodySmall) }
     s.progress?.let { p ->
       Text(

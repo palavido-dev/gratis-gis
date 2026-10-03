@@ -28,7 +28,7 @@ fun FormScreen(viewModel: FormViewModel, onBack: () -> Unit, modifier: Modifier 
     modifier = modifier.fillMaxSize().safeDrawingPadding().padding(24.dp).verticalScroll(rememberScrollState()),
     verticalArrangement = Arrangement.spacedBy(12.dp),
   ) {
-    TextButton(onClick = onBack) { Text("Back") }
+    TextButton(onClick = { viewModel.leave(onBack) }) { Text("Back") }
     Text("Form · ${s.layerLabel}", style = MaterialTheme.typography.headlineSmall)
     Text("Draft ${s.draftId.take(8)}…", style = MaterialTheme.typography.bodySmall)
     if (s.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -56,6 +56,10 @@ fun FormScreen(viewModel: FormViewModel, onBack: () -> Unit, modifier: Modifier 
     Button(onClick = viewModel::saveDraft, enabled = !s.busy && s.fields.isNotEmpty()) {
       Text("Save draft offline")
     }
+    Text(
+      "Back also saves a draft. Force-stopping the app keeps Room drafts after a save.",
+      style = MaterialTheme.typography.bodySmall,
+    )
     s.savedAt?.let {
       Text("Saved at $it", style = MaterialTheme.typography.bodySmall)
     }

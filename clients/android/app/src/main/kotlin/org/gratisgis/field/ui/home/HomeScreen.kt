@@ -76,6 +76,31 @@ fun HomeScreen(viewModel: HomeViewModel, modifier: Modifier = Modifier) {
       )
       state.portal?.let { Text("${it.name} (v${it.version})", style = MaterialTheme.typography.bodyMedium) }
       Button(onClick = viewModel::signIn, enabled = !state.busy) { Text("Sign in") }
+      if (state.collections.isNotEmpty()) {
+        Text(
+          "On-device copies (sign in to sync / refresh catalogue)",
+          style = MaterialTheme.typography.titleMedium,
+        )
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f, fill = false)) {
+          items(state.collections, key = { it.id }) { item ->
+            Card(onClick = { viewModel.select(item) }, modifier = Modifier.fillMaxWidth()) {
+              Column(Modifier.padding(12.dp)) {
+                Text(item.title, style = MaterialTheme.typography.titleSmall)
+                val badges = buildList {
+                  if (item.id in state.downloadedIds) add("Downloaded offline")
+                  state.draftCounts[item.id]?.let { add("$it draft(s)") }
+                }
+                if (badges.isNotEmpty()) {
+                  Text(badges.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                }
+                item.description?.takeIf { it.isNotBlank() }?.let {
+                  Text(it, style = MaterialTheme.typography.bodySmall)
+                }
+              }
+            }
+          }
+        }
+      }
     } else {
       Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Signed in as ${state.signedInAs}", style = MaterialTheme.typography.bodyMedium)
@@ -84,12 +109,26 @@ fun HomeScreen(viewModel: HomeViewModel, modifier: Modifier = Modifier) {
         OutlinedButton(onClick = viewModel::loadCollections, enabled = !state.busy) { Text("Refresh") }
         OutlinedButton(onClick = viewModel::signOut) { Text("Sign out") }
       }
+      if (state.offlineCatalogue) {
+        Text(
+          "Showing on-device copies (network catalogue unavailable).",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.primary,
+        )
+      }
       Text("Collections (${state.collections.size})", style = MaterialTheme.typography.titleMedium)
       LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         items(state.collections, key = { it.id }) { item ->
           Card(onClick = { viewModel.select(item) }, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp)) {
               Text(item.title, style = MaterialTheme.typography.titleSmall)
+              val badges = buildList {
+                if (item.id in state.downloadedIds) add("Downloaded offline")
+                state.draftCounts[item.id]?.let { add("$it draft(s)") }
+              }
+              if (badges.isNotEmpty()) {
+                Text(badges.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+              }
               item.description?.takeIf { it.isNotBlank() }?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall)
               }
