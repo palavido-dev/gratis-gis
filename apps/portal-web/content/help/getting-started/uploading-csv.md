@@ -61,9 +61,8 @@ the column values actually look like coordinates:
   both columns.
 
 If the candidate pair fails the value check, it's discarded
-and the next candidate is tried. If no pair survives, the
-upload falls through to the general ingest path and you'll
-need to map columns by hand.
+and the next candidate is tried. If no pair survives, an
+address column is tried next, as described below.
 
 ## Files we already handle
 
