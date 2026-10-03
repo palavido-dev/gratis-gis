@@ -17,6 +17,21 @@ A tenant. Every User, Group, and Item belongs to exactly one Organization.
 | name | text | |
 | created\_at | timestamptz | |
 
+### Organization AI provider
+
+Optional, one row per organization (`org_ai_provider`). No row means AI is off and the API does not call a model. The API key is stored only as AES-256-GCM ciphertext.
+
+| field | type | notes |
+| --- | --- | --- |
+| org\_id | uuid (PK) → Organization | |
+| provider | text | `openai`, `anthropic`, `xai`, or `openai-compatible` |
+| model | text | model id the operator chose |
+| base\_url | text, nullable | only for `openai-compatible` |
+| encrypted\_secret | text | API key ciphertext |
+| encrypted\_secret\_iv | text | |
+| updated\_at | timestamp | |
+| updated\_by | uuid | admin who last saved the row |
+
 ### User
 
 Authoritative user record, synced from Keycloak on first login.

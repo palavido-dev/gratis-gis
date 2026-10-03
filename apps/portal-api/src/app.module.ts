@@ -29,6 +29,7 @@ import { BackupModule } from './backup/backup.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
 import { FeedbackModule } from './feedback/feedback.module.js';
 import { GeocodingModule } from './geocoding/geocoding.module.js';
+import { LlmModule } from './llm/llm.module.js';
 import { TileLayerModule } from './tile-layer/tile-layer.module.js';
 import { PointCloudModule } from './point-cloud/point-cloud.module.js';
 import { AnalysisModule } from './analysis/analysis.module.js';
@@ -85,6 +86,7 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
     NotificationsModule,
     FeedbackModule,
     GeocodingModule,
+    LlmModule,
     TileLayerModule,
     PointCloudModule,
     AnalysisModule,
