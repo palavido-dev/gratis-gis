@@ -12,6 +12,7 @@
     "start": "node dist/main.js",
     "lint": "eslint \"src/**/*.ts\"",
     "test": "NODE_OPTIONS=\"${NODE_OPTIONS:+$NODE_OPTIONS }--experimental-vm-modules\" jest --passWithNoTests",
+    "test:org-isolation": "NODE_OPTIONS=\"${NODE_OPTIONS:+$NODE_OPTIONS }--experimental-vm-modules\" jest org-isolation",
     "typecheck": "tsc --noEmit",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",

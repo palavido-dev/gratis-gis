@@ -135,3 +135,22 @@ data class QueueEntity(
    */
   val conflictCurrentJson: String? = null,
 )
+
+/**
+ * An in-progress form response (A1). Not a sync queue row - drafts
+ * stay on-device until a later milestone promotes them into `queue`.
+ */
+@Entity(
+  tableName = "draft",
+  indices = [Index(value = ["collectionId"]), Index(value = ["collectionId", "formId"])],
+)
+data class DraftEntity(
+  @PrimaryKey val id: String,
+  val collectionId: String,
+  val formId: String,
+  val layerKey: String?,
+  val dataLayerId: String?,
+  /** Form response object as JSON text. */
+  val responseJson: String,
+  val updatedAt: String,
+)

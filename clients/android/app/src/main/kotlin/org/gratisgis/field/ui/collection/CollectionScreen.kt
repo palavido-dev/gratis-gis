@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package org.gratisgis.field.ui.collection
 
+import android.app.Application
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,17 +24,44 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
+import org.gratisgis.field.ui.form.FormScreen
+import org.gratisgis.field.ui.form.FormViewModel
 
 @Composable
 fun CollectionScreen(viewModel: CollectionViewModel, onBack: () -> Unit, modifier: Modifier = Modifier) {
   val s by viewModel.state.collectAsStateWithLifecycle()
+  val formTarget = s.formTarget
+  if (formTarget != null) {
+    BackHandler { viewModel.closeForm() }
+    val formVm: FormViewModel = viewModel(
+      key = "${formTarget.formId}:${formTarget.draftId ?: "new"}",
+      factory = viewModelFactory {
+        initializer {
+          FormViewModel(
+            this[APPLICATION_KEY] as Application,
+            collectionId = s.collection.id,
+            formId = formTarget.formId,
+            layer = formTarget.layer,
+            existingDraftId = formTarget.draftId,
+          )
+        }
+      },
+    )
+    FormScreen(formVm, onBack = viewModel::closeForm, modifier = modifier)
+    return
+  }
+
   Column(
     modifier = modifier.fillMaxSize().safeDrawingPadding().padding(24.dp).verticalScroll(rememberScrollState()),
     verticalArrangement = Arrangement.spacedBy(12.dp),
   ) {
     TextButton(onClick = onBack) { Text("Back") }
     Text(s.collection.title, style = MaterialTheme.typography.headlineSmall)
-    if (s.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+    if (s.busy) LinearProgressIndicator(modifier.fillMaxWidth())
 
     Text("Offline", style = MaterialTheme.typography.titleMedium)
     Text(
@@ -51,9 +80,26 @@ fun CollectionScreen(viewModel: CollectionViewModel, onBack: () -> Unit, modifie
     }
     Button(onClick = viewModel::download, enabled = !s.busy) { Text("Download offline") }
 
+    Text("Form (A1)", style = MaterialTheme.typography.titleMedium)
+    Button(
+      onClick = { viewModel.openBoundForm() },
+      enabled = !s.busy && s.layers.any { it.boundFormItemId != null },
+    ) { Text("Open bound form") }
+    if (s.drafts.isNotEmpty()) {
+      Text("Drafts (${s.drafts.size})", style = MaterialTheme.typography.titleSmall)
+      s.drafts.forEach { d ->
+        Card(onClick = { viewModel.openBoundForm(d.id) }, modifier = Modifier.fillMaxWidth()) {
+          Column(Modifier.padding(12.dp)) {
+            Text("Draft ${d.id.take(8)}… · form ${d.formId.take(8)}…", style = MaterialTheme.typography.bodyMedium)
+            Text("Updated ${d.updatedAt}", style = MaterialTheme.typography.bodySmall)
+          }
+        }
+      }
+    }
+
     Text("Queue (${s.queue.size})", style = MaterialTheme.typography.titleMedium)
     s.queue.forEach { row ->
-      Card(Modifier.fillMaxWidth()) {
+      Card(modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp)) {
           Text("${row.op} ${row.globalId.take(8)} on ${row.layerKey}: ${row.syncStatus}", style = MaterialTheme.typography.bodyMedium)
           row.failureJson?.let { Text(it, style = MaterialTheme.typography.bodySmall) }

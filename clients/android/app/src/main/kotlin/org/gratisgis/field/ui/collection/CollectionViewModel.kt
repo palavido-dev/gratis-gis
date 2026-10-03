@@ -41,9 +41,18 @@ data class CollectionState(
   val downloadedAt: String? = null,
   val progress: DownloadProgress? = null,
   val queue: List<QueueEntity> = emptyList(),
+  val drafts: List<org.gratisgis.field.core.database.DraftEntity> = emptyList(),
+  val formTarget: FormTarget? = null,
   val lastSync: SyncResult? = null,
   val benchmark: String? = null,
   val error: String? = null,
+)
+
+/** Which bound form to open (A1). */
+data class FormTarget(
+  val formId: String,
+  val layer: LayerEntity,
+  val draftId: String? = null,
 )
 
 /**
@@ -74,6 +83,7 @@ class CollectionViewModel(application: Application, collection: ItemSummary) : A
           packages = app.db.offlinePackages().forCollection(id),
           downloadedAt = stored?.downloadedAt,
           queue = app.db.queue().forCollection(id),
+          drafts = app.db.drafts().forCollection(id),
         )
       }
     }
@@ -353,5 +363,30 @@ class CollectionViewModel(application: Application, collection: ItemSummary) : A
 
   private fun fail(message: String) {
     _state.update { it.copy(error = message) }
+  }
+
+  /** A1: open the first layer that has a bound form, or a specific draft. */
+  fun openBoundForm(draftId: String? = null) {
+    val layers = _state.value.layers
+    val layer = layers.firstOrNull { it.boundFormItemId != null }
+    if (layer == null) {
+      fail("No bound form on this collection — download offline after binding a form in the portal")
+      return
+    }
+    _state.update {
+      it.copy(
+        formTarget = FormTarget(
+          formId = layer.boundFormItemId!!,
+          layer = layer,
+          draftId = draftId,
+        ),
+        error = null,
+      )
+    }
+  }
+
+  fun closeForm() {
+    _state.update { it.copy(formTarget = null) }
+    refresh()
   }
 }

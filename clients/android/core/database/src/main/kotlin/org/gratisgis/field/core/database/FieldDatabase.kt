@@ -17,8 +17,9 @@ import androidx.sqlite.execSQL
     FormEntity::class,
     OfflinePackageEntity::class,
     QueueEntity::class,
+    DraftEntity::class,
   ],
-  version = 2,
+  version = 3,
   exportSchema = true,
 )
 abstract class FieldDatabase : RoomDatabase() {
@@ -28,11 +29,12 @@ abstract class FieldDatabase : RoomDatabase() {
   abstract fun forms(): FormDao
   abstract fun offlinePackages(): OfflinePackageDao
   abstract fun queue(): QueueDao
+  abstract fun drafts(): DraftDao
 
   companion object {
     fun open(context: Context): FieldDatabase =
       Room.databaseBuilder(context.applicationContext, FieldDatabase::class.java, "gratisgis-field.db")
-        .addMigrations(MIGRATION_1_2)
+        .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
         .build()
 
     /** v2: queue rows carry the optimistic-concurrency base and, on a
@@ -42,6 +44,29 @@ abstract class FieldDatabase : RoomDatabase() {
       override fun migrate(connection: SQLiteConnection) {
         connection.execSQL("ALTER TABLE queue ADD COLUMN baseObservationId TEXT")
         connection.execSQL("ALTER TABLE queue ADD COLUMN conflictCurrentJson TEXT")
+      }
+    }
+
+    /** v3: form drafts for A1 offline save (not the sync queue). */
+    val MIGRATION_2_3 = object : Migration(2, 3) {
+      override fun migrate(connection: SQLiteConnection) {
+        connection.execSQL(
+          "CREATE TABLE IF NOT EXISTS `draft` (" +
+            "`id` TEXT NOT NULL, " +
+            "`collectionId` TEXT NOT NULL, " +
+            "`formId` TEXT NOT NULL, " +
+            "`layerKey` TEXT, " +
+            "`dataLayerId` TEXT, " +
+            "`responseJson` TEXT NOT NULL, " +
+            "`updatedAt` TEXT NOT NULL, " +
+            "PRIMARY KEY(`id`))",
+        )
+        connection.execSQL(
+          "CREATE INDEX IF NOT EXISTS `index_draft_collectionId` ON `draft` (`collectionId`)",
+        )
+        connection.execSQL(
+          "CREATE INDEX IF NOT EXISTS `index_draft_collectionId_formId` ON `draft` (`collectionId`, `formId`)",
+        )
       }
     }
   }
