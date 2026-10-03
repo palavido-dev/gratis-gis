@@ -520,7 +520,7 @@ function DockContainer({
 
   return (
     <aside
-      className={`relative flex h-full shrink-0 flex-col overflow-hidden ${dockChromeClass} ${borderSide} border-[hsl(var(--app-border))]`}
+      className={`app-runtime-dock relative flex h-full shrink-0 flex-col overflow-hidden ${dockChromeClass} ${borderSide} border-[hsl(var(--app-border))]`}
       style={{ width: effectiveWidth, transition: 'width 160ms ease-out' }}
     >
       {collapsible ? (
@@ -643,7 +643,7 @@ function OverlayContainer({ config, renderChild }: OverlayProps) {
         className={`pointer-events-auto absolute z-10 flex flex-col overflow-hidden border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] shadow-[var(--app-shadow-overlay)] transition-transform duration-200 ease-out ${drawerPositionClass} ${drawerTransform} ${
           edge === 'left' || edge === 'right' ? 'border-l border-r' : 'border-t border-b'
         }`}
-        style={drawerSizeStyle}
+        style={{ ...drawerSizeStyle, maxWidth: '100%' }}
         aria-hidden={!open}
       >
         <header className="flex h-10 shrink-0 items-center gap-2 border-b border-[hsl(var(--app-border))] px-3">

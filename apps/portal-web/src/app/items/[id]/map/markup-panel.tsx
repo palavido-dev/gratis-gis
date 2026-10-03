@@ -311,7 +311,7 @@ export function MarkupPanel({
     <div
       role="dialog"
       aria-label="Map markup"
-      className="absolute right-3 top-16 z-30 flex w-80 max-h-[70vh] flex-col rounded-md border border-border bg-surface-1 shadow-card"
+      className="absolute right-3 top-16 z-30 flex max-h-[70vh] w-80 flex-col rounded-md border border-border bg-surface-1 shadow-card max-md:left-3 max-md:right-3 max-md:w-auto"
     >
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <div className="flex items-center gap-2">
