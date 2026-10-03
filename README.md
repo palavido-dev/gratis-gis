@@ -54,8 +54,7 @@ start a [Discussion](https://github.com/palavido-dev/gratis-gis/discussions).
 **A personal note:** This is a side project, not a startup. Built on
 nights and weekends by one person with kids, a full-time job, and three
 decades of GIS behind them, as a way to give back some of what working
-in this field has given me. See [/why](https://gratisgis.org/why) on the
-public instance for the longer version.
+in this field has given me.
 
 ## Why GratisGIS
 

@@ -9,7 +9,6 @@ import { portalUrl } from '@/lib/portal-url';
  * page so search engines can enumerate them in one request:
  *
  *   - / (landing)
- *   - /why                  (project rationale + positioning)
  *   - /credits              (third-party attribution)
  *   - /help                 (help index)
  *   - /help/<slug>          (every doc under content/help/)
@@ -27,12 +26,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       lastModified: now,
       changeFrequency: 'weekly',
       priority: 1.0,
-    },
-    {
-      url: portalUrl('/why'),
-      lastModified: now,
-      changeFrequency: 'monthly',
-      priority: 0.8,
     },
     {
       url: portalUrl('/credits'),

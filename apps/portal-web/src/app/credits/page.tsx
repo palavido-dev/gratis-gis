@@ -11,8 +11,8 @@ import { authOptions } from '@/lib/auth';
  * load-bearing open-source projects GratisGIS uses with links back
  * to each project's home page.
  *
- * Public-shell layout matches /why so a visitor can land on
- * either page directly from a search engine or a shared link.
+ * Public-shell layout so a visitor can land on the page directly
+ * from a search engine or a shared link.
  */
 export const metadata: Metadata = {
   // The root layout applies a "%s · GratisGIS" template; titles
@@ -281,10 +281,6 @@ export default async function CreditsPage() {
         Powered by GratisGIS &middot;{' '}
         <Link href="/" className="underline hover:text-ink-0">
           Home
-        </Link>{' '}
-        &middot;{' '}
-        <Link href="/why" className="underline hover:text-ink-0">
-          Why GratisGIS
         </Link>
       </footer>
     </div>
@@ -292,8 +288,8 @@ export default async function CreditsPage() {
 }
 
 /**
- * Same minimal top bar /why uses, kept in sync deliberately so the
- * two public pages have matching chrome.
+ * Minimal public top bar so the chrome stays consistent across
+ * the public surfaces.
  */
 function TopBar() {
   return (
