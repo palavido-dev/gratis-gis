@@ -7,6 +7,26 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+## [0.9.116] - 2026-10-03
+
+### Added
+
+- A contributor can describe a layer, a map, a form, or an app, by typing or with the browser microphone, and the portal creates it. Existing layers the caller can already read may be reused. The assistant stays limited to items that caller can open.
+- A signed-in reader can ask a question about a layer they can already open. The model sees attribute text from a bounded sample of rows.
+- Form owners and organization admins can download a letter-size PDF receipt of one submission from the form's Responses tab.
+- A tool recipe can be arranged as a single chain on a canvas. The runner still executes that one linear order.
+- A CSV with an address column, and no coordinates, can be geocoded through the portal's own Nominatim. The first 200 rows are sent. The public Nominatim service is not used for this lookup.
+- An organization admin can add one OpenID Connect sign-in method and require an authenticator without opening Keycloak.
+
+### Changed
+
+- Dashboards and other custom apps reflow on a phone. Indicators that share a row sit two across, and maps, charts, and tables take the full width and scroll. Map and builder side panels collapse to icon rails. The items filter opens as a sheet that stays on the screen.
+- Help articles render their figures and links. The getting-started articles include figures for the new-item wizard, the map builder, the form designer, and CSV upload.
+
+### Fixed
+
+- `/health` runs `SELECT 1` and returns 503 when Postgres does not answer.
+
 ## [0.9.115] - 2026-10-03
 
 ### Added
