@@ -15,6 +15,11 @@ import { NotificationsService } from '../notifications/notifications.service.js'
 import { DataLayerFeaturesService } from '../data-layer/features.service.js';
 import { DataLayerAttachmentsService } from '../data-layer/attachments.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import {
+  formatSubmissionReceipt,
+  receiptFilename,
+  renderSubmissionPdf,
+} from './submission-pdf.js';
 
 /**
  * Persistence and access control for form submissions (#131).
@@ -791,6 +796,45 @@ export class FormsService {
       createdAt: r.createdAt.toISOString(),
       schemaVersion: r.schemaVersion,
     }));
+  }
+
+  /**
+   * One-page-or-more text receipt. Same owner-or-admin gate as
+   * listing submissions. The bytes are a hand-written PDF, not a
+   * map print.
+   */
+  async submissionPdf(
+    formId: string,
+    submissionId: string,
+    user: AuthUser,
+  ): Promise<{ filename: string; bytes: Buffer }> {
+    const form = await this.getVisibleForm(formId, user);
+    if (form.ownerId !== user.id && user.orgRole !== 'admin') {
+      throw new ForbiddenException(
+        'Only the form owner or an org admin can download submissions.',
+      );
+    }
+    const row = await this.prisma.formSubmission.findFirst({
+      where: { id: submissionId, formId: form.id },
+      select: {
+        id: true,
+        response: true,
+        capturedAt: true,
+      },
+    });
+    if (!row) throw new NotFoundException('Submission not found.');
+    const schema = readFormSchema(form.data);
+    const receipt = formatSubmissionReceipt({
+      title: form.title,
+      capturedAt: row.capturedAt.toISOString(),
+      submissionId: row.id,
+      questions: schema?.questions ?? [],
+      response: row.response,
+    });
+    return {
+      filename: receiptFilename(form.title, row.id),
+      bytes: renderSubmissionPdf(receipt),
+    };
   }
 
   async count(formId: string, user: AuthUser): Promise<number> {

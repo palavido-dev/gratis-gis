@@ -22,6 +22,11 @@ designer**).
 
 ![Form designer with a location question and a text question](/help/form-designer.svg)
 
+Open the designer's **Responses** tab. Owners and organization
+admins see the latest submissions there. **Download PDF** saves
+a text receipt of that submission's answers. It is not a
+designed report and it does not include a map image.
+
 ## The four panels
 
 - **Question palette** (left). The catalog of question types you
