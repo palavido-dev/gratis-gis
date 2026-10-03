@@ -53,6 +53,15 @@ interface OfflinePackageDao {
 }
 
 @Dao
+interface DraftDao {
+  @Upsert suspend fun upsert(row: DraftEntity)
+  @Query("SELECT * FROM draft WHERE id = :id") suspend fun get(id: String): DraftEntity?
+  @Query("SELECT * FROM draft WHERE collectionId = :collectionId ORDER BY updatedAt DESC")
+  suspend fun forCollection(collectionId: String): List<DraftEntity>
+  @Query("DELETE FROM draft WHERE id = :id") suspend fun delete(id: String)
+}
+
+@Dao
 interface QueueDao {
   @Upsert suspend fun upsert(row: QueueEntity)
   @Query("SELECT * FROM queue WHERE collectionId = :collectionId AND id = :id") suspend fun get(collectionId: String, id: String): QueueEntity?
