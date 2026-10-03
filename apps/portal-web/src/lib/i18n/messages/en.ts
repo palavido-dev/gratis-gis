@@ -47,6 +47,7 @@ export const en = {
     backup: 'Backup',
     housekeeping: 'Housekeeping',
     notifications: 'Notifications',
+    ai: 'AI',
     fieldQueues: 'Field queues',
     migrations: 'Migrations',
     gettingStarted: 'Getting started',

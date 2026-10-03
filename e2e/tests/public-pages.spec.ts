@@ -5,13 +5,23 @@
  */
 import { test, expect } from '@playwright/test';
 
-for (const path of ['/why', '/credits', '/feedback']) {
+for (const path of ['/credits', '/feedback']) {
   test(`${path} renders with a heading`, async ({ page }) => {
     const res = await page.goto(path);
     expect(res?.status()).toBe(200);
     await expect(page.getByRole('heading').first()).toBeVisible();
   });
 }
+
+test('/why permanently redirects to the home page', async ({ request }) => {
+  const res = await request.get('/why', { maxRedirects: 0 });
+  expect(res.status()).toBe(308);
+  const location = res.headers()['location'] ?? '';
+  const path = location.startsWith('http')
+    ? new URL(location).pathname
+    : location.split('?')[0];
+  expect(path).toBe('/');
+});
 
 /**
  * The published dashboards, rendered as an anonymous visitor sees

@@ -9,6 +9,7 @@ import {
   Archive,
   ArrowRightLeft,
   Bell,
+  Bot,
   ClipboardList,
   Folder as FolderIcon,
   LayoutGrid,
@@ -337,6 +338,13 @@ function NavList({
             onNavigate={cb}
           >
             {t('nav.notifications')}
+          </NavLink>
+          <NavLink
+            href="/admin/ai"
+            icon={<Bot className="h-4 w-4" />}
+            onNavigate={cb}
+          >
+            {t('nav.ai')}
           </NavLink>
           {/* Not gated on the feedback flag: an operator who turned
               the form off still needs to read what came in while it

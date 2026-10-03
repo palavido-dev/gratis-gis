@@ -40,6 +40,7 @@ export const ptBR: Partial<CatalogShape> = {
     backup: 'Backup',
     housekeeping: 'Manutenção',
     notifications: 'Notificações',
+    ai: 'IA',
     fieldQueues: 'Filas de campo',
     migrations: 'Migrações',
     gettingStarted: 'Primeiros passos',

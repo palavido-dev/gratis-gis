@@ -14,8 +14,8 @@ import { FeedbackForm } from './feedback-form';
  * rate-limits per IP and emails the message to the maintainer via
  * the existing SMTP transport.
  *
- * Layout mirrors /why: a minimal TopBar when unauthenticated, the
- * AppShell chrome when signed in. Form lives in a client component
+ * A minimal TopBar when unauthenticated, the AppShell chrome
+ * when signed in. Form lives in a client component
  * (feedback-form.tsx) because it's stateful + submits via fetch.
  */
 export const metadata: Metadata = {
@@ -89,18 +89,15 @@ export default async function FeedbackPage() {
       </main>
 
       <footer className="border-t border-border bg-surface-1 py-6 text-center text-xs text-muted">
-        Powered by GratisGIS &middot;{' '}
-        <Link href="/why" className="underline hover:text-ink-0">
-          Why GratisGIS
-        </Link>
+        Powered by GratisGIS
       </footer>
     </div>
   );
 }
 
 /**
- * Minimal public top bar mirroring /why's pattern so the chrome
- * stays consistent across the public surfaces.
+ * Minimal public top bar so the chrome stays consistent across
+ * the public surfaces.
  */
 function TopBar() {
   return (

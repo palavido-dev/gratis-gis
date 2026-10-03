@@ -241,8 +241,32 @@ model Organization {
   groups                Group[]
   items                 Item[]
   notificationTemplates NotificationTemplate[]
+  /// Opt-in AI provider. No row means AI is off.
+  aiProvider            OrgAiProvider?
 
   @@map("organization")
+}
+
+/// Org-level opt-in model provider. Absent row: AI endpoints refuse
+/// and the API makes no outbound model call. The API key is
+/// AES-256-GCM ciphertext from credential-cipher.ts; the org id is
+/// the AAD so a row cannot be copied onto another organization.
+model OrgAiProvider {
+  orgId             String   @id @map("org_id") @db.Uuid
+  /// openai | anthropic | xai | openai-compatible
+  provider          String
+  model             String
+  /// Only used for openai-compatible (Ollama or a proxy). Commercial
+  /// providers always call their official hosts.
+  baseUrl           String?  @map("base_url")
+  encryptedSecret   String   @map("encrypted_secret")
+  encryptedSecretIv String   @map("encrypted_secret_iv")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  updatedBy         String   @map("updated_by") @db.Uuid
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("org_ai_provider")
 }
 
 model User {

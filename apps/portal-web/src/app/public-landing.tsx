@@ -289,10 +289,6 @@ export function PublicLanding({
           <span>GratisGIS {GG_VERSION}</span>
         )}{' '}
         &middot;{' '}
-        <Link href="/why" className="underline hover:text-ink-0">
-          Why GratisGIS
-        </Link>{' '}
-        &middot;{' '}
         <Link href="/credits" className="underline hover:text-ink-0">
           Built on
         </Link>

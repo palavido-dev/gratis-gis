@@ -158,15 +158,24 @@ export class GroupsService {
   }
 
   async listMembers(user: AuthUser, groupId: string) {
-    const group = await this.get(user, groupId);
-    // Only members (or org-admins) can see the full roster; non-members
-    // of a discoverable group see membership count only. For now we gate
-    // roster visibility to members-and-up.
-    const isMember =
-      user.orgRole === 'admin' ||
-      group.ownerId === user.id ||
-      user.groupIds.includes(groupId);
-    if (!isMember) throw new NotFoundException('Group not found');
+    // Roster visibility is its own gate, not canSee. canSee lets a
+    // caller open a public (or own-org) group without being a member;
+    // the roster stays limited to members, the owner, and an admin of
+    // THIS group's org. Calling get() first would also hide a private
+    // group from an actual member, because canSee does not consult
+    // membership (that check lives here).
+    const group = await this.prisma.group.findUnique({ where: { id: groupId } });
+    if (!group || group.deletedAt) throw new NotFoundException('Group not found');
+    // orgRole admin is not membership in every group. A cross-org
+    // admin who merely knows the id must not read the roster.
+    // NotFound, not Forbidden, so a foreign id is indistinguishable
+    // from a missing one.
+    const sameOrgAdmin = user.orgRole === 'admin' && group.orgId === user.orgId;
+    const isOwner = group.ownerId === user.id;
+    const isMember = user.groupIds.includes(groupId);
+    if (!sameOrgAdmin && !isOwner && !isMember) {
+      throw new NotFoundException('Group not found');
+    }
 
     return this.prisma.groupMember.findMany({
       where: { groupId },
@@ -203,8 +212,11 @@ export class GroupsService {
   }
 
   private canSee(user: AuthUser, group: { orgId: string; access: string; ownerId: string }) {
-    if (user.orgRole === 'admin') return true;
+    // Same org bound as canAdmin. An admin of org A does not see
+    // org B's private or org-access groups; owner / public / org
+    // rules still apply on top of that.
     if (group.ownerId === user.id) return true;
+    if (user.orgRole === 'admin' && group.orgId === user.orgId) return true;
     if (group.access === 'public') return true;
     if (group.access === 'org' && group.orgId === user.orgId) return true;
     return false; // Membership check handled at query time for private groups.
