@@ -11,9 +11,20 @@ import { tmpdir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 
 import {
+  featuresFromAddresses,
+  planAddressGeocode,
+  type AddressColumnPlan,
+} from './csv-address.js';
+import {
   detectCsvColumnPairFromPrefix,
   detectCsvCoordinates,
 } from './csv-smart-detect.js';
+import {
+  geocodeOne,
+  geocodeQueries,
+  localNominatimBase,
+  nominatimAnswers,
+} from './nominatim-search.js';
 import {
   DuckDbUnavailableError,
   ParquetUserError,
@@ -118,6 +129,8 @@ export class IngestService {
           sourceSrs: 'EPSG:4326',
         };
       }
+      const addressed = await this.geocodeAddressBuffer(buffer, originalName);
+      if (addressed) return addressed;
     }
 
     const gdal = await this.loadGdal();
@@ -294,6 +307,20 @@ export class IngestService {
       } catch (err) {
         throw mapParquetError(err);
       }
+    }
+    const addressed = await this.tryAddressPlan(filePath);
+    if (addressed) {
+      return {
+        driver: 'csv-address',
+        layers: [
+          {
+            name: addressed.layerName,
+            geometryType: 'point',
+            fields: addressed.fields,
+            featureCount: addressed.rows.length,
+          },
+        ],
+      };
     }
     const gdal = await this.loadGdal();
     const openPath = filePath.toLowerCase().endsWith('.zip')
@@ -642,6 +669,17 @@ export class IngestService {
         throw mapParquetError(err);
       }
     }
+    if (opts.isTable !== true) {
+      const addressed = await this.tryAddressPlan(filePath);
+      if (addressed) {
+        if (sourceLayer && sourceLayer !== addressed.layerName) {
+          throw new BadRequestException(
+            `File has no layer named "${sourceLayer}".`,
+          );
+        }
+        return this.streamAddressLayer(addressed, onBatch, batchSize);
+      }
+    }
     const gdal = await this.loadGdal();
     const openPath = filePath.toLowerCase().endsWith('.zip')
       ? `/vsizip/${filePath}`
@@ -938,6 +976,173 @@ export class IngestService {
     } finally {
       await handle?.close().catch(() => undefined);
     }
+  }
+
+  /**
+   * Bytes read when an address column is the only geometry source.
+   * Two hundred address rows fit well inside this, and a wider file
+   * still stops at ADDRESS_GEOCODE_LIMITS.MAX_ROWS.
+   */
+  private static readonly ADDRESS_READ_BYTES = 1024 * 1024;
+
+  /**
+   * Name an address column and confirm the local geocoder answers.
+   * Returns null when the file has coordinates, has no address
+   * column, or the configured Nominatim is the public service or is
+   * down. Those cases stay on the existing GDAL path.
+   */
+  private async tryAddressPlan(
+    filePath: string,
+  ): Promise<(AddressColumnPlan & { layerName: string }) | null> {
+    if (!looksLikeTabularText(filePath)) return null;
+    const text = await this.readDelimitedPrefix(filePath);
+    if (text === null) return null;
+    const plan = planAddressGeocode(text);
+    if (plan.kind !== 'address') {
+      this.log.debug(
+        `No address columns in ${basename(filePath)}: ${plan.reason}`,
+      );
+      return null;
+    }
+    const base = localNominatimBase();
+    if (!base) {
+      this.log.warn(
+        'Skipping address geocoding because NOMINATIM_URL is the public Nominatim service.',
+      );
+      return null;
+    }
+    if (!(await nominatimAnswers(fetch, base))) {
+      this.log.debug(
+        `Local geocoder did not answer at ${base}; leaving ${basename(filePath)} on the table path.`,
+      );
+      return null;
+    }
+    const dot = basename(filePath).lastIndexOf('.');
+    const layerName =
+      dot > 0 ? basename(filePath).slice(0, dot) : basename(filePath);
+    return { ...plan, layerName };
+  }
+
+  private async readDelimitedPrefix(filePath: string): Promise<string | null> {
+    const safePath = await this.resolveInsideIngestRoot(filePath);
+    if (safePath === null) return null;
+    let handle: FileHandle | undefined;
+    try {
+      handle = await open(safePath, 'r');
+      const buf = Buffer.alloc(IngestService.ADDRESS_READ_BYTES);
+      const { bytesRead } = await handle.read(buf, 0, buf.length, 0);
+      let text = buf.subarray(0, bytesRead).toString('utf8');
+      if (bytesRead === buf.length) {
+        const lastBreak = text.lastIndexOf('\n');
+        text = lastBreak >= 0 ? text.slice(0, lastBreak) : '';
+      }
+      return text;
+    } catch {
+      return null;
+    } finally {
+      await handle?.close().catch(() => undefined);
+    }
+  }
+
+  private async geocodeAddressBuffer(
+    buffer: Buffer,
+    originalName: string,
+  ): Promise<{
+    geojson: { type: 'FeatureCollection'; features: unknown[] };
+    fields: AddressColumnPlan['fields'];
+    driver: string;
+    sourceSrs: string;
+  } | null> {
+    let text = buffer
+      .subarray(0, Math.min(buffer.length, IngestService.ADDRESS_READ_BYTES))
+      .toString('utf8');
+    if (buffer.length > IngestService.ADDRESS_READ_BYTES) {
+      const lastBreak = text.lastIndexOf('\n');
+      text = lastBreak >= 0 ? text.slice(0, lastBreak) : '';
+    }
+    const plan = planAddressGeocode(text);
+    if (plan.kind !== 'address') return null;
+    const base = localNominatimBase();
+    if (!base || !(await nominatimAnswers(fetch, base))) return null;
+    const looked = await this.lookupAddressPlan(plan, originalName);
+    if (!looked || looked.built.placed === 0) return null;
+    return {
+      geojson: { type: 'FeatureCollection', features: looked.built.features },
+      fields: plan.fields,
+      driver: 'csv-address',
+      sourceSrs: 'EPSG:4326',
+    };
+  }
+
+  private async streamAddressLayer(
+    plan: AddressColumnPlan & { layerName: string },
+    onBatch: (
+      batch: Array<{ geometry: unknown; properties: Record<string, unknown> }>,
+      progress: { processed: number; total: number },
+    ) => Promise<void>,
+    batchSize: number,
+  ): Promise<{
+    fields: AddressColumnPlan['fields'];
+    driver: string;
+    layerName: string;
+    sourceSrs: string;
+    total: number;
+  }> {
+    const looked = await this.lookupAddressPlan(plan, plan.layerName);
+    if (!looked || looked.built.placed === 0) {
+      throw new BadRequestException(
+        'The local geocoder did not match any address in this file. Spreadsheet addresses are sent only to the configured Nominatim.',
+      );
+    }
+    const total = plan.rows.length;
+    let processed = 0;
+    let featureIndex = 0;
+    let batch: Array<{ geometry: unknown; properties: Record<string, unknown> }> =
+      [];
+    for (let i = 0; i < plan.rows.length; i += 1) {
+      processed += 1;
+      if (looked.hits[i]) {
+        const feature = looked.built.features[featureIndex]!;
+        featureIndex += 1;
+        batch.push({
+          geometry: feature.geometry,
+          properties: feature.properties,
+        });
+        if (batch.length >= batchSize) {
+          await onBatch(batch, { processed, total });
+          batch = [];
+        }
+      }
+    }
+    if (batch.length > 0) {
+      await onBatch(batch, { processed, total });
+    }
+    return {
+      fields: plan.fields,
+      driver: 'csv-address',
+      layerName: plan.layerName,
+      sourceSrs: 'EPSG:4326',
+      total,
+    };
+  }
+
+  private async lookupAddressPlan(
+    plan: AddressColumnPlan,
+    label: string,
+  ): Promise<{
+    hits: Array<{ lat: number; lon: number } | null>;
+    built: ReturnType<typeof featuresFromAddresses>;
+  } | null> {
+    const base = localNominatimBase();
+    if (!base) return null;
+    const hits = await geocodeQueries(plan.queries, (query) =>
+      geocodeOne(fetch, base, query),
+    );
+    const built = featuresFromAddresses(plan, hits);
+    this.log.log(
+      `Address geocode of ${label}: columns="${plan.label}", placed=${built.placed}/${plan.rows.length}`,
+    );
+    return { hits, built };
   }
 
   /**

@@ -1,7 +1,7 @@
 ---
 id: getting-started-uploading-csv
-title: Uploading a CSV with coordinates
-summary: Pick a CSV on the New Data Layer page and get a mapped layer in one step, even when the latitude / longitude columns aren't named perfectly.
+title: Uploading a CSV
+summary: Pick a CSV on the New Data Layer page. A latitude / longitude pair is mapped directly. An address column is mapped through the local geocoder.
 category: getting-started
 order: 35
 complexity: basic
@@ -14,11 +14,22 @@ related:
   - items-data-layer
 ---
 
+![A spreadsheet with an address column becoming points on a map](/help/csv-upload.svg)
+
 If your spreadsheet has latitude and longitude columns, you can
 turn it into a mapped data layer without renaming anything
 first. On the New Data Layer page choose **Import**, pick the
 file, and the ingest service works out which columns are the
 coordinates and which are the attributes.
+
+A file with no coordinates can still land on the map when it has
+an address column, or a street column plus a city. The server
+sends the first 200 rows to the Nominatim instance configured for
+this portal and stores a point for each match. Rows that do not
+match are left out. The public Nominatim service is not used for
+this, because a spreadsheet is a bulk lookup and the addresses
+stay on the host. If that local geocoder is not running, the file
+imports as a table, the same as before.
 
 If your data is in Excel, save it as CSV first: **File → Save As
 → CSV**. The portal reads `.csv`, `.tsv` and `.txt`, but not
@@ -66,16 +77,32 @@ need to map columns by hand.
   the file uses semicolons as delimiters (so the comma in
   the value isn't confused with the field separator).
 
+## When the file has addresses
+
+If no coordinate pair is found, the server looks for one
+column named `address` (also `full address`, `site address`,
+`mailing address`, or `property address`), or for `street`
+plus `city`, with optional `state` and `zip`. A majority of
+the sampled rows have to look like addresses, not bare numbers.
+
+Only the first 200 data rows are geocoded. The lookup runs
+against the portal's Nominatim (`NOMINATIM_URL`, or the local
+default). A public Nominatim URL is refused for this path.
+
 ## When it falls back
 
-The smart-detection path bails out cleanly in these cases,
-and the upload proceeds as an attribute-only or geometry-from-
-WKT layer:
+The upload proceeds as an attribute-only or geometry-from-WKT
+layer when:
 
-- No columns matched the latitude / longitude vocabulary.
+- No coordinate pair and no address columns were found.
+- An address column was found, but the local geocoder is not
+  running.
 - Values that looked like coordinates were actually UTM
   eastings / northings (out of the WGS84 lat/lng range).
 - The file had no parseable data rows.
+
+If the local geocoder is running and matches none of the rows,
+the import stops and says so, instead of creating an empty map.
 
 In those cases the existing geospatial driver kicks in. If
 your file has a `geometry` column with WKT or a `.shp` /
@@ -86,7 +113,8 @@ geometry up.
 
 - Use simple column names when you control the source file.
   `lat` and `lng` always work and read clearly in the
-  attribute table later.
+  attribute table later. For addresses, `address` or
+  `street` plus `city` is enough.
 - Numeric coordinates should be **decimal degrees**, not
   degrees-minutes-seconds.
 - If your spreadsheet exports with quoted fields, that's

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 420" role="img" aria-labelledby="title">
+  <title id="title">Spreadsheet with an address column becoming points</title>
+  <rect width="720" height="420" fill="#f6f7f9"/>
+  <rect x="36" y="36" width="360" height="348" rx="12" fill="#ffffff" stroke="#d7dde6"/>
+  <text x="56" y="72" fill="#161d27" font-family="ui-sans-serif, system-ui, sans-serif" font-size="16" font-weight="650">sites.csv</text>
+  <rect x="56" y="92" width="320" height="36" fill="#e7eef6"/>
+  <text x="68" y="115" fill="#21466e" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13">Name</text>
+  <text x="180" y="115" fill="#21466e" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" font-weight="650">Address</text>
+  <text x="56" y="156" fill="#161d27" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13">Office</text>
+  <text x="180" y="156" fill="#161d27" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13">1600 Pennsylvania Ave</text>
+  <text x="56" y="186" fill="#161d27" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13">Annex</text>
+  <text x="180" y="186" fill="#161d27" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13">1 Market Street</text>
+  <text x="56" y="230" fill="#5c6b7a" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12">First 200 rows go to the local geocoder.</text>
+  <rect x="420" y="36" width="264" height="348" rx="12" fill="#ffffff" stroke="#d7dde6"/>
+  <rect x="440" y="96" width="224" height="200" rx="8" fill="#e7eef6"/>
+  <circle cx="520" cy="168" r="8" fill="#21466e"/>
+  <circle cx="590" cy="210" r="8" fill="#21466e"/>
+  <text x="440" y="72" fill="#161d27" font-family="ui-sans-serif, system-ui, sans-serif" font-size="16" font-weight="650">Mapped layer</text>
+  <text x="440" y="332" fill="#5c6b7a" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12">Unmatched rows stay off the map.</text>
+</svg>

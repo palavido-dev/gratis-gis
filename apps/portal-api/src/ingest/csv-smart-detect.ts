@@ -248,6 +248,37 @@ export function detectCsvColumnPairFromPrefix(
   return detectCsvColumnPair(text);
 }
 
+/**
+ * Header plus up to `maxDataRows` data rows. Rows whose column count
+ * does not match the header are dropped. A byte-truncated prefix
+ * should already have had its last line removed by the caller.
+ */
+export function readDelimitedSample(
+  text: string,
+  maxDataRows: number,
+):
+  | { delimiter: string; header: string[]; rows: string[][] }
+  | { error: string } {
+  const clean = stripBom(text);
+  if (clean.length === 0) return { error: 'Empty file' };
+  const delimiter = sniffDelimiter(clean);
+  const lines = splitLines(clean);
+  if (lines.length < 2) return { error: 'Header-only file (no data rows)' };
+  const header = parseRow(lines[0]!, delimiter);
+  if (header.length === 0 || header.length > SMART_DETECT_LIMITS.MAX_HEADER_COLUMNS) {
+    return {
+      error: `Header has ${header.length} columns (max ${SMART_DETECT_LIMITS.MAX_HEADER_COLUMNS})`,
+    };
+  }
+  const rows: string[][] = [];
+  for (let i = 1; i < lines.length && rows.length < maxDataRows; i += 1) {
+    const row = parseRow(lines[i]!, delimiter);
+    if (row.length === header.length) rows.push(row);
+  }
+  if (rows.length === 0) return { error: 'No parseable data rows' };
+  return { delimiter, header, rows };
+}
+
 export function detectCsvCoordinates(buffer: Buffer): SmartDetect {
   const text = stripBom(buffer.toString('utf8'));
   const pair = detectCsvColumnPair(text);

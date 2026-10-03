@@ -155,6 +155,9 @@ tags on its own.
   see `infra/NOMINATIM.md`. If `NOMINATIM_URL` is unset and the
   local default does not answer, address search falls back to
   the public Nominatim service. Set `NOMINATIM_PUBLIC_FALLBACK=0`
-  to keep every query on the configured host.
+  to keep every query on the configured host. A CSV import that
+  has an address column and no coordinates geocodes the first 200
+  rows against that same local Nominatim only. It does not use the
+  public fallback.
 - The maintenance and golden-snapshot scripts in `infra/` exist for the
   public demo's nightly reset and are not part of a normal deployment.
