@@ -47,6 +47,17 @@ const nextConfig = {
   outputFileTracingIncludes: {
     '/help/**/*': ['./content/help/**/*'],
   },
+  // The project rationale page was removed. Keep old bookmarks and
+  // indexed URLs from 404ing.
+  async redirects() {
+    return [
+      {
+        source: '/why',
+        destination: '/',
+        permanent: true,
+      },
+    ];
+  },
 };
 
 export default nextConfig;
