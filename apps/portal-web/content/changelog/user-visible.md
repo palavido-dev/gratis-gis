@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-03 - Phone layouts, and building from a description
+Dashboards, maps, and the item filter now fit a phone: indicators sit two across, maps and charts stack, and the filter opens as a sheet instead of running off the screen. You can also describe a layer, map, form, or app, by typing or by voice, and the portal builds it from layers you can already read. Ask a question about a layer you can open, download a PDF receipt of a form response, and import a spreadsheet that only has an address column.
+
 ## 2026-10-03 - A quieter frame, and an optional writing assistant
 The portal chrome is now a cool chart sheet, so the map stays the loudest thing on the page. Organization admins can also turn on a writing assistant (ChatGPT, Claude, Grok, or a model you host) that drafts item text from the title, description, and field names. It stays off until an admin saves a key, and the key never comes back to the browser.
 

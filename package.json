@@ -1,6 +1,6 @@
 {
   "name": "gratis-gis",
-  "version": "0.9.115",
+  "version": "0.9.116",
   "private": true,
   "description": "Self-hosted GIS portal, field PWA, and QGIS plugin for teams leaving ArcGIS Online seat costs. Portal, sharing, field collection, and QGIS. Built on Postgres, PostGIS, and MapLibre.",
   "keywords": [
