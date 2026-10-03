@@ -2044,13 +2044,13 @@ export function EditorRuntime({
   }, [surveyTargetLayerId, mapData.layers]);
 
   return (
-    <div className="flex h-full min-h-[calc(100vh-3.5rem)] flex-col bg-surface-0">
+    <div className="flex h-full min-h-[calc(100dvh-3.5rem)] flex-col bg-surface-0">
       {/* Top bar: back link + title + reference map breadcrumb.
           "Back to items" matches the standard item detail page so
           users who arrive here from the items list have a
           consistent escape. Owners get a separate "Configure"
           link that takes them to the editor's detail/config page. */}
-      <header className="flex shrink-0 items-center justify-between gap-4 border-b border-border bg-surface-1 px-4 py-2">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-surface-1 px-3 py-2">
         <div className="flex min-w-0 items-center gap-3">
           {/* "Back to items" only renders for editors. Viewers --
               especially anonymous public-share visitors -- don't have
@@ -2075,7 +2075,7 @@ export function EditorRuntime({
               at a glance. PencilRuler reads as "edit"; Sparkles
               matches the web_app accent we use in the items grid
               for runnable viewer apps. */}
-          <span className="inline-flex items-center gap-1.5 text-base font-semibold text-ink-0">
+          <span className="inline-flex min-w-0 items-center gap-1.5 truncate text-base font-semibold text-ink-0">
             {canEdit ? (
               <PencilRuler className="h-4 w-4 text-purple-600 dark:text-purple-400" />
             ) : (
@@ -2092,7 +2092,7 @@ export function EditorRuntime({
             </span>
           ) : null}
         </div>
-        <div className="flex items-center gap-3 text-xs text-muted">
+        <div className="flex max-w-full items-center gap-2 overflow-x-auto text-xs text-muted">
           {/* Editor tools (Add, Edit, Delete, Select, Snap, Measure,
               Undo, Redo) used to live in a header pill here. They
               now live in the right-docked Editor pane below, which
@@ -2403,7 +2403,7 @@ export function EditorRuntime({
           drawer" from the side rather than re-flowing the page. */}
       <div className="relative flex flex-1 overflow-hidden">
         <div
-          className={`absolute right-0 top-0 z-20 flex h-full w-80 shrink-0 transform flex-col border-l border-border bg-surface-1 shadow-overlay transition-transform duration-200 ${
+          className={`absolute right-0 top-0 z-20 flex h-full w-80 max-md:w-full shrink-0 transform flex-col border-l border-border bg-surface-1 shadow-overlay transition-transform duration-200 ${
             layersOpen ? 'translate-x-0' : 'translate-x-full'
           }`}
           aria-hidden={!layersOpen}
@@ -2462,7 +2462,7 @@ export function EditorRuntime({
             precedence visually). */}
         {formViewSchema && surveyTargetLayerId ? (
           <div
-            className={`absolute right-0 top-0 z-30 flex h-full w-96 shrink-0 transform flex-col border-l border-border bg-surface-1 shadow-overlay transition-transform duration-200 ${
+            className={`absolute right-0 top-0 z-30 flex h-full w-96 max-md:w-full shrink-0 transform flex-col border-l border-border bg-surface-1 shadow-overlay transition-transform duration-200 ${
               formViewOpen ? 'translate-x-0' : 'translate-x-full'
             }`}
             aria-hidden={!formViewOpen}
@@ -2510,7 +2510,7 @@ export function EditorRuntime({
             survey runtime's form view still wins for that surface. */}
         {canEdit ? (
           <div
-            className={`absolute right-0 top-0 flex h-full w-80 shrink-0 transform flex-col border-l border-border bg-surface-1 shadow-overlay transition-transform duration-200 ${
+            className={`absolute right-0 top-0 flex h-full w-80 max-md:w-full shrink-0 transform flex-col border-l border-border bg-surface-1 shadow-overlay transition-transform duration-200 ${
               editorPaneOpen ? 'translate-x-0' : 'translate-x-full'
             }`}
             aria-hidden={!editorPaneOpen}
@@ -3111,7 +3111,7 @@ export function EditorRuntime({
             having to close the editor pane first. */}
         {activeTool === 'measure' ? (
           <div
-            className="absolute right-0 top-0 flex h-full w-80 shrink-0 flex-col border-l border-border bg-surface-1 shadow-overlay"
+            className="absolute right-0 top-0 flex h-full w-80 max-md:w-full shrink-0 flex-col border-l border-border bg-surface-1 shadow-overlay"
             style={{ zIndex: 30 }}
           >
             <div className="flex h-9 shrink-0 items-center justify-between border-b border-border bg-surface-1 px-3">

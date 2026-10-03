@@ -434,3 +434,64 @@
     margin: 0.5cm;
   }
 }
+
+/* Phone layout for a custom app / dashboard. The authoring grid is
+   192 columns and stays that way on a wide screen. Below the md
+   breakpoint the same widgets reflow from the --m-* variables the
+   runtime writes on each section: indicators two-up, everything else
+   full width, and the page scrolls instead of squeezing the grid
+   into the viewport. !important beats the inline grid placement,
+   which is what the desktop layout still uses. */
+@media (max-width: 767px) {
+  .app-runtime-scroll {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  .app-runtime-stage {
+    flex: none;
+    flex-direction: column;
+    min-height: auto;
+    overflow: visible;
+  }
+  .app-runtime-canvas {
+    display: grid !important;
+    height: auto !important;
+    min-height: auto !important;
+    flex: none !important;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+    grid-template-rows: none !important;
+    grid-auto-rows: auto;
+    align-content: start;
+    overflow: visible !important;
+    gap: 8px !important;
+  }
+  .app-runtime-canvas > section:not(.is-expanded) {
+    position: relative !important;
+    z-index: 1 !important;
+    grid-column: var(--m-col) !important;
+    grid-row: var(--m-row) !important;
+    width: auto !important;
+    height: var(--m-h) !important;
+    min-width: 0 !important;
+    min-height: var(--m-min) !important;
+  }
+  .app-runtime-canvas > section.is-expanded {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 50 !important;
+    width: auto !important;
+    height: auto !important;
+    min-height: 0 !important;
+  }
+  .app-runtime-dock {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    max-height: 45vh !important;
+    flex: none !important;
+  }
+  .maplibregl-ctrl-attrib {
+    max-width: calc(100% - 5.5rem);
+    font-size: 10px;
+  }
+}

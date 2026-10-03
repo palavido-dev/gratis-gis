@@ -718,7 +718,7 @@ export default async function ItemDetailPage(props: Props) {
           actions. Description / owner / updated / tags collapse into
           a `<details>` disclosure below so they're one click away
           without eating the fold. */}
-      <header className="mb-4 flex items-start gap-3">
+      <header className="mb-4 flex flex-wrap items-start gap-3">
         {/* Thumbnail: user-uploaded image wins; otherwise a per-type
             icon tile so the header visually matches the card on the
             list page instead of showing letter-initials. */}
@@ -929,8 +929,8 @@ export default async function ItemDetailPage(props: Props) {
            read-only experience existed and was simply unreachable.
            Anyone who can read the item can now open it; what they get
            on arrival is still decided by canEdit. */
-        <section className="mb-6 flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-1 p-4 shadow-card">
-          <div className="min-w-0">
+        <section className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface-1 p-4 shadow-card">
+          <div className="min-w-[min(100%,14rem)] flex-1">
             <p className="text-sm font-medium text-ink-0">
               {mapItemCanEdit
                 ? t('mapCard.editTitle', undefined, locale)
@@ -1124,8 +1124,8 @@ export default async function ItemDetailPage(props: Props) {
            reaching the app from the items list already land on the
            runtime via getItemHref; this is the same door for anyone
            who arrives at the item page instead. */
-        <section className="mb-6 flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-1 p-4 shadow-card">
-          <div className="min-w-0">
+        <section className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface-1 p-4 shadow-card">
+          <div className="min-w-[min(100%,14rem)] flex-1">
             <p className="text-sm font-medium text-ink-0">
               {canManage
                 ? t('appCard.editTitle', undefined, locale)
@@ -1451,8 +1451,8 @@ export default async function ItemDetailPage(props: Props) {
         // full real estate (paper canvas + element palette + props
         // panel won't fit comfortably inside the regular item-detail
         // chrome).
-        (<section className="mb-6 flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-1 p-4 shadow-card">
-          <div className="min-w-0">
+        (<section className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface-1 p-4 shadow-card">
+          <div className="min-w-[min(100%,14rem)] flex-1">
             <p className="text-sm font-medium text-ink-0">Print template designer</p>
             <p className="mt-0.5 text-xs text-muted">
               Open the full-screen builder to edit the paper layout,

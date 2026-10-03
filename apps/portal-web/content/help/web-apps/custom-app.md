@@ -84,3 +84,8 @@ Org-only app requires sign-in.
 - **The Custom template's runtime is shared** across web apps
  (one bundle, configured per app). Updating the runtime
  updates every Custom app at once on the next page load.
+- **A phone gets a stacked layout.** Below a tablet width the
+ canvas stops using the 192-column grid. Indicators that share
+ a row sit two across, and maps, charts, and tables each take
+ the width of the screen. Widen the window and the authored
+ grid comes back.

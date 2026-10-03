@@ -1275,10 +1275,10 @@ export function AttributeTable({
           : // Default: bottom dock over a relatively-positioned canvas
             // parent (the map editor's pattern). 40% of the canvas
             // height, full width.
-            'absolute bottom-0 left-0 right-0 z-20 flex h-[40%] min-h-[240px] flex-col border-t border-border bg-surface-1 shadow-overlay'
+            'absolute bottom-0 left-0 right-0 z-20 flex h-[40%] min-h-[240px] flex-col border-t border-border bg-surface-1 shadow-overlay max-md:h-[46dvh] max-md:min-h-0'
       }
     >
-      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
         <h3 className="inline-flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted">
           <Table className="h-3.5 w-3.5" />
           Attribute table
@@ -1313,7 +1313,7 @@ export function AttributeTable({
             ))}
           </select>
         ) : null}
-        <div className="ml-2 flex flex-1 items-center gap-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           <label className="relative block min-w-0 max-w-xs flex-1">
             <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
             <input
@@ -2752,7 +2752,7 @@ function AttachmentDrawer({
     <div
       role="dialog"
       aria-label="Attachments"
-      className="absolute bottom-3 right-3 z-30 flex max-h-80 w-80 flex-col overflow-hidden rounded-lg border border-border bg-surface-1 shadow-overlay"
+      className="absolute bottom-3 right-3 z-30 flex max-h-80 w-80 flex-col overflow-hidden rounded-lg border border-border bg-surface-1 shadow-overlay max-md:left-3 max-md:right-3 max-md:w-auto"
     >
       <header className="flex shrink-0 items-center gap-1.5 border-b border-border bg-surface-2/40 px-3 py-1.5">
         <Paperclip className="h-3.5 w-3.5 text-muted" />

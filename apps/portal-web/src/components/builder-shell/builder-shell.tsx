@@ -31,6 +31,12 @@
  * `builder-shell:map`, `builder-shell:web-app`, `builder-shell:form`)
  * so reopening the builder respects the user's last layout.
  *
+ * Below 768px the shell ignores the pinned preference and keeps both
+ * panels as icon rails. A pinned 320px panel beside a map leaves no
+ * canvas on a phone. Opening a rail still shows the panel, sized to
+ * the canvas. The stored pin state is left alone so a wider window
+ * restores it.
+ *
  * Why an overlay layer rather than separate routes: each item type's
  * builder already lives at `/items/[id]` and shares state + data
  * fetches with the metadata view. Lifting them to dedicated
@@ -177,9 +183,8 @@ export function BuilderShell({
   const [leftFloatOpen, setLeftFloatOpen] = useState(false);
   const [rightFloatOpen, setRightFloatOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
-  // Phone widths keep both panels as overlays so the map keeps the
-  // screen. A pin saved on a desktop does not come back until the
-  // window is wide again.
+  // Phones cannot spare a pinned side panel. The flag is viewport
+  // state, not a persisted preference.
   const [narrow, setNarrow] = useState(false);
 
   // Load persisted state on mount. The default-state render covers
@@ -191,14 +196,20 @@ export function BuilderShell({
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 767px)');
-    const apply = () => setNarrow(mq.matches);
+    const apply = () => {
+      setNarrow(mq.matches);
+      if (mq.matches) {
+        setLeftFloatOpen(false);
+        setRightFloatOpen(false);
+      }
+    };
     apply();
     mq.addEventListener('change', apply);
     return () => mq.removeEventListener('change', apply);
   }, []);
 
-  const leftPinned = narrow ? false : state.leftPinned;
-  const rightPinned = narrow ? false : state.rightPinned;
+  const leftPinned = state.leftPinned && !narrow;
+  const rightPinned = state.rightPinned && !narrow;
 
   // Persist whenever state changes (after hydration).
   useEffect(() => {
@@ -303,7 +314,7 @@ export function BuilderShell({
       {/* Top bar. Keeps roughly the same height as the portal chrome's
           top bar so the visual context shift between portal and
           builder feels intentional rather than abrupt. */}
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-surface-1 px-3">
+      <header className="flex h-12 max-md:h-auto shrink-0 flex-wrap items-center gap-2 border-b border-border bg-surface-1 px-3 py-1">
         <Link
           href={backHref}
           className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-2 hover:text-ink-0"
@@ -313,9 +324,9 @@ export function BuilderShell({
           <ArrowLeft className="h-4 w-4" />
         </Link>
         {icon ? <span className="shrink-0">{icon}</span> : null}
-        <h1 className="min-w-0 truncate text-sm font-medium">{title}</h1>
+        <h1 className="min-w-0 flex-1 truncate text-sm font-medium">{title}</h1>
         {toolbarRight ? (
-          <div className="ml-auto flex shrink-0 items-center gap-2">
+          <div className="ml-auto flex max-w-full items-center gap-2 overflow-x-auto max-md:ml-0 max-md:basis-full">
             {toolbarRight}
           </div>
         ) : null}
@@ -378,6 +389,7 @@ export function BuilderShell({
               onClose={() => setLeftFloatOpen(false)}
               onTogglePin={toggleLeftPin}
               pinned={false}
+              allowPin={!narrow}
             >
               {leftPanel}
             </FloatingPanelOverlay>
@@ -390,6 +402,7 @@ export function BuilderShell({
               onClose={() => setRightFloatOpen(false)}
               onTogglePin={toggleRightPin}
               pinned={false}
+              allowPin={!narrow}
             >
               {rightPanel}
             </FloatingPanelOverlay>
@@ -444,9 +457,17 @@ interface PanelHeaderProps {
   onTogglePin: () => void;
   side: 'left' | 'right';
   onClose?: () => void;
+  allowPin?: boolean;
 }
 
-function PanelHeader({ title, pinned, onTogglePin, side, onClose }: PanelHeaderProps) {
+function PanelHeader({
+  title,
+  pinned,
+  onTogglePin,
+  side,
+  onClose,
+  allowPin = true,
+}: PanelHeaderProps) {
   const PinIcon = pinned ? Pin : PinOff;
   const CloseIcon = side === 'left' ? PanelLeftClose : PanelRightClose;
   return (
@@ -457,15 +478,17 @@ function PanelHeader({ title, pinned, onTogglePin, side, onClose }: PanelHeaderP
         </span>
       ) : null}
       <div className="ml-auto flex items-center gap-0.5">
-        <button
-          type="button"
-          onClick={onTogglePin}
-          className="inline-flex h-6 w-6 items-center justify-center rounded text-muted transition-colors hover:bg-surface-1 hover:text-ink-0"
-          title={pinned ? 'Unpin (collapse to icon)' : 'Pin panel open'}
-          aria-label={pinned ? 'Unpin panel' : 'Pin panel'}
-        >
-          <PinIcon className="h-3.5 w-3.5" />
-        </button>
+        {allowPin ? (
+          <button
+            type="button"
+            onClick={onTogglePin}
+            className="inline-flex h-6 w-6 items-center justify-center rounded text-muted transition-colors hover:bg-surface-1 hover:text-ink-0"
+            title={pinned ? 'Unpin (collapse to icon)' : 'Pin panel open'}
+            aria-label={pinned ? 'Unpin panel' : 'Pin panel'}
+          >
+            <PinIcon className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
         {onClose ? (
           <button
             type="button"
@@ -489,6 +512,7 @@ interface FloatingPanelOverlayProps {
   pinned: boolean;
   onClose: () => void;
   onTogglePin: () => void;
+  allowPin?: boolean;
   children: ReactNode;
 }
 
@@ -499,6 +523,7 @@ function FloatingPanelOverlay({
   pinned,
   onClose,
   onTogglePin,
+  allowPin = true,
   children,
 }: FloatingPanelOverlayProps) {
   // Backdrop catches click-away. We deliberately don't render a
@@ -516,7 +541,7 @@ function FloatingPanelOverlay({
         className={`absolute top-2 z-20 flex max-h-[calc(100%-1rem)] flex-col overflow-hidden rounded-lg border border-border bg-surface-1 shadow-overlay ${
           side === 'left' ? 'left-2' : 'right-2'
         }`}
-        style={{ width }}
+        style={{ width, maxWidth: 'calc(100% - 1rem)' }}
         onClick={(e) => e.stopPropagation()}
       >
         <PanelHeader
@@ -525,6 +550,7 @@ function FloatingPanelOverlay({
           onTogglePin={onTogglePin}
           side={side}
           onClose={onClose}
+          allowPin={allowPin}
         />
         <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
       </aside>

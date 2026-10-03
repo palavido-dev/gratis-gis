@@ -99,6 +99,7 @@ import {
   type OsmOverlayFeature,
 } from './osm-overlay-layer';
 import type { CustomBasemap } from '@/lib/custom-basemap';
+import { mobilePlacements, type MobilePlacement } from '@/lib/mobile-canvas';
 import { customBasemapToData } from '@/lib/custom-basemap';
 import {
   exportFeatures,
@@ -686,6 +687,28 @@ export function CustomRuntimeClient({
     0,
   );
   const totalRows = Math.max(8, usedRows + 2);
+  const mobileById = useMemo(() => {
+    // Docks and sticky bars are flex siblings of the canvas, so they
+    // must not consume a row in the phone stack.
+    const canvas = page.widgets.filter((widget) => {
+      if (widget.kind !== 'container' || widget.config.kind !== 'container') {
+        return true;
+      }
+      const pos = widget.config.position ?? 'inline';
+      return pos === 'inline' || pos === 'overlay-trigger';
+    });
+    const placed = mobilePlacements(
+      canvas.map((widget) => ({
+        id: widget.id,
+        kind: widget.kind,
+        col: widget.layout.col,
+        row: widget.layout.row,
+        colSpan: widget.layout.colSpan,
+        rowSpan: widget.layout.rowSpan,
+      })),
+    );
+    return new Map(placed.map((item) => [item.id, item]));
+  }, [page.widgets]);
 
   // Initial per-Map-widget state derived once from the resolved
   // baseMapData. Each Map widget gets a deep-ish copy so divergent
@@ -956,7 +979,7 @@ export function CustomRuntimeClient({
         // the portal sans for theme items saved before the token
         // existed) so each app carries its theme's typographic voice.
         style={{ fontFamily: 'var(--app-font, var(--font-sans))' }}
-        className="flex h-screen flex-col overflow-hidden bg-[hsl(var(--app-surface-0))] text-[hsl(var(--app-ink-0))]"
+        className="flex h-dvh flex-col overflow-hidden bg-[hsl(var(--app-surface-0))] text-[hsl(var(--app-ink-0))]"
       >
         {appAt ? (
           // #87 -- time-travel banner.  Lives above the app header so
@@ -986,7 +1009,7 @@ export function CustomRuntimeClient({
             designed header (top container with logo / title / tools)
             isn't competing with a duplicate runtime title strip. */}
         {canManage ? (
-          <header className="flex shrink-0 items-center justify-between gap-4 border-b border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-4 py-2">
+          <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-3 py-2">
             <div className="flex min-w-0 items-center gap-3">
               <Link
                 href="/items"
@@ -1002,7 +1025,7 @@ export function CustomRuntimeClient({
             </div>
             <Link
               href={`/items/${itemId}?view=configure`}
-              className="inline-flex items-center gap-1 rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-2 py-1 text-xs font-medium text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
+              className="inline-flex shrink-0 items-center gap-1 rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-2 py-1 text-xs font-medium text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
             >
               Configure
             </Link>
@@ -1021,7 +1044,7 @@ export function CustomRuntimeClient({
           app.header?.subtitle?.trim() ||
           app.header) ? (
           <header className="shrink-0 border-b border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-4 py-3">
-            <h1 className="truncate text-lg font-semibold leading-tight text-[hsl(var(--app-ink-0))]">
+            <h1 className="text-balance text-lg font-semibold leading-tight text-[hsl(var(--app-ink-0))]">
               {app.header?.title?.trim() || itemTitle}
             </h1>
             {app.header?.subtitle?.trim() ? (
@@ -1075,7 +1098,7 @@ export function CustomRuntimeClient({
             scrolling. */}
         <div
           ref={runtimeContainerRef}
-          className="relative flex flex-1 flex-col overflow-hidden bg-[hsl(var(--app-surface-0))]"
+          className="app-runtime-scroll relative flex flex-1 flex-col overflow-hidden bg-[hsl(var(--app-surface-0))] pb-[env(safe-area-inset-bottom)]"
         >
           {totalWidgets === 0 ? (
             <div className="flex h-full items-center justify-center p-6">
@@ -1135,14 +1158,14 @@ export function CustomRuntimeClient({
                     {renderWidget(w)}
                   </div>
                 ))}
-                <div className="relative flex min-h-0 flex-1 items-stretch">
+                <div className="app-runtime-stage relative flex min-h-0 flex-1 items-stretch">
                   {leftDocks.map((w) => (
                     <div key={w.id} className="relative shrink-0">
                       {renderWidget(w)}
                     </div>
                   ))}
                   <div
-                    className="relative grid min-h-0 min-w-0 flex-1 p-3"
+                    className="app-runtime-canvas relative grid min-h-0 min-w-0 flex-1 p-3"
                     style={{
                 // Viewport-fit grid: 48 cols x N rows of 1fr each,
                 // where N = the highest row+rowSpan used by any
@@ -1188,9 +1211,16 @@ export function CustomRuntimeClient({
                     {/* Canvas widgets paint via the page grid. Map
                         widgets sit at z-0; tool buttons at z-10;
                         other panels at z-5 (see WidgetSlot). */}
-                    {canvasWidgets.map((w) => (
-                      <WidgetSlot key={w.id} widget={w} />
-                    ))}
+                    {canvasWidgets.map((w) => {
+                      const mobile = mobileById.get(w.id);
+                      return (
+                        <WidgetSlot
+                          key={w.id}
+                          widget={w}
+                          {...(mobile ? { mobile } : {})}
+                        />
+                      );
+                    })}
                   </div>
                   {rightDocks.map((w) => (
                     <div key={w.id} className="relative shrink-0">
@@ -1248,7 +1278,13 @@ function sortForOverlapStacking(widgets: CustomWidget[]): CustomWidget[] {
   return [...beneath, ...above];
 }
 
-function WidgetSlot({ widget }: { widget: CustomWidget }) {
+function WidgetSlot({
+  widget,
+  mobile,
+}: {
+  widget: CustomWidget;
+  mobile?: MobilePlacement;
+}) {
   // #364: tool-mode widgets render as a small icon button in the
   // grid cell + a popover panel anchored per panelArrangement.
   // Panel-mode widgets render inline using the existing card chrome.
@@ -1301,13 +1337,18 @@ function WidgetSlot({ widget }: { widget: CustomWidget }) {
               gridRow: `${widget.layout.row} / span ${widget.layout.rowSpan}`,
               position: 'relative',
               zIndex,
+              ['--m-col' as string]: mobile?.column ?? '1 / -1',
+              ['--m-row' as string]: mobile?.row ?? 'auto',
+              ['--m-h' as string]: mobile?.height ?? 'auto',
+              ['--m-min' as string]: mobile?.minHeight ?? '0px',
             }
       }
       className={
-        isToolMode
+        (isToolMode
           ? 'flex h-full w-full items-stretch'
-          : 'flex h-full w-full flex-col overflow-hidden rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))]' +
-            (expanded ? ' shadow-2xl' : '')
+          : 'flex h-full w-full min-w-0 flex-col overflow-hidden rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))]' +
+            (expanded ? ' shadow-2xl' : '')) +
+        (expanded ? ' is-expanded' : '')
       }
     >
       {canExpand ? (
@@ -5392,19 +5433,21 @@ function IndicatorWidgetRender({ widget }: { widget: CustomWidget }) {
           height and grow a scrollbar, which on a row of KPI tiles
           reads as breakage. A tile too small for its content should
           crop, not offer to scroll. */}
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1 overflow-hidden p-3 text-center">
+      <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col items-center justify-center gap-1 overflow-hidden p-3 text-center">
         {state.error ? (
           <p className="text-xs text-[hsl(var(--app-danger))]">{state.error}</p>
         ) : (
           <>
             <span
-              className={`text-4xl font-semibold tabular-nums leading-none ${toneClass} ${
+              className={`max-w-full text-2xl font-semibold tabular-nums leading-none md:text-4xl ${toneClass} ${
                 state.loading ? 'opacity-50' : ''
               }`}
             >
               {formatAggregateValue(state.value, cfg.format)}
             </span>
-            <span className="text-xs text-[hsl(var(--app-muted))]">{label}</span>
+            <span className="max-w-full text-balance break-words text-xs leading-snug text-[hsl(var(--app-muted))]">
+              {label}
+            </span>
             {ref ? (
               <span className="text-2xs text-[hsl(var(--app-muted))]">
                 {ref.label?.trim() || 'target'}:{' '}

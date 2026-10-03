@@ -4857,7 +4857,7 @@ function ExpressionBuilderModal({
             <X className="h-4 w-4" />
           </button>
         </header>
-        <div className="grid grid-cols-[1fr_280px] divide-x divide-border overflow-hidden">
+        <div className="grid grid-cols-1 divide-border overflow-y-auto md:grid-cols-[1fr_280px] md:divide-x md:overflow-hidden">
           <div className="flex min-h-0 flex-col overflow-hidden">
             {/* Slice 4 (#165): quick-start shortcuts. Each button
                 inserts a pre-shaped row at the end of the tree's

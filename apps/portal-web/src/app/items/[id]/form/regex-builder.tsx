@@ -310,7 +310,7 @@ function RegexBuilderModal({
             <X className="h-4 w-4" />
           </button>
         </header>
-        <div className="grid grid-cols-[1fr_300px] divide-x divide-border overflow-hidden">
+        <div className="grid grid-cols-1 divide-border overflow-y-auto md:grid-cols-[1fr_300px] md:divide-x md:overflow-hidden">
           {/* Left: preset list */}
           <div className="overflow-auto p-3">
             <p className="mb-2 text-2xs font-medium uppercase tracking-wide text-muted">

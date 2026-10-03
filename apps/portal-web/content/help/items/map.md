@@ -43,8 +43,14 @@ The map item has two views:
  sharing, tags) and a small preview. This is the public-facing
  card.
 - **Builder**. The full editor (click **Open builder** on the
- detail page or use `?view=configure`). Map canvas on the right,
- layer panel and tools on the left.
+ detail page or use `?view=configure`). Map canvas in the middle,
+ layers on the left, map settings on the right.
+
+On a phone the builder keeps the map full width and tucks the
+side panels behind icon rails. Search stretches across the top.
+The legend, markup, and comments panels use the screen width
+instead of a fixed desktop card. The attribute table docks to
+the bottom and its toolbar wraps.
 
 ## Sharing
 

@@ -167,10 +167,9 @@ interface Props {
  * a viewer can explore the map without side effects while an owner
  * only persists changes they actually want.
  *
- * Layout: left sidebar with layer panel, right side the map. On narrow
- * viewports the sidebar collapses into a drawer (future): for v2 we
- * use a fixed-width sidebar and let horizontal scroll handle anything
- * below that.
+ * Layout: layer panel on the left, map settings on the right, canvas
+ * in the middle. BuilderShell owns the widths. Below 768px both
+ * panels collapse to icon rails so the map keeps the screen.
  */
 /**
  * Convert a geo_boundary item's geometry / cached bbox into the

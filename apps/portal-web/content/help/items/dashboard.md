@@ -31,6 +31,11 @@ Edit the layout in the web app builder, the same place you edit
 any other web app. Sharing follows the web app: sharing the app
 does not automatically share every layer it draws.
 
+On a phone the same layout stacks. Indicators that sat in one row
+sit two across, and the map and charts each take the full width
+and scroll. The desktop arrangement is what you edit; the phone
+reflow is automatic.
+
 Paper output from a web app is a **print template**. A dedicated
 document report item is not built.
 

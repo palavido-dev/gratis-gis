@@ -253,7 +253,7 @@ export function SearchBar({
       className={
         embedded
           ? 'overflow-hidden rounded-lg border border-border bg-surface-1'
-          : 'absolute left-4 top-4 z-10 w-80 overflow-hidden rounded-lg border border-border bg-surface-1/95 shadow-raised backdrop-blur'
+          : 'absolute left-4 top-4 z-10 w-80 overflow-hidden rounded-lg border border-border bg-surface-1/95 shadow-raised backdrop-blur max-md:left-3 max-md:right-3 max-md:w-auto'
       }
     >
       <label className="relative block">
