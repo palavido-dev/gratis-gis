@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import io.ktor.http.Url
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
@@ -121,9 +122,49 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     viewModelScope.launch {
       _state.update { it.copy(busy = true, error = null) }
       try {
+        // #region agent log
+        val cached = app.db.collections().observeAll().first()
+        org.gratisgis.field.core.database.DebugNdjson.log(
+          "D",
+          "HomeViewModel.kt:loadCollections",
+          "before network list",
+          mapOf(
+            "signedIn" to app.auth.isSignedIn,
+            "roomCollectionCount" to cached.size,
+            "roomCollectionIds" to cached.joinToString(",") { it.id.take(8) },
+            "roomDownloaded" to cached.count { it.downloadedAt != null },
+          ),
+        )
+        // #endregion
         val rows = client.listCollections()
+        // #region agent log
+        org.gratisgis.field.core.database.DebugNdjson.log(
+          "D",
+          "HomeViewModel.kt:loadCollections",
+          "network list ok — UI uses network only",
+          mapOf(
+            "networkCount" to rows.size,
+            "networkIds" to rows.joinToString(",") { it.id.take(8) },
+            "roomCollectionCount" to cached.size,
+            "uiWillShowOfflineCache" to false,
+          ),
+        )
+        // #endregion
         _state.update { it.copy(collections = rows) }
       } catch (t: Throwable) {
+        // #region agent log
+        org.gratisgis.field.core.database.DebugNdjson.log(
+          "D",
+          "HomeViewModel.kt:loadCollections",
+          "network list failed — Room cache not surfaced",
+          mapOf(
+            "error" to (t.message ?: t.toString()),
+            "errorClass" to t.javaClass.simpleName,
+            "signedInAfter" to app.auth.isSignedIn,
+            "clearingUiList" to (t is PortalError.Auth && !app.auth.isSignedIn),
+          ),
+        )
+        // #endregion
         if (t is PortalError.Auth && !app.auth.isSignedIn) {
           _state.update { it.copy(signedInAs = null, collections = emptyList()) }
         }

@@ -157,9 +157,24 @@ class FormViewModel(
           }
         }
         val now = Instant.now().toString()
+        val draftId = _state.value.draftId
+        // #region agent log
+        org.gratisgis.field.core.database.DebugNdjson.log(
+          "A",
+          "FormViewModel.kt:saveDraft",
+          "before draft upsert",
+          mapOf(
+            "draftId" to draftId,
+            "collectionId" to collectionId,
+            "formId" to formId,
+            "responseKeys" to response.keys.joinToString(","),
+            "validationOk" to ok,
+          ),
+        )
+        // #endregion
         app.db.drafts().upsert(
           DraftEntity(
-            id = _state.value.draftId,
+            id = draftId,
             collectionId = collectionId,
             formId = formId,
             layerKey = layer.layerKey,
@@ -168,6 +183,22 @@ class FormViewModel(
             updatedAt = now,
           ),
         )
+        // #region agent log
+        val readBack = app.db.drafts().get(draftId)
+        val forCollection = app.db.drafts().forCollection(collectionId)
+        org.gratisgis.field.core.database.DebugNdjson.log(
+          "A",
+          "FormViewModel.kt:saveDraft",
+          "after draft upsert",
+          mapOf(
+            "draftId" to draftId,
+            "readBackExists" to (readBack != null),
+            "readBackUpdatedAt" to readBack?.updatedAt,
+            "forCollectionCount" to forCollection.size,
+            "forCollectionIds" to forCollection.joinToString(",") { it.id.take(8) },
+          ),
+        )
+        // #endregion
         _state.update {
           it.copy(
             savedAt = now,
@@ -176,6 +207,14 @@ class FormViewModel(
           )
         }
       } catch (t: Throwable) {
+        // #region agent log
+        org.gratisgis.field.core.database.DebugNdjson.log(
+          "A",
+          "FormViewModel.kt:saveDraft",
+          "saveDraft failed",
+          mapOf("error" to (t.message ?: t.toString())),
+        )
+        // #endregion
         _state.update { it.copy(busy = false, error = t.message ?: t.toString()) }
       }
     }

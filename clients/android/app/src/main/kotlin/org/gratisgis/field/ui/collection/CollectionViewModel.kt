@@ -76,14 +76,40 @@ class CollectionViewModel(application: Application, collection: ItemSummary) : A
     viewModelScope.launch {
       val id = _state.value.collection.id
       val stored = app.db.collections().get(id)
+      val layers = app.db.layers().forCollection(id)
+      val featureCount = app.db.features().countForCollection(id)
+      val packages = app.db.offlinePackages().forCollection(id)
+      val queue = app.db.queue().forCollection(id)
+      val drafts = app.db.drafts().forCollection(id)
+      // #region agent log
+      org.gratisgis.field.core.database.DebugNdjson.log(
+        "C",
+        "CollectionViewModel.kt:refresh",
+        "refresh from Room",
+        mapOf(
+          "collectionId" to id,
+          "storedExists" to (stored != null),
+          "downloadedAt" to stored?.downloadedAt,
+          "layers" to layers.size,
+          "featureCount" to featureCount,
+          "packages" to packages.size,
+          "packagePathsExist" to packages.joinToString(";") { p ->
+            "${p.areaId}:${java.io.File(p.filePath).exists()}"
+          },
+          "drafts" to drafts.size,
+          "draftIds" to drafts.joinToString(",") { it.id.take(8) },
+          "queue" to queue.size,
+        ),
+      )
+      // #endregion
       _state.update {
         it.copy(
-          layers = app.db.layers().forCollection(id),
-          featureCount = app.db.features().countForCollection(id),
-          packages = app.db.offlinePackages().forCollection(id),
+          layers = layers,
+          featureCount = featureCount,
+          packages = packages,
           downloadedAt = stored?.downloadedAt,
-          queue = app.db.queue().forCollection(id),
-          drafts = app.db.drafts().forCollection(id),
+          queue = queue,
+          drafts = drafts,
         )
       }
     }

@@ -152,7 +152,34 @@ class OfflineDownloader(
             downloadedAt = now,
           ),
         )
+        // #region agent log
+        org.gratisgis.field.core.database.DebugNdjson.log(
+          "E",
+          "OfflineDownloader.kt:download",
+          "package upserted",
+          mapOf(
+            "collectionId" to collection.id,
+            "areaId" to entry.area.id,
+            "areaName" to entry.area.name,
+            "filePath" to file.absolutePath,
+            "fileExists" to file.exists(),
+            "sizeBytes" to file.length(),
+          ),
+        )
+        // #endregion
       } catch (t: Throwable) {
+        // #region agent log
+        org.gratisgis.field.core.database.DebugNdjson.log(
+          "E",
+          "OfflineDownloader.kt:download",
+          "package download failed",
+          mapOf(
+            "collectionId" to collection.id,
+            "areaName" to entry.area.name,
+            "error" to (t.message ?: t.toString()),
+          ),
+        )
+        // #endregion
         shortfalls += "package ${entry.area.name}: ${t.message}"
         report(progress.copy(shortfalls = shortfalls.toList()))
       }
@@ -161,6 +188,23 @@ class OfflineDownloader(
     db.collections().upsert(
       CollectionEntity(collection.id, collection.title, mapId, data.toString(), downloadedAt = now),
     )
+    // #region agent log
+    val pkgCount = db.offlinePackages().forCollection(collection.id).size
+    org.gratisgis.field.core.database.DebugNdjson.log(
+      "E",
+      "OfflineDownloader.kt:download",
+      "download complete",
+      mapOf(
+        "collectionId" to collection.id,
+        "downloadedAt" to now,
+        "layers" to layers.size,
+        "featureCount" to featureCount,
+        "forms" to formCount,
+        "packagesInDb" to pkgCount,
+        "shortfalls" to shortfalls.size,
+      ),
+    )
+    // #endregion
     report(progress.copy(phase = "done", detail = ""))
   }
 

@@ -32,10 +32,40 @@ abstract class FieldDatabase : RoomDatabase() {
   abstract fun drafts(): DraftDao
 
   companion object {
-    fun open(context: Context): FieldDatabase =
-      Room.databaseBuilder(context.applicationContext, FieldDatabase::class.java, "gratisgis-field.db")
+    fun open(context: Context): FieldDatabase {
+      // #region agent log
+      DebugNdjson.init(context)
+      val dbPath = context.applicationContext.getDatabasePath("gratisgis-field.db")
+      DebugNdjson.log(
+        "B",
+        "FieldDatabase.kt:open",
+        "opening Room DB",
+        mapOf(
+          "path" to dbPath.absolutePath,
+          "exists" to dbPath.exists(),
+          "length" to (if (dbPath.exists()) dbPath.length() else -1L),
+          "version" to 3,
+          "destructiveMigration" to false,
+        ),
+      )
+      // #endregion
+      return Room.databaseBuilder(context.applicationContext, FieldDatabase::class.java, "gratisgis-field.db")
         .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
         .build()
+        .also { db ->
+          // #region agent log
+          DebugNdjson.log(
+            "B",
+            "FieldDatabase.kt:open",
+            "Room DB built",
+            mapOf(
+              "openHelperDbName" to db.openHelper.databaseName,
+              "isOpen" to db.isOpen,
+            ),
+          )
+          // #endregion
+        }
+    }
 
     /** v2: queue rows carry the optimistic-concurrency base and, on a
      *  409, the server's current version. Additive; old rows read as
