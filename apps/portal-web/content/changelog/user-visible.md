@@ -12,6 +12,9 @@ release note ("Refactored the X service") doesn't belong here.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-10-03 - A quieter frame, and an optional writing assistant
+The portal chrome is now a cool chart sheet, so the map stays the loudest thing on the page. Organization admins can also turn on a writing assistant (ChatGPT, Claude, Grok, or a model you host) that drafts item text from the title, description, and field names. It stays off until an admin saves a key, and the key never comes back to the browser.
+
 ## 2026-09-08 - The field app works where the signal does not
 Take a photo with no connection, and take it while you are still filling in the record: it stays on the device with the record and uploads once the record itself has landed, and nothing is reported as sent while its photo is still on the phone. Edits the server refuses, because a value breaks the layer's rules or you have lost access to the layer, no longer retry forever or vanish. A red "edits need attention" chip lists them with the reason; fix the value and retry, or discard the edit. Correcting a record you added offline no longer loses the original. And if your data lives in a spreadsheet, the New Data Layer wizard now takes a CSV and finds the coordinate columns itself, whether they are called latitude and longitude, LAT and LNG, or x and y.
 
