@@ -29,9 +29,12 @@ container, can be used.
 
 Authenticated users who can already read an item can ask for a
 **draft**. The model sees the item title, description, and
-schema or field names. It does not see feature geometries or row
-attribute values. The response is structured JSON: a suggested
-map filter, a short layer summary, and/or a form-field list.
+schema or field names. A draft does not include feature
+geometries or row attribute values. Asking a layer, documented
+below, is the separate call that sends a bounded sample of
+attribute text. The draft response is structured JSON: a
+suggested map filter, a short layer summary, and/or a
+form-field list.
 
 The server does not write the item. The user copies the draft.
 
@@ -43,6 +46,7 @@ The server does not write the item. The user copies the draft.
 | `GET` | `/api/ai/status` | Any signed-in user. `{ "configured": true \| false }`. |
 | `POST` | `/api/ai/draft` | Any signed-in user who can read the item. Body: `{ "itemId", "instruction" }`. |
 | `POST` | `/api/ai/build` | A contributor or admin. Body: `{ "instruction" }`. Creates layers, a map, a form, and a viewer app from the description. |
+| `POST` | `/api/ai/features` | Any signed-in user who can read the data layer. Body: `{ "itemId", "question", "layerId"? }`. Answers from a sample of attribute text. |
 
 Viewers and contributors cannot save a provider. API keys cannot
 call `/api/admin/*` (the same `AdminGuard` as the rest of the
@@ -86,8 +90,26 @@ Choose **Build it** to create the items.
 A viewer cannot call this endpoint. When no provider is saved
 the response is 409 `ai_not_configured`, the same as drafts.
 
+## Asking a layer
+
+`POST /api/ai/features` answers a question about rows on a data
+layer the caller can already read. The same page, **Build**
+(`/assistant`), has an **Ask a layer** section. Speak fills the
+question box the same way it fills a build description.
+
+The server does not embed the layer. It searches attribute text
+for a few words from the question, adds a short sample of rows
+the caller can read (row scope and any geographic limit
+included), and sends that attribute text to the provider.
+Geometries are left out. The model may only name ids from that
+sample; any other id is dropped. A layer with no readable rows
+is answered without a model call.
+
+This is a bounded sample, not a search of every row. A question
+about a value that is not in the matched sample will not see
+that row.
+
 ## Not in this slice
 
-Embeddings and semantic search over feature rows are not
-implemented. A draft of an existing item is still a suggestion
-the server does not write back.
+Vector embeddings are not stored, and a draft of an existing
+item is still a suggestion the server does not write back.

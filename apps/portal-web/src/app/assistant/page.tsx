@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { BuildComposer } from './build-composer';
+import { LayerAsk } from './layer-ask';
 
 export const metadata = {
   title: 'Build',
@@ -21,6 +22,9 @@ export default function BuildPage() {
       </p>
       <div className="mt-8">
         <BuildComposer />
+      </div>
+      <div className="mt-12 border-t border-border pt-10">
+        <LayerAsk />
       </div>
     </div>
   );

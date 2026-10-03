@@ -26,3 +26,10 @@ Open any of the links it shows to keep editing.
 
 An organization admin turns this on under **Admin → AI**. Until
 a provider is saved, Build explains that and stops.
+
+The same page has **Ask a layer**. Pick a data layer you can
+open and ask a question about its rows, by typing or by
+speaking. GratisGIS searches the attribute text and sends a
+short sample to the provider. It does not send geometries.
+The answer only names rows from that sample, so a very large
+layer is not searched in full.
