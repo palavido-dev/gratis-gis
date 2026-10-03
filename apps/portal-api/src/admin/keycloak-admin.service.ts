@@ -724,6 +724,185 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
       `Granted manage-realm to admin service-account '${clientId}' on realm '${this.realm}'.`,
     );
   }
+
+  /**
+   * Identity providers configured on the realm. Secrets are not
+   * returned. `domain` is the optional email domain this portal
+   * stored on the provider so the sign-in page can hint it.
+   */
+  async listIdentityProviders(): Promise<
+    Array<{ alias: string; displayName: string; enabled: boolean; domain: string | null }>
+  > {
+    const token = await this.getAccessToken();
+    const res = await fetch(this.adminUrl('/identity-provider/instances'), {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      throw new BadGatewayException(
+        `Could not list sign-in methods (${res.status}).`,
+      );
+    }
+    const rows = (await res.json()) as Array<{
+      alias?: string;
+      displayName?: string;
+      enabled?: boolean;
+      config?: Record<string, string>;
+    }>;
+    return rows
+      .filter((row) => typeof row.alias === 'string' && row.alias.length > 0)
+      .map((row) => ({
+        alias: row.alias!,
+        displayName: row.displayName || row.alias!,
+        enabled: row.enabled !== false,
+        domain: row.config?.gratisDomain?.trim() || null,
+      }));
+  }
+
+  /**
+   * Add one OpenID Connect sign-in method. New accounts receive the
+   * caller's organization and the viewer role, so a first login can
+   * enter the portal without an invite. The client secret is sent
+   * to Keycloak and not stored in the portal database.
+   */
+  async createOidcProvider(input: {
+    alias: string;
+    displayName: string;
+    clientId: string;
+    clientSecret: string;
+    authorizationUrl: string;
+    tokenUrl: string;
+    orgSlug: string;
+    domain: string | null;
+  }): Promise<void> {
+    const token = await this.getAccessToken();
+    const headers = {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    };
+    const config: Record<string, string> = {
+      clientId: input.clientId,
+      clientSecret: input.clientSecret,
+      authorizationUrl: input.authorizationUrl,
+      tokenUrl: input.tokenUrl,
+      defaultScope: 'openid email profile',
+      syncMode: 'IMPORT',
+    };
+    if (input.domain) config.gratisDomain = input.domain;
+    const created = await fetch(this.adminUrl('/identity-provider/instances'), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        alias: input.alias,
+        displayName: input.displayName,
+        providerId: 'oidc',
+        enabled: true,
+        trustEmail: true,
+        storeToken: false,
+        firstBrokerLoginFlowAlias: 'first broker login',
+        config,
+      }),
+    });
+    if (!created.ok) {
+      const text = await created.text();
+      throw new BadGatewayException(
+        `Could not add the sign-in method (${created.status}). ${text.slice(0, 180)}`,
+      );
+    }
+    await this.addHardcodedMapper(input.alias, headers, 'org', input.orgSlug);
+    await this.addHardcodedMapper(input.alias, headers, 'org_role', 'viewer');
+  }
+
+  async deleteIdentityProvider(alias: string): Promise<void> {
+    const token = await this.getAccessToken();
+    const res = await fetch(
+      this.adminUrl(`/identity-provider/instances/${encodeURIComponent(alias)}`),
+      { method: 'DELETE', headers: { authorization: `Bearer ${token}` } },
+    );
+    if (!res.ok && res.status !== 404) {
+      throw new BadGatewayException(
+        `Could not remove the sign-in method (${res.status}).`,
+      );
+    }
+  }
+
+  /** Whether CONFIGURE_TOTP is a default required action on the realm. */
+  async getMfaRequired(): Promise<boolean> {
+    const token = await this.getAccessToken();
+    const res = await fetch(this.adminUrl('/authentication/required-actions'), {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return false;
+    const rows = (await res.json()) as Array<{
+      alias?: string;
+      defaultAction?: boolean;
+    }>;
+    return rows.some(
+      (row) => row.alias === 'CONFIGURE_TOTP' && row.defaultAction === true,
+    );
+  }
+
+  async setMfaRequired(required: boolean): Promise<void> {
+    const token = await this.getAccessToken();
+    const headers = {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    };
+    const list = await fetch(this.adminUrl('/authentication/required-actions'), {
+      headers,
+    });
+    if (!list.ok) {
+      throw new BadGatewayException('Could not read MFA settings.');
+    }
+    const rows = (await list.json()) as Array<Record<string, unknown>>;
+    const current = rows.find((row) => row.alias === 'CONFIGURE_TOTP');
+    const body = {
+      ...(current ?? { alias: 'CONFIGURE_TOTP', name: 'Configure OTP', providerId: 'CONFIGURE_TOTP' }),
+      alias: 'CONFIGURE_TOTP',
+      enabled: true,
+      defaultAction: required,
+    };
+    const updated = await fetch(
+      this.adminUrl('/authentication/required-actions/CONFIGURE_TOTP'),
+      { method: 'PUT', headers, body: JSON.stringify(body) },
+    );
+    if (!updated.ok) {
+      throw new BadGatewayException(
+        `Could not update MFA (${updated.status}).`,
+      );
+    }
+  }
+
+  private async addHardcodedMapper(
+    alias: string,
+    headers: Record<string, string>,
+    attribute: string,
+    value: string,
+  ): Promise<void> {
+    const res = await fetch(
+      this.adminUrl(
+        `/identity-provider/instances/${encodeURIComponent(alias)}/mappers`,
+      ),
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          name: attribute,
+          identityProviderAlias: alias,
+          identityProviderMapper: 'hardcoded-attribute-idp-mapper',
+          config: {
+            attribute,
+            'attribute.value': value,
+            syncMode: 'INHERIT',
+          },
+        }),
+      },
+    );
+    if (!res.ok) {
+      throw new BadGatewayException(
+        `The sign-in method was added, but the ${attribute} claim could not be set (${res.status}).`,
+      );
+    }
+  }
 }
 
 function combineName(

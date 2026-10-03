@@ -20,6 +20,8 @@ item's question list, layout, validation, and submission
 behavior. It opens from a form item's detail page (**Open
 designer**).
 
+![Form designer with a location question and a text question](/help/form-designer.svg)
+
 ## The four panels
 
 - **Question palette** (left). The catalog of question types you

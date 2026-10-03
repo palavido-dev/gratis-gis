@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 420" role="img" aria-labelledby="title">
+  <title id="title">New item wizard with Map selected</title>
+  <rect width="720" height="420" fill="#f6f7f9"/>
+  <rect x="48" y="36" width="624" height="348" rx="12" fill="#ffffff" stroke="#d7dde6"/>
+  <text x="72" y="78" fill="#161d27" font-family="ui-sans-serif, system-ui, sans-serif" font-size="18" font-weight="650">New item</text>
+  <text x="72" y="104" fill="#5c6b7a" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13">Pick what you are creating.</text>
+  <rect x="72" y="128" width="176" height="88" rx="8" fill="#e7eef6" stroke="#21466e"/>
+  <text x="88" y="168" fill="#21466e" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14" font-weight="650">Map</text>
+  <text x="88" y="190" fill="#21466e" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12">Layers, style, extent</text>
+  <rect x="264" y="128" width="176" height="88" rx="8" fill="#ffffff" stroke="#d7dde6"/>
+  <text x="280" y="168" fill="#161d27" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14">Data layer</text>
+  <text x="280" y="190" fill="#5c6b7a" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12">Features and fields</text>
+  <rect x="456" y="128" width="176" height="88" rx="8" fill="#ffffff" stroke="#d7dde6"/>
+  <text x="472" y="168" fill="#161d27" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14">Form</text>
+  <text x="472" y="190" fill="#5c6b7a" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12">Questions in the field</text>
+  <rect x="72" y="236" width="560" height="44" rx="8" fill="#ffffff" stroke="#d7dde6"/>
+  <text x="88" y="263" fill="#8b97a3" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13">Title</text>
+  <rect x="488" y="308" width="144" height="40" rx="8" fill="#21466e"/>
+  <text x="524" y="333" fill="#ffffff" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14">Create</text>
+</svg>

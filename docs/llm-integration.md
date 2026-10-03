@@ -42,6 +42,7 @@ The server does not write the item. The user copies the draft.
 | `DELETE` | `/api/admin/ai` | Org admin. Remove the provider and the key. |
 | `GET` | `/api/ai/status` | Any signed-in user. `{ "configured": true \| false }`. |
 | `POST` | `/api/ai/draft` | Any signed-in user who can read the item. Body: `{ "itemId", "instruction" }`. |
+| `POST` | `/api/ai/build` | A contributor or admin. Body: `{ "instruction" }`. Creates layers, a map, a form, and a viewer app from the description. |
 
 Viewers and contributors cannot save a provider. API keys cannot
 call `/api/admin/*` (the same `AdminGuard` as the rest of the
@@ -69,7 +70,24 @@ AES-256-GCM cipher used for other stored credentials.
 5. Save. Clear removes the row. Leaving the key field blank on
    a later save keeps the stored key.
 
+## Building from a description
+
+`POST /api/ai/build` asks the model for a plan, checks it, and
+then creates the items. The model sees the titles, geometry, and
+field names of up to 30 data layers the caller can already read.
+It does not see feature rows. A plan may reuse one of those
+layers by id. Any other id is refused. New layers are empty:
+the builder does not invent geometries.
+
+The portal page is **Build** (`/assistant`). The Speak button uses
+the browser's speech recognition and only fills the text box.
+Choose **Build it** to create the items.
+
+A viewer cannot call this endpoint. When no provider is saved
+the response is 409 `ai_not_configured`, the same as drafts.
+
 ## Not in this slice
 
-Embeddings, semantic search, and applying a draft back onto an
-item are not implemented. A draft is a suggestion.
+Embeddings and semantic search over feature rows are not
+implemented. A draft of an existing item is still a suggestion
+the server does not write back.
