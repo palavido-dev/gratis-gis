@@ -2,6 +2,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Crosshair, Globe, Lock, SlidersHorizontal, Users, X } from 'lucide-react';
 import type {
   ItemAccess,
@@ -24,6 +25,9 @@ import { useT } from '@/lib/i18n/locale-context';
  * lightweight toggles, the user wants to flip a couple, see the
  * grid update behind, and dismiss. A modal would force a heavier
  * commit-cancel mental model that doesn't match the action.
+ *
+ * On a phone the same panel is a viewport-pinned sheet. Anchoring
+ * it to the Filter button let a wide chip list run off the screen.
  *
  * The pill itself shows:
  *   - a count badge when one or more filters are active (sum of type
@@ -115,7 +119,12 @@ export function FilterPopover({
 }: Props) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  // Phone sheet vs desktop popover. Read on open as well as in an
+  // effect so the first tap after hydration already has the right
+  // placement.
+  const [narrow, setNarrow] = useState(false);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
 
   const activeCount =
     typeFilter.size +
@@ -124,17 +133,23 @@ export function FilterPopover({
     (ownerFilter?.size ?? 0) +
     (accessFilter?.size ?? 0);
 
-  // Close on outside click + Escape. Same pattern as folder-row-menu.
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 639px)');
+    const apply = () => setNarrow(mq.matches);
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
+
+  // Close on outside click + Escape. The phone sheet is portaled to
+  // document.body, so it is not a descendant of the button wrapper.
   useEffect(() => {
     if (!open) return;
     function onDocClick(e: MouseEvent) {
-      if (
-        wrapperRef.current &&
-        e.target instanceof Node &&
-        !wrapperRef.current.contains(e.target)
-      ) {
-        setOpen(false);
-      }
+      if (!(e.target instanceof Node)) return;
+      if (wrapperRef.current?.contains(e.target)) return;
+      if (panelRef.current?.contains(e.target)) return;
+      setOpen(false);
     }
     function onEsc(e: KeyboardEvent) {
       if (e.key === 'Escape') setOpen(false);
@@ -154,58 +169,42 @@ export function FilterPopover({
     if (areaPanelOpen) setOpen(false);
   }, [areaPanelOpen]);
 
-  return (
-    <div ref={wrapperRef} className="relative inline-flex">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        title={t('filter.filterItems')}
-        className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs transition-colors ${
-          activeCount > 0
-            ? 'border-accent bg-accent/10 text-accent'
-            : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
-        }`}
-      >
-        <SlidersHorizontal className="h-3.5 w-3.5" />
-        {t('filter.filter')}
-        {activeCount > 0 ? (
-          <span
-            className="ml-0.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-accent px-1 text-2xs font-semibold leading-none text-accent-foreground"
-            aria-label={t('filter.activeCount', { count: activeCount })}
-          >
-            {activeCount}
-          </span>
-        ) : null}
-      </button>
-
-      {open ? (
+  const panel = (
         <div
+          ref={panelRef}
           role="dialog"
           aria-label={t('filter.filterItems')}
-          // Anchored under the pill. On mobile we right-align so the
-          // panel can't overflow off the right edge of the viewport
-          // when the Filter button sits near the middle of the
-          // header (Matt's iPhone screenshot showed type chips
-          // clipped behind the right edge). Desktop keeps the
-          // left-aligned anchor so the panel hugs the button as
-          // before.
-          className="absolute right-0 top-full z-30 mt-1 w-[min(28rem,calc(100vw-2rem))] rounded-md border border-border bg-surface-1 p-3 shadow-lg sm:left-0 sm:right-auto"
+          className={
+            narrow
+              ? 'fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-[60] max-h-[min(80dvh,36rem)] overflow-y-auto rounded-xl border border-border bg-surface-1 p-3 shadow-lg'
+              : 'absolute left-0 top-full z-30 mt-1 max-h-[min(70vh,32rem)] w-[min(28rem,calc(100vw-2rem))] overflow-y-auto rounded-md border border-border bg-surface-1 p-3 shadow-lg'
+          }
         >
-          <div className="mb-2 flex items-center justify-between">
+          <div className="mb-2 flex items-center justify-between gap-2">
             <span className="text-2xs font-medium uppercase tracking-wide text-muted">
               {t('filter.type')}
             </span>
-            {typeFilter.size > 0 ? (
-              <button
-                type="button"
-                onClick={onClearTypes}
-                className="text-2xs text-muted hover:text-ink-1 hover:underline"
-              >
-                {t('filter.clearTypes')}
-              </button>
-            ) : null}
+            <div className="flex items-center gap-2">
+              {typeFilter.size > 0 ? (
+                <button
+                  type="button"
+                  onClick={onClearTypes}
+                  className="text-2xs text-muted hover:text-ink-1 hover:underline"
+                >
+                  {t('filter.clearTypes')}
+                </button>
+              ) : null}
+              {narrow ? (
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="inline-flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-1"
+                  aria-label={t('common.close')}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+            </div>
           </div>
 
           {typeCounts.length === 0 ? (
@@ -412,7 +411,56 @@ export function FilterPopover({
             </button>
           ) : null}
         </div>
-      ) : null}
+  );
+
+  const sheet =
+    open && narrow && typeof document !== 'undefined'
+      ? createPortal(
+          <>
+            <button
+              type="button"
+              className="fixed inset-0 z-[55] bg-black/40"
+              aria-label={t('common.close')}
+              onClick={() => setOpen(false)}
+            />
+            {panel}
+          </>,
+          document.body,
+        )
+      : null;
+
+  return (
+    <div ref={wrapperRef} className="relative inline-flex">
+      <button
+        type="button"
+        onClick={() => {
+          if (!open && typeof window !== 'undefined') {
+            setNarrow(window.matchMedia('(max-width: 639px)').matches);
+          }
+          setOpen((v) => !v);
+        }}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        title={t('filter.filterItems')}
+        className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs transition-colors ${
+          activeCount > 0
+            ? 'border-accent bg-accent/10 text-accent'
+            : 'border-border bg-surface-1 text-ink-1 hover:bg-surface-2'
+        }`}
+      >
+        <SlidersHorizontal className="h-3.5 w-3.5" />
+        {t('filter.filter')}
+        {activeCount > 0 ? (
+          <span
+            className="ml-0.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-accent px-1 text-2xs font-semibold leading-none text-accent-foreground"
+            aria-label={t('filter.activeCount', { count: activeCount })}
+          >
+            {activeCount}
+          </span>
+        ) : null}
+      </button>
+      {open && !narrow ? panel : null}
+      {sheet}
     </div>
   );
 }
