@@ -1,7 +1,7 @@
 ---
 id: analysis-workflows
 title: Workflows (graphs of analysis steps)
-summary: Express an analysis tool as a graph of connected steps so one step can feed into multiple downstream steps and multiple results can converge.
+summary: Arrange an analysis recipe as a chain of steps. The canvas saves positions and order. Branching execution is not available.
 category: analysis
 order: 5
 complexity: intermediate
@@ -15,18 +15,15 @@ related:
 ---
 
 Tools in GratisGIS can run an analysis pipeline behind a single
-button click. Phase 1 of tools shipped a linear pipeline — a
-straight sequence of steps where each one feeds the next.
-Workflows generalize that to a graph: one step can feed into
-multiple downstream steps, and multiple upstream results can
-converge into one.
+button click. The recipe editor shows that pipeline as a list
+and, when you open it on the canvas, as boxes in one chain.
 
-This is the underlying engine improvement. The visual graph
-editor that lets you drag nodes around a canvas is in the next
-phase; today's recipe editor still presents the linear list,
-and the workflow is structurally a chain. New node kinds for
-true branching (joins, unions) land in the same Phase 2 commit
-as the editor.
+Dragging a box changes where it sits. **Runs after** changes
+which step comes next. The arrows and the list stay in the
+same order, and that order is what runs. A branch is not
+drawn: the runner still executes one sequence, so a fork
+would not do what the drawing suggested. Joins and unions
+are not steps on this canvas.
 
 ## What "graph" means here
 
@@ -59,35 +56,31 @@ tries again.
 Existing tools continue to work unchanged. Every tool you
 authored before this lands keeps running as a linear pipeline.
 
-## What's next
+## What the canvas does
 
-- **Phase 2** adds new node kinds that only make sense in a
-  graph: a join node that takes two upstream layer results
-  and matches them on a shared attribute, a union node that
-  appends two upstream results together, geometry helpers like
-  buffer / centroid / convex-hull as standalone nodes.
-- **Phase 3** ships the visual graph editor — drag nodes onto
-  a canvas, draw arrows between them, see the order at a
-  glance. The current vertical-list editor stays as an
-  alternate view for simple linear workflows.
+Open a recipe and choose **Open on canvas**. Each step is a
+box. Filter steps can be edited on the box. **Add filter**
+appends one. Removing a box splices the chain back together.
+The list under the canvas is the same sequence.
 
-## Why the change
+Positions are saved with the recipe. They do not change the
+result. Only the order does.
 
-Real analysis questions often aren't a straight line. "Give me
-all parcels within 200 meters of a school, AND owned by the
-city, AND not currently zoned residential" is three filters
-that all need to apply. With a linear pipeline you can stack
-them sequentially. But "parcels within 200m of a school" UNION
-"parcels within 200m of a library" needs branching — the same
-parcel layer feeds two parallel buffer steps that then
-converge. Workflows make that natural.
+## What a chain is good for
+
+Stacked questions fit this canvas. "Parcels within 200 meters
+of a school, owned by the city, and not zoned residential" is
+three filters in order. Put them on the canvas in that order.
+
+A union of two searches, where one layer feeds two steps that
+later meet, is not what this canvas runs. The runner has one
+sequence.
 
 ## For tool authors
 
-Nothing changes today. The recipe editor still presents the
-familiar vertical-list view. When the visual graph editor
-ships, it'll be a tab next to the existing editor so you can
-pick whichever view fits the analysis you're building.
+Recipes saved before the canvas still run as a list. Open
+them on the canvas when you want to rearrange the chain.
+The list remains, and editing a step there updates the box.
 
 ## Related
 
