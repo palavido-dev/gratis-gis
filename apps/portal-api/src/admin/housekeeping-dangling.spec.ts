@@ -16,9 +16,23 @@ import type { StorageService } from '../storage/storage.service.js';
  * The tests that matter here are the ones where NOTHING in item.data
  * is broken. Those fail against the old scan, which is the point:
  * a clean bill of health was the bug.
+ *
+ * Item ids must be UUID-shaped: extractDependencies filters out
+ * non-UUID strings (built-in basemap style names like "positron")
+ * before Housekeeping queries Postgres.
  */
 
 const ORG = 'org-1';
+
+const MAP_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+const LIVE_DL = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+const PURGED = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+const BOUNDARY_GONE = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+const BOUNDARY_OK = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
+const BOUNDARY_GONE_A = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
+const BOUNDARY_GONE_B = '11111111-1111-1111-1111-111111111111';
+const IN_TRASH = '22222222-2222-2222-2222-222222222222';
+const SHARE_ITEM = '33333333-3333-3333-3333-333333333333';
 
 interface Fixture {
   /** Items in the org, with the ids each one's data references. */
@@ -92,9 +106,9 @@ function build(f: Fixture) {
 describe('HousekeepingService dangling references', () => {
   it('reports a featured item that no longer resolves', async () => {
     const svc = build({
-      items: [{ id: 'm1', title: 'Healthy map', refs: ['dl-1'] }],
-      featured: ['dl-1', 'purged-1'],
-      live: ['dl-1'],
+      items: [{ id: MAP_ID, title: 'Healthy map', refs: [LIVE_DL] }],
+      featured: [LIVE_DL, PURGED],
+      live: [LIVE_DL],
     });
     const { referrers } = await svc.danglingReferences(ORG);
     expect(referrers).toHaveLength(1);
@@ -104,7 +118,7 @@ describe('HousekeepingService dangling references', () => {
       type: 'Landing page',
       title: 'Featured items',
       href: '/admin/branding',
-      missing: ['purged-1'],
+      missing: [PURGED],
       trashed: [],
     });
   });
@@ -112,17 +126,17 @@ describe('HousekeepingService dangling references', () => {
   it('reports a share whose geo boundary is gone, and says why it matters', async () => {
     const svc = build({
       shares: [
-        { itemId: 'dl-9', itemTitle: 'Parcels', boundaryId: 'boundary-gone' },
+        { itemId: SHARE_ITEM, itemTitle: 'Parcels', boundaryId: BOUNDARY_GONE },
       ],
     });
     const { referrers } = await svc.danglingReferences(ORG);
     expect(referrers).toHaveLength(1);
     expect(referrers[0]).toMatchObject({
-      id: 'share-geo:dl-9',
+      id: `share-geo:${SHARE_ITEM}`,
       scope: 'settings',
       title: 'Parcels',
-      href: '/items/dl-9',
-      missing: ['boundary-gone'],
+      href: `/items/${SHARE_ITEM}`,
+      missing: [BOUNDARY_GONE],
     });
     // The consequence is the whole reason this row exists: a share
     // that lost its boundary is not merely cosmetic, it is wider than
@@ -133,46 +147,49 @@ describe('HousekeepingService dangling references', () => {
   it('collapses several shares on one item into a single row', async () => {
     const svc = build({
       shares: [
-        { itemId: 'dl-9', itemTitle: 'Parcels', boundaryId: 'gone-a' },
-        { itemId: 'dl-9', itemTitle: 'Parcels', boundaryId: 'gone-b' },
-        { itemId: 'dl-9', itemTitle: 'Parcels', boundaryId: 'ok-b' },
+        { itemId: SHARE_ITEM, itemTitle: 'Parcels', boundaryId: BOUNDARY_GONE_A },
+        { itemId: SHARE_ITEM, itemTitle: 'Parcels', boundaryId: BOUNDARY_GONE_B },
+        { itemId: SHARE_ITEM, itemTitle: 'Parcels', boundaryId: BOUNDARY_OK },
       ],
-      live: ['ok-b'],
+      live: [BOUNDARY_OK],
     });
     const { referrers } = await svc.danglingReferences(ORG);
     expect(referrers).toHaveLength(1);
-    expect(referrers[0]!.missing).toEqual(['gone-a', 'gone-b']);
+    // groupDanglingRefs sorts missing ids for a stable admin list.
+    expect(referrers[0]!.missing).toEqual(
+      [BOUNDARY_GONE_A, BOUNDARY_GONE_B].sort(),
+    );
   });
 
   it('separates a trashed boundary from a purged one', async () => {
     const svc = build({
-      featured: ['in-trash'],
-      trashed: ['in-trash'],
+      featured: [IN_TRASH],
+      trashed: [IN_TRASH],
     });
     const { referrers } = await svc.danglingReferences(ORG);
     expect(referrers[0]!.missing).toEqual([]);
-    expect(referrers[0]!.trashed).toEqual(['in-trash']);
+    expect(referrers[0]!.trashed).toEqual([IN_TRASH]);
   });
 
   it('still labels item-scoped rows as items, with an /items href', async () => {
     const svc = build({
-      items: [{ id: 'm1', title: 'Broken map', refs: ['purged-1'] }],
+      items: [{ id: MAP_ID, title: 'Broken map', refs: [PURGED] }],
     });
     const { referrers } = await svc.danglingReferences(ORG);
     expect(referrers[0]).toMatchObject({
-      id: 'm1',
+      id: MAP_ID,
       scope: 'item',
       type: 'map',
-      href: '/items/m1',
+      href: `/items/${MAP_ID}`,
     });
   });
 
   it('reports clean when every reference in both scopes resolves', async () => {
     const svc = build({
-      items: [{ id: 'm1', title: 'Healthy map', refs: ['dl-1'] }],
-      featured: ['dl-1'],
-      shares: [{ itemId: 'm1', itemTitle: 'Healthy map', boundaryId: 'b-1' }],
-      live: ['dl-1', 'b-1'],
+      items: [{ id: MAP_ID, title: 'Healthy map', refs: [LIVE_DL] }],
+      featured: [LIVE_DL],
+      shares: [{ itemId: MAP_ID, itemTitle: 'Healthy map', boundaryId: BOUNDARY_OK }],
+      live: [LIVE_DL, BOUNDARY_OK],
     });
     const { referrers } = await svc.danglingReferences(ORG);
     expect(referrers).toEqual([]);
