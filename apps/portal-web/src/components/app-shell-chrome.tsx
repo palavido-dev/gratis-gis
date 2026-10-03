@@ -264,6 +264,9 @@ function NavList({
       <NavLink href="/items" icon={<MapIcon className="h-4 w-4" />} onNavigate={cb}>
         {t('nav.items')}
       </NavLink>
+      <NavLink href="/assistant" icon={<Bot className="h-4 w-4" />} onNavigate={cb}>
+        {t('nav.build')}
+      </NavLink>
       <NavLink
         href="/items?folders=open"
         icon={<FolderIcon className="h-4 w-4" />}
@@ -345,6 +348,13 @@ function NavList({
             onNavigate={cb}
           >
             {t('nav.ai')}
+          </NavLink>
+          <NavLink
+            href="/admin/security"
+            icon={<Shield className="h-4 w-4" />}
+            onNavigate={cb}
+          >
+            {t('nav.security')}
           </NavLink>
           {/* Not gated on the feedback flag: an operator who turned
               the form off still needs to read what came in while it

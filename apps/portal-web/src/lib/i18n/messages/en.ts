@@ -48,6 +48,8 @@ export const en = {
     housekeeping: 'Housekeeping',
     notifications: 'Notifications',
     ai: 'AI',
+    build: 'Build',
+    security: 'Sign-in',
     fieldQueues: 'Field queues',
     migrations: 'Migrations',
     gettingStarted: 'Getting started',

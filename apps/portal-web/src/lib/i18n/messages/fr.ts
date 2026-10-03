@@ -43,6 +43,8 @@ export const fr: Partial<CatalogShape> = {
     housekeeping: 'Maintenance',
     notifications: 'Notifications',
     ai: 'IA',
+    build: 'Créer',
+    security: 'Connexion',
     fieldQueues: 'Files de terrain',
     migrations: 'Migrations',
     gettingStarted: 'Premiers pas',

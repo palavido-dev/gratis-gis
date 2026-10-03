@@ -177,6 +177,10 @@ export function BuilderShell({
   const [leftFloatOpen, setLeftFloatOpen] = useState(false);
   const [rightFloatOpen, setRightFloatOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  // Phone widths keep both panels as overlays so the map keeps the
+  // screen. A pin saved on a desktop does not come back until the
+  // window is wide again.
+  const [narrow, setNarrow] = useState(false);
 
   // Load persisted state on mount. The default-state render covers
   // the SSR pass; the localStorage read happens client-side only.
@@ -184,6 +188,17 @@ export function BuilderShell({
     setState(loadState(storageKey));
     setHydrated(true);
   }, [storageKey]);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const apply = () => setNarrow(mq.matches);
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
+
+  const leftPinned = narrow ? false : state.leftPinned;
+  const rightPinned = narrow ? false : state.rightPinned;
 
   // Persist whenever state changes (after hydration).
   useEffect(() => {
@@ -311,7 +326,7 @@ export function BuilderShell({
             rail (button-only). The floating-overlay variant is rendered
             below as an absolutely-positioned sibling so it sits above
             the canvas. */}
-        {state.leftPinned ? (
+        {leftPinned ? (
           <>
             <aside
               className="flex shrink-0 flex-col overflow-hidden border-r border-border bg-surface-1"
@@ -355,7 +370,7 @@ export function BuilderShell({
           {children}
           {/* Floating left panel overlay (when unpinned + open). Sits
               above the canvas; backdrop catches click-away. */}
-          {!state.leftPinned && leftFloatOpen ? (
+          {!leftPinned && leftFloatOpen ? (
             <FloatingPanelOverlay
               side="left"
               width={state.leftWidth}
@@ -367,7 +382,7 @@ export function BuilderShell({
               {leftPanel}
             </FloatingPanelOverlay>
           ) : null}
-          {!state.rightPinned && rightFloatOpen ? (
+          {!rightPinned && rightFloatOpen ? (
             <FloatingPanelOverlay
               side="right"
               width={state.rightWidth}
@@ -381,7 +396,7 @@ export function BuilderShell({
           ) : null}
         </main>
 
-        {state.rightPinned ? (
+        {rightPinned ? (
           <>
             <Resizer onMouseDown={onResizerDown('right')} side="right" />
             <aside

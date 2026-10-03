@@ -1,11 +1,15 @@
 # Reporting (report_template items)
 
-Status: not built. The create picker does not offer
-`report_template`. KPI and operations dashboards ship as web-app
-layouts, and print templates are the shipped paper layout for the
-Print tool. This page is the design for the document-report item
-that does not exist yet. For what ships today, see the Status
-section in [README.md](../README.md).
+Status: `report_template` is not built. The create picker does
+not offer it. KPI and operations dashboards ship as web-app
+layouts, and print templates are the shipped paper layout for
+the Print tool. A form owner or org admin can also download a
+plain-text PDF receipt for one submission from the form's
+detail page (`GET /api/forms/:id/submissions/:submissionId/pdf`).
+That receipt is the answers as text. It is not a designed
+report and it does not include a map. This page is the design
+for the document-report item that does not exist yet. For what
+ships today, see the Status section in [README.md](../README.md).
 
 Reporting would turn a form submission (or a feature row, or an
 aggregate query) into a shareable document: a PDF, a Word doc, or

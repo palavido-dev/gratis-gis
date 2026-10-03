@@ -22,6 +22,18 @@ import { authOptions } from '@/lib/auth';
 const NOMINATIM_URL = process.env.NOMINATIM_URL ?? 'http://localhost:8081';
 const USER_AGENT =
   'GratisGIS/0.1 (https://github.com/palavido-dev/gratis-gis)';
+const PUBLIC_NOMINATIM = 'https://nominatim.openstreetmap.org';
+
+async function searchNominatim(base: string, params: URLSearchParams): Promise<Response> {
+  return fetch(`${base.replace(/\/$/, '')}/search?${params}`, {
+    headers: {
+      'User-Agent': USER_AGENT,
+      Accept: 'application/json',
+    },
+    signal: AbortSignal.timeout(10_000),
+    cache: 'no-store',
+  });
+}
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -40,19 +52,19 @@ export async function GET(req: NextRequest) {
     limit: '5',
     q,
   });
-  const upstream = `${NOMINATIM_URL.replace(/\/$/, '')}/search?${params}`;
+  // A portal that never stood up its own Nominatim still needs
+  // address search. When the configured geocoder is the local
+  // default and it does not answer, ask the public Nominatim
+  // service once. Set NOMINATIM_PUBLIC_FALLBACK=0 to keep queries
+  // on the configured host only.
+  const allowPublic = process.env.NOMINATIM_PUBLIC_FALLBACK !== '0';
+  const localDefault = !process.env.NOMINATIM_URL;
 
   try {
-    const res = await fetch(upstream, {
-      headers: {
-        'User-Agent': USER_AGENT,
-        Accept: 'application/json',
-      },
-      // Nominatim can take a couple seconds on the first request after
-      // idle. 10s is generous but not forever.
-      signal: AbortSignal.timeout(10_000),
-      cache: 'no-store',
-    });
+    let res = await searchNominatim(NOMINATIM_URL, params);
+    if (!res.ok && allowPublic && localDefault) {
+      res = await searchNominatim(PUBLIC_NOMINATIM, params);
+    }
     if (!res.ok) {
       return NextResponse.json(
         { message: `Nominatim ${res.status}` },
@@ -65,6 +77,20 @@ export async function GET(req: NextRequest) {
       headers: { 'content-type': 'application/json' },
     });
   } catch (err) {
+    if (allowPublic && localDefault) {
+      try {
+        const res = await searchNominatim(PUBLIC_NOMINATIM, params);
+        if (res.ok) {
+          const body = await res.arrayBuffer();
+          return new NextResponse(body, {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+      } catch {
+        /* fall through to the error below */
+      }
+    }
     const msg = err instanceof Error ? err.message : 'Geocoder unreachable';
     return NextResponse.json({ message: msg }, { status: 502 });
   }

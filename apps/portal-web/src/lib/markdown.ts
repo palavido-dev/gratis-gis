@@ -116,13 +116,17 @@ function renderInline(src: string): string {
     return ` CODE${codes.length - 1} `;
   });
 
-  // Images: ![alt](url) -- run before links so the leading `!` is
-  // consumed before the `[...](...)` link pass sees it.
+  // Images and links are stashed the same way code spans are. The
+  // final pass HTML-escapes every remaining character, which is what
+  // we want for prose and what we do not want for a tag we just built.
   withCodes = withCodes.replace(
     /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g,
     (_m, alt: string, url: string, title?: string) => {
       const titleAttr = title ? ` title="${escapeHtml(title)}"` : '';
-      return `<img src="${sanitizeUrl(url)}" alt="${escapeHtml(alt)}"${titleAttr}>`;
+      codes.push(
+        `<img src="${sanitizeUrl(url)}" alt="${escapeHtml(alt)}"${titleAttr}>`,
+      );
+      return ` CODE${codes.length - 1} `;
     },
   );
 
@@ -133,8 +137,17 @@ function renderInline(src: string): string {
       const titleAttr = title ? ` title="${escapeHtml(title)}"` : '';
       // Recursively render inline marks inside the link text. We
       // can't just escapeHtml here because the user wrote
-      // `[**bold**](url)` expecting bold to render.
-      return `<a href="${sanitizeUrl(url)}"${titleAttr}>${renderInlineEscaped(text, codes)}</a>`;
+      // `[**bold**](url)` expecting bold to render. Restore any
+      // code-span placeholders before stashing the anchor, or the
+      // outer pass would leave them as literal tokens inside the tag.
+      const inner = renderInlineEscaped(text, codes).replace(
+        / CODE(\d+) /g,
+        (_mark, index: string) => codes[Number(index)] ?? '',
+      );
+      codes.push(
+        `<a href="${sanitizeUrl(url)}"${titleAttr}>${inner}</a>`,
+      );
+      return ` CODE${codes.length - 1} `;
     },
   );
 

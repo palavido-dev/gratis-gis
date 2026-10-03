@@ -44,6 +44,8 @@ import {
   RECIPE_TEMPLATES,
   UNIT_LABELS,
 } from '@gratis-gis/shared-types';
+import { commitChain, syncSteps } from '@/lib/workflow-canvas';
+import { WorkflowCanvas } from './workflow-canvas';
 
 const PREDICATE_LABELS: Record<SpatialPredicate, string> = {
   intersects: 'Intersects',
@@ -77,7 +79,12 @@ export function RecipeEditor({ recipe, canEdit, onChange }: Props) {
     onChange({ ...recipe, parameters: next });
   }
   function setPipeline(next: ToolStep[]) {
-    onChange({ ...recipe, pipeline: next });
+    if (!recipe.graph) {
+      onChange({ ...recipe, pipeline: next });
+      return;
+    }
+    const graph = syncSteps(recipe.graph, next);
+    onChange(commitChain(recipe, graph) ?? { ...recipe, pipeline: next, graph });
   }
   function setOutput(next: ToolOutput) {
     onChange({ ...recipe, output: next });
@@ -143,6 +150,8 @@ export function RecipeEditor({ recipe, canEdit, onChange }: Props) {
         labelCls={labelCls}
         inputCls={inputCls}
       />
+
+      <WorkflowCanvas recipe={recipe} canEdit={canEdit} onChange={onChange} />
 
       <PipelineSection
         pipeline={recipe.pipeline}
@@ -1342,6 +1351,10 @@ function PipelineSection({
   inputCls: string;
 }) {
   function addStep(kind: ToolStep['tool']) {
+    if (kind === 'filter') {
+      onChange([...pipeline, { tool: 'filter', params: { expression: '' } }]);
+      return;
+    }
     if (kind === 'spatial-filter') {
       onChange([
         ...pipeline,
@@ -1384,6 +1397,7 @@ function PipelineSection({
             className="rounded-md border border-border bg-surface-1 px-2 py-1 text-xs text-ink-0"
           >
             <option value="">+ Add step</option>
+            <option value="filter">Filter</option>
             <option value="spatial-filter">Spatial filter</option>
           </select>
         ) : null}
@@ -1447,7 +1461,24 @@ function StepCard({
           </button>
         ) : null}
       </div>
-      {step.tool === 'spatial-filter' ? (
+      {step.tool === 'filter' ? (
+        <label className={labelCls}>
+          Expression
+          <input
+            type="text"
+            disabled={!canEdit}
+            value={step.params.expression}
+            placeholder="acres > 5"
+            onChange={(event) =>
+              onChange({
+                tool: 'filter',
+                params: { expression: event.target.value },
+              })
+            }
+            className={`${inputCls} font-mono`}
+          />
+        </label>
+      ) : step.tool === 'spatial-filter' ? (
         <SpatialFilterStepEditor
           step={step}
           parameters={parameters}
