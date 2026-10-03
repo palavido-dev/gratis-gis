@@ -116,6 +116,7 @@ export class AdminUsersController {
 
   @Get()
   async list(
+    @CurrentUser() me: AuthUser,
     @Query('q') q?: string,
     @Query('first') first?: string,
     @Query('max') max?: string,
@@ -131,7 +132,9 @@ export class AdminUsersController {
     // local user.id than their Keycloak sub (auth-sync upserts
     // by username and never rewrites the id), so a join by id
     // misses every seeded account and renders them as "Never"
-    // logged in. Username is stable in both systems.
+    // logged in. Username is stable in both systems. orgId rides
+    // along so the filter below can apply the same org bound
+    // loadTarget uses for mutations.
     const usernames = kcUsers
       .map((u) => u.username)
       .filter((u): u is string => typeof u === 'string');
@@ -140,6 +143,7 @@ export class AdminUsersController {
           where: { username: { in: usernames } },
           select: {
             username: true,
+            orgId: true,
             lastSeenAt: true,
             autoDisableAt: true,
             isProtected: true,
@@ -147,20 +151,42 @@ export class AdminUsersController {
         })
       : [];
     const byUsername = new Map(local.map((u) => [u.username, u]));
-    return kcUsers.map((u) => {
-      const row = u.username ? byUsername.get(u.username) : undefined;
-      return {
-        ...u,
-        lastSeenAt: row?.lastSeenAt?.toISOString() ?? null,
-        autoDisableAt: row?.autoDisableAt?.toISOString() ?? null,
-        isProtected: row?.isProtected ?? false,
-      };
-    });
+    // The realm may hold every org. Return only the caller's org.
+    return kcUsers
+      .filter((u) => {
+        const row = u.username ? byUsername.get(u.username) : undefined;
+        return inCallerOrg(me, u, row?.orgId);
+      })
+      .map((u) => {
+        const row = u.username ? byUsername.get(u.username) : undefined;
+        return {
+          ...u,
+          lastSeenAt: row?.lastSeenAt?.toISOString() ?? null,
+          autoDisableAt: row?.autoDisableAt?.toISOString() ?? null,
+          isProtected: row?.isProtected ?? false,
+        };
+      });
   }
 
   @Get(':id')
-  get(@Param('id') id: string): Promise<KeycloakUserRep> {
-    return this.kc.getUser(id);
+  async get(
+    @CurrentUser() me: AuthUser,
+    @Param('id') id: string,
+  ): Promise<KeycloakUserRep> {
+    const kcUser = await this.kc.getUser(id);
+    const local = kcUser.username
+      ? await this.prisma.user.findUnique({
+          where: { username: kcUser.username },
+          select: { orgId: true },
+        })
+      : null;
+    // 404, not 403, so a guessed id in another org looks the same as
+    // a missing user. Mutations already refuse a foreign org via
+    // loadTarget; this closes the read that returned the record.
+    if (!inCallerOrg(me, kcUser, local?.orgId)) {
+      throw new NotFoundException('User not found');
+    }
+    return kcUser;
   }
 
   @Post()
@@ -895,6 +921,46 @@ export class AdminUsersController {
       }
     }
   }
+}
+
+/**
+ * Whether a Keycloak user belongs to the calling admin's org.
+ *
+ * Two signals, both required to agree when both are present:
+ *
+ *  - The Keycloak `org` user-attribute (the JWT `org` claim). Invite
+ *    writes `me.orgSlug` here. A pre-fix invite may still carry the
+ *    org UUID; that matches `me.orgId` the same way auth-sync does.
+ *  - The local user row's `orgId`, which is how `loadTarget` /
+ *    `assertMutationAllowed` decide org for mutations.
+ *
+ * A hit on either signal is enough when the other is absent (an
+ * invitee who has never signed in has no local row; a local row
+ * whose attribute was never backfilled still belongs to its org).
+ * A contradiction, or no signal at all, is not a match: realm users
+ * from another org, and unscoped service accounts, stay out of the
+ * response.
+ */
+function inCallerOrg(
+  me: AuthUser,
+  kcUser: KeycloakUserRep,
+  localOrgId: string | null | undefined,
+): boolean {
+  const kcOrg = readOrgAttribute(kcUser);
+  const kcMatches = kcOrg === me.orgSlug || (kcOrg !== undefined && kcOrg === me.orgId);
+  const kcConflicts = kcOrg !== undefined && !kcMatches;
+  const localMatches = localOrgId != null && localOrgId === me.orgId;
+  const localConflicts = localOrgId != null && localOrgId !== me.orgId;
+  if (kcConflicts || localConflicts) return false;
+  return kcMatches || localMatches;
+}
+
+/** Read the single-valued Keycloak `org` user-attribute. */
+function readOrgAttribute(user: KeycloakUserRep): string | undefined {
+  const arr = user.attributes?.org;
+  if (!Array.isArray(arr)) return undefined;
+  const first = arr[0];
+  return typeof first === 'string' && first.length > 0 ? first : undefined;
 }
 
 /**
