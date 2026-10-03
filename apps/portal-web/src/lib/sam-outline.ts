@@ -109,7 +109,7 @@ export async function ensureEmbedding(
     const msg = Array.isArray(body?.message)
       ? body.message.join(' ')
       : body?.message;
-    throw new Error(msg || 'The outline tool could not start.');
+    throw new Error(msg || 'The outline-solid tool could not start.');
   }
   let { state } = (await ensureRes.json()) as { state: string };
   const stateUrl = `/api/portal/items/${itemId}/sam/embedding/${key.z}/${key.gx}/${key.gy}/state`;
@@ -121,7 +121,7 @@ export async function ensureEmbedding(
     onProgress?.('Reading this area (first click here takes a moment)...');
     await new Promise((r) => setTimeout(r, 1500));
     const res = await fetch(stateUrl);
-    if (!res.ok) throw new Error('The outline tool lost the connection.');
+    if (!res.ok) throw new Error('The outline-solid tool lost the connection.');
     const s = (await res.json()) as { state: string; error?: string | null };
     if (s.state === 'failed') {
       throw new Error(s.error || 'Preparing this area failed.');
@@ -177,7 +177,7 @@ async function loadSession() {
       });
       if (!head.ok) {
         throw new Error(
-          'The outline tool is not installed on this portal (missing decoder model).',
+          'The outline-solid tool is not installed on this portal (missing decoder model).',
         );
       }
       return ort.InferenceSession.create('/models/mobilesam-decoder.onnx', {
@@ -515,7 +515,7 @@ export async function outlineAt(
   const eps = 1.5 + squareness * 2.5;
   const simplified = simplify(traced, eps);
   if (simplified.length < 3) {
-    throw new Error('The outline came out too small to keep.');
+    throw new Error('The outline-solid came out too small to keep.');
   }
   const shaped = regularizeRing(simplified, squareness);
 

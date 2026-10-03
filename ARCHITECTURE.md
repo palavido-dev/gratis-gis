@@ -56,7 +56,7 @@ building) and `ROADMAP.md` (when we're building it).
 
 ## Services
 
-### portal-api (NestJS, Node 22)
+### portal-api (NestJS, Node 24)
 
 The single authoritative backend. Exposes REST + JSON; modules:
 

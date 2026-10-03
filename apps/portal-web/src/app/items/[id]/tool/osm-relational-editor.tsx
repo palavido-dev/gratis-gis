@@ -34,7 +34,7 @@ interface Props {
 
 const labelCls = 'block text-xs font-medium text-ink-1 mb-1';
 const inputCls =
-  'w-full rounded-md border border-border bg-surface-0 px-2 py-1.5 text-sm text-ink-0 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30';
+  'w-full rounded-md border border-border bg-surface-0 px-2 py-1.5 text-sm text-ink-0 focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30';
 const sectionCls =
   'rounded-md border border-border bg-surface-1 p-3 space-y-2';
 const sectionHeaderCls =

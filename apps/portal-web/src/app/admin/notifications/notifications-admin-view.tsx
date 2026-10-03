@@ -1351,7 +1351,7 @@ function TemplateEditModal({
                   onFocus={() => {
                     lastFocused.current = 'bodyHtml';
                   }}
-                  className="w-full rounded-md border border-border bg-surface-1 p-2 font-mono text-2xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+                  className="w-full rounded-md border border-border bg-surface-1 p-2 font-mono text-2xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
                 />
               </Field>
 
@@ -1371,7 +1371,7 @@ function TemplateEditModal({
                     onFocus={() => {
                       lastFocused.current = 'bodyText';
                     }}
-                    className="w-full rounded-md border border-border bg-surface-1 p-2 font-mono text-2xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+                    className="w-full rounded-md border border-border bg-surface-1 p-2 font-mono text-2xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
                   />
                   <button
                     type="button"
@@ -1470,7 +1470,7 @@ function TemplateEditModal({
 // ---- Shared bits -------------------------------------------------
 
 const inputClass =
-  'h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30';
+  'h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30';
 
 function Field({
   label,

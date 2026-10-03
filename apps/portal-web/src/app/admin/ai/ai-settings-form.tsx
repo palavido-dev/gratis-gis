@@ -31,7 +31,7 @@ const PROVIDERS: Array<{ id: AiProviderId; label: string; modelHint: string }> =
 ];
 
 const inputClass =
-  'h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30';
+  'h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30';
 
 /**
  * Admin form for the org AI provider. The key field starts empty

@@ -1243,7 +1243,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="Parcels, roads, observations..."
                   maxLength={200}
-                  className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+                  className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
                 />
               </div>
               {tab === 'url' ? (
@@ -1256,7 +1256,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                     value={url}
                     onChange={(e) => setUrl(e.target.value)}
                     placeholder="https://example.org/parcels.geojson"
-                    className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+                    className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
                   />
                   <p className="mt-1 text-xs text-muted">
                     Must be reachable from a browser (CORS-enabled) and return
@@ -1273,7 +1273,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                     onChange={(e) => setPaste(e.target.value)}
                     placeholder='{"type":"FeatureCollection","features":[...]}'
                     rows={10}
-                    className="w-full rounded-md border border-border bg-surface-0 px-3 py-2 font-mono text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+                    className="w-full rounded-md border border-border bg-surface-0 px-3 py-2 font-mono text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
                   />
                   <p className="mt-1 text-xs text-muted">
                     Small datasets only. Inline features are stored in the item
@@ -1296,7 +1296,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="Optional. Defaults to the filename."
                   maxLength={200}
-                  className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+                  className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
                 />
               </div>
               <FileDropZone
@@ -1339,7 +1339,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                     }}
                     className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded px-3 py-1.5 ${
                       portalViewMode === key
-                        ? 'bg-surface-0 font-medium text-ink-0 shadow-sm'
+                        ? 'bg-surface-0 font-medium text-ink-0 shadow-xs'
                         : 'text-muted hover:text-ink-1'
                     }`}
                   >
@@ -1362,7 +1362,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                         ? 'Search folders...'
                         : 'Search services...'
                   }
-                  className="h-9 w-full rounded-md border border-border bg-surface-1 pl-9 pr-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+                  className="h-9 w-full rounded-md border border-border bg-surface-1 pl-9 pr-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
                 />
               </label>
 
@@ -1686,7 +1686,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="Assessor parcels, roads, ..."
                   maxLength={200}
-                  className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+                  className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
                 />
               </div>
               <div>
@@ -1705,7 +1705,7 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
                       }
                     }}
                     placeholder="https://host/arcgis/rest/services/OpenData/Assessor/MapServer"
-                    className="h-9 min-w-0 flex-1 rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+                    className="h-9 min-w-0 flex-1 rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
                   />
                   <button
                     type="button"

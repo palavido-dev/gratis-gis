@@ -53,7 +53,7 @@ function Row({
       <dt className="text-2xs font-medium uppercase tracking-wide text-muted">
         {label}
       </dt>
-      <dd className="mt-0.5 break-words text-sm text-ink-1">{children}</dd>
+      <dd className="mt-0.5 wrap-break-word text-sm text-ink-1">{children}</dd>
     </div>
   );
 }

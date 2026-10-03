@@ -80,7 +80,7 @@ export function AddToFolderDialog({
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder={t('addToFolder.searchPlaceholder')}
-            className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-1 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+            className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-1 focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
             autoFocus
           />
           <div className="mt-3 max-h-72 overflow-y-auto rounded-md border border-border bg-surface-2">

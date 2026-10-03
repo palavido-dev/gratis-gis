@@ -10,12 +10,13 @@ import { getPortalFeatures } from '@/lib/portal-features';
 import { Providers } from './providers';
 import './globals.css';
 
-const inter = Inter({ subsets: ['latin'], variable: '--font-sans' });
-// The Tailwind config has declared "Geist Mono" as font-mono since the
-// design system landed, but the face was never loaded, so every
-// font-mono surface silently fell back to the system mono. Load it
-// the same way as Inter and expose it as a variable for the config.
-const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-mono' });
+const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
+// The design system has declared "Geist Mono" as font-mono since it
+// landed, but the face was never loaded, so every font-mono surface
+// silently fell back to the system mono. Load it the same way as Inter.
+// The variable names stay off --font-sans / --font-mono: those are the
+// Tailwind theme tokens, and pointing them at themselves is a cycle.
+const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-geist-mono' });
 
 const PORTAL_URL = getPortalUrl();
 const SITE_DESCRIPTION =

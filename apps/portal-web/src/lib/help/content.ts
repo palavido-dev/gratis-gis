@@ -22,7 +22,7 @@
  * gray-matter project has been quiet since 2021, so rather than
  * pin js-yaml to the 3.x line we own a small parser here that
  * targets the exact `---\\n<yaml>\\n---\\n<body>` shape every help
- * doc uses. js-yaml@4's load() is safe-by-default so this is also
+ * doc uses. js-yaml's load() is safe-by-default so this is also
  * the safer path.
  */
 
@@ -47,7 +47,7 @@ import { renderMarkdown } from '../markdown';
  * (it logs + skips them).
  *
  * Mirrors the gray-matter shape we used previously: `{ data, content }`.
- * Replaces gray-matter so we can stay on js-yaml@4 (and drop a dep).
+ * Replaces gray-matter so help docs do not depend on it.
  */
 function parseFrontmatter(raw: string): {
   data: Record<string, unknown>;

@@ -49,7 +49,7 @@ export const DialogOverlay = forwardRef<
   return (
     <DialogPrimitive.Overlay
       ref={ref}
-      className={`fixed inset-0 z-50 bg-black/40 backdrop-blur-sm animate-fade-in ${className}`}
+      className={`fixed inset-0 z-50 bg-black/40 backdrop-blur-xs animate-fade-in ${className}`}
       {...props}
     />
   );
@@ -87,7 +87,7 @@ export const DialogContent = forwardRef<
       <DialogOverlay />
       <DialogPrimitive.Content
         ref={ref}
-        className={`fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] ${SIZE_CLASS[size]} -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-surface-1 text-ink-1 shadow-overlay animate-dialog-in focus:outline-none ${className}`}
+        className={`fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] ${SIZE_CLASS[size]} -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-surface-1 text-ink-1 shadow-overlay animate-dialog-in focus:outline-hidden ${className}`}
         {...props}
       >
         {srTitle ? (
@@ -98,7 +98,7 @@ export const DialogContent = forwardRef<
         {children}
         {hideCloseButton ? null : (
           <DialogPrimitive.Close
-            className="absolute right-3 top-3 inline-flex h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-ink-1 focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="absolute right-3 top-3 inline-flex h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-ink-1 focus:outline-hidden focus:ring-2 focus:ring-accent/30"
             aria-label="Close"
           >
             <X className="h-4 w-4" />

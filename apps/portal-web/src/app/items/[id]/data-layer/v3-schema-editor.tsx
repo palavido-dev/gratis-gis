@@ -329,7 +329,7 @@ function EventLayerWizard({
         <select
           value={parentLayerId}
           onChange={(e) => setParentLayerId(e.target.value)}
-          className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+          className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
         >
           {spatialLayers.map((l) => (
             <option key={l.id} value={l.id}>
@@ -353,7 +353,7 @@ function EventLayerWizard({
           onChange={(e) => setLabel(e.target.value)}
           placeholder="Inspections, Visits, Observations..."
           maxLength={120}
-          className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+          className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
         />
       </div>
 

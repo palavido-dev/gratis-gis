@@ -340,7 +340,7 @@ export function AccessMatrix({
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               placeholder="Filter layers..."
-              className="h-8 w-full rounded-md border border-border bg-surface-1 pl-8 pr-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+              className="h-8 w-full rounded-md border border-border bg-surface-1 pl-8 pr-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
             />
           </label>
           <div className="text-xs text-muted">
@@ -407,7 +407,7 @@ export function AccessMatrix({
                   const itemId = layerItemIds[layer.id] ?? null;
                   return (
                     <tr key={layer.id} className="hover:bg-surface-2/60">
-                      <td className="sticky left-0 z-[1] border-r border-b border-border bg-surface-1 px-3 py-2 text-left">
+                      <td className="sticky left-0 z-1 border-r border-b border-border bg-surface-1 px-3 py-2 text-left">
                         <div className="flex items-center gap-1.5">
                           <span className="truncate text-sm font-medium text-ink-0">
                             {layer.title}
@@ -579,7 +579,7 @@ function AccessBadge({
     <button
       type="button"
       onClick={onClick}
-      className={`relative inline-flex h-7 min-w-[3.25rem] items-center justify-center gap-1 rounded-md border px-2 text-2xs font-medium tabular-nums transition-colors hover:brightness-95 ${tone}`}
+      className={`relative inline-flex h-7 min-w-13 items-center justify-center gap-1 rounded-md border px-2 text-2xs font-medium tabular-nums transition-colors hover:brightness-95 ${tone}`}
     >
       <Eye className="h-3 w-3 opacity-70" />
       {label}

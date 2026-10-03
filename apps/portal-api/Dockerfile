@@ -115,11 +115,11 @@ RUN pnpm deploy --filter=@gratis-gis/portal-api /out
 
 # Build pmtiles from source so the embedded Go stdlib is current
 # (see the pmtiles section in the runtime stage below for the
-# rationale). golang:1.26-bookworm tracks the latest Go 1.26.x
+# rationale). golang:1.27-bookworm tracks the latest Go 1.27.x
 # patch, which carries the stdlib fixes for CVE-2026-39823/-39825/
 # -39826. Pinned to the same version constant the runtime stage
 # uses so a bump propagates atomically.
-FROM golang:1.26-bookworm AS pmtiles-build
+FROM golang:1.27-bookworm AS pmtiles-build
 ARG PMTILES_VERSION=1.30.3
 # CVE-2026-56852, HIGH: go-pmtiles pins golang.org/x/text v0.35.0 and
 # still does at v1.31.2, so bumping PMTILES_VERSION does not clear it.
@@ -258,7 +258,7 @@ RUN rm -rf /pnpm /usr/local/lib/node_modules/pnpm \
 # net/http ReverseProxy query forwarding, CVE-2026-39826 html/template
 # script-tag escape). None of those code paths are reachable from
 # pmtiles' CLI usage, but Trivy can't see that from the binary alone.
-# Rebuilding against the current `golang:1.26-bookworm` toolchain
+# Rebuilding against the current `golang:1.27-bookworm` toolchain
 # embeds a patched stdlib version into the binary so the alerts
 # resolve at the source rather than via .trivyignore. The same stage
 # upgrades golang.org/x/text past CVE-2026-56852 and golang.org/x/net

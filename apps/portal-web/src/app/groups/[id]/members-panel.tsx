@@ -222,7 +222,7 @@ export function MembersPanel({
               onChange={(e) =>
                 setAddingRole(e.target.value as 'member' | 'admin')
               }
-              className="h-9 shrink-0 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+              className="h-9 shrink-0 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
               title="Role the user joins as"
             >
               <option value="member">member</option>

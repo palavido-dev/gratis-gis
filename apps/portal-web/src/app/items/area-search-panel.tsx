@@ -176,7 +176,7 @@ export function AreaSearchPanel({
   }
 
   return (
-    <div className="mb-4 overflow-hidden rounded-lg border border-border bg-surface-1 shadow-sm">
+    <div className="mb-4 overflow-hidden rounded-lg border border-border bg-surface-1 shadow-xs">
       <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
         <div className="flex items-center gap-2 text-sm text-ink-1">
           <Crosshair className="h-4 w-4 text-accent" />
@@ -218,7 +218,7 @@ export function AreaSearchPanel({
             step={1}
             value={bufferText}
             onChange={(e) => handleBufferChange(e.target.value)}
-            className="h-7 w-20 rounded-md border border-border bg-surface-1 px-2 text-xs text-ink-1 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+            className="h-7 w-20 rounded-md border border-border bg-surface-1 px-2 text-xs text-ink-1 focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
           />
           km
         </label>

@@ -1304,7 +1304,7 @@ export function AttributeTable({
               setServerPage(null);
               setServerError(null);
             }}
-            className="h-7 min-w-0 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+            className="h-7 min-w-0 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
           >
             {queryableLayers.map((l) => (
               <option key={l.id} value={l.id}>
@@ -1321,7 +1321,7 @@ export function AttributeTable({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Query any field..."
-              className="h-7 w-full rounded border border-border bg-surface-1 pl-7 pr-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+              className="h-7 w-full rounded border border-border bg-surface-1 pl-7 pr-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
             />
           </label>
           <span className="text-2xs text-muted">
@@ -1736,7 +1736,7 @@ export function AttributeTable({
                                         if (savingCell) return;
                                         void commitEditCell();
                                       }}
-                                      className="w-full rounded border border-accent bg-surface-1 px-2 py-0.5 text-xs text-ink-1 focus:outline-none focus:ring-1 focus:ring-accent/40"
+                                      className="w-full rounded border border-accent bg-surface-1 px-2 py-0.5 text-xs text-ink-1 focus:outline-hidden focus:ring-1 focus:ring-accent/40"
                                     >
                                       {/* Empty option lets the user
                                           clear the field without
@@ -1788,7 +1788,7 @@ export function AttributeTable({
                                       if (savingCell) return;
                                       void commitEditCell();
                                     }}
-                                    className="w-full rounded border border-accent bg-surface-1 px-2 py-0.5 text-xs text-ink-1 focus:outline-none focus:ring-1 focus:ring-accent/40"
+                                    className="w-full rounded border border-accent bg-surface-1 px-2 py-0.5 text-xs text-ink-1 focus:outline-hidden focus:ring-1 focus:ring-accent/40"
                                   />
                                 );
                               })()
@@ -2250,7 +2250,7 @@ function AttrTableExportMenu({
                     onClick={() => setBundleScope('all')}
                     className={`px-3 py-1 text-2xs ${
                       bundleScope === 'all'
-                        ? 'rounded bg-surface-1 text-ink-0 shadow-sm'
+                        ? 'rounded bg-surface-1 text-ink-0 shadow-xs'
                         : 'text-muted'
                     }`}
                   >
@@ -2267,7 +2267,7 @@ function AttrTableExportMenu({
                     }
                     className={`px-3 py-1 text-2xs ${
                       bundleScope === 'selection'
-                        ? 'rounded bg-surface-1 text-ink-0 shadow-sm'
+                        ? 'rounded bg-surface-1 text-ink-0 shadow-xs'
                         : 'text-muted'
                     } disabled:opacity-50`}
                   >
@@ -2495,7 +2495,7 @@ function CalculateFieldModal({
                   setFieldName(e.target.value);
                   setPreview(null);
                 }}
-                className="h-6 rounded border border-border bg-surface-1 px-1 font-mono text-2xs text-ink-1 focus:border-accent focus:outline-none"
+                className="h-6 rounded border border-border bg-surface-1 px-1 font-mono text-2xs text-ink-1 focus:border-accent focus:outline-hidden"
               >
                 {availableFields.map((f) => (
                   <option key={f} value={f}>
@@ -2544,7 +2544,7 @@ function CalculateFieldModal({
                       e.target.value as 'number' | 'string' | 'boolean',
                     )
                   }
-                  className="h-7 rounded border border-border bg-surface-1 px-2 text-2xs focus:border-accent focus:outline-none"
+                  className="h-7 rounded border border-border bg-surface-1 px-2 text-2xs focus:border-accent focus:outline-hidden"
                 >
                   <option value="number">Number</option>
                   <option value="string">String</option>
@@ -2586,7 +2586,7 @@ function CalculateFieldModal({
                     ? "concat({{first_name}}, ' ', {{last_name}})"
                     : '{{population}} > 1000'
               }
-              className="w-full rounded-md border border-border bg-surface-0 px-3 py-2 font-mono text-xs text-ink-0 focus:border-accent focus:outline-none"
+              className="w-full rounded-md border border-border bg-surface-0 px-3 py-2 font-mono text-xs text-ink-0 focus:border-accent focus:outline-hidden"
             />
           </div>
 

@@ -209,7 +209,7 @@ export function AddTargetDialog({
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   placeholder="Search data layers..."
-                  className="h-9 w-full rounded-md border border-border bg-surface-1 pl-7 pr-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+                  className="h-9 w-full rounded-md border border-border bg-surface-1 pl-7 pr-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
                 />
               </div>
             </div>

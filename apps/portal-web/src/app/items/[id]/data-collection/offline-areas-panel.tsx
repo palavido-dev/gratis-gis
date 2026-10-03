@@ -410,7 +410,7 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
               onChange={(e) => setName(e.target.value)}
               placeholder={t('offlineAreas.namePlaceholder')}
               maxLength={120}
-              className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+              className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
             />
           </div>
           <div>
@@ -424,7 +424,7 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
               id="offline-area-detail"
               value={maxZoom}
               onChange={(e) => setMaxZoom(Number(e.target.value))}
-              className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+              className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
             >
               {DETAIL_LEVELS.map((l) => (
                 <option key={l.zoom} value={l.zoom}>
@@ -452,7 +452,7 @@ export function OfflineAreasPanel({ itemId, data, canEdit }: Props) {
                   e.target.value === '' ? undefined : Number(e.target.value),
                 )
               }
-              className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+              className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
             >
               {REFRESH_OPTIONS.map((o) => (
                 <option key={o.labelKey} value={o.days ?? ''}>

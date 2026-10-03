@@ -138,7 +138,7 @@ export function PrintThisMapDialog({ open, onClose, mapId }: Props) {
       onClick={onClose}
     >
       <div
-        className="flex max-h-[80vh] w-[36rem] max-w-[90vw] flex-col rounded-md border border-border bg-surface-1 shadow-overlay"
+        className="flex max-h-[80vh] w-xl max-w-[90vw] flex-col rounded-md border border-border bg-surface-1 shadow-overlay"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-border px-4 py-3">

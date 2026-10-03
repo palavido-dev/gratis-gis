@@ -124,13 +124,13 @@ export function BasemapEditor({ itemId, initial, canEdit }: Props) {
       </div>
 
       <div className={canEdit ? '' : 'pointer-events-none opacity-70'}>
-        <div className="grid gap-4 p-4 md:grid-cols-[minmax(0,_1fr)_minmax(0,_1fr)]">
+        <div className="grid gap-4 p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <BasemapConfigSection value={draft} onChange={setDraft} />
           <div className="flex min-w-0 flex-col gap-2">
             <p className="text-xs font-medium uppercase tracking-wide text-muted">
               Preview
             </p>
-            <div className="aspect-[3/2] w-full overflow-hidden rounded-md border border-border bg-surface-2">
+            <div className="aspect-3/2 w-full overflow-hidden rounded-md border border-border bg-surface-2">
               <BasemapPreview data={draft} interactive />
             </div>
             <p className="text-2xs text-muted">

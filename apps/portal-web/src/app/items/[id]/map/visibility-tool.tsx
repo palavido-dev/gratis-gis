@@ -353,12 +353,12 @@ export function VisibilityTool({
       {phase.step === 'pick' ? (
         <div
           role="status"
-          className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full bg-surface-0/95 px-4 py-1.5 text-xs font-medium text-ink-1 shadow-card backdrop-blur"
+          className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full bg-surface-0/95 px-4 py-1.5 text-xs font-medium text-ink-1 shadow-card backdrop-blur-xs"
         >
           Click the spot you want to look from.
         </div>
       ) : null}
-      <div className="absolute bottom-2 left-1/2 z-20 w-[min(26rem,calc(100%-1rem))] -translate-x-1/2 rounded-lg border border-border bg-surface-0/95 shadow-lg backdrop-blur">
+      <div className="absolute bottom-2 left-1/2 z-20 w-[min(26rem,calc(100%-1rem))] -translate-x-1/2 rounded-lg border border-border bg-surface-0/95 shadow-lg backdrop-blur-xs">
         <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
           <Eye className="h-4 w-4 text-accent" />
           <span className="text-sm font-medium text-ink-0">

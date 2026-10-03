@@ -274,7 +274,7 @@ export function ScriptPanel({
             readOnly={!canEdit}
             spellCheck={false}
             rows={18}
-            className="w-full rounded-md border border-border bg-surface-0 p-3 font-mono text-xs leading-relaxed text-ink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="w-full rounded-md border border-border bg-surface-0 p-3 font-mono text-xs leading-relaxed text-ink-0 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-accent"
             placeholder={PLACEHOLDER}
           />
 

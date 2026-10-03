@@ -74,7 +74,7 @@ export function FilterEditor({ value, metadata, onChange }: Props) {
               onChange={(e) =>
                 update({ ...value, combinator: e.target.value as 'all' | 'any' })
               }
-              className="h-6 rounded border border-border bg-surface-1 px-1 text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+              className="h-6 rounded border border-border bg-surface-1 px-1 text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
             >
               <option value="all">match ALL</option>
               <option value="any">match ANY</option>
@@ -154,7 +154,7 @@ function Clause({
             <select
               value={clause.field}
               onChange={(e) => onChange({ field: e.target.value })}
-              className="h-7 w-full rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+              className="h-7 w-full rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
             >
               <option value="">Pick a field...</option>
               {metadata.fields.map((f) => (
@@ -169,14 +169,14 @@ function Clause({
               value={clause.field}
               onChange={(e) => onChange({ field: e.target.value })}
               placeholder="field"
-              className="h-7 w-full rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+              className="h-7 w-full rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
             />
           )}
           <div className="flex gap-1.5">
             <select
               value={clause.op}
               onChange={(e) => onChange({ op: e.target.value as MapFilterOp })}
-              className="h-7 rounded border border-border bg-surface-1 px-1 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+              className="h-7 rounded border border-border bg-surface-1 px-1 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
             >
               <option value="==">==</option>
               <option value="!=">!=</option>
@@ -194,7 +194,7 @@ function Clause({
                 <select
                   value={clause.value}
                   onChange={(e) => onChange({ value: e.target.value })}
-                  className="h-7 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                  className="h-7 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
                 >
                   <option value="">Pick a value...</option>
                   {valueOptions.map((v) => (
@@ -209,7 +209,7 @@ function Clause({
                   value={clause.value}
                   onChange={(e) => onChange({ value: e.target.value })}
                   placeholder="value"
-                  className="h-7 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                  className="h-7 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
                 />
               )
             ) : null}

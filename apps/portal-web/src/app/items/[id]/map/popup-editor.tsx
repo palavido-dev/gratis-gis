@@ -191,7 +191,7 @@ function PickedEditor({
               e.target.value = '';
             }}
             disabled={unpicked.length === 0}
-            className="h-8 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30 disabled:opacity-50"
+            className="h-8 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30 disabled:opacity-50"
           >
             <option value="">
               {unpicked.length === 0 ? 'All fields added' : 'Add a field...'}
@@ -212,7 +212,7 @@ function PickedEditor({
                 (e.target as HTMLInputElement).value = '';
               }
             }}
-            className="h-8 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+            className="h-8 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
           />
         )}
         {metadata.loading ? (

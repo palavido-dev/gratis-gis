@@ -112,7 +112,7 @@ export function MapSettingsSection({
               value={clipValue}
               disabled={!canEdit || geoBoundaries.length === 0}
               onChange={(e) => setClipBoundaryId(e.target.value)}
-              className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm text-ink-1 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-60"
+              className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm text-ink-1 focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <option value="">(no clip)</option>
               {geoBoundaries.map((g) => (
@@ -136,7 +136,7 @@ export function MapSettingsSection({
               value={extentValue}
               disabled={!canEdit || geoBoundaries.length === 0}
               onChange={(e) => setDefaultExtentBoundaryId(e.target.value)}
-              className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm text-ink-1 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-60"
+              className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm text-ink-1 focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <option value="">(use saved extent)</option>
               {geoBoundaries.map((g) => (
@@ -166,7 +166,7 @@ export function MapSettingsSection({
               value={geocoderValue}
               disabled={!canEdit}
               onChange={(e) => setGeocoderId(e.target.value || null)}
-              className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm text-ink-1 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-60"
+              className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm text-ink-1 focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <option value="">Default (Nominatim)</option>
               {availableGeocoders.map((g) => (

@@ -88,7 +88,7 @@ export function LabelsEditor({ value, metadata, onChange }: Props) {
                       if (e.target.value) insert(`{{${e.target.value}}}`);
                       e.target.value = '';
                     }}
-                    className="h-6 rounded border border-border bg-surface-1 px-1 text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                    className="h-6 rounded border border-border bg-surface-1 px-1 text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
                   >
                     <option value="">+ field...</option>
                     {metadata.fields.map((f) => (
@@ -104,7 +104,7 @@ export function LabelsEditor({ value, metadata, onChange }: Props) {
                     if (e.target.value) insert(e.target.value);
                     e.target.value = '';
                   }}
-                  className="h-6 rounded border border-border bg-surface-1 px-1 text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                  className="h-6 rounded border border-border bg-surface-1 px-1 text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
                 >
                   <option value="">+ format...</option>
                   <option value="| upper">| upper</option>
@@ -119,7 +119,7 @@ export function LabelsEditor({ value, metadata, onChange }: Props) {
               onChange={(e) => patch({ template: e.target.value })}
               placeholder={`{{name}}\nor: {{name}} ({{pop | number}})`}
               rows={2}
-              className="w-full rounded border border-border bg-surface-1 px-2 py-1 font-mono text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+              className="w-full rounded border border-border bg-surface-1 px-2 py-1 font-mono text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
             />
             <p className="mt-1 text-2xs text-muted">
               Static text renders as-is; wrap fields in{' '}
@@ -190,7 +190,7 @@ export function LabelsEditor({ value, metadata, onChange }: Props) {
               onChange={(e) =>
                 patch({ anchor: e.target.value as MapLayerLabels['anchor'] })
               }
-              className="h-8 w-full rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+              className="h-8 w-full rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
             >
               <option value="center">center</option>
               <option value="top">top</option>
@@ -298,7 +298,7 @@ function Color({
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="h-7 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 font-mono text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+          className="h-7 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 font-mono text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
         />
       </div>
     </label>

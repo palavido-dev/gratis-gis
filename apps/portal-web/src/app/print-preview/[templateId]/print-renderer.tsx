@@ -30,6 +30,7 @@
  * a string placeholder until Phase 2.2 wires the real map
  * extent through.
  */
+import type { JSX } from 'react';
 import type {
   DynamicTokenId,
   MapData,

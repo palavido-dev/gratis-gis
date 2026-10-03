@@ -315,14 +315,14 @@ export function ElevationProfileTool({
       {activeDraw ? (
         <div
           role="status"
-          className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full bg-surface-0/95 px-4 py-1.5 text-xs font-medium text-ink-1 shadow-card backdrop-blur"
+          className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full bg-surface-0/95 px-4 py-1.5 text-xs font-medium text-ink-1 shadow-card backdrop-blur-xs"
         >
           {drawing.length === 0
             ? 'Click the map to start a line across the ground.'
             : 'Click to add points. Double-click (or press Enter) to finish.'}
         </div>
       ) : null}
-      <div className="absolute inset-x-2 bottom-2 z-20 rounded-lg border border-border bg-surface-0/95 shadow-lg backdrop-blur">
+      <div className="absolute inset-x-2 bottom-2 z-20 rounded-lg border border-border bg-surface-0/95 shadow-lg backdrop-blur-xs">
         <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
           <ChartSpline className="h-4 w-4 text-accent" />
           <span className="text-sm font-medium text-ink-0">

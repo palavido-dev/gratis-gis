@@ -140,8 +140,8 @@ function DocView({
   return (
     <article className="prose prose-sm max-w-3xl [&_a]:text-accent [&_a]:underline [&_code]:rounded [&_code]:bg-surface-2 [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.95em] [&_h1]:mb-3 [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:text-ink-0 [&_h2]:mb-2 [&_h2]:mt-6 [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-ink-0 [&_h3]:mb-2 [&_h3]:mt-4 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-ink-0 [&_li]:my-1 [&_li]:text-ink-1 [&_ol]:my-3 [&_ol]:ml-5 [&_ol]:list-decimal [&_p]:my-3 [&_p]:text-ink-1 [&_pre]:my-3 [&_pre]:rounded [&_pre]:bg-surface-2 [&_pre]:p-3 [&_pre]:text-xs [&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:p-1.5 [&_td]:text-sm [&_th]:border [&_th]:border-border [&_th]:bg-surface-1 [&_th]:p-1.5 [&_th]:text-left [&_th]:text-sm [&_th]:font-semibold [&_ul]:my-3 [&_ul]:ml-5 [&_ul]:list-disc">
       <header className="mb-4 border-b border-border pb-3">
-        <h1 className="!mb-1 !mt-0">{fm.title}</h1>
-        <p className="!my-0 text-sm text-muted">{fm.summary}</p>
+        <h1 className="mb-1! mt-0!">{fm.title}</h1>
+        <p className="my-0! text-sm text-muted">{fm.summary}</p>
         {fm.complexity ? (
           <span
             className={`mt-2 inline-block rounded-full px-2 py-0.5 text-2xs font-medium uppercase tracking-wide ${
@@ -186,10 +186,10 @@ function DocView({
       />
       {related.length > 0 ? (
         <footer className="mt-8 border-t border-border pt-4">
-          <h2 className="!mt-0 !mb-2 !text-sm !font-semibold !text-muted">
+          <h2 className="mt-0! mb-2! text-sm! font-semibold! text-muted!">
             See also
           </h2>
-          <ul className="!my-0">
+          <ul className="my-0!">
             {related.map((r) => (
               <li key={r.slug}>
                 <Link href={`/help/${r.slug}`}>{r.label}</Link>

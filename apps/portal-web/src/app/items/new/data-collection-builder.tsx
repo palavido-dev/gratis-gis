@@ -103,7 +103,7 @@ export function DataCollectionBuilder({
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search maps in your organization..."
-          className="h-9 flex-1 bg-transparent text-sm text-ink-0 outline-none placeholder:text-muted"
+          className="h-9 flex-1 bg-transparent text-sm text-ink-0 outline-hidden placeholder:text-muted"
         />
       </label>
 

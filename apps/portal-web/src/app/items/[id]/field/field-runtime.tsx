@@ -2002,7 +2002,7 @@ export function FieldRuntime({
     // shell otherwise rubber-bands on iOS and triggers pull-to-refresh
     // on Android, which reloads the runtime mid-collect. The sheets
     // contain their own overscroll separately.
-    <div className="flex h-[100dvh] flex-col overscroll-none bg-surface-1">
+    <div className="flex h-dvh flex-col overscroll-none bg-surface-1">
       {/* Header reserves env(safe-area-inset-top) so iOS status bar
           / dynamic island doesn't sit on top of the back arrow when
           the runtime is launched from a home-screen PWA install
@@ -2273,7 +2273,7 @@ export function FieldRuntime({
             sits where the search bar would otherwise extend. */}
         {showRuntimeChrome ? (
           searchExpanded ? (
-            <div className="absolute left-[3.75rem] right-14 top-3 z-10">
+            <div className="absolute left-15 right-14 top-3 z-10">
               <div className="w-full max-w-xs">
                 <FieldAddressSearch
                   mapRef={mapRef}
@@ -2289,7 +2289,7 @@ export function FieldRuntime({
               type="button"
               onClick={() => setSearchExpanded(true)}
               aria-label="Search address"
-              className="absolute left-[3.75rem] top-3 z-10 inline-flex h-11 w-11 items-center justify-center rounded-md border border-border bg-surface-1 shadow-card hover:bg-surface-2"
+              className="absolute left-15 top-3 z-10 inline-flex h-11 w-11 items-center justify-center rounded-md border border-border bg-surface-1 shadow-card hover:bg-surface-2"
             >
               <Search className="h-5 w-5 text-ink-1" />
             </button>
@@ -2310,7 +2310,7 @@ export function FieldRuntime({
             className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center pt-[max(0.5rem,env(safe-area-inset-top))]"
           >
             <span
-              className={`pointer-events-auto inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium shadow-card backdrop-blur-sm ${
+              className={`pointer-events-auto inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium shadow-card backdrop-blur-xs ${
                 (() => {
                   const band = gpsAccuracyBand(gps.position.accuracyM);
                   if (band === 'excellent' || band === 'good') {
@@ -3190,7 +3190,7 @@ function TemplatePicker({
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Filter..."
-            className="mt-2 h-9 w-full rounded-md border border-border bg-surface-0 px-3 text-sm text-ink-0 outline-none placeholder:text-muted focus:border-accent"
+            className="mt-2 h-9 w-full rounded-md border border-border bg-surface-0 px-3 text-sm text-ink-0 outline-hidden placeholder:text-muted focus:border-accent"
           />
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
@@ -3212,7 +3212,7 @@ function TemplatePicker({
                       <button
                         type="button"
                         onClick={() => onPick(t)}
-                        className="flex min-h-[2.75rem] w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-surface-2 active:bg-surface-3"
+                        className="flex min-h-11 w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-surface-2 active:bg-surface-3"
                       >
                         <span
                           aria-hidden="true"
@@ -4607,7 +4607,7 @@ function FormModal({
                           <p className="flex items-center gap-2 truncate text-base font-semibold text-ink-0">
                             {c.layerLabel}
                             {state && !state.loading && !state.error ? (
-                              <span className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-surface-2 px-1.5 text-xs font-semibold text-ink-1">
+                              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-surface-2 px-1.5 text-xs font-semibold text-ink-1">
                                 {count}
                               </span>
                             ) : null}
@@ -5077,7 +5077,7 @@ function FieldFeaturePopupSheet({
                     <dt className="text-2xs uppercase tracking-wide text-muted">
                       {k}
                     </dt>
-                    <dd className="mt-0.5 break-words text-sm text-ink-0">
+                    <dd className="mt-0.5 wrap-break-word text-sm text-ink-0">
                       {v === null || v === undefined || v === ''
                         ? <span className="text-muted">(empty)</span>
                         : typeof v === 'object'
@@ -6089,7 +6089,7 @@ function FieldAddressSearch({
             if (query.trim().length >= 3) setOpen(true);
           }}
           placeholder="Search address..."
-          className="h-9 w-full rounded-md border border-border bg-surface-0 pl-8 pr-8 text-sm text-ink-0 placeholder:text-muted focus:border-accent focus:outline-none"
+          className="h-9 w-full rounded-md border border-border bg-surface-0 pl-8 pr-8 text-sm text-ink-0 placeholder:text-muted focus:border-accent focus:outline-hidden"
           aria-label="Search address"
         />
         {query || onClose ? (

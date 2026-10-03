@@ -154,7 +154,7 @@ export function TemplateInput({
                 if (e.target.value) insert(e.target.value);
                 e.target.value = '';
               }}
-              className="h-7 rounded border border-border bg-surface-1 px-2 text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+              className="h-7 rounded border border-border bg-surface-1 px-2 text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
             >
               <option value="">Insert formatter...</option>
               {FORMATTERS.map((f) => (
@@ -185,7 +185,7 @@ export function TemplateInput({
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           rows={rows}
-          className="w-full rounded border border-border bg-surface-0 px-2 py-1.5 font-mono text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+          className="w-full rounded border border-border bg-surface-0 px-2 py-1.5 font-mono text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
         />
       ) : (
         <input
@@ -195,7 +195,7 @@ export function TemplateInput({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
-          className="h-8 w-full rounded border border-border bg-surface-1 px-2 font-mono text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+          className="h-8 w-full rounded border border-border bg-surface-1 px-2 font-mono text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
         />
       )}
 

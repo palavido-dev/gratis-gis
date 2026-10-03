@@ -75,11 +75,11 @@ export function ThumbnailDesigner({ type, title, value, onChange }: Props) {
   const backgroundOpacity = design.backgroundOpacity ?? 1;
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,_360px)_minmax(0,_1fr)]">
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
       {/* Live preview pane */}
       <div className="flex flex-col gap-2">
         <div
-          className="aspect-[3/2] w-full overflow-hidden rounded-md border border-border bg-surface-2"
+          className="aspect-3/2 w-full overflow-hidden rounded-md border border-border bg-surface-2"
           aria-label="Thumbnail preview"
           /* eslint-disable-next-line react/no-danger */
           dangerouslySetInnerHTML={{ __html: svg }}
@@ -244,7 +244,7 @@ function ColorRow({
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-7 w-24 rounded border border-border bg-surface-1 px-2 font-mono text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+        className="h-7 w-24 rounded border border-border bg-surface-1 px-2 font-mono text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
       />
     </label>
   );

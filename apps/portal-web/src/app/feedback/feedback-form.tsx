@@ -134,7 +134,7 @@ export function FeedbackForm() {
             onChange={(e) => setName(e.target.value)}
             maxLength={120}
             autoComplete="name"
-            className="mt-1 h-9 w-full rounded border border-border bg-surface-1 px-2.5 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+            className="mt-1 h-9 w-full rounded border border-border bg-surface-1 px-2.5 text-sm focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
             placeholder="e.g. Sam Adams"
           />
         </label>
@@ -148,7 +148,7 @@ export function FeedbackForm() {
             onChange={(e) => setEmail(e.target.value)}
             maxLength={254}
             autoComplete="email"
-            className="mt-1 h-9 w-full rounded border border-border bg-surface-1 px-2.5 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+            className="mt-1 h-9 w-full rounded border border-border bg-surface-1 px-2.5 text-sm focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
             placeholder="you@example.com"
           />
         </label>
@@ -165,7 +165,7 @@ export function FeedbackForm() {
           maxLength={10000}
           rows={8}
           required
-          className="mt-1 w-full rounded border border-border bg-surface-1 px-2.5 py-2 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+          className="mt-1 w-full rounded border border-border bg-surface-1 px-2.5 py-2 text-sm focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
           placeholder="What worked, what didn't, what surprised you. Specific repros land better than general impressions."
         />
         <span className="mt-1 block text-2xs text-muted">

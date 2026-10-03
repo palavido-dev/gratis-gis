@@ -314,7 +314,7 @@ function DrawerUI({
       // (esp. the map) while the drawer is open.  Picking mode
       // re-adds a transparent capture overlay via the body-level
       // click listener.
-      className="fixed right-0 top-0 z-[200] flex h-screen w-full max-w-md flex-col border-l border-border bg-surface-0 shadow-2xl"
+      className="fixed right-0 top-0 z-200 flex h-screen w-full max-w-md flex-col border-l border-border bg-surface-0 shadow-2xl"
     >
       <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
         <HelpCircle className="h-4 w-4 text-accent" />
@@ -413,7 +413,7 @@ function DrawerUI({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search help…"
-                className="w-full rounded-md border border-border bg-surface-0 py-1.5 pl-7 pr-2 text-xs text-ink-0 placeholder-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+                className="w-full rounded-md border border-border bg-surface-0 py-1.5 pl-7 pr-2 text-xs text-ink-0 placeholder-muted focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
               />
             </div>
           </div>

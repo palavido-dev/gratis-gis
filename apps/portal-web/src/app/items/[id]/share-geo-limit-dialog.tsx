@@ -277,7 +277,7 @@ export function ShareGeoLimitDialog({
                 value={boundaryId}
                 onChange={(e) => setBoundaryId(e.target.value)}
                 disabled={boundaries.length === 0}
-                className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
+                className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
               >
                 <option value="">
                   {boundaries.length === 0
@@ -324,7 +324,7 @@ export function ShareGeoLimitDialog({
                 onChange={(e) => setText(e.target.value)}
                 rows={10}
                 placeholder={`{\n  "type": "Polygon",\n  "coordinates": [[[lng,lat], ...]]\n}`}
-                className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 font-mono text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+                className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 font-mono text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
               />
             </label>
             <p className="mt-1 text-2xs text-muted">
@@ -420,7 +420,7 @@ function BBoxField({
         inputMode="decimal"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-8 w-full rounded-md border border-border bg-surface-1 px-2 font-mono text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+        className="h-8 w-full rounded-md border border-border bg-surface-1 px-2 font-mono text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
       />
     </label>
   );

@@ -1159,7 +1159,7 @@ export function SharingPanel({
                 updateBoundary(access, e.target.value || null)
               }
               disabled={pending || geoBoundaryItems.length === 0}
-              className="mt-2 h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm text-ink-1 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-60"
+              className="mt-2 h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm text-ink-1 focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <option value="">
                 {geoBoundaryItems.length === 0
@@ -1236,7 +1236,7 @@ export function SharingPanel({
                     }
                     disabled={pending}
                     aria-label="Change permission"
-                    className="h-8 rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
+                    className="h-8 rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
                   >
                     <option value="view">can view</option>
                     <option value="download">can download</option>
@@ -1262,7 +1262,7 @@ export function SharingPanel({
                       disabled={pending}
                       aria-label="Row scope"
                       title="What can they see / edit?"
-                      className="h-8 rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
+                      className="h-8 rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
                     >
                       <option value="all">all features</option>
                       <option value="own">only theirs</option>
@@ -1396,7 +1396,7 @@ export function SharingPanel({
           <select
             value={permission}
             onChange={(e) => setPermission(e.target.value as SharePermission)}
-            className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           >
             <option value="view">can view</option>
             <option value="edit">can edit</option>

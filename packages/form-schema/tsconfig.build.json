@@ -11,7 +11,7 @@
     // server-side submission validation (the "one shared evaluator"
     // promise in src/index.ts), and Node cannot load the raw .ts
     // sources (extensionless ESM imports, no type stripping on the
-    // supported floor of node 22). portal-web keeps consuming the
+    // supported floor of node 24). portal-web keeps consuming the
     // dist through the bundler like it does shared-types.
     "moduleResolution": "node10",
     "declaration": true,

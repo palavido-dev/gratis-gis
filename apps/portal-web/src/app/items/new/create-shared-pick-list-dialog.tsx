@@ -145,7 +145,7 @@ export function CreateSharedPickListDialog({
             required
             maxLength={200}
             autoFocus
-            className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
         </label>
 
@@ -159,7 +159,7 @@ export function CreateSharedPickListDialog({
             placeholder="What's this list for? Who maintains it?"
             maxLength={5000}
             rows={2}
-            className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
         </label>
 

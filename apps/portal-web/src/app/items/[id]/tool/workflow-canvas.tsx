@@ -176,7 +176,7 @@ function CanvasBody({
           </button>
         ) : null}
       </div>
-      <div className="max-h-[32rem] overflow-auto rounded-md border border-border bg-surface-2">
+      <div className="max-h-128 overflow-auto rounded-md border border-border bg-surface-2">
         <div className="relative" style={{ width, height }}>
           <svg className="absolute inset-0 h-full w-full" aria-hidden="true">
             {graph.edges.map((edge) => {
@@ -250,7 +250,7 @@ function CanvasBody({
                       const value = event.target.value;
                       commit(placeAfter(graph, box.id, value ? value : null));
                     }}
-                    className="max-w-[8rem] rounded border border-border bg-surface-0 px-1 py-0.5 text-2xs text-ink-0"
+                    className="max-w-32 rounded border border-border bg-surface-0 px-1 py-0.5 text-2xs text-ink-0"
                   >
                     <option value="">Start</option>
                     {order

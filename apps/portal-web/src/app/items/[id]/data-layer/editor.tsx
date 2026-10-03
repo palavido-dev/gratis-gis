@@ -357,7 +357,7 @@ export function DataLayerEditor({ itemId, initial, canEdit }: Props) {
                   onChange={(e) => setPaste(e.target.value)}
                   placeholder='{"type":"FeatureCollection","features":[...]}'
                   rows={10}
-                  className="w-full rounded-md border border-border bg-surface-0 px-3 py-2 font-mono text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+                  className="w-full rounded-md border border-border bg-surface-0 px-3 py-2 font-mono text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
                 />
                 <div className="flex items-center justify-end">
                   <button

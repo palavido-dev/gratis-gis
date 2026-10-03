@@ -105,7 +105,7 @@ export function ItemCard({
   // via `mt-auto` inside the layout below.
   const baseClass = cn(
     'flex h-full w-full flex-col gap-2 rounded-lg border border-border bg-surface-1 p-4 text-left shadow-card transition-shadow',
-    href ? 'hover:shadow-raised focus:outline-none focus:ring-2 focus:ring-accent/30' : '',
+    href ? 'hover:shadow-raised focus:outline-hidden focus:ring-2 focus:ring-accent/30' : '',
     className,
   );
 
@@ -122,7 +122,7 @@ export function ItemCard({
   let thumbnail: ReactNode;
   if (item.thumbnailUrl) {
     thumbnail = (
-      <div className="aspect-[3/2] w-full overflow-hidden rounded-md">
+      <div className="aspect-3/2 w-full overflow-hidden rounded-md">
         <img
           src={item.thumbnailUrl}
           alt=""
@@ -135,7 +135,7 @@ export function ItemCard({
     thumbnail = (
       <div
         className={cn(
-          'flex aspect-[3/2] w-full items-center justify-center overflow-hidden rounded-md',
+          'flex aspect-3/2 w-full items-center justify-center overflow-hidden rounded-md',
           tileBg,
         )}
       >
@@ -146,7 +146,7 @@ export function ItemCard({
     );
   } else {
     thumbnail = (
-      <div className="aspect-[3/2] w-full overflow-hidden rounded-md">
+      <div className="aspect-3/2 w-full overflow-hidden rounded-md">
         <EntityBadge
           label={item.title}
           seed={item.id}

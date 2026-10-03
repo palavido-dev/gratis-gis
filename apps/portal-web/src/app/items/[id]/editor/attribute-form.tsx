@@ -344,7 +344,7 @@ function FieldRow({
                 .filter((s) => s.length > 0);
               onChange(parts);
             }}
-            className="mt-1 h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="mt-1 h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
           <p className="mt-0.5 text-2xs text-warn">
             This multi-select references a pick list that could not be
@@ -414,7 +414,7 @@ function FieldRow({
                 matched && typeof matched.code === 'number' ? matched.code : raw,
               );
             }}
-            className="mt-1 h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="mt-1 h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           >
             <option value="">
               {field.nullable ? '(none)' : 'Select a value...'}
@@ -442,7 +442,7 @@ function FieldRow({
             type="text"
             value={value === null || value === undefined ? '' : String(value)}
             onChange={(e) => onChange(e.target.value || null)}
-            className="mt-1 h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="mt-1 h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
           <p className="mt-0.5 text-2xs text-warn">
             This field references a pick list that could not be loaded.
@@ -486,7 +486,7 @@ function FieldRow({
               const v = e.target.value;
               onChange(v === '' ? null : Number(v));
             }}
-            className="mt-1 h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="mt-1 h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
         </label>
       );
@@ -505,7 +505,7 @@ function FieldRow({
                 : String(value).slice(0, 10)
             }
             onChange={(e) => onChange(e.target.value || null)}
-            className="mt-1 h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="mt-1 h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
         </label>
       );
@@ -521,7 +521,7 @@ function FieldRow({
             type="text"
             value={value === null || value === undefined ? '' : String(value)}
             onChange={(e) => onChange(e.target.value || null)}
-            className="mt-1 h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="mt-1 h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
         </label>
       );

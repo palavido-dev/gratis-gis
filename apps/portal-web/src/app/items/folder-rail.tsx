@@ -619,7 +619,7 @@ function FolderCreateRow({
           }}
           disabled={busy}
           placeholder={t('folderRail.folderNamePlaceholder')}
-          className="min-w-0 flex-1 bg-transparent text-sm text-ink-1 placeholder:text-muted/60 focus:outline-none disabled:opacity-60"
+          className="min-w-0 flex-1 bg-transparent text-sm text-ink-1 placeholder:text-muted/60 focus:outline-hidden disabled:opacity-60"
         />
       </div>
     </li>

@@ -4,7 +4,6 @@ import {
   Bell,
   Brush,
   Database,
-  Github,
   Globe,
   Info,
   LogIn,
@@ -28,6 +27,14 @@ import {
   hasRuntime,
 } from '@/lib/item-type-icon';
 import { portalUrl } from '@/lib/portal-url';
+
+function GithubMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true" fill="currentColor">
+      <path d="M12 .5C5.65.5.5 5.65.5 12 .5 16.84 3.44 20.95 7.62 22.46c.56.1.76-.24.76-.54 0-.27-.01-1.16-.02-2.1-3.1.67-3.75-1.32-3.75-1.32-.5-1.28-1.23-1.62-1.23-1.62-1.01-.69.08-.68.08-.68 1.12.08 1.71 1.15 1.71 1.15.99 1.7 2.6 1.21 3.23.92.1-.72.39-1.21.7-1.49-2.47-.28-5.07-1.24-5.07-5.5 0-1.22.43-2.21 1.15-2.99-.12-.28-.5-1.42.11-2.96 0 0 .93-.3 3.06 1.14a10.6 10.6 0 0 1 5.58 0c2.13-1.44 3.06-1.14 3.06-1.14.61 1.54.23 2.68.11 2.96.72.78 1.15 1.77 1.15 2.99 0 4.27-2.6 5.22-5.08 5.49.4.34.75 1.02.75 2.06 0 1.49-.01 2.69-.01 3.06 0 .3.2.65.77.54A11.52 11.52 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z" />
+    </svg>
+  );
+}
 import type { WhatsNewEntry } from '@/lib/whats-new';
 
 /**
@@ -481,7 +488,7 @@ function ProjectAboutSection() {
             rel="noreferrer"
             className="inline-flex h-10 items-center gap-2 rounded-md border border-border bg-surface-1 px-4 text-sm font-medium text-ink-1 hover:bg-surface-2"
           >
-            <Github className="h-4 w-4" />
+            <GithubMark className="h-4 w-4" />
             View on GitHub
           </a>
           {/* #146: Send feedback goes to the in-portal /feedback
@@ -617,7 +624,7 @@ function TopBar({ orgName }: { orgName: string }) {
   // GratisGIS wordmark and the Sign-in button render behind the
   // OS chrome on iPhones.
   return (
-    <header className="flex items-center justify-between border-b border-border bg-surface-1 px-6 pt-[env(safe-area-inset-top)] [height:calc(3.5rem+env(safe-area-inset-top))]">
+    <header className="flex items-center justify-between border-b border-border bg-surface-1 px-6 pt-[env(safe-area-inset-top)] h-[calc(3.5rem+env(safe-area-inset-top))]">
       <div className="flex items-center gap-2">
         <BrandMark size={26} />
         <span className="text-base font-semibold tracking-tight">
@@ -670,7 +677,7 @@ function Hero({
       style={{ backgroundImage: `url(${heroImageUrl})` }}
     >
       <div className="absolute inset-0 bg-black/45" aria-hidden="true" />
-      <div className="relative z-[1] mx-auto w-full max-w-6xl">
+      <div className="relative z-1 mx-auto w-full max-w-6xl">
         <h1 className="max-w-3xl text-3xl font-semibold tracking-tight text-white sm:text-4xl">
           {title}
         </h1>
@@ -710,7 +717,7 @@ function ItemCard({ item }: { item: LandingData['items'][number] }) {
           // object-cover`, which forced a 128px height and cropped
           // the bottom of the image (where the title band sits) on
           // anything wider than ~190px.
-          <div className="aspect-[3/2] w-full overflow-hidden">
+          <div className="aspect-3/2 w-full overflow-hidden">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={item.thumbnailUrl}
@@ -720,7 +727,7 @@ function ItemCard({ item }: { item: LandingData['items'][number] }) {
           </div>
         ) : (
           <div
-            className={`flex aspect-[3/2] w-full items-center justify-center ${tile}`}
+            className={`flex aspect-3/2 w-full items-center justify-center ${tile}`}
           >
             <Icon className="h-10 w-10" />
           </div>

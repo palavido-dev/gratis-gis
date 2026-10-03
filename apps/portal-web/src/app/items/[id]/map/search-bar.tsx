@@ -253,7 +253,7 @@ export function SearchBar({
       className={
         embedded
           ? 'overflow-hidden rounded-lg border border-border bg-surface-1'
-          : 'absolute left-4 top-4 z-10 w-80 overflow-hidden rounded-lg border border-border bg-surface-1/95 shadow-raised backdrop-blur max-md:left-3 max-md:right-3 max-md:w-auto'
+          : 'absolute left-4 top-4 z-10 w-80 overflow-hidden rounded-lg border border-border bg-surface-1/95 shadow-raised backdrop-blur-xs max-md:left-3 max-md:right-3 max-md:w-auto'
       }
     >
       <label className="relative block">
@@ -280,7 +280,7 @@ export function SearchBar({
           role="combobox"
           aria-expanded={open}
           aria-autocomplete="list"
-          className="h-10 w-full bg-transparent pl-9 pr-9 text-sm focus:outline-none"
+          className="h-10 w-full bg-transparent pl-9 pr-9 text-sm focus:outline-hidden"
         />
         {geocodeLoading || arcgisLoading || v3Loading ? (
           <Loader2 className="pointer-events-none absolute right-8 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted" />

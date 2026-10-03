@@ -227,7 +227,7 @@ export function RendererEditor({ value, metadata, layer, onChange }: Props) {
                 <select
                   value={value.field}
                   onChange={(e) => setUnique(e.target.value)}
-                  className="h-8 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                  className="h-8 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
                 >
                   <option value="">Pick a field...</option>
                   {metadata.fields.map((f) => (
@@ -256,7 +256,7 @@ export function RendererEditor({ value, metadata, layer, onChange }: Props) {
                 value={value.field}
                 onChange={(e) => setUnique(e.target.value)}
                 placeholder="field name"
-                className="h-8 w-full rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                className="h-8 w-full rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
               />
             )}
             {metadata.loading ? (
@@ -307,7 +307,7 @@ export function RendererEditor({ value, metadata, layer, onChange }: Props) {
                           patchCategory(i, { value: e.target.value })
                         }
                         placeholder="value"
-                        className="h-7 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                        className="h-7 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
                       />
                       {/* #78: optional per-category icon override.
                           v1 ships as a small text input next to the
@@ -346,7 +346,7 @@ export function RendererEditor({ value, metadata, layer, onChange }: Props) {
                         }}
                         placeholder="icon (optional)"
                         title="Icon name to render features in this category. Leave empty to inherit the layer's icon."
-                        className="h-7 w-28 shrink-0 rounded border border-border bg-surface-1 px-2 text-2xs text-ink-1 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                        className="h-7 w-28 shrink-0 rounded border border-border bg-surface-1 px-2 text-2xs text-ink-1 focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
                       />
                       <button
                         type="button"
@@ -448,7 +448,7 @@ function ClassBreaksEditor({
           <select
             value={value.field}
             onChange={(e) => patch({ field: e.target.value })}
-            className="h-8 w-full rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+            className="h-8 w-full rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
           >
             <option value="">Pick a field...</option>
             {numericFields.map((f) => (
@@ -463,7 +463,7 @@ function ClassBreaksEditor({
             value={value.field}
             onChange={(e) => patch({ field: e.target.value })}
             placeholder="field name"
-            className="h-8 w-full rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+            className="h-8 w-full rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
           />
         )}
       </div>
@@ -476,7 +476,7 @@ function ClassBreaksEditor({
           <select
             value={value.stops.length}
             onChange={(e) => setStopCount(Number(e.target.value))}
-            className="h-8 w-full rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+            className="h-8 w-full rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
           >
             {[1, 2, 3, 4, 5, 6, 7].map((n) => (
               <option key={n} value={n}>
@@ -494,7 +494,7 @@ function ClassBreaksEditor({
             onChange={(e) =>
               e.target.value && resample(value.stops.length, e.target.value)
             }
-            className="h-8 w-full rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+            className="h-8 w-full rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
           >
             {currentRamp === 'custom' ? <option value="">custom</option> : null}
             {Object.keys(CLASS_BREAK_RAMPS).map((name) => (
@@ -574,7 +574,7 @@ function ClassRow({
           type="number"
           value={stop}
           onChange={(e) => onStop(e.target.value)}
-          className="h-7 w-20 shrink-0 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+          className="h-7 w-20 shrink-0 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
         />
       ) : (
         <span className="h-7 w-20" />

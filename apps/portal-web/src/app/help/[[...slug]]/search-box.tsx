@@ -52,7 +52,7 @@ export function HelpSearchBox({ index }: { index: IndexEntry[] }) {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search help…"
-          className="w-full rounded-md border border-border bg-surface-1 py-1.5 pl-7 pr-2 text-xs text-ink-0 placeholder-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+          className="w-full rounded-md border border-border bg-surface-1 py-1.5 pl-7 pr-2 text-xs text-ink-0 placeholder-muted focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
         />
       </div>
       {results.length > 0 ? (

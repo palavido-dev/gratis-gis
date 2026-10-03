@@ -141,7 +141,7 @@ export function PrincipalPicker({
           role="combobox"
           aria-expanded={open}
           aria-autocomplete="list"
-          className="h-9 w-full rounded-md border border-border bg-surface-1 pl-9 pr-8 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+          className="h-9 w-full rounded-md border border-border bg-surface-1 pl-9 pr-8 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
         />
         {loading ? (
           <Loader2 className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted" />

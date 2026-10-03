@@ -83,7 +83,7 @@ export function FeedbackWidget({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="fixed bottom-4 right-4 z-40 inline-flex items-center gap-2 rounded-full border border-border bg-surface-1 px-4 py-2.5 text-sm font-medium text-ink-1 shadow-lg transition hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent print:hidden"
+        className="fixed bottom-4 right-4 z-40 inline-flex items-center gap-2 rounded-full border border-border bg-surface-1 px-4 py-2.5 text-sm font-medium text-ink-1 shadow-lg transition hover:bg-surface-2 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-accent print:hidden"
         aria-haspopup="dialog"
       >
         <MessageSquarePlus className="h-4 w-4" aria-hidden="true" />
@@ -268,7 +268,7 @@ export function FeedbackDialog({
                 rows={5}
                 maxLength={10000}
                 required
-                className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm text-ink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm text-ink-0 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-accent"
                 placeholder="The parcels layer does not draw when I zoom past the county line."
               />
               <p className="mt-1 text-right text-xs text-muted">
@@ -289,7 +289,7 @@ export function FeedbackDialog({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   maxLength={120}
-                  className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm text-ink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm text-ink-0 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-accent"
                 />
               </div>
               <div>
@@ -308,7 +308,7 @@ export function FeedbackDialog({
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   maxLength={254}
-                  className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm text-ink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm text-ink-0 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-accent"
                 />
               </div>
             </div>

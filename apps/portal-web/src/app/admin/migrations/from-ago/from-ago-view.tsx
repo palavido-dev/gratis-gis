@@ -746,7 +746,7 @@ export function FromAgoView() {
               (Dashboard, StoryMap, Form, etc.) can&apos;t be toggled
               because there&apos;s no import path for them yet.
             </p>
-            <div className="max-h-[32rem] overflow-y-auto rounded border border-border bg-surface-0">
+            <div className="max-h-128 overflow-y-auto rounded border border-border bg-surface-0">
               <table className="w-full text-xs">
                 <thead className="sticky top-0 z-10 bg-surface-2 text-left">
                   <tr>

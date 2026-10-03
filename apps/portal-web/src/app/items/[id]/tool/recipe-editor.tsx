@@ -73,7 +73,7 @@ export function RecipeEditor({ recipe, canEdit, onChange }: Props) {
   const labelCls =
     'block text-xs font-medium uppercase tracking-wide text-muted';
   const inputCls =
-    'mt-1 w-full rounded-md border border-border bg-surface-0 px-2 py-1.5 text-sm text-ink-0 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-60';
+    'mt-1 w-full rounded-md border border-border bg-surface-0 px-2 py-1.5 text-sm text-ink-0 focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-60';
 
   function setParameters(next: ToolParameter[]) {
     onChange({ ...recipe, parameters: next });

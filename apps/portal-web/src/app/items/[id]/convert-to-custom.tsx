@@ -209,7 +209,7 @@ export function ConvertToCustomButton({
                 type="button"
                 onClick={onConfirm}
                 disabled={submitting}
-                className="inline-flex items-center gap-1.5 rounded-md bg-warn px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-warn/80 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-md bg-warn px-3 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-warn/80 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 Convert

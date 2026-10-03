@@ -481,7 +481,7 @@ export function useFeatureEditing({
           </Hint>
         ) : null}
         {pendingEdit ? (
-          <div className="absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-border bg-surface-1/95 px-3 py-2 shadow-raised backdrop-blur">
+          <div className="absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-border bg-surface-1/95 px-3 py-2 shadow-raised backdrop-blur-xs">
             <span className="text-xs text-ink-1">
               {t('featureEdit.editingIn', { layer: pendingEdit.layerTitle })}
             </span>
@@ -551,7 +551,7 @@ const EMPTY_SET: ReadonlySet<string> = new Set();
 
 function Hint({ children }: { children: ReactNode }) {
   return (
-    <div className="pointer-events-none absolute left-1/2 top-4 z-20 -translate-x-1/2 rounded-md border border-border bg-surface-1/95 px-3 py-1.5 text-xs text-ink-1 shadow-card backdrop-blur">
+    <div className="pointer-events-none absolute left-1/2 top-4 z-20 -translate-x-1/2 rounded-md border border-border bg-surface-1/95 px-3 py-1.5 text-xs text-ink-1 shadow-card backdrop-blur-xs">
       {children}
     </div>
   );
@@ -580,7 +580,7 @@ function EditToolbar({
 }) {
   const t = useT();
   return (
-    <div className="absolute left-4 top-[6.25rem] z-10 flex items-center gap-1 rounded-lg border border-border bg-surface-1/95 p-1 shadow-raised backdrop-blur">
+    <div className="absolute left-4 top-25 z-10 flex items-center gap-1 rounded-lg border border-border bg-surface-1/95 p-1 shadow-raised backdrop-blur-xs">
       <span className="px-1 text-2xs uppercase tracking-wide text-muted">{t('featureEdit.groupLabel')}</span>
       <ToolButton
         icon={MousePointerSquareDashed}
@@ -605,7 +605,7 @@ function EditToolbar({
         <select
           value={addLayerId ?? ''}
           onChange={(e) => onAddLayerChange(e.target.value)}
-          className="ml-1 h-7 max-w-[12rem] rounded border border-border bg-surface-1 px-1 text-2xs text-ink-1 focus:border-accent focus:outline-none"
+          className="ml-1 h-7 max-w-48 rounded border border-border bg-surface-1 px-1 text-2xs text-ink-1 focus:border-accent focus:outline-hidden"
           aria-label={t('featureEdit.layerToAddTo')}
         >
           {drawableLayers.map((l) => (

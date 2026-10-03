@@ -137,7 +137,7 @@ export function BrandingForm({ initial }: Props) {
             placeholder="Your organization"
             maxLength={120}
             required
-            className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
           <p className="mt-1 text-2xs text-muted">
             The display name used in headers, navigation, emails,
@@ -160,7 +160,7 @@ export function BrandingForm({ initial }: Props) {
             onChange={(e) => setTitle(e.target.value)}
             placeholder={initial.name}
             maxLength={200}
-            className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
           <p className="mt-1 text-2xs text-muted">
             Shown as the hero heading. Leave blank to fall back to the
@@ -182,7 +182,7 @@ export function BrandingForm({ initial }: Props) {
             onChange={(e) => setSubtitle(e.target.value)}
             placeholder="Public geospatial content for our community"
             maxLength={500}
-            className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
           <p className="mt-1 text-2xs text-muted">
             One-line tagline under the title. Optional.

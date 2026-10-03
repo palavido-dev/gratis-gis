@@ -207,7 +207,7 @@ export function ItemAccessMatrix({
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               placeholder={t('accessMatrix.filterPlaceholder')}
-              className="h-7 w-full rounded border border-border bg-surface-1 pl-7 pr-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+              className="h-7 w-full rounded border border-border bg-surface-1 pl-7 pr-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
             />
           </label>
           <span className="text-xs text-muted">

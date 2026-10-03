@@ -614,7 +614,7 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
         disabled={!canEdit}
         onChange={(e) => setForm({ ...form, title: e.target.value })}
         placeholder="Untitled form"
-        className="rounded-md border border-border bg-surface-1 px-2 py-1 text-sm font-medium text-ink-0 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
+        className="rounded-md border border-border bg-surface-1 px-2 py-1 text-sm font-medium text-ink-0 focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
       />
       <span className="text-2xs uppercase tracking-wide text-muted">
         v{CURRENT_FORM_SCHEMA_VERSION}
@@ -625,7 +625,7 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
           onClick={() => setTab('design')}
           className={`px-2 py-1 ${
             tab === 'design'
-              ? 'rounded bg-surface-1 text-ink-0 shadow-sm'
+              ? 'rounded bg-surface-1 text-ink-0 shadow-xs'
               : 'text-muted'
           }`}
         >
@@ -636,7 +636,7 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
           onClick={() => setTab('preview')}
           className={`px-2 py-1 ${
             tab === 'preview'
-              ? 'rounded bg-surface-1 text-ink-0 shadow-sm'
+              ? 'rounded bg-surface-1 text-ink-0 shadow-xs'
               : 'text-muted'
           }`}
         >
@@ -653,7 +653,7 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
           onClick={() => setTab('responses')}
           className={`px-2 py-1 ${
             tab === 'responses'
-              ? 'rounded bg-surface-1 text-ink-0 shadow-sm'
+              ? 'rounded bg-surface-1 text-ink-0 shadow-xs'
               : 'text-muted'
           }`}
         >
@@ -1164,7 +1164,7 @@ function ResponseViewSettings({
                   });
                 }
               }}
-              className="h-7 w-20 rounded-md border border-border bg-surface-0 px-2 text-xs focus:border-accent focus:outline-none"
+              className="h-7 w-20 rounded-md border border-border bg-surface-0 px-2 text-xs focus:border-accent focus:outline-hidden"
             />
           </label>
           <label className="flex items-center justify-between gap-2">
@@ -1541,7 +1541,7 @@ function Palette({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search question types"
-          className="block h-8 w-full rounded-md border border-border bg-surface-1 pl-7 pr-7 text-xs text-ink-1 placeholder:text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+          className="block h-8 w-full rounded-md border border-border bg-surface-1 pl-7 pr-7 text-xs text-ink-1 placeholder:text-muted focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
         />
         {query ? (
           <button
@@ -3394,7 +3394,7 @@ function GroupRepeatEditor({
 }
 
 const inputCls =
-  'block w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-60';
+  'block w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-60';
 
 function Field({
   label,
@@ -5181,7 +5181,7 @@ function FieldsReferencePanel({
               <button
                 type="button"
                 onClick={() => onPick(f.id)}
-                className="w-full rounded border border-border bg-surface-0 px-2 py-1 text-left hover:border-accent hover:bg-accent/5 focus:border-accent focus:bg-accent/5 focus:outline-none"
+                className="w-full rounded border border-border bg-surface-0 px-2 py-1 text-left hover:border-accent hover:bg-accent/5 focus:border-accent focus:bg-accent/5 focus:outline-hidden"
               >
                 <div className="flex items-center gap-1.5">
                   <span className="rounded bg-surface-2 px-1 py-px font-mono text-2xs uppercase text-muted">
@@ -5245,7 +5245,7 @@ function OperatorsReferencePanel({
               <button
                 type="button"
                 onClick={() => onPick(o.op)}
-                className="w-full rounded border border-border bg-surface-0 px-2 py-1 text-left hover:border-accent hover:bg-accent/5 focus:border-accent focus:bg-accent/5 focus:outline-none"
+                className="w-full rounded border border-border bg-surface-0 px-2 py-1 text-left hover:border-accent hover:bg-accent/5 focus:border-accent focus:bg-accent/5 focus:outline-hidden"
               >
                 <p className="text-xs text-ink-0">{o.label}</p>
                 <p className="text-2xs text-muted">{o.hint}</p>
@@ -5361,7 +5361,7 @@ function FunctionsReferencePanel() {
                       void navigator.clipboard.writeText(f.sig);
                     }
                   }}
-                  className="w-full rounded border border-border bg-surface-0 px-2 py-1 text-left hover:border-accent hover:bg-accent/5 focus:border-accent focus:bg-accent/5 focus:outline-none"
+                  className="w-full rounded border border-border bg-surface-0 px-2 py-1 text-left hover:border-accent hover:bg-accent/5 focus:border-accent focus:bg-accent/5 focus:outline-hidden"
                 >
                   <p className="font-mono text-2xs text-ink-0">{f.sig}</p>
                   <p className="text-2xs text-muted">{f.hint}</p>

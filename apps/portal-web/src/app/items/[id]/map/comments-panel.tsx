@@ -373,7 +373,7 @@ export function CommentsPanel({
               disabled={busy || draftBody.trim().length === 0}
               className="flex items-center gap-1 rounded border border-border bg-accent px-2 py-1.5 text-sm font-medium text-accent-on hover:opacity-90 disabled:opacity-50"
             >
-              <ChevronDown className="h-3.5 w-3.5 rotate-[-90deg]" />
+              <ChevronDown className="h-3.5 w-3.5 -rotate-90" />
               Post
             </button>
           </div>

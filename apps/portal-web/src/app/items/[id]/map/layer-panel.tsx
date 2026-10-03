@@ -1271,7 +1271,7 @@ function LayerRow({
   if (mode === 'config') {
     return (
       <div
-        className="fixed z-30 flex min-h-0 w-[22rem] flex-col border-r border-border bg-surface-1 shadow-xl"
+        className="fixed z-30 flex min-h-0 w-88 flex-col border-r border-border bg-surface-1 shadow-xl"
         style={
           anchor
             ? { left: anchor.left, top: anchor.top, height: anchor.height }
@@ -2110,7 +2110,7 @@ function ScaledSymbologyEditor({
                     type="text"
                     value={label}
                     onChange={(e) => patchClass(i, { label: e.target.value })}
-                    className="flex-1 rounded border border-border bg-surface-0 px-1.5 py-0.5 text-2xs focus:border-accent focus:outline-none"
+                    className="flex-1 rounded border border-border bg-surface-0 px-1.5 py-0.5 text-2xs focus:border-accent focus:outline-hidden"
                   />
                   <button
                     type="button"
@@ -2436,7 +2436,7 @@ function SearchConfig({
                   e.target.value = '';
                 }}
                 disabled={unpicked.length === 0}
-                className="mt-2 h-7 w-full rounded border border-border bg-surface-1 px-2 text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30 disabled:opacity-50"
+                className="mt-2 h-7 w-full rounded border border-border bg-surface-1 px-2 text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30 disabled:opacity-50"
               >
                 <option value="">
                   {unpicked.length === 0 ? 'All fields added' : 'Add a field...'}
@@ -2457,7 +2457,7 @@ function SearchConfig({
                     (e.target as HTMLInputElement).value = '';
                   }
                 }}
-                className="mt-2 h-7 w-full rounded border border-border bg-surface-1 px-2 text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                className="mt-2 h-7 w-full rounded border border-border bg-surface-1 px-2 text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
               />
             )}
           </div>

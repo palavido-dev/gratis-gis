@@ -1034,7 +1034,7 @@ function Section({
             {title}
             {typeof count === 'number' ? (
               <span
-                className={`inline-flex h-5 min-w-[1.5rem] items-center justify-center rounded-full px-1.5 text-2xs font-medium ${
+                className={`inline-flex h-5 min-w-6 items-center justify-center rounded-full px-1.5 text-2xs font-medium ${
                   count > 0
                     ? 'bg-accent/10 text-accent'
                     : 'bg-surface-2 text-muted'

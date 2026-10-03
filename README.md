@@ -231,7 +231,7 @@ operational details.
 
 ## Developer Quick Start
 
-Prereqs: Node 22.12+, pnpm 9+, Docker Desktop, git.
+Prereqs: Node 24.9+, pnpm 9+, Docker Desktop, git.
 
 ```bash
 # Clone and install

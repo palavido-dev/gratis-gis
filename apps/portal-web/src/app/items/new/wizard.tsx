@@ -1863,7 +1863,7 @@ export function NewItemWizard({
                     // being the name.
                     aria-label={opt.label}
                     onClick={() => pickType(opt.value)}
-                    className="flex items-start gap-3 rounded-lg border border-border bg-surface-1 p-4 text-left shadow-card transition-colors hover:border-accent/50 hover:bg-surface-2 focus:outline-none focus:ring-2 focus:ring-accent/30"
+                    className="flex items-start gap-3 rounded-lg border border-border bg-surface-1 p-4 text-left shadow-card transition-colors hover:border-accent/50 hover:bg-surface-2 focus:outline-hidden focus:ring-2 focus:ring-accent/30"
                   >
                     <span
                       className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${group.iconTileClass}`}
@@ -2153,7 +2153,7 @@ export function NewItemWizard({
             }}
             placeholder="My layer, report, form..."
             maxLength={200}
-            className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
         </div>
 
@@ -2174,7 +2174,7 @@ export function NewItemWizard({
             placeholder="What is this, and who's it for?"
             maxLength={5000}
             rows={4}
-            className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
         </div>
 
@@ -2191,7 +2191,7 @@ export function NewItemWizard({
             value={tagsText}
             onChange={(e) => setTagsText(e.target.value)}
             placeholder="Comma separated, e.g. buildings, parcels, campus"
-            className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
           <p className="mt-1 text-xs text-muted">
             Used for search and filtering.
@@ -2982,7 +2982,7 @@ function ArcgisConfigSection({
             }
           }}
           placeholder="https://host/arcgis/rest/services/OpenData/Assessor/MapServer"
-          className="h-9 min-w-0 flex-1 rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+          className="h-9 min-w-0 flex-1 rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
         />
         <button
           type="button"
@@ -3062,7 +3062,7 @@ function ArcgisConfigSection({
                 value={credentialUsername}
                 onChange={(e) => onCredentialUsernameChange(e.target.value)}
                 placeholder="Username"
-                className="h-8 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                className="h-8 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
               />
               <input
                 type="password"
@@ -3070,7 +3070,7 @@ function ArcgisConfigSection({
                 value={credentialPassword}
                 onChange={(e) => onCredentialPasswordChange(e.target.value)}
                 placeholder="Password"
-                className="h-8 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                className="h-8 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
               />
             </div>
           ) : (
@@ -3084,7 +3084,7 @@ function ArcgisConfigSection({
                   ? 'Paste an ArcGIS token (e.g. from generateToken)'
                   : 'Paste a bearer token'
               }
-              className="mb-2 h-8 w-full rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+              className="mb-2 h-8 w-full rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
             />
           )}
 

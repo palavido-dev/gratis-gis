@@ -3,7 +3,7 @@
   "compilerOptions": {
     "target": "ES2022",
     // DOM lib gets us URL / URLSearchParams / fetch globals that
-    // Node 22 also exposes; TS 6 stopped auto-including these via
+    // Node 24 also exposes; TS 6 stopped auto-including these via
     // @types/node so they need to be in lib explicitly. Packages
     // that need Node-only built-ins (node:crypto, Buffer) add
     // @types/node and `types: ["node"]` to their tsconfig.

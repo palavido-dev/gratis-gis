@@ -482,7 +482,7 @@ item.
 - [ ] **pg_partman registered.** `SELECT parent_table, partition_interval, premake FROM partman.part_config;` Shows the observation entry.
 - [ ] **No legacy fs_ tables.** `SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename ~ '^fs_[0-9a-f]{32}_';` Returns 0 rows.
 - [ ] **Engine read works.** `SELECT DISTINCT ON (entity) entity, attrs FROM observation WHERE scope = 'data_layer:<id>:<key>' AND valid_to IS NULL ORDER BY entity, valid_from DESC LIMIT 5;` Returns recent feature rows.
-- [ ] **Cedar is loaded by portal-api.** Boot log shows `[PolicyService] Cedar engine ready (sdk=4.10.0, lang=4.5)`.
+- [ ] **Cedar is loaded by portal-api.** Boot log shows `[PolicyService] Cedar engine ready (sdk=4.13.0, lang=4.5)`.
 
 ---
 

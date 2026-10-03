@@ -333,7 +333,7 @@ export function AppThemeDetail({
           )}
           {error && (
             <span
-              className="max-w-[14rem] truncate text-xs text-danger"
+              className="max-w-56 truncate text-xs text-danger"
               title={error}
             >
               {error}
@@ -355,7 +355,7 @@ export function AppThemeDetail({
         </div>
       </header>
 
-      <div className="grid gap-5 p-5 md:grid-cols-[minmax(0,_1fr)_minmax(0,_1fr)]">
+      <div className="grid gap-5 p-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         {/* ---- Editor pane ---- */}
         <div className="space-y-4">
           {!canEdit && (

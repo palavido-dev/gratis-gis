@@ -186,9 +186,9 @@ export function AnalyzeQueryBuilder({
   }
 
   const selectClass =
-    'h-7 rounded border border-border bg-surface-1 px-1.5 text-2xs text-ink-1 focus:border-accent focus:outline-none';
+    'h-7 rounded border border-border bg-surface-1 px-1.5 text-2xs text-ink-1 focus:border-accent focus:outline-hidden';
   const inputClass =
-    'h-7 rounded border border-border bg-surface-1 px-2 text-2xs text-ink-1 focus:border-accent focus:outline-none';
+    'h-7 rounded border border-border bg-surface-1 px-2 text-2xs text-ink-1 focus:border-accent focus:outline-hidden';
   const sectionLabel =
     'text-2xs font-medium uppercase tracking-wide text-muted';
 

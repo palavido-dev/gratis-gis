@@ -115,7 +115,7 @@ function resolveChrome(config: ContainerWidgetConfig) {
  */
 function variantClasses(variant: ContainerWidgetConfig['variant']): string {
   if (variant === 'glass') {
-    return 'bg-[hsl(var(--app-surface-1)/0.7)] backdrop-blur supports-[backdrop-filter]:bg-[hsl(var(--app-surface-1)/0.6)] border-b border-[hsl(var(--app-border)/0.6)] text-[hsl(var(--app-ink-0))]';
+    return 'bg-[hsl(var(--app-surface-1)/0.7)] backdrop-blur-xs supports-backdrop-filter:bg-[hsl(var(--app-surface-1)/0.6)] border-b border-[hsl(var(--app-border)/0.6)] text-[hsl(var(--app-ink-0))]';
   }
   if (variant === 'flat') {
     return 'bg-[hsl(var(--app-surface-1))] text-[hsl(var(--app-ink-0))]';
@@ -124,7 +124,7 @@ function variantClasses(variant: ContainerWidgetConfig['variant']): string {
     return 'bg-transparent text-[hsl(var(--app-ink-0))]';
   }
   // 'elevated' (default).  Branded header surface.
-  return 'bg-[hsl(var(--app-header-bg))] text-[hsl(var(--app-header-ink))] border-b border-[hsl(var(--app-header-border))] shadow-[var(--app-shadow-card)]';
+  return 'bg-[hsl(var(--app-header-bg))] text-[hsl(var(--app-header-ink))] border-b border-[hsl(var(--app-header-border))] shadow-(--app-shadow-card)';
 }
 
 /**
@@ -614,13 +614,13 @@ function OverlayContainer({ config, renderChild }: OverlayProps) {
       : { height: sizePx };
   const drawerTransform =
     !open && edge === 'left'
-      ? 'translate-x-[-100%]'
+      ? '-translate-x-full'
       : !open && edge === 'right'
-        ? 'translate-x-[100%]'
+        ? 'translate-x-full'
         : !open && edge === 'top'
-          ? 'translate-y-[-100%]'
+          ? '-translate-y-full'
           : !open && edge === 'bottom'
-            ? 'translate-y-[100%]'
+            ? 'translate-y-full'
             : 'translate-x-0 translate-y-0';
 
   return (
@@ -629,7 +629,7 @@ function OverlayContainer({ config, renderChild }: OverlayProps) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={`pointer-events-auto absolute z-20 inline-flex items-center gap-1.5 rounded-full border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-3 py-1.5 text-xs font-medium text-[hsl(var(--app-ink-0))] shadow-[var(--app-shadow-card)] transition-colors hover:bg-[hsl(var(--app-surface-2))] ${triggerPositionClass}`}
+        className={`pointer-events-auto absolute z-20 inline-flex items-center gap-1.5 rounded-full border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-3 py-1.5 text-xs font-medium text-[hsl(var(--app-ink-0))] shadow-(--app-shadow-card) transition-colors hover:bg-[hsl(var(--app-surface-2))] ${triggerPositionClass}`}
         aria-expanded={open}
         aria-label={open ? `Close ${triggerLabel}` : `Open ${triggerLabel}`}
       >
@@ -640,7 +640,7 @@ function OverlayContainer({ config, renderChild }: OverlayProps) {
       {/* Drawer panel.  Stays mounted so per-instance state survives
           open/close; off-screen when closed via translate transform. */}
       <aside
-        className={`pointer-events-auto absolute z-10 flex flex-col overflow-hidden border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] shadow-[var(--app-shadow-overlay)] transition-transform duration-200 ease-out ${drawerPositionClass} ${drawerTransform} ${
+        className={`pointer-events-auto absolute z-10 flex flex-col overflow-hidden border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] shadow-(--app-shadow-overlay) transition-transform duration-200 ease-out ${drawerPositionClass} ${drawerTransform} ${
           edge === 'left' || edge === 'right' ? 'border-l border-r' : 'border-t border-b'
         }`}
         style={{ ...drawerSizeStyle, maxWidth: '100%' }}
@@ -757,7 +757,7 @@ function MenuContainer({ config, renderChild }: ContainerRenderProps) {
                   ? ''
                   : 'text-[hsl(var(--app-header-ink)/0.85)] hover:bg-[hsl(var(--app-header-ink)/0.12)] hover:text-[hsl(var(--app-header-ink))]'
               }`
-            : `flex h-full w-full flex-col items-center justify-center gap-0.5 rounded-md border bg-[hsl(var(--app-surface-1))] px-2.5 py-1.5 shadow-sm transition-all ${
+            : `flex h-full w-full flex-col items-center justify-center gap-0.5 rounded-md border bg-[hsl(var(--app-surface-1))] px-2.5 py-1.5 shadow-xs transition-all ${
                 open
                   ? 'border-[hsl(var(--app-ink-0))] text-[hsl(var(--app-ink-0))] ring-2 ring-[hsl(var(--app-ink-0)/0.1)]'
                   : 'border-[hsl(var(--app-border))] text-[hsl(var(--app-ink-1))] hover:border-[hsl(var(--app-ink-1))] hover:shadow-md'
@@ -771,7 +771,7 @@ function MenuContainer({ config, renderChild }: ContainerRenderProps) {
       </button>
       {open ? (
         <div
-          className="absolute left-1/2 top-full z-30 mt-1 min-w-[180px] -translate-x-1/2 rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] p-1 shadow-[var(--app-shadow-overlay)]"
+          className="absolute left-1/2 top-full z-30 mt-1 min-w-[180px] -translate-x-1/2 rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] p-1 shadow-(--app-shadow-overlay)"
           role="menu"
         >
           <div className="flex flex-col gap-0.5">

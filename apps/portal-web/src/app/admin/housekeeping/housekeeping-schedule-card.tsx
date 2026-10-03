@@ -196,7 +196,7 @@ export function HousekeepingScheduleCard({
                 set('autoTrashDays', Math.max(1, Number(e.target.value)))
               }
               disabled={!config.autoTrashEnabled}
-              className="inline h-7 w-20 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
+              className="inline h-7 w-20 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
             />{' '}
             days. They aren&apos;t deleted right away: trashed items
             stay in Recently deleted and can be put back at any time.
@@ -225,7 +225,7 @@ export function HousekeepingScheduleCard({
                 set('autoDisableDays', Math.max(1, Number(e.target.value)))
               }
               disabled={!config.autoDisableEnabled}
-              className="inline h-7 w-20 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
+              className="inline h-7 w-20 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
             />{' '}
             days. Their account isn&apos;t deleted: anything they
             owned stays put, and you can turn sign-in back on for
@@ -279,7 +279,7 @@ export function HousekeepingScheduleCard({
                   Math.max(1, Number(e.target.value)),
                 )
               }
-              className="inline h-7 w-20 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+              className="inline h-7 w-20 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
             />{' '}
             days. The same threshold applies to the &quot;Forget all
             stale&quot; button on that page.
@@ -311,7 +311,7 @@ export function HousekeepingScheduleCard({
                 )
               }
               disabled={!config.fieldQueueAutoPruneEnabled}
-              className="inline h-7 w-20 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
+              className="inline h-7 w-20 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
             />{' '}
             days of grace. So with the defaults (7 + 90), the cron
             only touches rows that have been idle for 97+ days. Rows
@@ -334,7 +334,7 @@ export function HousekeepingScheduleCard({
                 e.target.value as HousekeepingConfig['scheduleMode'],
               )
             }
-            className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           >
             <option value="off">Don&apos;t run automatically</option>
             <option value="daily">Every day</option>
@@ -357,7 +357,7 @@ export function HousekeepingScheduleCard({
               )
             }
             disabled={config.scheduleMode === 'off'}
-            className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
+            className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
           />
         </label>
         <label className="text-xs">
@@ -376,7 +376,7 @@ export function HousekeepingScheduleCard({
               )
             }
             disabled={config.scheduleMode === 'off'}
-            className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
+            className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
           />
         </label>
         <label className="text-xs">
@@ -389,7 +389,7 @@ export function HousekeepingScheduleCard({
               set('scheduleDayOfWeek', Number(e.target.value))
             }
             disabled={config.scheduleMode !== 'weekly'}
-            className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
+            className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
           >
             {DAYS_OF_WEEK.map((d) => (
               <option key={d.value} value={d.value}>

@@ -176,7 +176,7 @@ export function FilterPopover({
           aria-label={t('filter.filterItems')}
           className={
             narrow
-              ? 'fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-[60] max-h-[min(80dvh,36rem)] overflow-y-auto rounded-xl border border-border bg-surface-1 p-3 shadow-lg'
+              ? 'fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-60 max-h-[min(80dvh,36rem)] overflow-y-auto rounded-xl border border-border bg-surface-1 p-3 shadow-lg'
               : 'absolute left-0 top-full z-30 mt-1 max-h-[min(70vh,32rem)] w-[min(28rem,calc(100vw-2rem))] overflow-y-auto rounded-md border border-border bg-surface-1 p-3 shadow-lg'
           }
         >
@@ -419,7 +419,7 @@ export function FilterPopover({
           <>
             <button
               type="button"
-              className="fixed inset-0 z-[55] bg-black/40"
+              className="fixed inset-0 z-55 bg-black/40"
               aria-label={t('common.close')}
               onClick={() => setOpen(false)}
             />

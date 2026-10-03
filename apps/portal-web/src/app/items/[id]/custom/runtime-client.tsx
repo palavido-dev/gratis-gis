@@ -220,7 +220,7 @@ interface CustomMapsCtx {
       | Partial<MapState>
       | ((cur: MapState) => MapState),
   ) => void;
-  registerRef: (mapWidgetId: string, ref: RefObject<MapCanvasHandle>) => void;
+  registerRef: (mapWidgetId: string, ref: RefObject<MapCanvasHandle | null>) => void;
   basemaps: CustomBasemap[];
   resolvedTargets: ResolvedAppTarget[];
   /** Source ids in author order; the legacy index fallback. */
@@ -288,7 +288,7 @@ interface CustomMapsCtx {
    * within the runtime even on a scrolling page. May be null until
    * the first render lands.
    */
-  runtimeContainerRef: RefObject<HTMLDivElement>;
+  runtimeContainerRef: RefObject<HTMLDivElement | null>;
   /**
    * Per-map popup suppression. Draw-style widgets (elevation
    * profile) set this while the user is placing vertices so map
@@ -763,9 +763,9 @@ export function CustomRuntimeClient({
   // Map of widget-id to MapCanvasHandle ref. Each Map widget calls
   // registerRef on mount so other widgets can call zoomTo /
   // flyAndHighlight without prop-drilling.
-  const refRegistry = useRef<Record<string, RefObject<MapCanvasHandle>>>({});
+  const refRegistry = useRef<Record<string, RefObject<MapCanvasHandle | null>>>({});
   const registerRef = useCallback(
-    (id: string, ref: RefObject<MapCanvasHandle>) => {
+    (id: string, ref: RefObject<MapCanvasHandle | null>) => {
       refRegistry.current[id] = ref;
     },
     [],
@@ -1102,7 +1102,7 @@ export function CustomRuntimeClient({
         >
           {totalWidgets === 0 ? (
             <div className="flex h-full items-center justify-center p-6">
-              <div className="max-w-sm rounded-[var(--app-radius)] border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] p-8 text-center shadow-[var(--app-shadow-card)]">
+              <div className="max-w-sm rounded-(--app-radius) border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] p-8 text-center shadow-(--app-shadow-card)">
                 <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[hsl(var(--app-accent)/0.1)] text-[hsl(var(--app-accent))]">
                   <SquareIcon className="h-6 w-6" />
                 </span>
@@ -1358,7 +1358,7 @@ function WidgetSlot({
           title={expanded ? 'Shrink back (Esc)' : 'Expand to fill the page'}
           aria-label={expanded ? 'Shrink back' : 'Expand to fill the page'}
           aria-pressed={expanded}
-          className="absolute right-1 top-1 z-30 rounded border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))]/90 p-1 text-[hsl(var(--app-muted))] shadow-sm hover:text-[hsl(var(--app-ink-0))]"
+          className="absolute right-1 top-1 z-30 rounded border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))]/90 p-1 text-[hsl(var(--app-muted))] shadow-xs hover:text-[hsl(var(--app-ink-0))]"
         >
           {expanded ? (
             <Minimize2 className="h-3.5 w-3.5" strokeWidth={1.75} />
@@ -1507,7 +1507,7 @@ function ToolWidgetSlot({ widget }: { widget: CustomWidget }) {
             : // Canvas treatment: raised white pill with shadow.
               // This is the right read when the trigger sits on the
               // page grid (surface-0) without surrounding chrome.
-              `group/tool flex h-full w-full flex-col items-center justify-center gap-0.5 rounded-md border bg-[hsl(var(--app-surface-1))] shadow-sm transition-all ${
+              `group/tool flex h-full w-full flex-col items-center justify-center gap-0.5 rounded-md border bg-[hsl(var(--app-surface-1))] shadow-xs transition-all ${
                 open
                   ? 'border-[hsl(var(--app-ink-0))] text-[hsl(var(--app-ink-0))] ring-2 ring-[hsl(var(--app-ink-0)/0.1)]'
                   : 'border-[hsl(var(--app-border))] text-[hsl(var(--app-ink-1))] hover:-translate-y-0.5 hover:border-[hsl(var(--app-ink-1))] hover:shadow-md'
@@ -1569,7 +1569,7 @@ function ToolPopover({
   children,
 }: {
   arrangement: PanelArrangement;
-  containerRef: RefObject<HTMLDivElement>;
+  containerRef: RefObject<HTMLDivElement | null>;
   /**
    * Trigger button ref. When set, the floating popover anchors
    * below the button (right-aligned to its right edge) instead of
@@ -1577,7 +1577,7 @@ function ToolPopover({
    * stops a tool button inside an app-bar from opening a popover
    * that overlaps the bar itself.
    */
-  triggerRef?: RefObject<HTMLButtonElement>;
+  triggerRef?: RefObject<HTMLButtonElement | null>;
   /**
    * When the trigger lives inside an app-bar, the popover wants
    * extra vertical clearance under the bar (so it visually aligns
@@ -1706,7 +1706,7 @@ function ToolPopover({
           role="dialog"
           aria-label={title}
           style={{ ...positionStyle, position: 'fixed', width, height }}
-          className={`z-50 flex flex-col overflow-hidden rounded-lg border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] shadow-[0_10px_40px_-10px_rgba(15,15,16,0.25),_0_2px_8px_-2px_rgba(15,15,16,0.08)] ${animationClass}`}
+          className={`z-50 flex flex-col overflow-hidden rounded-lg border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] shadow-[0_10px_40px_-10px_rgba(15,15,16,0.25),0_2px_8px_-2px_rgba(15,15,16,0.08)] ${animationClass}`}
         >
           <ToolPopoverHeader title={title} icon={Icon} onClose={handleClose} />
           <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
@@ -1743,7 +1743,7 @@ function ToolPopover({
           width,
           height,
         }}
-        className={`z-50 flex flex-col overflow-hidden rounded-lg border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] shadow-[var(--app-shadow-overlay)] ${animationClass}`}
+        className={`z-50 flex flex-col overflow-hidden rounded-lg border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] shadow-(--app-shadow-overlay) ${animationClass}`}
       >
         <ToolPopoverHeader title={title} icon={Icon} onClose={handleClose} />
         <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
@@ -1845,7 +1845,7 @@ function DockedBottomPopover({
         bottom: 0,
         height: effectiveHeight,
       }}
-      className={`z-50 flex flex-col overflow-hidden border-t border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] shadow-[var(--app-shadow-overlay)] ${animationClass}`}
+      className={`z-50 flex flex-col overflow-hidden border-t border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] shadow-(--app-shadow-overlay) ${animationClass}`}
     >
       <ToolPopoverHeader
         title={title}
@@ -1890,8 +1890,8 @@ function computePopoverPosition({
   height: number;
   offsetX: number;
   offsetY: number;
-  triggerRef?: RefObject<HTMLButtonElement> | null;
-  containerRef?: RefObject<HTMLDivElement>;
+  triggerRef?: RefObject<HTMLButtonElement | null> | null;
+  containerRef?: RefObject<HTMLDivElement | null>;
   placement?: string;
   triggerInAppBar?: boolean;
 }): React.CSSProperties {
@@ -2085,7 +2085,7 @@ function MapWidgetRender({ widget }: { widget: CustomWidget }) {
   // for fly-to. Re-registering on every render is harmless (same
   // ref object) but unnecessary.
   useEffect(() => {
-    if (ctx) ctx.registerRef(widget.id, ref as RefObject<MapCanvasHandle>);
+    if (ctx) ctx.registerRef(widget.id, ref as RefObject<MapCanvasHandle | null>);
   }, [ctx, widget.id]);
 
   const { selection } = useContext(CrossFilterContext);
@@ -2538,7 +2538,7 @@ function LegendSwatch({ layer }: { layer: MapLayer }) {
 
   // Polygon-style swatch: filled square at fillOpacity, bordered
   // in strokeColor. Handles outline-only polygons (fillOpacity=0)
-  // as a hollow square that reads as "outline only".
+  // as a hollow square that reads as "outline-solid only".
   if (poly) {
     const fill = poly.fillColor ?? 'transparent';
     const fillOpacity = typeof poly.fillOpacity === 'number' ? poly.fillOpacity : 1;
@@ -3026,11 +3026,11 @@ function SessionSymbologyDialog({
       aria-modal="true"
       aria-label={`Symbology for ${layer.title}`}
       onClick={onClose}
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-60 flex items-center justify-center bg-black/40 p-4"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-lg border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] shadow-[var(--app-shadow-overlay)]"
+        className="flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-lg border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] shadow-(--app-shadow-overlay)"
       >
         <div className="flex items-center justify-between border-b border-[hsl(var(--app-border))] px-4 py-3">
           <div className="min-w-0">
@@ -3070,7 +3070,7 @@ function SessionSymbologyDialog({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md bg-[hsl(var(--app-accent))] px-3 py-1.5 text-xs font-medium text-[hsl(var(--app-accent-ink))] shadow-[var(--app-shadow-card)] hover:opacity-90"
+            className="rounded-md bg-[hsl(var(--app-accent))] px-3 py-1.5 text-xs font-medium text-[hsl(var(--app-accent-ink))] shadow-(--app-shadow-card) hover:opacity-90"
           >
             Done
           </button>
@@ -3107,11 +3107,11 @@ function LayerPropertiesDialog({
       aria-modal="true"
       aria-label={`${layer.title} properties`}
       onClick={onClose}
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-60 flex items-center justify-center bg-black/40 p-4"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm overflow-hidden rounded-lg border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] shadow-[var(--app-shadow-overlay)]"
+        className="w-full max-w-sm overflow-hidden rounded-lg border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] shadow-(--app-shadow-overlay)"
       >
         <div className="flex items-center justify-between border-b border-[hsl(var(--app-border))] px-4 py-3">
           <h3 className="text-sm font-semibold text-[hsl(var(--app-ink-0))]">
@@ -4137,7 +4137,7 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
               onClick={() => setFormat('xlsx')}
               className={`px-2 py-1 text-2xs ${
                 format === 'xlsx'
-                  ? 'rounded bg-[hsl(var(--app-surface-1))] text-[hsl(var(--app-ink-0))] shadow-sm'
+                  ? 'rounded bg-[hsl(var(--app-surface-1))] text-[hsl(var(--app-ink-0))] shadow-xs'
                   : 'text-[hsl(var(--app-muted))]'
               }`}
             >
@@ -4148,7 +4148,7 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
               onClick={() => setFormat('csv')}
               className={`px-2 py-1 text-2xs ${
                 format === 'csv'
-                  ? 'rounded bg-[hsl(var(--app-surface-1))] text-[hsl(var(--app-ink-0))] shadow-sm'
+                  ? 'rounded bg-[hsl(var(--app-surface-1))] text-[hsl(var(--app-ink-0))] shadow-xs'
                   : 'text-[hsl(var(--app-muted))]'
               }`}
             >
@@ -4315,7 +4315,7 @@ function SplashWidgetRender({ widget }: { widget: CustomWidget }) {
       role="dialog"
       aria-modal="true"
       aria-labelledby="splash-title"
-      className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 px-4 py-8"
+      className="fixed inset-0 z-1000 flex items-center justify-center bg-black/40 px-4 py-8"
       onClick={onBackdropClick}
     >
       <div
@@ -5445,7 +5445,7 @@ function IndicatorWidgetRender({ widget }: { widget: CustomWidget }) {
             >
               {formatAggregateValue(state.value, cfg.format)}
             </span>
-            <span className="max-w-full text-balance break-words text-xs leading-snug text-[hsl(var(--app-muted))]">
+            <span className="max-w-full text-balance wrap-break-word text-xs leading-snug text-[hsl(var(--app-muted))]">
               {label}
             </span>
             {ref ? (
@@ -6861,7 +6861,7 @@ function OsmAttributionChip({
       // #141 follow-up: chip lives at the top of the map area
       // (top-center) so users notice the result state. Originally
       // bottom-right; testers reported almost missing it.
-      <div className="pointer-events-none fixed left-0 right-0 top-20 z-[900] flex justify-center">
+      <div className="pointer-events-none fixed left-0 right-0 top-20 z-900 flex justify-center">
         <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-[hsl(var(--app-warn)/0.4)] bg-[hsl(var(--app-warn)/0.1)] px-3 py-1.5 text-2xs shadow-raised">
           <span className="font-medium text-[hsl(var(--app-warn))]">
             No matches in this area
@@ -6892,8 +6892,8 @@ function OsmAttributionChip({
   return createPortal(
     // #141 follow-up: top-center placement so the result chip is
     // immediately visible. Bottom-right was easy to miss.
-    <div className="pointer-events-none fixed left-0 right-0 top-20 z-[900] flex justify-center">
-      <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0)/0.95)] px-3 py-1.5 text-2xs shadow-raised backdrop-blur">
+    <div className="pointer-events-none fixed left-0 right-0 top-20 z-900 flex justify-center">
+      <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0)/0.95)] px-3 py-1.5 text-2xs shadow-raised backdrop-blur-xs">
         <span className="text-[hsl(var(--app-ink-0))]">
           Found {featureCount} OSM feature{featureCount === 1 ? '' : 's'}
           {truncated ? ' (truncated)' : ''}
@@ -8127,7 +8127,7 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
         (l) => l.visible !== false && l.source.kind === 'tile',
       );
       if (!imagery || imagery.source.kind !== 'tile') {
-        setStatus('Add an imagery layer to this map to outline from it.');
+        setStatus('Add an imagery layer to this map to outline-solid from it.');
         window.setTimeout(() => !cancelled && setStatus(null), 3500);
         return;
       }
@@ -8167,7 +8167,7 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
           setStatus(
             err instanceof Error
               ? err.message
-              : 'The outline tool hit a problem.',
+              : 'The outline-solid tool hit a problem.',
           );
           window.setTimeout(() => !cancelled && setStatus(null), 4000);
         })
@@ -8201,7 +8201,7 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
         onClick={() => setActive((v) => !v)}
         disabled={!map}
         aria-pressed={active}
-        title="Magic outline"
+        title="Magic outline-solid"
         // Match the app-bar tool chrome (Search / Select / etc.).
         style={active ? BAR_TOOL_ACTIVE_STYLE : undefined}
         className={`${BAR_TOOL_CLASS} ${active ? '' : BAR_TOOL_IDLE}`}
@@ -8216,11 +8216,11 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
             <div className="absolute left-1/2 top-3 z-20 flex -translate-x-1/2 flex-col items-center gap-1.5">
               <div
                 role="status"
-                className="pointer-events-none rounded-full bg-[hsl(var(--app-surface-0)/0.95)] px-4 py-1.5 text-xs font-medium text-[hsl(var(--app-ink-1))] shadow-lg backdrop-blur"
+                className="pointer-events-none rounded-full bg-[hsl(var(--app-surface-0)/0.95)] px-4 py-1.5 text-xs font-medium text-[hsl(var(--app-ink-1))] shadow-lg backdrop-blur-xs"
               >
-                {status ?? 'Click a building, pond, or lot to outline it.'}
+                {status ?? 'Click a building, pond, or lot to outline-solid it.'}
               </div>
-              <div className="flex items-center gap-2 rounded-full bg-[hsl(var(--app-surface-0)/0.95)] px-3 py-1.5 shadow-lg backdrop-blur">
+              <div className="flex items-center gap-2 rounded-full bg-[hsl(var(--app-surface-0)/0.95)] px-3 py-1.5 shadow-lg backdrop-blur-xs">
                 <span className="text-2xs text-[hsl(var(--app-muted))]">
                   Natural
                 </span>
@@ -8241,7 +8241,7 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
               {/* Always show the destination, even with one layer,
                   so the user is never unsure where data lands. */}
               {(mut?.targets.length ?? 0) >= 1 ? (
-                <div className="flex items-center gap-2 rounded-full bg-[hsl(var(--app-surface-0)/0.95)] px-3 py-1.5 shadow-lg backdrop-blur">
+                <div className="flex items-center gap-2 rounded-full bg-[hsl(var(--app-surface-0)/0.95)] px-3 py-1.5 shadow-lg backdrop-blur-xs">
                   <span className="text-2xs text-[hsl(var(--app-muted))]">
                     Save to
                   </span>
@@ -8265,7 +8265,7 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
                   )}
                 </div>
               ) : null}
-              <label className="flex items-center gap-1.5 rounded-full bg-[hsl(var(--app-surface-0)/0.95)] px-3 py-1.5 text-2xs text-[hsl(var(--app-ink-1))] shadow-lg backdrop-blur">
+              <label className="flex items-center gap-1.5 rounded-full bg-[hsl(var(--app-surface-0)/0.95)] px-3 py-1.5 text-2xs text-[hsl(var(--app-ink-1))] shadow-lg backdrop-blur-xs">
                 <input
                   type="checkbox"
                   checked={review}
@@ -8281,7 +8281,7 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
                 Review before saving
               </label>
               {pending ? (
-                <div className="flex items-center gap-2 rounded-full bg-[hsl(var(--app-surface-0)/0.95)] px-2 py-1 shadow-lg backdrop-blur">
+                <div className="flex items-center gap-2 rounded-full bg-[hsl(var(--app-surface-0)/0.95)] px-2 py-1 shadow-lg backdrop-blur-xs">
                   <button
                     type="button"
                     onClick={() => {
@@ -9341,7 +9341,7 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
                 {!editing ? (
                   <div
                     role="status"
-                    className="pointer-events-none rounded-full bg-[hsl(var(--app-surface-0)/0.95)] px-4 py-1.5 text-xs font-medium text-[hsl(var(--app-ink-1))] shadow-lg backdrop-blur"
+                    className="pointer-events-none rounded-full bg-[hsl(var(--app-surface-0)/0.95)] px-4 py-1.5 text-xs font-medium text-[hsl(var(--app-ink-1))] shadow-lg backdrop-blur-xs"
                   >
                     Click any editable feature on the map.
                   </div>
@@ -9824,7 +9824,7 @@ function TimeSliderWidgetRender({ widget }: { widget: CustomWidget }) {
             min={minDate}
             max={maxDate}
             onChange={(e) => publish(e.target.value)}
-            className="h-7 rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0))] px-2 text-xs text-[hsl(var(--app-ink-0))] focus:border-[hsl(var(--app-accent))] focus:outline-none"
+            className="h-7 rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0))] px-2 text-xs text-[hsl(var(--app-ink-0))] focus:border-[hsl(var(--app-accent))] focus:outline-hidden"
           />
           {at ? (
             <button
@@ -9877,14 +9877,14 @@ function TimeSliderWidgetRender({ widget }: { widget: CustomWidget }) {
             aria-label={label}
           />
           <span className="shrink-0 tabular-nums text-[hsl(var(--app-muted))]">{maxDate}</span>
-          <span className="shrink-0 min-w-[5.5rem] text-right font-medium tabular-nums text-[hsl(var(--app-ink-0))]">
+          <span className="shrink-0 min-w-22 text-right font-medium tabular-nums text-[hsl(var(--app-ink-0))]">
             {at ? currentDateStr : 'Now'}
           </span>
           {playableCfg && speedOptions.length > 1 ? (
             <select
               value={speed}
               onChange={(e) => setSpeed(Number(e.target.value))}
-              className="shrink-0 h-6 rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0))] px-1 text-xs text-[hsl(var(--app-ink-1))] focus:border-[hsl(var(--app-accent))] focus:outline-none"
+              className="shrink-0 h-6 rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0))] px-1 text-xs text-[hsl(var(--app-ink-1))] focus:border-[hsl(var(--app-accent))] focus:outline-hidden"
               aria-label="Playback speed"
               title="Playback speed"
             >

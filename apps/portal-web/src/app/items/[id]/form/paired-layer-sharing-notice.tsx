@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import Link from 'next/link';
+import type { JSX } from 'react';
 import { Database, ExternalLink, Globe2, Lock, Users2 } from 'lucide-react';
 import type { Item, ItemAccess, ItemShare } from '@gratis-gis/shared-types';
 import { apiFetch } from '@/lib/api';

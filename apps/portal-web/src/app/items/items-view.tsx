@@ -1359,7 +1359,7 @@ function BulkActionBar({
 }) {
   const t = useT();
   return (
-    <div className="sticky top-0 z-10 mb-3 flex items-center justify-between gap-3 rounded-md border border-accent/30 bg-accent/5 px-3 py-2 shadow-sm">
+    <div className="sticky top-0 z-10 mb-3 flex items-center justify-between gap-3 rounded-md border border-accent/30 bg-accent/5 px-3 py-2 shadow-xs">
       <div className="flex items-center gap-3 text-sm">
         <span className="inline-flex items-center gap-1.5 font-medium text-accent">
           <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent text-2xs font-semibold text-white">
@@ -1618,7 +1618,7 @@ function BulkShareDialog({
                   else setOrgBoundaryId(v);
                 }}
                 disabled={geoBoundaries.length === 0}
-                className="mt-1 h-8 w-full rounded-md border border-border bg-surface-1 px-2 text-xs text-ink-1 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-60"
+                className="mt-1 h-8 w-full rounded-md border border-border bg-surface-1 px-2 text-xs text-ink-1 focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <option value="">
                   {geoBoundaries.length === 0
@@ -2082,7 +2082,7 @@ function Toolbar({
           <select
             value={groupBy}
             onChange={(e) => onGroupBy(e.target.value as GroupBy)}
-            className="h-8 rounded-md border border-border bg-surface-1 px-2 text-xs text-ink-1 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+            className="h-8 rounded-md border border-border bg-surface-1 px-2 text-xs text-ink-1 focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
           >
             <option value="none">{t('items.groupNone')}</option>
             <option value="type">{t('items.groupTypeOption')}</option>
@@ -2095,7 +2095,7 @@ function Toolbar({
           <select
             value={sortBy}
             onChange={(e) => onSortBy(e.target.value as SortBy)}
-            className="h-8 rounded-md border border-border bg-surface-1 px-2 text-xs text-ink-1 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+            className="h-8 rounded-md border border-border bg-surface-1 px-2 text-xs text-ink-1 focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
           >
             {SORT_KEYS.map((value) => (
               <option key={value} value={value}>
@@ -2360,7 +2360,7 @@ function ItemGrid({
                   // the card thumbnail without disrupting the grid
                   // cell math. Stops propagation so ticking doesn't
                   // also trigger the card's navigation link.
-                  className={`absolute left-2 top-2 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded border bg-surface-1/90 backdrop-blur transition-opacity ${
+                  className={`absolute left-2 top-2 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded border bg-surface-1/90 backdrop-blur-xs transition-opacity ${
                     selected.has(item.id)
                       ? 'border-accent opacity-100'
                       : 'border-border opacity-0 group-hover:opacity-100'
@@ -2379,7 +2379,7 @@ function ItemGrid({
               {/* Card-view kebab. Top-right, opacity-on-hover so it
                   doesn't crowd the card chrome at rest. (#82) */}
               <div
-                className="absolute right-2 top-2 z-10 rounded bg-surface-1/90 opacity-0 backdrop-blur transition-opacity group-hover:opacity-100"
+                className="absolute right-2 top-2 z-10 rounded bg-surface-1/90 opacity-0 backdrop-blur-xs transition-opacity group-hover:opacity-100"
                 onClick={(e) => e.stopPropagation()}
               >
                 <ItemRowMenu

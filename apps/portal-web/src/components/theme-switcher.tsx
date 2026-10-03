@@ -42,7 +42,7 @@ export function ThemeSwitcher() {
         value={value}
         disabled={!mounted}
         onChange={onChange}
-        className="rounded-md border border-border bg-surface-1 px-2 py-1 text-xs text-ink-0 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
+        className="rounded-md border border-border bg-surface-1 px-2 py-1 text-xs text-ink-0 focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
       >
         {THEME_VALUES.map((v) => (
           <option key={v} value={v}>

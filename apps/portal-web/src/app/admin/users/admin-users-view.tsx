@@ -358,7 +358,7 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search by name, email, or username..."
-            className="h-9 w-full rounded-md border border-border bg-surface-1 pl-8 pr-3 text-sm text-ink-1 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="h-9 w-full rounded-md border border-border bg-surface-1 pl-8 pr-3 text-sm text-ink-1 focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
         </label>
         <button
@@ -476,7 +476,7 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
                         onChange={(e) =>
                           void setRole(u, e.target.value as OrgRole)
                         }
-                        className="h-7 rounded border border-border bg-surface-1 px-1 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30 disabled:opacity-50"
+                        className="h-7 rounded border border-border bg-surface-1 px-1 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30 disabled:opacity-50"
                       >
                         <option value="viewer">viewer</option>
                         <option value="contributor">contributor</option>
@@ -706,7 +706,7 @@ function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
             onChange={(e) => setUsername(e.target.value)}
             placeholder="alice"
             required
-            className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 font-mono text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 font-mono text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
         </label>
         <label className="block text-xs">
@@ -719,7 +719,7 @@ function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
             onChange={(e) => setEmail(e.target.value)}
             placeholder="alice@example.com"
             required
-            className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
         </label>
         <div className="grid grid-cols-2 gap-2">
@@ -731,7 +731,7 @@ function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
               type="text"
               value={firstName}
               onChange={(e) => setFirstName(e.target.value)}
-              className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+              className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
             />
           </label>
           <label className="block text-xs">
@@ -742,7 +742,7 @@ function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
               type="text"
               value={lastName}
               onChange={(e) => setLastName(e.target.value)}
-              className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+              className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
             />
           </label>
         </div>
@@ -753,7 +753,7 @@ function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
           <select
             value={orgRole}
             onChange={(e) => setOrgRole(e.target.value as OrgRole)}
-            className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           >
             <option value="viewer">viewer: read content they have access to</option>
             <option value="contributor">contributor: can create/edit content</option>
@@ -911,7 +911,7 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
               type="text"
               value={firstName}
               onChange={(e) => setFirstName(e.target.value)}
-              className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+              className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
             />
           </label>
           <label className="block text-xs">
@@ -922,7 +922,7 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
               type="text"
               value={lastName}
               onChange={(e) => setLastName(e.target.value)}
-              className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+              className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
             />
           </label>
         </div>
@@ -936,7 +936,7 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
-            className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
           {user.emailVerified && email.trim() !== (user.email ?? '') ? (
             <span className="mt-1 block text-2xs text-warning">
@@ -953,7 +953,7 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
           <select
             value={orgRole}
             onChange={(e) => setOrgRole(e.target.value as OrgRole)}
-            className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           >
             <option value="viewer">viewer</option>
             <option value="contributor">contributor</option>

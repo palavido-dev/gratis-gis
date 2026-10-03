@@ -463,7 +463,7 @@ export function PrintTemplateDetail({
         type="button"
         onClick={onSave}
         disabled={!canEdit || !dirty || saving}
-        className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-accent/90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-ink-2"
+        className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white shadow-xs transition-colors hover:bg-accent/90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-ink-2"
       >
         <Save className="h-3.5 w-3.5" />
         {saving ? 'Saving…' : dirty ? 'Save changes' : 'Saved'}
@@ -1150,7 +1150,7 @@ function TextProps({
               }
             }}
             placeholder="Type text…"
-            className="min-w-[60px] flex-1 bg-transparent text-2xs outline-none"
+            className="min-w-[60px] flex-1 bg-transparent text-2xs outline-hidden"
           />
         </div>
       </div>

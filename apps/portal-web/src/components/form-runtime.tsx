@@ -675,7 +675,7 @@ function Input({
   onChange: (v: unknown) => void;
 }) {
   const baseClass =
-    'block w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-base text-ink-0 placeholder:text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-60';
+    'block w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-base text-ink-0 placeholder:text-muted focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-60';
 
   switch (q.type) {
     case 'text':
@@ -1653,7 +1653,7 @@ function BarcodeInput({
         disabled={readOnly}
         placeholder="Scan or type the code"
         onChange={(e) => onChange(e.target.value || null)}
-        className="h-11 w-full rounded-md border border-border bg-surface-1 px-3 font-mono text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
+        className="h-11 w-full rounded-md border border-border bg-surface-1 px-3 font-mono text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
       />
       <p className="text-2xs text-muted">
         Hardware scanners (USB / Bluetooth) type into this field
@@ -2102,7 +2102,7 @@ function ImageChoiceInput({
                 : 'border-border hover:border-accent/50'
             }`}
           >
-            <div className="aspect-square w-full bg-surface-2 sm:aspect-[4/3]">
+            <div className="aspect-square w-full bg-surface-2 sm:aspect-4/3">
               {c.imageUrl ? (
                 /* eslint-disable-next-line @next/next/no-img-element */
                 <img
@@ -2236,7 +2236,7 @@ function ImageHotspotInput({
             style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` }}
             className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2"
           >
-            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-accent text-2xs font-medium text-white shadow">
+            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-accent text-2xs font-medium text-white shadow-xs">
               {i + 1}
             </div>
           </div>
@@ -2317,7 +2317,7 @@ function NameInput({
                         : 'off'
             }
             onChange={(e) => set(c, e.target.value)}
-            className="h-11 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="h-11 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
         </label>
       ))}
@@ -2400,7 +2400,7 @@ function AddressInput({
             disabled={readOnly}
             autoComplete={autoFor(c)}
             onChange={(e) => set(c, e.target.value)}
-            className="h-11 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="h-11 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
         </label>
       ))}
@@ -2482,14 +2482,14 @@ function GeoPointInput({
             placeholder="Latitude"
             value={point?.lat ?? ''}
             onChange={(e) => onChange({ ...(point ?? { lng: 0 }), lat: Number(e.target.value) })}
-            className="block h-11 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="block h-11 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
           <input
             type="number"
             placeholder="Longitude"
             value={point?.lng ?? ''}
             onChange={(e) => onChange({ ...(point ?? { lat: 0 }), lng: Number(e.target.value) })}
-            className="block h-11 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="block h-11 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
         </div>
       ) : null}

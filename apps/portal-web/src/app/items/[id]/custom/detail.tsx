@@ -1789,7 +1789,7 @@ function PageTabs({
                     setRenameDraft('');
                   }
                 }}
-                className="w-32 border-none bg-transparent p-0 text-sm font-medium text-ink-0 focus:outline-none focus:ring-0"
+                className="w-32 border-none bg-transparent p-0 text-sm font-medium text-ink-0 focus:outline-hidden focus:ring-0"
               />
             ) : (
               <button
@@ -2742,7 +2742,7 @@ function Canvas({
             min-height pushes the parent past the viewport). */}
         <div className="flex min-h-0 flex-1 items-stretch">
           {leftDocks.map((w) => renderWidget(w, false))}
-          <div className="relative min-h-0 min-w-0 flex-1 overflow-auto bg-[radial-gradient(circle_at_1px_1px,rgba(0,0,0,0.06)_1px,transparent_0)] bg-[length:24px_24px]">
+          <div className="relative min-h-0 min-w-0 flex-1 overflow-auto bg-[radial-gradient(circle_at_1px_1px,rgba(0,0,0,0.06)_1px,transparent_0)] bg-size-[24px_24px]">
             {/* The actual grid.  CSS Grid makes the placement math
                 cheap: each widget's gridColumn / gridRow line up
                 with the schema's col/row + spans, no manual
@@ -2945,10 +2945,10 @@ function WidgetCard({
             : 'relative flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden rounded-md transition-shadow'
         } ${
           isDropTarget
-            ? 'shadow-[0_0_0_3px_var(--color-accent,_#2563eb)]'
+            ? 'shadow-[0_0_0_3px_var(--color-accent,#2563eb)]'
             : selected
-              ? 'shadow-[0_0_0_2px_var(--color-ink-0,_#0f0f10)]'
-              : 'shadow-[0_0_0_1px_var(--color-border,_#e5e7eb)] hover:shadow-[0_0_0_1px_var(--color-ink-1,_#374151)]'
+              ? 'shadow-[0_0_0_2px_var(--color-ink-0,#0f0f10)]'
+              : 'shadow-[0_0_0_1px_var(--color-border,#e5e7eb)] hover:shadow-[0_0_0_1px_var(--color-ink-1,#374151)]'
         } ${gesturing ? 'opacity-90' : ''}`}
       >
         <ContainerInDesigner
@@ -3029,8 +3029,8 @@ function WidgetCard({
       // is editor UI.
       className={`group relative flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden rounded-md bg-[hsl(var(--app-surface-1))] text-left transition-shadow ${
         selected
-          ? 'shadow-[0_0_0_2px_var(--color-ink-0,_#0f0f10)]'
-          : 'shadow-[0_0_0_1px_hsl(var(--app-border))] hover:shadow-[0_0_0_1px_var(--color-ink-1,_#374151)]'
+          ? 'shadow-[0_0_0_2px_var(--color-ink-0,#0f0f10)]'
+          : 'shadow-[0_0_0_1px_hsl(var(--app-border))] hover:shadow-[0_0_0_1px_var(--color-ink-1,#374151)]'
       } ${gesturing ? 'opacity-90' : ''}`}
     >
       {isToolMode ? (
@@ -3068,7 +3068,7 @@ function WidgetCard({
               the whole card surface grabbable for the move
               gesture. */}
           <div
-            className={`pointer-events-none absolute left-1 top-1 z-20 flex max-w-[calc(100%-0.5rem)] items-center gap-1.5 rounded border border-border bg-surface-1/95 px-2 py-0.5 text-2xs shadow-sm transition-opacity ${
+            className={`pointer-events-none absolute left-1 top-1 z-20 flex max-w-[calc(100%-0.5rem)] items-center gap-1.5 rounded border border-border bg-surface-1/95 px-2 py-0.5 text-2xs shadow-xs transition-opacity ${
               selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
             }`}
           >
@@ -3642,7 +3642,7 @@ function AppProperties({
             value={page.title}
             disabled={!canEdit}
             onChange={(e) => onUpdatePage({ title: e.target.value })}
-            className="w-full rounded-md border border-border bg-surface-1 px-2.5 py-1.5 text-sm focus:border-ink-1 focus:outline-none focus:ring-0"
+            className="w-full rounded-md border border-border bg-surface-1 px-2.5 py-1.5 text-sm focus:border-ink-1 focus:outline-hidden focus:ring-0"
           />
         </Field>
       </div>
@@ -3666,7 +3666,7 @@ function AppProperties({
                 header: patchHeader(app.header, 'title', e.target.value),
               })
             }
-            className="w-full rounded-md border border-border bg-surface-1 px-2.5 py-1.5 text-sm focus:border-ink-1 focus:outline-none focus:ring-0"
+            className="w-full rounded-md border border-border bg-surface-1 px-2.5 py-1.5 text-sm focus:border-ink-1 focus:outline-hidden focus:ring-0"
           />
         </Field>
         <Field
@@ -3681,7 +3681,7 @@ function AppProperties({
                 header: patchHeader(app.header, 'subtitle', e.target.value),
               })
             }
-            className="w-full rounded-md border border-border bg-surface-1 px-2.5 py-1.5 text-sm focus:border-ink-1 focus:outline-none focus:ring-0"
+            className="w-full rounded-md border border-border bg-surface-1 px-2.5 py-1.5 text-sm focus:border-ink-1 focus:outline-hidden focus:ring-0"
           />
         </Field>
         <label className="flex items-center gap-2 text-xs text-ink-1">
@@ -3715,7 +3715,7 @@ function AppProperties({
                 refreshSeconds: n > 0 ? n : undefined,
               });
             }}
-            className="w-28 rounded-md border border-border bg-surface-1 px-2.5 py-1.5 text-sm focus:border-ink-1 focus:outline-none focus:ring-0"
+            className="w-28 rounded-md border border-border bg-surface-1 px-2.5 py-1.5 text-sm focus:border-ink-1 focus:outline-hidden focus:ring-0"
           />
         </Field>
         {/* Theme preset picker. Sets CSS variables at the app root
@@ -3941,7 +3941,7 @@ function SourceRow({
           disabled={!canEdit}
           onChange={(e) => onChange({ label: e.target.value || undefined })}
           placeholder={source.layer.layerKey}
-          className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-2xs text-ink-0 hover:border-border focus:border-ink-1 focus:outline-none"
+          className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-2xs text-ink-0 hover:border-border focus:border-ink-1 focus:outline-hidden"
           aria-label="Layer name"
         />
         {canEdit && (
@@ -4914,7 +4914,7 @@ function ImageWidgetConfig({
           value={config.alt ?? ''}
           disabled={!canEdit}
           onChange={(e) => onChangeConfig({ alt: e.target.value })}
-          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-sm focus:border-ink-1 focus:outline-none"
+          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-sm focus:border-ink-1 focus:outline-hidden"
         />
       </Field>
       <Field label="Fit">
@@ -4940,7 +4940,7 @@ function ImageWidgetConfig({
           disabled={!canEdit}
           placeholder="https://..."
           onChange={(e) => onChangeConfig({ href: e.target.value })}
-          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-sm focus:border-ink-1 focus:outline-none"
+          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-sm focus:border-ink-1 focus:outline-hidden"
         />
       </Field>
       {config.href ? (
@@ -4991,7 +4991,7 @@ function SplashWidgetConfigForm({
           disabled={!canEdit}
           onChange={(e) => onChangeConfig({ title: e.target.value })}
           placeholder="Welcome"
-          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-sm focus:border-ink-1 focus:outline-none"
+          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-sm focus:border-ink-1 focus:outline-hidden"
         />
       </Field>
       <Field
@@ -5011,7 +5011,7 @@ function SplashWidgetConfigForm({
           disabled={!canEdit}
           onChange={(e) => onChangeConfig({ confirmLabel: e.target.value })}
           placeholder="OK"
-          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-sm focus:border-ink-1 focus:outline-none"
+          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-sm focus:border-ink-1 focus:outline-hidden"
         />
       </Field>
       <Field label="Size">
@@ -5044,7 +5044,7 @@ function SplashWidgetConfigForm({
             value={config.widthPx ?? 600}
             disabled={!canEdit}
             onChange={(e) => onChangeConfig({ widthPx: Number(e.target.value) })}
-            className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-sm focus:border-ink-1 focus:outline-none"
+            className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-sm focus:border-ink-1 focus:outline-hidden"
           />
         </Field>
       ) : null}
@@ -5116,7 +5116,7 @@ function ButtonWidgetConfig({
           value={config.label ?? ''}
           disabled={!canEdit}
           onChange={(e) => onChangeConfig({ label: e.target.value })}
-          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-sm focus:border-ink-1 focus:outline-none"
+          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-sm focus:border-ink-1 focus:outline-hidden"
         />
       </Field>
       <Field label="Variant">
@@ -5151,7 +5151,7 @@ function ButtonWidgetConfig({
               disabled={!canEdit}
               placeholder="https://..."
               onChange={(e) => onChangeConfig({ url: e.target.value })}
-              className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-sm focus:border-ink-1 focus:outline-none"
+              className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-sm focus:border-ink-1 focus:outline-hidden"
             />
           </Field>
           <label className="flex items-center gap-2 text-xs text-ink-1">
@@ -5246,7 +5246,7 @@ function ToolWidgetConfigForm({
           disabled={!canEdit}
           placeholder="(use tool title)"
           onChange={(e) => onChangeConfig({ label: e.target.value })}
-          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-sm focus:border-ink-1 focus:outline-none"
+          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-sm focus:border-ink-1 focus:outline-hidden"
         />
       </Field>
       <Field label="Display">
@@ -5528,7 +5528,7 @@ function DividerWidgetConfig({
           disabled={!canEdit}
           placeholder="#e5e7eb"
           onChange={(e) => onChangeConfig({ color: e.target.value })}
-          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-sm focus:border-ink-1 focus:outline-none"
+          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-sm focus:border-ink-1 focus:outline-hidden"
         />
       </Field>
     </div>
@@ -5553,7 +5553,7 @@ function EmbedWidgetConfig({
           disabled={!canEdit}
           placeholder="https://..."
           onChange={(e) => onChangeConfig({ url: e.target.value })}
-          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-sm focus:border-ink-1 focus:outline-none"
+          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-sm focus:border-ink-1 focus:outline-hidden"
         />
       </Field>
       <Field label="Title" hint="Used for assistive tech. Defaults to the URL when blank.">
@@ -5562,7 +5562,7 @@ function EmbedWidgetConfig({
           value={config.title ?? ''}
           disabled={!canEdit}
           onChange={(e) => onChangeConfig({ title: e.target.value })}
-          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-sm focus:border-ink-1 focus:outline-none"
+          className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-sm focus:border-ink-1 focus:outline-hidden"
         />
       </Field>
       <label className="flex items-center gap-2 text-xs text-ink-1">
@@ -5662,7 +5662,7 @@ function BookmarkWidgetConfig({
                     value={b.name}
                     disabled={!canEdit}
                     onChange={(e) => update(i, { name: e.target.value })}
-                    className="flex-1 rounded-md border border-border bg-surface-1 px-2 py-1 text-sm focus:border-ink-1 focus:outline-none"
+                    className="flex-1 rounded-md border border-border bg-surface-1 px-2 py-1 text-sm focus:border-ink-1 focus:outline-hidden"
                   />
                   <button
                     type="button"
@@ -5705,7 +5705,7 @@ function BookmarkWidgetConfig({
                           center: [Number(e.target.value), b.center[1]] as [number, number],
                         })
                       }
-                      className="mt-0.5 w-full rounded border border-border bg-surface-1 px-1.5 py-0.5 text-xs text-ink-1 focus:border-ink-1 focus:outline-none"
+                      className="mt-0.5 w-full rounded border border-border bg-surface-1 px-1.5 py-0.5 text-xs text-ink-1 focus:border-ink-1 focus:outline-hidden"
                     />
                   </label>
                   <label className="text-2xs text-muted">
@@ -5720,7 +5720,7 @@ function BookmarkWidgetConfig({
                           center: [b.center[0], Number(e.target.value)] as [number, number],
                         })
                       }
-                      className="mt-0.5 w-full rounded border border-border bg-surface-1 px-1.5 py-0.5 text-xs text-ink-1 focus:border-ink-1 focus:outline-none"
+                      className="mt-0.5 w-full rounded border border-border bg-surface-1 px-1.5 py-0.5 text-xs text-ink-1 focus:border-ink-1 focus:outline-hidden"
                     />
                   </label>
                   <label className="text-2xs text-muted">
@@ -5733,7 +5733,7 @@ function BookmarkWidgetConfig({
                       value={b.zoom}
                       disabled={!canEdit}
                       onChange={(e) => update(i, { zoom: Number(e.target.value) })}
-                      className="mt-0.5 w-full rounded border border-border bg-surface-1 px-1.5 py-0.5 text-xs text-ink-1 focus:border-ink-1 focus:outline-none"
+                      className="mt-0.5 w-full rounded border border-border bg-surface-1 px-1.5 py-0.5 text-xs text-ink-1 focus:border-ink-1 focus:outline-hidden"
                     />
                   </label>
                 </div>
@@ -5896,7 +5896,7 @@ function FeatureMutationWidgetConfigEditor({
             // stored value.
             onChangeConfig({ targetIndex: n === sentinel ? undefined : n });
           }}
-          className="h-9 w-full rounded-md border border-border bg-surface-0 px-2 text-sm focus:border-accent focus:outline-none"
+          className="h-9 w-full rounded-md border border-border bg-surface-0 px-2 text-sm focus:border-accent focus:outline-hidden"
         >
           <option value={sentinel}>
             All editable targets (recommended)
@@ -5922,7 +5922,7 @@ function FeatureMutationWidgetConfigEditor({
                 ? 'Edit feature'
                 : 'Delete feature'
           }
-          className="h-9 w-full rounded-md border border-border bg-surface-0 px-2 text-sm focus:border-accent focus:outline-none"
+          className="h-9 w-full rounded-md border border-border bg-surface-0 px-2 text-sm focus:border-accent focus:outline-hidden"
         />
       </Field>
     </div>
@@ -5963,7 +5963,7 @@ function TimeSliderWidgetConfigEditor({
           value={config.mode ?? 'date'}
           disabled={!canEdit}
           onChange={(e) => onChangeConfig({ mode: e.target.value })}
-          className="h-9 w-full rounded-md border border-border bg-surface-0 px-2 text-sm focus:border-accent focus:outline-none"
+          className="h-9 w-full rounded-md border border-border bg-surface-0 px-2 text-sm focus:border-accent focus:outline-hidden"
         >
           <option value="date">Slider + date input</option>
           <option value="calendar">Calendar picker</option>
@@ -5977,7 +5977,7 @@ function TimeSliderWidgetConfigEditor({
           disabled={!canEdit}
           onChange={(e) => onChangeConfig({ label: e.target.value })}
           placeholder="Time"
-          className="h-9 w-full rounded-md border border-border bg-surface-0 px-2 text-sm focus:border-accent focus:outline-none"
+          className="h-9 w-full rounded-md border border-border bg-surface-0 px-2 text-sm focus:border-accent focus:outline-hidden"
         />
       </Field>
       <Field label="Earliest date" hint="YYYY-MM-DD. Defaults to one year before today.">
@@ -5986,7 +5986,7 @@ function TimeSliderWidgetConfigEditor({
           value={config.minDate ?? ''}
           disabled={!canEdit}
           onChange={(e) => onChangeConfig({ minDate: e.target.value })}
-          className="h-9 rounded-md border border-border bg-surface-0 px-2 text-sm focus:border-accent focus:outline-none"
+          className="h-9 rounded-md border border-border bg-surface-0 px-2 text-sm focus:border-accent focus:outline-hidden"
         />
       </Field>
       <Field label="Latest date" hint="YYYY-MM-DD. Defaults to today.">
@@ -5995,7 +5995,7 @@ function TimeSliderWidgetConfigEditor({
           value={config.maxDate ?? ''}
           disabled={!canEdit}
           onChange={(e) => onChangeConfig({ maxDate: e.target.value })}
-          className="h-9 rounded-md border border-border bg-surface-0 px-2 text-sm focus:border-accent focus:outline-none"
+          className="h-9 rounded-md border border-border bg-surface-0 px-2 text-sm focus:border-accent focus:outline-hidden"
         />
       </Field>
       {config.mode !== 'calendar' ? (
@@ -6038,7 +6038,7 @@ function TimeSliderWidgetConfigEditor({
                 endBehavior: e.target.value === 'pause' ? 'pause' : 'loop',
               })
             }
-            className="h-9 w-full rounded-md border border-border bg-surface-0 px-2 text-sm focus:border-accent focus:outline-none"
+            className="h-9 w-full rounded-md border border-border bg-surface-0 px-2 text-sm focus:border-accent focus:outline-hidden"
           >
             <option value="loop">Loop back to start</option>
             <option value="pause">Pause at the end</option>
@@ -6171,7 +6171,7 @@ function DesignerChild({
         onMouseDown={(e) => onChildMoveStart(child, parentId, e)}
         data-child-id={child.id}
         className={`relative cursor-pointer ${
-          isSelected ? 'outline outline-2 outline-accent' : ''
+          isSelected ? 'outline-solid outline-2 outline-accent' : ''
         }`}
       >
         <ContainerInDesigner
@@ -6211,7 +6211,7 @@ function DesignerChild({
         title={label}
         className={`group/designer-child flex h-full max-w-[260px] cursor-grab items-center justify-center overflow-hidden rounded-md px-2 py-1 transition-colors active:cursor-grabbing ${
           isSelected
-            ? 'outline outline-2 outline-[hsl(var(--app-header-ink))]'
+            ? 'outline-solid outline-2 outline-[hsl(var(--app-header-ink))]'
             : ''
         }`}
       >
@@ -6869,7 +6869,7 @@ function RichTextEditor({
           const text = e.clipboardData.getData('text/plain');
           document.execCommand('insertText', false, text);
         }}
-        className="prose-sm min-h-[120px] w-full rounded-md border border-border bg-surface-0 px-3 py-2 text-sm leading-snug text-ink-0 focus:border-accent focus:outline-none [&_code]:rounded [&_code]:bg-surface-2 [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.95em] [&_h1]:mb-2 [&_h1]:text-xl [&_h1]:font-bold [&_h2]:mb-2 [&_h2]:text-lg [&_h2]:font-bold [&_h3]:mb-2 [&_h3]:text-base [&_h3]:font-semibold [&_p]:mb-2 [&_ul]:mb-2 [&_ul]:ml-5 [&_ul]:list-disc [&_a]:text-accent [&_a]:underline"
+        className="prose-sm min-h-[120px] w-full rounded-md border border-border bg-surface-0 px-3 py-2 text-sm leading-snug text-ink-0 focus:border-accent focus:outline-hidden [&_code]:rounded [&_code]:bg-surface-2 [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.95em] [&_h1]:mb-2 [&_h1]:text-xl [&_h1]:font-bold [&_h2]:mb-2 [&_h2]:text-lg [&_h2]:font-bold [&_h3]:mb-2 [&_h3]:text-base [&_h3]:font-semibold [&_p]:mb-2 [&_ul]:mb-2 [&_ul]:ml-5 [&_ul]:list-disc [&_a]:text-accent [&_a]:underline"
       />
     </div>
   );
@@ -7241,7 +7241,7 @@ function TabsWidgetConfig({
                 value={t.title}
                 disabled={!canEdit}
                 onChange={(e) => update(i, { title: e.target.value })}
-                className="flex-1 rounded border-0 bg-transparent px-1 text-sm focus:outline-none"
+                className="flex-1 rounded border-0 bg-transparent px-1 text-sm focus:outline-hidden"
               />
               <span className="text-2xs text-muted">
                 {t.widgets.length}w
@@ -7402,7 +7402,7 @@ function ToolModeSection({
                     : ({ labelOverride: undefined } as unknown as Partial<PanelArrangement>);
                 patchArrangement(patch);
               }}
-              className="h-9 w-full rounded-md border border-border bg-surface-0 px-2 text-sm focus:border-accent focus:outline-none"
+              className="h-9 w-full rounded-md border border-border bg-surface-0 px-2 text-sm focus:border-accent focus:outline-hidden"
             />
           </Field>
           <Field label="Display">

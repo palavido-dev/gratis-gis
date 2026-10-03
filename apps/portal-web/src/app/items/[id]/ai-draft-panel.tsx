@@ -152,7 +152,7 @@ export function AiDraftPanel({
             maxLength={2000}
             rows={3}
             placeholder="Suggest a filter for open inspections, or draft fields for a tree survey…"
-            className="w-full resize-y rounded-md border border-border bg-surface-1 px-2 py-1.5 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="w-full resize-y rounded-md border border-border bg-surface-1 px-2 py-1.5 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
           <div className="mt-2 flex items-center gap-2">
             <button

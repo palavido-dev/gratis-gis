@@ -387,7 +387,7 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
             // builder stops regenerating underneath the caret.
             if (mode === 'builder') setMode('sql');
           }}
-          className={`w-full resize-y rounded-md border border-border p-2 font-mono text-xs text-ink-0 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30 ${
+          className={`w-full resize-y rounded-md border border-border p-2 font-mono text-xs text-ink-0 focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30 ${
             mode === 'builder' ? 'bg-surface-2/60' : 'bg-surface-1'
           }`}
           aria-label="SQL query"
@@ -441,7 +441,7 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
               type="text"
               value={saveTitle}
               onChange={(e) => setSaveTitle(e.target.value)}
-              className="h-7 min-w-56 flex-1 rounded border border-border bg-surface-0 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+              className="h-7 min-w-56 flex-1 rounded border border-border bg-surface-0 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
             />
             <button
               type="button"

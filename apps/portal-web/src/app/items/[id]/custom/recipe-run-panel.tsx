@@ -346,10 +346,10 @@ export function RecipeRunPanel({
           onCancel={cancelDrawing}
         />
         <div
-          className="pointer-events-none fixed inset-x-0 top-4 z-[1000] flex justify-center"
+          className="pointer-events-none fixed inset-x-0 top-4 z-1000 flex justify-center"
           aria-live="polite"
         >
-          <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-border bg-surface-0/95 px-4 py-2 text-xs shadow-raised backdrop-blur">
+          <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-border bg-surface-0/95 px-4 py-2 text-xs shadow-raised backdrop-blur-xs">
             <Pencil className="h-3.5 w-3.5 text-accent" />
             <span className="text-ink-0">
               {drawing.geometryType === 'point'
@@ -377,7 +377,7 @@ export function RecipeRunPanel({
       role="dialog"
       aria-modal="true"
       aria-labelledby="recipe-run-title"
-      className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 px-4 py-8"
+      className="fixed inset-0 z-1000 flex items-center justify-center bg-black/40 px-4 py-8"
       onClick={(e) => {
         // Click outside closes; click inside doesn't bubble.
         if (e.target === e.currentTarget) onClose();
@@ -1330,7 +1330,7 @@ function Label({ parameter }: { parameter: ToolParameter }) {
 }
 
 const inputCls =
-  'w-full rounded-md border border-border bg-surface-0 px-2 py-1.5 text-sm text-ink-0 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30';
+  'w-full rounded-md border border-border bg-surface-0 px-2 py-1.5 text-sm text-ink-0 focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30';
 
 // ---- Helpers --------------------------------------------------------------
 

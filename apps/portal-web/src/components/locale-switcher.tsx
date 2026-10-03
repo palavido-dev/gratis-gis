@@ -57,7 +57,7 @@ export function LocaleSwitcher() {
           value={current}
           disabled={pending}
           onChange={onChange}
-          className="rounded-md border border-border bg-surface-1 px-2 py-1 text-xs text-ink-0 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
+          className="rounded-md border border-border bg-surface-1 px-2 py-1 text-xs text-ink-0 focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
         >
           {LOCALES.map((l) => (
             <option key={l.code} value={l.code}>

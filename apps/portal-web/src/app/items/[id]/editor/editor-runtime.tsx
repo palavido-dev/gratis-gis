@@ -729,7 +729,7 @@ export function EditorRuntime({
       );
       if (!imagery || imagery.source.kind !== 'tile') {
         setToast(
-          'Add an imagery layer to this map to outline from it.',
+          'Add an imagery layer to this map to outline-solid from it.',
         );
         scheduleToastClear();
         return;
@@ -767,7 +767,7 @@ export function EditorRuntime({
           setToast(
             err instanceof Error
               ? err.message
-              : 'The outline tool hit a problem. Try again.',
+              : 'The outline-solid tool hit a problem. Try again.',
           );
           scheduleToastClear();
         })
@@ -1293,7 +1293,7 @@ export function EditorRuntime({
       );
       if (polygonTargets.length === 0) {
         setToast(
-          'The outline tool needs an editable polygon layer as a target. Open the editor config to add one.',
+          'The outline-solid tool needs an editable polygon layer as a target. Open the editor config to add one.',
         );
         scheduleToastClear();
         return;
@@ -3184,7 +3184,7 @@ export function EditorRuntime({
                     onChange={(e) =>
                       setMeasureDistanceUnit(e.target.value as DistanceUnit)
                     }
-                    className="h-8 w-full rounded border border-border bg-surface-0 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                    className="h-8 w-full rounded border border-border bg-surface-0 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
                   >
                     {(Object.keys(DISTANCE_UNIT_LABELS) as DistanceUnit[]).map(
                       (u) => (
@@ -3200,7 +3200,7 @@ export function EditorRuntime({
                     onChange={(e) =>
                       setMeasureAreaUnit(e.target.value as AreaUnit)
                     }
-                    className="h-8 w-full rounded border border-border bg-surface-0 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                    className="h-8 w-full rounded border border-border bg-surface-0 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
                   >
                     {(Object.keys(AREA_UNIT_LABELS) as AreaUnit[]).map((u) => (
                       <option key={u} value={u}>
@@ -3298,7 +3298,7 @@ export function EditorRuntime({
           {magicBusy ? (
             <div
               role="status"
-              className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full bg-surface-0/95 px-4 py-1.5 text-xs font-medium text-ink-1 shadow-card backdrop-blur"
+              className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full bg-surface-0/95 px-4 py-1.5 text-xs font-medium text-ink-1 shadow-card backdrop-blur-xs"
             >
               {magicBusy}
             </div>
@@ -3491,7 +3491,7 @@ type EditorOp =
 const TOOL_LABELS: Record<EditorTool, string> = {
   select: 'Select',
   add: 'Add',
-  magic: 'Magic outline',
+  magic: 'Magic outline-solid',
   edit: 'Edit',
   snap: 'Snap toggle',
   measure: 'Measure',

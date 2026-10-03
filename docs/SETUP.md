@@ -26,7 +26,7 @@ You need four things on the host machine:
 | Tool | Why | Recommended install on macOS |
 | --- | --- | --- |
 | Docker Desktop 4.30+ | Runs the infra containers | Download from docker.com (Apple Silicon build) |
-| Node.js 22.12 or newer | Runs portal-api / portal-web (`engines` requires >=22.12.0, the release where `require()` of an ESM package stopped needing a flag; portal-api's puppeteer-core is ESM only) | `brew install node@22` or [Volta](https://volta.sh) / nvm |
+| Node.js 24.9 or newer | Runs portal-api / portal-web (`engines` requires >=24.9.0). NestJS 12 is ESM, and the test runner loads it with `require()` only on this line. Production images are Node 24 LTS. | `brew install node@24` or [Volta](https://volta.sh) / nvm |
 | pnpm 9+ | Package manager (the repo is a pnpm workspace) | `corepack enable && corepack prepare pnpm@latest --activate` |
 | Git | Cloning + commits | `xcode-select --install` includes it, or `brew install git` |
 

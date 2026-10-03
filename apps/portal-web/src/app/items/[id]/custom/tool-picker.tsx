@@ -213,7 +213,7 @@ function CreateToolModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="create-tool-title"
-      className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 px-4 py-8"
+      className="fixed inset-0 z-1000 flex items-center justify-center bg-black/40 px-4 py-8"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}

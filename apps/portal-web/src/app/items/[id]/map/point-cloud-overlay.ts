@@ -145,7 +145,7 @@ function removeControl(map: maplibregl.Map, entry: CloudEntry): void {
 function makeIndicator(map: maplibregl.Map): HTMLDivElement {
   const el = document.createElement('div');
   el.className =
-    'pointer-events-none absolute bottom-8 left-1/2 z-10 -translate-x-1/2 rounded-full border border-border bg-surface-1/95 px-3 py-1.5 text-xs text-ink-1 shadow-raised backdrop-blur';
+    'pointer-events-none absolute bottom-8 left-1/2 z-10 -translate-x-1/2 rounded-full border border-border bg-surface-1/95 px-3 py-1.5 text-xs text-ink-1 shadow-raised backdrop-blur-xs';
   el.style.display = 'none';
   el.setAttribute('role', 'status');
   map.getContainer().appendChild(el);

@@ -438,7 +438,7 @@ function LayerCard({
             });
           }}
           placeholder={geom?.label ?? 'Layer'}
-          className="h-8 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+          className="h-8 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
         />
         <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-muted">
           {geom?.short ?? 'Layer'}
@@ -489,7 +489,7 @@ function LayerCard({
               // type. Showing one makes the rule obvious without
               // naming it.
               placeholder="inspection_points"
-              className="h-7 w-full rounded border border-border bg-surface-1 px-2 font-mono text-2xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+              className="h-7 w-full rounded border border-border bg-surface-1 px-2 font-mono text-2xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
             />
           </div>
 
@@ -552,7 +552,7 @@ function LayerCard({
                       | 'own-rows-only',
                   })
                 }
-                className="h-7 rounded-md border border-border bg-surface-1 px-2 text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                className="h-7 rounded-md border border-border bg-surface-1 px-2 text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
               >
                 <option value="all-rows">All features</option>
                 <option value="own-rows-only">Only their own</option>
@@ -793,7 +793,7 @@ function FieldRow({
             value={field.name}
             onChange={(e) => onChange({ name: slugify(e.target.value) })}
             placeholder="field_name"
-            className="h-7 w-full rounded border border-border bg-surface-1 px-1.5 font-mono text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+            className="h-7 w-full rounded border border-border bg-surface-1 px-1.5 font-mono text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
           />
         </td>
         <td className="px-1 py-1">
@@ -829,7 +829,7 @@ function FieldRow({
               }
               onChange({ type: nextType });
             }}
-            className="h-7 w-full rounded border border-border bg-surface-1 px-1 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+            className="h-7 w-full rounded border border-border bg-surface-1 px-1 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
           >
             {FIELD_TYPE_OPTIONS.map((t) => (
               <option key={t.value} value={t.value}>
@@ -844,7 +844,7 @@ function FieldRow({
             value={field.label}
             onChange={(e) => onChange({ label: e.target.value })}
             placeholder={field.name || 'Display label'}
-            className="h-7 w-full rounded border border-border bg-surface-1 px-1.5 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+            className="h-7 w-full rounded border border-border bg-surface-1 px-1.5 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
           />
         </td>
         <td className="px-2 py-1 text-center">
@@ -1053,7 +1053,7 @@ function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
               patchStorage({ maxLength: n });
             }}
             placeholder="none"
-            className="h-7 w-24 rounded border border-border bg-surface-1 px-1.5 text-right font-mono text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+            className="h-7 w-24 rounded border border-border bg-surface-1 px-1.5 text-right font-mono text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
           />
         </div>
       ) : null}
@@ -1074,7 +1074,7 @@ function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
                   numberKind: e.target.value as 'integer' | 'decimal',
                 })
               }
-              className="h-7 rounded border border-border bg-surface-1 px-1 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+              className="h-7 rounded border border-border bg-surface-1 px-1 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
             >
               <option value="decimal">Decimal</option>
               <option value="integer">Integer</option>
@@ -1105,7 +1105,7 @@ function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
                     });
                   }}
                   placeholder="auto"
-                  className="h-7 w-24 rounded border border-border bg-surface-1 px-1.5 text-right font-mono text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                  className="h-7 w-24 rounded border border-border bg-surface-1 px-1.5 text-right font-mono text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
                 />
               </div>
               <div className="grid grid-cols-[1fr_auto] items-center gap-3">
@@ -1131,7 +1131,7 @@ function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
                     });
                   }}
                   placeholder="auto"
-                  className="h-7 w-24 rounded border border-border bg-surface-1 px-1.5 text-right font-mono text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                  className="h-7 w-24 rounded border border-border bg-surface-1 px-1.5 text-right font-mono text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
                 />
               </div>
             </>
@@ -1357,7 +1357,7 @@ function SharedPickListRefEditor({
           <select
             value={pickListItemId}
             onChange={(e) => onChange(e.target.value)}
-            className="h-8 flex-1 rounded border border-border bg-surface-1 px-1.5 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+            className="h-8 flex-1 rounded border border-border bg-surface-1 px-1.5 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
             disabled={loading}
           >
             <option value="">
@@ -1578,7 +1578,7 @@ function CodedValueEditor({
                       patch(i, { code });
                     }}
                     placeholder={fieldType === 'number' ? '0' : 'code'}
-                    className="h-7 w-full rounded border border-border bg-surface-1 px-1.5 font-mono text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                    className="h-7 w-full rounded border border-border bg-surface-1 px-1.5 font-mono text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
                   />
                 </td>
                 <td className="px-1 py-1">
@@ -1587,7 +1587,7 @@ function CodedValueEditor({
                     value={v.label}
                     onChange={(e) => patch(i, { label: e.target.value })}
                     placeholder="Display label"
-                    className="h-7 w-full rounded border border-border bg-surface-1 px-1.5 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                    className="h-7 w-full rounded border border-border bg-surface-1 px-1.5 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
                   />
                 </td>
                 <td className="px-1 py-1 text-center">
@@ -1685,7 +1685,7 @@ function ParentLinkRow({
               parentFkColumn: layer.parentFkColumn || defaultFkForParent(v),
             });
           }}
-          className="h-7 w-full rounded border border-border bg-surface-1 px-1 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+          className="h-7 w-full rounded border border-border bg-surface-1 px-1 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
         >
           <option value="">- None (standalone table) -</option>
           {parentOptions.map((p) => (
@@ -1708,7 +1708,7 @@ function ParentLinkRow({
                 onPatch({ parentFkColumn: slugify(e.target.value) })
               }
               placeholder="parent_global_id"
-              className="h-7 w-full rounded border border-border bg-surface-1 px-1.5 font-mono text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+              className="h-7 w-full rounded border border-border bg-surface-1 px-1.5 font-mono text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
             />
           </>
         ) : null}

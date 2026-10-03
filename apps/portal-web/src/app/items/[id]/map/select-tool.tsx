@@ -55,7 +55,7 @@ export function SelectToolbar({
   onClearSelection,
 }: Props) {
   return (
-    <div className="absolute left-4 top-[3.75rem] z-10 flex max-w-[calc(100%-2rem)] items-center gap-1 overflow-x-auto rounded-lg border border-border bg-surface-1/95 p-1 shadow-raised backdrop-blur max-md:bottom-14 max-md:left-1/2 max-md:top-auto max-md:max-w-[calc(100%-1.5rem)] max-md:-translate-x-1/2">
+    <div className="absolute left-4 top-15 z-10 flex max-w-[calc(100%-2rem)] items-center gap-1 overflow-x-auto rounded-lg border border-border bg-surface-1/95 p-1 shadow-raised backdrop-blur-xs max-md:bottom-14 max-md:left-1/2 max-md:top-auto max-md:max-w-[calc(100%-1.5rem)] max-md:-translate-x-1/2">
       <ToolButton
         icon={Hand}
         label="Pan"

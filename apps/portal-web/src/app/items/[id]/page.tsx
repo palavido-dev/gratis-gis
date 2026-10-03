@@ -492,7 +492,7 @@ export default async function ItemDetailPage(props: Props) {
   // takes over below that on narrower viewports.
   const isAppBuilder = item.type === 'web_app';
   const containerWidth =
-    isWorkspace || isAppBuilder ? 'max-w-screen-2xl' : 'max-w-6xl';
+    isWorkspace || isAppBuilder ? 'max-w-(--breakpoint-2xl)' : 'max-w-6xl';
 
   // Owner label, resolved once for the header line and the Metadata
   // tab. The API's `owner` relation is optional and older rows may
@@ -1462,7 +1462,7 @@ export default async function ItemDetailPage(props: Props) {
           {canManage ? (
             <Link
               href={`/items/${item.id}?view=configure`}
-              className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-accent/90"
+              className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white shadow-xs transition-colors hover:bg-accent/90"
             >
               Open builder
             </Link>

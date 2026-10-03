@@ -293,7 +293,7 @@ export default async function CreditsPage() {
  */
 function TopBar() {
   return (
-    <header className="flex items-center justify-between border-b border-border bg-surface-1 px-6 pt-[env(safe-area-inset-top)] [height:calc(3.5rem+env(safe-area-inset-top))]">
+    <header className="flex items-center justify-between border-b border-border bg-surface-1 px-6 pt-[env(safe-area-inset-top)] h-[calc(3.5rem+env(safe-area-inset-top))]">
       <Link href="/" className="flex items-center gap-2">
         <BrandMark size={26} />
         <span className="text-base font-semibold tracking-tight">

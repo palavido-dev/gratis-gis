@@ -197,7 +197,7 @@ export function AppShellChrome({
             button when the app is launched from a home-screen PWA
             install (viewport-fit=cover puts the page under the
             status bar by design). */}
-        <header className="sticky top-0 z-10 flex h-14 items-center justify-between border-b border-border bg-surface-1 px-3 pt-[env(safe-area-inset-top)] [height:calc(3.5rem+env(safe-area-inset-top))]">
+        <header className="sticky top-0 z-10 flex h-14 items-center justify-between border-b border-border bg-surface-1 px-3 pt-[env(safe-area-inset-top)] h-[calc(3.5rem+env(safe-area-inset-top))]">
           <div className="flex flex-1 items-center gap-2">
             <MobileNavTrigger orgRole={me?.orgRole ?? null} />
             <TopBarSearch />
@@ -511,7 +511,7 @@ function MobileNavTrigger({
   // The drawer itself is rendered through a portal to document.body
   // so it escapes any ancestor that would otherwise act as a
   // containing block for its `position: fixed` panel.  The sticky
-  // top bar uses `backdrop-blur`, and per the CSS spec any element
+  // top bar uses `backdrop-blur-xs`, and per the CSS spec any element
   // with a non-`none` `backdrop-filter` becomes the containing
   // block for fixed descendants.  Without the portal the drawer
   // ends up sized to the 56px header instead of the full viewport,
@@ -528,7 +528,7 @@ function MobileNavTrigger({
           >
             {/* Backdrop. Click to dismiss. */}
             <div
-              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+              className="absolute inset-0 bg-black/40 backdrop-blur-xs"
               onClick={() => setOpen(false)}
             />
             {/* Drawer panel.  Slide-in from the left. */}

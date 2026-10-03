@@ -1317,7 +1317,7 @@ function SmartFolderPanel({
             )}
           </div>
 
-          <label className="flex max-w-[12rem] flex-col gap-1">
+          <label className="flex max-w-48 flex-col gap-1">
             <span className="text-2xs font-medium uppercase tracking-wide text-muted">
               Limit
             </span>

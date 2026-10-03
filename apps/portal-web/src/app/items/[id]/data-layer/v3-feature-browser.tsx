@@ -1043,7 +1043,7 @@ function FieldEditor({
           const raw = e.target.value;
           onChange(raw === '' ? null : Number(raw));
         }}
-        className="h-6 w-24 rounded border border-border bg-surface-1 px-1 text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+        className="h-6 w-24 rounded border border-border bg-surface-1 px-1 text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
       />
     );
   }
@@ -1058,7 +1058,7 @@ function FieldEditor({
         type="date"
         value={dateVal}
         onChange={(e) => onChange(e.target.value || null)}
-        className="h-6 rounded border border-border bg-surface-1 px-1 text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+        className="h-6 rounded border border-border bg-surface-1 px-1 text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
       />
     );
   }
@@ -1069,7 +1069,7 @@ function FieldEditor({
       <select
         value={stringValue}
         onChange={(e) => onChange(e.target.value || null)}
-        className="h-6 rounded border border-border bg-surface-1 px-1 text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+        className="h-6 rounded border border-border bg-surface-1 px-1 text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
       >
         <option value="">-</option>
         {field.domain.values.map((v) => (
@@ -1087,7 +1087,7 @@ function FieldEditor({
       value={stringValue}
       onChange={(e) => onChange(e.target.value)}
       placeholder={name}
-      className="h-6 w-40 rounded border border-border bg-surface-1 px-1 text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+      className="h-6 w-40 rounded border border-border bg-surface-1 px-1 text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
     />
   );
 }

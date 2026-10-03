@@ -254,7 +254,7 @@ export function DerivedLayerBuilder({
             step={1}
             value={value.featureLimit}
             onChange={(e) => setFeatureLimit(Number(e.target.value))}
-            className="h-10 w-32 rounded-md border border-border bg-surface-0 px-3 text-sm text-ink-0 focus:border-accent focus:outline-none"
+            className="h-10 w-32 rounded-md border border-border bg-surface-0 px-3 text-sm text-ink-0 focus:border-accent focus:outline-hidden"
           />
         </label>
       </section>
@@ -579,7 +579,7 @@ function SourceLayerPicker({
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-start gap-3 rounded-md border border-border bg-surface-0 px-3 py-2 text-left hover:bg-surface-2 focus:border-accent focus:outline-none"
+        className="flex w-full items-start gap-3 rounded-md border border-border bg-surface-0 px-3 py-2 text-left hover:bg-surface-2 focus:border-accent focus:outline-hidden"
       >
         <Layers className="mt-0.5 h-4 w-4 shrink-0 text-info" />
         <span className="min-w-0 flex-1">
@@ -627,7 +627,7 @@ function SourceLayerPicker({
                 }
               }}
               placeholder="Search data layers…"
-              className="h-9 w-full rounded-md border border-border bg-surface-1 pl-9 pr-8 text-sm text-ink-0 placeholder:text-muted focus:border-accent focus:outline-none"
+              className="h-9 w-full rounded-md border border-border bg-surface-1 pl-9 pr-8 text-sm text-ink-0 placeholder:text-muted focus:border-accent focus:outline-hidden"
             />
             {query ? (
               <button
@@ -748,7 +748,7 @@ function UnitSelect({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value as LengthUnit)}
-      className="h-10 rounded-md border border-border bg-surface-0 px-2 text-sm text-ink-0 focus:border-accent focus:outline-none"
+      className="h-10 rounded-md border border-border bg-surface-0 px-2 text-sm text-ink-0 focus:border-accent focus:outline-hidden"
     >
       {LENGTH_UNITS.map((u) => (
         <option key={u} value={u}>
@@ -794,7 +794,7 @@ function FieldModeControls({
           value={field}
           onChange={(e) => onFieldChange(e.target.value)}
           disabled={!sourcePicked || numericFields.length === 0}
-          className="h-10 rounded-md border border-border bg-surface-0 px-3 text-sm text-ink-0 focus:border-accent focus:outline-none disabled:opacity-60"
+          className="h-10 rounded-md border border-border bg-surface-0 px-3 text-sm text-ink-0 focus:border-accent focus:outline-hidden disabled:opacity-60"
         >
           {field === '' ? (
             <option value="">
@@ -1420,7 +1420,7 @@ function StepPreviewPanel({
                 type="date"
                 value={asOfDate}
                 onChange={(e) => setAsOfDate(e.target.value)}
-                className="h-7 rounded-md border border-border bg-surface-0 px-2 text-2xs text-ink-0 focus:border-accent focus:outline-none"
+                className="h-7 rounded-md border border-border bg-surface-0 px-2 text-2xs text-ink-0 focus:border-accent focus:outline-hidden"
               />
               {asOfDate ? (
                 <button
@@ -1669,7 +1669,7 @@ function ToolToolbox({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder='Filter tools (press "/" anywhere to focus)…'
-              className="h-10 w-full rounded-md border border-border bg-surface-1 pl-10 pr-3 text-sm text-ink-0 placeholder:text-muted focus:border-accent focus:outline-none"
+              className="h-10 w-full rounded-md border border-border bg-surface-1 pl-10 pr-3 text-sm text-ink-0 placeholder:text-muted focus:border-accent focus:outline-hidden"
             />
           </div>
         </header>
@@ -1695,7 +1695,7 @@ function ToolToolbox({
                         key={kind}
                         type="button"
                         onClick={() => onPick(kind)}
-                        className="flex flex-col items-start gap-1 rounded-md border border-border bg-surface-1 p-3 text-left transition-colors hover:border-accent/50 hover:bg-surface-2 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+                        className="flex flex-col items-start gap-1 rounded-md border border-border bg-surface-1 p-3 text-left transition-colors hover:border-accent/50 hover:bg-surface-2 focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
                       >
                         <span className="text-sm font-medium text-ink-0">
                           {TOOL_LABELS[kind]}
@@ -1795,7 +1795,7 @@ function DataLayerPicker({
               ...(layerKey ? { layerKey } : {}),
             })
           }
-          className="h-9 rounded-md border border-border bg-surface-1 px-3 text-xs focus:border-accent focus:outline-none"
+          className="h-9 rounded-md border border-border bg-surface-1 px-3 text-xs focus:border-accent focus:outline-hidden"
         >
           {available === null ? (
             <option value="">Loading…</option>
@@ -1831,7 +1831,7 @@ function DataLayerPicker({
             onChange({ itemId, ...(v ? { layerKey: v } : {}) });
           }}
           placeholder="leave blank for the default sublayer"
-          className="h-9 rounded-md border border-border bg-surface-1 px-3 font-mono text-xs focus:border-accent focus:outline-none"
+          className="h-9 rounded-md border border-border bg-surface-1 px-3 font-mono text-xs focus:border-accent focus:outline-hidden"
         />
         <span className="text-2xs text-muted">
           Only needed when the layer has multiple sublayers; visible
@@ -1976,7 +1976,7 @@ function BufferStepEditor({
               step={1}
               value={Number.isFinite(params.distance) ? params.distance : 0}
               onChange={(e) => setDistance(Number(e.target.value))}
-              className="h-10 w-32 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-0 focus:border-accent focus:outline-none"
+              className="h-10 w-32 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-0 focus:border-accent focus:outline-hidden"
             />
             <UnitSelect value={params.unit} onChange={setUnit} />
           </span>
@@ -2040,7 +2040,7 @@ function ToleranceEditor({
           step={1}
           value={Number.isFinite(value) ? value : 0}
           onChange={(e) => onValueChange(Number(e.target.value))}
-          className="h-10 w-32 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-0 focus:border-accent focus:outline-none"
+          className="h-10 w-32 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-0 focus:border-accent focus:outline-hidden"
         />
         <UnitSelect value={unit} onChange={onUnitChange} />
       </span>
@@ -2115,7 +2115,7 @@ function TopNStepEditor({
           value={params.field}
           onChange={(e) => onChange({ ...params, field: e.target.value })}
           disabled={!sourcePicked || numericFields.length === 0}
-          className="h-10 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-0 focus:border-accent focus:outline-none disabled:opacity-60"
+          className="h-10 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-0 focus:border-accent focus:outline-hidden disabled:opacity-60"
         >
           {params.field === '' ? (
             <option value="">
@@ -2145,7 +2145,7 @@ function TopNStepEditor({
             onChange={(e) =>
               onChange({ ...params, n: Math.max(1, Math.floor(Number(e.target.value))) })
             }
-            className="h-10 w-24 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-0 focus:border-accent focus:outline-none"
+            className="h-10 w-24 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-0 focus:border-accent focus:outline-hidden"
           />
           <select
             value={params.direction}
@@ -2155,7 +2155,7 @@ function TopNStepEditor({
                 direction: e.target.value === 'asc' ? 'asc' : 'desc',
               })
             }
-            className="h-10 rounded-md border border-border bg-surface-1 px-2 text-sm text-ink-0 focus:border-accent focus:outline-none"
+            className="h-10 rounded-md border border-border bg-surface-1 px-2 text-sm text-ink-0 focus:border-accent focus:outline-hidden"
           >
             <option value="desc">highest</option>
             <option value="asc">lowest</option>
@@ -2232,7 +2232,7 @@ function RandomSampleStepEditor({
           onChange={(e) =>
             onChange({ ...params, value: Number(e.target.value), seed })
           }
-          className="h-10 w-32 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-0 focus:border-accent focus:outline-none"
+          className="h-10 w-32 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-0 focus:border-accent focus:outline-hidden"
         />
         <span className="text-2xs text-muted">
           Sample is deterministic given the seed below; same recipe = same
@@ -2249,7 +2249,7 @@ function RandomSampleStepEditor({
             onChange={(e) =>
               onChange({ ...params, seed: Number(e.target.value) || 1 })
             }
-            className="h-10 w-32 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-0 focus:border-accent focus:outline-none"
+            className="h-10 w-32 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-0 focus:border-accent focus:outline-hidden"
           />
           <button
             type="button"
@@ -2389,7 +2389,7 @@ function CalculateGeometryStepEditor({
                 unit: e.target.value as AreaUnit,
               })
             }
-            className="h-10 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-0 focus:border-accent focus:outline-none"
+            className="h-10 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-0 focus:border-accent focus:outline-hidden"
           >
             {AREA_UNITS.map((u) => (
               <option key={u} value={u}>
@@ -2421,7 +2421,7 @@ function CalculateGeometryStepEditor({
           }
           maxLength={60}
           placeholder="e.g. area_ha, length_km"
-          className="h-10 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-0 focus:border-accent focus:outline-none"
+          className="h-10 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-0 focus:border-accent focus:outline-hidden"
         />
         <span className="text-2xs text-muted">
           Letters, numbers, and underscores. Cannot match an existing field
@@ -2491,7 +2491,7 @@ function CalculateFieldStepEditor({
             value={params.outputName}
             onChange={(e) => onChange({ ...params, outputName: e.target.value })}
             placeholder="e.g. hectares, full_name"
-            className="h-9 rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none"
+            className="h-9 rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden"
           />
         </label>
         <label className="flex flex-col gap-1">
@@ -2506,7 +2506,7 @@ function CalculateFieldStepEditor({
                 outputType: e.target.value as 'number' | 'string' | 'boolean',
               })
             }
-            className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none"
+            className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden"
           >
             <option value="number">Number</option>
             <option value="string">String</option>
@@ -2654,7 +2654,7 @@ function ExpressionEditor({
               ? '{{acres}} * 0.4047'
               : "concat({{first_name}}, ' ', {{last_name}})"
         }
-        className="w-full rounded-md border border-border bg-surface-0 px-3 py-2 font-mono text-xs text-ink-0 focus:border-accent focus:outline-none"
+        className="w-full rounded-md border border-border bg-surface-0 px-3 py-2 font-mono text-xs text-ink-0 focus:border-accent focus:outline-hidden"
       />
       {validation.errors.length > 0 ? (
         <ul className="space-y-0.5 text-2xs text-danger">
@@ -2712,7 +2712,7 @@ function ContourStepEditor({
         <select
           value={params.field}
           onChange={(e) => onChange({ ...params, field: e.target.value })}
-          className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none"
+          className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden"
         >
           <option value="">(pick a numeric field)</option>
           {numericFields.map((f) => (
@@ -2740,7 +2740,7 @@ function ContourStepEditor({
               mode: e.target.value as 'auto' | 'manual',
             })
           }
-          className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none"
+          className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden"
         >
           <option value="auto">
             Auto: walk by interval between min / max
@@ -2765,7 +2765,7 @@ function ContourStepEditor({
                   interval: Number(e.target.value),
                 })
               }
-              className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none"
+              className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden"
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
@@ -2790,7 +2790,7 @@ function ContourStepEditor({
                 );
               }}
               placeholder="auto from data"
-              className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none"
+              className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden"
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
@@ -2810,7 +2810,7 @@ function ContourStepEditor({
                 );
               }}
               placeholder="auto from data"
-              className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none"
+              className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden"
             />
           </label>
         </div>
@@ -2843,7 +2843,7 @@ function ContourStepEditor({
               onChange(next === undefined ? rest : { ...rest, levels: next });
             }}
             placeholder="e.g. 100, 110, 120, 130"
-            className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none"
+            className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden"
           />
         </label>
       )}
@@ -2976,7 +2976,7 @@ function AggregateStepEditor({
           {params.aggs.map((a, idx) => (
             <div
               key={idx}
-              className="grid grid-cols-[110px_minmax(0,_1fr)_minmax(0,_1fr)_28px] items-center gap-1.5"
+              className="grid grid-cols-[110px_minmax(0,1fr)_minmax(0,1fr)_28px] items-center gap-1.5"
             >
               <select
                 value={a.op}
@@ -2988,7 +2988,7 @@ function AggregateStepEditor({
                     ...(e.target.value === 'count' ? { field: '' } : {}),
                   })
                 }
-                className="h-8 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none"
+                className="h-8 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden"
               >
                 <option value="count">count</option>
                 <option value="sum">sum</option>
@@ -3005,7 +3005,7 @@ function AggregateStepEditor({
                 <select
                   value={a.field}
                   onChange={(e) => updateAgg(idx, { field: e.target.value })}
-                  className="h-8 min-w-0 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none"
+                  className="h-8 min-w-0 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden"
                 >
                   <option value="">(pick a field)</option>
                   {(a.op === 'first' ? sourceFields : numericFields).map((f) => (
@@ -3022,7 +3022,7 @@ function AggregateStepEditor({
                   updateAgg(idx, { outputName: e.target.value })
                 }
                 placeholder="output column name"
-                className="h-8 min-w-0 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none"
+                className="h-8 min-w-0 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden"
               />
               <button
                 type="button"
@@ -3139,7 +3139,7 @@ function SpatialJoinStepEditor({
                 nearestMaxMeters: Number(e.target.value),
               })
             }
-            className="h-9 w-40 rounded-md border border-border bg-surface-1 px-3 text-xs focus:border-accent focus:outline-none"
+            className="h-9 w-40 rounded-md border border-border bg-surface-1 px-3 text-xs focus:border-accent focus:outline-hidden"
           />
         </label>
       ) : null}
@@ -3186,7 +3186,7 @@ function SpatialJoinStepEditor({
               })
             }
             placeholder="county_name, fips, population"
-            className="h-9 rounded-md border border-border bg-surface-1 px-3 font-mono text-xs focus:border-accent focus:outline-none"
+            className="h-9 rounded-md border border-border bg-surface-1 px-3 font-mono text-xs focus:border-accent focus:outline-hidden"
           />
           <span className="text-2xs text-muted">
             Comma-separated field names on the other layer.  Each
@@ -3212,7 +3212,7 @@ function SpatialJoinStepEditor({
               attrPrefix: e.target.value.replace(/[^a-zA-Z0-9_]/g, '_'),
             })
           }
-          className="h-9 w-40 rounded-md border border-border bg-surface-1 px-3 font-mono text-xs focus:border-accent focus:outline-none"
+          className="h-9 w-40 rounded-md border border-border bg-surface-1 px-3 font-mono text-xs focus:border-accent focus:outline-hidden"
         />
         <span className="text-2xs text-muted">
           Prepended to every joined attribute name.  Defaults to{' '}
@@ -3388,7 +3388,7 @@ function SpatialFilterStepEditor({
             max={1_000_000}
             value={fixedDistanceMeters ?? 100}
             onChange={(e) => setDistanceMeters(Number(e.target.value))}
-            className="h-9 w-40 rounded-md border border-border bg-surface-1 px-3 text-xs focus:border-accent focus:outline-none"
+            className="h-9 w-40 rounded-md border border-border bg-surface-1 px-3 text-xs focus:border-accent focus:outline-hidden"
           />
         </label>
       ) : null}

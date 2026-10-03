@@ -303,7 +303,7 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
             }}
             disabled={!canEdit}
             placeholder="https://host/arcgis/rest/services/OpenData/Assessor/MapServer"
-            className="h-9 min-w-0 flex-1 rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
+            className="h-9 min-w-0 flex-1 rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
           />
           <button
             type="button"
@@ -463,7 +463,7 @@ export function ArcgisServiceEditor({ itemId, initial, canEdit }: Props) {
                         onChange={(e) => setLayerLabel(l.id, e.target.value)}
                         placeholder="Override display label (optional)"
                         disabled={!included}
-                        className="mt-0.5 h-6 w-full rounded border border-border bg-surface-0 px-1.5 text-2xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30 disabled:opacity-50"
+                        className="mt-0.5 h-6 w-full rounded border border-border bg-surface-0 px-1.5 text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30 disabled:opacity-50"
                       />
                     ) : override?.label ? (
                       <p className="mt-0.5 text-2xs text-muted">

@@ -52,7 +52,7 @@ export function Legend({ open, layers, metadata, onClose }: Props) {
   });
 
   return (
-    <div className="absolute right-4 top-4 z-10 flex max-h-[60%] w-72 flex-col overflow-hidden rounded-lg border border-border bg-surface-1/95 shadow-raised backdrop-blur max-md:left-3 max-md:right-3 max-md:top-16 max-md:w-auto max-md:max-h-[40%]">
+    <div className="absolute right-4 top-4 z-10 flex max-h-[60%] w-72 flex-col overflow-hidden rounded-lg border border-border bg-surface-1/95 shadow-raised backdrop-blur-xs max-md:left-3 max-md:right-3 max-md:top-16 max-md:w-auto max-md:max-h-[40%]">
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <h3 className="inline-flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted">
           <List className="h-3.5 w-3.5" />

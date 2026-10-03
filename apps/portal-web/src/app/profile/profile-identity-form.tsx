@@ -99,7 +99,7 @@ export function ProfileIdentityForm({ initial }: Props) {
             value={firstName}
             onChange={(e) => setFirstName(e.target.value)}
             maxLength={60}
-            className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
         </label>
         <label className="block text-xs">
@@ -111,7 +111,7 @@ export function ProfileIdentityForm({ initial }: Props) {
             value={lastName}
             onChange={(e) => setLastName(e.target.value)}
             maxLength={60}
-            className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
         </label>
       </div>
@@ -125,7 +125,7 @@ export function ProfileIdentityForm({ initial }: Props) {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           maxLength={200}
-          className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+          className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
         />
         {email.trim() !== initial.email ? (
           <span className="mt-1 block text-2xs text-warning">

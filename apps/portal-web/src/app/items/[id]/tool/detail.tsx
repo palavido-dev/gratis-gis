@@ -108,7 +108,7 @@ export function ToolDetail({ itemId, initial, canEdit }: Props) {
   const labelCls =
     'block text-xs font-medium uppercase tracking-wide text-muted';
   const inputCls =
-    'mt-1 w-full rounded-md border border-border bg-surface-0 px-2 py-1.5 text-sm text-ink-0 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-60';
+    'mt-1 w-full rounded-md border border-border bg-surface-0 px-2 py-1.5 text-sm text-ink-0 focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-60';
 
   return (
     <div className="rounded-lg border border-border bg-surface-1 p-4">
@@ -128,7 +128,7 @@ export function ToolDetail({ itemId, initial, canEdit }: Props) {
             onClick={() => switchKind('open-url')}
             className={`px-3 py-1 ${
               data.action.kind === 'open-url'
-                ? 'rounded bg-surface-1 text-ink-0 shadow-sm'
+                ? 'rounded bg-surface-1 text-ink-0 shadow-xs'
                 : 'text-muted'
             }`}
           >
@@ -140,7 +140,7 @@ export function ToolDetail({ itemId, initial, canEdit }: Props) {
             onClick={() => switchKind('open-item')}
             className={`px-3 py-1 ${
               data.action.kind === 'open-item'
-                ? 'rounded bg-surface-1 text-ink-0 shadow-sm'
+                ? 'rounded bg-surface-1 text-ink-0 shadow-xs'
                 : 'text-muted'
             }`}
           >
@@ -152,7 +152,7 @@ export function ToolDetail({ itemId, initial, canEdit }: Props) {
             onClick={() => switchKind('export-layer')}
             className={`px-3 py-1 ${
               data.action.kind === 'export-layer'
-                ? 'rounded bg-surface-1 text-ink-0 shadow-sm'
+                ? 'rounded bg-surface-1 text-ink-0 shadow-xs'
                 : 'text-muted'
             }`}
           >
@@ -164,7 +164,7 @@ export function ToolDetail({ itemId, initial, canEdit }: Props) {
             onClick={() => switchKind('recipe')}
             className={`px-3 py-1 ${
               data.action.kind === 'recipe'
-                ? 'rounded bg-surface-1 text-ink-0 shadow-sm'
+                ? 'rounded bg-surface-1 text-ink-0 shadow-xs'
                 : 'text-muted'
             }`}
           >
@@ -176,7 +176,7 @@ export function ToolDetail({ itemId, initial, canEdit }: Props) {
             onClick={() => switchKind('osm-relational-query')}
             className={`px-3 py-1 ${
               data.action.kind === 'osm-relational-query'
-                ? 'rounded bg-surface-1 text-ink-0 shadow-sm'
+                ? 'rounded bg-surface-1 text-ink-0 shadow-xs'
                 : 'text-muted'
             }`}
           >
@@ -329,7 +329,7 @@ export function ToolDetail({ itemId, initial, canEdit }: Props) {
                 onClick={() => patchAction({ format: 'xlsx' })}
                 className={`px-3 py-1 ${
                   data.action.format === 'xlsx'
-                    ? 'rounded bg-surface-1 text-ink-0 shadow-sm'
+                    ? 'rounded bg-surface-1 text-ink-0 shadow-xs'
                     : 'text-muted'
                 }`}
               >
@@ -341,7 +341,7 @@ export function ToolDetail({ itemId, initial, canEdit }: Props) {
                 onClick={() => patchAction({ format: 'csv' })}
                 className={`px-3 py-1 ${
                   data.action.format === 'csv'
-                    ? 'rounded bg-surface-1 text-ink-0 shadow-sm'
+                    ? 'rounded bg-surface-1 text-ink-0 shadow-xs'
                     : 'text-muted'
                 }`}
               >

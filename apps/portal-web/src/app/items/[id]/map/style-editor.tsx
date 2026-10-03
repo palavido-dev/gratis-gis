@@ -580,12 +580,12 @@ function IconPicker({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search icons..."
-          className="h-7 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+          className="h-7 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
         />
         <select
           value={category}
           onChange={(e) => setCategory(e.target.value)}
-          className="h-7 rounded border border-border bg-surface-1 px-1 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+          className="h-7 rounded border border-border bg-surface-1 px-1 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
         >
           <option value="all">all</option>
           {MAP_ICON_CATEGORIES.map((c) => (
@@ -707,7 +707,7 @@ export function Color({
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="h-7 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-xs font-mono focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+          className="h-7 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-xs font-mono focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
         />
       </div>
     </label>
@@ -772,7 +772,7 @@ function DashSelect({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value as DashStyle)}
-        className="h-7 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+        className="h-7 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
       >
         {DASH_STYLES.map((d) => (
           <option key={d} value={d}>
@@ -803,7 +803,7 @@ function CapJoinSelect({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-7 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+        className="h-7 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
       >
         {options.map((o) => (
           <option key={o} value={o}>

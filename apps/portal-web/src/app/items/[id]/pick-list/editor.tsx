@@ -359,7 +359,7 @@ export function PickListEditor({ itemId, initial, canEdit }: Props) {
               onChange={(e) => setPasteText(e.target.value)}
               placeholder={`code,label,description\nHIGH,High priority,\nMED,Medium priority,\nLOW,Low priority,`}
               rows={5}
-              className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 font-mono text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+              className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 font-mono text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
             />
             <div className="mt-2 flex items-center justify-end gap-2">
               <button
@@ -402,7 +402,7 @@ export function PickListEditor({ itemId, initial, canEdit }: Props) {
                   onChange={(e) => updateRow(i, { code: e.target.value })}
                   placeholder="CODE"
                   disabled={!canEdit}
-                  className="h-8 rounded-md border border-border bg-surface-1 px-2 font-mono text-xs uppercase focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
+                  className="h-8 rounded-md border border-border bg-surface-1 px-2 font-mono text-xs uppercase focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
                 />
                 <input
                   type="text"
@@ -410,7 +410,7 @@ export function PickListEditor({ itemId, initial, canEdit }: Props) {
                   onChange={(e) => updateRow(i, { label: e.target.value })}
                   placeholder="Human label"
                   disabled={!canEdit}
-                  className="h-8 rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
+                  className="h-8 rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
                 />
                 <input
                   type="text"
@@ -418,7 +418,7 @@ export function PickListEditor({ itemId, initial, canEdit }: Props) {
                   onChange={(e) => updateRow(i, { description: e.target.value })}
                   placeholder="Description (optional)"
                   disabled={!canEdit}
-                  className="h-8 rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
+                  className="h-8 rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
                 />
                 {canEdit ? (
                   <div className="flex items-center gap-0.5">
@@ -469,7 +469,7 @@ export function PickListEditor({ itemId, initial, canEdit }: Props) {
               }
               placeholder="Source, stewardship, review cadence, anything the next maintainer should know."
               rows={2}
-              className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+              className="w-full rounded-md border border-border bg-surface-1 px-2 py-1 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
             />
             <span className="mt-1 block text-2xs text-muted">
               Only shown to authors with edit access.

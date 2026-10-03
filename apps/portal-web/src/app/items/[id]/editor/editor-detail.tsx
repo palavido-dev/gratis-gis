@@ -705,8 +705,8 @@ const ALL_TOOLS: Array<{ key: EditorTool; label: string; hint: string }> = [
   { key: 'add', label: 'Add', hint: 'Create new features.' },
   {
     key: 'magic',
-    label: 'Magic outline',
-    hint: 'Click a building or field on imagery; its outline is drawn for you.',
+    label: 'Magic outline-solid',
+    hint: 'Click a building or field on imagery; its outline-solid is drawn for you.',
   },
   { key: 'edit', label: 'Edit', hint: 'Modify geometry or attributes.' },
   { key: 'snap', label: 'Snap toggle', hint: 'Surface a snap on/off button.' },
