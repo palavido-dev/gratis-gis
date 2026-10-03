@@ -43,6 +43,8 @@ export const de: Partial<CatalogShape> = {
     housekeeping: 'Wartung',
     notifications: 'Benachrichtigungen',
     ai: 'KI',
+    build: 'Erstellen',
+    security: 'Anmeldung',
     fieldQueues: 'Feld-Warteschlangen',
     migrations: 'Migrationen',
     gettingStarted: 'Erste Schritte',

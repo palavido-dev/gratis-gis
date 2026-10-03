@@ -16,6 +16,7 @@ import { HousekeepingCronService } from './housekeeping-cron.service.js';
 import { KeycloakAdminService } from './keycloak-admin.service.js';
 import { KeycloakSyncService } from './keycloak-sync.service.js';
 import { AdminOnboardingController } from './onboarding.controller.js';
+import { AdminSecurityController } from './admin-security.controller.js';
 import { OnboardingService } from './onboarding.service.js';
 import { DataLayerTablesModule } from '../data-layer/tables.module.js';
 import { ItemsModule } from '../items/items.module.js';
@@ -54,6 +55,7 @@ import { FieldQueueAdminController } from '../field-queue/field-queue-admin.cont
     AdminCapabilitiesController,
     AdminIntegrationsController,
     AdminOnboardingController,
+    AdminSecurityController,
     HousekeepingController,
     NotificationsAdminController,
     FieldQueueAdminController,

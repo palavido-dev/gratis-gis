@@ -60,7 +60,7 @@ end.
 
 | Type | One-liner | Page |
 |---|---|---|
-| **Tool** | A reusable named action or analysis recipe (open a URL, open an item, export a layer, or run a recipe). The node-graph canvas is not built. | **Tool** |
+| **Tool** | A reusable named action or analysis recipe (open a URL, open an item, export a layer, or run a recipe). The recipe canvas arranges that recipe as one chain. | **Tool** |
 | **Script** | User-authored Python (or a `.ipynb` notebook) stored as an item and run on the server, on demand or on a schedule, in a sandboxed container. Off by default; an operator enables it. There is no in-browser notebook editor. | **Script** |
 
 ## Catalog and supporting

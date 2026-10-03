@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 420" role="img" aria-labelledby="title">
+  <title id="title">Form designer with a location question and a text question</title>
+  <rect width="720" height="420" fill="#f6f7f9"/>
+  <rect x="48" y="28" width="624" height="364" rx="12" fill="#ffffff" stroke="#d7dde6"/>
+  <text x="72" y="68" fill="#161d27" font-family="ui-sans-serif, system-ui, sans-serif" font-size="18" font-weight="650">Broken bench report</text>
+  <rect x="72" y="92" width="576" height="72" rx="8" fill="#f6f7f9" stroke="#d7dde6"/>
+  <text x="88" y="120" fill="#161d27" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14">Where is the bench?</text>
+  <text x="88" y="142" fill="#5c6b7a" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12">Location · required</text>
+  <rect x="72" y="180" width="576" height="72" rx="8" fill="#f6f7f9" stroke="#d7dde6"/>
+  <text x="88" y="208" fill="#161d27" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14">What is wrong?</text>
+  <text x="88" y="230" fill="#5c6b7a" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12">Text · required</text>
+  <rect x="72" y="276" width="200" height="40" rx="8" fill="#ffffff" stroke="#21466e"/>
+  <text x="96" y="301" fill="#21466e" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14">+ Add question</text>
+</svg>

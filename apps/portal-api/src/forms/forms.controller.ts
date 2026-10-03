@@ -7,6 +7,7 @@ import {
   Param,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -17,6 +18,7 @@ import {
   Length,
   Min,
 } from 'class-validator';
+import type { Response } from 'express';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
@@ -63,6 +65,23 @@ export class FormsController {
     const opts: { limit?: number } = {};
     if (limit !== undefined) opts.limit = limit;
     return this.forms.list(id, user, opts);
+  }
+
+  @Get(':id/submissions/:submissionId/pdf')
+  async pdf(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('submissionId') submissionId: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const pdf = await this.forms.submissionPdf(id, submissionId, user);
+    res.setHeader('content-type', 'application/pdf');
+    res.setHeader('content-length', String(pdf.bytes.length));
+    res.setHeader(
+      'content-disposition',
+      `attachment; filename="${pdf.filename}"`,
+    );
+    res.end(pdf.bytes);
   }
 
   @Get(':id/submissions/_count')

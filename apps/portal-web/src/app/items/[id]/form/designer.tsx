@@ -97,6 +97,7 @@ import {
   widthToClass,
 } from '@/components/form-runtime';
 import { RegexQuestionFields } from './regex-builder';
+import { SubmissionReceipts } from './submission-receipts';
 
 interface Props {
   itemId: string;
@@ -872,8 +873,9 @@ function ResponsesIntro({
   linkedLayerId: string | null;
 }) {
   return (
-    <div className="flex h-full items-start justify-center bg-surface-0 p-8">
-      <div className="w-full max-w-2xl rounded-lg border border-dashed border-border bg-surface-1 p-8 text-center shadow-card">
+    <div className="flex h-full items-start justify-center overflow-auto bg-surface-0 p-8">
+      <div className="w-full max-w-2xl">
+      <div className="rounded-lg border border-dashed border-border bg-surface-1 p-8 text-center shadow-card">
         <Inbox className="mx-auto h-8 w-8 text-orange-300" />
         <h2 className="mt-2 text-sm font-semibold text-ink-0">
           Form responses
@@ -916,6 +918,10 @@ function ResponsesIntro({
             plot submissions.
           </p>
         ) : null}
+      </div>
+      <div className="mt-4 text-left">
+        <SubmissionReceipts formId={itemId} />
+      </div>
       </div>
     </div>
   );

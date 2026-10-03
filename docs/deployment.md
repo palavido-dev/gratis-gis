@@ -127,9 +127,37 @@ MinIO while the stack is stopped, plus your `infra/.env.prod`. Keep
 `.env.prod` safe either way: `CREDENTIAL_ENCRYPTION_KEY` cannot be
 regenerated without losing encrypted credentials.
 
+The restore point you can promise is the newest archive you have
+copied off the host. Take one before an upgrade, restore it once
+onto a spare machine (a second directory and a second set of DNS
+names, below), and write down the time between that archive and
+the moment you took it. That interval is the recovery point.
+`/health` answers 503 when Postgres does not respond, so a load
+balancer can take the portal out of rotation. It does not probe
+Keycloak or MinIO; `./infra/doctor.sh` does.
+
+## A second organization
+
+Each customer runs their own stack. Do not point a second
+organization at the first stack's database. On a new machine:
+
+```bash
+GRATIS_DIR=/opt/gratis-gis-customer ./infra/install.sh
+```
+
+Give that install its own domain, its own `infra/.env.prod`, and
+its own volumes. `deploy.sh` in that directory tracks release
+tags on its own.
+
 ## Optional pieces
 
 - Geocoding: a self-hosted Nominatim can back the portal's geocoder;
-  see `infra/NOMINATIM.md`.
+  see `infra/NOMINATIM.md`. If `NOMINATIM_URL` is unset and the
+  local default does not answer, address search falls back to
+  the public Nominatim service. Set `NOMINATIM_PUBLIC_FALLBACK=0`
+  to keep every query on the configured host. A CSV import that
+  has an address column and no coordinates geocodes the first 200
+  rows against that same local Nominatim only. It does not use the
+  public fallback.
 - The maintenance and golden-snapshot scripts in `infra/` exist for the
   public demo's nightly reset and are not part of a normal deployment.

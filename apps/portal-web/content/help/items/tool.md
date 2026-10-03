@@ -1,7 +1,7 @@
 ---
 id: items-tool
 title: Tool
-summary: A reusable named action or analysis recipe. The node-graph builder is not built.
+summary: A reusable named action or analysis recipe, with a canvas that arranges the recipe as one chain.
 category: items
 order: 170
 complexity: advanced
@@ -24,8 +24,12 @@ it. The detail page edits one of these kinds:
  new data layer is still disabled in that editor.
 - **OSM relational query**
 
-There is no node-graph canvas. Derived layers are the shipped
-way to keep a spatial pipeline whose result is itself a layer.
+A recipe can be opened on a canvas. Dragging a step changes
+where it sits. **Runs after** changes the sequence, and that
+sequence is what runs. The canvas keeps a single chain. It
+does not run a branch, a join, or a union. Derived layers are
+the shipped way to keep a spatial pipeline whose result is
+itself a layer.
 
 ## See also
 

@@ -41,6 +41,8 @@ export const ptBR: Partial<CatalogShape> = {
     housekeeping: 'Manutenção',
     notifications: 'Notificações',
     ai: 'IA',
+    build: 'Criar',
+    security: 'Acesso',
     fieldQueues: 'Filas de campo',
     migrations: 'Migrações',
     gettingStarted: 'Primeiros passos',
