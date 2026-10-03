@@ -720,6 +720,20 @@ json.dump(client, sys.stdout)
       else
         echo "WARN: could not update portal-api-admin service-account attributes." >&2
       fi
+      # Same sign-in roles as deploy.sh. A golden restore from a
+      # snapshot taken before they existed would otherwise bring the
+      # 403 back at 04:00 UTC.
+      echo "Ensuring portal-api-admin can read sign-in settings..."
+      for GG_ROLE in manage-realm view-identity-providers manage-identity-providers; do
+        if KC add-roles -r gratis-gis \
+            --uusername service-account-portal-api-admin \
+            --cclientid realm-management \
+            --rolename "$GG_ROLE" >/dev/null 2>&1; then
+          echo "  + $GG_ROLE"
+        else
+          echo "  = $GG_ROLE (already granted or unavailable)"
+        fi
+      done
     fi
   fi
 fi

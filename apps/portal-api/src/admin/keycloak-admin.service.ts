@@ -19,7 +19,8 @@ import { SystemSettingsService } from '../notifications/system-settings.service.
  *   {KEYCLOAK_URL}/admin/realms/{realm}/...
  *
  * We authenticate with a confidential service-account client that has
- * the `manage-users` role from the realm-management built-in client.
+ * `manage-users`, `manage-realm`, `view-identity-providers`, and
+ * `manage-identity-providers` from the realm-management client.
  * The client credentials live in env vars:
  *
  *   KEYCLOAK_ADMIN_CLIENT_ID     (e.g. "portal-api-admin")
@@ -598,23 +599,21 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
 
   /**
    * Ensure the admin service-account client has the realm-management
-   * `manage-realm` client role. Idempotent: if the role is already
-   * granted (or unavailable to grant), this is a no-op. (#139)
+   * roles the portal's own admin screens call. Idempotent.
    *
-   * Sequence:
-   *   1. Look up the admin client (KEYCLOAK_ADMIN_CLIENT_ID) and get
-   *      its service-account user id.
-   *   2. Look up the built-in `realm-management` client.
-   *   3. Look up the `manage-realm` role within that client.
-   *   4. Check whether the role is already among the service
-   *      account's client-role mappings; if not, POST to grant it.
+   * `manage-realm` covers realm SMTP and authenticator required
+   * actions. Identity providers are a separate pair of roles:
+   * `view-identity-providers` and `manage-identity-providers`.
+   * Keycloak does not treat either as a composite of `manage-realm`,
+   * so stopping once `manage-realm` is present leaves the Sign-in
+   * page with a 403.
    *
-   * The grant only succeeds if THIS service account already has
-   * sufficient privilege (realm-admin / manage-clients) to assign
-   * roles. Most local-dev setups configure the admin client with
-   * realm-admin already, so this works on the first boot. Cloud /
-   * SSO deployments where the admin client is intentionally minimal
-   * will get a clear error here that surfaces in the bootstrap log.
+   * The grant only succeeds when this service account can already
+   * assign roles (realm-admin, or manage-users plus the roles
+   * themselves). A client that only has `manage-users` cannot add
+   * these; deploy and restore grant them with the master admin.
+   * A failure here is logged at bootstrap and does not stop the
+   * process.
    */
   async ensureManageRealm(): Promise<void> {
     if (!this.isConfigured()) return;
@@ -669,23 +668,11 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
     }
     const rmClientUuid = rmClients[0]!.id;
 
-    // 3. Find the manage-realm role within realm-management.
-    const roleRes = await fetch(
-      this.adminUrl(
-        `/clients/${rmClientUuid}/roles/manage-realm`,
-      ),
-      { headers },
-    );
-    if (!roleRes.ok) {
-      throw new Error(
-        `manage-realm role lookup failed: ${roleRes.status}`,
-      );
-    }
-    const role = (await roleRes.json()) as { id: string; name: string };
-
-    // 4. Already granted? Compare against the service account's
-    //    existing client-role mappings. If yes, no-op; if no, POST
-    //    to grant.
+    const required = [
+      'manage-realm',
+      'view-identity-providers',
+      'manage-identity-providers',
+    ];
     const existingRes = await fetch(
       this.adminUrl(
         `/users/${saUser.id}/role-mappings/clients/${rmClientUuid}`,
@@ -698,9 +685,21 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
       );
     }
     const existing = (await existingRes.json()) as Array<{ name: string }>;
-    if (existing.some((r) => r.name === 'manage-realm')) {
-      // Already granted; quiet success.
-      return;
+    const missing = required.filter(
+      (name) => !existing.some((role) => role.name === name),
+    );
+    if (missing.length === 0) return;
+
+    const roles: Array<{ id: string; name: string }> = [];
+    for (const name of missing) {
+      const roleRes = await fetch(
+        this.adminUrl(`/clients/${rmClientUuid}/roles/${name}`),
+        { headers },
+      );
+      if (!roleRes.ok) {
+        throw new Error(`${name} role lookup failed: ${roleRes.status}`);
+      }
+      roles.push((await roleRes.json()) as { id: string; name: string });
     }
     const grantRes = await fetch(
       this.adminUrl(
@@ -709,19 +708,24 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
       {
         method: 'POST',
         headers,
-        body: JSON.stringify([role]),
+        body: JSON.stringify(roles),
       },
     );
     if (!grantRes.ok) {
       const text = await grantRes.text();
       throw new Error(
-        `manage-realm grant failed: ${grantRes.status} :: ${text}. ` +
-          `The admin client itself needs realm-admin (or manage-clients ` +
-          `+ manage-realm) to grant roles.`,
+        `Could not grant ${missing.join(', ')}: ${grantRes.status} :: ${text}. ` +
+          `Keycloak will not let this service account assign roles it does not ` +
+          `already hold. Grant them from the Keycloak admin console, or let ` +
+          `deploy.sh do it with the master admin.`,
       );
     }
+    // The token used above was minted before the grant, so it does
+    // not carry the new roles. Drop it so the next admin call mints
+    // a fresh one.
+    this.tokenCache = null;
     this.logger.log(
-      `Granted manage-realm to admin service-account '${clientId}' on realm '${this.realm}'.`,
+      `Granted ${missing.join(', ')} to admin service-account '${clientId}' on realm '${this.realm}'.`,
     );
   }
 
@@ -738,9 +742,12 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
       headers: { authorization: `Bearer ${token}` },
     });
     if (!res.ok) {
-      throw new BadGatewayException(
-        `Could not list sign-in methods (${res.status}).`,
+      this.logger.error(
+        `Listing identity providers failed: ${res.status}. The admin ` +
+          `service account needs realm-management view-identity-providers ` +
+          `and manage-identity-providers.`,
       );
+      throw new BadGatewayException('Could not load sign-in settings.');
     }
     const rows = (await res.json()) as Array<{
       alias?: string;
@@ -831,7 +838,13 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
     const res = await fetch(this.adminUrl('/authentication/required-actions'), {
       headers: { authorization: `Bearer ${token}` },
     });
-    if (!res.ok) return false;
+    if (!res.ok) {
+      this.logger.error(
+        `Reading required actions failed: ${res.status}. The admin ` +
+          `service account needs realm-management manage-realm.`,
+      );
+      throw new BadGatewayException('Could not load sign-in settings.');
+    }
     const rows = (await res.json()) as Array<{
       alias?: string;
       defaultAction?: boolean;

@@ -70,12 +70,10 @@ export function extractDependencies(
   if (!data) return { itemIds: Array.from(itemIds), urls: [] };
 
   if (item.type === 'map') {
-    // The map's basemap is a basemap item (since #21 / Phase 1c, the
-    // built-ins also live as items), referenced by UUID through
-    // `data.basemap`. Record it so the basemap shows up in the map's
-    // "Depends on" panel and the map shows up in the basemap's "Used
-    // by" panel. The empty-string sentinel from DEFAULT_MAP is
-    // intentionally skipped.
+    // The map's basemap is usually a basemap item, referenced by UUID
+    // through `data.basemap`. A built-in style name such as "positron"
+    // is not an item; the UUID filter at the return drops it. The
+    // empty-string sentinel from DEFAULT_MAP is skipped here.
     const basemapRef = (data as { basemap?: unknown }).basemap;
     if (typeof basemapRef === 'string' && basemapRef.length > 0) {
       itemIds.add(basemapRef);
@@ -421,7 +419,14 @@ export function extractDependencies(
 
   // Hook points for other types: extend as those item types come online.
 
-  return { itemIds: Array.from(itemIds), urls: Array.from(urls) };
+  // Item ids are UUIDs. A map can also store a built-in basemap
+  // style name ("positron") or a starter theme kind ("forest").
+  // Those are not rows. Sending them to `id IN (...)` makes Postgres
+  // reject the query and the Housekeeping page 500s.
+  return {
+    itemIds: Array.from(itemIds).filter((id) => UUID_RE.test(id)),
+    urls: Array.from(urls),
+  };
 }
 
 /**

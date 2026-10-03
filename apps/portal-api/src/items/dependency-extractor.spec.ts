@@ -78,6 +78,22 @@ describe('extractDependencies for map layer sources', () => {
       'cccccccc-cccc-cccc-cccc-cccccccccccc',
     ]);
   });
+
+  it('keeps a basemap item id and drops a built-in style name', () => {
+    const itemId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+    expect(
+      extractDependencies({
+        type: 'map' as const,
+        data: { version: 1, basemap: itemId, layers: [] },
+      }).itemIds,
+    ).toEqual([itemId]);
+    expect(
+      extractDependencies({
+        type: 'map' as const,
+        data: { version: 1, basemap: 'positron', layers: [] },
+      }).itemIds,
+    ).toEqual([]);
+  });
 });
 
 describe('extractDependencies for terrain (#186 / #211)', () => {
@@ -144,7 +160,7 @@ describe('extractDependencies for custom web_app', () => {
     const result = extractDependencies(
       buildCustom({
         version: 3,
-        mapId: 'mmmmmmmm-mmmm-mmmm-mmmm-mmmmmmmmmmmm',
+        mapId: '11111111-1111-4111-8111-111111111111',
         targets: [
           {
             dataLayerId: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
@@ -159,9 +175,9 @@ describe('extractDependencies for custom web_app', () => {
       }),
     );
     expect([...result.itemIds].sort()).toEqual([
+      '11111111-1111-4111-8111-111111111111',
       'dddddddd-dddd-dddd-dddd-dddddddddddd',
       'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
-      'mmmmmmmm-mmmm-mmmm-mmmm-mmmmmmmmmmmm',
     ]);
     expect(result.urls).toEqual([]);
   });
@@ -225,24 +241,24 @@ describe('extractDependencies for custom web_app', () => {
         version: 5,
         targets: [],
         sources: [
-          { id: 's0', layer: { dataLayerId: 'dl-1', layerKey: 'a' } },
-          { id: 's1', layer: { dataLayerId: 'dl-2', layerKey: 'b' } },
+          { id: 's0', layer: { dataLayerId: '22222222-2222-4222-8222-222222222222', layerKey: 'a' } },
+          { id: 's1', layer: { dataLayerId: '33333333-3333-4333-8333-333333333333', layerKey: 'b' } },
         ],
         pages: [],
       } as unknown as Parameters<typeof buildCustom>[0]),
     );
-    expect(result.itemIds.sort()).toEqual(['dl-1', 'dl-2']);
+    expect(result.itemIds.sort()).toEqual(['22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333']);
   });
 
   it('still finds them through v4 targets', () => {
     const result = extractDependencies(
       buildCustom({
         version: 4,
-        targets: [{ dataLayerId: 'dl-old', layerKey: 'a' }],
+        targets: [{ dataLayerId: '44444444-4444-4444-8444-444444444444', layerKey: 'a' }],
         pages: [],
       }),
     );
-    expect(result.itemIds).toEqual(['dl-old']);
+    expect(result.itemIds).toEqual(['44444444-4444-4444-8444-444444444444']);
   });
 
   it('does not double-count a layer named by both shapes', () => {
@@ -250,14 +266,14 @@ describe('extractDependencies for custom web_app', () => {
     const result = extractDependencies(
       buildCustom({
         version: 5,
-        targets: [{ dataLayerId: 'dl-1', layerKey: 'a' }],
+        targets: [{ dataLayerId: '22222222-2222-4222-8222-222222222222', layerKey: 'a' }],
         sources: [
-          { id: 's0', layer: { dataLayerId: 'dl-1', layerKey: 'a' } },
+          { id: 's0', layer: { dataLayerId: '22222222-2222-4222-8222-222222222222', layerKey: 'a' } },
         ],
         pages: [],
       } as unknown as Parameters<typeof buildCustom>[0]),
     );
-    expect(result.itemIds).toEqual(['dl-1']);
+    expect(result.itemIds).toEqual(['22222222-2222-4222-8222-222222222222']);
   });
 
   it('returns no edges for an empty custom app', () => {

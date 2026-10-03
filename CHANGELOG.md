@@ -11,6 +11,11 @@ v1.0.0, is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 - Dependencies are current through the open Dependabot set. That includes NestJS 12, React 19, Tailwind CSS 4, Zod 4, and the Go 1.27 toolchain used to build pmtiles. The portal now runs on Node 24.9 or newer, which matches the production images.
 
+### Fixed
+
+- The Sign-in admin page loads identity providers. The portal admin service account now receives `view-identity-providers` and `manage-identity-providers`; `manage-realm` does not include them, which is why the page returned 502. A failed load shows one sentence and hides the authenticator switch instead of the raw error JSON.
+- Housekeeping no longer fails when a map's basemap is a built-in style name such as `positron`. That name was sent to Postgres as an item id.
+
 ## [0.9.116] - 2026-10-03
 
 ### Added

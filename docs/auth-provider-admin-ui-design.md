@@ -346,10 +346,12 @@ form.
 The reorder feature maps to the per-IdP `displayOrder` config
 property; the on/off toggle maps to `enabled`.
 
-The KeycloakAdminService already has `ensureManageRealm()` from
-#139 which auto-grants the realm-management role our admin client
-needs to manage IdPs (`manage-identity-providers` is included in
-`manage-realm`), so the privilege side is already handled.
+The KeycloakAdminService has `ensureManageRealm()` from #139.
+Identity-provider calls need `view-identity-providers` and
+`manage-identity-providers` on their own; those roles are not
+composites of `manage-realm`. The realm import and the deploy
+reconcile grant them. A service account that only holds
+`manage-users` cannot assign them to itself.
 
 ## Schema additions
 

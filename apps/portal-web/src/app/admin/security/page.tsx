@@ -34,8 +34,13 @@ export default async function AdminSecurityPage() {
         Add a work account people already have, and decide whether the
         next sign-in must set up an authenticator.
       </p>
-      {error ? <p className="mb-4 text-sm text-ink-0">{error}</p> : null}
-      <SecurityForm initial={state} />
+      {error ? (
+        <p className="rounded-md border border-border bg-surface-1 px-4 py-3 text-sm text-ink-0">
+          {error}
+        </p>
+      ) : (
+        <SecurityForm initial={state} />
+      )}
     </div>
   );
 }

@@ -276,11 +276,20 @@ config into the Keycloak realm (`smtpServer` on the
 hits a 500 from a realm with no email server configured.
 
 This sync requires the `KEYCLOAK_ADMIN_CLIENT_ID` /
-`KEYCLOAK_ADMIN_CLIENT_SECRET` service-account client to have the
-`manage-realm` role on the `realm-management` client (in addition to
-`manage-users` it already needs). Grant it once in Keycloak admin
-console -> Clients -> {your admin client} -> Service Account Roles ->
-Client Roles -> realm-management -> add `manage-realm`.
+`KEYCLOAK_ADMIN_CLIENT_SECRET` service-account client to have these
+`realm-management` client roles, in addition to `manage-users`:
+
+- `manage-realm`, for the SMTP sync and the authenticator switch
+- `view-identity-providers` and `manage-identity-providers`, for the
+  Sign-in page
+
+`manage-realm` does not include the identity-provider roles. A
+service account that only has `manage-users` also cannot grant the
+missing ones to itself. The realm import lists all four, and
+`deploy.sh` / `restore-golden.sh` add any that an older realm is
+missing. To grant them by hand: Keycloak admin console -> Clients ->
+{your admin client} -> Service Account Roles -> Client Roles ->
+realm-management.
 
 If the sync fails (admin client not configured, missing role, etc.)
 portal-api logs a warning and continues; invites that need email

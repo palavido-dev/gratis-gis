@@ -420,6 +420,23 @@ json.dump(client, sys.stdout)
       else
         echo "WARN: could not update portal-api-admin service-account attributes." >&2
       fi
+      # Sign-in settings call the identity-provider and required-action
+      # APIs. manage-users does not cover those, and manage-realm is
+      # not a composite of the identity-provider roles. This service
+      # account cannot grant the roles to itself, so the master admin
+      # does it. add-roles fails when the role is already present;
+      # that failure is the already-done case.
+      echo "Ensuring portal-api-admin can read sign-in settings..."
+      for GG_ROLE in manage-realm view-identity-providers manage-identity-providers; do
+        if KC add-roles -r gratis-gis \
+            --uusername service-account-portal-api-admin \
+            --cclientid realm-management \
+            --rolename "$GG_ROLE" >/dev/null 2>&1; then
+          echo "  + $GG_ROLE"
+        else
+          echo "  = $GG_ROLE (already granted or unavailable)"
+        fi
+      done
     fi
   fi
 fi

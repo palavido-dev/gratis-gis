@@ -2,6 +2,7 @@
 import { getServerSession } from 'next-auth';
 import { redirect } from 'next/navigation';
 import { authOptions, type SessionWithToken } from './auth';
+import { apiErrorMessage } from './api-error';
 
 const API_BASE = process.env.PORTAL_API_URL ?? 'http://localhost:4000';
 
@@ -50,15 +51,15 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   });
   const tFetch = trace ? Date.now() : 0;
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
     // #254 phase 2: structured error so callers can distinguish auth
     // failures (401 / 403) from server errors. The field-catalog page
     // surfaces 401 as "your session expired" with a sign-in button
     // rather than the generic empty state, so a stale-cookie load
-    // doesn't silently look like "no deployments".
-    const err = new Error(`portal-api ${res.status}: ${body}`) as Error & {
-      status?: number;
-    };
+    // doesn't silently look like "no deployments". The message is the
+    // server's sentence, not the raw JSON wrapper.
+    const err = new Error(
+      await apiErrorMessage(res, 'The server returned an error'),
+    ) as Error & { status?: number };
     err.status = res.status;
     throw err;
   }
@@ -96,9 +97,8 @@ export async function publicApiFetch<T>(
     cache: 'no-store',
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
     const err = new Error(
-      `portal-api ${res.status}: ${body}`,
+      await apiErrorMessage(res, 'The server returned an error'),
     ) as Error & { status?: number };
     err.status = res.status;
     throw err;

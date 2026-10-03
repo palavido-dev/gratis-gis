@@ -1,5 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
+ * Sentence for a thrown fetch error. Keeps the HTTP status in the
+ * text when the server's own message does not already contain it,
+ * because pages still branch on `message.includes('404')` to render
+ * the not-found screen instead of the crash boundary.
+ */
+export async function apiErrorMessage(
+  res: Response,
+  fallback = 'Request failed',
+): Promise<string> {
+  const sentence = await parseApiError(res, fallback);
+  const status = String(res.status);
+  return sentence.includes(status) ? sentence : `${sentence} (${status})`;
+}
+
+/**
  * Turn a failed portal-api response into the sentence a person should
  * read.
  *
