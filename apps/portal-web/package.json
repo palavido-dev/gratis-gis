@@ -21,7 +21,7 @@
     "@gratis-gis/ui": "workspace:*",
     "@protomaps/basemaps": "5.7.2",
     "@radix-ui/react-dialog": "^1.1.23",
-    "@tmcw/togeojson": "^6.0.1",
+    "@tmcw/togeojson": "^7.1.3",
     "@xmldom/xmldom": "^0.9.12",
     "geotiff": "^2.1.3",
     "js-yaml": "^5.4.2",
