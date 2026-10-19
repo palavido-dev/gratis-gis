@@ -15,14 +15,14 @@
     "lint": "eslint ."
   },
   "peerDependencies": {
-    "react": "^19.3.0"
+    "react": "^19.3.1"
   },
   "dependencies": {
     "@gratis-gis/shared-types": "workspace:*"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",
-    "react": "^19.3.0",
+    "react": "^19.3.1",
     "typescript": "^6.0.3"
   }
 }
