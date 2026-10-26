@@ -10,6 +10,7 @@ import {
   type PrincipalOption,
 } from '@/components/principal-picker';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { useT } from '@/lib/i18n/locale-context';
 
 type MemberWithUser = GroupMember & {
   user?: Pick<User, 'id' | 'username' | 'fullName'> & {
@@ -50,6 +51,7 @@ export function MembersPanel({
   currentUserId,
   isOwner,
 }: Props) {
+  const t = useT();
   const router = useRouter();
   const [members, setMembers] = useState(initialMembers);
   const [pending, startTransition] = useTransition();
@@ -90,12 +92,12 @@ export function MembersPanel({
         };
         if (already) {
           opt.disabled = true;
-          opt.disabledReason = 'already a member';
+          opt.disabledReason = t('groups.members.alreadyMember');
         }
         return opt;
       });
     },
-    [memberIds],
+    [memberIds, t],
   );
 
   async function addMember(pick: PrincipalOption) {
@@ -107,7 +109,12 @@ export function MembersPanel({
       body: JSON.stringify({ userId: pick.id, role: addingRole }),
     });
     if (!res.ok) {
-      setError(`Add failed: ${res.status} ${await res.text()}`);
+      setError(
+        t('groups.members.addFailed', {
+          status: res.status,
+          detail: await res.text(),
+        }),
+      );
       return;
     }
     const added: GroupMember = await res.json();
@@ -157,7 +164,12 @@ export function MembersPanel({
       { method: 'DELETE' },
     );
     if (!res.ok) {
-      setError(`Remove failed: ${res.status} ${await res.text()}`);
+      setError(
+        t('groups.members.removeFailed', {
+          status: res.status,
+          detail: await res.text(),
+        }),
+      );
       return;
     }
     setMembers((cur) => cur.filter((m) => m.userId !== member.userId));
@@ -168,8 +180,8 @@ export function MembersPanel({
     <div className="rounded-lg border border-border bg-surface-1 shadow-card">
       {members.length === 0 ? (
         <p className="px-4 py-6 text-sm text-muted">
-          No members yet.
-          {canManage ? ' Add one below.' : ''}
+          {t('groups.members.empty')}
+          {canManage ? t('groups.members.emptyManageHint') : ''}
         </p>
       ) : (
         <ul className="divide-y divide-border">
@@ -195,7 +207,7 @@ export function MembersPanel({
                   onClick={() => removeMember(m)}
                   disabled={pending}
                   className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-danger disabled:opacity-50"
-                  aria-label="Remove member"
+                  aria-label={t('groups.members.removeMember')}
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>
@@ -210,11 +222,11 @@ export function MembersPanel({
           <div className="flex items-center gap-2">
             <div className="min-w-0 flex-1">
               <PrincipalPicker
-                placeholder="Search users to add..."
+                placeholder={t('groups.members.searchPlaceholder')}
                 search={searchUsers}
                 onPick={(opt) => void addMember(opt)}
-                emptyMessage="No matching users."
-                emptyInitialMessage="Start typing a name or username."
+                emptyMessage={t('groups.members.emptySearch')}
+                emptyInitialMessage={t('groups.members.emptyInitial')}
               />
             </div>
             <select
@@ -223,16 +235,19 @@ export function MembersPanel({
                 setAddingRole(e.target.value as 'member' | 'admin')
               }
               className="h-9 shrink-0 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
-              title="Role the user joins as"
+              title={t('groups.members.roleJoinTitle')}
             >
-              <option value="member">member</option>
-              <option value="admin">admin</option>
+              <option value="member">{t('groups.members.roleMember')}</option>
+              <option value="admin">{t('groups.members.roleAdmin')}</option>
             </select>
           </div>
           <p className="text-2xs text-muted">
-            Pick a user from the directory to add them as a{' '}
-            <span className="font-medium">{addingRole}</span>. Existing
-            members are greyed out.
+            {t('groups.members.addHint', {
+              role:
+                addingRole === 'admin'
+                  ? t('groups.members.roleAdmin')
+                  : t('groups.members.roleMember'),
+            })}
           </p>
           {error ? (
             <p className="text-sm text-danger" role="alert">
@@ -256,37 +271,37 @@ export function MembersPanel({
           setConfirmingSelfRemoval(null);
           await performRemoveMember(m);
         }}
-        title="Remove yourself from this group?"
-        confirmLabel="Remove me"
+        title={t('groups.members.selfRemoveTitle')}
+        confirmLabel={t('groups.members.selfRemoveConfirm')}
         tone="danger"
       >
         {isOwner ? (
           <div className="space-y-3 text-sm text-ink-1">
             <div>
-              <p className="mb-1 font-medium">You&apos;ll keep:</p>
+              <p className="mb-1 font-medium">
+                {t('groups.members.selfRemoveOwnerKeepTitle')}
+              </p>
               <ul className="list-disc space-y-0.5 pl-5 text-muted">
-                <li>Ownership of the group</li>
-                <li>The ability to add/remove members and edit it</li>
-                <li>The ability to share items TO the group</li>
+                <li>{t('groups.members.selfRemoveOwnerKeepOwnership')}</li>
+                <li>{t('groups.members.selfRemoveOwnerKeepManage')}</li>
+                <li>{t('groups.members.selfRemoveOwnerKeepShare')}</li>
               </ul>
             </div>
             <div>
-              <p className="mb-1 font-medium">You&apos;ll lose:</p>
+              <p className="mb-1 font-medium">
+                {t('groups.members.selfRemoveOwnerLoseTitle')}
+              </p>
               <ul className="list-disc space-y-0.5 pl-5 text-muted">
-                <li>
-                  Visibility into items shared TO the group through your
-                  personal access (member-only path).
-                </li>
+                <li>{t('groups.members.selfRemoveOwnerLoseVisibility')}</li>
               </ul>
             </div>
             <p className="text-xs text-muted">
-              You can re-add yourself at any time.
+              {t('groups.members.selfRemoveOwnerReadd')}
             </p>
           </div>
         ) : (
           <p className="text-sm text-ink-1">
-            You&apos;ll lose access to items shared with this group. A
-            group admin will need to re-add you to get back in.
+            {t('groups.members.selfRemoveMemberBody')}
           </p>
         )}
       </ConfirmDialog>

@@ -75,6 +75,9 @@ export const en = {
       "Pick what you're creating, then fill in the details. For services and uploads, we'll gather what we need on the next screen so the item lands ready to use.",
     createButton: 'Create item',
     backButton: 'Back',
+    changeType: 'Change type',
+    detailsEyebrow: 'New {type}',
+    detailsEyebrowFallback: 'item',
     viewerBlocked:
       'Your account has the Viewer role, which can open and download items but cannot create them. An organization admin can change your role, or grant you the publish capability on its own.',
   },
@@ -90,6 +93,113 @@ export const en = {
     form: 'Start here if you want people to fill in answers, one at a time, from a link you send them.',
     data_collection:
       'Start here if you want a crew to record what they find on a map from their phones, offline.',
+  },
+  // New-item wizard type picker: group headings (Data, Maps, …).
+  newItemTypeGroup: {
+    data: 'Data',
+    maps: 'Maps',
+    apps: 'Apps',
+    analysis: 'Analysis',
+    organize: 'Organize',
+  },
+  // New-item wizard type picker: per-type label + description.
+  newItemType: {
+    basemap: {
+      label: 'Basemap',
+      desc:
+        'A reusable background layer (style URL, tile template, or WMS) for maps.',
+    },
+    geo_boundary: {
+      label: 'Boundary',
+      desc:
+        'A named region (polygon) reused across shares, maps, and filters.',
+    },
+    service: {
+      label: 'Connected service',
+      desc:
+        'Live pointer at an external service. Paste a URL; we recognize ArcGIS REST, WMS, WFS, and WMTS.',
+    },
+    postgis_connection: {
+      label: 'PostgreSQL + PostGIS (live)',
+      desc:
+        'Connect to a live PostgreSQL + PostGIS database. Maps read tables on demand by bounding box; no data is copied into the portal.',
+    },
+    data_layer: {
+      label: 'Data layer',
+      desc: 'A shareable vector layer backed by PostGIS.',
+    },
+    file: {
+      label: 'File',
+      desc: 'Any uploaded file (PDF, image, zip, etc.).',
+    },
+    geocoding_service: {
+      label: 'Geocoding service',
+      desc:
+        'Searchable index over a data layer. Lets maps and apps geocode against your own parcels, addresses, or places.',
+    },
+    pick_list: {
+      label: 'Pick list',
+      desc:
+        'Shared list of codes + labels referenced by fields, forms, and filters.',
+    },
+    tile_layer: {
+      label: 'Tile layer',
+      desc:
+        'Upload a pre-rendered tile cache (PMTiles, MBTiles, or zipped XYZ tile directory). Hosts the file and exposes a tile URL maps can use as a basemap.',
+    },
+    point_cloud: {
+      label: 'Point cloud',
+      desc:
+        'Upload lidar as COPC (.copc.laz). Hosts the file and streams points by viewport for 3D viewing.',
+    },
+    map: {
+      label: 'Map',
+      desc: 'A basemap with overlay layers and styling.',
+    },
+    form: {
+      label: 'Form',
+      desc:
+        "A collection form for fieldwork or survey data. Submissions land in a paired data layer; the form's Responses tab shows every submission on a map.",
+    },
+    data_collection: {
+      label: 'Data collection',
+      desc:
+        'Field-mode deployment: tap features on a map to add or edit them. Forms come from the layer schema by default.',
+    },
+    custom: {
+      label: 'Web app',
+      desc:
+        'Drag-drop layout of map + tool widgets, sidebar, header, foldable groups. Pick a starter template (Sidebar Explorer, Showcase Map, Editor, Viewer, etc.) on the next screen, or start blank and build the layout from scratch.',
+    },
+    theme: {
+      label: 'Theme',
+      desc:
+        'Reusable color palette + geometry tokens applied to web apps. Edit the colors and a live preview shell shows where each one appears.',
+    },
+    print_template: {
+      label: 'Print template',
+      desc:
+        'Layout for the Print tool in a web app: paper size, title block, map frame, legend, scalebar, north arrow. Drag elements onto a paper-sized canvas, declare parameters the print form prompts for, save.',
+    },
+    tool: {
+      label: 'Tool',
+      desc:
+        'A reusable named action - "open this dashboard" or "go to this URL" - that you bind to a Button on a Custom Web App. One tool can be reused across many apps, so updating the destination once propagates everywhere.',
+    },
+    derived_layer: {
+      label: 'Derived layer',
+      desc: 'A layer computed live from another, with tools like buffer.',
+    },
+    script: {
+      label: 'Script',
+      desc:
+        'Your own Python, run on the server. Write it in your usual editor, paste it here, and the portal runs it with your permissions - useful for the maintenance jobs a laptop cannot do because it is closed at 3am.',
+    },
+    folder: {
+      label: 'Folder',
+      desc:
+        'A curated grouping of items. Sharing a folder shares the arrangement; per-item access still applies.',
+    },
   },
   // The optional metadata XML pre-fill card on the new item form.
   metadataXml: {
@@ -623,6 +733,89 @@ export const en = {
     removeConfirm: 'Remove',
     removed: 'Removed "{title}" from the group.',
     removeFailed: 'Could not remove the item: HTTP {status}.',
+  },
+  groups: {
+    eyebrow: 'Collaboration',
+    visibleCount:
+      '{count, plural, one {# group visible to you} other {# groups visible to you}}',
+    newGroup: 'New group',
+    emptyTitle: 'No groups yet',
+    emptyDescription:
+      'Groups are how teams share items. Create one to get started.',
+    createGroup: 'Create a group',
+    backToGroups: 'Back to groups',
+    backToGroup: 'Back to group',
+    metaNewTitle: 'New group',
+    metaEditTitle: 'Edit group',
+    newPageTitle: 'Create a new group',
+    newPageIntro:
+      'Groups are how teams share content in bulk. Anything shared to the group is instantly visible to every member, so membership is how access flows through the portal.',
+    editingEyebrow: 'Editing',
+    access: {
+      private: 'Private',
+      org: 'Organization',
+      public: 'Public',
+    },
+    form: {
+      thumbnail: 'Thumbnail',
+      name: 'Name',
+      namePlaceholder: 'Field team, Planning review, Partner org...',
+      description: 'Description',
+      descriptionPlaceholder: "Who's in this group and what do they share?",
+      visibility: 'Visibility',
+      visibilityHint:
+        'Visibility controls discoverability. Whether someone can actually join the group still requires an admin to invite them.',
+      titleRequired: 'Title is required.',
+      saveFailed: '{method} failed: {status} {detail}',
+      saved: 'Saved',
+      createGroup: 'Create group',
+      saveChanges: 'Save changes',
+      newGroupFallback: 'New group',
+      access: {
+        private: {
+          label: 'Private',
+          desc:
+            'Invitation only. The group is hidden outside its members.',
+        },
+        org: {
+          label: 'Your organization',
+          desc: 'Anyone in your org can find and request to join.',
+        },
+        public: {
+          label: 'Public',
+          desc: 'Discoverable by anyone on the internet.',
+        },
+      },
+    },
+    members: {
+      empty: 'No members yet.',
+      emptyManageHint: ' Add one below.',
+      removeMember: 'Remove member',
+      searchPlaceholder: 'Search users to add...',
+      emptySearch: 'No matching users.',
+      emptyInitial: 'Start typing a name or username.',
+      alreadyMember: 'already a member',
+      roleJoinTitle: 'Role the user joins as',
+      roleMember: 'member',
+      roleAdmin: 'admin',
+      addHint:
+        'Pick a user from the directory to add them as a {role}. Existing members are greyed out.',
+      addFailed: 'Add failed: {status} {detail}',
+      removeFailed: 'Remove failed: {status} {detail}',
+      selfRemoveTitle: 'Remove yourself from this group?',
+      selfRemoveConfirm: 'Remove me',
+      selfRemoveOwnerKeepTitle: "You'll keep:",
+      selfRemoveOwnerKeepOwnership: 'Ownership of the group',
+      selfRemoveOwnerKeepManage:
+        'The ability to add/remove members and edit it',
+      selfRemoveOwnerKeepShare: 'The ability to share items TO the group',
+      selfRemoveOwnerLoseTitle: "You'll lose:",
+      selfRemoveOwnerLoseVisibility:
+        'Visibility into items shared TO the group through your personal access (member-only path).',
+      selfRemoveOwnerReadd: 'You can re-add yourself at any time.',
+      selfRemoveMemberBody:
+        "You'll lose access to items shared with this group. A group admin will need to re-add you to get back in.",
+    },
   },
   // #75: the housekeeping dashboard's tab strip.
   housekeepingTabs: {

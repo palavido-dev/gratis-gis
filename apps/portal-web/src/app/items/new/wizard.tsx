@@ -133,8 +133,6 @@ interface TypeOption {
    * stays collapsed while the picker keeps Esri-friendly names.
    */
   value: ItemType | 'viewer' | 'custom' | 'postgis_connection';
-  label: string;
-  desc: string;
   /**
    * The job someone arrives with, in their words rather than ours.
    *
@@ -163,7 +161,8 @@ interface TypeOption {
 // Group order follows the typical user journey: load data, make a
 // map, build apps over it, analyze, then organize.
 interface TypeGroup {
-  label: string;
+  /** Catalog key for the group heading (`newItemTypeGroup.*`). */
+  groupKey: string;
   options: TypeOption[];
   /**
    * Tailwind class fragment driving the per-group icon tile color
@@ -187,226 +186,69 @@ interface TypeGroup {
 
 const TYPE_GROUPS: TypeGroup[] = [
   {
-    label: 'Data',
+    groupKey: 'newItemTypeGroup.data',
     iconTileClass: 'bg-info/10 text-info',
     options: [
-      {
-        // Basemap lives under Data rather than Maps because it's a
-        // remote-data pointer (tile URL / style.json / WMS endpoint)
-        // that maps reference, just like Connected service or Data
-        // layer. The original "Map = canvas, Basemap = also a kind
-        // of map" framing mirrored Esri / AGO, but in GratisGIS's
-        // model Map is the composition and Basemap is one of the
-        // data sources composed -- the same category as the other
-        // referenced layer types.
-        value: 'basemap',
-        label: 'Basemap',
-        desc: 'A reusable background layer (style URL, tile template, or WMS) for maps.',
-        Icon: Globe,
-      },
-      {
-        value: 'geo_boundary',
-        label: 'Boundary',
-        desc: 'A named region (polygon) reused across shares, maps, and filters.',
-        Icon: MapIcon,
-      },
-      {
-        // #304: unified Connected Service replaces the four
-        // protocol-specific tiles (ArcGIS service, WMS service,
-        // WFS service, and the not-yet-shipped WMTS). One tile,
-        // auto-detect probe -- the wizard figures out the protocol
-        // from the URL response so the user doesn't have to know
-        // upfront whether they're pointing at a MapServer, a WMS,
-        // or a WMTS endpoint.
-        value: 'service',
-        label: 'Connected service',
-        desc: 'Live pointer at an external service. Paste a URL; we recognize ArcGIS REST, WMS, WFS, and WMTS.',
-        Icon: Plug,
-      },
-      {
-        // #158 PostGIS live-read. UI-only wizard value; the
-        // backend creates a normal `service` item with
-        // `protocol: 'postgis_live'` via the single-shot
-        // /postgis-live/create endpoint. The builder handles its
-        // own save + redirect; the wizard's generic save flow is
-        // skipped when this type is selected.
-        value: 'postgis_connection',
-        label: 'PostgreSQL + PostGIS (live)',
-        desc: 'Connect to a live PostgreSQL + PostGIS database. Maps read tables on demand by bounding box; no data is copied into the portal.',
-        Icon: Plug,
-      },
+      { value: 'basemap', Icon: Globe },
+      { value: 'geo_boundary', Icon: MapIcon },
+      { value: 'service', Icon: Plug },
+      { value: 'postgis_connection', Icon: Plug },
       {
         value: 'data_layer',
-        label: 'Data layer',
-        desc: 'A shareable vector layer backed by PostGIS.',
         jobKey: 'newItemJob.data_layer',
         Icon: Layers,
       },
-      {
-        value: 'file',
-        label: 'File',
-        desc: 'Any uploaded file (PDF, image, zip, etc.).',
-        Icon: FileText,
-      },
-      {
-        // #74: geocoding_service. Wraps a data_layer + chosen
-        // search fields and exposes a /geocode endpoint for maps
-        // and apps to use as a search source.
-        value: 'geocoding_service',
-        label: 'Geocoding service',
-        desc: 'Searchable index over a data layer. Lets maps and apps geocode against your own parcels, addresses, or places.',
-        Icon: MapPin,
-      },
-      {
-        value: 'pick_list',
-        label: 'Pick list',
-        desc: 'Shared list of codes + labels referenced by fields, forms, and filters.',
-        Icon: ListChecks,
-      },
-      {
-        // #179: tile_layer. Wraps a pre-rendered PMTiles file
-        // (single .pmtiles upload) and exposes it as a tile
-        // service consumable as a basemap. Sibling to Basemap
-        // because both back map rendering, but Tile layer is
-        // "I have the cache, just host it" while Basemap is
-        // "I have the URL or service, point at it."
-        value: 'tile_layer',
-        label: 'Tile layer',
-        desc: 'Upload a pre-rendered tile cache (PMTiles, MBTiles, or zipped XYZ tile directory). Hosts the file and exposes a tile URL maps can use as a basemap.',
-        Icon: Layers,
-      },
-      {
-        // #179 (3D as layers): point_cloud wraps one COPC lidar
-        // file. Sibling to Tile layer: both are "host my
-        // range-readable file" items; this one streams 3D points
-        // instead of tiles.
-        value: 'point_cloud',
-        label: 'Point cloud',
-        desc: 'Upload lidar as COPC (.copc.laz). Hosts the file and streams points by viewport for 3D viewing.',
-        Icon: Mountain,
-      },
+      { value: 'file', Icon: FileText },
+      { value: 'geocoding_service', Icon: MapPin },
+      { value: 'pick_list', Icon: ListChecks },
+      { value: 'tile_layer', Icon: Layers },
+      { value: 'point_cloud', Icon: Mountain },
     ],
   },
   {
-    label: 'Maps',
+    groupKey: 'newItemTypeGroup.maps',
     iconTileClass: 'bg-success/10 text-success',
     options: [
-      {
-        value: 'map',
-        label: 'Map',
-        desc: 'A basemap with overlay layers and styling.',
-        jobKey: 'newItemJob.map',
-        Icon: MapIcon,
-      },
+      { value: 'map', jobKey: 'newItemJob.map', Icon: MapIcon },
     ],
   },
   {
-    label: 'Apps',
+    groupKey: 'newItemTypeGroup.apps',
     iconTileClass: 'bg-warn/10 text-warn',
     options: [
-      // #22: Dashboard / Editor / Viewer pulled from the picker.
-      // Editor and Viewer are just specific layouts of the same
-      // Custom Web App framework, so they live as app_template
-      // items now (seeded per org alongside Sidebar Explorer
-      // etc.); the picker only needs the one "Custom web app"
-      // entry, and the wizard's template gallery is where users
-      // pick the editor / viewer / parcel / dashboard layout.
-      //
-      // Dashboards are the same story: the KPI Dashboard and
-      // Operations Board starters are app_template items, so a
-      // dashboard is a custom web app that starts from a dashboard
-      // layout. There is deliberately no `dashboard` entry here and
-      // no dashboard item type to create; the placeholder enum value
-      // survives only so any pre-existing row still resolves.
-      {
-        value: 'form',
-        label: 'Form',
-        desc: 'A collection form for fieldwork or survey data. Submissions land in a paired data layer; the form\'s Responses tab shows every submission on a map.',
-        jobKey: 'newItemJob.form',
-        Icon: FileText,
-      },
+      { value: 'form', jobKey: 'newItemJob.form', Icon: FileText },
       {
         value: 'data_collection',
-        label: 'Data collection',
-        desc: 'Field-mode deployment: tap features on a map to add or edit them. Forms come from the layer schema by default.',
         jobKey: 'newItemJob.data_collection',
         Icon: ClipboardList,
       },
-      // No 'report_template' tile. There is no report_template
-      // editor, so picking it produced a titled item permanently
-      // parked on the coming-soon page. Same reason 'dashboard' is
-      // not offered here.
-      {
-        value: 'custom',
-        label: 'Web app',
-        desc: 'Drag-drop layout of map + tool widgets, sidebar, header, foldable groups. Pick a starter template (Sidebar Explorer, Showcase Map, Editor, Viewer, etc.) on the next screen, or start blank and build the layout from scratch.',
-        Icon: Sparkles,
-      },
-      {
-        // #54: themes are items.  Starts a blank theme cloned
-        // from the Default starter so the user lands in the
-        // theme editor with a working palette to tweak.
-        value: 'theme',
-        label: 'Theme',
-        desc: 'Reusable color palette + geometry tokens applied to web apps. Edit the colors and a live preview shell shows where each one appears.',
-        Icon: Palette,
-      },
-      {
-        // #101: print templates are items.  Starts a blank
-        // template on a Letter portrait canvas so the user lands
-        // in the print-template designer ready to drop elements.
-        value: 'print_template',
-        label: 'Print template',
-        desc: 'Layout for the Print tool in a web app: paper size, title block, map frame, legend, scalebar, north arrow. Drag elements onto a paper-sized canvas, declare parameters the print form prompts for, save.',
-        Icon: Printer,
-      },
-      {
-        // #90: tool items.  Reusable named action (open a URL,
-        // jump to another item) that a Custom Web App Button widget
-        // can bind to.  The same tool used across multiple apps
-        // keeps the recipe centralized -- update the URL once and
-        // every button pointing at it follows.
-        value: 'tool',
-        label: 'Tool',
-        desc: 'A reusable named action - "open this dashboard" or "go to this URL" - that you bind to a Button on a Custom Web App. One tool can be reused across many apps, so updating the destination once propagates everywhere.',
-        Icon: Wand2,
-      },
+      { value: 'custom', Icon: Sparkles },
+      { value: 'theme', Icon: Palette },
+      { value: 'print_template', Icon: Printer },
+      { value: 'tool', Icon: Wand2 },
     ],
   },
   {
-    label: 'Analysis',
+    groupKey: 'newItemTypeGroup.analysis',
     iconTileClass: 'bg-violet-500/10 text-violet-700 dark:text-violet-400',
     options: [
-      {
-        value: 'derived_layer',
-        label: 'Derived layer',
-        desc: 'A layer computed live from another, with tools like buffer.',
-        Icon: FlaskConical,
-      },
-      {
-        // #221. Filtered out below unless the portal has scripts
-        // switched on, because on a portal without a script runner
-        // this would create an item nothing can execute.
-        value: 'script',
-        label: 'Script',
-        desc: 'Your own Python, run on the server. Write it in your usual editor, paste it here, and the portal runs it with your permissions - useful for the maintenance jobs a laptop cannot do because it is closed at 3am.',
-        Icon: TerminalSquare,
-      },
+      { value: 'derived_layer', Icon: FlaskConical },
+      { value: 'script', Icon: TerminalSquare },
     ],
   },
   {
-    label: 'Organize',
+    groupKey: 'newItemTypeGroup.organize',
     iconTileClass: 'bg-surface-2 text-ink-1',
-    options: [
-      {
-        value: 'folder',
-        label: 'Folder',
-        desc: 'A curated grouping of items. Sharing a folder shares the arrangement; per-item access still applies.',
-        Icon: FolderIcon,
-      },
-    ],
+    options: [{ value: 'folder', Icon: FolderIcon }],
   },
 ];
+
+function typeCatalogKey(
+  value: TypeOption['value'],
+  field: 'label' | 'desc',
+): `newItemType.${string}.${'label' | 'desc'}` {
+  return `newItemType.${value}.${field}`;
+}
 
 // Flat fallback used by everything-else-on-the-page (the picked-type
 // summary header on step 2, etc.) so we keep the grouped picker
@@ -1840,7 +1682,7 @@ export function NewItemWizard({
     return (
       <div className="space-y-8">
         {visibleGroups.map((group) => (
-          <section key={group.label}>
+          <section key={group.groupKey}>
             {/* Group header inherits the group color via a small
                 bullet swatch + the icon-tile class for the chip
                 background, so the eye associates each section's
@@ -1850,11 +1692,13 @@ export function NewItemWizard({
                 aria-hidden="true"
                 className={`inline-block h-2.5 w-2.5 rounded-full ${group.iconTileClass}`}
               />
-              {group.label}
+              {t(group.groupKey)}
             </h2>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {group.options.map((opt) => {
                 const { Icon } = opt;
+                const typeLabel = t(typeCatalogKey(opt.value, 'label'));
+                const typeDesc = t(typeCatalogKey(opt.value, 'desc'));
                 return (
                   <button
                     key={opt.value}
@@ -1867,7 +1711,7 @@ export function NewItemWizard({
                     // you are hunting for one. The description stays
                     // visible and inside the button; it just stops
                     // being the name.
-                    aria-label={opt.label}
+                    aria-label={typeLabel}
                     onClick={() => pickType(opt.value)}
                     className="flex items-start gap-3 rounded-lg border border-border bg-surface-1 p-4 text-left shadow-card transition-colors hover:border-accent/50 hover:bg-surface-2 focus:outline-hidden focus:ring-2 focus:ring-accent/30"
                   >
@@ -1878,7 +1722,7 @@ export function NewItemWizard({
                     </span>
                     <span className="min-w-0">
                       <span className="block text-sm font-semibold text-ink-0">
-                        {opt.label}
+                        {typeLabel}
                       </span>
                       {/* The job goes ABOVE the description and in
                           the stronger colour on the few types that
@@ -1892,7 +1736,7 @@ export function NewItemWizard({
                         </span>
                       ) : null}
                       <span className="mt-0.5 block text-xs text-muted">
-                        {opt.desc}
+                        {typeDesc}
                       </span>
                     </span>
                   </button>
@@ -1908,6 +1752,14 @@ export function NewItemWizard({
   // step === 'details'
   const typeOption = TYPE_OPTIONS.find((o) => o.value === type);
   const TypeIcon = typeOption?.Icon ?? Sparkles;
+  const pickedTypeLabel =
+    type && typeOption
+      ? t(typeCatalogKey(typeOption.value, 'label'))
+      : t('newItem.detailsEyebrowFallback');
+  const pickedTypeDesc =
+    type && typeOption
+      ? t(typeCatalogKey(typeOption.value, 'desc'))
+      : '';
   // Look up which group this type belongs to so the selected-type
   // header inherits the same color the user clicked in the gallery.
   // Keeps the visual handoff coherent: "the blue thing I picked is
@@ -1931,9 +1783,9 @@ export function NewItemWizard({
           </span>
           <div>
             <p className="text-2xs font-medium uppercase tracking-wide text-muted">
-              New {typeOption?.label ?? 'item'}
+              {t('newItem.detailsEyebrow', { type: pickedTypeLabel })}
             </p>
-            <p className="text-sm text-ink-0">{typeOption?.desc}</p>
+            <p className="text-sm text-ink-0">{pickedTypeDesc}</p>
           </div>
         </div>
         <button
@@ -1942,7 +1794,7 @@ export function NewItemWizard({
           className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-xs text-muted hover:bg-surface-2 hover:text-ink-1"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          Change type
+          {t('newItem.changeType')}
         </button>
       </div>
 

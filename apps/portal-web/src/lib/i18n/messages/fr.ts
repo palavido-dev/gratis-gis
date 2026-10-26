@@ -72,7 +72,100 @@ export const fr: Partial<CatalogShape> = {
     backButton: 'Retour',
     viewerBlocked:
       "Votre compte a le rôle Lecteur, qui permet d'ouvrir et de télécharger des éléments mais pas d'en créer. Un administrateur de l'organisation peut changer votre rôle ou vous accorder uniquement la capacité de publication.",
+    changeType: 'Changer de type',
+    detailsEyebrow: 'Nouveau {type}',
+    detailsEyebrowFallback: 'élément',
   },
+  newItemTypeGroup: {
+  data: 'Données',
+  maps: 'Cartes',
+  apps: 'Applications',
+  analysis: 'Analyse',
+  organize: 'Organiser',
+},
+  newItemType: {
+  basemap: {
+    label: 'Basemap',
+    desc: 'A reusable background layer (style URL, tile template, or WMS) for maps.',
+  },
+  geo_boundary: {
+    label: 'Boundary',
+    desc: 'A named region (polygon) reused across shares, maps, and filters.',
+  },
+  service: {
+    label: 'Connected service',
+    desc: 'Live pointer at an external service. Paste a URL; we recognize ArcGIS REST, WMS, WFS, and WMTS.',
+  },
+  postgis_connection: {
+    label: 'PostgreSQL + PostGIS (live)',
+    desc: 'Connect to a live PostgreSQL + PostGIS database. Maps read tables on demand by bounding box; no data is copied into the portal.',
+  },
+  data_layer: {
+    label: 'Data layer',
+    desc: 'A shareable vector layer backed by PostGIS.',
+  },
+  file: {
+    label: 'File',
+    desc: 'Any uploaded file (PDF, image, zip, etc.).',
+  },
+  geocoding_service: {
+    label: 'Geocoding service',
+    desc: 'Searchable index over a data layer. Lets maps and apps geocode against your own parcels, addresses, or places.',
+  },
+  pick_list: {
+    label: 'Pick list',
+    desc: 'Shared list of codes + labels referenced by fields, forms, and filters.',
+  },
+  tile_layer: {
+    label: 'Tile layer',
+    desc: 'Upload a pre-rendered tile cache (PMTiles, MBTiles, or zipped XYZ tile directory). Hosts the file and exposes a tile URL maps can use as a basemap.',
+  },
+  point_cloud: {
+    label: 'Point cloud',
+    desc: 'Upload lidar as COPC (.copc.laz). Hosts the file and streams points by viewport for 3D viewing.',
+  },
+  map: {
+    label: 'Map',
+    desc: 'A basemap with overlay layers and styling.',
+  },
+  form: {
+    label: 'Form',
+    desc: 'A collection form for fieldwork or survey data. Submissions land in a paired data layer; the form\'s Responses tab shows every submission on a map.',
+  },
+  data_collection: {
+    label: 'Data collection',
+    desc: 'Field-mode deployment: tap features on a map to add or edit them. Forms come from the layer schema by default.',
+  },
+  custom: {
+    label: 'Web app',
+    desc: 'Drag-drop layout of map + tool widgets, sidebar, header, foldable groups. Pick a starter template (Sidebar Explorer, Showcase Map, Editor, Viewer, etc.) on the next screen, or start blank and build the layout from scratch.',
+  },
+  theme: {
+    label: 'Theme',
+    desc: 'Reusable color palette + geometry tokens applied to web apps. Edit the colors and a live preview shell shows where each one appears.',
+  },
+  print_template: {
+    label: 'Print template',
+    desc: 'Layout for the Print tool in a web app: paper size, title block, map frame, legend, scalebar, north arrow. Drag elements onto a paper-sized canvas, declare parameters the print form prompts for, save.',
+  },
+  tool: {
+    label: 'Tool',
+    desc: 'A reusable named action - "open this dashboard" or "go to this URL" - that you bind to a Button on a Custom Web App. One tool can be reused across many apps, so updating the destination once propagates everywhere.',
+  },
+  derived_layer: {
+    label: 'Derived layer',
+    desc: 'A layer computed live from another, with tools like buffer.',
+  },
+  script: {
+    label: 'Script',
+    desc: 'Your own Python, run on the server. Write it in your usual editor, paste it here, and the portal runs it with your permissions - useful for the maintenance jobs a laptop cannot do because it is closed at 3am.',
+  },
+  folder: {
+    label: 'Folder',
+    desc: 'A curated grouping of items. Sharing a folder shares the arrangement; per-item access still applies.',
+  },
+},
+
   newItemJob: {
     data_layer:
       'Commencez ici si vous avez une feuille de calcul, un shapefile ou un fichier GeoJSON à téléverser.',
@@ -551,6 +644,81 @@ export const fr: Partial<CatalogShape> = {
     removed: '"{title}" retiré du groupe.',
     removeFailed: "Impossible de retirer l'élément : HTTP {status}.",
   },
+  groups: {
+  eyebrow: 'Collaboration',
+  visibleCount: '{count, plural, one {# groupe visible pour vous} other {# groupes visibles pour vous}}',
+  newGroup: 'Nouveau groupe',
+  emptyTitle: 'Aucun groupe pour le moment',
+  emptyDescription: 'Les groupes permettent aux équipes de partager des éléments. Créez-en un pour commencer.',
+  createGroup: 'Créer un groupe',
+  backToGroups: 'Retour aux groupes',
+  backToGroup: 'Retour au groupe',
+  metaNewTitle: 'Nouveau groupe',
+  metaEditTitle: 'Modifier le groupe',
+  newPageTitle: 'Créer un nouveau groupe',
+  newPageIntro: 'Les groupes permettent de partager du contenu en masse. Tout ce qui est partagé avec le groupe est immédiatement visible par chaque membre ; l’appartenance est le canal d’accès dans le portail.',
+  editingEyebrow: 'Modification',
+  access: {
+    private: 'Privé',
+    org: 'Organisation',
+    public: 'Public',
+  },
+  form: {
+    thumbnail: 'Vignette',
+    name: 'Nom',
+    namePlaceholder: 'Équipe terrain, Revue de planification, Partenaire...',
+    description: 'Description',
+    descriptionPlaceholder: 'Qui est dans ce groupe et que partagent-ils ?',
+    visibility: 'Visibilité',
+    visibilityHint: 'La visibilité contrôle la découvrabilité. Rejoindre le groupe exige toujours une invitation d’un administrateur.',
+    titleRequired: 'Le titre est obligatoire.',
+    saveFailed: 'Échec de {method} : {status} {detail}',
+    saved: 'Enregistré',
+    createGroup: 'Créer le groupe',
+    saveChanges: 'Enregistrer les modifications',
+    newGroupFallback: 'Nouveau groupe',
+    access: {
+      private: {
+        label: 'Privé',
+        desc: 'Sur invitation uniquement. Le groupe est masqué hors de ses membres.',
+      },
+      org: {
+        label: 'Votre organisation',
+        desc: 'Toute personne de votre organisation peut le trouver et demander à rejoindre.',
+      },
+      public: {
+        label: 'Public',
+        desc: 'Visible par toute personne sur Internet.',
+      },
+    },
+  },
+  members: {
+    empty: 'Aucun membre pour le moment.',
+    emptyManageHint: ' Ajoutez-en un ci-dessous.',
+    removeMember: 'Retirer le membre',
+    searchPlaceholder: 'Rechercher des utilisateurs à ajouter...',
+    emptySearch: 'Aucun utilisateur correspondant.',
+    emptyInitial: 'Commencez à saisir un nom ou un identifiant.',
+    alreadyMember: 'déjà membre',
+    roleJoinTitle: 'Rôle à l’adhésion',
+    roleMember: 'membre',
+    roleAdmin: 'administrateur',
+    addHint: 'Choisissez un utilisateur dans l’annuaire pour l’ajouter comme {role}. Les membres existants sont grisés.',
+    addFailed: 'Échec de l’ajout : {status} {detail}',
+    removeFailed: 'Échec du retrait : {status} {detail}',
+    selfRemoveTitle: 'Vous retirer de ce groupe ?',
+    selfRemoveConfirm: 'Me retirer',
+    selfRemoveOwnerKeepTitle: 'Vous conservez :',
+    selfRemoveOwnerKeepOwnership: 'La propriété du groupe',
+    selfRemoveOwnerKeepManage: 'La possibilité d’ajouter/retirer des membres et de le modifier',
+    selfRemoveOwnerKeepShare: 'La possibilité de partager des éléments AVEC le groupe',
+    selfRemoveOwnerLoseTitle: 'Vous perdez :',
+    selfRemoveOwnerLoseVisibility: 'La visibilité des éléments partagés AVEC le groupe via votre accès personnel (chemin réservé aux membres).',
+    selfRemoveOwnerReadd: 'Vous pouvez vous réajouter à tout moment.',
+    selfRemoveMemberBody: 'Vous perdrez l’accès aux éléments partagés avec ce groupe. Un administrateur du groupe devra vous réajouter.',
+  },
+},
+
   housekeepingTabs: {
     review: 'Revue',
     cleanup: 'Nettoyage',

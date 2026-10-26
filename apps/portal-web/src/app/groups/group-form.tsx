@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import type { Group, GroupAccess } from '@gratis-gis/shared-types';
 import { ImageUploader } from '@/components/image-uploader';
+import { useT } from '@/lib/i18n/locale-context';
 
 type Mode =
   | { kind: 'create' }
@@ -28,28 +29,11 @@ interface Props {
 
 const accessOptions: Array<{
   value: GroupAccess;
-  label: string;
-  desc: string;
   Icon: typeof Lock;
 }> = [
-  {
-    value: 'private',
-    label: 'Private',
-    desc: 'Invitation only. The group is hidden outside its members.',
-    Icon: Lock,
-  },
-  {
-    value: 'org',
-    label: 'Your organization',
-    desc: 'Anyone in your org can find and request to join.',
-    Icon: Building2,
-  },
-  {
-    value: 'public',
-    label: 'Public',
-    desc: 'Discoverable by anyone on the internet.',
-    Icon: Globe2,
-  },
+  { value: 'private', Icon: Lock },
+  { value: 'org', Icon: Building2 },
+  { value: 'public', Icon: Globe2 },
 ];
 
 /**
@@ -59,6 +43,7 @@ const accessOptions: Array<{
  * component so both surfaces feel part of the same system.
  */
 export function GroupForm({ mode, initialValues }: Props) {
+  const t = useT();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [submitting, setSubmitting] = useState(false);
@@ -79,7 +64,7 @@ export function GroupForm({ mode, initialValues }: Props) {
   async function submit() {
     setError(null);
     if (title.trim().length === 0) {
-      setError('Title is required.');
+      setError(t('groups.form.titleRequired'));
       return;
     }
     setSubmitting(true);
@@ -104,7 +89,13 @@ export function GroupForm({ mode, initialValues }: Props) {
     });
     setSubmitting(false);
     if (!res.ok) {
-      setError(`${method} failed: ${res.status} ${await res.text()}`);
+      setError(
+        t('groups.form.saveFailed', {
+          method,
+          status: res.status,
+          detail: await res.text(),
+        }),
+      );
       return;
     }
     const savedGroup = (await res.json()) as Group;
@@ -123,14 +114,14 @@ export function GroupForm({ mode, initialValues }: Props) {
     <div className="space-y-8">
       <section>
         <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted">
-          Thumbnail
+          {t('groups.form.thumbnail')}
         </label>
         <ImageUploader
           kind="group-thumb"
           value={thumbnailUrl}
           onChange={setThumbnailUrl}
           seed={mode.kind === 'edit' ? mode.groupId : title || 'new-group'}
-          label={title || 'New group'}
+          label={title || t('groups.form.newGroupFallback')}
           size="xl"
           rounded="md"
         />
@@ -142,14 +133,14 @@ export function GroupForm({ mode, initialValues }: Props) {
             htmlFor="title"
             className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted"
           >
-            Name
+            {t('groups.form.name')}
           </label>
           <input
             id="title"
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="Field team, Planning review, Partner org..."
+            placeholder={t('groups.form.namePlaceholder')}
             maxLength={120}
             className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
@@ -160,13 +151,13 @@ export function GroupForm({ mode, initialValues }: Props) {
             htmlFor="description"
             className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted"
           >
-            Description
+            {t('groups.form.description')}
           </label>
           <textarea
             id="description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Who's in this group and what do they share?"
+            placeholder={t('groups.form.descriptionPlaceholder')}
             maxLength={2000}
             rows={4}
             className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
@@ -176,10 +167,12 @@ export function GroupForm({ mode, initialValues }: Props) {
 
       <section>
         <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted">
-          Visibility
+          {t('groups.form.visibility')}
         </label>
         <div className="grid grid-cols-3 gap-2" role="radiogroup">
-          {accessOptions.map(({ value, label, desc, Icon }) => {
+          {accessOptions.map(({ value, Icon }) => {
+            const label = t(`groups.form.access.${value}.label`);
+            const desc = t(`groups.form.access.${value}.desc`);
             const selected = access === value;
             return (
               <button
@@ -206,8 +199,7 @@ export function GroupForm({ mode, initialValues }: Props) {
           })}
         </div>
         <p className="mt-2 text-xs text-muted">
-          Visibility controls discoverability. Whether someone can
-          actually join the group still requires an admin to invite them.
+          {t('groups.form.visibilityHint')}
         </p>
       </section>
 
@@ -224,7 +216,7 @@ export function GroupForm({ mode, initialValues }: Props) {
         {saved ? (
           <span className="inline-flex items-center gap-1 text-sm text-success">
             <Check className="h-4 w-4" />
-            Saved
+            {t('groups.form.saved')}
           </span>
         ) : null}
         <button
@@ -233,7 +225,7 @@ export function GroupForm({ mode, initialValues }: Props) {
           disabled={submitting || pending}
           className="h-10 rounded-md border border-border bg-surface-1 px-4 text-sm text-ink-1 hover:bg-surface-2 disabled:opacity-50"
         >
-          Cancel
+          {t('common.cancel')}
         </button>
         <button
           type="button"
@@ -248,7 +240,9 @@ export function GroupForm({ mode, initialValues }: Props) {
           ) : (
             <Save className="h-4 w-4" />
           )}
-          {mode.kind === 'create' ? 'Create group' : 'Save changes'}
+          {mode.kind === 'create'
+            ? t('groups.form.createGroup')
+            : t('groups.form.saveChanges')}
         </button>
       </div>
     </div>

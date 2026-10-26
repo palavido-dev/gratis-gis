@@ -4,16 +4,22 @@ import { notFound, redirect } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import type { Group } from '@gratis-gis/shared-types';
 import { apiFetch } from '@/lib/api';
+import { t } from '@/lib/i18n';
+import { getServerLocale } from '@/lib/i18n/server';
 import { GroupForm } from '../../group-form';
 
 interface Props {
   params: Promise<{ id: string }>;
 }
 
-export const metadata = { title: 'Edit group' };
+export async function generateMetadata() {
+  const locale = await getServerLocale();
+  return { title: t('groups.metaEditTitle', undefined, locale) };
+}
 
 export default async function EditGroupPage(props: Props) {
   const params = await props.params;
+  const locale = await getServerLocale();
   let group: Group;
   try {
     group = await apiFetch<Group>(`/api/groups/${params.id}`);
@@ -36,11 +42,13 @@ export default async function EditGroupPage(props: Props) {
         className="mb-6 inline-flex items-center gap-1 text-sm text-muted hover:text-ink-0"
       >
         <ArrowLeft className="h-4 w-4" />
-        Back to group
+        {t('groups.backToGroup', undefined, locale)}
       </Link>
 
       <header className="mb-8">
-        <p className="text-sm text-muted">Editing</p>
+        <p className="text-sm text-muted">
+          {t('groups.editingEyebrow', undefined, locale)}
+        </p>
         <h1 className="mt-1 text-3xl font-semibold tracking-tight">
           {group.title}
         </h1>

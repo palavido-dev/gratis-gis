@@ -74,7 +74,100 @@ export const es: Partial<CatalogShape> = {
     backButton: 'Atrás',
     viewerBlocked:
       'Tu cuenta tiene el rol Visor, que puede abrir y descargar elementos pero no crearlos. Un administrador de la organización puede cambiar tu rol u otorgarte solo la capacidad de publicar.',
+    changeType: 'Cambiar tipo',
+    detailsEyebrow: 'Nuevo {type}',
+    detailsEyebrowFallback: 'elemento',
   },
+  newItemTypeGroup: {
+  data: 'Datos',
+  maps: 'Mapas',
+  apps: 'Aplicaciones',
+  analysis: 'Análisis',
+  organize: 'Organizar',
+},
+  newItemType: {
+  basemap: {
+    label: 'Mapa base',
+    desc: 'Capa de fondo reutilizable (URL de estilo, plantilla de teselas o WMS) para mapas.',
+  },
+  geo_boundary: {
+    label: 'Límite',
+    desc: 'Región con nombre (polígono) reutilizada en permisos, mapas y filtros.',
+  },
+  service: {
+    label: 'Servicio conectado',
+    desc: 'Puntero en vivo a un servicio externo. Pega una URL; reconocemos ArcGIS REST, WMS, WFS y WMTS.',
+  },
+  postgis_connection: {
+    label: 'PostgreSQL + PostGIS (en vivo)',
+    desc: 'Conéctate a una base PostgreSQL + PostGIS en vivo. Los mapas leen tablas por caja delimitadora; no se copian datos al portal.',
+  },
+  data_layer: {
+    label: 'Capa de datos',
+    desc: 'Capa vectorial compartible respaldada por PostGIS.',
+  },
+  file: {
+    label: 'Archivo',
+    desc: 'Cualquier archivo subido (PDF, imagen, zip, etc.).',
+  },
+  geocoding_service: {
+    label: 'Servicio de geocodificación',
+    desc: 'Índice de búsqueda sobre una capa de datos. Permite geocodificar parcelas, direcciones o lugares propios.',
+  },
+  pick_list: {
+    label: 'Lista de valores',
+    desc: 'Lista compartida de códigos y etiquetas usada en campos, formularios y filtros.',
+  },
+  tile_layer: {
+    label: 'Capa de teselas',
+    desc: 'Sube una caché de teselas prerenderizada (PMTiles, MBTiles o directorio XYZ comprimido). Aloja el archivo y expone una URL de teselas para mapas base.',
+  },
+  point_cloud: {
+    label: 'Nube de puntos',
+    desc: 'Sube lidar como COPC (.copc.laz). Aloja el archivo y transmite puntos por vista para visualización 3D.',
+  },
+  map: {
+    label: 'Mapa',
+    desc: 'Mapa base con capas superpuestas y estilo.',
+  },
+  form: {
+    label: 'Formulario',
+    desc: 'Formulario de recolección para trabajo de campo o encuestas. Las respuestas van a una capa emparejada; la pestaña Respuestas muestra cada envío en un mapa.',
+  },
+  data_collection: {
+    label: 'Recolección de datos',
+    desc: 'Despliegue en modo campo: toca entidades en un mapa para añadirlas o editarlas. Los formularios salen del esquema de la capa por defecto.',
+  },
+  custom: {
+    label: 'Aplicación web',
+    desc: 'Diseño de mapa + widgets, barra lateral, encabezado y grupos plegables. Elige una plantilla inicial en la siguiente pantalla o empieza en blanco.',
+  },
+  theme: {
+    label: 'Tema',
+    desc: 'Paleta de colores y tokens de geometría reutilizables para aplicaciones web. Edita colores con vista previa en vivo.',
+  },
+  print_template: {
+    label: 'Plantilla de impresión',
+    desc: 'Diseño para la herramienta Imprimir: tamaño de papel, título, marco de mapa, leyenda, escala y norte. Arrastra elementos a un lienzo del tamaño del papel.',
+  },
+  tool: {
+    label: 'Herramienta',
+    desc: 'Acción con nombre reutilizable que enlazas a un botón en una aplicación web. Actualiza el destino una vez y se propaga en todas las apps.',
+  },
+  derived_layer: {
+    label: 'Capa derivada',
+    desc: 'Capa calculada en vivo desde otra, con herramientas como buffer.',
+  },
+  script: {
+    label: 'Script',
+    desc: 'Tu propio Python en el servidor. Pégalo aquí y el portal lo ejecuta con tus permisos.',
+  },
+  folder: {
+    label: 'Carpeta',
+    desc: 'Agrupación curada de elementos. Compartir una carpeta comparte la disposición; el acceso por elemento sigue aplicando.',
+  },
+},
+
   newItemJob: {
     data_layer:
       'Empieza aquí si tienes una hoja de cálculo, un shapefile o un archivo GeoJSON que subir.',
@@ -548,6 +641,81 @@ export const es: Partial<CatalogShape> = {
     removed: 'Se quitó "{title}" del grupo.',
     removeFailed: 'No se pudo quitar el elemento: HTTP {status}.',
   },
+  groups: {
+  eyebrow: 'Colaboración',
+  visibleCount: '{count, plural, one {# grupo visible para ti} other {# grupos visibles para ti}}',
+  newGroup: 'Nuevo grupo',
+  emptyTitle: 'Aún no hay grupos',
+  emptyDescription: 'Los grupos son cómo los equipos comparten elementos. Crea uno para empezar.',
+  createGroup: 'Crear un grupo',
+  backToGroups: 'Volver a grupos',
+  backToGroup: 'Volver al grupo',
+  metaNewTitle: 'Nuevo grupo',
+  metaEditTitle: 'Editar grupo',
+  newPageTitle: 'Crear un grupo nuevo',
+  newPageIntro: 'Los grupos permiten compartir contenido en bloque. Todo lo compartido con el grupo es visible al instante para cada miembro; la membresía es cómo fluye el acceso en el portal.',
+  editingEyebrow: 'Editando',
+  access: {
+    private: 'Privado',
+    org: 'Organización',
+    public: 'Público',
+  },
+  form: {
+    thumbnail: 'Miniatura',
+    name: 'Nombre',
+    namePlaceholder: 'Equipo de campo, Revisión de planificación, Organización asociada...',
+    description: 'Descripción',
+    descriptionPlaceholder: '¿Quién está en este grupo y qué comparten?',
+    visibility: 'Visibilidad',
+    visibilityHint: 'La visibilidad controla el descubrimiento. Unirse al grupo sigue requiriendo que un administrador invite.',
+    titleRequired: 'El título es obligatorio.',
+    saveFailed: 'Error en {method}: {status} {detail}',
+    saved: 'Guardado',
+    createGroup: 'Crear grupo',
+    saveChanges: 'Guardar cambios',
+    newGroupFallback: 'Nuevo grupo',
+    access: {
+      private: {
+        label: 'Privado',
+        desc: 'Solo por invitación. El grupo está oculto fuera de sus miembros.',
+      },
+      org: {
+        label: 'Tu organización',
+        desc: 'Cualquiera de tu organización puede encontrarlo y solicitar unirse.',
+      },
+      public: {
+        label: 'Público',
+        desc: 'Visible para cualquiera en internet.',
+      },
+    },
+  },
+  members: {
+    empty: 'Aún no hay miembros.',
+    emptyManageHint: ' Añade uno abajo.',
+    removeMember: 'Quitar miembro',
+    searchPlaceholder: 'Buscar usuarios para añadir...',
+    emptySearch: 'No hay usuarios coincidentes.',
+    emptyInitial: 'Empieza a escribir un nombre o usuario.',
+    alreadyMember: 'ya es miembro',
+    roleJoinTitle: 'Rol con el que se une',
+    roleMember: 'miembro',
+    roleAdmin: 'administrador',
+    addHint: 'Elige un usuario del directorio para añadirlo como {role}. Los miembros existentes aparecen atenuados.',
+    addFailed: 'Error al añadir: {status} {detail}',
+    removeFailed: 'Error al quitar: {status} {detail}',
+    selfRemoveTitle: '¿Quitarte de este grupo?',
+    selfRemoveConfirm: 'Quitarme',
+    selfRemoveOwnerKeepTitle: 'Conservarás:',
+    selfRemoveOwnerKeepOwnership: 'La propiedad del grupo',
+    selfRemoveOwnerKeepManage: 'La capacidad de añadir/quitar miembros y editarlo',
+    selfRemoveOwnerKeepShare: 'La capacidad de compartir elementos CON el grupo',
+    selfRemoveOwnerLoseTitle: 'Perderás:',
+    selfRemoveOwnerLoseVisibility: 'Visibilidad de elementos compartidos CON el grupo a través de tu acceso personal (solo miembros).',
+    selfRemoveOwnerReadd: 'Puedes volver a añadirte en cualquier momento.',
+    selfRemoveMemberBody: 'Perderás acceso a elementos compartidos con este grupo. Un administrador del grupo tendrá que volver a añadirte.',
+  },
+},
+
   housekeepingTabs: {
     review: 'Revisar',
     cleanup: 'Limpieza',

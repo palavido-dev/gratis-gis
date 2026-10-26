@@ -72,7 +72,100 @@ export const de: Partial<CatalogShape> = {
     backButton: 'Zurück',
     viewerBlocked:
       'Ihr Konto hat die Rolle Betrachter. Damit können Sie Elemente öffnen und herunterladen, aber nicht erstellen. Eine Organisationsadministratorin kann Ihre Rolle ändern oder Ihnen allein die Veröffentlichungsberechtigung erteilen.',
+    changeType: 'Typ ändern',
+    detailsEyebrow: 'Neues {type}',
+    detailsEyebrowFallback: 'Element',
   },
+  newItemTypeGroup: {
+  data: 'Daten',
+  maps: 'Karten',
+  apps: 'Apps',
+  analysis: 'Analyse',
+  organize: 'Organisieren',
+},
+  newItemType: {
+  basemap: {
+    label: 'Basemap',
+    desc: 'A reusable background layer (style URL, tile template, or WMS) for maps.',
+  },
+  geo_boundary: {
+    label: 'Boundary',
+    desc: 'A named region (polygon) reused across shares, maps, and filters.',
+  },
+  service: {
+    label: 'Connected service',
+    desc: 'Live pointer at an external service. Paste a URL; we recognize ArcGIS REST, WMS, WFS, and WMTS.',
+  },
+  postgis_connection: {
+    label: 'PostgreSQL + PostGIS (live)',
+    desc: 'Connect to a live PostgreSQL + PostGIS database. Maps read tables on demand by bounding box; no data is copied into the portal.',
+  },
+  data_layer: {
+    label: 'Data layer',
+    desc: 'A shareable vector layer backed by PostGIS.',
+  },
+  file: {
+    label: 'File',
+    desc: 'Any uploaded file (PDF, image, zip, etc.).',
+  },
+  geocoding_service: {
+    label: 'Geocoding service',
+    desc: 'Searchable index over a data layer. Lets maps and apps geocode against your own parcels, addresses, or places.',
+  },
+  pick_list: {
+    label: 'Pick list',
+    desc: 'Shared list of codes + labels referenced by fields, forms, and filters.',
+  },
+  tile_layer: {
+    label: 'Tile layer',
+    desc: 'Upload a pre-rendered tile cache (PMTiles, MBTiles, or zipped XYZ tile directory). Hosts the file and exposes a tile URL maps can use as a basemap.',
+  },
+  point_cloud: {
+    label: 'Point cloud',
+    desc: 'Upload lidar as COPC (.copc.laz). Hosts the file and streams points by viewport for 3D viewing.',
+  },
+  map: {
+    label: 'Map',
+    desc: 'A basemap with overlay layers and styling.',
+  },
+  form: {
+    label: 'Form',
+    desc: 'A collection form for fieldwork or survey data. Submissions land in a paired data layer; the form\'s Responses tab shows every submission on a map.',
+  },
+  data_collection: {
+    label: 'Data collection',
+    desc: 'Field-mode deployment: tap features on a map to add or edit them. Forms come from the layer schema by default.',
+  },
+  custom: {
+    label: 'Web app',
+    desc: 'Drag-drop layout of map + tool widgets, sidebar, header, foldable groups. Pick a starter template (Sidebar Explorer, Showcase Map, Editor, Viewer, etc.) on the next screen, or start blank and build the layout from scratch.',
+  },
+  theme: {
+    label: 'Theme',
+    desc: 'Reusable color palette + geometry tokens applied to web apps. Edit the colors and a live preview shell shows where each one appears.',
+  },
+  print_template: {
+    label: 'Print template',
+    desc: 'Layout for the Print tool in a web app: paper size, title block, map frame, legend, scalebar, north arrow. Drag elements onto a paper-sized canvas, declare parameters the print form prompts for, save.',
+  },
+  tool: {
+    label: 'Tool',
+    desc: 'A reusable named action - "open this dashboard" or "go to this URL" - that you bind to a Button on a Custom Web App. One tool can be reused across many apps, so updating the destination once propagates everywhere.',
+  },
+  derived_layer: {
+    label: 'Derived layer',
+    desc: 'A layer computed live from another, with tools like buffer.',
+  },
+  script: {
+    label: 'Script',
+    desc: 'Your own Python, run on the server. Write it in your usual editor, paste it here, and the portal runs it with your permissions - useful for the maintenance jobs a laptop cannot do because it is closed at 3am.',
+  },
+  folder: {
+    label: 'Folder',
+    desc: 'A curated grouping of items. Sharing a folder shares the arrangement; per-item access still applies.',
+  },
+},
+
   newItemJob: {
     data_layer:
       'Beginnen Sie hier, wenn Sie eine Tabelle, ein Shapefile oder eine GeoJSON-Datei hochladen möchten.',
@@ -551,6 +644,81 @@ export const de: Partial<CatalogShape> = {
     removed: '"{title}" aus der Gruppe entfernt.',
     removeFailed: 'Element konnte nicht entfernt werden: HTTP {status}.',
   },
+  groups: {
+  eyebrow: 'Zusammenarbeit',
+  visibleCount: '{count, plural, one {# Gruppe für Sie sichtbar} other {# Gruppen für Sie sichtbar}}',
+  newGroup: 'Neue Gruppe',
+  emptyTitle: 'Noch keine Gruppen',
+  emptyDescription: 'Gruppen sind der Weg, wie Teams Elemente teilen. Erstellen Sie eine, um zu beginnen.',
+  createGroup: 'Gruppe erstellen',
+  backToGroups: 'Zurück zu Gruppen',
+  backToGroup: 'Zurück zur Gruppe',
+  metaNewTitle: 'Neue Gruppe',
+  metaEditTitle: 'Gruppe bearbeiten',
+  newPageTitle: 'Neue Gruppe erstellen',
+  newPageIntro: 'Gruppen teilen Inhalte gebündelt. Alles, was mit der Gruppe geteilt wird, ist sofort für jedes Mitglied sichtbar – die Mitgliedschaft steuert den Zugriff im Portal.',
+  editingEyebrow: 'Bearbeitung',
+  access: {
+    private: 'Privat',
+    org: 'Organisation',
+    public: 'Öffentlich',
+  },
+  form: {
+    thumbnail: 'Vorschaubild',
+    name: 'Name',
+    namePlaceholder: 'Feldkolonne, Planungsreview, Partnerorganisation...',
+    description: 'Beschreibung',
+    descriptionPlaceholder: 'Wer ist in dieser Gruppe und was teilen sie?',
+    visibility: 'Sichtbarkeit',
+    visibilityHint: 'Die Sichtbarkeit steuert die Auffindbarkeit. Beitritt erfordert weiterhin eine Einladung durch einen Administrator.',
+    titleRequired: 'Titel ist erforderlich.',
+    saveFailed: '{method} fehlgeschlagen: {status} {detail}',
+    saved: 'Gespeichert',
+    createGroup: 'Gruppe erstellen',
+    saveChanges: 'Änderungen speichern',
+    newGroupFallback: 'Neue Gruppe',
+    access: {
+      private: {
+        label: 'Privat',
+        desc: 'Nur auf Einladung. Die Gruppe ist außerhalb ihrer Mitglieder verborgen.',
+      },
+      org: {
+        label: 'Ihre Organisation',
+        desc: 'Jeder in Ihrer Organisation kann sie finden und um Beitritt bitten.',
+      },
+      public: {
+        label: 'Öffentlich',
+        desc: 'Für jeden im Internet auffindbar.',
+      },
+    },
+  },
+  members: {
+    empty: 'Noch keine Mitglieder.',
+    emptyManageHint: ' Fügen Sie unten eines hinzu.',
+    removeMember: 'Mitglied entfernen',
+    searchPlaceholder: 'Benutzer zum Hinzufügen suchen...',
+    emptySearch: 'Keine passenden Benutzer.',
+    emptyInitial: 'Namen oder Benutzernamen eingeben.',
+    alreadyMember: 'bereits Mitglied',
+    roleJoinTitle: 'Rolle beim Beitritt',
+    roleMember: 'Mitglied',
+    roleAdmin: 'Administrator',
+    addHint: 'Wählen Sie einen Benutzer aus dem Verzeichnis, um ihn als {role} hinzuzufügen. Bestehende Mitglieder sind ausgegraut.',
+    addFailed: 'Hinzufügen fehlgeschlagen: {status} {detail}',
+    removeFailed: 'Entfernen fehlgeschlagen: {status} {detail}',
+    selfRemoveTitle: 'Sich selbst aus dieser Gruppe entfernen?',
+    selfRemoveConfirm: 'Mich entfernen',
+    selfRemoveOwnerKeepTitle: 'Sie behalten:',
+    selfRemoveOwnerKeepOwnership: 'Die Eigentümerschaft der Gruppe',
+    selfRemoveOwnerKeepManage: 'Die Möglichkeit, Mitglieder zu verwalten und die Gruppe zu bearbeiten',
+    selfRemoveOwnerKeepShare: 'Die Möglichkeit, Elemente MIT der Gruppe zu teilen',
+    selfRemoveOwnerLoseTitle: 'Sie verlieren:',
+    selfRemoveOwnerLoseVisibility: 'Sicht auf Elemente, die MIT der Gruppe über Ihren persönlichen Zugriff geteilt wurden (nur für Mitglieder).',
+    selfRemoveOwnerReadd: 'Sie können sich jederzeit wieder hinzufügen.',
+    selfRemoveMemberBody: 'Sie verlieren den Zugriff auf mit dieser Gruppe geteilte Elemente. Ein Gruppenadministrator muss Sie wieder hinzufügen.',
+  },
+},
+
   housekeepingTabs: {
     review: 'Prüfen',
     cleanup: 'Aufräumen',
