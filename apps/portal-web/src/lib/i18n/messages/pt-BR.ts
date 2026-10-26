@@ -1170,4 +1170,58 @@ export const ptBR: Partial<CatalogShape> = {
     redirectFallback: 'Se nada acontecer,',
     continueToKeycloak: 'continue para o Keycloak',
   },
+  adminSecurity: {
+    authenticatorTitle: 'Autenticador',
+    authenticatorIntro:
+      'Quando isto estiver ativo, toda conta precisa configurar um autenticador na próxima vez que entrar, incluindo a sua.',
+    requireAuthenticator: 'Exigir um autenticador',
+    methodsTitle: 'Métodos de entrada',
+    methodsEmpty:
+      'As pessoas entram com a conta do portal. Adicione um provedor OpenID Connect para oferecer a conta de trabalho na página de entrada.',
+    remove: 'Remover',
+    addOidcTitle: 'Adicionar OpenID Connect',
+    addOidcIntro:
+      'Novas pessoas que entrarem assim entram na sua organização como visualizadores. Use as URLs de autorização e de token do provedor. Microsoft Entra, Google e qualquer outro serviço OpenID Connect usam este formulário.',
+    fieldDisplayName: 'Nome na página de entrada',
+    fieldAlias: 'Alias',
+    fieldClientId: 'Client ID',
+    fieldAuthorizationUrl: 'URL de autorização',
+    fieldTokenUrl: 'URL de token',
+    fieldDomain: 'Domínio de e-mail (opcional)',
+    fieldClientSecret: 'Segredo do cliente',
+    addMethod: 'Adicionar método de entrada',
+    adding: 'Adicionando…',
+    errAdd: 'Não foi possível adicionar esse método de entrada.',
+    errRemove: 'Não foi possível remover esse método de entrada.',
+    errMfa: 'Não foi possível atualizar a configuração do autenticador.',
+  },
+  gettingStarted: {
+    allSetTitle: 'Tudo pronto.',
+    allSetBody:
+      'Cada item está concluído ou oculto, então esta página saiu da barra lateral. Continua acessível em /admin/getting-started.',
+    progress: '{done} de {total} concluídos. Os itens se marcam sozinhos conforme a configuração acontece.',
+    done: 'Concluído',
+    hide: 'Ocultar',
+    restore: 'Restaurar',
+    hiddenItems: 'Itens ocultos',
+    updateFailed: 'Não foi possível atualizar a lista. Tente de novo.',
+    emailTitle: 'Configurar e-mail',
+    emailDesc:
+      'Conecte um servidor SMTP para enviar convites, links de senha e notificações. O portal funciona sem isso, mas usuários convidados não receberão o e-mail de entrada.',
+    emailAction: 'Abrir configurações de notificação',
+    inviteTitle: 'Convide sua equipe',
+    inviteDescOne:
+      'Adicione colegas e escolha os papéis: visualizadores, colaboradores ou administradores.',
+    inviteDescMany:
+      'Adicione colegas e escolha os papéis. Sua organização tem {count} membros.',
+    inviteAction: 'Abrir usuários',
+    mapTitle: 'Faça seu primeiro mapa',
+    mapDesc:
+      'Crie um mapa ou envie dados, ou carregue o conjunto de exemplo para um cenário pronto para explorar e editar.',
+    mapAction: 'Ir ao conteúdo',
+    docsTitle: 'Leia o guia do administrador',
+    docsDesc:
+      'O guia integrado cobre papéis, backups, marca e manutenção. Dez minutos agora evitam surpresas depois.',
+    docsAction: 'Abrir o guia',
+  },
 };

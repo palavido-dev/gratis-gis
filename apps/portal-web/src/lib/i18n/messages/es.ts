@@ -1174,4 +1174,58 @@ export const es: Partial<CatalogShape> = {
     redirectFallback: 'Si no ocurre nada,',
     continueToKeycloak: 'continúa a Keycloak',
   },
+  adminSecurity: {
+    authenticatorTitle: 'Autenticador',
+    authenticatorIntro:
+      'Cuando está activado, se pide a cada cuenta que configure un autenticador la próxima vez que inicie sesión, incluida la tuya.',
+    requireAuthenticator: 'Exigir un autenticador',
+    methodsTitle: 'Métodos de inicio de sesión',
+    methodsEmpty:
+      'La gente inicia sesión con la cuenta del portal. Añade un proveedor OpenID Connect para ofrecer su cuenta de trabajo en la página de inicio de sesión.',
+    remove: 'Eliminar',
+    addOidcTitle: 'Añadir OpenID Connect',
+    addOidcIntro:
+      'Las personas nuevas que inicien sesión así se unen a tu organización como visualizadores. Usa las URL de autorización y de token del proveedor. Microsoft Entra, Google y cualquier otro servicio OpenID Connect usan este formulario.',
+    fieldDisplayName: 'Nombre en la página de inicio de sesión',
+    fieldAlias: 'Alias',
+    fieldClientId: 'Client ID',
+    fieldAuthorizationUrl: 'URL de autorización',
+    fieldTokenUrl: 'URL de token',
+    fieldDomain: 'Dominio de correo (opcional)',
+    fieldClientSecret: 'Secreto del cliente',
+    addMethod: 'Añadir método de inicio de sesión',
+    adding: 'Añadiendo…',
+    errAdd: 'No se pudo añadir ese método de inicio de sesión.',
+    errRemove: 'No se pudo eliminar ese método de inicio de sesión.',
+    errMfa: 'No se pudo actualizar la configuración del autenticador.',
+  },
+  gettingStarted: {
+    allSetTitle: 'Todo listo.',
+    allSetBody:
+      'Cada elemento está hecho u oculto, así que esta página ha salido de la barra lateral. Sigue accesible en /admin/getting-started.',
+    progress: '{done} de {total} completados. Los elementos se marcan solos a medida que ocurre la configuración.',
+    done: 'Hecho',
+    hide: 'Ocultar',
+    restore: 'Restaurar',
+    hiddenItems: 'Elementos ocultos',
+    updateFailed: 'No se pudo actualizar la lista. Inténtalo de nuevo.',
+    emailTitle: 'Configurar el correo',
+    emailDesc:
+      'Conecta un servidor SMTP para que se envíen invitaciones, enlaces de contraseña y notificaciones. El portal funciona sin él, pero los usuarios invitados no recibirán el correo de inicio de sesión.',
+    emailAction: 'Abrir ajustes de notificaciones',
+    inviteTitle: 'Invita a tu equipo',
+    inviteDescOne:
+      'Añade compañeros y elige sus roles: visualizadores, colaboradores o administradores.',
+    inviteDescMany:
+      'Añade compañeros y elige sus roles. Tu organización tiene {count} miembros.',
+    inviteAction: 'Abrir usuarios',
+    mapTitle: 'Crea tu primer mapa',
+    mapDesc:
+      'Crea un mapa o sube datos, o carga el conjunto de ejemplo para un escenario listo para explorar y editar.',
+    mapAction: 'Ir al contenido',
+    docsTitle: 'Revisa la guía de administración',
+    docsDesc:
+      'La guía integrada cubre roles, copias de seguridad, marca y mantenimiento. Diez minutos ahora evitan sorpresas después.',
+    docsAction: 'Abrir la guía',
+  },
 };

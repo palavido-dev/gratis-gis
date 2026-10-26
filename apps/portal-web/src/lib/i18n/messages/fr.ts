@@ -1180,4 +1180,58 @@ export const fr: Partial<CatalogShape> = {
     redirectFallback: 'Si rien ne se passe,',
     continueToKeycloak: 'continuez vers Keycloak',
   },
+  adminSecurity: {
+    authenticatorTitle: 'Authentificateur',
+    authenticatorIntro:
+      'Quand c\'est activé, chaque compte doit configurer un authentificateur à la prochaine connexion, y compris le vôtre.',
+    requireAuthenticator: 'Exiger un authentificateur',
+    methodsTitle: 'Méthodes de connexion',
+    methodsEmpty:
+      'Les personnes se connectent avec le compte du portail. Ajoutez un fournisseur OpenID Connect pour proposer leur compte professionnel sur la page de connexion.',
+    remove: 'Supprimer',
+    addOidcTitle: 'Ajouter OpenID Connect',
+    addOidcIntro:
+      'Les nouvelles personnes qui se connectent ainsi rejoignent votre organisation en tant que lecteurs. Utilisez les URL d\'autorisation et de jeton du fournisseur. Microsoft Entra, Google et tout autre service OpenID Connect utilisent ce formulaire.',
+    fieldDisplayName: 'Nom sur la page de connexion',
+    fieldAlias: 'Alias',
+    fieldClientId: 'Client ID',
+    fieldAuthorizationUrl: 'URL d\'autorisation',
+    fieldTokenUrl: 'URL de jeton',
+    fieldDomain: 'Domaine e-mail (facultatif)',
+    fieldClientSecret: 'Secret client',
+    addMethod: 'Ajouter une méthode de connexion',
+    adding: 'Ajout…',
+    errAdd: 'Impossible d\'ajouter cette méthode de connexion.',
+    errRemove: 'Impossible de supprimer cette méthode de connexion.',
+    errMfa: 'Impossible de mettre à jour le paramètre d\'authentificateur.',
+  },
+  gettingStarted: {
+    allSetTitle: 'Tout est prêt.',
+    allSetBody:
+      'Chaque élément est terminé ou masqué, donc cette page a quitté la barre latérale. Elle reste accessible sur /admin/getting-started.',
+    progress: '{done} sur {total} terminés. Les éléments se cochent d\'eux-mêmes au fur et à mesure de la configuration.',
+    done: 'Terminé',
+    hide: 'Masquer',
+    restore: 'Restaurer',
+    hiddenItems: 'Éléments masqués',
+    updateFailed: 'Impossible de mettre à jour la liste. Réessayez.',
+    emailTitle: 'Configurer l\'e-mail',
+    emailDesc:
+      'Connectez un serveur SMTP pour envoyer invitations, liens de mot de passe et notifications. Le portail fonctionne sans, mais les utilisateurs invités ne recevront pas leur e-mail de connexion.',
+    emailAction: 'Ouvrir les paramètres de notification',
+    inviteTitle: 'Invitez votre équipe',
+    inviteDescOne:
+      'Ajoutez des collègues et choisissez leurs rôles : lecteurs, contributeurs ou administrateurs.',
+    inviteDescMany:
+      'Ajoutez des collègues et choisissez leurs rôles. Votre organisation compte {count} membres.',
+    inviteAction: 'Ouvrir les utilisateurs',
+    mapTitle: 'Créez votre première carte',
+    mapDesc:
+      'Créez une carte ou importez des données, ou chargez le jeu d\'exemple pour un scénario prêt à explorer et modifier.',
+    mapAction: 'Aller au contenu',
+    docsTitle: 'Parcourez le guide d\'administration',
+    docsDesc:
+      'Le guide intégré couvre les rôles, les sauvegardes, la marque et la maintenance. Dix minutes maintenant évitent des surprises plus tard.',
+    docsAction: 'Ouvrir le guide',
+  },
 };

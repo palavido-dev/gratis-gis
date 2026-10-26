@@ -1189,4 +1189,58 @@ export const de: Partial<CatalogShape> = {
     redirectFallback: 'Wenn nichts passiert,',
     continueToKeycloak: 'weiter zu Keycloak',
   },
+  adminSecurity: {
+    authenticatorTitle: 'Authenticator',
+    authenticatorIntro:
+      'Wenn das aktiv ist, muss jedes Konto beim nächsten Anmelden einen Authenticator einrichten – einschließlich Ihres eigenen.',
+    requireAuthenticator: 'Authenticator verlangen',
+    methodsTitle: 'Anmeldemethoden',
+    methodsEmpty:
+      'Personen melden sich mit dem Portalkonto an. Fügen Sie einen OpenID-Connect-Anbieter hinzu, um ihr Arbeitskonto auf der Anmeldeseite anzubieten.',
+    remove: 'Entfernen',
+    addOidcTitle: 'OpenID Connect hinzufügen',
+    addOidcIntro:
+      'Neue Personen, die sich so anmelden, treten Ihrer Organisation als Betrachter bei. Nutzen Sie die Authorize- und Token-URLs des Anbieters. Microsoft Entra, Google und jeder andere OpenID-Connect-Dienst nutzen dieses Formular.',
+    fieldDisplayName: 'Name auf der Anmeldeseite',
+    fieldAlias: 'Alias',
+    fieldClientId: 'Client ID',
+    fieldAuthorizationUrl: 'Authorize-URL',
+    fieldTokenUrl: 'Token-URL',
+    fieldDomain: 'E-Mail-Domain (optional)',
+    fieldClientSecret: 'Client-Geheimnis',
+    addMethod: 'Anmeldemethode hinzufügen',
+    adding: 'Wird hinzugefügt…',
+    errAdd: 'Diese Anmeldemethode konnte nicht hinzugefügt werden.',
+    errRemove: 'Diese Anmeldemethode konnte nicht entfernt werden.',
+    errMfa: 'Die Authenticator-Einstellung konnte nicht aktualisiert werden.',
+  },
+  gettingStarted: {
+    allSetTitle: 'Alles erledigt.',
+    allSetBody:
+      'Jeder Eintrag ist erledigt oder ausgeblendet, daher hat diese Seite die Seitenleiste verlassen. Sie bleibt unter /admin/getting-started erreichbar.',
+    progress: '{done} von {total} erledigt. Einträge haken sich selbst ab, sobald die Einrichtung passiert.',
+    done: 'Erledigt',
+    hide: 'Ausblenden',
+    restore: 'Wiederherstellen',
+    hiddenItems: 'Ausgeblendete Einträge',
+    updateFailed: 'Die Checkliste konnte nicht aktualisiert werden. Bitte erneut versuchen.',
+    emailTitle: 'E-Mail einrichten',
+    emailDesc:
+      'Verbinden Sie einen SMTP-Server, damit Einladungen, Passwort-Links und Benachrichtigungen gesendet werden. Das Portal funktioniert ohne, aber eingeladene Benutzer erhalten keine Anmelde-E-Mail.',
+    emailAction: 'Benachrichtigungseinstellungen öffnen',
+    inviteTitle: 'Laden Sie Ihr Team ein',
+    inviteDescOne:
+      'Fügen Sie Kollegen hinzu und wählen Sie Rollen: Betrachter, Mitwirkende oder Administratoren.',
+    inviteDescMany:
+      'Fügen Sie Kollegen hinzu und wählen Sie Rollen. Ihre Organisation hat {count} Mitglieder.',
+    inviteAction: 'Benutzer öffnen',
+    mapTitle: 'Erstellen Sie Ihre erste Karte',
+    mapDesc:
+      'Erstellen Sie eine Karte oder laden Sie Daten hoch, oder laden Sie den Beispieldatensatz für ein fertiges Szenario zum Erkunden und Bearbeiten.',
+    mapAction: 'Zum Inhalt',
+    docsTitle: 'Admin-Leitfaden überfliegen',
+    docsDesc:
+      'Der eingebaute Leitfaden deckt Rollen, Backups, Branding und Wartung ab. Zehn Minuten jetzt vermeiden später Überraschungen.',
+    docsAction: 'Leitfaden öffnen',
+  },
 };

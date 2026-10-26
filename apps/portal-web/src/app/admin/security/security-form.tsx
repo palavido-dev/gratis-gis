@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useT } from '@/lib/i18n/locale-context';
 
 export interface SecurityState {
   providers: Array<{
@@ -28,6 +29,7 @@ const EMPTY_FORM = {
  * again.
  */
 export function SecurityForm({ initial }: { initial: SecurityState }) {
+  const t = useT();
   const [state, setState] = useState(initial);
   const [form, setForm] = useState(EMPTY_FORM);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +53,7 @@ export function SecurityForm({ initial }: { initial: SecurityState }) {
       });
       const body = (await res.json().catch(() => ({}))) as { message?: string };
       if (!res.ok) {
-        setError(body.message || 'Could not add that sign-in method.');
+        setError(body.message || t('adminSecurity.errAdd'));
         return;
       }
       setState((prev) => ({
@@ -68,7 +70,7 @@ export function SecurityForm({ initial }: { initial: SecurityState }) {
       }));
       setForm(EMPTY_FORM);
     } catch {
-      setError('Could not add that sign-in method.');
+      setError(t('adminSecurity.errAdd'));
     } finally {
       setBusy(false);
     }
@@ -80,7 +82,7 @@ export function SecurityForm({ initial }: { initial: SecurityState }) {
       method: 'DELETE',
     });
     if (!res.ok) {
-      setError('Could not remove that sign-in method.');
+      setError(t('adminSecurity.errRemove'));
       return;
     }
     setState((prev) => ({
@@ -97,7 +99,7 @@ export function SecurityForm({ initial }: { initial: SecurityState }) {
       body: JSON.stringify({ required }),
     });
     if (!res.ok) {
-      setError('Could not update the authenticator setting.');
+      setError(t('adminSecurity.errMfa'));
       return;
     }
     setState((prev) => ({ ...prev, mfaRequired: required }));
@@ -106,13 +108,23 @@ export function SecurityForm({ initial }: { initial: SecurityState }) {
   const field =
     'mt-1 w-full rounded-md border border-border bg-surface-0 px-3 py-2 text-sm text-ink-0';
 
+  const oidcFields = [
+    ['displayName', 'adminSecurity.fieldDisplayName', 'Microsoft'],
+    ['alias', 'adminSecurity.fieldAlias', 'entra'],
+    ['clientId', 'adminSecurity.fieldClientId', ''],
+    ['authorizationUrl', 'adminSecurity.fieldAuthorizationUrl', 'https://'],
+    ['tokenUrl', 'adminSecurity.fieldTokenUrl', 'https://'],
+    ['domain', 'adminSecurity.fieldDomain', 'example.org'],
+  ] as const;
+
   return (
     <div className="space-y-8">
       <section className="rounded-md border border-border bg-surface-1 p-4">
-        <h2 className="text-sm font-semibold text-ink-0">Authenticator</h2>
+        <h2 className="text-sm font-semibold text-ink-0">
+          {t('adminSecurity.authenticatorTitle')}
+        </h2>
         <p className="mt-1 text-sm text-ink-1">
-          When this is on, every account is asked to set up an authenticator
-          the next time they sign in, including yours.
+          {t('adminSecurity.authenticatorIntro')}
         </p>
         <label className="mt-3 flex items-center gap-2 text-sm text-ink-0">
           <input
@@ -120,16 +132,17 @@ export function SecurityForm({ initial }: { initial: SecurityState }) {
             checked={state.mfaRequired}
             onChange={(event) => void toggleMfa(event.target.checked)}
           />
-          Require an authenticator
+          {t('adminSecurity.requireAuthenticator')}
         </label>
       </section>
 
       <section>
-        <h2 className="text-sm font-semibold text-ink-0">Sign-in methods</h2>
+        <h2 className="text-sm font-semibold text-ink-0">
+          {t('adminSecurity.methodsTitle')}
+        </h2>
         {state.providers.length === 0 ? (
           <p className="mt-2 text-sm text-ink-1">
-            People sign in with the portal account. Add an OpenID Connect
-            provider to offer their existing work account on the sign-in page.
+            {t('adminSecurity.methodsEmpty')}
           </p>
         ) : (
           <ul className="mt-3 space-y-2">
@@ -147,7 +160,7 @@ export function SecurityForm({ initial }: { initial: SecurityState }) {
                   className="text-accent underline"
                   onClick={() => void remove(provider.alias)}
                 >
-                  Remove
+                  {t('adminSecurity.remove')}
                 </button>
               </li>
             ))}
@@ -156,24 +169,13 @@ export function SecurityForm({ initial }: { initial: SecurityState }) {
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-ink-0">Add OpenID Connect</h2>
-        <p className="text-sm text-ink-1">
-          New people who sign in this way join your organization as viewers.
-          Use the provider&apos;s authorize and token URLs. Microsoft Entra,
-          Google, and any other OpenID Connect service all use this form.
-        </p>
-        {(
-          [
-            ['displayName', 'Name on the sign-in page', 'Microsoft'],
-            ['alias', 'Alias', 'entra'],
-            ['clientId', 'Client ID', ''],
-            ['authorizationUrl', 'Authorize URL', 'https://'],
-            ['tokenUrl', 'Token URL', 'https://'],
-            ['domain', 'Email domain (optional)', 'example.org'],
-          ] as const
-        ).map(([key, label, placeholder]) => (
+        <h2 className="text-sm font-semibold text-ink-0">
+          {t('adminSecurity.addOidcTitle')}
+        </h2>
+        <p className="text-sm text-ink-1">{t('adminSecurity.addOidcIntro')}</p>
+        {oidcFields.map(([key, labelKey, placeholder]) => (
           <label key={key} className="block text-sm text-ink-0">
-            {label}
+            {t(labelKey)}
             <input
               className={field}
               value={form[key]}
@@ -183,7 +185,7 @@ export function SecurityForm({ initial }: { initial: SecurityState }) {
           </label>
         ))}
         <label className="block text-sm text-ink-0">
-          Client secret
+          {t('adminSecurity.fieldClientSecret')}
           <input
             className={field}
             type="password"
@@ -198,7 +200,7 @@ export function SecurityForm({ initial }: { initial: SecurityState }) {
           onClick={() => void addProvider()}
           className="rounded-md bg-accent px-3 py-2 text-sm text-accent-foreground disabled:opacity-50"
         >
-          {busy ? 'Adding…' : 'Add sign-in method'}
+          {busy ? t('adminSecurity.adding') : t('adminSecurity.addMethod')}
         </button>
       </section>
       {error ? <p className="text-sm text-ink-0">{error}</p> : null}

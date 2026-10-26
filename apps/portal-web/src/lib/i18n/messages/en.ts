@@ -1252,4 +1252,60 @@ export const en = {
     redirectFallback: 'If nothing happens,',
     continueToKeycloak: 'continue to Keycloak',
   },
+  /** Admin → Sign-in (#162). */
+  adminSecurity: {
+    authenticatorTitle: 'Authenticator',
+    authenticatorIntro:
+      'When this is on, every account is asked to set up an authenticator the next time they sign in, including yours.',
+    requireAuthenticator: 'Require an authenticator',
+    methodsTitle: 'Sign-in methods',
+    methodsEmpty:
+      'People sign in with the portal account. Add an OpenID Connect provider to offer their existing work account on the sign-in page.',
+    remove: 'Remove',
+    addOidcTitle: 'Add OpenID Connect',
+    addOidcIntro:
+      "New people who sign in this way join your organization as viewers. Use the provider's authorize and token URLs. Microsoft Entra, Google, and any other OpenID Connect service all use this form.",
+    fieldDisplayName: 'Name on the sign-in page',
+    fieldAlias: 'Alias',
+    fieldClientId: 'Client ID',
+    fieldAuthorizationUrl: 'Authorize URL',
+    fieldTokenUrl: 'Token URL',
+    fieldDomain: 'Email domain (optional)',
+    fieldClientSecret: 'Client secret',
+    addMethod: 'Add sign-in method',
+    adding: 'Adding…',
+    errAdd: 'Could not add that sign-in method.',
+    errRemove: 'Could not remove that sign-in method.',
+    errMfa: 'Could not update the authenticator setting.',
+  },
+  /** Admin → Getting started checklist (#162). */
+  gettingStarted: {
+    allSetTitle: "You're all set.",
+    allSetBody:
+      'Every item is done or hidden, so this page has left the sidebar. It stays reachable at /admin/getting-started.',
+    progress: '{done} of {total} complete. Items check themselves off as the underlying setup happens.',
+    done: 'Done',
+    hide: 'Hide',
+    restore: 'Restore',
+    hiddenItems: 'Hidden items',
+    updateFailed: 'Could not update the checklist. Try again.',
+    emailTitle: 'Set up email',
+    emailDesc:
+      'Connect an SMTP server so invitations, password setup links, and notifications can send. The portal works without it, but invited users will not get their sign-in email.',
+    emailAction: 'Open notification settings',
+    inviteTitle: 'Invite your team',
+    inviteDescOne:
+      'Add teammates and choose their roles: viewers, contributors, or fellow admins.',
+    inviteDescMany:
+      'Add teammates and choose their roles. Your organization has {count} members.',
+    inviteAction: 'Open users',
+    mapTitle: 'Make your first map',
+    mapDesc:
+      'Create a map or upload data, or load the sample dataset for a ready-made scenario to explore and edit.',
+    mapAction: 'Go to content',
+    docsTitle: 'Skim the admin guide',
+    docsDesc:
+      'The built-in guide covers roles, backups, branding, and housekeeping. Ten minutes now saves surprises later.',
+    docsAction: 'Open the guide',
+  },
 } as const;
