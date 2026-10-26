@@ -7,6 +7,13 @@ import { Globe2, Loader2 } from 'lucide-react';
 import { getItemTypeLabel } from '@/lib/item-type-icon';
 import type { ItemAccess, ItemType } from '@gratis-gis/shared-types';
 import { useT } from '@/lib/i18n/locale-context';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 /**
  * Lean payload for the cascade list. Pulled from the existing
@@ -171,68 +178,66 @@ export function PublicCascadeDialog({
     onClose();
   };
 
-  if (!open) return null;
-
   return (
-    <div
-      role="dialog"
-      aria-label={t('cascade.dialogLabel')}
-      className="fixed inset-0 z-60 flex items-center justify-center bg-black/40"
-      onClick={onClose}
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && !busy) onClose();
+      }}
     >
-      <div
-        className="w-full max-w-lg rounded-lg border border-border bg-surface-1 p-5 shadow-raised"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start gap-3">
-          <Globe2 className="mt-0.5 h-5 w-5 shrink-0 text-success" />
+      <DialogContent hideCloseButton size="lg" className="z-60">
+        <div className="flex items-start gap-3 px-5 pt-5">
+          <Globe2
+            className="mt-0.5 h-5 w-5 shrink-0 text-success"
+            aria-hidden="true"
+          />
           <div className="min-w-0 flex-1">
-            <h2 className="text-sm font-semibold text-ink-0">
-              {t('cascade.title')}
-            </h2>
-            <p className="mt-1 text-xs text-muted">
+            <DialogTitle>{t('cascade.title')}</DialogTitle>
+            <DialogDescription className="mt-1">
               <span className="font-medium text-ink-1">{parentTitle}</span>{' '}
               {t('cascade.body')}
-            </p>
+            </DialogDescription>
           </div>
         </div>
 
-        {deps === null ? (
-          <div className="mt-4 flex items-center gap-2 text-xs text-muted">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            {t('cascade.loading')}
-          </div>
-        ) : (
-          <ul className="mt-4 max-h-72 space-y-1 overflow-auto rounded-md border border-border bg-surface-0 p-2">
-            {deps.map((d) => (
-              <li key={d.id}>
-                <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-surface-2">
-                  <input
-                    type="checkbox"
-                    checked={selected.has(d.id)}
-                    onChange={() => toggle(d.id)}
-                    disabled={busy}
-                  />
-                  <span className="min-w-0 flex-1 truncate text-sm text-ink-1">
-                    {d.title}
-                  </span>
-                  <span className="text-2xs uppercase tracking-wide text-muted">
-                    {getItemTypeLabel(d.type)}
-                  </span>
-                  <span className="text-2xs uppercase tracking-wide text-muted">
-                    {t(`sharing.access.${d.access}`)}
-                  </span>
-                </label>
-              </li>
-            ))}
-          </ul>
-        )}
+        <div className="px-5 pt-4">
+          {deps === null ? (
+            <div className="flex items-center gap-2 text-xs text-muted">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {t('cascade.loading')}
+            </div>
+          ) : (
+            <ul className="max-h-72 space-y-1 overflow-auto rounded-md border border-border bg-surface-0 p-2">
+              {deps.map((d) => (
+                <li key={d.id}>
+                  <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-surface-2">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(d.id)}
+                      onChange={() => toggle(d.id)}
+                      disabled={busy}
+                    />
+                    <span className="min-w-0 flex-1 truncate text-sm text-ink-1">
+                      {d.title}
+                    </span>
+                    <span className="text-2xs uppercase tracking-wide text-muted">
+                      {getItemTypeLabel(d.type)}
+                    </span>
+                    <span className="text-2xs uppercase tracking-wide text-muted">
+                      {t(`sharing.access.${d.access}`)}
+                    </span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          )}
 
-        {error ? (
-          <p className="mt-3 text-xs text-danger">{error}</p>
-        ) : null}
+          {error ? (
+            <p className="mt-3 text-xs text-danger">{error}</p>
+          ) : null}
+        </div>
 
-        <div className="mt-5 flex items-center justify-between gap-2">
+        <DialogFooter className="mt-5 justify-between border-t-0 bg-transparent pb-5">
           {/* Cancel reverts the parent's flip to public when the
               caller wires it up; otherwise it's hidden so existing
               callers don't grow a button that does nothing. Lives
@@ -271,8 +276,8 @@ export function PublicCascadeDialog({
               {t('cascade.makePublic', { count: selected.size })}
             </button>
           </div>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

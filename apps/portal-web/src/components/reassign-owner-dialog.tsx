@@ -5,6 +5,13 @@ import { useState } from 'react';
 import { Loader2, UserRound } from 'lucide-react';
 import { PrincipalPicker, type PrincipalOption } from './principal-picker';
 import { useT } from '@/lib/i18n/locale-context';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 /**
  * Ownership-reassignment dialog.
@@ -20,6 +27,8 @@ import { useT } from '@/lib/i18n/locale-context';
  * component is responsible for the actual PATCH / bulk POST and the
  * "refresh after save" flow so the dialog doesn't need to know which
  * endpoint to hit.
+ *
+ * Built on the shared Radix dialog primitive (#173).
  */
 interface Props {
   /**
@@ -105,98 +114,99 @@ export function ReassignOwnerDialog({
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next && !saving) onClose();
+      }}
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md space-y-4 rounded-lg border border-border bg-surface-1 p-4 shadow-raised"
-      >
-        <div className="flex items-center gap-2">
-          <UserRound className="h-5 w-5 text-accent" />
-          <div>
-            <h2 className="text-lg font-semibold">{heading}</h2>
+      <DialogContent hideCloseButton>
+        <div className="flex items-center gap-2 px-5 pt-5">
+          <UserRound className="h-5 w-5 text-accent" aria-hidden="true" />
+          <div className="min-w-0">
+            <DialogTitle>{heading}</DialogTitle>
             {subheading ? (
-              <p className="text-xs text-muted">{subheading}</p>
+              <DialogDescription className="mt-0.5">
+                {subheading}
+              </DialogDescription>
             ) : null}
           </div>
         </div>
 
-        <div>
-          <label className="mb-1 block text-2xs font-medium uppercase tracking-wide text-muted">
-            {t('reassign.newOwner')}
-          </label>
-          <PrincipalPicker
-            placeholder={t('reassign.searchPlaceholder')}
-            search={searchUsers}
-            onPick={(p) => {
-              setPickedId(p.id);
-              setPickedLabel(p.title);
-            }}
-          />
-          {pickedId ? (
-            <p className="mt-1 text-2xs text-ink-1">
-              {t('reassign.transferTo')}{' '}
-              <span className="font-medium">{pickedLabel}</span>
+        <div className="space-y-4 px-5 pt-4">
+          <div>
+            <label className="mb-1 block text-2xs font-medium uppercase tracking-wide text-muted">
+              {t('reassign.newOwner')}
+            </label>
+            <PrincipalPicker
+              placeholder={t('reassign.searchPlaceholder')}
+              search={searchUsers}
+              onPick={(p) => {
+                setPickedId(p.id);
+                setPickedLabel(p.title);
+              }}
+            />
+            {pickedId ? (
+              <p className="mt-1 text-2xs text-ink-1">
+                {t('reassign.transferTo')}{' '}
+                <span className="font-medium">{pickedLabel}</span>
+              </p>
+            ) : null}
+          </div>
+
+          <fieldset className="space-y-1">
+            <legend className="mb-1 text-2xs font-medium uppercase tracking-wide text-muted">
+              {t('reassign.keepAccessLegend')}
+            </legend>
+            {(
+              [
+                {
+                  value: 'view',
+                  label: t('reassign.keepView'),
+                },
+                {
+                  value: 'download',
+                  label: t('reassign.keepDownload'),
+                },
+                {
+                  value: 'edit',
+                  label: t('reassign.keepEdit'),
+                },
+                {
+                  value: 'admin',
+                  label: t('reassign.keepAdmin'),
+                },
+                {
+                  value: 'none',
+                  label: t('reassign.keepNone'),
+                },
+              ] as Array<{ value: KeepAccess; label: string }>
+            ).map((opt) => (
+              <label
+                key={opt.value}
+                className="flex items-start gap-2 text-xs text-ink-1"
+              >
+                <input
+                  type="radio"
+                  name="keep"
+                  value={opt.value}
+                  checked={keep === opt.value}
+                  onChange={() => setKeep(opt.value)}
+                  className="mt-0.5"
+                />
+                {opt.label}
+              </label>
+            ))}
+          </fieldset>
+
+          {error ? (
+            <p role="alert" className="text-xs text-danger">
+              {error}
             </p>
           ) : null}
         </div>
 
-        <fieldset className="space-y-1">
-          <legend className="mb-1 text-2xs font-medium uppercase tracking-wide text-muted">
-            {t('reassign.keepAccessLegend')}
-          </legend>
-          {(
-            [
-              {
-                value: 'view',
-                label: t('reassign.keepView'),
-              },
-              {
-                value: 'download',
-                label: t('reassign.keepDownload'),
-              },
-              {
-                value: 'edit',
-                label: t('reassign.keepEdit'),
-              },
-              {
-                value: 'admin',
-                label: t('reassign.keepAdmin'),
-              },
-              {
-                value: 'none',
-                label: t('reassign.keepNone'),
-              },
-            ] as Array<{ value: KeepAccess; label: string }>
-          ).map((opt) => (
-            <label
-              key={opt.value}
-              className="flex items-start gap-2 text-xs text-ink-1"
-            >
-              <input
-                type="radio"
-                name="keep"
-                value={opt.value}
-                checked={keep === opt.value}
-                onChange={() => setKeep(opt.value)}
-                className="mt-0.5"
-              />
-              {opt.label}
-            </label>
-          ))}
-        </fieldset>
-
-        {error ? (
-          <p role="alert" className="text-xs text-danger">
-            {error}
-          </p>
-        ) : null}
-
-        <div className="flex items-center justify-end gap-2 pt-1">
+        <DialogFooter className="mt-5 border-t-0 bg-transparent pb-5">
           <button
             type="button"
             onClick={onClose}
@@ -207,7 +217,7 @@ export function ReassignOwnerDialog({
           </button>
           <button
             type="button"
-            onClick={submit}
+            onClick={() => void submit()}
             disabled={saving || !pickedId}
             className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-xs font-medium text-accent-foreground hover:opacity-90 disabled:opacity-50"
           >
@@ -218,8 +228,8 @@ export function ReassignOwnerDialog({
             )}
             {t('reassign.reassign')}
           </button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
