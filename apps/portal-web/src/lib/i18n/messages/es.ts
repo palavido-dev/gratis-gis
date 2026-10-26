@@ -2322,6 +2322,13 @@ export const es: Partial<CatalogShape> = {
     somethingWrong: 'Algo salió mal',
     showResolved: 'Mostrar resueltos',
     threads: '{count, plural, one {# hilo} other {# hilos}}',
+    resolve: 'Resolver',
+    reopen: 'Reabrir',
+    post: 'Publicar',
+    signInToComment: 'Inicia sesión para comentar en este mapa.',
+    threadOpened: 'Hilo abierto {when}',
+    resolvedSuffix: ' • Resuelto',
+    editedSuffix: ' (editado)',
   },
   mapMarkup: {
     title: 'Anotaciones',
@@ -2335,6 +2342,13 @@ export const es: Partial<CatalogShape> = {
     deleteAria: 'Eliminar anotación',
     somethingWrong: 'Algo salió mal',
     empty: 'Aún no hay anotaciones. Añade un conjunto y luego coloca pines en el mapa.',
+    dropPin: 'Colocar pin en el centro',
+    addMarkup: 'Añadir anotación',
+    signInToMarkup: 'Inicia sesión para añadir anotaciones a este mapa.',
+    pins: '{count, plural, one {# pin} other {# pines}}',
+    deleteConfirm:
+      '¿Eliminar la anotación "{title}"? Esto no se puede deshacer.',
+    setColorAria: 'Establecer color {color}',
   },
   mapLegend: {
     title: 'Leyenda',

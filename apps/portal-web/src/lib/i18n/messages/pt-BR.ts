@@ -2317,6 +2317,13 @@ export const ptBR: Partial<CatalogShape> = {
     somethingWrong: 'Algo deu errado',
     showResolved: 'Mostrar resolvidos',
     threads: '{count, plural, one {# tópico} other {# tópicos}}',
+    resolve: 'Resolver',
+    reopen: 'Reabrir',
+    post: 'Publicar',
+    signInToComment: 'Entre para comentar neste mapa.',
+    threadOpened: 'Tópico aberto {when}',
+    resolvedSuffix: ' • Resolvido',
+    editedSuffix: ' (editado)',
   },
   mapMarkup: {
     title: 'Anotações',
@@ -2330,6 +2337,13 @@ export const ptBR: Partial<CatalogShape> = {
     deleteAria: 'Excluir anotação',
     somethingWrong: 'Algo deu errado',
     empty: 'Ainda não há anotações. Adicione um conjunto e depois coloque pinos no mapa.',
+    dropPin: 'Colocar pino no centro',
+    addMarkup: 'Adicionar anotação',
+    signInToMarkup: 'Entre para adicionar anotações a este mapa.',
+    pins: '{count, plural, one {# pino} other {# pinos}}',
+    deleteConfirm:
+      'Excluir a anotação "{title}"? Isso não pode ser desfeito.',
+    setColorAria: 'Definir cor {color}',
   },
   mapLegend: {
     title: 'Legenda',

@@ -2337,6 +2337,13 @@ export const de: Partial<CatalogShape> = {
     somethingWrong: 'Etwas ist schiefgelaufen',
     showResolved: 'Erledigte anzeigen',
     threads: '{count, plural, one {# Thread} other {# Threads}}',
+    resolve: 'Erledigen',
+    reopen: 'Wieder öffnen',
+    post: 'Posten',
+    signInToComment: 'Melden Sie sich an, um diese Karte zu kommentieren.',
+    threadOpened: 'Thread geöffnet {when}',
+    resolvedSuffix: ' • Erledigt',
+    editedSuffix: ' (bearbeitet)',
   },
   mapMarkup: {
     title: 'Markierungen',
@@ -2350,6 +2357,13 @@ export const de: Partial<CatalogShape> = {
     deleteAria: 'Markierung löschen',
     somethingWrong: 'Etwas ist schiefgelaufen',
     empty: 'Noch keine Markierungen. Fügen Sie einen Satz hinzu und setzen Sie dann Pins auf die Karte.',
+    dropPin: 'Pin in der Mitte setzen',
+    addMarkup: 'Markierung hinzufügen',
+    signInToMarkup: 'Melden Sie sich an, um Markierungen hinzuzufügen.',
+    pins: '{count, plural, one {# Pin} other {# Pins}}',
+    deleteConfirm:
+      'Markierung „{title}“ löschen? Das kann nicht rückgängig gemacht werden.',
+    setColorAria: 'Farbe {color} festlegen',
   },
   mapLegend: {
     title: 'Legende',

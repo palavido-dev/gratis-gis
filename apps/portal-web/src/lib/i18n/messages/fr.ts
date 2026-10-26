@@ -2328,6 +2328,13 @@ export const fr: Partial<CatalogShape> = {
     somethingWrong: "Une erreur s'est produite",
     showResolved: 'Afficher les résolus',
     threads: '{count, plural, one {# fil} other {# fils}}',
+    resolve: 'Résoudre',
+    reopen: 'Rouvrir',
+    post: 'Publier',
+    signInToComment: 'Connectez-vous pour commenter cette carte.',
+    threadOpened: 'Fil ouvert {when}',
+    resolvedSuffix: ' • Résolu',
+    editedSuffix: ' (modifié)',
   },
   mapMarkup: {
     title: 'Annotations',
@@ -2341,6 +2348,13 @@ export const fr: Partial<CatalogShape> = {
     deleteAria: "Supprimer l'annotation",
     somethingWrong: "Une erreur s'est produite",
     empty: 'Pas encore d\'annotations. Ajoutez un jeu, puis placez des épingles sur la carte.',
+    dropPin: 'Placer une épingle au centre',
+    addMarkup: 'Ajouter une annotation',
+    signInToMarkup: 'Connectez-vous pour annoter cette carte.',
+    pins: '{count, plural, one {# épingle} other {# épingles}}',
+    deleteConfirm:
+      'Supprimer l\'annotation « {title} » ? Cette action est irréversible.',
+    setColorAria: 'Choisir la couleur {color}',
   },
   mapLegend: {
     title: 'Légende',

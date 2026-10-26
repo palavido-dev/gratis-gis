@@ -279,8 +279,12 @@ export function CommentsPanel({
               >
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-2xs text-muted">
-                    Thread opened {formatRelative(thread.createdAt)}
-                    {thread.resolved ? ' • Resolved' : null}
+                    {t('mapComments.threadOpened', {
+                      when: formatRelative(thread.createdAt),
+                    })}
+                    {thread.resolved
+                      ? t('mapComments.resolvedSuffix')
+                      : null}
                   </p>
                   {canResolve(thread) ? (
                     <button
@@ -292,12 +296,12 @@ export function CommentsPanel({
                       {thread.resolved ? (
                         <>
                           <Undo2 className="h-3 w-3" />
-                          Reopen
+                          {t('mapComments.reopen')}
                         </>
                       ) : (
                         <>
                           <Check className="h-3 w-3" />
-                          Resolve
+                          {t('mapComments.resolve')}
                         </>
                       )}
                     </button>
@@ -311,7 +315,9 @@ export function CommentsPanel({
                           {c.authorDisplay}
                           <span className="ml-1 font-normal text-muted">
                             {formatRelative(c.createdAt)}
-                            {c.editedAt ? ' (edited)' : ''}
+                            {c.editedAt
+                              ? t('mapComments.editedSuffix')
+                              : ''}
                           </span>
                         </p>
                         {canDeleteComment(c) ? (
@@ -383,11 +389,13 @@ export function CommentsPanel({
               className="flex items-center gap-1 rounded border border-border bg-accent px-2 py-1.5 text-sm font-medium text-accent-on hover:opacity-90 disabled:opacity-50"
             >
               <ChevronDown className="h-3.5 w-3.5 -rotate-90" />
-              Post
+              {t('mapComments.post')}
             </button>
           </div>
         ) : (
-          <p className="text-xs text-muted">Sign in to comment on this map.</p>
+          <p className="text-xs text-muted">
+            {t('mapComments.signInToComment')}
+          </p>
         )}
         {error ? (
           <p role="alert" className="mt-2 text-xs text-danger">

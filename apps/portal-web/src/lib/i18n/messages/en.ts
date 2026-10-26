@@ -2427,6 +2427,13 @@ export const en = {
     somethingWrong: 'Something went wrong',
     showResolved: 'Show resolved',
     threads: '{count, plural, one {# thread} other {# threads}}',
+    resolve: 'Resolve',
+    reopen: 'Reopen',
+    post: 'Post',
+    signInToComment: 'Sign in to comment on this map.',
+    threadOpened: 'Thread opened {when}',
+    resolvedSuffix: ' • Resolved',
+    editedSuffix: ' (edited)',
   },
   mapMarkup: {
     title: 'Markup',
@@ -2440,6 +2447,13 @@ export const en = {
     deleteAria: 'Delete markup',
     somethingWrong: 'Something went wrong',
     empty: 'No markup yet. Add a set, then drop pins to mark up the map.',
+    dropPin: 'Drop pin at center',
+    addMarkup: 'Add markup',
+    signInToMarkup: 'Sign in to add markup to this map.',
+    pins: '{count, plural, one {# pin} other {# pins}}',
+    deleteConfirm:
+      'Delete the "{title}" markup? This can\'t be undone.',
+    setColorAria: 'Set color {color}',
   },
   mapLegend: {
     title: 'Legend',

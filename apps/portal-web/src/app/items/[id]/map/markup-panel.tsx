@@ -285,7 +285,7 @@ export function MarkupPanel({
       const set = drawings.find((s) => s.id === setId);
       if (!set || !canEditSet(set)) return;
       const ok = window.confirm(
-        `Delete the "${set.title}" markup? This can't be undone.`,
+        t('mapMarkup.deleteConfirm', { title: set.title }),
       );
       if (!ok) return;
       setBusy(true);
@@ -412,8 +412,7 @@ export function MarkupPanel({
                       <p className="truncate text-2xs text-muted">
                         {set.authorDisplay} — {formatRelative(set.updatedAt)}
                         {' — '}
-                        {set.features.length}{' '}
-                        {set.features.length === 1 ? 'pin' : 'pins'}
+                        {t('mapMarkup.pins', { count: set.features.length })}
                       </p>
                       {editable ? (
                         <div className="mt-1 flex flex-wrap items-center gap-1">
@@ -428,7 +427,9 @@ export function MarkupPanel({
                                   : 'border-border'
                               }`}
                               style={{ backgroundColor: c }}
-                              aria-label={`Set color ${c}`}
+                              aria-label={t('mapMarkup.setColorAria', {
+                                color: c,
+                              })}
                             />
                           ))}
                         </div>
@@ -450,7 +451,7 @@ export function MarkupPanel({
                         className="flex items-center gap-1 rounded border border-border bg-surface-1 px-2 py-1 text-xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
                       >
                         <MapPin className="h-3 w-3" />
-                        Drop pin at center
+                        {t('mapMarkup.dropPin')}
                       </button>
                       <button
                         type="button"
@@ -480,11 +481,11 @@ export function MarkupPanel({
             className="flex w-full items-center justify-center gap-2 rounded border border-border bg-accent px-2 py-1.5 text-sm font-medium text-accent-on hover:opacity-90 disabled:opacity-50"
           >
             <Plus className="h-4 w-4" />
-            Add markup
+            {t('mapMarkup.addMarkup')}
           </button>
         ) : (
           <p className="text-xs text-muted">
-            Sign in to add markup to this map.
+            {t('mapMarkup.signInToMarkup')}
           </p>
         )}
         {error ? (
