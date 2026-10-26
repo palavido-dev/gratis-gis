@@ -730,6 +730,8 @@ RASTER_TARGET_KINDS = {
     "viewshed",
     "steepness",
     "heightmap",
+    # #186: point_cloud stub with the same dedicated-target husk stamp.
+    "colorize",
 }
 
 
@@ -2185,6 +2187,258 @@ def bounds_to_wgs84(bounds: list[float], wkt: str) -> list[float] | None:
         return None
 
 
+def do_colorize(conn, s3, job) -> None:
+    """Paint a point cloud with RGB from an imagery COG (#186).
+
+    Downloads the source COPC and the chosen imagery raster, warps
+    the raster into the cloud's native CRS (filters.colorization
+    requires a shared coordinate system), runs PDAL
+    filters.colorization to sample Red/Green/Blue onto each point,
+    builds a COPC with untwine (same path as the merge worker so
+    the viewer gets a streaming RGB file), and stamps the
+    pre-created point_cloud target 'ready' with hasRgb=true. The
+    source cloud is never modified.
+    """
+    params = job["params"] or {}
+    raster_item_id = params.get("rasterItemId")
+    if not raster_item_id:
+        raise RuntimeError("No imagery layer was selected for colorize.")
+    target_id = job.get("target_item_id")
+    if not target_id:
+        raise RuntimeError("Colorize job is missing its target item.")
+
+    source = item_data(conn, job["source_item_id"])
+    storage_key = source.get("storageKey")
+    if not storage_key:
+        raise RuntimeError("Source point cloud has no uploaded file.")
+
+    raster = item_data(conn, raster_item_id)
+    if raster.get("dem"):
+        raise RuntimeError(
+            "Elevation layers have no color to paint with. "
+            "Pick an aerial or satellite imagery layer."
+        )
+    raster_key = raster.get("cogStorageKey") or raster.get("storageKey")
+    if not raster_key:
+        raise RuntimeError("The imagery layer has no image file yet.")
+
+    work = SCRATCH / f"colorize-{job['id']}"
+    work.mkdir(parents=True, exist_ok=True)
+    try:
+        src = work / "source.copc.laz"
+        raster_path = work / "imagery.tif"
+        log(f"  downloading point cloud {storage_key}")
+        transfer_file(s3, "download", storage_key, src, job["id"])
+        set_progress(conn, job["id"], 10)
+        log(f"  downloading imagery {raster_key}")
+        transfer_file(s3, "download", raster_key, raster_path, job["id"])
+        set_progress(conn, job["id"], 25)
+
+        meta = copc_header_meta(src, conn, job["id"])
+        crs_wkt = meta.get("crsWkt") or ""
+        # filters.colorization samples in the point CRS. Imagery
+        # COGs are usually EPSG:3857 after the tile pipeline; warp
+        # when we know the cloud CRS so the sample lands on the
+        # right ground. Without a CRS, try the raw raster and let
+        # PDAL refuse with its own error if the systems differ.
+        color_raster = raster_path
+        if crs_wkt:
+            # Write WKT to a file: compound WKT is long and full of
+            # brackets/quotes that are unsafe as a bare argv token.
+            wkt_file = work / "cloud.wkt"
+            wkt_file.write_text(crs_wkt)
+            warped = work / "imagery-in-cloud-crs.tif"
+            log("  warping imagery into the point cloud CRS")
+            run_long(
+                [
+                    "gdalwarp",
+                    "-t_srs",
+                    str(wkt_file),
+                    "-r",
+                    "bilinear",
+                    "-of",
+                    "GTiff",
+                    "-co",
+                    "COMPRESS=DEFLATE",
+                    "-co",
+                    "TILED=YES",
+                    str(raster_path),
+                    str(warped),
+                ],
+                work,
+                conn,
+                job["id"],
+                ANALYSIS_TIMEOUT_SEC,
+                25,
+                40,
+            )
+            color_raster = warped
+        set_progress(conn, job["id"], 40)
+
+        colored_laz = work / "colored.laz"
+        pipeline = work / "colorize.json"
+        # Band map: aerial/satellite COGs are RGB (or RGBA); take
+        # the first three bands. Scale 1.0 keeps 8-bit imagery in
+        # the 0..255 range PDAL's RGB dimensions expect.
+        pipeline.write_text(
+            json.dumps(
+                {
+                    "pipeline": [
+                        {
+                            "type": "readers.copc",
+                            "filename": str(src),
+                        },
+                        {
+                            "type": "filters.colorization",
+                            "raster": str(color_raster),
+                            "dimensions": "Red:1:1.0, Green:2:1.0, Blue:3:1.0",
+                        },
+                        {
+                            "type": "writers.las",
+                            "filename": str(colored_laz),
+                            "forward": "all",
+                            "extra_dims": "all",
+                        },
+                    ]
+                }
+            )
+        )
+        log("  colorizing points from imagery (PDAL)")
+        # Standard mode (no --stream): writers.las with RGB upgrade
+        # is not reliably streamable across PDAL builds, and the
+        # ANALYSIS_TIMEOUT_SEC wall already bounds a runaway.
+        run_long(
+            ["pdal", "pipeline", str(pipeline)],
+            work,
+            conn,
+            job["id"],
+            ANALYSIS_TIMEOUT_SEC,
+            40,
+            70,
+        )
+        if not colored_laz.exists():
+            raise RuntimeError("Colorize produced no output file.")
+        set_progress(conn, job["id"], 70)
+
+        # untwine builds the COPC octree the viewer streams; same
+        # path as copc-build so RGB-carrying format 7/8 lands right.
+        colored_copc = work / "colored.copc.laz"
+        run_with_disk_watchdog(
+            [
+                "untwine",
+                "--files",
+                str(colored_laz),
+                "--output_dir",
+                str(colored_copc),
+            ],
+            work,
+            SCRATCH,
+            SCRATCH_MIN_RESERVE_BYTES,
+            MERGE_TIMEOUT_SEC,
+            conn=conn,
+            job_id=job["id"],
+        )
+        if not colored_copc.exists():
+            raise RuntimeError("Building the colored COPC produced no file.")
+        set_progress(conn, job["id"], 88)
+
+        out_meta = copc_header_meta(colored_copc, conn, job["id"])
+        key = f"item-point-cloud/{uuid.uuid4()}"
+        size = colored_copc.stat().st_size
+        log(
+            f"  uploading colored COPC ({size} bytes, "
+            f"{out_meta['count']} pts, hasRgb={out_meta['hasRgb']}) to {key}"
+        )
+        transfer_file(s3, "upload", key, colored_copc, job["id"])
+        set_progress(conn, job["id"], 95)
+
+        patch = {
+            "version": 1,
+            "format": "copc",
+            "storageKey": key,
+            "storageUrl": f"/api/portal/storage/private/{key}",
+            "fileName": "colorized.copc.laz",
+            "sizeBytes": size,
+            "uploadedAt": time.strftime(
+                "%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()
+            ),
+            "pointCount": out_meta["count"],
+            "bounds": out_meta["bounds"],
+            "lasVersion": out_meta["lasVersion"],
+            "pointFormat": out_meta["pointFormat"],
+            # Force true: colorize's whole point is to produce RGB.
+            # Header sniff can lag a build that wrote dims another way.
+            "hasRgb": True,
+            "dataUrl": f"/api/portal/point-cloud/{target_id}/file.copc.laz",
+            "processingState": "ready",
+        }
+        if out_meta["crsWkt"]:
+            patch["crsWkt"] = out_meta["crsWkt"]
+        bbox = bounds_to_wgs84(out_meta["bounds"], out_meta["crsWkt"])
+        if bbox:
+            patch["bboxWgs84"] = bbox
+        # Clear a stale failure note from a prior retry; || cannot
+        # remove keys, so subtract processingError first.
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE item
+                SET data_json = (data_json - 'processingError') || %s::jsonb,
+                    updated_at = now()
+                WHERE id = %s
+                """,
+                (json.dumps(patch), target_id),
+            )
+        conn.commit()
+    except Exception as exc:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        msg = str(exc)
+        low = msg.lower()
+        user_facing = any(
+            kw in low
+            for kw in (
+                "no imagery",
+                "no color",
+                "no image file",
+                "no uploaded file",
+                "produced no",
+                "working space",
+                "protect the disk",
+            )
+        )
+        if isinstance(exc, JobCancelled):
+            user_facing = True
+            msg = (
+                "You cancelled this colorize before it finished. "
+                "The source point cloud is unchanged; try again anytime."
+            )
+        try:
+            merge_item_data(
+                conn,
+                target_id,
+                {
+                    "processingState": "failed",
+                    "processingError": (
+                        msg[:400]
+                        if user_facing
+                        else (
+                            "The point cloud could not be colored from that "
+                            "imagery. Check that the aerial covers the same "
+                            "area and shares a usable coordinate system."
+                        )
+                    ),
+                },
+            )
+        except Exception:
+            conn.rollback()
+        raise
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 def do_copc_build(conn, s3, job) -> None:
     """Merge several lidar tiles into one COPC (#200).
 
@@ -2797,6 +3051,7 @@ HANDLERS = {
     "contours": do_contours,
     "steepness": do_steepness,
     "heightmap": do_heightmap,
+    "colorize": do_colorize,
     "sam-embed": do_sam_embed,
     "copc-build": do_copc_build,
     "imagery-mosaic": do_imagery_mosaic,

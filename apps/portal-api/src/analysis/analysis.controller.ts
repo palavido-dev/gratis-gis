@@ -84,6 +84,15 @@ export class AnalysisController {
     return this.analysis.createHeightmapJob(user, itemId, body);
   }
 
+  @Post('items/:itemId/analysis/colorize')
+  createColorize(
+    @CurrentUser() user: AuthUser,
+    @Param('itemId') itemId: string,
+    @Body() body: { rasterItemId: string },
+  ) {
+    return this.analysis.createColorizeJob(user, itemId, body);
+  }
+
   @Get('items/:itemId/analysis/jobs')
   listJobs(@CurrentUser() user: AuthUser, @Param('itemId') itemId: string) {
     return this.analysis.listJobsForItem(user, itemId);
