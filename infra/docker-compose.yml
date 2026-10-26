@@ -36,13 +36,18 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # PG 18+ official images expect the mount at /var/lib/postgresql
+      # (major-version subdirectory underneath), not .../data. See
+      # docker-library/postgres#1259. Existing PG17 volumes mounted at
+      # .../data need dump/restore before this swap (#306).
+      - pgdata:/var/lib/postgresql
       - ./init-db.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U gratisgis -d gratisgis"]
       interval: 5s
       timeout: 5s
       retries: 10
+      start_period: 20s
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.0
