@@ -63,6 +63,8 @@ import {
   PRINT_PAPER as PAPER,
   PRINT_CARD as CARD,
 } from '@/lib/print-theme';
+import { formatDate, formatDateTime, formatNumber } from '@/lib/i18n/format';
+import { DEFAULT_LOCALE, type SupportedLocale } from '@/lib/i18n/locales';
 
 const DESIGN_DPI = 96;
 
@@ -70,9 +72,12 @@ const DYNAMIC_RESOLVERS: Record<
   DynamicTokenId,
   (ctx: RenderContext) => string
 > = {
-  today_date: () => new Date().toLocaleDateString(),
-  today_datetime: () => new Date().toLocaleString(),
-  now_time: () => new Date().toLocaleTimeString(),
+  today_date: (ctx) => formatDate(new Date(), ctx.locale),
+  today_datetime: (ctx) => formatDateTime(new Date(), ctx.locale),
+  now_time: (ctx) =>
+    new Intl.DateTimeFormat(ctx.locale, { timeStyle: 'short' }).format(
+      new Date(),
+    ),
   map_scale: () => '',
   map_extent_bbox: () => '',
   map_center_latlon: () => '',
@@ -83,6 +88,7 @@ const DYNAMIC_RESOLVERS: Record<
 };
 
 interface RenderContext {
+  locale: SupportedLocale;
   mapId: string;
   mapData: MapData | null;
   /** Resolved basemap blob for `mapData.basemap`. Null when the
@@ -127,6 +133,7 @@ export function PrintRenderer({
     overflow: 'hidden',
   };
   const ctx: RenderContext = {
+    locale: DEFAULT_LOCALE,
     mapId,
     mapData,
     basemapData,
@@ -489,7 +496,7 @@ function ScalebarBody({
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}>
         <span>0</span>
         <span>
-          {displayValue.toLocaleString()} {unitLabel}
+          {formatNumber(displayValue, ctx.locale)} {unitLabel}
         </span>
       </div>
     </div>

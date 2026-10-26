@@ -152,6 +152,7 @@ import {
 } from '../map/map-canvas';
 import { ElevationProfileTool } from '../map/elevation-profile';
 import { resolveDemForBbox } from '@/lib/dem-resolver';
+import { useFormat } from '@/lib/i18n/format';
 import {
   Dialog,
   DialogContent,
@@ -662,6 +663,7 @@ export function CustomRuntimeClient({
   themeTokens,
   canManage = false,
 }: Props) {
+  const fmt = useFormat();
   // Multi-page support (#342). Track which page is showing; render
   // only that page's widgets, but seed map state from EVERY page so
   // a Map's layer toggles persist when the user switches pages and
@@ -998,7 +1000,7 @@ export function CustomRuntimeClient({
           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[hsl(var(--app-warn)/0.4)] bg-[hsl(var(--app-warn)/0.15)] px-4 py-1.5 text-xs text-[hsl(var(--app-warn))]">
             <span>
               Viewing as of{' '}
-              <strong>{new Date(appAt).toLocaleString()}</strong>{' '}
+              <strong>{fmt.dateTime(appAt)}</strong>{' '}
               &ndash; read-only
             </span>
             <button
@@ -3093,6 +3095,7 @@ function LayerPropertiesDialog({
   layer: MapLayer;
   onClose: () => void;
 }) {
+  const fmt = useFormat();
   const featureCount =
     layer.source.kind === 'geojson-inline'
       ? (layer.source.geojson as GeoJSON.FeatureCollection | null)?.features
@@ -3122,7 +3125,7 @@ function LayerPropertiesDialog({
             <>
               <dt className="text-[hsl(var(--app-muted))]">Features</dt>
               <dd className="text-[hsl(var(--app-ink-1))]">
-                {featureCount.toLocaleString()}
+                {fmt.number(featureCount)}
               </dd>
             </>
           ) : null}
@@ -6008,6 +6011,7 @@ function ChartPlot({
  */
 function FilterWidgetRender({ widget }: { widget: CustomWidget }) {
   if (widget.config.kind !== 'filter') return null;
+  const fmt = useFormat();
   const cfg = widget.config;
   const source = useWidgetSource(cfg);
   const target = useWidgetTarget(cfg);
@@ -6131,7 +6135,7 @@ function FilterWidgetRender({ widget }: { widget: CustomWidget }) {
               {displayOf(o.value)}
               {o.count !== null ? (
                 <span className="ml-1 text-[hsl(var(--app-muted))]">
-                  {o.count.toLocaleString()}
+                  {fmt.number(o.count)}
                 </span>
               ) : null}
             </button>
@@ -6172,7 +6176,7 @@ function FilterWidgetRender({ widget }: { widget: CustomWidget }) {
           {state.options.map((o, i) => (
             <option key={i} value={i}>
               {displayOf(o.value)}
-              {o.count !== null ? ` (${o.count.toLocaleString()})` : ''}
+              {o.count !== null ? ` (${fmt.number(o.count)})` : ''}
             </option>
           ))}
         </select>
@@ -6749,6 +6753,7 @@ function OsmAttributionChip({
   features: OsmOverlayFeature[];
   onDismiss: () => void;
 }) {
+  const fmt = useFormat();
   // #102: save-as-layer state machine. The button cycles through
   // four states: idle (default), saving (POST in-flight), saved
   // (success, shows a link to the new item), error (red text + a
@@ -6766,7 +6771,7 @@ function OsmAttributionChip({
     // deliberate choice: the chip lives on top of the map and a
     // full modal would obscure context. If we later grow the chip
     // into a tray we can replace this with an inline input.
-    const defaultTitle = `OSM overlay (${new Date().toLocaleString()})`;
+    const defaultTitle = `OSM overlay (${fmt.dateTime(new Date())})`;
     const title = window.prompt(
       'Save these features as a new data layer. Choose a name:',
       defaultTitle,

@@ -23,6 +23,10 @@
  * on the map, not the equator-baseline value.
  */
 
+import type { SupportedLocale } from '@/lib/i18n/locales';
+import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
+import { formatNumber } from '@/lib/i18n/format';
+
 const SCALE_AT_Z0 = 559_082_264.028;
 
 /**
@@ -41,15 +45,15 @@ export function zoomToScale(zoom: number, latDeg: number = 0): number {
  * for normal scales, "1:1.1M" for very small scales so the
  * label doesn't bloat the picker.
  */
-export function formatMapScale(denominator: number): string {
+export function formatMapScale(
+  denominator: number,
+  locale: SupportedLocale = DEFAULT_LOCALE,
+): string {
   if (denominator >= 1_000_000) {
     const m = denominator / 1_000_000;
     return `1:${m.toFixed(m < 10 ? 1 : 0)}M`;
   }
-  if (denominator >= 10_000) {
-    return `1:${Math.round(denominator).toLocaleString('en-US')}`;
-  }
-  return `1:${Math.round(denominator).toLocaleString('en-US')}`;
+  return `1:${formatNumber(Math.round(denominator), locale)}`;
 }
 
 /**
@@ -97,9 +101,13 @@ export function formatEngineeringScale(feetPerInch: number): string {
  *   z14 at lat 33° -> "1:28,575  ·  z14"
  *   z6  at lat 0°  -> "1:8.7M  ·  z6"
  */
-export function describeZoom(zoom: number, latDeg: number = 0): string {
+export function describeZoom(
+  zoom: number,
+  latDeg: number = 0,
+  locale: SupportedLocale = DEFAULT_LOCALE,
+): string {
   const denom = zoomToScale(zoom, latDeg);
-  const scaleLabel = formatMapScale(denom);
+  const scaleLabel = formatMapScale(denom, locale);
   const eng = scaleToEngineering(denom);
   const engLabel = eng ? `  ·  ${formatEngineeringScale(eng)}` : '';
   return `${scaleLabel}${engLabel}  ·  z${zoom}`;

@@ -32,7 +32,9 @@ import {
 import { exportBundle } from '@/lib/bundle-export';
 import { parseApiError } from '@/lib/api-error';
 import { toast } from '@/lib/toast';
+import { formatDateTime, useFormat } from '@/lib/i18n/format';
 import { useT } from '@/lib/i18n/locale-context';
+import { DEFAULT_LOCALE, type SupportedLocale } from '@/lib/i18n/locales';
 import {
   Dialog,
   DialogContent,
@@ -234,6 +236,7 @@ export function AttributeTable({
   scopeWhere,
   scopeVia,
 }: Props) {
+  const fmt = useFormat();
   const [activeLayerId, setActiveLayerId] = useState<string | null>(null);
   const [lastPicked, setLastPicked] = useState<number | null>(null);
   const [sortBy, setSortBy] = useState<string | null>(null);
@@ -1334,7 +1337,7 @@ export function AttributeTable({
           <span className="text-2xs text-muted">
             {serverLoading
               ? 'Loading...'
-              : `${visibleIndexes.length.toLocaleString()} rows`}
+              : `${fmt.number(visibleIndexes.length)} rows`}
             {serverMode && serverPage?.truncated ? '+' : ''}
             {activeSelection.size > 0 ? ` · ${activeSelection.size} selected` : ''}
           </span>
@@ -1809,7 +1812,7 @@ export function AttributeTable({
                             key={col.key}
                             className="whitespace-nowrap px-3 py-1 text-muted italic"
                           >
-                            {col.format(props[col.key])}
+                            {col.format(props[col.key], fmt.locale)}
                           </td>
                         ))
                       : null}
@@ -3031,7 +3034,7 @@ const EDITOR_TRACKING_COLUMNS: Array<{
   key: string;
   label: string;
   tooltip: string;
-  format: (v: unknown) => string;
+  format: (v: unknown, locale?: SupportedLocale) => string;
 }> = [
   {
     key: '_created_by',
@@ -3063,13 +3066,16 @@ const EDITOR_TRACKING_COLUMNS: Array<{
   },
 ];
 
-function formatTimestamp(v: unknown): string {
+function formatTimestamp(
+  v: unknown,
+  locale: SupportedLocale = DEFAULT_LOCALE,
+): string {
   if (v === null || v === undefined) return '';
   if (typeof v !== 'string') return String(v);
   try {
     const d = new Date(v);
     if (Number.isNaN(d.getTime())) return v;
-    return d.toLocaleString();
+    return formatDateTime(d, locale);
   } catch {
     return v;
   }

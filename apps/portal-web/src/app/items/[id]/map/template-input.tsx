@@ -24,6 +24,9 @@
  * the two consumers diverge on HTML escaping).
  */
 import { useMemo, useRef } from 'react';
+import { formatDateTime, formatNumber } from '@/lib/i18n/format';
+import { useLocale } from '@/lib/i18n/locale-context';
+import { DEFAULT_LOCALE, type SupportedLocale } from '@/lib/i18n/locales';
 
 interface ExtraInsert {
   /** Button label, e.g. "+line break". */
@@ -80,6 +83,7 @@ export function TemplateInput({
   extraInserts,
   inputId,
 }: Props) {
+  const locale = useLocale();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const areaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -111,8 +115,8 @@ export function TemplateInput({
   const preview = useMemo(() => {
     if (!sampleProperties) return null;
     if (!value.trim()) return null;
-    return renderTemplate(value, sampleProperties);
-  }, [value, sampleProperties]);
+    return renderTemplate(value, sampleProperties, locale);
+  }, [value, sampleProperties, locale]);
 
   return (
     <div className="space-y-2">
@@ -236,6 +240,7 @@ export function TemplateInput({
 function renderTemplate(
   template: string,
   props: Record<string, unknown>,
+  locale: SupportedLocale = DEFAULT_LOCALE,
 ): string {
   return template.replace(
     /\{\{\s*([\w.-]+)\s*(?:\|\s*([\w.-]+)(?:\s*:\s*([^}]+))?\s*)?\}\}/g,
@@ -249,17 +254,17 @@ function renderTemplate(
       else if (fmt === 'lower') out = str.toLowerCase();
       else if (fmt === 'number') {
         const n = Number(str);
-        if (!Number.isNaN(n)) out = n.toLocaleString();
+        if (!Number.isNaN(n)) out = formatNumber(n, locale);
       } else if (fmt === 'currency') {
         const n = Number(str);
         if (!Number.isNaN(n)) {
           try {
-            out = n.toLocaleString(undefined, {
+            out = formatNumber(n, locale, {
               style: 'currency',
               currency: arg?.trim() || 'USD',
             });
           } catch {
-            out = n.toLocaleString();
+            out = formatNumber(n, locale);
           }
         }
       } else if (fmt === 'date') {
@@ -269,9 +274,11 @@ function renderTemplate(
             (arg?.trim() as 'short' | 'long' | 'full' | undefined) ??
             'medium';
           try {
-            out = d.toLocaleDateString(undefined, { dateStyle: style });
+            out = new Intl.DateTimeFormat(locale, { dateStyle: style }).format(
+              d,
+            );
           } catch {
-            out = d.toLocaleDateString();
+            out = formatDateTime(d, locale);
           }
         }
       }

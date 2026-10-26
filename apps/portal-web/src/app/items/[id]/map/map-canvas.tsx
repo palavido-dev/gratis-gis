@@ -46,6 +46,9 @@ import {
 } from '@/lib/custom-basemap';
 import { ensureMapLibreWorker } from '@/lib/maplibre-runtime';
 import { getCachedUserName } from '@/lib/user-name-cache';
+import { formatDateTime, formatNumber } from '@/lib/i18n/format';
+import { useLocale } from '@/lib/i18n/locale-context';
+import { DEFAULT_LOCALE, type SupportedLocale } from '@/lib/i18n/locales';
 
 // Register pmtiles:// and cog:// so raster tile layers and DEM-draped
 // terrain can resolve their scheme. addProtocol writes a MODULE-GLOBAL
@@ -357,6 +360,9 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
   }: Props,
   ref,
 ) {
+  const locale = useLocale();
+  const localeRef = useRef(locale);
+  localeRef.current = locale;
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Stable ref to the current basemaps array so the basemap-swap
   // effect can read the latest list without re-running on every
@@ -1496,6 +1502,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
           const html = renderPopupHtml(
             layerForHover,
             hit.properties ?? {},
+            localeRef.current,
           );
           // Different feature (or first show): create / re-target.
           hoverPopupRef.current?.remove();
@@ -1655,7 +1662,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
         .setHTML(
           isMvtFeature
             ? '<div class="gg-popup-loading" style="padding:8px;color:#666;font-size:12px;">Loading…</div>'
-            : renderPopupHtml(layer, fallbackProps),
+            : renderPopupHtml(layer, fallbackProps, localeRef.current),
         )
         .addTo(m!);
 
@@ -1666,7 +1673,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
           (fallbackProps as Record<string, unknown>)._global_id;
         if (typeof featureId !== 'string' && typeof featureId !== 'number') {
           // No id to look up; show the limited tile-side properties.
-          popup.setHTML(renderPopupHtml(layer, fallbackProps));
+          popup.setHTML(renderPopupHtml(layer, fallbackProps, localeRef.current));
         } else {
           const dataSource = layer.source;
           const url = dataSource.layerKey
@@ -1677,11 +1684,11 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
             .then((fc: { features?: Array<{ properties?: Record<string, unknown> }> } | null) => {
               if (popupRef.current !== popup) return; // user already closed / moved on
               const props = fc?.features?.[0]?.properties ?? fallbackProps;
-              popup.setHTML(renderPopupHtml(layer, props));
+              popup.setHTML(renderPopupHtml(layer, props, localeRef.current));
             })
             .catch(() => {
               if (popupRef.current === popup) {
-                popup.setHTML(renderPopupHtml(layer, fallbackProps));
+                popup.setHTML(renderPopupHtml(layer, fallbackProps, localeRef.current));
               }
             });
         }
@@ -4303,6 +4310,7 @@ function sourceData(
 function renderPopupHtml(
   layer: MapLayer,
   props: Record<string, unknown>,
+  locale: SupportedLocale = DEFAULT_LOCALE,
 ): string {
   // renderTemplate already HTML-escapes interpolated values, so the
   // template branch is safe to drop in raw.  The fallback branch uses
@@ -4311,7 +4319,7 @@ function renderPopupHtml(
   // branch double-escaped (e.g. "Erickson's" rendered as
   // "Erickson&#39;s" in the popup heading).
   const title = layer.popup.titleTemplate
-    ? renderTemplate(layer.popup.titleTemplate, props)
+    ? renderTemplate(layer.popup.titleTemplate, props, locale)
     : escapeHtml(layer.title);
 
   // Body shape depends on mode. Template mode passes through author
@@ -4325,6 +4333,7 @@ function renderPopupHtml(
     body = `<div class="gg-popup-body">${renderTemplate(
       layer.popup.bodyTemplate,
       props,
+      locale,
     )}</div>`;
   } else {
     const keys =
@@ -4354,7 +4363,7 @@ function renderPopupHtml(
   // (non-PostGIS) layers and external services don't get an empty
   // footer. Created-by and edited-by show as user ids today; a
   // follow-up can resolve them to display names.
-  const metaFooter = renderEditorFooter(props);
+  const metaFooter = renderEditorFooter(props, locale);
 
   return `
     <div class="gg-popup">
@@ -4372,7 +4381,10 @@ function renderPopupHtml(
  * present so the popup stays compact for layers that don't have
  * editor tracking.
  */
-function renderEditorFooter(props: Record<string, unknown>): string {
+function renderEditorFooter(
+  props: Record<string, unknown>,
+  locale: SupportedLocale = DEFAULT_LOCALE,
+): string {
   const createdBy = props._created_by;
   const createdAt = props._created_at;
   const editedBy = props._edited_by;
@@ -4384,7 +4396,7 @@ function renderEditorFooter(props: Record<string, unknown>): string {
     const who = createdBy
       ? escapeHtml(resolveUserDisplay(createdBy))
       : 'unknown';
-    const when = createdAt ? formatPopupDate(createdAt) : 'unknown';
+    const when = createdAt ? formatPopupDate(createdAt, locale) : 'unknown';
     parts.push(`Created by ${who} on ${when}`);
   }
   // Only show "last edited" when the timestamps differ -- if a row
@@ -4395,7 +4407,7 @@ function renderEditorFooter(props: Record<string, unknown>): string {
     !(editedAt === createdAt && editedBy === createdBy)
   ) {
     const who = editedBy ? escapeHtml(resolveUserDisplay(editedBy)) : 'unknown';
-    const when = editedAt ? formatPopupDate(editedAt) : 'unknown';
+    const when = editedAt ? formatPopupDate(editedAt, locale) : 'unknown';
     parts.push(`Last edited by ${who} on ${when}`);
   }
 
@@ -4418,12 +4430,15 @@ function resolveUserDisplay(value: unknown): string {
   return getCachedUserName(value);
 }
 
-function formatPopupDate(value: unknown): string {
+function formatPopupDate(
+  value: unknown,
+  locale: SupportedLocale = DEFAULT_LOCALE,
+): string {
   if (typeof value !== 'string') return escapeHtml(String(value));
   try {
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) return escapeHtml(value);
-    return escapeHtml(d.toLocaleString());
+    return escapeHtml(formatDateTime(d, locale));
   } catch {
     return escapeHtml(value);
   }
@@ -4444,13 +4459,17 @@ function formatPopupDate(value: unknown): string {
  * markup (`<br>`, `<strong>`). Values are always HTML-escaped, so a
  * property containing `<script>` can't inject behavior.
  */
-function renderTemplate(template: string, props: Record<string, unknown>): string {
+function renderTemplate(
+  template: string,
+  props: Record<string, unknown>,
+  locale: SupportedLocale = DEFAULT_LOCALE,
+): string {
   return template.replace(
     /\{\{\s*([\w.-]+)\s*(?:\|\s*([\w.-]+)(?:\s*:\s*([^}]+))?\s*)?\}\}/g,
     (_, key: string, formatter?: string, arg?: string) => {
       const raw = props[key];
       if (raw === undefined || raw === null) return '';
-      const formatted = applyFormatter(raw, formatter, arg);
+      const formatted = applyFormatter(raw, formatter, arg, locale);
       return escapeHtml(formatted);
     },
   );
@@ -4460,6 +4479,7 @@ function applyFormatter(
   raw: unknown,
   formatter: string | undefined,
   arg: string | undefined,
+  locale: SupportedLocale = DEFAULT_LOCALE,
 ): string {
   const str = String(raw);
   if (!formatter) return str;
@@ -4471,16 +4491,16 @@ function applyFormatter(
     case 'number': {
       const n = Number(str);
       if (Number.isNaN(n)) return str;
-      return n.toLocaleString();
+      return formatNumber(n, locale);
     }
     case 'currency': {
       const n = Number(str);
       if (Number.isNaN(n)) return str;
       const currency = arg?.trim() || 'USD';
       try {
-        return n.toLocaleString(undefined, { style: 'currency', currency });
+        return formatNumber(n, locale, { style: 'currency', currency });
       } catch {
-        return n.toLocaleString();
+        return formatNumber(n, locale);
       }
     }
     case 'date': {
@@ -4488,9 +4508,9 @@ function applyFormatter(
       if (Number.isNaN(d.getTime())) return str;
       const style = (arg?.trim() as 'short' | 'long' | 'full' | undefined) ?? 'medium';
       try {
-        return d.toLocaleDateString(undefined, { dateStyle: style });
+        return new Intl.DateTimeFormat(locale, { dateStyle: style }).format(d);
       } catch {
-        return d.toLocaleDateString();
+        return formatDateTime(d, locale);
       }
     }
     default:

@@ -3606,7 +3606,7 @@ function LayerVisibilityPanel({
             >
               {ZOOM_PICKER_OPTIONS.filter((z) => z <= tileZoomMax).map((z) => (
                 <option key={z} value={z}>
-                  {describeZoom(z, centerLat)}
+                  {describeZoom(z, centerLat, fmt.locale)}
                 </option>
               ))}
             </select>
@@ -3622,7 +3622,7 @@ function LayerVisibilityPanel({
             >
               {ZOOM_PICKER_OPTIONS.filter((z) => z >= tileZoomMin).map((z) => (
                 <option key={z} value={z}>
-                  {describeZoom(z, centerLat)}
+                  {describeZoom(z, centerLat, fmt.locale)}
                 </option>
               ))}
             </select>
