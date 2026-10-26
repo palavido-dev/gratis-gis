@@ -13,15 +13,19 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { AnalysisService } from './analysis.service.js';
 import {
-  AnalysisService,
-  type HillshadeParams,
-} from './analysis.service.js';
+  ContoursBodyDto,
+  HillshadeBodyDto,
+  ResolutionBodyDto,
+  ViewshedBodyDto,
+} from './analysis.dto.js';
 
 /**
  * Server-side analysis surface (#184). One derive endpoint per
  * primitive chain plus a per-item job list the UI polls. Tier
- * gating and validation live in the service.
+ * gating and validation live in the service; bodies are real DTOs
+ * so ValidationPipe actually runs (#225).
  */
 @ApiTags('analysis')
 @ApiBearerAuth()
@@ -34,7 +38,7 @@ export class AnalysisController {
   createHillshade(
     @CurrentUser() user: AuthUser,
     @Param('itemId') itemId: string,
-    @Body() body: HillshadeParams,
+    @Body() body: HillshadeBodyDto,
   ) {
     return this.analysis.createHillshadeJob(user, itemId, body);
   }
@@ -43,7 +47,7 @@ export class AnalysisController {
   createElevation(
     @CurrentUser() user: AuthUser,
     @Param('itemId') itemId: string,
-    @Body() body: { resolution: number },
+    @Body() body: ResolutionBodyDto,
   ) {
     return this.analysis.createElevationJob(user, itemId, body);
   }
@@ -52,8 +56,7 @@ export class AnalysisController {
   createViewshed(
     @CurrentUser() user: AuthUser,
     @Param('itemId') itemId: string,
-    @Body()
-    body: { lng: number; lat: number; heightM?: number; maxDistanceM?: number },
+    @Body() body: ViewshedBodyDto,
   ) {
     return this.analysis.createViewshedJob(user, itemId, body);
   }
@@ -62,7 +65,7 @@ export class AnalysisController {
   createContours(
     @CurrentUser() user: AuthUser,
     @Param('itemId') itemId: string,
-    @Body() body: { intervalM?: number },
+    @Body() body: ContoursBodyDto,
   ) {
     return this.analysis.createContoursJob(user, itemId, body);
   }
@@ -79,7 +82,7 @@ export class AnalysisController {
   createHeightmap(
     @CurrentUser() user: AuthUser,
     @Param('itemId') itemId: string,
-    @Body() body: { resolution: number },
+    @Body() body: ResolutionBodyDto,
   ) {
     return this.analysis.createHeightmapJob(user, itemId, body);
   }
@@ -96,6 +99,16 @@ export class AnalysisController {
   @Get('items/:itemId/analysis/jobs')
   listJobs(@CurrentUser() user: AuthUser, @Param('itemId') itemId: string) {
     return this.analysis.listJobsForItem(user, itemId);
+  }
+
+  /**
+   * Single-job lookup (#225). Lets a scripted client poll the id
+   * returned by the submit call without scraping the per-item list.
+   * Same ACL as the list: read on the source item.
+   */
+  @Get('analysis-jobs/:jobId')
+  getJob(@CurrentUser() user: AuthUser, @Param('jobId') jobId: string) {
+    return this.analysis.getJob(user, jobId);
   }
 
   /**

@@ -5,6 +5,7 @@ import type { Request } from 'express';
 
 import type { PortalInfo } from '@gratis-gis/shared-types';
 
+import { isAnalysisEnabled } from './analysis/analysis-tiers.js';
 import { Public } from './auth/public.decorator.js';
 import { isFeedbackEnabled } from './feedback/feedback-config.js';
 import { PrismaService } from './prisma/prisma.service.js';
@@ -56,6 +57,7 @@ export class PortalInfoController {
       features: {
         feedback: isFeedbackEnabled(),
         scripts: isScriptsEnabled(),
+        analysis: isAnalysisEnabled(),
       },
     };
   }

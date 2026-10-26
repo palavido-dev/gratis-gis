@@ -87,5 +87,14 @@ export interface PortalInfo {
      * did not write, so it is turned on deliberately or not at all.
      */
     scripts?: boolean;
+
+    /**
+     * Server-heavy analysis tier (#225). True when `ANALYSIS_TIERS`
+     * contains `server-heavy` (compose sets this where the
+     * pointcloud/analysis worker is deployed). Clients should
+     * pre-flight here rather than probing a derive endpoint for a
+     * 503.
+     */
+    analysis?: boolean;
   };
 }

@@ -31,6 +31,7 @@ import { stampAnalysisTargetFailed } from './analysis-target-stamp.js';
  * endpoints refuse with a plain-language 503 rather than queueing
  * jobs nothing will ever run.
  */
+/** @deprecated Prefer HillshadeBodyDto; kept for call-site typing. */
 export interface HillshadeParams {
   mode: 'dtm' | 'dsm';
   resolution: number;
@@ -655,6 +656,25 @@ export class AnalysisService {
       orderBy: { createdAt: 'desc' },
       take: 20,
     });
+  }
+
+  /**
+   * Single-job lookup (#225). Org-scoped, then read ACL on the
+   * source item — same gate as the per-item list, so a share that
+   * can see the list can also poll one job by id.
+   */
+  async getJob(user: AuthUser, jobId: string) {
+    const job = await this.prisma.analysisJob.findUnique({
+      where: { id: jobId },
+    });
+    if (!job) {
+      throw new NotFoundException(`Analysis job ${jobId} not found.`);
+    }
+    if (job.orgId !== user.orgId) {
+      throw new ForbiddenException('Job not in your organization.');
+    }
+    await this.items.get(user, job.sourceItemId);
+    return job;
   }
 
   /**
