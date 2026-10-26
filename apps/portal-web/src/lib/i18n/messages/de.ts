@@ -715,6 +715,7 @@ export const de: Partial<CatalogShape> = {
     configure: 'Konfigurieren',
     previewData: 'Datenvorschau',
     addToMap: 'Zur Karte hinzufügen',
+    createAppFromMap: 'App aus dieser Karte erstellen',
     addLayerToMapTitle: 'Nur diese Ebene zu einer Karte hinzufügen',
     moveToFolder: 'In Ordner verschieben',
     removeFromFolder: 'Aus diesem Ordner entfernen',

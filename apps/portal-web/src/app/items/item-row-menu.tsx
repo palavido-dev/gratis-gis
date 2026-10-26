@@ -3,6 +3,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
+  AppWindow,
   ClipboardList,
   ExternalLink,
   Eye,
@@ -242,6 +243,22 @@ export function ItemRowMenu({
             >
               <MapIcon className="h-3.5 w-3.5 text-muted" />
               <span className="flex-1">{t('itemMenu.addToMap')}</span>
+            </a>
+          ) : null}
+          {/* #189: map → web app. Opens the custom-app wizard with
+              this map pre-bound so authors skip hunting for it. */}
+          {itemType === 'map' ? (
+            <a
+              role="menuitem"
+              href={`/items/new?type=custom&map=${itemId}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpen(false);
+              }}
+              className="flex items-center gap-2 border-t border-border px-3 py-2 text-ink-1 hover:bg-surface-2"
+            >
+              <AppWindow className="h-3.5 w-3.5 text-muted" />
+              <span className="flex-1">{t('itemMenu.createAppFromMap')}</span>
             </a>
           ) : null}
           {canManage && onShare ? (
