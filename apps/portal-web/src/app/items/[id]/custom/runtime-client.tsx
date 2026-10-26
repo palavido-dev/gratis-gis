@@ -4258,31 +4258,6 @@ function SplashWidgetRender({ widget }: { widget: CustomWidget }) {
     }
   }, [dismissKey, cfg.allowDismiss]);
 
-  // Lock body scroll while the splash is open so the user can't
-  // scroll the map underneath -- matches how a modal SHOULD
-  // behave on a single-page app surface.
-  useEffect(() => {
-    if (!open || typeof document === 'undefined') return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [open]);
-
-  // Escape closes the modal unless requireConfirm is on.
-  useEffect(() => {
-    if (!open) return;
-    if (cfg.requireConfirm) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, cfg.requireConfirm]);
-
-  if (!open) return null;
-
   function confirm(): void {
     if (dontShow && cfg.allowDismiss) {
       try {
@@ -4294,50 +4269,39 @@ function SplashWidgetRender({ widget }: { widget: CustomWidget }) {
     setOpen(false);
   }
 
-  function onBackdropClick(): void {
-    if (cfg.requireConfirm) return;
-    setOpen(false);
-  }
-
-  const modal = (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="splash-title"
-      className="fixed inset-0 z-1000 flex items-center justify-center bg-black/40 px-4 py-8"
-      onClick={onBackdropClick}
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && cfg.requireConfirm) return;
+        setOpen(next);
+      }}
     >
-      <div
-        className="relative flex max-h-full flex-col overflow-hidden rounded-lg bg-[hsl(var(--app-surface-0))] shadow-2xl"
-        style={{ width: `${width}px`, maxWidth: '100%' }}
-        onClick={(e) => e.stopPropagation()}
+      <DialogContent
+        hideCloseButton={Boolean(cfg.requireConfirm)}
+        className="flex !max-w-none max-h-[calc(100vh-4rem)] flex-col overflow-hidden bg-[hsl(var(--app-surface-0))] p-0 shadow-2xl"
+        style={{ width: `${width}px`, maxWidth: 'calc(100vw - 2rem)' }}
+        onPointerDownOutside={(e) => {
+          if (cfg.requireConfirm) e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          if (cfg.requireConfirm) e.preventDefault();
+        }}
       >
-        {/* Header with title.  Close-X only when requireConfirm is
-            off; otherwise the user must use the confirm button. */}
-        <header className="flex shrink-0 items-start justify-between gap-3 border-b border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-4 py-3">
-          <h2
-            id="splash-title"
-            className="text-sm font-semibold text-[hsl(var(--app-ink-0))]"
-          >
+        <header className="flex shrink-0 items-start justify-between gap-3 border-b border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-4 py-3 pr-12">
+          <DialogTitle className="text-sm font-semibold text-[hsl(var(--app-ink-0))]">
             {cfg.title || 'Welcome'}
-          </h2>
-          {cfg.requireConfirm ? null : (
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              aria-label="Close"
-              className="-mr-1 -mt-1 inline-flex h-6 w-6 items-center justify-center rounded text-[hsl(var(--app-muted))] hover:bg-[hsl(var(--app-surface-2))]"
-            >
-              <XIcon className="h-4 w-4" />
-            </button>
-          )}
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            App welcome splash
+          </DialogDescription>
         </header>
 
         <div className="prose-sm flex-1 overflow-auto px-4 py-4 text-sm text-[hsl(var(--app-ink-1))] [&_a]:text-[hsl(var(--app-accent))] [&_a]:underline [&_code]:rounded [&_code]:bg-[hsl(var(--app-surface-2))] [&_code]:px-1 [&_code]:py-0.5 [&_h1]:mb-2 [&_h1]:text-xl [&_h1]:font-bold [&_h2]:mb-2 [&_h2]:text-lg [&_h2]:font-bold [&_h3]:mb-2 [&_h3]:text-base [&_h3]:font-semibold [&_p]:mb-2 [&_ul]:mb-2 [&_ul]:ml-5 [&_ul]:list-disc">
           <MarkdownLite text={cfg.markdown ?? ''} />
         </div>
 
-        <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-4 py-3">
+        <DialogFooter className="justify-between gap-3 border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-4 py-3 sm:justify-between">
           {cfg.allowDismiss ? (
             <label className="flex items-center gap-2 text-xs text-[hsl(var(--app-ink-1))]">
               <input
@@ -4348,8 +4312,6 @@ function SplashWidgetRender({ widget }: { widget: CustomWidget }) {
               Don&rsquo;t show this again
             </label>
           ) : (
-            // Empty flex item so the confirm button stays right-
-            // aligned even without the checkbox.
             <span />
           )}
           <button
@@ -4359,14 +4321,10 @@ function SplashWidgetRender({ widget }: { widget: CustomWidget }) {
           >
             {cfg.confirmLabel || 'OK'}
           </button>
-        </footer>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
-
-  return typeof document !== 'undefined'
-    ? createPortal(modal, document.body)
-    : modal;
 }
 
 // ---- AttributeTable widget -------------------------------------------------
