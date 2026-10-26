@@ -694,15 +694,31 @@ export class BackupService implements OnModuleInit {
       );
     }
 
-    const run = await this.prisma.backupRun.create({
-      data: {
-        trigger,
-        // First beat at birth, so the liveness window never has to
-        // special-case the gap before the poll timer's first tick.
-        heartbeatAt: new Date(),
-        ...(startedBy ? { startedBy } : {}),
-      },
-    });
+    let run;
+    try {
+      run = await this.prisma.backupRun.create({
+        data: {
+          trigger,
+          // First beat at birth, so the liveness window never has to
+          // special-case the gap before the poll timer's first tick.
+          heartbeatAt: new Date(),
+          ...(startedBy ? { startedBy } : {}),
+        },
+      });
+    } catch (e) {
+      // #235: partial unique index backup_run_one_running_idx. Two
+      // replicas can both pass the findFirst liveness check; the
+      // second INSERT then races and loses here.
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          'A backup is already running. Wait for it to finish or cancel it first.',
+        );
+      }
+      throw e;
+    }
     this.log.log(`Backup ${run.id} started (${trigger})`);
 
     // Cancellation is a durable flag: the cancel request lands on

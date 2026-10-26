@@ -2669,6 +2669,29 @@ export class ItemsService {
         );
       }
 
+      // #235: honour share geoLimit + rowScope on this legacy
+      // item-level GeoJSON path. The v3 features controller already
+      // applies both; without the same gates here a geo-limited or
+      // own-rows share could still dump the whole layer via
+      // GET /items/:id/geojson.
+      const shares =
+        (item as { shares?: Parameters<SharingService['geoLimitFor']>[2] })
+          .shares ?? [];
+      const geoLimit = await this.sharing.geoLimitFor(user, item, shares);
+      if (geoLimit) {
+        params.push(JSON.stringify(geoLimit));
+        const b = params.length;
+        conditions.push(
+          `geom IS NOT NULL AND ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON($${b}::text), 4326))`,
+        );
+      }
+      const rowScope = this.sharing.effectiveRowScope(user, item, shares);
+      if (rowScope === 'own') {
+        params.push(user.id);
+        const b = params.length;
+        conditions.push(`created_by = $${b}`);
+      }
+
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
       // Editor-tracking columns are inlined as `_created_by`,
@@ -2735,7 +2758,43 @@ export class ItemsService {
     ) {
       return { type: 'FeatureCollection', features: [] };
     }
-    return fc as { type: 'FeatureCollection'; features: unknown[] };
+    // #235: same share gates as the PostGIS branch. v1 rows are
+    // rare (pre-PostGIS uploads); filter in process rather than
+    // inventing a SQL path over the JSON blob.
+    const v1Shares =
+      (item as { shares?: Parameters<SharingService['geoLimitFor']>[2] })
+        .shares ?? [];
+    const v1RowScope = this.sharing.effectiveRowScope(user, item, v1Shares);
+    const v1GeoLimit = await this.sharing.geoLimitFor(user, item, v1Shares);
+    let features = (fc as { features: unknown[] }).features ?? [];
+    if (v1RowScope === 'own') {
+      features = features.filter((raw) => {
+        const props = (raw as { properties?: Record<string, unknown> })
+          .properties;
+        return (
+          props?.['_created_by'] === user.id || props?.['created_by'] === user.id
+        );
+      });
+    }
+    if (v1GeoLimit && features.length > 0) {
+      const limitJson = JSON.stringify(v1GeoLimit);
+      const kept: unknown[] = [];
+      for (const raw of features) {
+        const geom = (raw as { geometry?: unknown }).geometry;
+        if (!geom || typeof geom !== 'object') continue;
+        const rows = await this.prisma.$queryRawUnsafe<Array<{ ok: boolean }>>(
+          `SELECT ST_Intersects(
+             ST_SetSRID(ST_GeomFromGeoJSON($1::text), 4326),
+             ST_SetSRID(ST_GeomFromGeoJSON($2::text), 4326)
+           ) AS ok`,
+          JSON.stringify(geom),
+          limitJson,
+        );
+        if (rows[0]?.ok === true) kept.push(raw);
+      }
+      features = kept;
+    }
+    return { type: 'FeatureCollection', features };
   }
 
   /**
