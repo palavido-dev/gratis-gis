@@ -17,35 +17,28 @@ import type { LayerGeometryType } from '@gratis-gis/shared-types';
  * limits apply without a second access path.
  *
  * Deliberate choices from the issue:
- * - Grey/minimal backdrop (solid fill, no raster tiles), not the org
- *   default — a busy basemap competes with the geometry at this size.
+ * - Grey/minimal basemap (Carto light_nolabels), not the org default —
+ *   a busy backdrop competes with the geometry at this size.
  * - Generic paint, not the layer's saved style — the tab answers
  *   "did the geometry land in the right place?", not finished look.
  * - Empty layers get an empty state, not a world-view fallback that
  *   would read as "your import went somewhere very wrong".
- *
- * Extent: prefer the layer's stored bbox. When that is missing (common
- * on freshly seeded sample layers before stats land on data_json),
- * fall back to `filtered-extent` with no predicate — the same union
- * bbox the attribute table uses for "zoom to filtered".
  */
 
-/**
- * Solid grey backdrop — no external tiles. Carto's free light_* URLs
- * now stamp "API KEY REQUIRED" across the canvas, which is worse than
- * no basemap at preview size. A flat fill keeps geometry readable
- * without competing labels or watermarks.
- */
+/** Muted grey basemap; labels omitted so they don't fight the overlay. */
 const GREY_BASEMAP: maplibregl.StyleSpecification = {
   version: 8,
-  sources: {},
-  layers: [
-    {
-      id: 'background',
-      type: 'background',
-      paint: { 'background-color': '#e8eaed' },
+  sources: {
+    basemap: {
+      type: 'raster',
+      tiles: [
+        'https://basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}.png',
+      ],
+      tileSize: 256,
+      attribution: '(c) OpenStreetMap contributors (c) Carto',
     },
-  ],
+  },
+  layers: [{ id: 'basemap', type: 'raster', source: 'basemap' }],
 };
 
 /** ST_AsMVT names every layer 'features' (engine/data-layer.ts). */
@@ -57,8 +50,8 @@ interface Props {
   itemId: string;
   layerId: string;
   geometryType: Exclude<LayerGeometryType, null>;
-  /** [west, south, east, north] in EPSG:4326 when the item payload
-   *  already carries it. */
+  /** [west, south, east, north] in EPSG:4326. Null/missing when the
+   *  layer has no features (or none with geometry). */
   bbox: [number, number, number, number] | null | undefined;
   featureCount: number | undefined;
 }
@@ -73,12 +66,6 @@ function isValidBbox(
   );
 }
 
-type ExtentState =
-  | { status: 'loading' }
-  | { status: 'empty' }
-  | { status: 'ready'; bbox: [number, number, number, number] }
-  | { status: 'error' };
-
 export function LayerMapPreview({
   itemId,
   layerId,
@@ -88,62 +75,25 @@ export function LayerMapPreview({
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [failed, setFailed] = useState(false);
-  const [extent, setExtent] = useState<ExtentState>(() => {
-    if (featureCount === 0) return { status: 'empty' };
-    if (isValidBbox(bbox)) return { status: 'ready', bbox };
-    return { status: 'loading' };
-  });
 
-  // Resolve extent when the layer payload did not already carry one.
-  useEffect(() => {
-    if (featureCount === 0) {
-      setExtent({ status: 'empty' });
-      return;
-    }
-    if (isValidBbox(bbox)) {
-      setExtent({ status: 'ready', bbox });
-      return;
-    }
-    let cancelled = false;
-    setExtent({ status: 'loading' });
-    void (async () => {
-      try {
-        const res = await fetch(
-          `/api/portal/items/${itemId}/layers/${encodeURIComponent(layerId)}/filtered-extent`,
-        );
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const body = (await res.json()) as {
-          bbox: [number, number, number, number] | null;
-        };
-        if (cancelled) return;
-        if (!isValidBbox(body.bbox)) {
-          setExtent({ status: 'empty' });
-          return;
-        }
-        setExtent({ status: 'ready', bbox: body.bbox });
-      } catch {
-        if (!cancelled) setExtent({ status: 'error' });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [itemId, layerId, bbox, featureCount]);
-
-  const readyBbox = extent.status === 'ready' ? extent.bbox : null;
-  const bboxKey = readyBbox ? readyBbox.join(',') : '';
+  const empty =
+    (typeof featureCount === 'number' && featureCount === 0) ||
+    !isValidBbox(bbox);
+  // Primitive stand-in so a fresh bbox array from RSC refresh does
+  // not tear the map down mid-pan (same pattern as ItemMapPreview).
+  const bboxKey = isValidBbox(bbox) ? bbox.join(',') : '';
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container || !readyBbox) return;
-    const fit = readyBbox;
+    if (!container || empty || !isValidBbox(bbox)) return;
+    const extent = bbox;
     ensureMapLibreWorker();
     let map: maplibregl.Map;
     try {
       map = new maplibregl.Map({
         container,
         style: GREY_BASEMAP,
-        center: [(fit[0] + fit[2]) / 2, (fit[1] + fit[3]) / 2],
+        center: [(extent[0] + extent[2]) / 2, (extent[1] + extent[3]) / 2],
         zoom: 4,
         attributionControl: { compact: true },
       });
@@ -221,8 +171,8 @@ export function LayerMapPreview({
       }
       map.fitBounds(
         [
-          [fit[0], fit[1]],
-          [fit[2], fit[3]],
+          [extent[0], extent[1]],
+          [extent[2], extent[3]],
         ],
         { padding: 24, duration: 0, maxZoom: 14 },
       );
@@ -238,25 +188,9 @@ export function LayerMapPreview({
       map.remove();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [itemId, layerId, geometryType, bboxKey]);
+  }, [itemId, layerId, geometryType, empty, bboxKey]);
 
-  if (extent.status === 'loading') {
-    return (
-      <div className="mt-2 flex h-[240px] items-center justify-center rounded-md border border-border bg-surface-2 text-xs text-muted">
-        Loading map…
-      </div>
-    );
-  }
-
-  if (extent.status === 'error') {
-    return (
-      <div className="mt-2 flex h-[240px] items-center justify-center rounded-md border border-border bg-surface-2 text-xs text-muted">
-        Map preview failed to load
-      </div>
-    );
-  }
-
-  if (extent.status === 'empty') {
+  if (empty) {
     return (
       <div className="mt-2 flex h-[240px] flex-col items-center justify-center gap-1 rounded-md border border-border bg-surface-2 px-4 text-center">
         <MapIcon className="mb-1 h-5 w-5 text-muted" aria-hidden />
