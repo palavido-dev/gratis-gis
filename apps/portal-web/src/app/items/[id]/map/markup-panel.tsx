@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
+import { formatDate } from '@/lib/i18n/format';
+import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
+
 /**
  * Markup panel (#154 Phase 1).
  *
@@ -556,5 +559,5 @@ function formatRelative(iso: string): string {
   if (hours < 24) return `${hours} hr ago`;
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days} d ago`;
-  return new Date(iso).toLocaleDateString();
+  return formatDate(iso, DEFAULT_LOCALE);
 }

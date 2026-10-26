@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
+import { formatDate } from '@/lib/i18n/format';
+import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
+
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Check, Copy, Key, Loader2, Plus, Trash2 } from 'lucide-react';
@@ -334,7 +337,7 @@ function shortDate(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime())
     ? 'unknown'
-    : d.toLocaleDateString(undefined, {
+    : formatDate(d, DEFAULT_LOCALE, {
         year: 'numeric',
         month: 'short',
         day: 'numeric',

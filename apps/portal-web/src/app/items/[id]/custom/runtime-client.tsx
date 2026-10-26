@@ -3545,6 +3545,7 @@ function SearchWidgetRender({ widget }: { widget: CustomWidget }) {
  */
 function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
   if (widget.config.kind !== 'print') return null;
+  const fmt = useFormat();
   const { state } = useBoundMap(widget.config.mapWidgetId);
   // #106: live MapLibre handle for the bound map, so onRender can
   // grab a PNG snapshot of what the user is currently looking at
@@ -3919,7 +3920,7 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
                   rel="noreferrer"
                   className="block truncate rounded px-1 py-0.5 text-2xs text-[hsl(var(--app-accent))] hover:underline"
                 >
-                  {r.templateTitle} · {new Date(r.createdAt).toLocaleTimeString()}
+                  {r.templateTitle} · {fmt.dateTime(r.createdAt)}
                 </a>
               ))}
             </div>

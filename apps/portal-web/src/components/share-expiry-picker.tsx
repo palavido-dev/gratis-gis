@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
+import { formatDate } from '@/lib/i18n/format';
+import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
+
 import { useEffect, useRef, useState } from 'react';
 import { Clock, X } from 'lucide-react';
 import { useT } from '@/lib/i18n/locale-context';
@@ -187,7 +190,7 @@ export function ShareExpiryPicker({
 }
 
 function formatShortDate(d: Date): string {
-  return d.toLocaleDateString(undefined, {
+  return formatDate(d, DEFAULT_LOCALE, {
     month: 'short',
     day: 'numeric',
     year: 'numeric',

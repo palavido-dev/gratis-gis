@@ -139,7 +139,8 @@ import { FieldAttachments } from './field-attachments';
 import { describeZoom } from '@/lib/map-scale';
 import { parseApiError } from '@/lib/api-error';
 import { useT } from '@/lib/i18n/locale-context';
-import { useFormat } from '@/lib/i18n/format';
+import { formatDate, useFormat } from '@/lib/i18n/format';
+import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
 import type { Translator } from '@/lib/i18n';
 
 /**
@@ -6273,7 +6274,7 @@ function formatRelativeTime(iso: string): string {
   const day = Math.floor(hr / 24);
   if (day === 1) return 'yesterday';
   if (day < 30) return `${day}d ago`;
-  return new Date(iso).toLocaleDateString();
+  return formatDate(iso, DEFAULT_LOCALE);
 }
 
 /**

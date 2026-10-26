@@ -293,7 +293,7 @@ export function FeedbackAdminView({ initial }: { initial: FeedbackPage }) {
                 <p className="mt-2 text-xs text-muted">
                   {row.status === 'spam' ? 'Marked spam' : 'Handled'} by{' '}
                   {row.handledBy.fullName} on{' '}
-                  {new Date(row.handledAt).toLocaleDateString()}
+                  {fmt.date(row.handledAt)}
                 </p>
               ) : null}
             </li>

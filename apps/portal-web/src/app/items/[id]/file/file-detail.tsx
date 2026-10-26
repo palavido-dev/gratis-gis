@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { formatDate } from '@/lib/i18n/format';
+import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
 import Link from 'next/link';
 import { Download, FileText, ImageIcon, FileType2 } from 'lucide-react';
 import type { FileData } from '@gratis-gis/shared-types';
@@ -148,7 +150,7 @@ function formatRelative(iso: string): string {
     if (hr < 24) return `${hr}h ago`;
     const day = Math.round(hr / 24);
     if (day < 30) return `${day}d ago`;
-    return d.toLocaleDateString();
+    return formatDate(d, DEFAULT_LOCALE);
   } catch {
     return iso;
   }

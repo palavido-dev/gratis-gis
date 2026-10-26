@@ -21,7 +21,8 @@ import {
   probeService,
   type ArcgisServiceDescription,
 } from '@/lib/arcgis-rest';
-import { useFormat } from '@/lib/i18n/format';
+import { formatDate as formatDateLocale, useFormat } from '@/lib/i18n/format';
+import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
 
 interface Props {
   itemId: string;
@@ -848,16 +849,13 @@ function CredentialsCard({
 }
 
 function formatDate(iso: string): string {
-  try {
-    const d = new Date(iso);
-    return d.toLocaleDateString(undefined, {
+  return (
+    formatDateLocale(iso, DEFAULT_LOCALE, {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
-    });
-  } catch {
-    return iso;
-  }
+    }) || iso
+  );
 }
 
 /**

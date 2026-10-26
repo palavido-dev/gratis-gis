@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { formatDate } from '@/lib/i18n/format';
+import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
 import Link from 'next/link';
 import {
   Bell,
@@ -360,7 +362,7 @@ function WhatsNewSection({ entries }: { entries: WhatsNewEntry[] }) {
 function formatChangelogDate(iso: string): string {
   const d = new Date(`${iso}T00:00:00Z`);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-US', {
+  return formatDate(d, DEFAULT_LOCALE, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',

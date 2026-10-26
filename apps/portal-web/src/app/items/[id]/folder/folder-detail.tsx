@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
+import { useFormat } from '@/lib/i18n/format';
+
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -120,6 +122,7 @@ export function FolderDetail({
   folderShares,
   folderAccess,
 }: Props) {
+  const fmt = useFormat();
   const router = useRouter();
   const [children, setChildren] = useState<ItemWithShares[]>(initialChildren);
   // Local copy of childItemIds so reorder writes don't depend on a
@@ -642,7 +645,7 @@ export function FolderDetail({
                     {getItemTypeLabel(child.type)}
                   </span>
                   <span className="hidden shrink-0 text-2xs text-muted lg:inline">
-                    {new Date(child.updatedAt).toLocaleDateString()}
+                    {fmt.date(child.updatedAt)}
                   </span>
                   {canEdit && !isSmart ? (
                     // Per-item Remove only makes sense on a static

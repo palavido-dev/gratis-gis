@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
+import { useFormat } from '@/lib/i18n/format';
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlignLeft,
@@ -140,6 +142,7 @@ interface Props {
  * automatically.
  */
 export function FormDesigner({ itemId, initial, canEdit }: Props) {
+  const fmt = useFormat();
   const confirmDialog = useConfirm();
   const [form, setForm] = useState<FormSchema>(
     () => initial ?? emptyForm(itemId, 'Untitled form'),
@@ -810,7 +813,7 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
           ) : null}
           {savedAt && !error ? (
             <p className="shrink-0 border-b border-success/40 bg-success/10 px-4 py-1 text-2xs text-success">
-              Saved {savedAt.toLocaleTimeString()}.
+              Saved {fmt.dateTime(savedAt)}.
             </p>
           ) : null}
           <div className="flex-1 overflow-auto">
