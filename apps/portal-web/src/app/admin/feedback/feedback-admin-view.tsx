@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   Check,
   ChevronLeft,
@@ -12,6 +12,7 @@ import {
   Undo2,
 } from 'lucide-react';
 import { useFormat } from '@/lib/i18n/format';
+import { useT } from '@/lib/i18n/locale-context';
 
 export type FeedbackStatus = 'new' | 'handled' | 'spam';
 
@@ -42,20 +43,25 @@ export interface FeedbackPage {
 
 const PAGE_SIZE = 25;
 
-const TABS: Array<{ key: FeedbackStatus | 'all'; label: string }> = [
-  { key: 'new', label: 'New' },
-  { key: 'handled', label: 'Handled' },
-  { key: 'spam', label: 'Spam' },
-  { key: 'all', label: 'Everything' },
-];
-
 export function FeedbackAdminView({ initial }: { initial: FeedbackPage }) {
+  const t = useT();
   const fmt = useFormat();
   const [page, setPage] = useState<FeedbackPage>(initial);
   const [tab, setTab] = useState<FeedbackStatus | 'all'>('new');
   const [offset, setOffset] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const tabs = useMemo(
+    () =>
+      [
+        { key: 'new' as const, label: t('adminFeedback.tabNew') },
+        { key: 'handled' as const, label: t('adminFeedback.tabHandled') },
+        { key: 'spam' as const, label: t('adminFeedback.tabSpam') },
+        { key: 'all' as const, label: t('adminFeedback.tabAll') },
+      ] satisfies Array<{ key: FeedbackStatus | 'all'; label: string }>,
+    [t],
+  );
 
   const load = useCallback(
     async (nextTab: FeedbackStatus | 'all', nextOffset: number) => {
@@ -72,10 +78,10 @@ export function FeedbackAdminView({ initial }: { initial: FeedbackPage }) {
         setTab(nextTab);
         setOffset(nextOffset);
       } catch {
-        setError('Could not load feedback. Try again.');
+        setError(t('adminFeedback.errLoad'));
       }
     },
-    [],
+    [t],
   );
 
   async function setStatus(id: string, status: FeedbackStatus) {
@@ -90,7 +96,7 @@ export function FeedbackAdminView({ initial }: { initial: FeedbackPage }) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       await load(tab, offset);
     } catch {
-      setError('Could not update that item.');
+      setError(t('adminFeedback.errUpdate'));
     } finally {
       setBusy(null);
     }
@@ -99,11 +105,7 @@ export function FeedbackAdminView({ initial }: { initial: FeedbackPage }) {
   async function remove(id: string) {
     // Feedback can contain whatever someone typed into a public box,
     // and the delete is a hard one, so confirm before it goes.
-    if (
-      !window.confirm(
-        'Delete this feedback permanently? This also removes any screenshot.',
-      )
-    ) {
+    if (!window.confirm(t('adminFeedback.deleteConfirm'))) {
       return;
     }
     setBusy(id);
@@ -120,7 +122,7 @@ export function FeedbackAdminView({ initial }: { initial: FeedbackPage }) {
           : offset;
       await load(tab, nextOffset);
     } catch {
-      setError('Could not delete that item.');
+      setError(t('adminFeedback.errDelete'));
     } finally {
       setBusy(null);
     }
@@ -132,21 +134,21 @@ export function FeedbackAdminView({ initial }: { initial: FeedbackPage }) {
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center gap-1">
-        {TABS.map((t) => (
+        {tabs.map((row) => (
           <button
-            key={t.key}
+            key={row.key}
             type="button"
-            onClick={() => void load(t.key, 0)}
+            onClick={() => void load(row.key, 0)}
             className={`rounded-md px-2.5 py-1.5 text-sm transition ${
-              tab === t.key
+              tab === row.key
                 ? 'bg-accent/10 font-medium text-accent'
                 : 'text-muted hover:bg-surface-2'
             }`}
           >
-            {t.label}
-            {t.key !== 'all' ? (
+            {row.label}
+            {row.key !== 'all' ? (
               <span className="ml-1.5 text-xs text-muted">
-                {page.counts[t.key] ?? 0}
+                {page.counts[row.key] ?? 0}
               </span>
             ) : null}
           </button>
@@ -162,8 +164,8 @@ export function FeedbackAdminView({ initial }: { initial: FeedbackPage }) {
       {page.items.length === 0 ? (
         <p className="rounded-lg border border-border bg-surface-1 px-4 py-8 text-center text-sm text-muted">
           {tab === 'new'
-            ? 'Nothing new. When someone sends feedback it lands here.'
-            : 'Nothing here.'}
+            ? t('adminFeedback.emptyNew')
+            : t('adminFeedback.emptyOther')}
         </p>
       ) : (
         <ul className="space-y-3">
@@ -175,11 +177,13 @@ export function FeedbackAdminView({ initial }: { initial: FeedbackPage }) {
               <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
                 <div className="text-sm">
                   <span className="font-medium text-ink-0">
-                    {row.name || row.user?.fullName || 'Anonymous'}
+                    {row.name ||
+                      row.user?.fullName ||
+                      t('adminFeedback.anonymous')}
                   </span>
                   {row.email ? (
                     <a
-                      href={`mailto:${row.email}?subject=Re: your GratisGIS feedback`}
+                      href={`mailto:${row.email}?subject=${encodeURIComponent(t('adminFeedback.mailSubject'))}`}
                       className="ml-2 text-accent hover:underline"
                     >
                       {row.email}
@@ -187,7 +191,9 @@ export function FeedbackAdminView({ initial }: { initial: FeedbackPage }) {
                   ) : null}
                   {row.user ? (
                     <span className="ml-2 text-xs text-muted">
-                      signed in as {row.user.username}
+                      {t('adminFeedback.signedInAs', {
+                        username: row.user.username,
+                      })}
                     </span>
                   ) : null}
                 </div>
@@ -207,7 +213,7 @@ export function FeedbackAdminView({ initial }: { initial: FeedbackPage }) {
               <dl className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
                 {row.pageUrl ? (
                   <div className="flex min-w-0 gap-1">
-                    <dt className="shrink-0">Page:</dt>
+                    <dt className="shrink-0">{t('adminFeedback.labelPage')}</dt>
                     <dd className="truncate">
                       <a
                         href={row.pageUrl}
@@ -222,19 +228,21 @@ export function FeedbackAdminView({ initial }: { initial: FeedbackPage }) {
                 ) : null}
                 {row.appVersion ? (
                   <div className="flex gap-1">
-                    <dt>Version:</dt>
+                    <dt>{t('adminFeedback.labelVersion')}</dt>
                     <dd>{row.appVersion}</dd>
                   </div>
                 ) : null}
                 {row.viewport ? (
                   <div className="flex gap-1">
-                    <dt>Window:</dt>
+                    <dt>{t('adminFeedback.labelWindow')}</dt>
                     <dd>{row.viewport}</dd>
                   </div>
                 ) : null}
                 {row.userAgent ? (
                   <div className="flex min-w-0 gap-1">
-                    <dt className="shrink-0">Browser:</dt>
+                    <dt className="shrink-0">
+                      {t('adminFeedback.labelBrowser')}
+                    </dt>
                     <dd className="truncate" title={row.userAgent}>
                       {row.userAgent}
                     </dd>
@@ -250,7 +258,7 @@ export function FeedbackAdminView({ initial }: { initial: FeedbackPage }) {
                   className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-ink-1 hover:bg-surface-2"
                 >
                   <ImageIcon className="h-3.5 w-3.5" />
-                  View screenshot
+                  {t('adminFeedback.viewScreenshot')}
                 </a>
               ) : null}
 
@@ -260,14 +268,14 @@ export function FeedbackAdminView({ initial }: { initial: FeedbackPage }) {
                     busy={busy === row.id}
                     onClick={() => void setStatus(row.id, 'handled')}
                     icon={<Check className="h-3.5 w-3.5" />}
-                    label="Mark handled"
+                    label={t('adminFeedback.markHandled')}
                   />
                 ) : null}
                 {row.status !== 'spam' ? (
                   <ActionButton
                     busy={busy === row.id}
                     onClick={() => void setStatus(row.id, 'spam')}
-                    label="Spam"
+                    label={t('adminFeedback.tabSpam')}
                   />
                 ) : null}
                 {row.status !== 'new' ? (
@@ -275,7 +283,7 @@ export function FeedbackAdminView({ initial }: { initial: FeedbackPage }) {
                     busy={busy === row.id}
                     onClick={() => void setStatus(row.id, 'new')}
                     icon={<Undo2 className="h-3.5 w-3.5" />}
-                    label="Back to new"
+                    label={t('adminFeedback.backToNew')}
                   />
                 ) : null}
                 <button
@@ -285,15 +293,20 @@ export function FeedbackAdminView({ initial }: { initial: FeedbackPage }) {
                   className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-danger hover:bg-danger/5 disabled:opacity-50"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
-                  Delete
+                  {t('common.delete')}
                 </button>
               </div>
 
               {row.handledAt && row.handledBy ? (
                 <p className="mt-2 text-xs text-muted">
-                  {row.status === 'spam' ? 'Marked spam' : 'Handled'} by{' '}
-                  {row.handledBy.fullName} on{' '}
-                  {fmt.date(row.handledAt)}
+                  {t('adminFeedback.handledByOn', {
+                    status:
+                      row.status === 'spam'
+                        ? t('adminFeedback.markedSpam')
+                        : t('adminFeedback.handled'),
+                    name: row.handledBy.fullName,
+                    date: fmt.date(row.handledAt),
+                  })}
                 </p>
               ) : null}
             </li>
@@ -310,10 +323,14 @@ export function FeedbackAdminView({ initial }: { initial: FeedbackPage }) {
             className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 disabled:opacity-40"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
-            Newer
+            {t('adminFeedback.newer')}
           </button>
           <span className="text-xs text-muted">
-            {offset + 1}-{offset + page.items.length} of {page.total}
+            {t('adminFeedback.paginationRange', {
+              from: offset + 1,
+              to: offset + page.items.length,
+              total: page.total,
+            })}
           </span>
           <button
             type="button"
@@ -321,7 +338,7 @@ export function FeedbackAdminView({ initial }: { initial: FeedbackPage }) {
             onClick={() => void load(tab, offset + PAGE_SIZE)}
             className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 disabled:opacity-40"
           >
-            Older
+            {t('adminFeedback.older')}
             <ChevronRight className="h-3.5 w-3.5" />
           </button>
         </div>

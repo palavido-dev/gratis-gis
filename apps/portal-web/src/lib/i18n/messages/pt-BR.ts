@@ -45,6 +45,7 @@ export const ptBR: Partial<CatalogShape> = {
     security: 'Acesso',
     fieldQueues: 'Filas de campo',
     migrations: 'Migrações',
+    feedback: 'Feedback',
     gettingStarted: 'Primeiros passos',
   },
   shell: {
@@ -1945,6 +1946,97 @@ export const ptBR: Partial<CatalogShape> = {
       toastRemovedFromGroups:
         'Removido {username} de {count, plural, one {# grupo} other {# grupos}}.',
     },
+  },
+
+  adminFeedback: {
+    pageIntro:
+      'O que as pessoas enviaram pelo portal, do mais recente ao mais antigo.',
+    loadErrorTitle: 'Não foi possível carregar o feedback',
+    loadErrorFallback: 'Não foi possível carregar o feedback.',
+    errLoad: 'Não foi possível carregar o feedback. Tente novamente.',
+    errUpdate: 'Não foi possível atualizar esse item.',
+    deleteConfirm:
+      'Excluir este feedback permanentemente? Isso também remove qualquer captura de tela.',
+    errDelete: 'Não foi possível excluir esse item.',
+    tabNew: 'Novos',
+    tabHandled: 'Tratados',
+    tabSpam: 'Spam',
+    tabAll: 'Tudo',
+    emptyNew:
+      'Nada novo. Quando alguém enviar feedback, ele aparece aqui.',
+    emptyOther: 'Nada aqui.',
+    anonymous: 'Anônimo',
+    mailSubject: 'Re: seu feedback sobre o GratisGIS',
+    signedInAs: 'conectado como {username}',
+    labelPage: 'Página:',
+    labelVersion: 'Versão:',
+    labelWindow: 'Janela:',
+    labelBrowser: 'Navegador:',
+    viewScreenshot: 'Ver captura de tela',
+    markHandled: 'Marcar como tratado',
+    backToNew: 'Voltar para novos',
+    markedSpam: 'Marcado como spam',
+    handled: 'Tratado',
+    handledByOn: '{status} por {name} em {date}',
+    paginationRange: '{from}-{to} de {total}',
+    newer: 'Mais recentes',
+    older: 'Mais antigos',
+  },
+
+  adminAi: {
+    pageIntro:
+      'Opcionalmente conecte ChatGPT, Claude, Grok ou um servidor local compatível com OpenAI, como o Ollama.',
+    loadErrorTitle: 'Não foi possível carregar as configurações de IA',
+    loadErrorFallback: 'Não foi possível carregar as configurações de IA.',
+    providerHeading: 'Provedor',
+    badgeConfigured: 'configurado',
+    badgeOff: 'desligado',
+    intro:
+      'Desligado até você salvar um provedor e uma chave. A chave é criptografada em repouso e não é devolvida após salvar.',
+    introKeyStored:
+      ' Já há uma chave armazenada. Deixe o campo em branco para mantê-la.',
+    labelProvider: 'Provedor',
+    labelModel: 'Modelo',
+    labelBaseUrl: 'URL base',
+    baseUrlHint:
+      'Raiz compatível com OpenAI, como um servidor Ollama. Se não verificar chaves, ainda é preciso salvar um texto não vazio.',
+    labelApiKey: 'Chave de API',
+    placeholderUnchanged: '(sem alteração)',
+    placeholderPasteKey: 'Cole uma chave de API',
+    errSaveFallback: 'Não foi possível salvar o provedor de IA.',
+    noticeSaved:
+      'Salvo. A chave de API permanece no servidor e não é mostrada novamente.',
+    noticeSavedIncomplete:
+      'Salvo, mas o provedor ainda não está utilizável.',
+    errClear: 'Não foi possível limpar o provedor de IA.',
+    noticeCleared: 'A IA está desligada. Nenhuma chamada de modelo será feita.',
+    providerOpenai: 'OpenAI (ChatGPT)',
+    providerAnthropic: 'Anthropic (Claude)',
+    providerXai: 'xAI (Grok)',
+    providerOpenaiCompatible:
+      'OpenAI compatível local (Ollama ou proxy)',
+    confirmClear: 'Confirmar limpeza',
+    clear: 'Limpar',
+  },
+
+  adminMigrations: {
+    pageIntro:
+      'Mova dados para dentro e para fora do GratisGIS. Cada migração é uma ferramenta pontual que percorre um sistema externo, mostra uma prévia do que vai chegar e cria itens do portal quando você aceita.',
+    directionImport: 'Importar',
+    directionExport: 'Exportar',
+    statusPlanned: 'Planejado',
+    cardAgoImportTitle: 'Do ArcGIS Online',
+    cardAgoImportDescription:
+      'Espelhe mapas web, serviços hospedados, camadas de tiles e anexos de um portal AGO no GratisGIS. A estrutura de pastas e o escopo de compartilhamento são preservados. Apps, painéis e formulários não são importados (os ambientes de execução não se traduzem bem).',
+    cardAgoExportTitle: 'Para o ArcGIS Online',
+    cardAgoExportDescription:
+      'Envie mapas e camadas de dados do portal de volta para o AGO. Ainda não implementado.',
+    cardQgisTitle: 'De projeto QGIS',
+    cardQgisDescription:
+      'Leia um arquivo .qgs / .qgz e recrie suas camadas e estilos como itens do portal. Ainda não implementado.',
+    cardPostgisTitle: 'De PostGIS externo',
+    cardPostgisDescription:
+      'Puxe um esquema ou tabela de um banco PostGIS externo para uma data_layer do portal. Ainda não implementado.',
   },
 
   settingsNotifications: {

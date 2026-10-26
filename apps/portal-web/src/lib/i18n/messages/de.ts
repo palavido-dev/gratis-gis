@@ -47,6 +47,7 @@ export const de: Partial<CatalogShape> = {
     security: 'Anmeldung',
     fieldQueues: 'Feld-Warteschlangen',
     migrations: 'Migrationen',
+    feedback: 'Feedback',
     gettingStarted: 'Erste Schritte',
   },
   shell: {
@@ -1964,6 +1965,97 @@ export const de: Partial<CatalogShape> = {
       toastRemovedFromGroups:
         '{username} aus {count, plural, one {# Gruppe} other {# Gruppen}} entfernt.',
     },
+  },
+
+  adminFeedback: {
+    pageIntro:
+      'Was Nutzer aus dem Portal gesendet haben, neueste zuerst.',
+    loadErrorTitle: 'Feedback konnte nicht geladen werden',
+    loadErrorFallback: 'Feedback konnte nicht geladen werden.',
+    errLoad: 'Feedback konnte nicht geladen werden. Bitte erneut versuchen.',
+    errUpdate: 'Dieser Eintrag konnte nicht aktualisiert werden.',
+    deleteConfirm:
+      'Dieses Feedback dauerhaft löschen? Dabei wird auch ein Screenshot entfernt.',
+    errDelete: 'Dieser Eintrag konnte nicht gelöscht werden.',
+    tabNew: 'Neu',
+    tabHandled: 'Erledigt',
+    tabSpam: 'Spam',
+    tabAll: 'Alles',
+    emptyNew:
+      'Nichts Neues. Wenn jemand Feedback sendet, landet es hier.',
+    emptyOther: 'Hier ist nichts.',
+    anonymous: 'Anonym',
+    mailSubject: 'Re: Ihr GratisGIS-Feedback',
+    signedInAs: 'angemeldet als {username}',
+    labelPage: 'Seite:',
+    labelVersion: 'Version:',
+    labelWindow: 'Fenster:',
+    labelBrowser: 'Browser:',
+    viewScreenshot: 'Screenshot anzeigen',
+    markHandled: 'Als erledigt markieren',
+    backToNew: 'Zurück zu Neu',
+    markedSpam: 'Als Spam markiert',
+    handled: 'Erledigt',
+    handledByOn: '{status} von {name} am {date}',
+    paginationRange: '{from}-{to} von {total}',
+    newer: 'Neuer',
+    older: 'Älter',
+  },
+
+  adminAi: {
+    pageIntro:
+      'Optional ChatGPT, Claude, Grok oder einen lokalen OpenAI-kompatiblen Server wie Ollama verbinden.',
+    loadErrorTitle: 'KI-Einstellungen konnten nicht geladen werden',
+    loadErrorFallback: 'KI-Einstellungen konnten nicht geladen werden.',
+    providerHeading: 'Anbieter',
+    badgeConfigured: 'konfiguriert',
+    badgeOff: 'aus',
+    intro:
+      'Aus, bis Sie einen Anbieter und einen Schlüssel speichern. Der Schlüssel wird verschlüsselt gespeichert und nach dem Speichern nicht zurückgegeben.',
+    introKeyStored:
+      ' Ein Schlüssel ist bereits gespeichert. Feld leer lassen, um ihn zu behalten.',
+    labelProvider: 'Anbieter',
+    labelModel: 'Modell',
+    labelBaseUrl: 'Basis-URL',
+    baseUrlHint:
+      'OpenAI-kompatible Root-URL, z. B. ein Ollama-Server. Wenn keine Schlüssel geprüft werden, muss trotzdem ein nicht leerer Platzhalter gespeichert werden.',
+    labelApiKey: 'API-Schlüssel',
+    placeholderUnchanged: '(unverändert)',
+    placeholderPasteKey: 'API-Schlüssel einfügen',
+    errSaveFallback: 'KI-Anbieter konnte nicht gespeichert werden.',
+    noticeSaved:
+      'Gespeichert. Der API-Schlüssel bleibt auf dem Server und wird nicht wieder angezeigt.',
+    noticeSavedIncomplete:
+      'Gespeichert, aber der Anbieter ist noch nicht nutzbar.',
+    errClear: 'KI-Anbieter konnte nicht gelöscht werden.',
+    noticeCleared: 'KI ist aus. Es werden keine Modellaufrufe gemacht.',
+    providerOpenai: 'OpenAI (ChatGPT)',
+    providerAnthropic: 'Anthropic (Claude)',
+    providerXai: 'xAI (Grok)',
+    providerOpenaiCompatible:
+      'Lokal OpenAI-kompatibel (Ollama oder Proxy)',
+    confirmClear: 'Löschen bestätigen',
+    clear: 'Löschen',
+  },
+
+  adminMigrations: {
+    pageIntro:
+      'Daten in und aus GratisGIS verschieben. Jede Migration ist ein Einmal-Tool, das ein externes System durchläuft, eine Vorschau zeigt und nach Ihrer Zustimmung Portal-Items erstellt.',
+    directionImport: 'Import',
+    directionExport: 'Export',
+    statusPlanned: 'Geplant',
+    cardAgoImportTitle: 'Von ArcGIS Online',
+    cardAgoImportDescription:
+      'Web Maps, gehostete Services, Kachelebenen und Dateianhänge aus einem AGO-Portal nach GratisGIS übernehmen. Ordnerstruktur und Freigabebereich bleiben erhalten. Apps, Dashboards und Formulare werden nicht importiert (ihre Laufzeitumgebungen lassen sich nicht sauber übertragen).',
+    cardAgoExportTitle: 'Nach ArcGIS Online',
+    cardAgoExportDescription:
+      'Portal-Karten und Datenebenen zurück nach AGO senden. Noch nicht implementiert.',
+    cardQgisTitle: 'Aus QGIS-Projekt',
+    cardQgisDescription:
+      'Eine .qgs- / .qgz-Datei lesen und Ebenen sowie Stile als Portal-Items neu anlegen. Noch nicht implementiert.',
+    cardPostgisTitle: 'Von externem PostGIS',
+    cardPostgisDescription:
+      'Ein Schema oder eine Tabelle aus einer externen PostGIS-Datenbank in eine Portal-data_layer ziehen. Noch nicht implementiert.',
   },
 
   settingsNotifications: {

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Loader2, Save, Trash2 } from 'lucide-react';
+import { useT } from '@/lib/i18n/locale-context';
 
 export type AiProviderId =
   | 'openai'
@@ -19,16 +20,12 @@ export interface AiSettings {
   apiKeyConfigured: boolean;
 }
 
-const PROVIDERS: Array<{ id: AiProviderId; label: string; modelHint: string }> = [
-  { id: 'openai', label: 'OpenAI (ChatGPT)', modelHint: 'gpt-4o-mini' },
-  { id: 'anthropic', label: 'Anthropic (Claude)', modelHint: 'claude-sonnet-4-5' },
-  { id: 'xai', label: 'xAI (Grok)', modelHint: 'grok-3' },
-  {
-    id: 'openai-compatible',
-    label: 'Local OpenAI-compatible (Ollama or a proxy)',
-    modelHint: 'llama3.2',
-  },
-];
+const MODEL_HINTS: Record<AiProviderId, string> = {
+  openai: 'gpt-4o-mini',
+  anthropic: 'claude-sonnet-4-5',
+  xai: 'grok-3',
+  'openai-compatible': 'llama3.2',
+};
 
 const inputClass =
   'h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30';
@@ -39,6 +36,7 @@ const inputClass =
  * API never sends the key back.
  */
 export function AiSettingsForm({ initial }: { initial: AiSettings }) {
+  const t = useT();
   const [settings, setSettings] = useState<AiSettings>(initial);
   const [provider, setProvider] = useState<AiProviderId>(
     initial.provider ?? 'openai',
@@ -52,7 +50,21 @@ export function AiSettingsForm({ initial }: { initial: AiSettings }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const hint = PROVIDERS.find((row) => row.id === provider)?.modelHint ?? '';
+  const providers = useMemo(
+    () =>
+      [
+        { id: 'openai' as const, label: t('adminAi.providerOpenai') },
+        { id: 'anthropic' as const, label: t('adminAi.providerAnthropic') },
+        { id: 'xai' as const, label: t('adminAi.providerXai') },
+        {
+          id: 'openai-compatible' as const,
+          label: t('adminAi.providerOpenaiCompatible'),
+        },
+      ] satisfies Array<{ id: AiProviderId; label: string }>,
+    [t],
+  );
+
+  const hint = MODEL_HINTS[provider];
 
   async function save() {
     setSaving(true);
@@ -83,7 +95,7 @@ export function AiSettingsForm({ initial }: { initial: AiSettings }) {
         setError(
           typeof body?.message === 'string'
             ? body.message
-            : 'Could not save the AI provider.',
+            : t('adminAi.errSaveFallback'),
         );
         return;
       }
@@ -94,11 +106,11 @@ export function AiSettingsForm({ initial }: { initial: AiSettings }) {
       if (body.provider) setProvider(body.provider);
       setNotice(
         body.configured
-          ? 'Saved. The API key stays on the server and is not shown again.'
-          : 'Saved, but the provider is not usable yet.',
+          ? t('adminAi.noticeSaved')
+          : t('adminAi.noticeSavedIncomplete'),
       );
     } catch {
-      setError('Could not save the AI provider.');
+      setError(t('adminAi.errSaveFallback'));
     } finally {
       setSaving(false);
     }
@@ -112,7 +124,7 @@ export function AiSettingsForm({ initial }: { initial: AiSettings }) {
       const res = await fetch('/api/portal/admin/ai', { method: 'DELETE' });
       const body = (await res.json().catch(() => null)) as AiSettings | null;
       if (!res.ok || !body) {
-        setError('Could not clear the AI provider.');
+        setError(t('adminAi.errClear'));
         return;
       }
       setSettings(body);
@@ -121,9 +133,9 @@ export function AiSettingsForm({ initial }: { initial: AiSettings }) {
       setApiKey('');
       setProvider('openai');
       setConfirmClear(false);
-      setNotice('AI is off. No model calls will be made.');
+      setNotice(t('adminAi.noticeCleared'));
     } catch {
-      setError('Could not clear the AI provider.');
+      setError(t('adminAi.errClear'));
     } finally {
       setClearing(false);
     }
@@ -132,33 +144,32 @@ export function AiSettingsForm({ initial }: { initial: AiSettings }) {
   return (
     <div className="rounded-lg border border-border bg-surface-1 p-4 shadow-card">
       <div className="mb-3 flex items-center gap-2">
-        <h2 className="text-sm font-medium text-ink-0">Provider</h2>
+        <h2 className="text-sm font-medium text-ink-0">
+          {t('adminAi.providerHeading')}
+        </h2>
         {settings.configured ? (
           <span className="inline-flex rounded-full bg-accent/15 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-accent">
-            configured
+            {t('adminAi.badgeConfigured')}
           </span>
         ) : (
           <span className="inline-flex rounded-full bg-warn/15 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-warn">
-            off
+            {t('adminAi.badgeOff')}
           </span>
         )}
       </div>
       <p className="mb-4 text-xs text-muted">
-        Off until you save a provider and a key. The key is encrypted at
-        rest and is not returned after save.
-        {settings.apiKeyConfigured
-          ? ' A key is already stored. Leave the field blank to keep it.'
-          : ''}
+        {t('adminAi.intro')}
+        {settings.apiKeyConfigured ? t('adminAi.introKeyStored') : ''}
       </p>
 
       <label className="mb-3 block text-xs text-muted">
-        Provider
+        {t('adminAi.labelProvider')}
         <select
           value={provider}
           onChange={(e) => setProvider(e.target.value as AiProviderId)}
           className={`${inputClass} mt-1`}
         >
-          {PROVIDERS.map((row) => (
+          {providers.map((row) => (
             <option key={row.id} value={row.id}>
               {row.label}
             </option>
@@ -167,7 +178,7 @@ export function AiSettingsForm({ initial }: { initial: AiSettings }) {
       </label>
 
       <label className="mb-3 block text-xs text-muted">
-        Model
+        {t('adminAi.labelModel')}
         <input
           type="text"
           value={model}
@@ -180,7 +191,7 @@ export function AiSettingsForm({ initial }: { initial: AiSettings }) {
 
       {provider === 'openai-compatible' ? (
         <label className="mb-3 block text-xs text-muted">
-          Base URL
+          {t('adminAi.labelBaseUrl')}
           <input
             type="url"
             value={baseUrl}
@@ -189,22 +200,21 @@ export function AiSettingsForm({ initial }: { initial: AiSettings }) {
             maxLength={2048}
             className={`${inputClass} mt-1`}
           />
-          <span className="mt-1 block">
-            OpenAI-compatible root, such as an Ollama server. If it does
-            not check keys, any non-empty placeholder still has to be saved.
-          </span>
+          <span className="mt-1 block">{t('adminAi.baseUrlHint')}</span>
         </label>
       ) : null}
 
       <label className="mb-4 block text-xs text-muted">
-        API key
+        {t('adminAi.labelApiKey')}
         <input
           type="password"
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
           autoComplete="off"
           placeholder={
-            settings.apiKeyConfigured ? '(unchanged)' : 'Paste an API key'
+            settings.apiKeyConfigured
+              ? t('adminAi.placeholderUnchanged')
+              : t('adminAi.placeholderPasteKey')
           }
           maxLength={4096}
           className={`${inputClass} mt-1`}
@@ -232,7 +242,7 @@ export function AiSettingsForm({ initial }: { initial: AiSettings }) {
           ) : (
             <Save className="h-3.5 w-3.5" />
           )}
-          Save
+          {t('common.save')}
         </button>
         {confirmClear ? (
           <>
@@ -247,14 +257,14 @@ export function AiSettingsForm({ initial }: { initial: AiSettings }) {
               ) : (
                 <Trash2 className="h-3.5 w-3.5" />
               )}
-              Confirm clear
+              {t('adminAi.confirmClear')}
             </button>
             <button
               type="button"
               onClick={() => setConfirmClear(false)}
               className="inline-flex h-8 items-center rounded-md px-2 text-xs text-muted hover:text-ink-0"
             >
-              Cancel
+              {t('common.cancel')}
             </button>
           </>
         ) : (
@@ -265,7 +275,7 @@ export function AiSettingsForm({ initial }: { initial: AiSettings }) {
             className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-3 text-xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
           >
             <Trash2 className="h-3.5 w-3.5" />
-            Clear
+            {t('adminAi.clear')}
           </button>
         )}
       </div>

@@ -52,6 +52,7 @@ export const en = {
     security: 'Sign-in',
     fieldQueues: 'Field queues',
     migrations: 'Migrations',
+    feedback: 'Feedback',
     gettingStarted: 'Getting started',
   },
   shell: {
@@ -2034,6 +2035,98 @@ export const en = {
       toastRemovedFromGroups:
         'Removed {username} from {count, plural, one {# group} other {# groups}}.',
     },
+  },
+
+  /** Admin → Feedback (#162). */
+  adminFeedback: {
+    pageIntro: 'What people have sent from the portal, newest first.',
+    loadErrorTitle: 'Could not load feedback',
+    loadErrorFallback: 'Could not load feedback.',
+    errLoad: 'Could not load feedback. Try again.',
+    errUpdate: 'Could not update that item.',
+    deleteConfirm:
+      'Delete this feedback permanently? This also removes any screenshot.',
+    errDelete: 'Could not delete that item.',
+    tabNew: 'New',
+    tabHandled: 'Handled',
+    tabSpam: 'Spam',
+    tabAll: 'Everything',
+    emptyNew:
+      'Nothing new. When someone sends feedback it lands here.',
+    emptyOther: 'Nothing here.',
+    anonymous: 'Anonymous',
+    mailSubject: 'Re: your GratisGIS feedback',
+    signedInAs: 'signed in as {username}',
+    labelPage: 'Page:',
+    labelVersion: 'Version:',
+    labelWindow: 'Window:',
+    labelBrowser: 'Browser:',
+    viewScreenshot: 'View screenshot',
+    markHandled: 'Mark handled',
+    backToNew: 'Back to new',
+    markedSpam: 'Marked spam',
+    handled: 'Handled',
+    handledByOn: '{status} by {name} on {date}',
+    paginationRange: '{from}-{to} of {total}',
+    newer: 'Newer',
+    older: 'Older',
+  },
+
+  /** Admin → AI (#162). */
+  adminAi: {
+    pageIntro:
+      'Optionally connect ChatGPT, Claude, Grok, or a local OpenAI-compatible server such as Ollama.',
+    loadErrorTitle: 'Could not load AI settings',
+    loadErrorFallback: 'Could not load AI settings.',
+    providerHeading: 'Provider',
+    badgeConfigured: 'configured',
+    badgeOff: 'off',
+    intro:
+      'Off until you save a provider and a key. The key is encrypted at rest and is not returned after save.',
+    introKeyStored:
+      ' A key is already stored. Leave the field blank to keep it.',
+    labelProvider: 'Provider',
+    labelModel: 'Model',
+    labelBaseUrl: 'Base URL',
+    baseUrlHint:
+      'OpenAI-compatible root, such as an Ollama server. If it does not check keys, any non-empty placeholder still has to be saved.',
+    labelApiKey: 'API key',
+    placeholderUnchanged: '(unchanged)',
+    placeholderPasteKey: 'Paste an API key',
+    errSaveFallback: 'Could not save the AI provider.',
+    noticeSaved:
+      'Saved. The API key stays on the server and is not shown again.',
+    noticeSavedIncomplete: 'Saved, but the provider is not usable yet.',
+    errClear: 'Could not clear the AI provider.',
+    noticeCleared: 'AI is off. No model calls will be made.',
+    providerOpenai: 'OpenAI (ChatGPT)',
+    providerAnthropic: 'Anthropic (Claude)',
+    providerXai: 'xAI (Grok)',
+    providerOpenaiCompatible:
+      'Local OpenAI-compatible (Ollama or a proxy)',
+    confirmClear: 'Confirm clear',
+    clear: 'Clear',
+  },
+
+  /** Admin → Migrations (#162). */
+  adminMigrations: {
+    pageIntro:
+      'Move data in and out of GratisGIS. Each migration is a one-shot tool that walks an external system, previews what will land, and creates portal items on your accept.',
+    directionImport: 'Import',
+    directionExport: 'Export',
+    statusPlanned: 'Planned',
+    cardAgoImportTitle: 'From ArcGIS Online',
+    cardAgoImportDescription:
+      "Mirror Web Maps, hosted services, tile layers, and file attachments from an AGO portal into GratisGIS. Folder layout and sharing scope are preserved. Apps, dashboards, and forms are not imported (their runtimes don't translate cleanly).",
+    cardAgoExportTitle: 'To ArcGIS Online',
+    cardAgoExportDescription:
+      'Push portal maps and data layers back out to AGO. Not yet implemented.',
+    cardQgisTitle: 'From QGIS project',
+    cardQgisDescription:
+      'Read a .qgs / .qgz project file, recreate its layers and styles as portal items. Not yet implemented.',
+    cardPostgisTitle: 'From external PostGIS',
+    cardPostgisDescription:
+      'Pull a schema or table from an external PostGIS database into a portal data_layer. Not yet implemented.',
   },
 
   /** Settings → Notification preferences (#162). */

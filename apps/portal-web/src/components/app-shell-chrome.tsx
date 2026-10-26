@@ -363,7 +363,7 @@ function NavList({
             icon={<MessageSquarePlus className="h-4 w-4" />}
             onNavigate={cb}
           >
-            Feedback
+            {t('nav.feedback')}
           </NavLink>
           <NavLink
             href="/admin/field-queues"

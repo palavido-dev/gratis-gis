@@ -47,6 +47,7 @@ export const fr: Partial<CatalogShape> = {
     security: 'Connexion',
     fieldQueues: 'Files de terrain',
     migrations: 'Migrations',
+    feedback: 'Commentaires',
     gettingStarted: 'Premiers pas',
   },
   shell: {
@@ -1955,6 +1956,97 @@ export const fr: Partial<CatalogShape> = {
       toastRemovedFromGroups:
         '{username} retiré de {count, plural, one {# groupe} other {# groupes}}.',
     },
+  },
+
+  adminFeedback: {
+    pageIntro:
+      'Ce que les personnes ont envoyé depuis le portail, du plus récent au plus ancien.',
+    loadErrorTitle: 'Impossible de charger les commentaires',
+    loadErrorFallback: 'Impossible de charger les commentaires.',
+    errLoad: 'Impossible de charger les commentaires. Réessayez.',
+    errUpdate: 'Impossible de mettre à jour cet élément.',
+    deleteConfirm:
+      'Supprimer définitivement ce commentaire ? Toute capture sera aussi supprimée.',
+    errDelete: 'Impossible de supprimer cet élément.',
+    tabNew: 'Nouveaux',
+    tabHandled: 'Traités',
+    tabSpam: 'Spam',
+    tabAll: 'Tout',
+    emptyNew:
+      'Rien de nouveau. Quand quelqu\'un envoie un commentaire, il apparaît ici.',
+    emptyOther: 'Rien ici.',
+    anonymous: 'Anonyme',
+    mailSubject: 'Re : vos commentaires GratisGIS',
+    signedInAs: 'connecté en tant que {username}',
+    labelPage: 'Page :',
+    labelVersion: 'Version :',
+    labelWindow: 'Fenêtre :',
+    labelBrowser: 'Navigateur :',
+    viewScreenshot: 'Voir la capture',
+    markHandled: 'Marquer comme traité',
+    backToNew: 'Revenir aux nouveaux',
+    markedSpam: 'Marqué comme spam',
+    handled: 'Traité',
+    handledByOn: '{status} par {name} le {date}',
+    paginationRange: '{from}-{to} sur {total}',
+    newer: 'Plus récents',
+    older: 'Plus anciens',
+  },
+
+  adminAi: {
+    pageIntro:
+      'Connectez éventuellement ChatGPT, Claude, Grok ou un serveur local compatible OpenAI comme Ollama.',
+    loadErrorTitle: 'Impossible de charger les paramètres IA',
+    loadErrorFallback: 'Impossible de charger les paramètres IA.',
+    providerHeading: 'Fournisseur',
+    badgeConfigured: 'configuré',
+    badgeOff: 'désactivé',
+    intro:
+      'Désactivé tant que vous n\'avez pas enregistré un fournisseur et une clé. La clé est chiffrée au repos et n\'est pas renvoyée après enregistrement.',
+    introKeyStored:
+      ' Une clé est déjà enregistrée. Laissez le champ vide pour la conserver.',
+    labelProvider: 'Fournisseur',
+    labelModel: 'Modèle',
+    labelBaseUrl: 'URL de base',
+    baseUrlHint:
+      'Racine compatible OpenAI, par ex. un serveur Ollama. S\'il ne vérifie pas les clés, un texte non vide doit quand même être enregistré.',
+    labelApiKey: 'Clé API',
+    placeholderUnchanged: '(inchangé)',
+    placeholderPasteKey: 'Collez une clé API',
+    errSaveFallback: 'Impossible d\'enregistrer le fournisseur IA.',
+    noticeSaved:
+      'Enregistré. La clé API reste sur le serveur et n\'est plus affichée.',
+    noticeSavedIncomplete:
+      'Enregistré, mais le fournisseur n\'est pas encore utilisable.',
+    errClear: 'Impossible de supprimer le fournisseur IA.',
+    noticeCleared: 'L\'IA est désactivée. Aucun appel de modèle ne sera fait.',
+    providerOpenai: 'OpenAI (ChatGPT)',
+    providerAnthropic: 'Anthropic (Claude)',
+    providerXai: 'xAI (Grok)',
+    providerOpenaiCompatible:
+      'OpenAI compatible local (Ollama ou proxy)',
+    confirmClear: 'Confirmer la suppression',
+    clear: 'Effacer',
+  },
+
+  adminMigrations: {
+    pageIntro:
+      'Déplacez des données vers et depuis GratisGIS. Chaque migration est un outil ponctuel qui parcourt un système externe, prévisualise ce qui arrivera et crée des éléments du portail lorsque vous acceptez.',
+    directionImport: 'Import',
+    directionExport: 'Export',
+    statusPlanned: 'Prévu',
+    cardAgoImportTitle: 'Depuis ArcGIS Online',
+    cardAgoImportDescription:
+      'Reproduisez cartes web, services hébergés, couches tuilées et pièces jointes d\'un portail AGO dans GratisGIS. Arborescence et périmètre de partage sont conservés. Apps, tableaux de bord et formulaires ne sont pas importés (leurs environnements d\'exécution ne se traduisent pas proprement).',
+    cardAgoExportTitle: 'Vers ArcGIS Online',
+    cardAgoExportDescription:
+      'Renvoyez cartes et couches du portail vers AGO. Pas encore implémenté.',
+    cardQgisTitle: 'Depuis un projet QGIS',
+    cardQgisDescription:
+      'Lisez un fichier .qgs / .qgz et recréez ses couches et styles comme éléments du portail. Pas encore implémenté.',
+    cardPostgisTitle: 'Depuis un PostGIS externe',
+    cardPostgisDescription:
+      'Importez un schéma ou une table d\'une base PostGIS externe vers une couche data_layer du portail. Pas encore implémenté.',
   },
 
   settingsNotifications: {
