@@ -15,9 +15,15 @@ import {
   Sparkles,
   Upload,
   Users,
-  X,
 } from 'lucide-react';
 import type { Item, MapLayer, MapLayerSource } from '@gratis-gis/shared-types';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { fileToGeoJson } from './kml-convert';
 import {
   arcgisSublayers,
@@ -1090,33 +1096,29 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
     }
   }
 
-  if (!open) return null;
-
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Add layer"
-      className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
+    <>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <div
-        className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-border bg-surface-1 shadow-overlay"
-        onClick={(e) => e.stopPropagation()}
+      <DialogContent
+        size="lg"
+        className="flex max-h-[85vh] flex-col overflow-hidden p-0 shadow-overlay"
       >
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h2 className="text-base font-semibold">Add layer</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-surface-2"
-          >
-            <X className="h-4 w-4" />
-          </button>
+        <div className="border-b border-border px-4 py-3 pr-12">
+          <DialogTitle className="text-base font-semibold">
+            Add layer
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            Add a portal item, file, URL, ArcGIS service, or new empty layer
+            to this map.
+          </DialogDescription>
         </div>
 
-<div className="flex gap-0 border-b border-border px-2 pt-2">
+        <div className="flex gap-0 border-b border-border px-2 pt-2">
           {/* Portal first: content inside this org's catalog is the
               most common "add a layer" path once maps exist. The
               Curated tab was removed (#91) -- it shipped a
@@ -1800,20 +1802,21 @@ export function AddLayerDialog({ open, onClose, onAdd }: Props) {
             </button>
           </div>
         )}
-      </div>
-      {pendingSublayerChoice ? (
-        <SublayerChoiceModal
-          item={pendingSublayerChoice.item}
-          sublayers={pendingSublayerChoice.sublayers}
-          onPick={(mode, selectedIds) => {
-            const onConfirm = pendingSublayerChoice.onConfirm;
-            setPendingSublayerChoice(null);
-            onConfirm(mode, selectedIds);
-          }}
-          onCancel={() => setPendingSublayerChoice(null)}
-        />
-      ) : null}
-    </div>
+      </DialogContent>
+    </Dialog>
+    {pendingSublayerChoice ? (
+      <SublayerChoiceModal
+        item={pendingSublayerChoice.item}
+        sublayers={pendingSublayerChoice.sublayers}
+        onPick={(mode, selectedIds) => {
+          const onConfirm = pendingSublayerChoice.onConfirm;
+          setPendingSublayerChoice(null);
+          onConfirm(mode, selectedIds);
+        }}
+        onCancel={() => setPendingSublayerChoice(null)}
+      />
+    ) : null}
+    </>
   );
 }
 
@@ -1872,25 +1875,24 @@ function SublayerChoiceModal({
     else setSelected(new Set(sublayers.map((l) => l.id)));
   }
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Add sublayers"
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4"
-      onClick={onCancel}
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onCancel();
+      }}
     >
-      <div
-        className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-lg border border-border bg-surface-1 shadow-overlay"
-        onClick={(e) => e.stopPropagation()}
+      <DialogContent
+        size="md"
+        className="flex max-h-[85vh] flex-col overflow-hidden p-0 shadow-overlay"
       >
-        <div className="shrink-0 border-b border-border px-4 py-3">
-          <h3 className="text-base font-semibold">
+        <div className="shrink-0 border-b border-border px-4 py-3 pr-12">
+          <DialogTitle className="text-base font-semibold">
             Add &ldquo;{item.title}&rdquo;
-          </h3>
-          <p className="mt-1 text-sm text-muted">
+          </DialogTitle>
+          <DialogDescription className="mt-1 text-sm text-muted">
             This item has <strong>{sublayers.length} sublayers</strong>. Pick
             which to include, then choose how to add them.
-          </p>
+          </DialogDescription>
         </div>
         <div className="flex-1 overflow-y-auto px-4 py-3">
           <div className="mb-2 flex items-center justify-between">
@@ -1979,7 +1981,7 @@ function SublayerChoiceModal({
             </div>
           </button>
         </div>
-        <div className="flex shrink-0 items-center justify-end border-t border-border px-4 py-3">
+        <DialogFooter className="shrink-0 px-4 py-3">
           <button
             type="button"
             onClick={onCancel}
@@ -1987,9 +1989,9 @@ function SublayerChoiceModal({
           >
             Cancel
           </button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
