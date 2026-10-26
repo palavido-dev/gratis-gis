@@ -2,6 +2,7 @@
 'use client';
 
 import { useFormat } from '@/lib/i18n/format';
+import { useT } from '@/lib/i18n/locale-context';
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -104,6 +105,7 @@ interface Props {
  * place so the counts stay in sync as the admin works.
  */
 export function UserAccessDialog({ userId, username, onClose }: Props) {
+  const t = useT();
   const [tab, setTab] = useState<'items' | 'groups'>('items');
   const [bundle, setBundle] = useState<UserAccessBundle | null>(null);
   const [loading, setLoading] = useState(true);
@@ -148,12 +150,12 @@ export function UserAccessDialog({ userId, username, onClose }: Props) {
         setBundle(body);
       } catch (e) {
         if ((e as Error)?.name === 'AbortError') return;
-        setError((e as Error).message ?? 'Could not load access.');
+        setError((e as Error).message ?? t('adminUsers.access.errLoad'));
       } finally {
         if (!signal?.aborted) setLoading(false);
       }
     },
-    [userId],
+    [userId, t],
   );
 
   useEffect(() => {
@@ -200,16 +202,24 @@ export function UserAccessDialog({ userId, username, onClose }: Props) {
           }),
         });
         if (!r.ok) {
-          throw new Error(`Item ${itemId.slice(0, 8)}: HTTP ${r.status}`);
+          throw new Error(
+            t('adminUsers.access.errItemHttp', {
+              id: itemId.slice(0, 8),
+              status: String(r.status),
+            }),
+          );
         }
       });
       flashMessage(
-        `Revoked ${ids.length} share${ids.length === 1 ? '' : 's'} from ${username}.`,
+        t('adminUsers.access.toastRevokedShares', {
+          count: ids.length,
+          username,
+        }),
       );
       setSelectedShares(new Set());
       await reload();
     } catch (e) {
-      setError((e as Error).message ?? 'Could not revoke shares.');
+      setError((e as Error).message ?? t('adminUsers.access.errRevokeShares'));
     } finally {
       setBusy(false);
     }
@@ -230,16 +240,26 @@ export function UserAccessDialog({ userId, username, onClose }: Props) {
           { method: 'DELETE' },
         );
         if (!r.ok) {
-          throw new Error(`Group ${groupId.slice(0, 8)}: HTTP ${r.status}`);
+          throw new Error(
+            t('adminUsers.access.errGroupHttp', {
+              id: groupId.slice(0, 8),
+              status: String(r.status),
+            }),
+          );
         }
       });
       flashMessage(
-        `Removed ${username} from ${ids.length} group${ids.length === 1 ? '' : 's'}.`,
+        t('adminUsers.access.toastRemovedFromGroups', {
+          count: ids.length,
+          username,
+        }),
       );
       setSelectedGroups(new Set());
       await reload();
     } catch (e) {
-      setError((e as Error).message ?? 'Could not remove from groups.');
+      setError(
+        (e as Error).message ?? t('adminUsers.access.errRemoveFromGroups'),
+      );
     } finally {
       setBusy(false);
     }
@@ -271,14 +291,11 @@ export function UserAccessDialog({ userId, username, onClose }: Props) {
           <div className="flex items-center gap-2">
             <Eye className="h-4 w-4 text-accent" />
             <DialogTitle className="text-sm font-semibold text-ink-0">
-              What can {username} see?
+              {t('adminUsers.access.title', { username })}
             </DialogTitle>
           </div>
           <DialogDescription className="mt-0.5 text-xs">
-            Everything visible to this user, with how they have access.
-            Use the actions to revoke specific shares or group
-            memberships. Org-wide and public items aren&apos;t per-user
-            revocable from here.
+            {t('adminUsers.access.description')}
           </DialogDescription>
         </div>
 
@@ -289,26 +306,36 @@ export function UserAccessDialog({ userId, username, onClose }: Props) {
             onClick={() => setTab('items')}
             label={
               bundle
-                ? `Items (${
-                    (showOwned ? bundle.owned.length : 0) +
-                    bundle.directShared.length +
-                    bundle.groupShared.length
-                  })`
-                : 'Items'
+                ? t('adminUsers.access.tabItemsCount', {
+                    count:
+                      (showOwned ? bundle.owned.length : 0) +
+                      bundle.directShared.length +
+                      bundle.groupShared.length,
+                  })
+                : t('adminUsers.access.tabItems')
             }
           />
           <TabButton
             active={tab === 'groups'}
             onClick={() => setTab('groups')}
-            label={bundle ? `Groups (${bundle.groups.length})` : 'Groups'}
+            label={
+              bundle
+                ? t('adminUsers.access.tabGroupsCount', {
+                    count: bundle.groups.length,
+                  })
+                : t('adminUsers.access.tabGroups')
+            }
           />
         </div>
 
         {/* Bulk action bar */}
         {tab === 'items' && selectedShares.size > 0 ? (
           <BulkBar
-            label={`${selectedShares.size} share${selectedShares.size === 1 ? '' : 's'} selected`}
-            actionLabel="Revoke share"
+            label={t('adminUsers.access.bulkSharesSelected', {
+              count: selectedShares.size,
+            })}
+            actionLabel={t('adminUsers.access.bulkRevokeShare')}
+            clearLabel={t('adminUsers.access.clear')}
             tone="danger"
             busy={busy}
             onAction={bulkRevokeShares}
@@ -317,8 +344,13 @@ export function UserAccessDialog({ userId, username, onClose }: Props) {
         ) : null}
         {tab === 'groups' && selectedGroups.size > 0 ? (
           <BulkBar
-            label={`${selectedGroups.size} membership${selectedGroups.size === 1 ? '' : 's'} selected`}
-            actionLabel={`Remove ${username} from group`}
+            label={t('adminUsers.access.bulkMembershipsSelected', {
+              count: selectedGroups.size,
+            })}
+            actionLabel={t('adminUsers.access.bulkRemoveFromGroup', {
+              username,
+            })}
+            clearLabel={t('adminUsers.access.clear')}
             tone="warn"
             busy={busy}
             onAction={bulkRemoveFromGroups}
@@ -346,13 +378,10 @@ export function UserAccessDialog({ userId, username, onClose }: Props) {
               <Loader2 className="h-5 w-5 animate-spin" />
             </div>
           ) : !bundle ? (
-            <p className="text-sm text-muted">No data.</p>
+            <p className="text-sm text-muted">{t('adminUsers.access.noData')}</p>
           ) : bundle.neverSignedIn ? (
             <p className="rounded-md border border-warn/40 bg-warn/10 px-3 py-3 text-sm text-warn">
-              This user is in Keycloak but has never signed in to the
-              portal, so there&apos;s no portal activity to show. Once
-              they sign in for the first time, their access will appear
-              here.
+              {t('adminUsers.access.neverSignedIn')}
             </p>
           ) : tab === 'items' ? (
             <ItemsTab
@@ -410,6 +439,7 @@ function ItemsTab({
   onToggleShare: (itemId: string) => void;
   onJumpToGroup: (groupId: string) => void;
 }) {
+  const t = useT();
   const fmt = useFormat();
   // Group all "items" rows by their item type for readability.
   // Each row carries a `via` discriminator that drives both the
@@ -463,25 +493,25 @@ function ItemsTab({
             className="h-3.5 w-3.5 cursor-pointer"
           />
           <span>
-            Show items they own (
-            <strong>{fmt.number(bundle.owned.length)}</strong>)
+            {t('adminUsers.access.showOwned', {
+              count: fmt.number(bundle.owned.length),
+            })}
           </span>
         </label>
         {bundle.orgAccessibleCount + bundle.publicAccessibleCount > 0 ? (
           <span>
             <Globe className="mr-1 inline h-3 w-3" />
-            Plus{' '}
-            <strong>{fmt.number(bundle.orgAccessibleCount)}</strong>{' '}
-            org-wide and{' '}
-            <strong>{fmt.number(bundle.publicAccessibleCount)}</strong>{' '}
-            public not listed (item-level setting).
+            {t('adminUsers.access.orgPublicSummary', {
+              orgCount: fmt.number(bundle.orgAccessibleCount),
+              publicCount: fmt.number(bundle.publicAccessibleCount),
+            })}
           </span>
         ) : null}
       </div>
 
       {rows.length === 0 ? (
         <p className="rounded-md border border-border bg-surface-1 px-3 py-6 text-center text-sm text-muted">
-          This user owns nothing and has no shares.
+          {t('adminUsers.access.itemsEmpty')}
         </p>
       ) : (
         types.map((type) => {
@@ -509,7 +539,9 @@ function ItemsTab({
                         type="checkbox"
                         checked={selected.has(row.id)}
                         onChange={() => onToggleShare(row.id)}
-                        aria-label={`Select share for ${row.title}`}
+                        aria-label={t('adminUsers.access.selectShareAria', {
+                          title: row.title,
+                        })}
                         className="h-3.5 w-3.5 cursor-pointer"
                       />
                     ) : (
@@ -543,15 +575,17 @@ function ItemsTab({
                         type="button"
                         onClick={() => onJumpToGroup(row.viaGroups[0]!.id)}
                         className="rounded border border-border bg-surface-1 px-2 py-0.5 text-2xs hover:bg-surface-2"
-                        title={`Manage in group "${row.viaGroups[0]!.name}"`}
+                        title={t('adminUsers.access.manageInGroupTitle', {
+                          name: row.viaGroups[0]!.name,
+                        })}
                       >
-                        Manage in group
+                        {t('adminUsers.access.manageInGroup')}
                       </button>
                     ) : null}
                     <Link
                       href={`/items/${row.id}`}
                       className="inline-flex items-center text-2xs text-accent hover:underline"
-                      title="Open item"
+                      title={t('adminUsers.access.openItem')}
                     >
                       <ChevronRight className="h-3.5 w-3.5" />
                     </Link>
@@ -569,9 +603,7 @@ function ItemsTab({
       bundle.truncated.directShared ||
       bundle.truncated.groupShared ? (
         <p className="text-2xs text-muted">
-          Showing the most recent {bundle.maxRows} items per category. If you
-          need a complete dump, narrow the search by item type on the items
-          list.
+          {t('adminUsers.access.truncationNote', { maxRows: bundle.maxRows })}
         </p>
       ) : null}
     </div>
@@ -589,10 +621,11 @@ function GroupsTab({
   selected: Set<string>;
   onToggleGroup: (groupId: string) => void;
 }) {
+  const t = useT();
   if (bundle.groups.length === 0) {
     return (
       <p className="rounded-md border border-border bg-surface-1 px-3 py-6 text-center text-sm text-muted">
-        This user isn&apos;t a member of any group.
+        {t('adminUsers.access.groupsEmpty')}
       </p>
     );
   }
@@ -614,7 +647,9 @@ function GroupsTab({
               type="checkbox"
               checked={selected.has(g.id)}
               onChange={() => onToggleGroup(g.id)}
-              aria-label={`Select group ${g.name}`}
+              aria-label={t('adminUsers.access.selectGroupAria', {
+                name: g.name,
+              })}
               className="h-3.5 w-3.5 cursor-pointer"
             />
             <Users className="h-4 w-4 text-muted" />
@@ -633,12 +668,12 @@ function GroupsTab({
               {g.memberRole}
             </span>
             <span className="text-2xs text-muted">
-              {g.memberCount} member{g.memberCount === 1 ? '' : 's'}
+              {t('adminUsers.access.memberCount', { count: g.memberCount })}
             </span>
             <Link
               href={`/groups/${g.id}`}
               className="inline-flex items-center text-2xs text-accent hover:underline"
-              title="Open group"
+              title={t('adminUsers.access.openGroup')}
             >
               <ChevronRight className="h-3.5 w-3.5" />
             </Link>
@@ -664,11 +699,12 @@ type ViaBadgeProps =
     };
 
 function ViaBadge(props: ViaBadgeProps) {
+  const t = useT();
   const fmt = useFormat();
   if (props.via === 'owns') {
     return (
       <span className="rounded bg-surface-2 px-1.5 py-0.5 text-2xs font-medium text-muted">
-        owner
+        {t('adminUsers.access.viaOwner')}
       </span>
     );
   }
@@ -676,9 +712,15 @@ function ViaBadge(props: ViaBadgeProps) {
     const expiresAt = props.expiresAt;
     const expired =
       expiresAt !== null && Date.parse(expiresAt) <= Date.now();
-    const label = `direct ${props.permission}${
-      expiresAt ? (expired ? ' (expired)' : ' (timed)') : ''
-    }`;
+    const label = expiresAt
+      ? expired
+        ? t('adminUsers.access.viaDirectExpired', {
+            permission: props.permission,
+          })
+        : t('adminUsers.access.viaDirectTimed', {
+            permission: props.permission,
+          })
+      : t('adminUsers.access.viaDirect', { permission: props.permission });
     return (
       <span
         className={
@@ -688,7 +730,13 @@ function ViaBadge(props: ViaBadgeProps) {
         }
         {...(expiresAt
           ? {
-              title: `${expired ? 'Expired' : 'Expires'} ${fmt.dateTime(expiresAt)}`,
+              title: expired
+                ? t('adminUsers.access.expiredTitle', {
+                    date: fmt.dateTime(expiresAt),
+                  })
+                : t('adminUsers.access.expiresTitle', {
+                    date: fmt.dateTime(expiresAt),
+                  }),
             }
           : {})}
       >
@@ -698,13 +746,21 @@ function ViaBadge(props: ViaBadgeProps) {
   }
   // via === 'group'
   const groupNames = props.viaGroups.map((g) => g.name).join(', ');
+  const viaLabel =
+    props.viaGroups.length > 1
+      ? t('adminUsers.access.viaGroupMany', { count: props.viaGroups.length })
+      : t('adminUsers.access.viaGroupOne', { name: groupNames });
   return (
     <span
       className="rounded bg-warn/15 px-1.5 py-0.5 text-2xs font-medium text-warn"
-      title={`Via group: ${groupNames}`}
+      title={t('adminUsers.access.viaGroupTitle', { names: groupNames })}
     >
-      via {props.viaGroups.length > 1 ? `${props.viaGroups.length} groups` : `group "${groupNames}"`}
-      {props.permission ? ` · ${props.permission}` : ''}
+      {viaLabel}
+      {props.permission
+        ? t('adminUsers.access.viaGroupPermissionSuffix', {
+            permission: props.permission,
+          })
+        : ''}
     </span>
   );
 }
@@ -736,6 +792,7 @@ function TabButton({
 function BulkBar({
   label,
   actionLabel,
+  clearLabel,
   tone,
   busy,
   onAction,
@@ -743,6 +800,7 @@ function BulkBar({
 }: {
   label: string;
   actionLabel: string;
+  clearLabel: string;
   tone: 'danger' | 'warn';
   busy: boolean;
   onAction: () => void;
@@ -759,7 +817,7 @@ function BulkBar({
           className="inline-flex items-center gap-1 text-muted hover:text-ink-1 disabled:opacity-50"
         >
           <X className="h-3 w-3" />
-          Clear
+          {clearLabel}
         </button>
       </div>
       <button

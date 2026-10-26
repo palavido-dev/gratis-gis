@@ -32,6 +32,8 @@ import {
   DialogFooter,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { useFormat } from '@/lib/i18n/format';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Admin-side users table.
@@ -60,6 +62,8 @@ interface Props {
 }
 
 export function AdminUsersView({ initialUsers, currentUserId }: Props) {
+  const t = useT();
+  const fmt = useFormat();
   const confirm = useConfirm();
   const [users, setUsers] = useState<AdminUserRow[]>(initialUsers);
   const [query, setQuery] = useState('');
@@ -112,11 +116,11 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
     action: 'role' | 'disable' | 'delete' | 'reset' | 'edit',
   ): string | null {
     if (u.isProtected) {
-      return 'This account is protected; mutations are disabled.';
+      return t('adminUsers.guardProtected');
     }
     const isSelf = u.id === currentUserId;
     if (isSelf && (action === 'role' || action === 'disable' || action === 'delete')) {
-      return 'You cannot change your own role, disable, or delete yourself. Ask another admin.';
+      return t('adminUsers.guardSelf');
     }
     const role = (u.attributes?.org_role?.[0] ?? 'viewer') as OrgRole;
     const wouldLoseAdmin =
@@ -124,7 +128,7 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
       u.enabled &&
       (action === 'role' || action === 'disable' || action === 'delete');
     if (wouldLoseAdmin && activeAdminCount <= 1) {
-      return 'This is the last active admin in the org. Promote another user to admin first.';
+      return t('adminUsers.guardLastAdmin');
     }
     return null;
   }
@@ -174,14 +178,26 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
     setWorking(null);
     if (!res.ok) {
       setError(
-        `Could not ${enabled ? 'enable' : 'disable'} ${user.username}: ${res.status}`,
+        enabled
+          ? t('adminUsers.errCouldNotEnable', {
+              username: user.username,
+              status: String(res.status),
+            })
+          : t('adminUsers.errCouldNotDisable', {
+              username: user.username,
+              status: String(res.status),
+            }),
       );
       return;
     }
     setUsers((prev) =>
       prev.map((u) => (u.id === user.id ? { ...u, enabled } : u)),
     );
-    flash(`${user.username} ${enabled ? 'enabled' : 'disabled'}`);
+    flash(
+      enabled
+        ? t('adminUsers.toastEnabled', { username: user.username })
+        : t('adminUsers.toastDisabled', { username: user.username }),
+    );
   }
 
   async function setRole(user: AdminUserRow, orgRole: OrgRole) {
@@ -194,7 +210,12 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
     });
     setWorking(null);
     if (!res.ok) {
-      setError(`Could not change role for ${user.username}: ${res.status}`);
+      setError(
+        t('adminUsers.errChangeRole', {
+          username: user.username,
+          status: String(res.status),
+        }),
+      );
       return;
     }
     setUsers((prev) =>
@@ -207,7 +228,9 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
           : u,
       ),
     );
-    flash(`${user.username} role set to ${orgRole}`);
+    flash(
+      t('adminUsers.toastRoleSet', { username: user.username, role: orgRole }),
+    );
   }
 
   /**
@@ -230,11 +253,11 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
     });
     setWorking(null);
     if (!res.ok && res.status !== 404) {
-      setError(`Delete failed: ${res.status}`);
+      setError(t('adminUsers.errDelete', { status: String(res.status) }));
       return;
     }
     setUsers((prev) => prev.filter((u) => u.id !== user.id));
-    flash(`${user.username} deleted`);
+    flash(t('adminUsers.toastDeleted', { username: user.username }));
   }
 
   async function removeUser(user: AdminUserRow) {
@@ -256,7 +279,9 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
             `&limit=${PAGE}&offset=${page * PAGE}`,
         );
         if (!res.ok) {
-          setError(`Could not check owned items: ${res.status}`);
+          setError(
+            t('adminUsers.errCheckOwned', { status: String(res.status) }),
+          );
           return;
         }
         const rows = (await res.json()) as Array<{
@@ -276,9 +301,9 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
       setWorking(null);
     }
     const ok = await confirm({
-      title: 'Delete user?',
-      message: `Permanently delete ${user.username}? This cannot be undone and will remove their portal account.`,
-      confirmLabel: 'Delete',
+      title: t('adminUsers.confirmDeleteTitle'),
+      message: t('adminUsers.confirmDeleteMessage', { username: user.username }),
+      confirmLabel: t('common.delete'),
       variant: 'danger',
     });
     if (!ok) return;
@@ -305,22 +330,29 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
       }),
     });
     if (!res.ok) {
-      setError(`Reassign failed: ${res.status} ${await res.text().catch(() => '')}`);
+      setError(
+        t('adminUsers.errReassign', {
+          status: String(res.status),
+          detail: await res.text().catch(() => ''),
+        }),
+      );
       return;
     }
     const userToDelete = deleteWithItems.user;
+    const itemCount = deleteWithItems.items.length;
     setDeleteWithItems(null);
     flash(
-      `Reassigned ${userToDelete.username}'s ${deleteWithItems.items.length} item${
-        deleteWithItems.items.length === 1 ? '' : 's'
-      }. Deleting account…`,
+      t('adminUsers.toastReassignDeleting', {
+        username: userToDelete.username,
+        count: itemCount,
+      }),
     );
     await performDelete(userToDelete);
   }
 
   async function sendReset(user: AdminUserRow) {
     if (!user.email) {
-      setError(`${user.username} has no email on file.`);
+      setError(t('adminUsers.errNoEmail', { username: user.username }));
       return;
     }
     setWorking(user.id);
@@ -331,16 +363,18 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
     );
     setWorking(null);
     if (!res.ok) {
-      setError(`Could not send reset email: ${res.status}`);
+      setError(
+        t('adminUsers.errResetEmail', { status: String(res.status) }),
+      );
       return;
     }
-    flash(`Reset email sent to ${user.email}`);
+    flash(t('adminUsers.toastResetSent', { email: user.email }));
   }
 
   function onInvited(created: AdminUserRow) {
     setUsers((prev) => [created, ...prev]);
     setInviteOpen(false);
-    flash(`${created.username} invited`);
+    flash(t('adminUsers.toastInvited', { username: created.username }));
     // Pull fresh data so any extra fields Keycloak sets on create
     // (emailVerified flag, etc.) are reflected.
     void refresh();
@@ -351,7 +385,7 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
       prev.map((u) => (u.id === updated.id ? { ...u, ...updated } : u)),
     );
     setEditing(null);
-    flash(`${updated.username} updated`);
+    flash(t('adminUsers.toastUpdated', { username: updated.username }));
   }
 
   return (
@@ -364,7 +398,7 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by name, email, or username..."
+            placeholder={t('adminUsers.searchPlaceholder')}
             className="h-9 w-full rounded-md border border-border bg-surface-1 pl-8 pr-3 text-sm text-ink-1 focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           />
         </label>
@@ -374,7 +408,7 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
           className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground shadow-card hover:opacity-90"
         >
           <Plus className="h-4 w-4" />
-          Invite user
+          {t('adminUsers.inviteUser')}
         </button>
       </div>
 
@@ -407,13 +441,27 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
         <table className="w-full min-w-[900px] text-sm">
           <thead className="bg-surface-2 text-xs text-muted">
             <tr>
-              <th className="px-3 py-2 text-left font-medium">Name</th>
-              <th className="px-3 py-2 text-left font-medium">Username</th>
-              <th className="px-3 py-2 text-left font-medium">Email</th>
-              <th className="px-3 py-2 text-left font-medium">Role</th>
-              <th className="px-3 py-2 text-left font-medium">Last login</th>
-              <th className="px-3 py-2 text-left font-medium">Status</th>
-              <th className="px-3 py-2 text-right font-medium">Actions</th>
+              <th className="px-3 py-2 text-left font-medium">
+                {t('adminUsers.colName')}
+              </th>
+              <th className="px-3 py-2 text-left font-medium">
+                {t('adminUsers.colUsername')}
+              </th>
+              <th className="px-3 py-2 text-left font-medium">
+                {t('adminUsers.colEmail')}
+              </th>
+              <th className="px-3 py-2 text-left font-medium">
+                {t('adminUsers.colRole')}
+              </th>
+              <th className="px-3 py-2 text-left font-medium">
+                {t('adminUsers.colLastLogin')}
+              </th>
+              <th className="px-3 py-2 text-left font-medium">
+                {t('adminUsers.colStatus')}
+              </th>
+              <th className="px-3 py-2 text-right font-medium">
+                {t('adminUsers.colActions')}
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -424,8 +472,8 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
                   className="px-3 py-8 text-center text-sm text-muted"
                 >
                   {users.length === 0
-                    ? 'No users yet. Invite one to get started.'
-                    : 'No users match your search.'}
+                    ? t('adminUsers.emptyNoUsers')
+                    : t('adminUsers.emptyNoMatch')}
                 </td>
               </tr>
             ) : (
@@ -444,19 +492,19 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
                         {u.fullName || u.username}
                         {u.isProtected ? (
                           <span
-                            title="Protected master account: mutations are blocked at the API."
+                            title={t('adminUsers.badgeProtectedTitle')}
                             className="inline-flex items-center gap-0.5 rounded bg-warn/15 px-1 py-0.5 text-2xs font-medium uppercase tracking-wide text-warn"
                           >
                             <Lock className="h-2.5 w-2.5" />
-                            Protected
+                            {t('adminUsers.badgeProtected')}
                           </span>
                         ) : null}
                         {u.id === currentUserId ? (
                           <span
-                            title="This is you."
+                            title={t('adminUsers.badgeYouTitle')}
                             className="inline-flex items-center gap-0.5 rounded bg-accent/10 px-1 py-0.5 text-2xs font-medium uppercase tracking-wide text-accent"
                           >
-                            You
+                            {t('adminUsers.badgeYou')}
                           </span>
                         ) : null}
                       </p>
@@ -471,7 +519,7 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
                       {u.emailVerified ? (
                         <span className="ml-1 inline-flex items-center gap-0.5 text-2xs text-success">
                           <ShieldCheck className="h-3 w-3" />
-                          verified
+                          {t('adminUsers.emailVerified')}
                         </span>
                       ) : null}
                     </td>
@@ -493,20 +541,22 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
                     <td className="px-3 py-2 text-xs text-muted">
                       {u.lastSeenAt ? (
                         <span title={new Date(u.lastSeenAt).toISOString()}>
-                          {formatRelative(u.lastSeenAt)}
+                          {fmt.relativeTime(u.lastSeenAt)}
                         </span>
                       ) : (
-                        <span className="italic">Never</span>
+                        <span className="italic">
+                          {t('adminUsers.lastLoginNever')}
+                        </span>
                       )}
                     </td>
                     <td className="px-3 py-2">
                       {u.enabled ? (
                         <span className="inline-flex items-center gap-1 rounded bg-success/10 px-1.5 py-0.5 text-2xs text-success">
-                          Active
+                          {t('adminUsers.statusActive')}
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 rounded bg-muted/20 px-1.5 py-0.5 text-2xs text-muted">
-                          Disabled
+                          {t('adminUsers.statusDisabled')}
                         </span>
                       )}
                     </td>
@@ -516,27 +566,29 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
                           type="button"
                           onClick={() => setViewingAccess(u)}
                           disabled={busy}
-                          title="See everything this user has access to"
+                          title={t('adminUsers.actionAccessTitle')}
                           className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
                         >
                           <Eye className="h-3 w-3" />
-                          Access
+                          {t('adminUsers.actionAccess')}
                         </button>
                         <button
                           type="button"
                           onClick={() => setEditing(u)}
                           disabled={busy || editReason !== null}
-                          title={editReason ?? 'Edit name / email'}
+                          title={editReason ?? t('adminUsers.actionEditTitle')}
                           className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
                         >
                           <Pencil className="h-3 w-3" />
-                          Edit
+                          {t('common.edit')}
                         </button>
                         <button
                           type="button"
                           onClick={() => void sendReset(u)}
                           disabled={busy || resetReason !== null}
-                          title={resetReason ?? 'Send password-reset email'}
+                          title={
+                            resetReason ?? t('adminUsers.actionResetTitle')
+                          }
                           className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
                         >
                           {busy ? (
@@ -544,7 +596,7 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
                           ) : (
                             <KeyRound className="h-3 w-3" />
                           )}
-                          Reset
+                          {t('adminUsers.actionReset')}
                         </button>
                         <button
                           type="button"
@@ -552,7 +604,9 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
                           disabled={busy || disableReason !== null}
                           title={
                             disableReason ??
-                            (u.enabled ? 'Disable user' : 'Enable user')
+                            (u.enabled
+                              ? t('adminUsers.actionDisableTitle')
+                              : t('adminUsers.actionEnableTitle'))
                           }
                           className="inline-flex h-7 w-7 items-center justify-center rounded border border-border bg-surface-1 text-muted hover:bg-surface-2 hover:text-ink-1 disabled:opacity-50"
                         >
@@ -562,7 +616,9 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
                           type="button"
                           onClick={() => void removeUser(u)}
                           disabled={busy || deleteReason !== null}
-                          title={deleteReason ?? 'Delete user (permanent)'}
+                          title={
+                            deleteReason ?? t('adminUsers.actionDeleteTitle')
+                          }
                           className="inline-flex h-7 w-7 items-center justify-center rounded border border-border bg-surface-1 text-muted hover:bg-danger/10 hover:text-danger disabled:opacity-50"
                         >
                           <Trash2 className="h-3 w-3" />
@@ -602,10 +658,12 @@ export function AdminUsersView({ initialUsers, currentUserId }: Props) {
 
       {deleteWithItems ? (
         <ReassignOwnerDialog
-          heading={`Reassign ${deleteWithItems.user.username}'s items`}
-          subheading={`${deleteWithItems.items.length} item${
-            deleteWithItems.items.length === 1 ? '' : 's'
-          } must move to another user before this account can be deleted.`}
+          heading={t('adminUsers.reassignHeading', {
+            username: deleteWithItems.user.username,
+          })}
+          subheading={t('adminUsers.reassignSubheading', {
+            count: deleteWithItems.items.length,
+          })}
           excludeUserIds={[deleteWithItems.user.id]}
           saving={working === deleteWithItems.user.id}
           onClose={() => setDeleteWithItems(null)}
@@ -624,6 +682,7 @@ interface InviteDialogProps {
 }
 
 function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
+  const t = useT();
   const alert = useAlert();
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -637,11 +696,11 @@ function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
     e.preventDefault();
     setError(null);
     if (username.trim().length < 2) {
-      setError('Username must be at least 2 characters.');
+      setError(t('adminUsers.invite.errUsernameMin'));
       return;
     }
     if (!email.includes('@')) {
-      setError('Please enter a valid email address.');
+      setError(t('adminUsers.invite.errEmailInvalid'));
       return;
     }
     setSubmitting(true);
@@ -659,7 +718,12 @@ function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
     });
     setSubmitting(false);
     if (!res.ok) {
-      setError(`Invite failed: ${res.status} ${await res.text()}`);
+      setError(
+        t('adminUsers.invite.errInviteFailed', {
+          status: String(res.status),
+          detail: await res.text(),
+        }),
+      );
       return;
     }
     const created = (await res.json()) as AdminUserRow;
@@ -669,13 +733,12 @@ function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
     // says "I didn't get an email". The user row is still added.
     if (created.setupEmailError) {
       await alert({
-        title: 'User created, email failed',
+        title: t('adminUsers.invite.alertEmailFailedTitle'),
         tone: 'warn',
-        message:
-          `User "${created.username}" was created, but the password-setup ` +
-          `email could not be sent:\n\n${created.setupEmailError}\n\n` +
-          `Once SMTP is healthy, click "Reset password" on this user to ` +
-          `re-send the email.`,
+        message: t('adminUsers.invite.alertEmailFailedMessage', {
+          username: created.username,
+          error: created.setupEmailError,
+        }),
       });
     }
     onInvited(created);
@@ -695,17 +758,19 @@ function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
       >
         <div className="flex items-center gap-2 pr-8">
           <UserPlus className="h-5 w-5 text-accent" />
-          <DialogTitle className="text-lg font-semibold">Invite user</DialogTitle>
+          <DialogTitle className="text-lg font-semibold">
+            {t('adminUsers.invite.title')}
+          </DialogTitle>
         </div>
         <DialogDescription className="text-xs">
-          We&apos;ll send a password-setup email from the portal. The user
-          establishes their own password through that link -{' '}
-          <span className="font-medium">no passwords are set here</span>.
+          {t('adminUsers.invite.description', {
+            emphasis: t('adminUsers.invite.descriptionEmphasis'),
+          })}
         </DialogDescription>
 
         <label className="block text-xs">
           <span className="mb-1 block uppercase tracking-wide text-muted">
-            Username
+            {t('adminUsers.invite.labelUsername')}
           </span>
           <input
             type="text"
@@ -718,7 +783,7 @@ function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
         </label>
         <label className="block text-xs">
           <span className="mb-1 block uppercase tracking-wide text-muted">
-            Email
+            {t('adminUsers.invite.labelEmail')}
           </span>
           <input
             type="email"
@@ -732,7 +797,7 @@ function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
         <div className="grid grid-cols-2 gap-2">
           <label className="block text-xs">
             <span className="mb-1 block uppercase tracking-wide text-muted">
-              First name
+              {t('adminUsers.invite.labelFirstName')}
             </span>
             <input
               type="text"
@@ -743,7 +808,7 @@ function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
           </label>
           <label className="block text-xs">
             <span className="mb-1 block uppercase tracking-wide text-muted">
-              Last name
+              {t('adminUsers.invite.labelLastName')}
             </span>
             <input
               type="text"
@@ -755,16 +820,18 @@ function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
         </div>
         <label className="block text-xs">
           <span className="mb-1 block uppercase tracking-wide text-muted">
-            Role
+            {t('adminUsers.invite.labelRole')}
           </span>
           <select
             value={orgRole}
             onChange={(e) => setOrgRole(e.target.value as OrgRole)}
             className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           >
-            <option value="viewer">viewer: read content they have access to</option>
-            <option value="contributor">contributor: can create/edit content</option>
-            <option value="admin">admin: full access, including this page</option>
+            <option value="viewer">{t('adminUsers.invite.roleViewer')}</option>
+            <option value="contributor">
+              {t('adminUsers.invite.roleContributor')}
+            </option>
+            <option value="admin">{t('adminUsers.invite.roleAdmin')}</option>
           </select>
         </label>
 
@@ -781,7 +848,7 @@ function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
             disabled={submitting}
             className="h-9 rounded-md border border-border bg-surface-1 px-3 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="submit"
@@ -793,7 +860,7 @@ function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
             ) : (
               <MailPlus className="h-3.5 w-3.5" />
             )}
-            Send invite
+            {t('adminUsers.invite.sendInvite')}
           </button>
         </DialogFooter>
       </form>
@@ -818,6 +885,7 @@ interface EditDialogProps {
  * display name are the common "please update my record" fields.
  */
 function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
+  const t = useT();
   const [email, setEmail] = useState(user.email ?? '');
   const [firstName, setFirstName] = useState(user.firstName ?? '');
   const [lastName, setLastName] = useState(user.lastName ?? '');
@@ -835,7 +903,7 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
     e.preventDefault();
     setError(null);
     if (!email.includes('@')) {
-      setError('Please enter a valid email address.');
+      setError(t('adminUsers.invite.errEmailInvalid'));
       return;
     }
     // Only send fields that actually changed. Keycloak tolerates full
@@ -874,14 +942,19 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
       });
       if (!res.ok) {
         setError(
-          `Save failed: ${res.status} ${await res.text().catch(() => '')}`,
+          t('adminUsers.edit.errSaveFailed', {
+            status: String(res.status),
+            detail: await res.text().catch(() => ''),
+          }),
         );
         return;
       }
       const updated = (await res.json()) as AdminUserRow;
       onSaved(updated);
     } catch (err) {
-      setError((err as Error).message || 'Save failed');
+      setError(
+        (err as Error).message || t('adminUsers.edit.errSaveFailedGeneric'),
+      );
     } finally {
       setSubmitting(false);
     }
@@ -901,19 +974,18 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
       >
         <div className="flex items-center gap-2 pr-8">
           <Pencil className="h-5 w-5 text-accent" />
-          <DialogTitle className="text-lg font-semibold">Edit user</DialogTitle>
+          <DialogTitle className="text-lg font-semibold">
+            {t('adminUsers.edit.title')}
+          </DialogTitle>
         </div>
         <DialogDescription className="text-xs">
-          Editing{' '}
-          <span className="font-mono text-ink-1">{user.username}</span>. Username
-          can&apos;t be changed here: it&apos;s used as the stable identifier
-          for content this user created.
+          {t('adminUsers.edit.description', { username: user.username })}
         </DialogDescription>
 
         <div className="grid grid-cols-2 gap-2">
           <label className="block text-xs">
             <span className="mb-1 block uppercase tracking-wide text-muted">
-              First name
+              {t('adminUsers.edit.labelFirstName')}
             </span>
             <input
               type="text"
@@ -924,7 +996,7 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
           </label>
           <label className="block text-xs">
             <span className="mb-1 block uppercase tracking-wide text-muted">
-              Last name
+              {t('adminUsers.edit.labelLastName')}
             </span>
             <input
               type="text"
@@ -937,7 +1009,7 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
 
         <label className="block text-xs">
           <span className="mb-1 block uppercase tracking-wide text-muted">
-            Email
+            {t('adminUsers.edit.labelEmail')}
           </span>
           <input
             type="email"
@@ -948,15 +1020,14 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
           />
           {user.emailVerified && email.trim() !== (user.email ?? '') ? (
             <span className="mt-1 block text-2xs text-warning">
-              Changing the email will reset the verified flag: the user will
-              need to re-verify.
+              {t('adminUsers.edit.emailChangeWarning')}
             </span>
           ) : null}
         </label>
 
         <label className="block text-xs">
           <span className="mb-1 block uppercase tracking-wide text-muted">
-            Role
+            {t('adminUsers.edit.labelRole')}
           </span>
           <select
             value={orgRole}
@@ -977,9 +1048,9 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
             className="h-3.5 w-3.5 rounded border-border text-accent focus:ring-accent/30"
           />
           <span className="text-ink-1">
-            Account active{' '}
+            {t('adminUsers.edit.accountActive')}{' '}
             <span className="text-muted">
-              (disabled accounts can&apos;t sign in)
+              {t('adminUsers.edit.accountActiveHint')}
             </span>
           </span>
         </label>
@@ -993,7 +1064,7 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
         {orgRole !== 'admin' ? (
           <div className="text-xs">
             <span className="mb-1 block uppercase tracking-wide text-muted">
-              Auto-disable on
+              {t('adminUsers.edit.autoDisableLabel')}
             </span>
             <ShareExpiryPicker
               value={autoDisableAt}
@@ -1001,8 +1072,7 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
               variant="full"
             />
             <p className="mt-1 text-2xs text-muted">
-              Useful for contractors, interns, and audit access. The
-              account is disabled automatically when the date passes.
+              {t('adminUsers.edit.autoDisableHint')}
             </p>
           </div>
         ) : null}
@@ -1022,7 +1092,7 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
             disabled={submitting}
             className="h-9 rounded-md border border-border bg-surface-1 px-3 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="submit"
@@ -1034,7 +1104,7 @@ function EditUserDialog({ user, onClose, onSaved }: EditDialogProps) {
             ) : (
               <Save className="h-3.5 w-3.5" />
             )}
-            Save changes
+            {t('adminUsers.edit.saveChanges')}
           </button>
         </DialogFooter>
       </form>
@@ -1083,6 +1153,7 @@ function CapabilitiesSection({
   userId: string;
   role: OrgRole;
 }) {
+  const t = useT();
   const [rows, setRows] = useState<CapabilityRow[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1094,15 +1165,19 @@ function CapabilitiesSection({
         `/api/portal/admin/users/${userId}/capabilities`,
       );
       if (!res.ok) {
-        setError(`Failed to load capabilities (${res.status}).`);
+        setError(
+          t('adminUsers.capabilities.errLoad', { status: String(res.status) }),
+        );
         return;
       }
       const body = (await res.json()) as CapabilityListResponse;
       setRows(body.rows);
     } catch (err) {
-      setError((err as Error).message ?? 'Failed to load capabilities');
+      setError(
+        (err as Error).message ?? t('adminUsers.capabilities.errLoadGeneric'),
+      );
     }
-  }, [userId]);
+  }, [userId, t]);
 
   useEffect(() => {
     void reload();
@@ -1148,13 +1223,17 @@ function CapabilitiesSection({
         });
       }
       if (!res.ok) {
-        setError(`Save failed (${res.status}).`);
+        setError(
+          t('adminUsers.capabilities.errSave', { status: String(res.status) }),
+        );
         return;
       }
       const body = (await res.json()) as CapabilityListResponse;
       setRows(body.rows);
     } catch (err) {
-      setError((err as Error).message ?? 'Save failed');
+      setError(
+        (err as Error).message ?? t('adminUsers.capabilities.errSaveGeneric'),
+      );
     } finally {
       setBusy(null);
     }
@@ -1169,13 +1248,17 @@ function CapabilitiesSection({
         { method: 'DELETE' },
       );
       if (!res.ok) {
-        setError(`Reset failed (${res.status}).`);
+        setError(
+          t('adminUsers.capabilities.errReset', { status: String(res.status) }),
+        );
         return;
       }
       const body = (await res.json()) as CapabilityListResponse;
       setRows(body.rows);
     } catch (err) {
-      setError((err as Error).message ?? 'Reset failed');
+      setError(
+        (err as Error).message ?? t('adminUsers.capabilities.errResetGeneric'),
+      );
     } finally {
       setBusy(null);
     }
@@ -1184,10 +1267,12 @@ function CapabilitiesSection({
   return (
     <fieldset className="space-y-2 rounded-md border border-border bg-surface-0 p-2">
       <legend className="px-1 text-xs uppercase tracking-wide text-muted">
-        Capabilities
+        {t('adminUsers.capabilities.legend')}
       </legend>
       {!rows ? (
-        <p className="text-xs text-muted">Loading capabilities...</p>
+        <p className="text-xs text-muted">
+          {t('adminUsers.capabilities.loading')}
+        </p>
       ) : (
         <ul className="space-y-1">
           {rows.map((row) => {
@@ -1218,17 +1303,21 @@ function CapabilitiesSection({
                         : 'rounded bg-danger/15 px-1.5 py-0.5 text-2xs font-medium text-danger'
                     }
                   >
-                    {row.effective ? 'override granted' : 'override revoked'}
+                    {row.effective
+                      ? t('adminUsers.capabilities.overrideGranted')
+                      : t('adminUsers.capabilities.overrideRevoked')}
                   </span>
                 ) : (
                   <span className="rounded bg-surface-2 px-1.5 py-0.5 text-2xs font-medium text-muted">
-                    {baseline ? 'baseline' : 'not granted'}
+                    {baseline
+                      ? t('adminUsers.capabilities.baseline')
+                      : t('adminUsers.capabilities.notGranted')}
                   </span>
                 )}
                 {overridden ? (
                   <button
                     type="button"
-                    title="Reset to role default"
+                    title={t('adminUsers.capabilities.resetTitle')}
                     disabled={busy !== null}
                     onClick={() => void resetToBaseline(row.capability)}
                     className="inline-flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-1 disabled:opacity-50"
@@ -1249,8 +1338,7 @@ function CapabilitiesSection({
         </p>
       ) : null}
       <p className="text-2xs text-muted">
-        Overrides take effect immediately and are independent of the Save
-        button above.
+        {t('adminUsers.capabilities.footnote')}
       </p>
     </fieldset>
   );
@@ -1283,25 +1371,3 @@ const ROLE_BASELINES_LOCAL: Record<OrgRole, Set<string>> = {
     'can_run_housekeeping',
   ]),
 };
-
-/**
- * Short, human-friendly "time since" label for the Last Login column.
- * Tooltip on the cell shows the full ISO timestamp.
- */
-function formatRelative(iso: string): string {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return iso;
-  const diff = Date.now() - t;
-  const s = Math.floor(diff / 1000);
-  if (s < 60) return 'just now';
-  const m = Math.floor(s / 60);
-  if (m < 60) return m + 'm ago';
-  const h = Math.floor(m / 60);
-  if (h < 24) return h + 'h ago';
-  const d = Math.floor(h / 24);
-  if (d < 30) return d + 'd ago';
-  const months = Math.floor(d / 30);
-  if (months < 12) return months + 'mo ago';
-  const years = Math.floor(d / 365);
-  return years + 'y ago';
-}
