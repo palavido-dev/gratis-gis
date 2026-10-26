@@ -454,11 +454,13 @@ services:
       STAGING_DIR: /var/lib/gg-staging
       # #234: GDAL network lockdown. Ingest also refuses /vsicurl/ in
       # code; these knobs make any missed dial die fast and stop
-      # remote readdir. /vsis3/ (MinIO) is unaffected.
+      # remote readdir. /vsis3/ (MinIO) is unaffected. Driver allowlist
+      # excludes VRT (MED-10); enforced again after every gdal.open.
       GDAL_DISABLE_READDIR_ON_OPEN: EMPTY_DIR
       GDAL_HTTP_CONNECTTIMEOUT: "2"
       GDAL_HTTP_TIMEOUT: "5"
       CPL_VSIL_CURL_USE_HEAD: "NO"
+      GDAL_ALLOWED_DRIVERS: "GeoJSON,GeoJSONSeq,ESRI Shapefile,GPKG,OpenFileGDB,FileGDB,CSV,GPX,GML,KML,LIBKML,MapInfo File,FlatGeobuf,SQLite,DXF,OSM,XLSX,ODS"
       DATABASE_URL: postgresql://${POSTGRES_USER:-gratisgis}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gratisgis}
       # Token issuer side: KEYCLOAK_URL is the public-facing Keycloak
       # base, used both as the JWT issuer prefix and as the JWKS
@@ -680,6 +682,7 @@ services:
       GDAL_HTTP_CONNECTTIMEOUT: "2"
       GDAL_HTTP_TIMEOUT: "5"
       CPL_VSIL_CURL_USE_HEAD: "NO"
+      GDAL_ALLOWED_DRIVERS: "GeoJSON,GeoJSONSeq,ESRI Shapefile,GPKG,OpenFileGDB,FileGDB,CSV,GPX,GML,KML,LIBKML,MapInfo File,FlatGeobuf,SQLite,DXF,OSM,XLSX,ODS"
       DATABASE_URL: postgresql://${POSTGRES_USER:-gratisgis}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gratisgis}
       KEYCLOAK_URL: https://${AUTH_DOMAIN:-auth.gratisgis.org}
       KEYCLOAK_INTERNAL_URL: http://keycloak:8080

@@ -41,6 +41,7 @@ import {
 } from './parquet-reader.js';
 import {
   applyGdalNetworkHardening,
+  assertAllowedGdalDriver,
   assertSafeGdalOpenPath,
 } from './gdal-open-guard.js';
 
@@ -165,6 +166,7 @@ export class IngestService {
 
     try {
       const ds = gdal.open(openPath);
+      this.assertGdalDriver(ds);
       try {
         const layers = ds.layers;
         const layerCount = layers.count();
@@ -530,6 +532,7 @@ export class IngestService {
     this.assertGdalOpen(openPath, basename(filePath));
     try {
       const ds = gdal.open(openPath);
+      this.assertGdalDriver(ds);
       try {
         const layers = ds.layers;
         const count = layers.count();
@@ -891,14 +894,18 @@ export class IngestService {
         // the attribute table as well. They are the user's data and
         // they asked for a faithful import; dropping them would also
         // make a re-export lossy.
-        return gdal.drivers.get('CSV').open(openPath, 'r', [
+        const csvDs = gdal.drivers.get('CSV').open(openPath, 'r', [
           `X_POSSIBLE_NAMES=${pair.lngColumn}`,
           `Y_POSSIBLE_NAMES=${pair.latColumn}`,
           'KEEP_GEOM_COLUMNS=YES',
         ]);
+        this.assertGdalDriver(csvDs);
+        return csvDs;
       }
     }
-    return gdal.open(openPath);
+    const ds = gdal.open(openPath);
+    this.assertGdalDriver(ds);
+    return ds;
   }
 
   /**
@@ -1327,6 +1334,24 @@ export class IngestService {
         ...(fileBytes !== undefined ? { fileBytes } : {}),
       });
     } catch (err) {
+      throw new BadRequestException(
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  /** #234: refuse datasets opened by a driver outside the allowlist. */
+  private assertGdalDriver(ds: {
+    driver?: { description?: string } | null;
+  }): void {
+    try {
+      assertAllowedGdalDriver(ds.driver?.description ?? '');
+    } catch (err) {
+      try {
+        (ds as { close?: () => void }).close?.();
+      } catch {
+        /* best-effort close before rejecting */
+      }
       throw new BadRequestException(
         err instanceof Error ? err.message : String(err),
       );

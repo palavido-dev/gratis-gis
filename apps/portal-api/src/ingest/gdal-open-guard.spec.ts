@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
+  assertAllowedGdalDriver,
   assertSafeGdalOpenPath,
   hasBlockedVsi,
+  resolveGdalAllowedDrivers,
 } from './gdal-open-guard.js';
 
 describe('gdal-open-guard (#234)', () => {
@@ -62,5 +64,31 @@ describe('gdal-open-guard (#234)', () => {
         fileBytes: vrt,
       }),
     ).not.toThrow();
+  });
+
+  it('allows common vector drivers and refuses VRT by default', () => {
+    expect(() => assertAllowedGdalDriver('GeoJSON')).not.toThrow();
+    expect(() => assertAllowedGdalDriver('GPKG')).not.toThrow();
+    expect(() => assertAllowedGdalDriver('ESRI Shapefile')).not.toThrow();
+    expect(() => assertAllowedGdalDriver('CSV')).not.toThrow();
+    expect(() => assertAllowedGdalDriver('OpenFileGDB')).not.toThrow();
+    expect(() => assertAllowedGdalDriver('VRT')).toThrow(/not allowed/);
+    expect(() => assertAllowedGdalDriver('')).toThrow(/unknown driver/);
+  });
+
+  it('honours GDAL_ALLOWED_DRIVERS overrides', () => {
+    const prev = process.env['GDAL_ALLOWED_DRIVERS'];
+    try {
+      process.env['GDAL_ALLOWED_DRIVERS'] = 'GeoJSON,VRT';
+      const allowed = resolveGdalAllowedDrivers();
+      expect(allowed.has('geojson')).toBe(true);
+      expect(allowed.has('vrt')).toBe(true);
+      expect(allowed.has('gpkg')).toBe(false);
+      expect(() => assertAllowedGdalDriver('VRT')).not.toThrow();
+      expect(() => assertAllowedGdalDriver('GPKG')).toThrow(/not allowed/);
+    } finally {
+      if (prev === undefined) delete process.env['GDAL_ALLOWED_DRIVERS'];
+      else process.env['GDAL_ALLOWED_DRIVERS'] = prev;
+    }
   });
 });

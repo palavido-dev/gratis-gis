@@ -73,6 +73,62 @@ export function assertSafeGdalOpenPath(args: {
  * breaking `/vsis3/` (MinIO) or local VRT mosaics. Safe to call more
  * than once; idempotent via env + gdal.config when available.
  */
+/**
+ * Default vector drivers ingest may open. VRT is excluded on purpose
+ * (#234 MED-10): a crafted VRT is the usual /vsicurl/ smuggling path.
+ * Override with `GDAL_ALLOWED_DRIVERS` (comma/space separated) on
+ * portal-api / portal-worker. Point-cloud workers keep a broader set
+ * (including VRT/GTiff) and do not call this allowlist.
+ */
+export const DEFAULT_GDAL_ALLOWED_DRIVERS = [
+  'GeoJSON',
+  'GeoJSONSeq',
+  'ESRI Shapefile',
+  'GPKG',
+  'OpenFileGDB',
+  'FileGDB',
+  'CSV',
+  'GPX',
+  'GML',
+  'KML',
+  'LIBKML',
+  'MapInfo File',
+  'FlatGeobuf',
+  'SQLite',
+  'DXF',
+  'OSM',
+  'XLSX',
+  'ODS',
+] as const;
+
+/** Resolve the active allowlist from env, falling back to defaults. */
+export function resolveGdalAllowedDrivers(
+  env: NodeJS.ProcessEnv = process.env,
+): Set<string> {
+  const raw = (env['GDAL_ALLOWED_DRIVERS'] ?? '').trim();
+  const list = raw
+    ? raw.split(/[\s,]+/).filter(Boolean)
+    : [...DEFAULT_GDAL_ALLOWED_DRIVERS];
+  return new Set(list.map((d) => d.toLowerCase()));
+}
+
+/**
+ * Refuse a dataset whose OGR driver is outside the allowlist.
+ * Call immediately after every `gdal.open` / driver.open on a
+ * user-supplied file.
+ */
+export function assertAllowedGdalDriver(driverDescription: string): void {
+  const name = driverDescription.trim();
+  if (!name) {
+    throw new Error('GDAL opened the file with an unknown driver.');
+  }
+  if (!resolveGdalAllowedDrivers().has(name.toLowerCase())) {
+    throw new Error(
+      `GDAL driver "${name}" is not allowed for ingest.`,
+    );
+  }
+}
+
 export function applyGdalNetworkHardening(
   gdal: { config?: { set?: (k: string, v: string) => void } },
 ): void {
@@ -85,6 +141,10 @@ export function applyGdalNetworkHardening(
   process.env['GDAL_HTTP_CONNECTTIMEOUT'] ??= '2';
   process.env['GDAL_HTTP_TIMEOUT'] ??= '5';
   process.env['CPL_VSIL_CURL_USE_HEAD'] ??= 'NO';
+  // Publish the default allowlist into the process env when unset so
+  // operators inspecting the container see the same set we enforce
+  // in assertAllowedGdalDriver.
+  process.env['GDAL_ALLOWED_DRIVERS'] ??= DEFAULT_GDAL_ALLOWED_DRIVERS.join(',');
   const set = gdal.config?.set;
   if (typeof set === 'function') {
     set('GDAL_DISABLE_READDIR_ON_OPEN', 'EMPTY_DIR');
