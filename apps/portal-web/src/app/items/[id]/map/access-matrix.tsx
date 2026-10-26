@@ -10,7 +10,6 @@ import {
   Loader2,
   Search,
   Users,
-  X,
 } from 'lucide-react';
 import type {
   ItemShare,
@@ -19,6 +18,13 @@ import type {
   MapLayerAccessEntry,
 } from '@gratis-gis/shared-types';
 import { DEFAULT_LAYER_ACCESS } from '@gratis-gis/shared-types';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 /**
  * Principal surfaced in the matrix columns. Resolved by the parent
@@ -162,8 +168,6 @@ export function AccessMatrix({
     return out;
   }, [layers, layerItemIds, itemShares, principals, groupMemberships]);
 
-  if (!open) return null;
-
   const principalKey = (p: MatrixPrincipal) => `${p.type}:${p.id}`;
 
   /**
@@ -302,34 +306,25 @@ export function AccessMatrix({
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Layer access matrix"
-      className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <div
-        className="flex max-h-[92vh] w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border bg-surface-1 shadow-overlay"
-        onClick={(e) => e.stopPropagation()}
+      <DialogContent
+        size="xl"
+        className="flex max-h-[92vh] !max-w-7xl flex-col overflow-hidden p-0"
       >
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <div>
-            <h2 className="text-base font-semibold">Layer access</h2>
-            <p className="text-xs text-muted">
-              Refine what each shared user or group sees on this map. The
-              matrix narrows access; a warning badge appears when a principal
-              has no item-level access to a layer&apos;s source data.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-surface-2"
-          >
-            <X className="h-4 w-4" />
-          </button>
+        <div className="border-b border-border px-4 py-3 pr-12">
+          <DialogTitle className="text-base font-semibold">
+            Layer access
+          </DialogTitle>
+          <DialogDescription className="text-xs text-muted">
+            Refine what each shared user or group sees on this map. The
+            matrix narrows access; a warning badge appears when a principal
+            has no item-level access to a layer&apos;s source data.
+          </DialogDescription>
         </div>
 
         <div className="flex items-center gap-3 border-b border-border bg-surface-1 px-4 py-3">
@@ -461,7 +456,7 @@ export function AccessMatrix({
           )}
         </div>
 
-        <div className="flex items-center justify-between border-t border-border bg-surface-1 px-4 py-3 text-2xs text-muted">
+        <DialogFooter className="justify-between bg-surface-1 text-2xs text-muted">
           <span>
             Access changes flow into the map&apos;s layers immediately.
             They persist with the next Save map.
@@ -473,15 +468,12 @@ export function AccessMatrix({
           >
             Done
           </button>
-        </div>
-      </div>
+        </DialogFooter>
+      </DialogContent>
 
-      {/* Per-cell detail dialog. Rendered as a sibling of the main
-          matrix (both sit on the same fixed backdrop) so it's never
-          clipped by the matrix's scroll area: the bug where users
-          had to scroll down to notice the popover. Stop-propagation
-          on the inner card lets a backdrop click close just this
-          dialog without collapsing the whole matrix. */}
+      {/* Per-cell detail dialog as a nested Radix Dialog so it isn't
+          clipped by the matrix scroll region and keeps its own focus
+          trap / escape handling without closing the matrix. */}
       {activePopover
         ? (() => {
             const aLayer = layers.find(
@@ -523,7 +515,7 @@ export function AccessMatrix({
             );
           })()
         : null}
-    </div>
+    </Dialog>
   );
 }
 
@@ -628,46 +620,24 @@ function AccessDetailDialog({
   onGrant?: () => void | Promise<void>;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Access for ${principalName} on ${layerTitle}`}
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <div
-        className="flex w-full max-w-sm flex-col gap-3 rounded-lg border border-border bg-surface-1 p-4 shadow-overlay"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="text-xs uppercase tracking-wide text-muted">
-              Layer access
-            </div>
-            <div className="mt-0.5 truncate text-sm font-semibold text-ink-0">
-              {layerTitle}
-            </div>
-            <div className="text-xs text-muted">
-              {principalType === 'group' ? 'Group' : 'User'} · {principalName}
-            </div>
+      <DialogContent size="sm" className="flex flex-col gap-3 p-4">
+        <div className="min-w-0 pr-8">
+          <div className="text-xs uppercase tracking-wide text-muted">
+            Layer access
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface-2"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <DialogTitle className="mt-0.5 truncate text-sm font-semibold text-ink-0">
+            {layerTitle}
+          </DialogTitle>
+          <DialogDescription className="text-xs text-muted">
+            {principalType === 'group' ? 'Group' : 'User'} · {principalName}
+          </DialogDescription>
         </div>
 
         {itemId ? (
@@ -752,8 +722,8 @@ function AccessDetailDialog({
             </p>
           ) : null}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
