@@ -2227,23 +2227,25 @@ function AttrTableExportMenu({
           </div>
         </>
       ) : null}
-      {bundleOpen && canBundle ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onClick={bundleRunning ? undefined : () => setBundleOpen(false)}
+      {canBundle ? (
+        <Dialog
+          open={bundleOpen}
+          onOpenChange={(next) => {
+            if (!next && !bundleRunning) setBundleOpen(false);
+          }}
         >
-          <div
-            className="relative w-full max-w-md rounded-lg bg-surface-0 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
+          <DialogContent
+            size="md"
+            className="overflow-hidden bg-surface-0 p-0 shadow-2xl"
           >
-            <header className="border-b border-border px-4 py-3">
-              <h3 className="text-sm font-semibold text-ink-0">
+            <header className="border-b border-border px-4 py-3 pr-12">
+              <DialogTitle className="text-sm font-semibold text-ink-0">
                 Bundle export
-              </h3>
-              <p className="mt-1 text-xs text-muted">
+              </DialogTitle>
+              <DialogDescription className="mt-1 text-xs text-muted">
                 Pack {layerTitle} (and optionally its related tables +
                 attachments) into a single ZIP.
-              </p>
+              </DialogDescription>
             </header>
             <div className="space-y-3 px-4 py-3 text-xs">
               <div>
@@ -2324,7 +2326,7 @@ function AttrTableExportMenu({
                 {bundleError ?? bundleProgress}
               </div>
             ) : null}
-            <footer className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
+            <DialogFooter>
               <button
                 type="button"
                 disabled={bundleRunning}
@@ -2346,9 +2348,9 @@ function AttrTableExportMenu({
                 )}
                 {bundleRunning ? 'Building…' : 'Export bundle'}
               </button>
-            </footer>
-          </div>
-        </div>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       ) : null}
     </div>
   );

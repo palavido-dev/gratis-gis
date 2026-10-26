@@ -78,6 +78,13 @@ import { formatOfflineMessage } from '@/lib/offline-message';
 import { holdReload } from '@/lib/sw-update-guard';
 import { FieldSheet } from './field-sheet';
 import { useConfirm } from '@/components/dialog-provider';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { isOnlineNow, useIsOnline } from '@/lib/use-is-online';
 import type {
   BottomSheet,
@@ -5756,14 +5763,17 @@ function DownloadProgressModal({
   const t = useT();
   const finished = progress.phase === 'done' || progress.phase === 'failed';
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Download for offline"
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) {
+          if (finished) onClose();
+          else onCancel();
+        }
+      }}
     >
-      <div className="w-full max-w-sm rounded-lg border border-border bg-surface-1 p-4 shadow-overlay">
-        <div className="flex items-center gap-2">
+      <DialogContent size="sm" className="p-4 shadow-overlay">
+        <div className="flex items-center gap-2 pr-8">
           {progress.phase === 'failed' ? (
             <CircleSlash className="h-5 w-5 text-danger" />
           ) : finished ? (
@@ -5771,17 +5781,17 @@ function DownloadProgressModal({
           ) : (
             <Loader2 className="h-5 w-5 animate-spin text-accent" />
           )}
-          <h2 className="text-sm font-semibold text-ink-0">
+          <DialogTitle className="text-sm font-semibold text-ink-0">
             {progress.phase === 'failed'
               ? 'Download failed'
               : finished
                 ? 'Ready for offline'
                 : 'Downloading for offline'}
-          </h2>
+          </DialogTitle>
         </div>
-        <p className="mt-2 text-xs text-muted">
+        <DialogDescription className="mt-2 text-xs text-muted">
           {formatOfflineMessage(t, progress.message)}
-        </p>
+        </DialogDescription>
         {/* Layers leads the breakdown so the user sees a non-zero
             number even on a fresh deployment with no features yet.
             Features, Forms, and Pick lists below are secondary
@@ -5827,7 +5837,7 @@ function DownloadProgressModal({
             had accidentally started a large download with no way out
             short of killing the tab, and on a phone in the field that
             is a genuinely bad place to be. */}
-        <div className="mt-4 flex justify-end">
+        <DialogFooter className="mt-4 border-0 bg-transparent px-0 py-0">
           <button
             type="button"
             onClick={finished ? onClose : onCancel}
@@ -5835,9 +5845,9 @@ function DownloadProgressModal({
           >
             {finished ? 'Close' : 'Cancel'}
           </button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
