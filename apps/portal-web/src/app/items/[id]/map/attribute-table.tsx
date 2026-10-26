@@ -236,6 +236,7 @@ export function AttributeTable({
   scopeWhere,
   scopeVia,
 }: Props) {
+  const t = useT();
   const fmt = useFormat();
   const [activeLayerId, setActiveLayerId] = useState<string | null>(null);
   const [lastPicked, setLastPicked] = useState<number | null>(null);
@@ -1330,16 +1331,22 @@ export function AttributeTable({
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Query any field..."
+              placeholder={t('mapAttributeTable.queryPlaceholder')}
               className="h-7 w-full rounded border border-border bg-surface-1 pl-7 pr-2 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
             />
           </label>
           <span className="text-2xs text-muted">
             {serverLoading
-              ? 'Loading...'
-              : `${fmt.number(visibleIndexes.length)} rows`}
+              ? t('mapAttributeTable.loading')
+              : t('mapAttributeTable.rows', {
+                  count: visibleIndexes.length,
+                })}
             {serverMode && serverPage?.truncated ? '+' : ''}
-            {activeSelection.size > 0 ? ` · ${activeSelection.size} selected` : ''}
+            {activeSelection.size > 0
+              ? t('mapAttributeTable.selectedSuffix', {
+                  count: activeSelection.size,
+                })
+              : ''}
           </span>
           {/* "Records in map extent" toggle (#115 P13). Default ON
               for data-layer sources so opening the table on a big
@@ -1357,10 +1364,10 @@ export function AttributeTable({
               disabled={!mapBbox}
               title={
                 !mapBbox
-                  ? 'Map viewport not available yet'
+                  ? t('mapAttributeTable.extentUnavailable')
                   : extentOnly
-                    ? 'Show all records (capped at 5,000)'
-                    : 'Show only records in the current map extent'
+                    ? t('mapAttributeTable.extentShowAll')
+                    : t('mapAttributeTable.extentShowOnly')
               }
               className={`inline-flex h-7 items-center gap-1 rounded border px-2 text-2xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                 extentOnly
@@ -1369,7 +1376,7 @@ export function AttributeTable({
               }`}
             >
               <MapIcon className="h-3 w-3" />
-              In extent
+              {t('mapAttributeTable.inExtent')}
             </button>
           ) : null}
           {/* "Show selected" toggle: when a layer has thousands of
@@ -1384,10 +1391,10 @@ export function AttributeTable({
             disabled={activeSelection.size === 0}
             title={
               activeSelection.size === 0
-                ? 'Select features on the map first'
+                ? t('mapAttributeTable.selectOnMapFirst')
                 : showOnlySelected
-                  ? 'Show all rows'
-                  : 'Show only the selected rows'
+                  ? t('mapAttributeTable.showAllRows')
+                  : t('mapAttributeTable.showOnlySelected')
             }
             className={`inline-flex h-7 items-center gap-1 rounded border px-2 text-2xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
               showOnlySelected
@@ -1396,7 +1403,7 @@ export function AttributeTable({
             }`}
           >
             <FilterIcon className="h-3 w-3" />
-            Show selected
+            {t('mapAttributeTable.showSelected')}
           </button>
           {/* "Edit history" toggle: surfaces the who-edited-when
               audit columns (Created / Created by / Edited /
@@ -1415,8 +1422,8 @@ export function AttributeTable({
               aria-pressed={showEditorTracking}
               title={
                 showEditorTracking
-                  ? 'Hide edit history columns'
-                  : 'Show edit history columns (who created / edited each row)'
+                  ? t('mapAttributeTable.hideEditHistory')
+                  : t('mapAttributeTable.showEditHistory')
               }
               className={`inline-flex h-7 items-center gap-1 rounded border px-2 text-2xs transition-colors ${
                 showEditorTracking
@@ -1425,7 +1432,7 @@ export function AttributeTable({
               }`}
             >
               <History className="h-3 w-3" />
-              Edit history
+              {t('mapAttributeTable.editHistory')}
             </button>
           ) : null}
         </div>
@@ -1460,22 +1467,22 @@ export function AttributeTable({
           }`}
           title={
             autoZoomOnSelect
-              ? 'Auto-zoom on row click is ON. Click to turn off.'
-              : 'Click to turn on auto-zoom (row clicks zoom to the feature). Also zooms to the current selection once.'
+              ? t('mapAttributeTable.autoZoomOn')
+              : t('mapAttributeTable.autoZoomOff')
           }
         >
           <Focus className="h-3.5 w-3.5" />
-          Zoom to
+          {t('mapAttributeTable.zoomTo')}
         </button>
         <button
           type="button"
           onClick={selectionToFilter}
           disabled={activeSelection.size === 0 || !activeLayer}
           className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
-          title="Filter the layer to only the selected features"
+          title={t('mapAttributeTable.useAsFilterTitle')}
         >
           <FilterIcon className="h-3.5 w-3.5" />
-          Use as filter
+          {t('mapAttributeTable.useAsFilter')}
         </button>
         {/* Calculate Field had one entry point: right-clicking a
             column header. Nothing in the UI said so, so a feature
@@ -1487,10 +1494,10 @@ export function AttributeTable({
             type="button"
             onClick={() => setCalcFieldFor('')}
             className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
-            title="Set a column's value for many rows at once from an expression"
+            title={t('mapAttributeTable.calculateTitle')}
           >
             <Calculator className="h-3.5 w-3.5" />
-            Calculate
+            {t('mapAttributeTable.calculate')}
           </button>
         ) : null}
         {/* #108: export the currently-displayed feature set to CSV
@@ -1527,7 +1534,7 @@ export function AttributeTable({
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t('mapAttributeTable.closeAria')}
             className="inline-flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-surface-2"
           >
             <X className="h-3.5 w-3.5" />
@@ -1539,32 +1546,37 @@ export function AttributeTable({
         <div className="flex items-center gap-2 border-b border-warn/30 bg-warn/10 px-3 py-1.5 text-2xs text-warn">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
           <span>
-            Showing 5,000+ rows
-            {extentOnly ? ' in this extent' : ''}. Zoom in
-            {extentOnly ? '' : ', enable "In extent",'} or filter to see more.
+            {t('mapAttributeTable.truncatedBanner', {
+              extent: extentOnly
+                ? t('mapAttributeTable.truncatedInExtent')
+                : '',
+              extentHint: extentOnly
+                ? ''
+                : t('mapAttributeTable.truncatedEnableExtent'),
+            })}
           </span>
         </div>
       ) : null}
       {!activeLayer ? (
         <div className="flex flex-1 items-center justify-center text-sm text-muted">
-          No layer selected.
+          {t('mapAttributeTable.noLayer')}
         </div>
       ) : serverMode && serverLoading && activeFeatures.length === 0 ? (
         <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading features...
+          {t('mapAttributeTable.loadingFeatures')}
         </div>
       ) : activeFeatures.length === 0 ? (
         <div className="flex flex-1 items-center justify-center text-sm text-muted">
           {serverError
-            ? `Failed to load: ${serverError}`
+            ? t('mapAttributeTable.loadFailed', { error: serverError })
             : serverMode
               ? extentOnly
-                ? 'No features in this map extent.'
-                : 'No features to show.'
+                ? t('mapAttributeTable.noFeaturesInExtent')
+                : t('mapAttributeTable.noFeatures')
               : metadata[activeLayer.id]?.loading
-                ? 'Loading features...'
-                : 'No features to show.'}
+                ? t('mapAttributeTable.loadingFeatures')
+                : t('mapAttributeTable.noFeatures')}
         </div>
       ) : (
         <div className="flex-1 overflow-auto">
@@ -1593,7 +1605,7 @@ export function AttributeTable({
                     }}
                     title={
                       serverMode && canEditActiveLayer && calculableFields.includes(f)
-                        ? 'Click to sort, right-click to Calculate Field'
+                        ? t('mapAttributeTable.sortAndCalculate')
                         : undefined
                     }
                     className="cursor-pointer border-b border-border px-3 py-1.5 text-left font-medium text-ink-1 hover:bg-surface-1"
