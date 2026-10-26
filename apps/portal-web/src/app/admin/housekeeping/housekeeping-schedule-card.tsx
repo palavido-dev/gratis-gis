@@ -12,6 +12,7 @@ import {
   Save,
 } from 'lucide-react';
 import { useFormat } from '@/lib/i18n/format';
+import { useT } from '@/lib/i18n/locale-context';
 
 export interface HousekeepingConfig {
   autoTrashEnabled: boolean;
@@ -54,15 +55,15 @@ interface Props {
   initialRuns: HousekeepingRun[];
 }
 
-const DAYS_OF_WEEK = [
-  { value: 0, label: 'Sunday' },
-  { value: 1, label: 'Monday' },
-  { value: 2, label: 'Tuesday' },
-  { value: 3, label: 'Wednesday' },
-  { value: 4, label: 'Thursday' },
-  { value: 5, label: 'Friday' },
-  { value: 6, label: 'Saturday' },
-];
+const DAY_KEYS = [
+  'daySunday',
+  'dayMonday',
+  'dayTuesday',
+  'dayWednesday',
+  'dayThursday',
+  'dayFriday',
+  'daySaturday',
+] as const;
 
 /**
  * Configures the scheduled housekeeping pass and surfaces the most
@@ -80,6 +81,7 @@ export function HousekeepingScheduleCard({
   initialRuns,
 }: Props) {
   const fmt = useFormat();
+  const t = useT();
   const router = useRouter();
   const [config, setConfig] = useState<HousekeepingConfig>(initialConfig);
   const [runs, setRuns] = useState<HousekeepingRun[]>(initialRuns);
@@ -157,7 +159,7 @@ export function HousekeepingScheduleCard({
       <header className="mb-3 flex items-center gap-2">
         <CalendarClock className="h-5 w-5 text-accent" />
         <h2 className="text-base font-semibold tracking-tight">
-          Scheduled cleanup
+          {t('adminHousekeeping.scheduleTitle')}
         </h2>
         <span
           className="ml-auto text-xs text-muted"
@@ -167,12 +169,7 @@ export function HousekeepingScheduleCard({
         </span>
       </header>
       <p className="mb-4 text-xs text-muted">
-        Have the portal tidy up on its own. Off until you turn it
-        on. Pick which kind of cleanup you want, how long
-        something has to sit around before it gets cleaned up, and
-        when the portal should run the cleanup. The lists below
-        keep showing the same things you can clean up by hand
-        whenever you want.
+        {t('adminHousekeeping.scheduleIntro')}
       </p>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -184,11 +181,10 @@ export function HousekeepingScheduleCard({
               onChange={(e) => set('autoTrashEnabled', e.target.checked)}
               className="h-4 w-4 rounded border-border text-accent focus:ring-accent/30"
             />
-            Trash items nobody is using
+            {t('adminHousekeeping.scheduleAutoTrash')}
           </label>
           <label className="block text-xs text-ink-1">
-            Move items to the trash if no one has edited or shared
-            them in the last{' '}
+            {t('adminHousekeeping.scheduleAutoTrashBefore')}{' '}
             <input
               type="number"
               min={1}
@@ -200,8 +196,7 @@ export function HousekeepingScheduleCard({
               disabled={!config.autoTrashEnabled}
               className="inline h-7 w-20 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
             />{' '}
-            days. They aren&apos;t deleted right away: trashed items
-            stay in Recently deleted and can be put back at any time.
+            {t('adminHousekeeping.scheduleAutoTrashAfter')}
           </label>
         </fieldset>
 
@@ -213,11 +208,10 @@ export function HousekeepingScheduleCard({
               onChange={(e) => set('autoDisableEnabled', e.target.checked)}
               className="h-4 w-4 rounded border-border text-accent focus:ring-accent/30"
             />
-            Pause sign-in for inactive accounts
+            {t('adminHousekeeping.scheduleAutoDisable')}
           </label>
           <label className="block text-xs text-ink-1">
-            Stop letting people sign in if they haven&apos;t signed
-            in for at least{' '}
+            {t('adminHousekeeping.scheduleAutoDisableBefore')}{' '}
             <input
               type="number"
               min={1}
@@ -229,9 +223,7 @@ export function HousekeepingScheduleCard({
               disabled={!config.autoDisableEnabled}
               className="inline h-7 w-20 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
             />{' '}
-            days. Their account isn&apos;t deleted: anything they
-            owned stays put, and you can turn sign-in back on for
-            them later from the Users page. Admins are skipped.
+            {t('adminHousekeeping.scheduleAutoDisableAfter')}
           </label>
         </fieldset>
 
@@ -245,16 +237,10 @@ export function HousekeepingScheduleCard({
               }
               className="h-4 w-4 rounded border-border text-accent focus:ring-accent/30"
             />
-            Refresh spatial extents on every run
+            {t('adminHousekeeping.scheduleRecomputeExtents')}
           </label>
           <p className="block text-xs text-ink-1">
-            Recompute the cached bounding box on every map / data
-            layer / external service in your org so the area filter
-            stays accurate as features get added and removed. Cheap
-            for v3 data layers (one PostGIS query per layer); for
-            ArcGIS services it does one HTTP probe per sublayer per
-            service, so leave it off if you have many external
-            services and a slow link to them.
+            {t('adminHousekeeping.scheduleRecomputeExtentsDetail')}
           </p>
         </fieldset>
 
@@ -265,11 +251,11 @@ export function HousekeepingScheduleCard({
             Both span both columns since the explanatory copy is
             longer. */}
         <fieldset className="space-y-3 rounded-md border border-border p-3 md:col-span-2">
-          <p className="text-sm font-medium">Field device queue cleanup</p>
+          <p className="text-sm font-medium">
+            {t('adminHousekeeping.scheduleFieldQueueTitle')}
+          </p>
           <label className="block text-xs text-ink-1">
-            On the Field device queues page, hide a device&apos;s
-            row by default if it has nothing queued AND hasn&apos;t
-            checked in for at least{' '}
+            {t('adminHousekeeping.scheduleFieldQueueStaleBefore')}{' '}
             <input
               type="number"
               min={1}
@@ -283,8 +269,7 @@ export function HousekeepingScheduleCard({
               }
               className="inline h-7 w-20 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
             />{' '}
-            days. The same threshold applies to the &quot;Forget all
-            stale&quot; button on that page.
+            {t('adminHousekeeping.scheduleFieldQueueStaleAfter')}
           </label>
           <label className="flex items-center gap-2 text-sm font-medium">
             <input
@@ -295,12 +280,10 @@ export function HousekeepingScheduleCard({
               }
               className="h-4 w-4 rounded border-border text-accent focus:ring-accent/30"
             />
-            Auto-prune long-idle device rows
+            {t('adminHousekeeping.scheduleFieldQueueAutoPrune')}
           </label>
           <label className="block text-xs text-ink-1">
-            When on, the cleanup pass deletes device rows with empty
-            queues that have been silent for at least the threshold
-            above plus an extra{' '}
+            {t('adminHousekeeping.scheduleFieldQueueAutoPruneBefore')}{' '}
             <input
               type="number"
               min={0}
@@ -315,10 +298,7 @@ export function HousekeepingScheduleCard({
               disabled={!config.fieldQueueAutoPruneEnabled}
               className="inline h-7 w-20 rounded border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
             />{' '}
-            days of grace. So with the defaults (7 + 90), the cron
-            only touches rows that have been idle for 97+ days. Rows
-            with anything queued are never auto-pruned -- those are
-            the actually-stuck devices the page is for.
+            {t('adminHousekeeping.scheduleFieldQueueAutoPruneAfter')}
           </label>
         </fieldset>
       </div>
@@ -326,7 +306,7 @@ export function HousekeepingScheduleCard({
       <fieldset className="mt-4 grid gap-2 rounded-md border border-border p-3 md:grid-cols-4">
         <label className="text-xs">
           <span className="mb-1 block uppercase tracking-wide text-muted">
-            How often
+            {t('adminHousekeeping.scheduleHowOften')}
           </span>
           <select
             value={config.scheduleMode}
@@ -338,14 +318,14 @@ export function HousekeepingScheduleCard({
             }
             className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           >
-            <option value="off">Don&apos;t run automatically</option>
-            <option value="daily">Every day</option>
-            <option value="weekly">Once a week</option>
+            <option value="off">{t('adminHousekeeping.scheduleModeOff')}</option>
+            <option value="daily">{t('adminHousekeeping.scheduleModeDaily')}</option>
+            <option value="weekly">{t('adminHousekeeping.scheduleModeWeekly')}</option>
           </select>
         </label>
         <label className="text-xs">
           <span className="mb-1 block uppercase tracking-wide text-muted">
-            Hour (0-23)
+            {t('adminHousekeeping.scheduleHour')}
           </span>
           <input
             type="number"
@@ -364,7 +344,7 @@ export function HousekeepingScheduleCard({
         </label>
         <label className="text-xs">
           <span className="mb-1 block uppercase tracking-wide text-muted">
-            Minute (0-59)
+            {t('adminHousekeeping.scheduleMinute')}
           </span>
           <input
             type="number"
@@ -383,7 +363,7 @@ export function HousekeepingScheduleCard({
         </label>
         <label className="text-xs">
           <span className="mb-1 block uppercase tracking-wide text-muted">
-            Day of week
+            {t('adminHousekeeping.scheduleDayOfWeek')}
           </span>
           <select
             value={config.scheduleDayOfWeek ?? 1}
@@ -393,9 +373,9 @@ export function HousekeepingScheduleCard({
             disabled={config.scheduleMode !== 'weekly'}
             className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
           >
-            {DAYS_OF_WEEK.map((d) => (
-              <option key={d.value} value={d.value}>
-                {d.label}
+            {DAY_KEYS.map((key, value) => (
+              <option key={key} value={value}>
+                {t(`adminHousekeeping.${key}`)}
               </option>
             ))}
           </select>
@@ -424,13 +404,13 @@ export function HousekeepingScheduleCard({
           ) : (
             <PlayCircle className="h-3.5 w-3.5" />
           )}
-          Run now
+          {t('adminHousekeeping.scheduleRunNow')}
         </button>
         <div className="flex items-center gap-2">
           {savedFlash ? (
             <span className="inline-flex items-center gap-1 text-xs text-success">
               <Check className="h-3.5 w-3.5" />
-              Saved
+              {t('adminHousekeeping.scheduleSaved')}
             </span>
           ) : null}
           <button
@@ -444,7 +424,7 @@ export function HousekeepingScheduleCard({
             ) : (
               <Save className="h-3.5 w-3.5" />
             )}
-            Save schedule
+            {t('adminHousekeeping.scheduleSave')}
           </button>
         </div>
       </div>
@@ -452,7 +432,7 @@ export function HousekeepingScheduleCard({
       {runs.length > 0 ? (
         <div className="mt-4 border-t border-border pt-3">
           <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">
-            Recent cleanups
+            {t('adminHousekeeping.scheduleRecent')}
           </h3>
           <ul className="space-y-1">
             {runs.map((r) => (
@@ -465,11 +445,17 @@ export function HousekeepingScheduleCard({
                 </span>
                 <StatusPill status={r.status} />
                 <span className="text-muted">
-                  ({r.trigger === 'manual' ? 'you ran it' : 'on schedule'})
+                  (
+                  {r.trigger === 'manual'
+                    ? t('adminHousekeeping.scheduleTriggerManual')
+                    : t('adminHousekeeping.scheduleTriggerScheduled')}
+                  )
                 </span>
                 <span>
-                  Items trashed: {r.itemsTrashed}. Sign-in paused
-                  for: {r.usersDisabled}.
+                  {t('adminHousekeeping.scheduleRunSummary', {
+                    items: r.itemsTrashed,
+                    users: r.usersDisabled,
+                  })}
                 </span>
                 {r.error ? (
                   <span
@@ -489,12 +475,13 @@ export function HousekeepingScheduleCard({
 }
 
 function StatusPill({ status }: { status: HousekeepingRun['status'] }) {
+  const t = useT();
   const label =
     status === 'succeeded'
-      ? 'Done'
+      ? t('adminHousekeeping.statusSucceeded')
       : status === 'failed'
-        ? 'Hit a problem'
-        : 'Working';
+        ? t('adminHousekeeping.statusFailed')
+        : t('adminHousekeeping.statusRunning');
   const cls =
     status === 'succeeded'
       ? 'bg-success/15 text-success'
