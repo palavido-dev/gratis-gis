@@ -1733,6 +1733,83 @@ export const en = {
     layerGone: '{item} no longer has a layer "{layerKey}".',
     tableNoShapes:
       '{layer} is a table with no shapes, so there is nothing to draw.',
+    export: 'Export',
+    exportAllRows: 'All rows ({count})',
+    exportSelectedRows: 'Selected rows ({count})',
+    exportExcel: 'Excel (.xlsx)',
+    exportCsv: 'CSV',
+    exportBundle: 'Bundle (.zip): Excel + related + attachments',
+    bundleTitle: 'Bundle export',
+    bundleDescription:
+      'Pack {layer} (and optionally its related tables + attachments) into a single ZIP.',
+    bundleScope: 'Scope',
+    bundleScopeAll: 'All ({count})',
+    bundleScopeSelected: 'Selected ({count})',
+    bundleScopeSelectedTitle:
+      'Export only the {count} selected feature(s)',
+    bundleScopeNeedSelection:
+      'Select features in the table to use this scope',
+    bundleIncludeRelated:
+      'Include related-table sheets in the workbook (rows that reference an exported parent feature ride along).',
+    bundleIncludeAttachments:
+      'Include feature attachments under attachments/.',
+    bundleBuilding: 'Building…',
+    bundleExport: 'Export bundle',
+    bundleLoadingSchema: 'Loading layer schema…',
+    bundleDone:
+      'Done -- {layers} · {features} · {attachments} · {mb} MB',
+    calculateModalTitle: 'Calculate Field',
+    calculateUpdatesPrefix: 'Updates',
+    calculateUpdatesSuffix: 'across every row in scope.',
+    expression: 'Expression',
+    resultTypeTitle:
+      "The result type comes from the column's own definition.",
+    resultLabel: 'Result:',
+    typeNumber: 'Number',
+    typeYesNo: 'Yes / no',
+    typeText: 'Text',
+    typeString: 'String',
+    typeBoolean: 'Boolean',
+    expressionHelp:
+      'Reference fields with {{field}}. Operators: + - * / == != < > AND OR. Functions: upper, lower, concat, abs, round, if(cond, a, b).',
+    applyTo: 'Apply to',
+    allRowsInSublayer: 'All rows in this sublayer',
+    selectedRowsFeatures:
+      'Selected rows ({count, plural, one {# feature} other {# features}})',
+    previewSummary:
+      'Preview: {count, plural, one {# row} other {# rows}} would change{errors}',
+    previewErrors:
+      ' ({count} evaluation errors will become null)',
+    previewColRow: 'Row',
+    previewColOld: 'Old',
+    previewColNew: 'New',
+    cancel: 'Cancel',
+    preview: 'Preview',
+    apply: 'Apply',
+    previewFirstTitle: 'Run Preview first to see what will change',
+    applyValuesTitle:
+      'Apply the calculated values to every row in scope',
+    calculationFailed: 'Calculation failed',
+    requestFailed: 'Request failed',
+    attachments: 'Attachments',
+    attachmentsColumnTitle: 'Files attached to each feature',
+    attachmentsLoading: 'Loading…',
+    attachmentsEmpty: 'No attachments',
+    doubleClickEdit: 'Double-click to edit',
+    createdBy: 'Created by',
+    createdByTooltip: 'User who created the row',
+    createdAt: 'Created',
+    createdAtTooltip: 'Timestamp the row was first inserted',
+    editedBy: 'Edited by',
+    editedByTooltip: 'User who last edited the row',
+    editedAt: 'Edited',
+    editedAtTooltip: 'Timestamp of the most recent edit',
+    missingFeatureId: 'Missing feature id; refresh and try again.',
+    saveFailed: 'Save failed; try again.',
+    couldNotLoadRows: 'Could not load rows',
+    fetchFailed: 'Fetch failed',
+    viewAttachments: 'View attachments',
+    noSelectedFeatures: 'No selected features to export.',
   },
   // Map editor: Add Layer dialog (portal / file / URL / ArcGIS / New).
   mapAddLayer: {
