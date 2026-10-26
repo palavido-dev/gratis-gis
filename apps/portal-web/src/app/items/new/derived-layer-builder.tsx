@@ -18,6 +18,12 @@ import {
   X,
 } from 'lucide-react';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   AREA_UNITS,
   AREA_UNIT_LABELS,
   DEFAULT_BUFFER_STEP,
@@ -1587,17 +1593,12 @@ function ToolToolbox({
     return () => cancelAnimationFrame(id);
   }, [open]);
 
-  // Global keyboard shortcuts while the modal is open. Esc closes;
-  // "/" focuses the search bar (skipped when the user is already
-  // typing in it so the slash isn't swallowed).
+  // "/" focuses the search bar while the modal is open (skipped when
+  // the user is already typing in it so the slash isn't swallowed).
+  // Escape is handled by the shared Dialog primitive.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-        return;
-      }
       if (e.key === '/' && document.activeElement !== searchRef.current) {
         e.preventDefault();
         searchRef.current?.focus();
@@ -1606,9 +1607,7 @@ function ToolToolbox({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
-
-  if (!open) return null;
+  }, [open]);
 
   // Filter tool list by query against label / description / kind.
   // Empty query keeps every group; otherwise empty groups are
@@ -1627,37 +1626,24 @@ function ToolToolbox({
   })).filter((g) => g.tools.length > 0);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 sm:items-center"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Add a step"
-      onClick={onClose}
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <div
-        className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-border bg-surface-0 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
+      <DialogContent
+        size="lg"
+        className="flex max-h-[85vh] !max-w-3xl flex-col overflow-hidden bg-surface-0 p-0 shadow-xl"
       >
-        <header className="border-b border-border p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-base font-semibold text-ink-0">
-                Add a step
-              </h2>
-              <p className="mt-0.5 text-xs text-muted">
-                Pick a tool. The output of this step becomes the input
-                of the next.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close"
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-ink-1"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
+        <header className="border-b border-border p-4 pr-12">
+          <DialogTitle className="text-base font-semibold text-ink-0">
+            Add a step
+          </DialogTitle>
+          <DialogDescription className="mt-0.5 text-xs text-muted">
+            Pick a tool. The output of this step becomes the input of
+            the next.
+          </DialogDescription>
           <div className="relative mt-3">
             <Search
               className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted"
@@ -1674,10 +1660,10 @@ function ToolToolbox({
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
           {visibleGroups.length === 0 ? (
             <p className="text-center text-sm text-muted">
-              No tools match "{query}".
+              No tools match &quot;{query}&quot;.
             </p>
           ) : (
             <div className="space-y-5">
@@ -1711,8 +1697,8 @@ function ToolToolbox({
             </div>
           )}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

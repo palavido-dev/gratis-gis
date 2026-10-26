@@ -42,6 +42,11 @@ import {
 } from 'lucide-react';
 import type { AssetRef, FileData, Item } from '@gratis-gis/shared-types';
 import { presignUpload, type PresignKind } from '@/lib/presign-upload';
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface Props {
   /** Current asset reference. */
@@ -525,29 +530,21 @@ function FileItemPicker({
   );
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      role="dialog"
-      aria-label="Pick a file item"
-      onClick={onClose}
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <div
-        className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-border bg-surface-1 shadow-overlay"
-        onClick={(e) => e.stopPropagation()}
+      <DialogContent
+        size="lg"
+        className="flex max-h-[80vh] flex-col overflow-hidden p-0 shadow-overlay"
       >
-        <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
+        <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2 pr-12">
           <ImageIcon className="h-4 w-4 text-muted" />
-          <span className="flex-1 text-sm font-semibold text-ink-0">
+          <DialogTitle className="flex-1 text-sm font-semibold text-ink-0">
             Pick a file item
-          </span>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded p-1 text-muted hover:bg-surface-2 hover:text-ink-1"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
+          </DialogTitle>
         </header>
         <div className="shrink-0 border-b border-border px-3 py-2">
           <input
@@ -602,7 +599,7 @@ function FileItemPicker({
             </p>
           )}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

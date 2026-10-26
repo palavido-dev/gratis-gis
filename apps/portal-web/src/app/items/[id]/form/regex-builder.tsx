@@ -2,7 +2,14 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Check, Sparkles, X } from 'lucide-react';
+import { Check, Sparkles } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 /**
  * Regex pattern builder for the Pattern question type's `pattern`
@@ -282,33 +289,27 @@ function RegexBuilderModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-ink-0/40 p-4"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <div
-        className="grid h-[80vh] max-h-[640px] w-full max-w-3xl grid-rows-[auto_1fr_auto] overflow-hidden rounded-lg border border-border bg-surface-0 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
+      <DialogContent
+        size="lg"
+        className="grid !max-w-3xl grid-rows-[auto_1fr_auto] overflow-hidden bg-surface-0 p-0 shadow-xl"
+        style={{ height: '80vh', maxHeight: 640 }}
       >
-        <header className="flex items-center justify-between border-b border-border bg-surface-1 px-4 py-2">
-          <div>
-            <p className="text-2xs uppercase tracking-wide text-muted">
-              Pattern builder
-            </p>
-            <h2 className="text-sm font-medium text-ink-0">
-              Build a regex pattern
-            </h2>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded p-1 text-muted hover:bg-surface-2 hover:text-ink-0"
-          >
-            <X className="h-4 w-4" />
-          </button>
+        <header className="border-b border-border bg-surface-1 px-4 py-2 pr-12">
+          <p className="text-2xs uppercase tracking-wide text-muted">
+            Pattern builder
+          </p>
+          <DialogTitle className="text-sm font-medium text-ink-0">
+            Build a regex pattern
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            Choose a preset or edit a regex pattern with live sample preview.
+          </DialogDescription>
         </header>
         <div className="grid grid-cols-1 divide-border overflow-y-auto md:grid-cols-[1fr_300px] md:divide-x md:overflow-hidden">
           {/* Left: preset list */}
@@ -410,7 +411,7 @@ function RegexBuilderModal({
             </p>
           </aside>
         </div>
-        <footer className="flex items-center justify-end gap-2 border-t border-border bg-surface-1 px-4 py-2">
+        <DialogFooter className="bg-surface-1">
           <button
             type="button"
             onClick={onClose}
@@ -426,8 +427,8 @@ function RegexBuilderModal({
           >
             Apply pattern
           </button>
-        </footer>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
