@@ -70,7 +70,12 @@ services:
       - ./keycloak/themes/portal:/opt/keycloak/themes/portal:ro
 
   minio:
-    image: minio/minio:RELEASE.2024-10-02T17-50-41Z
+    # minio/minio was removed from Docker Hub (2026-09) and Quay
+    # anonymous pulls return 401. Silo is a maintained MinIO fork that
+    # keeps the same S3 API, MINIO_* env vars, /minio/* health routes,
+    # and on-disk format — a drop-in for local infra. Pin tag + digest.
+    # See https://github.com/palavido-dev/gratis-gis/issues/243
+    image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46
     container_name: gratis-gis-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"

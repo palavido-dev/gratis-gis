@@ -294,18 +294,14 @@ services:
       - gratis-net
 
   minio:
-    # Pin a recent MinIO. Earlier 2024 releases reject the
-    # x-amz-sdk-checksum-algorithm header that AWS SDK v3 sends by
-    # default on PUT / CreateBucket, with "A header you provided
-    # implies functionality that is not implemented". The April 2025
-    # release we used initially also rejected the same header on
-    # PUT-Bucket-CORS / PUT-Bucket-Policy specifically (admin
-    # operations send the header but the surface there hadn't caught
-    # up). The September 2025 release accepts it everywhere we use,
-    # so bucket bootstrap (HeadBucket / PutBucketPolicy /
-    # PutBucketCors) and presigned PUTs both succeed without the
-    # WHEN_REQUIRED opt-out alone needing to do all the work.
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    # minio/minio was removed from Docker Hub (2026-09) and Quay
+    # anonymous pulls return 401 (#243). Silo is a maintained MinIO
+    # fork that keeps the same S3 API, MINIO_* env vars, /minio/*
+    # health routes, and on-disk format. Pin tag + digest.
+    # Earlier MinIO releases rejected x-amz-sdk-checksum-algorithm on
+    # PUT / CreateBucket / CORS / Policy; this Silo release accepts
+    # those headers the same way the September 2025 MinIO release did.
+    image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46
     container_name: gratis-gis-prod-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"

@@ -143,7 +143,10 @@ ARG PMTILES_XTEXT_VERSION=0.41.0
 # recorded version disagreed with this line. That is the check earning
 # its keep, so leave it an exact match. Still well past the 0.56.0 that
 # fixes CVE-2026-46600.
-ARG PMTILES_XNET_VERSION=0.58.0
+# CVE-2026-78669, HIGH: HTTP/2 SETTINGS-frame CPU DoS. Fixed in
+# golang.org/x/net 0.60.0. Keep above that floor even when go-pmtiles
+# still pins an older x/net.
+ARG PMTILES_XNET_VERSION=0.60.0
 # CVE-2026-56854, CRITICAL: go-pmtiles pulls golang.org/x/crypto
 # v0.53.0. Fixed upstream in 0.55.0. Same pin-and-assert treatment as
 # x/text and x/net above.
