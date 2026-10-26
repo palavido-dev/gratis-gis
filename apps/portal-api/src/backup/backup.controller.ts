@@ -255,12 +255,18 @@ export class BackupController {
         runId: id,
         startedBy: user.id,
       });
-      return audit;
-    } finally {
-      // Always turn maintenance mode off, even if the restore
-      // threw mid-way. Better to surface whatever post-restore
-      // state the DB is in than leave the portal unreachable.
+      // Success only: drop maintenance so traffic resumes against a
+      // consistent DB+bucket. #233: on failure we deliberately keep
+      // maintenance on so a half-applied restore cannot serve users.
       await this.mode.deactivate();
+      return audit;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await this.mode.activate(
+        `Restore of backup ${id.slice(0, 8)} failed and left the portal in an inconsistent state. Maintenance stays on until an admin finishes or re-runs the restore. Last error: ${msg.slice(0, 300)}`,
+        { replaceReason: true },
+      );
+      throw err;
     }
   }
 

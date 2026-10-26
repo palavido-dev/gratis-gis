@@ -229,7 +229,9 @@ export function RestoreDialog({ runId, filename, orgName, onClose }: Props) {
           {result === 'failed' ? (
             <div className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
               <AlertTriangle className="mr-1 inline h-3.5 w-3.5" />
-              Restore failed: {resultMsg}
+              Restore failed: {resultMsg}. Maintenance mode stays on so
+              users are not served a half-restored portal — finish or
+              re-run the restore from Admin → Backup before clearing it.
             </div>
           ) : null}
           {result === 'success' ? (
