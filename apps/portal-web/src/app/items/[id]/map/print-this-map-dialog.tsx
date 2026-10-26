@@ -29,9 +29,14 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Printer, Plus, X } from 'lucide-react';
+import { Printer, Plus } from 'lucide-react';
 
 import { useT } from '@/lib/i18n/locale-context';
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface PrintTemplateSummary {
   id: string;
@@ -129,33 +134,22 @@ export function PrintThisMapDialog({ open, onClose, mapId }: Props) {
     if (open) refresh();
   }, [open, refresh]);
 
-  if (!open) return null;
   return (
-    <div
-      role="dialog"
-      aria-label={t('print.chooserTitle')}
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/40"
-      onClick={onClose}
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <div
-        className="flex max-h-[80vh] w-xl max-w-[90vw] flex-col rounded-md border border-border bg-surface-1 shadow-overlay"
-        onClick={(e) => e.stopPropagation()}
+      <DialogContent
+        size="md"
+        className="flex max-h-[80vh] flex-col overflow-hidden p-0"
       >
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <div className="flex items-center gap-2">
-            <Printer className="h-4 w-4 text-muted" />
-            <h2 className="text-sm font-semibold text-ink-1">
-              {t('print.chooserTitle')}
-            </h2>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-1 text-muted hover:bg-surface-2 hover:text-ink-1"
-            aria-label={t('common.close')}
-          >
-            <X className="h-4 w-4" />
-          </button>
+        <div className="flex items-center gap-2 border-b border-border px-4 py-3 pr-12">
+          <Printer className="h-4 w-4 text-muted" />
+          <DialogTitle className="text-sm font-semibold text-ink-1">
+            {t('print.chooserTitle')}
+          </DialogTitle>
         </div>
 
         <div className="overflow-y-auto px-4 py-3">
@@ -219,8 +213,8 @@ export function PrintThisMapDialog({ open, onClose, mapId }: Props) {
             )}
           </section>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
