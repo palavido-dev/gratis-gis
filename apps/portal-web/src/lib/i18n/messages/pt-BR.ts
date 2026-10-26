@@ -725,6 +725,20 @@ export const ptBR: Partial<CatalogShape> = {
     layerAccessButton: 'Acesso às camadas',
     saveMapButton: 'Salvar mapa',
     savedIndicator: 'Salvo',
+    basemapButton: 'Mapa base',
+    basemapTitleWithName: 'Mapa base: {name}',
+    basemapMenuHeading: 'Mapa base',
+    noBasemaps: 'Nenhum mapa base disponível',
+    basemapActive: 'ativo',
+    elevationProfileButton: 'Perfil de elevação',
+    visibilityButton: 'Visibilidade',
+    createAppButton: 'Criar app',
+    savingIndicator: 'Salvando...',
+    saveAsTitle: 'Salvar este mapa',
+    saveAsDescription:
+      'Dê um nome e ele vira um mapa no seu portal, pronto para compartilhar e abrir de novo.',
+    mapNamePlaceholder: 'Nome do mapa',
+    cancel: 'Cancelar',
   },
   mapLayerPanel: {
     /** Map layer panel chrome (#162). */
@@ -1690,6 +1704,11 @@ export const ptBR: Partial<CatalogShape> = {
     fetchFailed: 'Falha ao buscar',
     viewAttachments: 'Ver anexos',
     noSelectedFeatures: 'Nenhuma feição selecionada para exportar.',
+    editFooterHint:
+      'Clique duas vezes em uma célula para editar. Enter salva, Esc cancela.',
+    savingCell: 'Salvando...',
+    readOnlyHere:
+      'Esta tabela é somente leitura aqui. As linhas podem ser editadas em camadas que você tem permissão para alterar.',
   },
   mapAddLayer: {
     title: 'Adicionar camada',

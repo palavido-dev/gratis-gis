@@ -727,6 +727,20 @@ export const fr: Partial<CatalogShape> = {
     layerAccessButton: 'Accès aux couches',
     saveMapButton: 'Enregistrer la carte',
     savedIndicator: 'Enregistré',
+    basemapButton: 'Fond de carte',
+    basemapTitleWithName: 'Fond de carte : {name}',
+    basemapMenuHeading: 'Fond de carte',
+    noBasemaps: 'Aucun fond de carte disponible',
+    basemapActive: 'actif',
+    elevationProfileButton: "Profil d'élévation",
+    visibilityButton: 'Visibilité',
+    createAppButton: 'Créer une app',
+    savingIndicator: 'Enregistrement...',
+    saveAsTitle: 'Enregistrer cette carte',
+    saveAsDescription:
+      'Donnez-lui un nom et elle devient une carte de votre portail, prête à partager et à rouvrir.',
+    mapNamePlaceholder: 'Nom de la carte',
+    cancel: 'Annuler',
   },
   mapLayerPanel: {
     /** Map layer panel chrome (#162). */
@@ -1702,6 +1716,11 @@ export const fr: Partial<CatalogShape> = {
     fetchFailed: 'Échec de la récupération',
     viewAttachments: 'Voir les pièces jointes',
     noSelectedFeatures: 'Aucune entité sélectionnée à exporter.',
+    editFooterHint:
+      'Double-cliquez une cellule pour modifier. Entrée pour enregistrer, Échap pour annuler.',
+    savingCell: 'Enregistrement...',
+    readOnlyHere:
+      'Cette table est en lecture seule ici. Les lignes peuvent être modifiées sur les couches que vous avez le droit de changer.',
   },
   mapAddLayer: {
     title: 'Ajouter une couche',

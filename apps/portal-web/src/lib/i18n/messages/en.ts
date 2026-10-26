@@ -758,6 +758,20 @@ export const en = {
     layerAccessButton: 'Layer access',
     saveMapButton: 'Save map',
     savedIndicator: 'Saved',
+    basemapButton: 'Basemap',
+    basemapTitleWithName: 'Basemap: {name}',
+    basemapMenuHeading: 'Basemap',
+    noBasemaps: 'No basemaps available',
+    basemapActive: 'active',
+    elevationProfileButton: 'Elevation profile',
+    visibilityButton: 'Visibility',
+    createAppButton: 'Create app',
+    savingIndicator: 'Saving...',
+    saveAsTitle: 'Save this map',
+    saveAsDescription:
+      'Give it a name and it becomes a map in your portal, ready to share and open again later.',
+    mapNamePlaceholder: 'Map name',
+    cancel: 'Cancel',
   },
   mapLayerPanel: {
     /** Map layer panel chrome (#162). */
@@ -1810,6 +1824,11 @@ export const en = {
     fetchFailed: 'Fetch failed',
     viewAttachments: 'View attachments',
     noSelectedFeatures: 'No selected features to export.',
+    editFooterHint:
+      'Double-click a cell to edit. Enter to save, Esc to cancel.',
+    savingCell: 'Saving...',
+    readOnlyHere:
+      'This table is read-only here. Rows can be edited on layers you have permission to change.',
   },
   // Map editor: Add Layer dialog (portal / file / URL / ArcGIS / New).
   mapAddLayer: {

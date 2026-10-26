@@ -727,6 +727,20 @@ export const de: Partial<CatalogShape> = {
     layerAccessButton: 'Ebenenzugriff',
     saveMapButton: 'Karte speichern',
     savedIndicator: 'Gespeichert',
+    basemapButton: 'Basiskarte',
+    basemapTitleWithName: 'Basiskarte: {name}',
+    basemapMenuHeading: 'Basiskarte',
+    noBasemaps: 'Keine Basiskarten verfügbar',
+    basemapActive: 'aktiv',
+    elevationProfileButton: 'Höhenprofil',
+    visibilityButton: 'Sichtbarkeit',
+    createAppButton: 'App erstellen',
+    savingIndicator: 'Wird gespeichert...',
+    saveAsTitle: 'Diese Karte speichern',
+    saveAsDescription:
+      'Geben Sie ihr einen Namen und sie wird zu einer Karte in Ihrem Portal — bereit zum Teilen und erneuten Öffnen.',
+    mapNamePlaceholder: 'Kartenname',
+    cancel: 'Abbrechen',
   },
   mapLayerPanel: {
     /** Map layer panel chrome (#162). */
@@ -1701,6 +1715,11 @@ export const de: Partial<CatalogShape> = {
     fetchFailed: 'Abruf fehlgeschlagen',
     viewAttachments: 'Anhänge anzeigen',
     noSelectedFeatures: 'Keine ausgewählten Features zum Exportieren.',
+    editFooterHint:
+      'Doppelklick auf eine Zelle zum Bearbeiten. Enter speichert, Esc bricht ab.',
+    savingCell: 'Wird gespeichert...',
+    readOnlyHere:
+      'Diese Tabelle ist hier schreibgeschützt. Zeilen können auf Ebenen bearbeitet werden, für die Sie Änderungsrechte haben.',
   },
   mapAddLayer: {
     title: 'Ebene hinzufügen',

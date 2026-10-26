@@ -1871,10 +1871,12 @@ export function AttributeTable({
         onPatchFeature && canEditActiveLayer ? (
           <div className="flex items-center justify-between border-t border-border px-3 py-1.5 text-2xs">
             <span className="text-muted">
-              Double-click a cell to edit. Enter to save, Esc to cancel.
+              {t('mapAttributeTable.editFooterHint')}
             </span>
             {savingCell ? (
-              <span className="text-accent">Saving...</span>
+              <span className="text-accent">
+                {t('mapAttributeTable.savingCell')}
+              </span>
             ) : editError ? (
               <span className="text-danger" role="alert">
                 {editError}
@@ -1883,8 +1885,7 @@ export function AttributeTable({
           </div>
         ) : (
           <div className="border-t border-border px-3 py-1.5 text-2xs text-muted">
-            This table is read-only here. Rows can be edited on layers
-            you have permission to change.
+            {t('mapAttributeTable.readOnlyHere')}
           </div>
         )
       ) : null}
