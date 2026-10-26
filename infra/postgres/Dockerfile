@@ -16,7 +16,7 @@
 # fresh 17 instance. The old data dir is preserved as
 # /var/lib/docker/volumes/gratis-gis-prod_pgdata/_data.pg16.backup
 # in case the restore needs to be reverted.
-FROM postgis/postgis:17-3.5
+FROM postgis/postgis:18-3.6
 
 # This image is bullseye based and bullseye reached end of life, which
 # broke every deploy here on 2026-09-08, on a layer that has nothing to
