@@ -33,6 +33,10 @@ import {
   probeParquetFromPath,
   streamParquetFromPath,
 } from './parquet-reader.js';
+import {
+  applyGdalNetworkHardening,
+  assertSafeGdalOpenPath,
+} from './gdal-open-guard.js';
 
 /**
  * Opens an uploaded vector file with GDAL and returns a GeoJSON
@@ -149,6 +153,7 @@ export class IngestService {
     const openPath = filePath.toLowerCase().endsWith('.zip')
       ? `/vsizip/${filePath}`
       : filePath;
+    this.assertGdalOpen(openPath, originalName, buffer);
 
     try {
       const ds = gdal.open(openPath);
@@ -326,6 +331,7 @@ export class IngestService {
     const openPath = filePath.toLowerCase().endsWith('.zip')
       ? `/vsizip/${filePath}`
       : filePath;
+    this.assertGdalOpen(openPath, basename(filePath));
     try {
       const ds = await this.openVector(gdal, openPath, filePath);
       try {
@@ -498,6 +504,7 @@ export class IngestService {
     const openPath = filePath.toLowerCase().endsWith('.zip')
       ? `/vsizip/${filePath}`
       : filePath;
+    this.assertGdalOpen(openPath, basename(filePath));
     try {
       const ds = gdal.open(openPath);
       try {
@@ -684,6 +691,7 @@ export class IngestService {
     const openPath = filePath.toLowerCase().endsWith('.zip')
       ? `/vsizip/${filePath}`
       : filePath;
+    this.assertGdalOpen(openPath, basename(filePath));
     const ds = await this.openVector(gdal, openPath, filePath);
     try {
       const layers = ds.layers;
@@ -1154,12 +1162,39 @@ export class IngestService {
   private async loadGdal(): Promise<typeof import('gdal-async')> {
     try {
       const mod = await import('gdal-async');
-      return (mod as unknown as { default?: typeof import('gdal-async') }).default ?? mod;
+      const gdal =
+        (mod as unknown as { default?: typeof import('gdal-async') }).default ??
+        mod;
+      // #234: harden outbound HTTP before any user file is opened.
+      applyGdalNetworkHardening(gdal);
+      return gdal;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.log.error(`gdal-async failed to load: ${msg}`);
       throw new InternalServerErrorException(
         'Server-side ingest is unavailable because GDAL is not installed. Install the gdal-async native binding or use the client-side upload flow for supported formats.',
+      );
+    }
+  }
+
+  /**
+   * #234: refuse /vsicurl/ (and VRT/XML that names it) before GDAL
+   * dials out past our safeFetch fence.
+   */
+  private assertGdalOpen(
+    openPath: string,
+    sourceName: string,
+    fileBytes?: Buffer | string | null,
+  ): void {
+    try {
+      assertSafeGdalOpenPath({
+        openPath,
+        sourceName,
+        ...(fileBytes !== undefined ? { fileBytes } : {}),
+      });
+    } catch (err) {
+      throw new BadRequestException(
+        err instanceof Error ? err.message : String(err),
       );
     }
   }
