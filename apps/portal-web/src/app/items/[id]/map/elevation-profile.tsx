@@ -1,5 +1,7 @@
-'use client';
 // SPDX-License-Identifier: AGPL-3.0-or-later
+'use client';
+
+import { useFormat } from '@/lib/i18n/format';
 /**
  * Elevation profile tool: draw a line on the map, read the ground
  * elevation along it from the map's elevation layer, chart it.
@@ -433,6 +435,7 @@ function ProfileChart({
   hoverIdx: number | null;
   onHover: (idx: number | null) => void;
 }) {
+  const fmt = useFormat();
   const { points, totalM } = result;
   const valid = points.filter((p) => p.elev !== null);
   const elevOf = (m: number) => (units === 'imperial' ? m * M_TO_FT : m);
@@ -546,7 +549,7 @@ function ProfileChart({
               className="fill-current text-muted"
               fontSize={9}
             >
-              {Math.round(elevOf(t)).toLocaleString()} {elevUnit}
+              {fmt.number(Math.round(elevOf(t)))} {elevUnit}
             </text>
           </g>
         ))}
@@ -602,20 +605,20 @@ function ProfileChart({
         />
         <Stat
           label="Low"
-          value={`${Math.round(elevOf(minE)).toLocaleString()} ${elevUnit}`}
+          value={`${fmt.number(Math.round(elevOf(minE)))} ${elevUnit}`}
         />
         <Stat
           label="High"
-          value={`${Math.round(elevOf(maxE)).toLocaleString()} ${elevUnit}`}
+          value={`${fmt.number(Math.round(elevOf(maxE)))} ${elevUnit}`}
         />
         <Stat
           label="Total climb"
-          value={`${Math.round(elevOf(climb)).toLocaleString()} ${elevUnit}`}
+          value={`${fmt.number(Math.round(elevOf(climb)))} ${elevUnit}`}
         />
         {hover && hover.elev !== null ? (
           <span className="ml-auto font-medium text-ink-1">
             {formatLengthIn(hover.dist, distUnit)} ·{' '}
-            {Math.round(elevOf(hover.elev)).toLocaleString()} {elevUnit}
+            {fmt.number(Math.round(elevOf(hover.elev)))} {elevUnit}
           </span>
         ) : null}
       </div>

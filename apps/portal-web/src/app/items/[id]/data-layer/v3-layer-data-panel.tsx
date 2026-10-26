@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
+import { useFormat } from '@/lib/i18n/format';
+
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
@@ -114,6 +116,7 @@ interface RowProps {
 }
 
 function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) {
+  const fmt = useFormat();
   const router = useRouter();
   // Busy carries the prominent upload-progress state. The previous
   // tiny inline spinner on the Import features button was easy to
@@ -204,11 +207,11 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
       xhrRef.current = null;
       const replacedSuffix =
         out.mode === 'replace' && typeof out.replaced === 'number' && out.replaced > 0
-          ? ` (replaced ${out.replaced.toLocaleString()})`
+          ? ` (replaced ${fmt.number(out.replaced)})`
           : '';
       setMessage({
         kind: 'success',
-        text: `${out.inserted.toLocaleString()} feature${
+        text: `${fmt.number(out.inserted)} feature${
           out.inserted === 1 ? '' : 's'
         } ${out.mode === 'append' ? 'appended' : 'imported'} from ${out.sourceLayer} (${out.driver})${replacedSuffix}`,
       });
@@ -247,7 +250,7 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
             {typeof layer.featureCount === 'number' ? (
               <>
                 {' · '}
-                {layer.featureCount.toLocaleString()} feature
+                {fmt.number(layer.featureCount)} feature
                 {layer.featureCount === 1 ? '' : 's'}
               </>
             ) : null}
