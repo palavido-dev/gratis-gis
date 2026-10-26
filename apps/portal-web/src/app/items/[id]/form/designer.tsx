@@ -2,6 +2,7 @@
 'use client';
 
 import { useFormat } from '@/lib/i18n/format';
+import { useT } from '@/lib/i18n/locale-context';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -142,10 +143,13 @@ interface Props {
  * automatically.
  */
 export function FormDesigner({ itemId, initial, canEdit }: Props) {
+  const t = useT();
   const fmt = useFormat();
   const confirmDialog = useConfirm();
   const [form, setForm] = useState<FormSchema>(
-    () => initial ?? emptyForm(itemId, 'Untitled form'),
+    () =>
+      initial ??
+      emptyForm(itemId, t('formDesigner.shell.untitledDefault')),
   );
   const [selectedId, setSelectedId] = useState<QuestionId | null>(null);
   const [tab, setTab] = useState<'design' | 'preview' | 'responses'>('design');
@@ -267,9 +271,7 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
         ) {
           const src = findById(f.questions, sourceId);
           if (src && groupContainsRepeat(src)) {
-            setError(
-              "Can't move a repeating group inside an attachment group. Each attachment is already one repeat instance, so a nested repeat here would mean attachment-of-attachment, which the data model doesn't support.",
-            );
+            setError(t('formDesigner.errors.moveRepeatInAttachment'));
             return f;
           }
         }
@@ -277,7 +279,7 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
         return moveInTree(f, sourceId, target);
       });
     },
-    [layerSchema],
+    [layerSchema, t],
   );
 
   /**
@@ -442,15 +444,17 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
           setLayerSchema(fresh);
         } catch (err) {
           setError(
-            `Form saved, but couldn't update the linked layer's columns: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
+            t('formDesigner.errors.layerSyncFailed', {
+              detail: err instanceof Error ? err.message : String(err),
+            }),
           );
         }
       }
       setSavedAt(new Date());
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed.');
+      setError(
+        err instanceof Error ? err.message : t('formDesigner.errors.saveFailed'),
+      );
     } finally {
       setSaving(false);
     }
@@ -494,7 +498,7 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
     try {
       raw = JSON.parse(await file.text());
     } catch {
-      setError('That file is not valid JSON.');
+      setError(t('formDesigner.errors.invalidJson'));
       return;
     }
     const result = parseExportEnvelope(raw);
@@ -506,9 +510,12 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
     const hasContent = form.questions.length > 0;
     if (hasContent) {
       const ok = await confirmDialog({
-        title: 'Replace this form?',
-        message: `Importing "${result.form.title}" will replace the current form (${form.questions.length} question${form.questions.length === 1 ? '' : 's'}). This can't be undone.`,
-        confirmLabel: 'Replace',
+        title: t('formDesigner.confirm.replaceTitle'),
+        message: t('formDesigner.confirm.replaceJsonMessage', {
+          title: result.form.title,
+          count: form.questions.length,
+        }),
+        confirmLabel: t('formDesigner.confirm.replaceLabel'),
         variant: 'danger',
       });
       if (!ok) return;
@@ -548,14 +555,14 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
         settings: sheetTo('settings'),
       };
       if (workbook.survey.length === 0) {
-        setError(
-          'That .xlsx has no rows on the `survey` sheet -- doesn\'t look like an XLSForm.',
-        );
+        setError(t('formDesigner.errors.xlsformEmpty'));
         return;
       }
     } catch (err) {
       setError(
-        `Couldn't read the .xlsx: ${err instanceof Error ? err.message : String(err)}`,
+        t('formDesigner.errors.xlsformReadFailed', {
+          detail: err instanceof Error ? err.message : String(err),
+        }),
       );
       return;
     }
@@ -563,9 +570,12 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
     const hasContent = form.questions.length > 0;
     if (hasContent) {
       const ok = await confirmDialog({
-        title: 'Replace this form?',
-        message: `Importing "${schema.title}" (${schema.questions.length} question${schema.questions.length === 1 ? '' : 's'}) will replace the current form. This can't be undone.`,
-        confirmLabel: 'Replace',
+        title: t('formDesigner.confirm.replaceTitle'),
+        message: t('formDesigner.confirm.replaceXlsMessage', {
+          title: schema.title,
+          importCount: schema.questions.length,
+        }),
+        confirmLabel: t('formDesigner.confirm.replaceLabel'),
         variant: 'danger',
       });
       if (!ok) return;
@@ -577,9 +587,16 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
       // surfaces them.  We prefix "Imported with warnings" so the
       // user can tell it's not a failure.
       setError(
-        `Imported with ${warnings.length} warning${warnings.length === 1 ? '' : 's'}:\n` +
-          warnings.slice(0, 12).join('\n') +
-          (warnings.length > 12 ? `\n...and ${warnings.length - 12} more.` : ''),
+        t('formDesigner.errors.importedWithWarnings', {
+          count: warnings.length,
+          list:
+            warnings.slice(0, 12).join('\n') +
+            (warnings.length > 12
+              ? `\n${t('formDesigner.errors.importedWithWarningsMore', {
+                  count: warnings.length - 12,
+                })}`
+              : ''),
+        }),
       );
     }
   }
@@ -624,7 +641,7 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
         value={form.title}
         disabled={!canEdit}
         onChange={(e) => setForm({ ...form, title: e.target.value })}
-        placeholder="Untitled form"
+        placeholder={t('formDesigner.shell.untitledPlaceholder')}
         className="rounded-md border border-border bg-surface-1 px-2 py-1 text-sm font-medium text-ink-0 focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
       />
       <span className="text-2xs uppercase tracking-wide text-muted">
@@ -640,7 +657,7 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
               : 'text-muted'
           }`}
         >
-          Design
+          {t('formDesigner.shell.tabDesign')}
         </button>
         <button
           type="button"
@@ -652,7 +669,7 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
           }`}
         >
           <Eye className="mr-1 inline h-3 w-3" />
-          Preview
+          {t('formDesigner.shell.tabPreview')}
         </button>
         {/* #91: third tab for the per-form Responses viewer. Authors
             configure the responseView block here (reference map,
@@ -669,17 +686,17 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
           }`}
         >
           <Inbox className="mr-1 inline h-3 w-3" />
-          Responses
+          {t('formDesigner.shell.tabResponses')}
         </button>
       </div>
       <button
         type="button"
         onClick={exportForm}
-        title="Download this form as a portable JSON file"
+        title={t('formDesigner.shell.exportTitle')}
         className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-xs font-medium text-ink-1 hover:bg-surface-2"
       >
         <Download className="h-3.5 w-3.5" />
-        Export
+        {t('formDesigner.shell.export')}
       </button>
       {canEdit ? (
         <>
@@ -690,11 +707,11 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
             // when the user picks this button.
             data-help="form-import-button"
             onClick={() => fileInputRef.current?.click()}
-            title="Replace this form with one from a .gratisgis-form.json export OR a Survey123 / XLSForm .xlsx"
+            title={t('formDesigner.shell.importTitle')}
             className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-xs font-medium text-ink-1 hover:bg-surface-2"
           >
             <Upload className="h-3.5 w-3.5" />
-            Import
+            {t('formDesigner.shell.import')}
           </button>
           <input
             ref={fileInputRef}
@@ -726,7 +743,7 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
           ) : (
             <Save className="h-3.5 w-3.5" />
           )}
-          Save
+          {t('common.save')}
         </button>
       ) : null}
     </div>
@@ -770,7 +787,9 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
           const ids = collectIds(form);
           ids.delete(selected.id);
           if (ids.has(newId)) {
-            setError(`Question id "${newId}" is already used.`);
+            setError(
+              t('formDesigner.errors.questionIdUsed', { id: newId }),
+            );
             return;
           }
           setError(null);
@@ -793,15 +812,17 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
       <BuilderShell
         storageKey="builder-shell:form"
         backHref="/items"
-        title="Form designer"
+        title={t('formDesigner.shell.title')}
         icon={<FileText className="h-4 w-4 text-orange-600 dark:text-orange-400" />}
         toolbarRight={toolbarRight}
         leftPanel={palettePanel}
-        leftPanelTitle="Add question"
+        leftPanelTitle={t('formDesigner.shell.leftPanelTitle')}
         leftRailIcon={<LayoutGrid className="h-4 w-4" />}
         rightPanel={propertiesPanel}
         rightPanelTitle={
-          tab === 'responses' ? 'Responses settings' : 'Properties'
+          tab === 'responses'
+            ? t('formDesigner.shell.rightPanelResponses')
+            : t('formDesigner.shell.rightPanelProperties')
         }
         rightRailIcon={<SettingsIcon className="h-4 w-4" />}
       >
@@ -813,7 +834,9 @@ export function FormDesigner({ itemId, initial, canEdit }: Props) {
           ) : null}
           {savedAt && !error ? (
             <p className="shrink-0 border-b border-success/40 bg-success/10 px-4 py-1 text-2xs text-success">
-              Saved {fmt.dateTime(savedAt)}.
+              {t('formDesigner.shell.savedAt', {
+                date: fmt.dateTime(savedAt),
+              })}
             </p>
           ) : null}
           <div className="flex-1 overflow-auto">
@@ -883,20 +906,17 @@ function ResponsesIntro({
   itemId: string;
   linkedLayerId: string | null;
 }) {
+  const t = useT();
   return (
     <div className="flex h-full items-start justify-center overflow-auto bg-surface-0 p-8">
       <div className="w-full max-w-2xl">
       <div className="rounded-lg border border-dashed border-border bg-surface-1 p-8 text-center shadow-card">
         <Inbox className="mx-auto h-8 w-8 text-orange-300" />
         <h2 className="mt-2 text-sm font-semibold text-ink-0">
-          Form responses
+          {t('formDesigner.responsesTab.heading')}
         </h2>
         <p className="mx-auto mt-1 max-w-md text-xs text-muted">
-          Every submission to this form lands in the paired data
-          layer. The Responses viewer plots them on a map and shows
-          each one through your form&apos;s question structure. Edit
-          the reference map, read-side toolbar, and other display
-          options in the right panel.
+          {t('formDesigner.responsesTab.body')}
         </p>
         <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
           <a
@@ -906,7 +926,7 @@ function ResponsesIntro({
             className="inline-flex items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-foreground hover:opacity-90"
           >
             <Play className="h-3.5 w-3.5" />
-            Open responses viewer
+            {t('formDesigner.responsesTab.openViewer')}
           </a>
           {linkedLayerId ? (
             <a
@@ -916,17 +936,14 @@ function ResponsesIntro({
               className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-0 px-3 py-1.5 text-sm font-medium text-ink-1 hover:bg-surface-2"
             >
               <Database className="h-3.5 w-3.5" />
-              Open paired data layer
+              {t('formDesigner.responsesTab.openLayer')}
               <ExternalLink className="h-3 w-3 text-muted" />
             </a>
           ) : null}
         </div>
         {!linkedLayerId ? (
           <p className="mx-auto mt-4 max-w-md rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-2xs text-warn">
-            This form has no paired data layer yet. Save the form
-            once with at least one question to materialize the
-            layer; the Responses viewer will then have somewhere to
-            plot submissions.
+            {t('formDesigner.responsesTab.noLayerWarning')}
           </p>
         ) : null}
       </div>
@@ -948,26 +965,47 @@ type ResponseTool =
   | 'legend'
   | 'print';
 
-const ALL_RESPONSE_TOOLS: Array<{
-  key: ResponseTool;
-  label: string;
-  hint: string;
-}> = [
-  { key: 'select', label: 'Select', hint: 'Pick responses to inspect.' },
-  {
-    key: 'query',
-    label: 'Query',
-    hint: 'Filter submissions by attribute or extent.',
-  },
-  { key: 'measure', label: 'Measure', hint: 'Distance + area.' },
-  {
-    key: 'attribute-table',
-    label: 'Attribute table',
-    hint: 'Tabular browse of every submission.',
-  },
-  { key: 'legend', label: 'Legend', hint: 'Symbology key from the paired layer.' },
-  { key: 'print', label: 'Print', hint: 'Print the current view.' },
+const ALL_RESPONSE_TOOL_KEYS: ResponseTool[] = [
+  'select',
+  'query',
+  'measure',
+  'attribute-table',
+  'legend',
+  'print',
 ];
+
+function responseToolLabel(
+  t: ReturnType<typeof useT>,
+  key: ResponseTool,
+): { label: string; hint: string } {
+  const map: Record<ResponseTool, { label: string; hint: string }> = {
+    select: {
+      label: t('formDesigner.responseSettings.tools.select'),
+      hint: t('formDesigner.responseSettings.tools.selectHint'),
+    },
+    query: {
+      label: t('formDesigner.responseSettings.tools.query'),
+      hint: t('formDesigner.responseSettings.tools.queryHint'),
+    },
+    measure: {
+      label: t('formDesigner.responseSettings.tools.measure'),
+      hint: t('formDesigner.responseSettings.tools.measureHint'),
+    },
+    'attribute-table': {
+      label: t('formDesigner.responseSettings.tools.attributeTable'),
+      hint: t('formDesigner.responseSettings.tools.attributeTableHint'),
+    },
+    legend: {
+      label: t('formDesigner.responseSettings.tools.legend'),
+      hint: t('formDesigner.responseSettings.tools.legendHint'),
+    },
+    print: {
+      label: t('formDesigner.responseSettings.tools.print'),
+      hint: t('formDesigner.responseSettings.tools.printHint'),
+    },
+  };
+  return map[key];
+}
 
 /** Default toolbar when the author hasn't picked one yet.  Mirrors
  *  the runtime fallback in apps/portal-web/src/app/items/[id]/responses/page.tsx
@@ -992,6 +1030,7 @@ function ResponseViewSettings({
   canEdit: boolean;
   onUpdateForm: (patch: Partial<FormSchema>) => void;
 }) {
+  const t = useT();
   const rv = form.responseView ?? {};
   const tools: ResponseTool[] = Array.isArray(rv.tools)
     ? (rv.tools as ResponseTool[])
@@ -1069,11 +1108,10 @@ function ResponseViewSettings({
       <section className="mb-4">
         <h3 className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted">
           <MapIcon className="h-3.5 w-3.5" />
-          Reference map
+          {t('formDesigner.responseSettings.referenceMap')}
         </h3>
         <p className="text-2xs text-muted">
-          Optional. The viewer inherits this map&apos;s basemap and
-          viewport. Leave blank to frame on the submission extent.
+          {t('formDesigner.responseSettings.referenceMapHint')}
         </p>
         {mapId ? (
           <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-border bg-surface-0 px-2 py-1.5">
@@ -1085,7 +1123,9 @@ function ResponseViewSettings({
                 type="button"
                 onClick={() => patchResponseView({ mapId: undefined })}
                 className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-danger"
-                aria-label="Clear reference map"
+                aria-label={t(
+                  'formDesigner.responseSettings.clearReferenceMapAria',
+                )}
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -1093,7 +1133,7 @@ function ResponseViewSettings({
           </div>
         ) : (
           <p className="mt-2 rounded-md border border-dashed border-border px-2 py-2 text-2xs text-muted">
-            No reference map.
+            {t('formDesigner.responseSettings.noReferenceMap')}
           </p>
         )}
         {canEdit ? (
@@ -1102,7 +1142,9 @@ function ResponseViewSettings({
             onClick={() => setPickingMap(true)}
             className="mt-2 rounded-md border border-border bg-surface-0 px-2 py-1 text-xs font-medium hover:bg-surface-2"
           >
-            {mapId ? 'Change map' : 'Pick map'}
+            {mapId
+              ? t('formDesigner.responseSettings.changeMap')
+              : t('formDesigner.responseSettings.pickMap')}
           </button>
         ) : null}
       </section>
@@ -1110,13 +1152,14 @@ function ResponseViewSettings({
       <section className="mb-4">
         <h3 className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted">
           <Wrench className="h-3.5 w-3.5" />
-          Toolbar
+          {t('formDesigner.responseSettings.toolbar')}
         </h3>
         <p className="text-2xs text-muted">
-          Read-side tools to expose in the responses viewer.
+          {t('formDesigner.responseSettings.toolbarHint')}
         </p>
         <div className="mt-2 grid grid-cols-1 gap-2">
-          {ALL_RESPONSE_TOOLS.map(({ key, label, hint }) => {
+          {ALL_RESPONSE_TOOL_KEYS.map((key) => {
+            const { label, hint } = responseToolLabel(t, key);
             const on = tools.includes(key);
             return (
               <label
@@ -1144,16 +1187,16 @@ function ResponseViewSettings({
       <section>
         <h3 className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted">
           <Clock className="h-3.5 w-3.5" />
-          Response options
+          {t('formDesigner.responseSettings.responseOptions')}
         </h3>
         <div className="space-y-3 text-xs">
           <label className="flex items-center justify-between gap-2">
             <span className="flex-1">
               <span className="block font-medium text-ink-1">
-                Default look-back
+                {t('formDesigner.responseSettings.defaultLookback')}
               </span>
               <span className="block text-2xs text-muted">
-                Pre-filter to N days back from now. Blank = show all.
+                {t('formDesigner.responseSettings.defaultLookbackHint')}
               </span>
             </span>
             <input
@@ -1183,10 +1226,10 @@ function ResponseViewSettings({
               <UserCircle className="h-3 w-3 text-muted" />
               <span className="flex-1">
                 <span className="block font-medium text-ink-1">
-                  Hide submitter
+                  {t('formDesigner.responseSettings.hideSubmitter')}
                 </span>
                 <span className="block text-2xs text-muted">
-                  For anonymous-feedback workflows.
+                  {t('formDesigner.responseSettings.hideSubmitterHint')}
                 </span>
               </span>
             </span>
@@ -1204,8 +1247,7 @@ function ResponseViewSettings({
           </label>
         </div>
         <p className="mt-2 rounded-md border border-border bg-surface-1 px-2 py-1.5 text-2xs text-muted">
-          Look-back and Hide submitter persist on the form schema; the
-          runtime hooks land in a follow-up.
+          {t('formDesigner.responseSettings.persistNote')}
         </p>
       </section>
 
@@ -1423,7 +1465,6 @@ type PaletteGroup =
 
 interface PaletteEntry {
   type: QuestionType;
-  label: string;
   icon: typeof Type;
   group: PaletteGroup;
 }
@@ -1433,70 +1474,78 @@ interface PaletteEntry {
  *  groups, dividers, notes) before they add the actual questions.
  *  Logic and Geometry land at the bottom because they're either
  *  advanced (calculated, hidden, acknowledge) or specialized. */
-const PALETTE_GROUPS: { id: PaletteGroup; label: string }[] = [
-  { id: 'layout', label: 'Layout' },
-  { id: 'text', label: 'Text' },
-  { id: 'numeric', label: 'Numeric' },
-  { id: 'choice', label: 'Choice' },
-  { id: 'matrix', label: 'Matrix' },
-  { id: 'scale', label: 'Scale' },
-  { id: 'time', label: 'Date & time' },
-  { id: 'identity', label: 'Identity' },
-  { id: 'media', label: 'Media' },
-  { id: 'spatial', label: 'Geometry' },
-  { id: 'logic', label: 'Logic' },
+const PALETTE_GROUP_IDS: PaletteGroup[] = [
+  'layout',
+  'text',
+  'numeric',
+  'choice',
+  'matrix',
+  'scale',
+  'time',
+  'identity',
+  'media',
+  'spatial',
+  'logic',
 ];
 
 const PALETTE: PaletteEntry[] = [
-  { type: 'text', label: 'Short text', icon: Type, group: 'text' },
-  { type: 'multiline', label: 'Long text', icon: AlignLeft, group: 'text' },
-  { type: 'email', label: 'Email', icon: Mail, group: 'text' },
-  { type: 'url', label: 'URL', icon: Link, group: 'text' },
-  { type: 'phone', label: 'Phone', icon: Phone, group: 'text' },
-  { type: 'regex', label: 'Pattern', icon: Regex, group: 'text' },
-  { type: 'number', label: 'Number', icon: Hash, group: 'numeric' },
-  { type: 'integer', label: 'Whole number', icon: Hash, group: 'numeric' },
-  { type: 'boolean', label: 'Yes / No', icon: ToggleLeft, group: 'choice' },
-  { type: 'select-one', label: 'Single choice', icon: Circle, group: 'choice' },
-  { type: 'select-many', label: 'Multiple choice', icon: CheckSquare, group: 'choice' },
-  { type: 'matrix-single', label: 'Matrix (single)', icon: Grid3x3, group: 'matrix' },
-  { type: 'matrix-multi', label: 'Matrix (multi)', icon: Grid3x3, group: 'matrix' },
-  { type: 'matrix-dropdown', label: 'Matrix (dropdown)', icon: Grid3x3, group: 'matrix' },
-  { type: 'matrix-rating', label: 'Matrix (rating)', icon: Grid3x3, group: 'matrix' },
-  { type: 'ranking', label: 'Ranking', icon: ListOrdered, group: 'choice' },
-  { type: 'rating', label: 'Rating', icon: Star, group: 'scale' },
-  { type: 'likert', label: 'Likert', icon: Sliders, group: 'scale' },
-  { type: 'nps', label: 'NPS (0-10)', icon: BarChart3, group: 'scale' },
-  { type: 'slider', label: 'Slider', icon: Sliders, group: 'scale' },
-  { type: 'date', label: 'Date', icon: Calendar, group: 'time' },
-  { type: 'time', label: 'Time', icon: Clock, group: 'time' },
-  { type: 'datetime', label: 'Date + time', icon: CalendarClock, group: 'time' },
-  { type: 'name', label: 'Full name', icon: User, group: 'identity' },
-  { type: 'address', label: 'Address', icon: Home, group: 'identity' },
-  { type: 'photo', label: 'Photo', icon: Camera, group: 'media' },
-  { type: 'audio', label: 'Audio', icon: Mic, group: 'media' },
-  { type: 'video', label: 'Video', icon: Video, group: 'media' },
-  { type: 'barcode', label: 'Barcode / QR', icon: ScanLine, group: 'media' },
-  { type: 'sketch', label: 'Sketch', icon: Pencil, group: 'media' },
-  { type: 'file', label: 'File', icon: FileText, group: 'media' },
-  { type: 'image-choice', label: 'Image choice', icon: Image, group: 'media' },
-  { type: 'image-display', label: 'Image', icon: Image, group: 'media' },
-  { type: 'image-hotspot', label: 'Image hotspot', icon: Crosshair, group: 'media' },
-  { type: 'signature', label: 'Signature', icon: Type, group: 'media' },
-  { type: 'geopoint', label: 'Location', icon: MapPin, group: 'spatial' },
-  { type: 'geotrace', label: 'Path', icon: SplitSquareHorizontal, group: 'spatial' },
-  { type: 'geoshape', label: 'Area', icon: Square, group: 'spatial' },
-  { type: 'pick-feature', label: 'Pick a feature', icon: Crosshair, group: 'spatial' },
-  { type: 'route', label: 'Route', icon: SplitSquareHorizontal, group: 'spatial' },
-  { type: 'area-buffer', label: 'Area (buffer)', icon: Circle, group: 'spatial' },
-  { type: 'calculated', label: 'Calculated', icon: Calculator, group: 'logic' },
-  { type: 'note', label: 'Note', icon: TextIcon, group: 'layout' },
-  { type: 'divider', label: 'Divider', icon: Minus, group: 'layout' },
-  { type: 'acknowledge', label: 'Acknowledge', icon: ShieldCheck, group: 'logic' },
-  { type: 'hidden', label: 'Hidden', icon: EyeOff, group: 'logic' },
-  { type: 'page', label: 'Page break', icon: Workflow, group: 'layout' },
-  { type: 'group', label: 'Group / Repeat', icon: ListChecks, group: 'layout' },
+  { type: 'text', icon: Type, group: 'text' },
+  { type: 'multiline', icon: AlignLeft, group: 'text' },
+  { type: 'email', icon: Mail, group: 'text' },
+  { type: 'url', icon: Link, group: 'text' },
+  { type: 'phone', icon: Phone, group: 'text' },
+  { type: 'regex', icon: Regex, group: 'text' },
+  { type: 'number', icon: Hash, group: 'numeric' },
+  { type: 'integer', icon: Hash, group: 'numeric' },
+  { type: 'boolean', icon: ToggleLeft, group: 'choice' },
+  { type: 'select-one', icon: Circle, group: 'choice' },
+  { type: 'select-many', icon: CheckSquare, group: 'choice' },
+  { type: 'matrix-single', icon: Grid3x3, group: 'matrix' },
+  { type: 'matrix-multi', icon: Grid3x3, group: 'matrix' },
+  { type: 'matrix-dropdown', icon: Grid3x3, group: 'matrix' },
+  { type: 'matrix-rating', icon: Grid3x3, group: 'matrix' },
+  { type: 'ranking', icon: ListOrdered, group: 'choice' },
+  { type: 'rating', icon: Star, group: 'scale' },
+  { type: 'likert', icon: Sliders, group: 'scale' },
+  { type: 'nps', icon: BarChart3, group: 'scale' },
+  { type: 'slider', icon: Sliders, group: 'scale' },
+  { type: 'date', icon: Calendar, group: 'time' },
+  { type: 'time', icon: Clock, group: 'time' },
+  { type: 'datetime', icon: CalendarClock, group: 'time' },
+  { type: 'name', icon: User, group: 'identity' },
+  { type: 'address', icon: Home, group: 'identity' },
+  { type: 'photo', icon: Camera, group: 'media' },
+  { type: 'audio', icon: Mic, group: 'media' },
+  { type: 'video', icon: Video, group: 'media' },
+  { type: 'barcode', icon: ScanLine, group: 'media' },
+  { type: 'sketch', icon: Pencil, group: 'media' },
+  { type: 'file', icon: FileText, group: 'media' },
+  { type: 'image-choice', icon: Image, group: 'media' },
+  { type: 'image-display', icon: Image, group: 'media' },
+  { type: 'image-hotspot', icon: Crosshair, group: 'media' },
+  { type: 'signature', icon: Type, group: 'media' },
+  { type: 'geopoint', icon: MapPin, group: 'spatial' },
+  { type: 'geotrace', icon: SplitSquareHorizontal, group: 'spatial' },
+  { type: 'geoshape', icon: Square, group: 'spatial' },
+  { type: 'pick-feature', icon: Crosshair, group: 'spatial' },
+  { type: 'route', icon: SplitSquareHorizontal, group: 'spatial' },
+  { type: 'area-buffer', icon: Circle, group: 'spatial' },
+  { type: 'calculated', icon: Calculator, group: 'logic' },
+  { type: 'note', icon: TextIcon, group: 'layout' },
+  { type: 'divider', icon: Minus, group: 'layout' },
+  { type: 'acknowledge', icon: ShieldCheck, group: 'logic' },
+  { type: 'hidden', icon: EyeOff, group: 'logic' },
+  { type: 'page', icon: Workflow, group: 'layout' },
+  { type: 'group', icon: ListChecks, group: 'layout' },
 ];
+
+function paletteTypeLabel(t: ReturnType<typeof useT>, type: QuestionType): string {
+  return t(`formDesigner.palette.types.${type}`);
+}
+
+function paletteGroupLabel(t: ReturnType<typeof useT>, id: PaletteGroup): string {
+  return t(`formDesigner.palette.groups.${id}`);
+}
 
 function Palette({
   canEdit,
@@ -1505,6 +1554,7 @@ function Palette({
   canEdit: boolean;
   onAdd: (type: QuestionType) => void;
 }) {
+  const t = useT();
   // Search query filters the palette by label or type. When non-empty
   // we auto-expand every group so matches don't hide behind a closed
   // header.
@@ -1530,9 +1580,9 @@ function Palette({
 
   function matches(entry: PaletteEntry): boolean {
     if (!isSearching) return true;
+    const label = paletteTypeLabel(t, entry.type).toLowerCase();
     return (
-      entry.label.toLowerCase().includes(trimmed) ||
-      entry.type.toLowerCase().includes(trimmed)
+      label.includes(trimmed) || entry.type.toLowerCase().includes(trimmed)
     );
   }
 
@@ -1543,7 +1593,7 @@ function Palette({
   return (
     <aside className="border-b border-border bg-surface-2/40 p-3 lg:sticky lg:top-0 lg:max-h-screen lg:overflow-y-auto lg:border-b-0 lg:border-r">
       <p className="mb-2 text-2xs font-medium uppercase tracking-wide text-muted">
-        Add a question
+        {t('formDesigner.palette.heading')}
       </p>
       <div className="relative mb-3">
         <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
@@ -1551,14 +1601,14 @@ function Palette({
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search question types"
+          placeholder={t('formDesigner.palette.searchPlaceholder')}
           className="block h-8 w-full rounded-md border border-border bg-surface-1 pl-7 pr-7 text-xs text-ink-1 placeholder:text-muted focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
         />
         {query ? (
           <button
             type="button"
             onClick={() => setQuery('')}
-            aria-label="Clear search"
+            aria-label={t('formDesigner.palette.clearSearchAria')}
             className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 text-muted hover:bg-surface-2"
           >
             <X className="h-3 w-3" />
@@ -1566,19 +1616,19 @@ function Palette({
         ) : null}
       </div>
       <div className="space-y-2">
-        {PALETTE_GROUPS.map((g) => {
-          const entries = buckets.get(g.id);
+        {PALETTE_GROUP_IDS.map((groupId) => {
+          const entries = buckets.get(groupId);
           if (!entries || entries.length === 0) return null;
           const visible = entries.filter(matches);
           // Hide a group entirely when searching and nothing matches.
           if (isSearching && visible.length === 0) return null;
           // While searching, force-open so matches are reachable.
-          const isOpen = isSearching ? true : !collapsed[g.id];
+          const isOpen = isSearching ? true : !collapsed[groupId];
           return (
-            <div key={g.id}>
+            <div key={groupId}>
               <button
                 type="button"
-                onClick={() => toggleGroup(g.id)}
+                onClick={() => toggleGroup(groupId)}
                 disabled={isSearching}
                 className="flex w-full items-center gap-1 px-0.5 py-0.5 text-2xs font-medium uppercase tracking-wide text-muted/80 hover:text-ink-1 disabled:cursor-default disabled:opacity-90"
               >
@@ -1587,7 +1637,7 @@ function Palette({
                 ) : (
                   <ChevronRight className="h-3 w-3" />
                 )}
-                <span>{g.label}</span>
+                <span>{paletteGroupLabel(t, groupId)}</span>
                 <span className="ml-auto text-2xs tabular-nums text-muted/60">
                   {isSearching ? `${visible.length}` : entries.length}
                 </span>
@@ -1617,16 +1667,18 @@ function Palette({
                         disabled={!canEdit || unavailable}
                         title={
                           unavailable
-                            ? 'Not available yet: there is no way to answer this on the web or in the field app.'
+                            ? t('formDesigner.palette.unavailableTitle')
                             : undefined
                         }
                         className="inline-flex w-full items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2 py-1.5 text-xs text-ink-1 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Icon className="h-3.5 w-3.5 text-muted" />
-                        <span className="truncate text-left">{entry.label}</span>
+                        <span className="truncate text-left">
+                          {paletteTypeLabel(t, entry.type)}
+                        </span>
                         {unavailable ? (
                           <span className="ml-auto shrink-0 rounded border border-border px-1 text-2xs text-muted">
-                            soon
+                            {t('formDesigner.palette.soon')}
                           </span>
                         ) : null}
                       </button>
@@ -1640,7 +1692,7 @@ function Palette({
         {isSearching &&
         Array.from(buckets.values()).flat().filter(matches).length === 0 ? (
           <p className="px-1 py-2 text-2xs text-muted">
-            No question types match &quot;{query}&quot;.
+            {t('formDesigner.palette.noMatch', { query })}
           </p>
         ) : null}
       </div>
@@ -1733,6 +1785,7 @@ function EmptyCanvas({
   onMoveTop: (id: QuestionId) => void;
   onOpenImport: () => void;
 }) {
+  const t = useT();
   return (
     <div
       className="flex h-64 flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border bg-surface-1 text-center text-sm text-muted"
@@ -1755,7 +1808,7 @@ function EmptyCanvas({
       }}
     >
       <Plus className="h-5 w-5" />
-      <span>Drag a question type from the left, or tap one to add it.</span>
+      <span>{t('formDesigner.canvas.emptyHint')}</span>
       {canEdit ? (
         <button
           type="button"
@@ -1763,7 +1816,7 @@ function EmptyCanvas({
           className="mt-1 inline-flex h-8 items-center gap-1 rounded-md border border-border bg-surface-1 px-3 text-xs font-medium text-ink-1 hover:bg-surface-2"
         >
           <Database className="h-3.5 w-3.5" />
-          Or link to a data layer
+          {t('formDesigner.canvas.linkLayer')}
         </button>
       ) : null}
     </div>
@@ -1903,6 +1956,7 @@ function QuestionRow({
   index: number;
   containerId: QuestionId | null;
 } & CanvasCallbacks) {
+  const t = useT();
   const [overTop, setOverTop] = useState(false);
 
   // Drop onto a question card. For "real" questions (anything that
@@ -1972,7 +2026,7 @@ function QuestionRow({
                 e.dataTransfer.effectAllowed = 'move';
               }}
               className="cursor-grab text-muted hover:text-ink-0"
-              aria-label="Drag to reorder"
+              aria-label={t('formDesigner.canvas.dragReorderAria')}
             >
               <GripVertical className="h-4 w-4" />
             </button>
@@ -2179,13 +2233,14 @@ function Properties({
   onOpenImport: () => void;
   onUnlinkLayer: () => void;
 }) {
+  const t = useT();
   if (!question) {
     return (
       <aside className="border-l border-border bg-surface-2/40 p-3 lg:sticky lg:top-0 lg:max-h-screen lg:overflow-y-auto">
         <p className="mb-2 text-2xs font-medium uppercase tracking-wide text-muted">
-          Form
+          {t('formDesigner.properties.formHeading')}
         </p>
-        <Field label="Description">
+        <Field label={t('formDesigner.properties.description')}>
           <textarea
             rows={3}
             value={form.description ?? ''}
@@ -2208,7 +2263,7 @@ function Properties({
             className="mb-3 inline-flex h-8 w-full items-center justify-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-xs font-medium text-ink-1 hover:bg-surface-2"
           >
             <Database className="h-3.5 w-3.5" />
-            Link to a data layer
+            {t('formDesigner.properties.linkLayer')}
           </button>
         ) : null}
         <NotifySettings
@@ -2217,7 +2272,7 @@ function Properties({
           onUpdateForm={onUpdateForm}
         />
         <p className="mt-1 text-2xs text-muted">
-          Select a question on the left to edit it.
+          {t('formDesigner.properties.selectQuestion')}
         </p>
       </aside>
     );
@@ -2225,7 +2280,7 @@ function Properties({
   return (
     <aside className="border-l border-border bg-surface-2/40 p-3 lg:sticky lg:top-0 lg:max-h-screen lg:overflow-y-auto">
       <p className="mb-2 text-2xs font-medium uppercase tracking-wide text-muted">
-        {question.type} properties
+        {t('formDesigner.properties.typeProperties', { type: question.type })}
       </p>
 
       {/* Notes are display-only and the runtime renders just `label`,
@@ -2236,8 +2291,8 @@ function Properties({
           which don't apply to a question that captures no value. */}
       {question.type === 'note' ? (
         <Field
-          label="Note text"
-          hint="Shown to the responder. The body of the note."
+          label={t('formDesigner.properties.noteText')}
+          hint={t('formDesigner.properties.noteTextHint')}
         >
           <textarea
             rows={4}
@@ -2248,7 +2303,7 @@ function Properties({
           />
         </Field>
       ) : (
-        <Field label="Label">
+        <Field label={t('formDesigner.properties.label')}>
           <input
             type="text"
             value={question.label}
@@ -2259,7 +2314,10 @@ function Properties({
         </Field>
       )}
 
-      <Field label="Question id" hint="Used as the column name in the layer schema.">
+      <Field
+        label={t('formDesigner.properties.questionId')}
+        hint={t('formDesigner.properties.questionIdHint')}
+      >
         {/* #324: buffer locally and commit on blur / Enter. Editing
             the id per-keystroke would (a) commit every intermediate
             value as the column name, polluting the layer schema
@@ -4837,6 +4895,7 @@ function ExpressionBuilderModal({
   onClose: () => void;
   onSave: (next: Expression | undefined) => void;
 }) {
+  const t = useT();
   const [tree, setTree] = useState<RuleTree>(() => treeFromExpression(initial));
   const [tab, setTab] = useState<'fields' | 'operators' | 'functions'>(
     'fields',
@@ -4855,14 +4914,13 @@ function ExpressionBuilderModal({
       >
         <header className="border-b border-border bg-surface-1 px-4 py-2 pr-12">
           <p className="text-2xs uppercase tracking-wide text-muted">
-            Expression builder
+            {t('formDesigner.expressionBuilder.title')}
           </p>
           <DialogTitle className="text-sm font-medium text-ink-0">
             {label}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            Build a visibility or calculation expression with conditions,
-            fields, operators, and functions.
+            {t('formDesigner.expressionBuilder.descriptionSr')}
           </DialogDescription>
         </header>
         <div className="grid grid-cols-1 divide-border overflow-y-auto md:grid-cols-[1fr_280px] md:divide-x md:overflow-hidden">
@@ -4879,34 +4937,36 @@ function ExpressionBuilderModal({
                 can take an Operand on the left, which lands when the
                 modal grows a value-mode editor for calculate. */}
             <div className="flex flex-wrap gap-1.5 border-b border-border bg-surface-1/40 px-4 py-2 text-2xs">
-              <span className="self-center text-muted">Quick start:</span>
+              <span className="self-center text-muted">
+                {t('formDesigner.expressionBuilder.quickStart')}
+              </span>
               <button
                 type="button"
                 onClick={() => insertQuickStartRow(setTree, tree, allFields, 'not-empty')}
                 className="rounded border border-border bg-surface-0 px-2 py-0.5 hover:bg-surface-2"
               >
-                Required (not empty)
+                {t('formDesigner.expressionBuilder.requiredNotEmpty')}
               </button>
               <button
                 type="button"
                 onClick={() => insertQuickStartRow(setTree, tree, allFields, 'equals')}
                 className="rounded border border-border bg-surface-0 px-2 py-0.5 hover:bg-surface-2"
               >
-                Equals value
+                {t('formDesigner.expressionBuilder.equalsValue')}
               </button>
               <button
                 type="button"
                 onClick={() => insertQuickStartRow(setTree, tree, allFields, 'range')}
                 className="rounded border border-border bg-surface-0 px-2 py-0.5 hover:bg-surface-2"
               >
-                Range (between)
+                {t('formDesigner.expressionBuilder.rangeBetween')}
               </button>
               <button
                 type="button"
                 onClick={() => insertQuickStartRow(setTree, tree, allFields, 'regex')}
                 className="rounded border border-border bg-surface-0 px-2 py-0.5 hover:bg-surface-2"
               >
-                Regex pattern
+                {t('formDesigner.expressionBuilder.regexPattern')}
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-auto p-4">
@@ -4921,9 +4981,9 @@ function ExpressionBuilderModal({
             <nav className="flex border-b border-border text-xs">
               {(
                 [
-                  ['fields', 'Fields'],
-                  ['operators', 'Operators'],
-                  ['functions', 'Functions'],
+                  ['fields', t('formDesigner.expressionBuilder.tabFields')],
+                  ['operators', t('formDesigner.expressionBuilder.tabOperators')],
+                  ['functions', t('formDesigner.expressionBuilder.tabFunctions')],
                 ] as const
               ).map(([key, lbl]) => (
                 <button
@@ -5400,6 +5460,7 @@ function LayerImportDialog({
     layer: { id: string; title: string; layerKey?: string },
   ) => void;
 }) {
+  const t = useT();
   const [layers, setLayers] = useState<LayerListItem[] | null>(null);
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [pickedTitle, setPickedTitle] = useState<string | null>(null);
@@ -5417,7 +5478,9 @@ function LayerImportDialog({
         const items = (await res.json()) as Array<{ id: string; title: string }>;
         setLayers(items);
       } catch (e) {
-        setErr(e instanceof Error ? e.message : 'Could not load layers.');
+        setErr(
+          e instanceof Error ? e.message : t('formDesigner.errors.loadLayers'),
+        );
       }
     })();
   }, []);
@@ -5432,7 +5495,11 @@ function LayerImportDialog({
       setPickedId(layerId);
       setPickedTitle(title);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Could not load layer schema.');
+      setErr(
+        e instanceof Error
+          ? e.message
+          : t('formDesigner.errors.loadLayerSchema'),
+      );
     } finally {
       setBusy(false);
     }
@@ -5464,10 +5531,10 @@ function LayerImportDialog({
       <DialogContent size="md" className="p-0 shadow-raised">
         <DialogHeader className="px-4 py-3 pr-12">
           <DialogTitle className="text-sm font-semibold tracking-tight text-ink-0">
-            Link to a data layer
+            {t('formDesigner.layerImport.title')}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            Pick a data layer to generate form questions from its schema.
+            {t('formDesigner.layerImport.descriptionSr')}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 px-4 py-3 text-sm">
@@ -5479,14 +5546,16 @@ function LayerImportDialog({
           {!pickedId ? (
             <div>
               <p className="mb-2 text-xs text-muted">
-                Pick a data layer to link this form to. We&apos;ll generate one
-                question per column at the most compatible question type, and
-                submissions to this form will land in the picked layer.
+                {t('formDesigner.layerImport.intro')}
               </p>
               {layers === null ? (
-                <p className="text-xs text-muted">Loading layers...</p>
+                <p className="text-xs text-muted">
+                  {t('formDesigner.layerImport.loadingLayers')}
+                </p>
               ) : layers.length === 0 ? (
-                <p className="text-xs text-muted">No data layers in this org yet.</p>
+                <p className="text-xs text-muted">
+                  {t('formDesigner.layerImport.noLayers')}
+                </p>
               ) : (
                 <ul className="max-h-72 space-y-1 overflow-y-auto">
                   {layers.map((l) => (
@@ -5499,7 +5568,7 @@ function LayerImportDialog({
                       >
                         <span className="truncate">{l.title}</span>
                         <span className="text-2xs uppercase tracking-wide text-muted">
-                          data layer
+                          {t('formDesigner.layerImport.dataLayerBadge')}
                         </span>
                       </button>
                     </li>
@@ -5517,7 +5586,7 @@ function LayerImportDialog({
             onClick={onClose}
             className="inline-flex h-8 items-center rounded-md border border-border bg-surface-1 px-3 text-xs font-medium text-ink-1 hover:bg-surface-2"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           {pickedId ? (
             <button
@@ -5526,7 +5595,7 @@ function LayerImportDialog({
               disabled={!schema}
               className="inline-flex h-8 items-center rounded-md bg-accent px-3 text-xs font-medium text-accent-foreground hover:opacity-90 disabled:opacity-50"
             >
-              Generate questions
+              {t('formDesigner.layerImport.generate')}
             </button>
           ) : null}
         </DialogFooter>

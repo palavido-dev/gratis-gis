@@ -2,6 +2,7 @@
 'use client';
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { useT } from '@/lib/i18n/locale-context';
 import {
   Camera,
   Check,
@@ -94,11 +95,13 @@ export function FormRuntime({
   form,
   initial,
   onSubmit,
-  submitLabel = 'Submit',
+  submitLabel,
   readOnly = false,
   formId,
   hideSubmitButton = false,
 }: FormRuntimeProps) {
+  const t = useT();
+  const resolvedSubmitLabel = submitLabel ?? t('formRuntime.submit');
   const [response, setResponse] = useState<Response>(() =>
     applyCalculations(form, initial ?? {}),
   );
@@ -177,7 +180,9 @@ export function FormRuntime({
       await onSubmit(pruneHidden(form, response));
       setSubmitted(true);
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : 'Submit failed.');
+      setSubmitError(
+        err instanceof Error ? err.message : t('formRuntime.submitFailed'),
+      );
     } finally {
       setSubmitting(false);
     }
@@ -190,10 +195,10 @@ export function FormRuntime({
           <Check className="h-6 w-6" />
         </span>
         <h2 className="text-lg font-semibold tracking-tight text-ink-0">
-          Submitted
+          {t('formRuntime.submittedHeading')}
         </h2>
         <p className="text-sm text-muted">
-          Thanks. Your response has been recorded.
+          {t('formRuntime.submittedBody')}
         </p>
         <button
           type="button"
@@ -204,7 +209,7 @@ export function FormRuntime({
           }}
           className="mt-3 inline-flex h-9 items-center rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 hover:bg-surface-2"
         >
-          Submit another response
+          {t('formRuntime.submitAnother')}
         </button>
       </div>
     );
@@ -222,7 +227,10 @@ export function FormRuntime({
         {pages.length > 1 ? (
           <div className="mt-3 flex items-center justify-between">
             <p className="text-xs uppercase tracking-wide text-muted">
-              Page {pageIndex + 1} of {pages.length}
+              {t('formRuntime.pageProgress', {
+                current: pageIndex + 1,
+                total: pages.length,
+              })}
             </p>
             <div
               className="h-1 flex-1 ml-3 overflow-hidden rounded bg-surface-2"
@@ -277,18 +285,20 @@ export function FormRuntime({
               className="inline-flex h-11 items-center gap-1 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 hover:bg-surface-2"
             >
               <ChevronLeft className="h-4 w-4" />
-              Back
+              {t('formRuntime.back')}
             </button>
           ) : null}
           <div className="flex-1" />
           {readOnly ? (
-            <span className="text-xs text-muted">Preview mode</span>
+            <span className="text-xs text-muted">
+              {t('formRuntime.previewMode')}
+            </span>
           ) : pageIndex < pages.length - 1 ? (
             <button
               type="submit"
               className="inline-flex h-11 items-center gap-1 rounded-md bg-accent px-4 text-sm font-medium text-accent-foreground hover:opacity-90"
             >
-              Next
+              {t('formRuntime.next')}
               <ChevronRight className="h-4 w-4" />
             </button>
           ) : hideSubmitButton ? (
@@ -300,7 +310,7 @@ export function FormRuntime({
             submitting ? (
               <span className="inline-flex items-center gap-1 text-xs text-muted">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Submitting...
+                {t('formRuntime.submitting')}
               </span>
             ) : null
           ) : (
@@ -312,7 +322,7 @@ export function FormRuntime({
               {submitting ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : null}
-              {submitLabel}
+              {resolvedSubmitLabel}
             </button>
           )}
         </div>
@@ -345,6 +355,7 @@ function QuestionField({
    */
   setValue?: (id: string, v: unknown) => void;
 }) {
+  const t = useT();
   if (!isVisible(q, response)) return null;
 
   if (q.type === 'page') return null;
@@ -400,7 +411,7 @@ function QuestionField({
       {q.guidanceHint ? (
         <details className="text-xs text-muted">
           <summary className="cursor-pointer text-accent hover:underline">
-            More info
+            {t('formRuntime.moreInfo')}
           </summary>
           <p className="mt-1 whitespace-pre-line text-muted">
             {q.guidanceHint}
@@ -450,6 +461,7 @@ function GroupField({
   onChange: (v: unknown) => void;
   setValue?: (id: string, v: unknown) => void;
 }) {
+  const t = useT();
   // Non-repeating group is purely a visual container. Children's
   // responses live at the TOP LEVEL of `response`, keyed by their
   // question id (matching pruneHidden + walkQuestions which only
@@ -506,7 +518,9 @@ function GroupField({
         {instances.map((inst, idx) => (
           <div key={idx} className="rounded-md border border-border bg-surface-1 p-3">
             <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-wide text-muted">
-              <span>Instance {idx + 1}</span>
+              <span>
+                {t('formRuntime.instanceLabel', { index: idx + 1 })}
+              </span>
               {!readOnly ? (
                 <button
                   type="button"
@@ -517,7 +531,7 @@ function GroupField({
                   }}
                 >
                   <Trash2 className="h-3 w-3" />
-                  Remove
+                  {t('formRuntime.removeInstance')}
                 </button>
               ) : null}
             </div>
@@ -610,6 +624,7 @@ function PackedRows({
  * "this is a preview, not interactive."
  */
 export function QuestionPreview({ q }: { q: Question }) {
+  const t = useT();
   // Pages, hidden, and group are structural -- nothing to render.
   // Note (text panel) and divider already render on their own.
   if (q.type === 'page' || q.type === 'hidden' || q.type === 'group') {
@@ -628,24 +643,18 @@ export function QuestionPreview({ q }: { q: Question }) {
     q.type === 'route' ||
     q.type === 'area-buffer'
   ) {
-    const label =
-      q.type === 'signature'
-        ? 'Signature pad'
-        : q.type === 'photo'
-          ? 'Photo capture'
-          : q.type === 'audio'
-            ? 'Audio capture'
-            : q.type === 'video'
-              ? 'Video capture'
-              : q.type === 'sketch'
-                ? 'Sketch canvas'
-                : q.type === 'pick-feature'
-                  ? 'Pick a feature'
-                  : q.type === 'route'
-                    ? 'Route'
-                    : q.type === 'area-buffer'
-                      ? 'Area (buffer)'
-                      : 'File upload';
+    const labelKey: Record<string, string> = {
+      signature: 'formRuntime.placeholders.signature',
+      photo: 'formRuntime.placeholders.photo',
+      audio: 'formRuntime.placeholders.audio',
+      video: 'formRuntime.placeholders.video',
+      sketch: 'formRuntime.placeholders.sketch',
+      'pick-feature': 'formRuntime.placeholders.pickFeature',
+      route: 'formRuntime.placeholders.route',
+      'area-buffer': 'formRuntime.placeholders.areaBuffer',
+      file: 'formRuntime.placeholders.file',
+    };
+    const label = t(labelKey[q.type] ?? 'formRuntime.placeholders.file');
     return (
       <div className="rounded-md border border-dashed border-border bg-surface-2/30 px-3 py-2 text-2xs text-muted">
         {label}

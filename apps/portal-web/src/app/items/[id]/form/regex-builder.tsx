@@ -2,6 +2,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useT } from '@/lib/i18n/locale-context';
 import { Check, Sparkles } from 'lucide-react';
 import {
   Dialog,
@@ -50,13 +51,14 @@ export function RegexQuestionFields({
   canEdit,
   onChange,
 }: Props) {
+  const t = useT();
   const [builderOpen, setBuilderOpen] = useState(false);
   return (
     <>
       <div>
         <div className="mb-0.5 flex items-center justify-between">
           <p className="text-2xs uppercase tracking-wide text-muted">
-            Pattern
+            {t('formDesigner.regex.pattern')}
           </p>
           <button
             type="button"
@@ -65,7 +67,7 @@ export function RegexQuestionFields({
             className="inline-flex items-center gap-1 text-2xs text-accent hover:underline disabled:opacity-50"
           >
             <Sparkles className="h-3 w-3" />
-            Pattern builder
+            {t('formDesigner.regex.patternBuilder')}
           </button>
         </div>
         <input
@@ -76,12 +78,12 @@ export function RegexQuestionFields({
           className={`${inputCls} font-mono`}
         />
         <p className="mt-1 text-2xs text-muted">
-          Regex applied with implicit ^...$ anchors.
+          {t('formDesigner.regex.anchorsHint')}
         </p>
       </div>
       <div className="mt-3">
         <p className="mb-0.5 text-2xs uppercase tracking-wide text-muted">
-          Flags
+          {t('formDesigner.regex.flags')}
         </p>
         <input
           type="text"
@@ -92,12 +94,12 @@ export function RegexQuestionFields({
           maxLength={6}
         />
         <p className="mt-1 text-2xs text-muted">
-          e.g. "i" for case-insensitive.
+          {t('formDesigner.regex.flagsHint')}
         </p>
       </div>
       <div className="mt-3">
         <p className="mb-0.5 text-2xs uppercase tracking-wide text-muted">
-          Error message
+          {t('formDesigner.regex.errorMessage')}
         </p>
         <input
           type="text"
@@ -255,6 +257,7 @@ function RegexBuilderModal({
   onClose: () => void;
   onApply: (pattern: string, flags: string) => void;
 }) {
+  const t = useT();
   const [pattern, setPattern] = useState(initialPattern);
   const [flags, setFlags] = useState(initialFlags);
   const [sample, setSample] = useState('');
@@ -276,7 +279,8 @@ function RegexBuilderModal({
       return {
         ok: false,
         match: false,
-        error: e instanceof Error ? e.message : 'Invalid pattern',
+        error:
+          e instanceof Error ? e.message : t('formDesigner.regex.invalidPatternShort'),
       };
     }
   }, [pattern, flags, sample]);
@@ -302,20 +306,20 @@ function RegexBuilderModal({
       >
         <header className="border-b border-border bg-surface-1 px-4 py-2 pr-12">
           <p className="text-2xs uppercase tracking-wide text-muted">
-            Pattern builder
+            {t('formDesigner.regex.modalTitle')}
           </p>
           <DialogTitle className="text-sm font-medium text-ink-0">
-            Build a regex pattern
+            {t('formDesigner.regex.modalHeading')}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            Choose a preset or edit a regex pattern with live sample preview.
+            {t('formDesigner.regex.modalDescriptionSr')}
           </DialogDescription>
         </header>
         <div className="grid grid-cols-1 divide-border overflow-y-auto md:grid-cols-[1fr_300px] md:divide-x md:overflow-hidden">
           {/* Left: preset list */}
           <div className="overflow-auto p-3">
             <p className="mb-2 text-2xs font-medium uppercase tracking-wide text-muted">
-              Common patterns
+              {t('formDesigner.regex.commonPatterns')}
             </p>
             <ul className="space-y-1">
               {REGEX_PRESETS.map((p) => (
@@ -350,7 +354,7 @@ function RegexBuilderModal({
           {/* Right: pattern + preview */}
           <aside className="flex min-h-0 flex-col overflow-auto bg-surface-1 p-3 text-xs">
             <p className="mb-1 text-2xs font-medium uppercase tracking-wide text-muted">
-              Pattern
+              {t('formDesigner.regex.pattern')}
             </p>
             <textarea
               rows={3}
@@ -362,7 +366,7 @@ function RegexBuilderModal({
               className={`${inputCls} font-mono`}
             />
             <p className="mt-2 mb-1 text-2xs font-medium uppercase tracking-wide text-muted">
-              Flags
+              {t('formDesigner.regex.flags')}
             </p>
             <input
               type="text"
@@ -372,42 +376,43 @@ function RegexBuilderModal({
               className={`${inputCls} font-mono`}
             />
             <p className="mt-1 text-2xs text-muted">
-              i = case-insensitive, m = multi-line, s = . matches newline.
+              {t('formDesigner.regex.flagsLegend')}
             </p>
 
             <p className="mt-4 mb-1 text-2xs font-medium uppercase tracking-wide text-muted">
-              Live preview
+              {t('formDesigner.regex.livePreview')}
             </p>
             <input
               type="text"
               value={sample}
               onChange={(e) => setSample(e.target.value)}
-              placeholder="Type a sample value..."
+              placeholder={t('formDesigner.regex.samplePlaceholder')}
               className={inputCls}
             />
             <div className="mt-2 rounded-md border border-border bg-surface-0 px-2 py-1.5 text-2xs">
               {!previewResult.ok ? (
                 <p className="text-danger">
-                  Invalid pattern: {previewResult.error}
+                  {t('formDesigner.regex.invalidPattern', {
+                    error: previewResult.error ?? '',
+                  })}
                 </p>
               ) : sample === '' ? (
                 <p className="text-muted">
-                  Enter a sample to test the pattern.
+                  {t('formDesigner.regex.enterSample')}
                 </p>
               ) : previewResult.match ? (
                 <p className="text-success">
                   <Check className="mr-1 inline h-3 w-3" />
-                  Sample matches the pattern.
+                  {t('formDesigner.regex.sampleMatches')}
                 </p>
               ) : (
                 <p className="text-warn">
-                  Sample does not match. Adjust pattern or sample.
+                  {t('formDesigner.regex.sampleNoMatch')}
                 </p>
               )}
             </div>
             <p className="mt-3 text-2xs text-muted">
-              The runtime anchors with implicit ^...$, so the pattern
-              has to match the whole value -- not just any substring.
+              {t('formDesigner.regex.anchorNote')}
             </p>
           </aside>
         </div>
@@ -417,7 +422,7 @@ function RegexBuilderModal({
             onClick={onClose}
             className="rounded-md border border-border bg-surface-0 px-3 py-1 text-xs hover:bg-surface-2"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -425,7 +430,7 @@ function RegexBuilderModal({
             onClick={() => onApply(pattern, flags)}
             className="rounded-md bg-accent px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
           >
-            Apply pattern
+            {t('formDesigner.regex.applyPattern')}
           </button>
         </DialogFooter>
       </DialogContent>
