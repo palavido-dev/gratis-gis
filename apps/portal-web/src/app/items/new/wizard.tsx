@@ -1940,14 +1940,143 @@ export function NewItemWizard({
         </button>
       </div>
 
-      {/* Custom Web App template gallery. Shown before the
-          metadata fields when the user picked the Custom Web App
-          type, so they're committing to a starting point before
-          they title + describe the app. Templates are pre-
-          configured CustomAppData instances (theme, containers,
-          widgets already in place); the author lands in the
-          designer with a working app to customize, not a blank
-          canvas. The Blank template preserves the previous
+      {/* #190: identity fields first. Naming is what people reach for
+          on create; thumbnail / template / type-specific builders
+          come after so the form reads "I'm creating a <thing> called
+          <name>" before the decorative or type-specific detail. */}
+      <MetadataXmlImporter
+        onApply={({ title: t, description: d, tags: ts }) => {
+          if (t) {
+            setTitle(t);
+            userEditedTitleRef.current = true;
+          }
+          if (d) {
+            setDescription(d);
+            userEditedDescRef.current = true;
+          }
+          if (ts && ts.length > 0) setTagsText(ts.join(', '));
+        }}
+      />
+
+      <section className="space-y-4">
+        <div>
+          <label
+            htmlFor="title"
+            className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted"
+          >
+            Title
+          </label>
+          <input
+            id="title"
+            type="text"
+            value={title}
+            onChange={(e) => {
+              userEditedTitleRef.current = true;
+              setTitle(e.target.value);
+            }}
+            placeholder="My layer, report, form..."
+            maxLength={200}
+            className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor="description"
+            className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted"
+          >
+            Description
+          </label>
+          <textarea
+            id="description"
+            value={description}
+            onChange={(e) => {
+              userEditedDescRef.current = true;
+              setDescription(e.target.value);
+            }}
+            placeholder="What is this, and who's it for?"
+            maxLength={5000}
+            rows={4}
+            className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor="tags"
+            className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted"
+          >
+            Tags
+          </label>
+          <input
+            id="tags"
+            type="text"
+            value={tagsText}
+            onChange={(e) => setTagsText(e.target.value)}
+            placeholder="Comma separated, e.g. buildings, parcels, campus"
+            className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
+          />
+          <p className="mt-1 text-xs text-muted">
+            Used for search and filtering.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted">
+          Visibility
+        </label>
+        <div className="grid grid-cols-3 gap-2" role="radiogroup">
+          {ACCESS_OPTIONS.map(({ value, label, desc, Icon }) => {
+            const selected = access === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => setAccess(value)}
+                className={`flex flex-col items-start gap-1 rounded-md border p-3 text-left transition-colors ${
+                  selected
+                    ? 'border-accent bg-accent/5 ring-2 ring-accent/30'
+                    : 'border-border bg-surface-1 hover:bg-surface-2'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <Icon
+                    className={`h-4 w-4 ${selected ? 'text-accent' : 'text-muted'}`}
+                  />
+                  <span className="text-sm font-medium text-ink-1">
+                    {label}
+                  </span>
+                </div>
+                <span className="text-xs text-muted">{desc}</span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-2 text-xs text-muted">
+          You can change this later and add explicit shares from the item
+          detail page.
+        </p>
+      </section>
+
+      <section>
+        <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted">
+          Thumbnail
+        </label>
+        <ThumbnailDesigner
+          type={resolvedTypeForThumbnail}
+          title={title}
+          value={thumbnailDesign}
+          onChange={setThumbnailDesign}
+        />
+      </section>
+
+      {/* Custom Web App template gallery. After identity so the author
+          names the app before picking a starting template. Templates
+          are pre-configured CustomAppData instances (theme, containers,
+          widgets already in place); the Blank template preserves the
           empty-page behavior for advanced users. */}
       {type === 'custom' ? (
         <section>
@@ -2102,141 +2231,6 @@ export function NewItemWizard({
           ) : null}
         </section>
       ) : null}
-
-      {/* Metadata (thumbnail, title, description, tags, visibility) runs
-          above the type-specific builder so the item's identity is
-          established before diving into schema. Matches the user's
-          mental model: "I'm creating a <thing> called <name>" reads
-          left-to-right instead of schema-first. */}
-
-      <MetadataXmlImporter
-        onApply={({ title: t, description: d, tags: ts }) => {
-          if (t) {
-            setTitle(t);
-            userEditedTitleRef.current = true;
-          }
-          if (d) {
-            setDescription(d);
-            userEditedDescRef.current = true;
-          }
-          if (ts && ts.length > 0) setTagsText(ts.join(', '));
-        }}
-      />
-
-      <section>
-        <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted">
-          Thumbnail
-        </label>
-        <ThumbnailDesigner
-          type={resolvedTypeForThumbnail}
-          title={title}
-          value={thumbnailDesign}
-          onChange={setThumbnailDesign}
-        />
-      </section>
-
-      <section className="space-y-4">
-        <div>
-          <label
-            htmlFor="title"
-            className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted"
-          >
-            Title
-          </label>
-          <input
-            id="title"
-            type="text"
-            value={title}
-            onChange={(e) => {
-              userEditedTitleRef.current = true;
-              setTitle(e.target.value);
-            }}
-            placeholder="My layer, report, form..."
-            maxLength={200}
-            className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
-          />
-        </div>
-
-        <div>
-          <label
-            htmlFor="description"
-            className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted"
-          >
-            Description
-          </label>
-          <textarea
-            id="description"
-            value={description}
-            onChange={(e) => {
-              userEditedDescRef.current = true;
-              setDescription(e.target.value);
-            }}
-            placeholder="What is this, and who's it for?"
-            maxLength={5000}
-            rows={4}
-            className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
-          />
-        </div>
-
-        <div>
-          <label
-            htmlFor="tags"
-            className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted"
-          >
-            Tags
-          </label>
-          <input
-            id="tags"
-            type="text"
-            value={tagsText}
-            onChange={(e) => setTagsText(e.target.value)}
-            placeholder="Comma separated, e.g. buildings, parcels, campus"
-            className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
-          />
-          <p className="mt-1 text-xs text-muted">
-            Used for search and filtering.
-          </p>
-        </div>
-      </section>
-
-      <section>
-        <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted">
-          Visibility
-        </label>
-        <div className="grid grid-cols-3 gap-2" role="radiogroup">
-          {ACCESS_OPTIONS.map(({ value, label, desc, Icon }) => {
-            const selected = access === value;
-            return (
-              <button
-                key={value}
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                onClick={() => setAccess(value)}
-                className={`flex flex-col items-start gap-1 rounded-md border p-3 text-left transition-colors ${
-                  selected
-                    ? 'border-accent bg-accent/5 ring-2 ring-accent/30'
-                    : 'border-border bg-surface-1 hover:bg-surface-2'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <Icon
-                    className={`h-4 w-4 ${selected ? 'text-accent' : 'text-muted'}`}
-                  />
-                  <span className="text-sm font-medium text-ink-1">
-                    {label}
-                  </span>
-                </div>
-                <span className="text-xs text-muted">{desc}</span>
-              </button>
-            );
-          })}
-        </div>
-        <p className="mt-2 text-xs text-muted">
-          You can change this later and add explicit shares from the item
-          detail page.
-        </p>
-      </section>
 
       {/* Type-specific builder / probe / etc. goes at the end of the
           form, closest to the Create button, so the user's last
