@@ -1308,4 +1308,46 @@ export const en = {
       'The built-in guide covers roles, backups, branding, and housekeeping. Ten minutes now saves surprises later.',
     docsAction: 'Open the guide',
   },
+
+  /** Settings → API keys (#162). */
+  apiKeys: {
+    copyTitle: 'Copy your key now',
+    copyBody:
+      'This is the only time "{name}" can be shown. The portal stores a one-way hash, so if you lose it you will need to make a new key.',
+    copied: 'Copied',
+    copy: 'Copy',
+    hideAfterSave: 'I have saved it, hide this',
+    newKey: 'New key',
+    name: 'Name',
+    namePlaceholder: 'nightly parcel refresh',
+    expires: 'Expires',
+    expiry30: '30 days',
+    expiry90: '90 days',
+    expiryYear: '1 year',
+    expiryNever: 'Until revoked',
+    readOnly: 'Read only',
+    readOnlyHint:
+      'The key can read data but cannot create, change, or delete anything. Pick this unless the script needs to write.',
+    keysCannotAdmin:
+      'Keys cannot be used for admin pages, and cannot create more keys.',
+    createKey: 'Create key',
+    yourKeys: 'Your keys',
+    empty: 'No keys yet. Create one above to use the portal from a script or notebook.',
+    readOnlyBadge: 'read only',
+    revokedBadge: 'revoked',
+    expiredBadge: 'expired',
+    lastUsed: 'last used {date}',
+    neverUsed: 'never used',
+    expiresOn: 'expires {date}',
+    revoke: 'Revoke',
+    errNameRequired: 'Give the key a name so you can recognize it later.',
+    errCreateHttp: 'Could not create the key (HTTP {status}).',
+    errCreate: 'Could not create the key.',
+    errRevokeHttp: 'Could not revoke (HTTP {status}).',
+    errRevoke: 'Could not revoke the key.',
+    errCopy: 'Could not copy. Select the key and copy it manually.',
+    revokedToast: '"{name}" is revoked. Anything using it stops working now.',
+    unknownDate: 'unknown',
+  },
+
 } as const;

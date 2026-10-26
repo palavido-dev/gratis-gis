@@ -2,7 +2,8 @@
 'use client';
 
 import { formatDate } from '@/lib/i18n/format';
-import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
+import type { SupportedLocale } from '@/lib/i18n/locales';
+import { useLocale, useT } from '@/lib/i18n/locale-context';
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -21,17 +22,9 @@ export interface ApiKeySummary {
   createdAt: string;
 }
 
-/** Expiry choices. "Until revoked" is offered because the common case
- *  (a cron job nobody wants to re-key every quarter) is real, but it
- *  is not the default: a bounded key is the safer starting point. */
-const EXPIRY_CHOICES: Array<{ label: string; days: number | null }> = [
-  { label: '30 days', days: 30 },
-  { label: '90 days', days: 90 },
-  { label: '1 year', days: 365 },
-  { label: 'Until revoked', days: null },
-];
-
 export function ApiKeysManager({ initial }: { initial: ApiKeySummary[] }) {
+  const t = useT();
+  const locale = useLocale();
   const router = useRouter();
   const [keys, setKeys] = useState(initial);
   const [name, setName] = useState('');
@@ -45,9 +38,19 @@ export function ApiKeysManager({ initial }: { initial: ApiKeySummary[] }) {
   );
   const [copied, setCopied] = useState(false);
 
+  /** Expiry choices. "Until revoked" is offered because the common case
+   *  (a cron job nobody wants to re-key every quarter) is real, but it
+   *  is not the default: a bounded key is the safer starting point. */
+  const expiryChoices: Array<{ label: string; days: number | null }> = [
+    { label: t('apiKeys.expiry30'), days: 30 },
+    { label: t('apiKeys.expiry90'), days: 90 },
+    { label: t('apiKeys.expiryYear'), days: 365 },
+    { label: t('apiKeys.expiryNever'), days: null },
+  ];
+
   async function create() {
     if (name.trim().length === 0) {
-      setError('Give the key a name so you can recognize it later.');
+      setError(t('apiKeys.errNameRequired'));
       return;
     }
     setBusy(true);
@@ -69,7 +72,7 @@ export function ApiKeysManager({ initial }: { initial: ApiKeySummary[] }) {
         throw new Error(
           typeof body.message === 'string'
             ? body.message
-            : `Could not create the key (HTTP ${res.status}).`,
+            : t('apiKeys.errCreateHttp', { status: res.status }),
         );
       }
       const created = (await res.json()) as ApiKeySummary & { token: string };
@@ -79,7 +82,7 @@ export function ApiKeysManager({ initial }: { initial: ApiKeySummary[] }) {
       setName('');
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not create the key.');
+      setError(err instanceof Error ? err.message : t('apiKeys.errCreate'));
     } finally {
       setBusy(false);
     }
@@ -92,13 +95,15 @@ export function ApiKeysManager({ initial }: { initial: ApiKeySummary[] }) {
       const res = await fetch(`/api/portal/users/me/api-keys/${key.id}`, {
         method: 'DELETE',
       });
-      if (!res.ok) throw new Error(`Could not revoke (HTTP ${res.status}).`);
+      if (!res.ok) {
+        throw new Error(t('apiKeys.errRevokeHttp', { status: res.status }));
+      }
       const updated = (await res.json()) as ApiKeySummary;
       setKeys((prev) => prev.map((k) => (k.id === key.id ? updated : k)));
-      toast(`"${key.name}" is revoked. Anything using it stops working now.`);
+      toast(t('apiKeys.revokedToast', { name: key.name }));
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not revoke the key.');
+      setError(err instanceof Error ? err.message : t('apiKeys.errRevoke'));
     } finally {
       setBusy(false);
     }
@@ -111,7 +116,7 @@ export function ApiKeysManager({ initial }: { initial: ApiKeySummary[] }) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
-      setError('Could not copy. Select the key and copy it manually.');
+      setError(t('apiKeys.errCopy'));
     }
   }
 
@@ -126,12 +131,10 @@ export function ApiKeysManager({ initial }: { initial: ApiKeySummary[] }) {
       {minted ? (
         <section className="rounded-lg border border-accent/40 bg-accent/5 p-4">
           <h2 className="text-sm font-semibold text-ink-0">
-            Copy your key now
+            {t('apiKeys.copyTitle')}
           </h2>
           <p className="mt-1 text-xs text-muted">
-            This is the only time &quot;{minted.name}&quot; can be shown. The
-            portal stores a one-way hash, so if you lose it you will need
-            to make a new key.
+            {t('apiKeys.copyBody', { name: minted.name })}
           </p>
           <div className="mt-3 flex items-center gap-2">
             <code className="min-w-0 flex-1 truncate rounded border border-border bg-surface-1 px-2 py-1.5 font-mono text-xs text-ink-0">
@@ -147,7 +150,7 @@ export function ApiKeysManager({ initial }: { initial: ApiKeySummary[] }) {
               ) : (
                 <Copy className="h-4 w-4" />
               )}
-              {copied ? 'Copied' : 'Copy'}
+              {copied ? t('apiKeys.copied') : t('apiKeys.copy')}
             </button>
           </div>
           <button
@@ -155,23 +158,23 @@ export function ApiKeysManager({ initial }: { initial: ApiKeySummary[] }) {
             onClick={() => setMinted(null)}
             className="mt-3 text-xs text-muted underline hover:text-ink-0"
           >
-            I have saved it, hide this
+            {t('apiKeys.hideAfterSave')}
           </button>
         </section>
       ) : null}
 
       <section className="rounded-lg border border-border bg-surface-1 p-4 shadow-card">
-        <h2 className="text-sm font-semibold text-ink-0">New key</h2>
+        <h2 className="text-sm font-semibold text-ink-0">{t('apiKeys.newKey')}</h2>
         <div className="mt-3 space-y-3">
           <label className="block">
             <span className="text-xs font-medium uppercase tracking-wide text-muted">
-              Name
+              {t('apiKeys.name')}
             </span>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="nightly parcel refresh"
+              placeholder={t('apiKeys.namePlaceholder')}
               maxLength={80}
               className="mt-1 h-9 w-full rounded-md border border-border bg-surface-0 px-2 text-sm text-ink-0"
             />
@@ -179,7 +182,7 @@ export function ApiKeysManager({ initial }: { initial: ApiKeySummary[] }) {
 
           <label className="block">
             <span className="text-xs font-medium uppercase tracking-wide text-muted">
-              Expires
+              {t('apiKeys.expires')}
             </span>
             <select
               value={expiryDays === null ? 'never' : String(expiryDays)}
@@ -190,7 +193,7 @@ export function ApiKeysManager({ initial }: { initial: ApiKeySummary[] }) {
               }
               className="mt-1 h-9 w-full rounded-md border border-border bg-surface-0 px-2 text-sm text-ink-0"
             >
-              {EXPIRY_CHOICES.map((c) => (
+              {expiryChoices.map((c) => (
                 <option
                   key={c.label}
                   value={c.days === null ? 'never' : String(c.days)}
@@ -209,19 +212,14 @@ export function ApiKeysManager({ initial }: { initial: ApiKeySummary[] }) {
               className="mt-0.5 accent-accent"
             />
             <span>
-              Read only
+              {t('apiKeys.readOnly')}
               <span className="block text-xs text-muted">
-                The key can read data but cannot create, change, or
-                delete anything. Pick this unless the script needs to
-                write.
+                {t('apiKeys.readOnlyHint')}
               </span>
             </span>
           </label>
 
-          <p className="text-xs text-muted">
-            Keys cannot be used for admin pages, and cannot create more
-            keys.
-          </p>
+          <p className="text-xs text-muted">{t('apiKeys.keysCannotAdmin')}</p>
 
           <button
             type="button"
@@ -234,7 +232,7 @@ export function ApiKeysManager({ initial }: { initial: ApiKeySummary[] }) {
             ) : (
               <Plus className="h-4 w-4" />
             )}
-            Create key
+            {t('apiKeys.createKey')}
           </button>
         </div>
       </section>
@@ -246,12 +244,9 @@ export function ApiKeysManager({ initial }: { initial: ApiKeySummary[] }) {
       ) : null}
 
       <section className="rounded-lg border border-border bg-surface-1 p-4 shadow-card">
-        <h2 className="text-sm font-semibold text-ink-0">Your keys</h2>
+        <h2 className="text-sm font-semibold text-ink-0">{t('apiKeys.yourKeys')}</h2>
         {keys.length === 0 ? (
-          <p className="mt-2 text-sm text-muted">
-            No keys yet. Create one above to use the portal from a
-            script or notebook.
-          </p>
+          <p className="mt-2 text-sm text-muted">{t('apiKeys.empty')}</p>
         ) : (
           <ul className="mt-2 divide-y divide-border/60">
             {[...active, ...inactive].map((k) => (
@@ -259,6 +254,7 @@ export function ApiKeysManager({ initial }: { initial: ApiKeySummary[] }) {
                 key={k.id}
                 item={k}
                 busy={busy}
+                locale={locale}
                 onRevoke={() => void revoke(k)}
               />
             ))}
@@ -272,12 +268,15 @@ export function ApiKeysManager({ initial }: { initial: ApiKeySummary[] }) {
 function KeyRow({
   item,
   busy,
+  locale,
   onRevoke,
 }: {
   item: ApiKeySummary;
   busy: boolean;
+  locale: SupportedLocale;
   onRevoke: () => void;
 }) {
+  const t = useT();
   const revoked = item.revokedAt !== null;
   const expired =
     !revoked &&
@@ -298,24 +297,28 @@ function KeyRow({
       </code>
       {item.readOnly ? (
         <span className="rounded-full border border-border px-2 py-0.5 text-2xs text-muted">
-          read only
+          {t('apiKeys.readOnlyBadge')}
         </span>
       ) : null}
       {revoked ? (
         <span className="rounded-full border border-danger/40 bg-danger/5 px-2 py-0.5 text-2xs font-medium text-danger">
-          revoked
+          {t('apiKeys.revokedBadge')}
         </span>
       ) : expired ? (
         <span className="rounded-full border border-warn/40 bg-warn/5 px-2 py-0.5 text-2xs font-medium text-warn">
-          expired
+          {t('apiKeys.expiredBadge')}
         </span>
       ) : null}
       <span className="ml-auto text-2xs text-muted">
         {item.lastUsedAt
-          ? `last used ${shortDate(item.lastUsedAt)}`
-          : 'never used'}
+          ? t('apiKeys.lastUsed', {
+              date: shortDate(item.lastUsedAt, locale, t('apiKeys.unknownDate')),
+            })
+          : t('apiKeys.neverUsed')}
         {item.expiresAt && !revoked && !expired
-          ? ` - expires ${shortDate(item.expiresAt)}`
+          ? ` - ${t('apiKeys.expiresOn', {
+              date: shortDate(item.expiresAt, locale, t('apiKeys.unknownDate')),
+            })}`
           : ''}
       </span>
       {!dead ? (
@@ -326,18 +329,22 @@ function KeyRow({
           className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-2xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-40"
         >
           <Trash2 className="h-3 w-3" />
-          Revoke
+          {t('apiKeys.revoke')}
         </button>
       ) : null}
     </li>
   );
 }
 
-function shortDate(iso: string): string {
+function shortDate(
+  iso: string,
+  locale: SupportedLocale,
+  unknownLabel: string,
+): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime())
-    ? 'unknown'
-    : formatDate(d, DEFAULT_LOCALE, {
+    ? unknownLabel
+    : formatDate(d, locale, {
         year: 'numeric',
         month: 'short',
         day: 'numeric',
