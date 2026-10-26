@@ -4689,8 +4689,8 @@ function WidgetConfigForm({
             tool shows a &quot;Save to&quot; picker so a user can
             digitize several feature types into their own layers in
             one session, plus a Natural-to-Squared slider. Needs an
-            imagery layer and at least one editable layer (set under
-            the app&apos;s Editable layers).
+            imagery layer and at least one editable layer (add them
+            under Layers in app settings).
           </p>
         </>
       );
@@ -4848,8 +4848,8 @@ function MapWidgetConfig({
       </Field>
       <p className="rounded-md border border-dashed border-border bg-surface-2/40 px-2 py-2 text-2xs text-muted">
         {appTargetCount === 0
-          ? 'No targets on the app yet. The runtime will render the map with just the basemap until targets are added.'
-          : `${appTargetCount} target layer${appTargetCount === 1 ? '' : 's'} on the app -- this map renders all of them by default.`}
+          ? 'No layers on the app yet. The runtime will render the map with just the basemap until layers are added in the Layers panel.'
+          : `${appTargetCount} layer${appTargetCount === 1 ? '' : 's'} on the app — this map renders all of them by default.`}
       </p>
     </div>
   );
