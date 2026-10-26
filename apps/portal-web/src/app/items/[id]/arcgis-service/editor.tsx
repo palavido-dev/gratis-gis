@@ -21,6 +21,7 @@ import {
   probeService,
   type ArcgisServiceDescription,
 } from '@/lib/arcgis-rest';
+import { useFormat } from '@/lib/i18n/format';
 
 interface Props {
   itemId: string;
@@ -578,6 +579,7 @@ function CredentialsCard({
     updatedAt: string;
     updatedBy: string;
   } | { hasSecret: false };
+  const fmt = useFormat();
   const confirmDialog = useConfirm();
   const [meta, setMeta] = useState<Meta | null>(null);
   const [loading, setLoading] = useState(false);
@@ -708,7 +710,7 @@ function CredentialsCard({
                 <strong>{meta.kind}</strong> credential set
               </span>
               <span className="text-muted">
-                last updated {new Date(meta.updatedAt).toLocaleString()}
+                last updated {fmt.dateTime(meta.updatedAt)}
               </span>
               {canEdit ? (
                 <div className="ml-auto flex items-center gap-1">

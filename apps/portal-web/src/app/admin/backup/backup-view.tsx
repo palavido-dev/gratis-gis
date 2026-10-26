@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 
 import { useT } from '@/lib/i18n/locale-context';
+import { useFormat } from '@/lib/i18n/format';
 import { formatBytes } from '@/lib/format-bytes';
 import { RestoreDialog } from './restore-dialog';
 
@@ -646,6 +647,7 @@ function RunRow({
   onRestore: () => void;
 }) {
   const t = useT();
+  const fmt = useFormat();
   const started = new Date(run.startedAt);
   const finished = run.finishedAt ? new Date(run.finishedAt) : null;
   const durationMs = finished ? finished.getTime() - started.getTime() : null;
@@ -662,7 +664,7 @@ function RunRow({
   return (
     <tr className="hover:bg-surface-2/50">
       <td className="px-4 py-2 text-ink-1">
-        <span title={started.toISOString()}>{started.toLocaleString()}</span>
+        <span title={started.toISOString()}>{fmt.dateTime(started)}</span>
       </td>
       <td className="px-4 py-2 text-muted">
         {durationMs === null ? '-' : formatDuration(durationMs)}

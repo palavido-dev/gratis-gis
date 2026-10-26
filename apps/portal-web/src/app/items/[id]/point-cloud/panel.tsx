@@ -36,6 +36,7 @@ import {
   PresignUploadError,
   type PresignResponse,
 } from '@/lib/presign-upload';
+import { useFormat } from '@/lib/i18n/format';
 
 // The 3D viewer carries the deck.gl + copc.js + laz-perf + proj4
 // tree (via maplibre-gl-lidar), so it loads as its own chunk only
@@ -78,6 +79,7 @@ interface SourceDescriptor {
 }
 
 export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
+  const fmt = useFormat();
   const [data, setData] = useState<PointCloudData>(initial);
   const [error, setError] = useState<string | null>(null);
   const [phase, setPhase] = useState<'idle' | 'uploading' | 'submitting'>(
@@ -626,7 +628,7 @@ export function PointCloudPanel({ itemId, initial, canEdit }: Props) {
                   label="Points"
                   value={
                     typeof data.pointCount === 'number'
-                      ? data.pointCount.toLocaleString()
+                      ? fmt.number(data.pointCount)
                       : 'Unknown'
                   }
                 />

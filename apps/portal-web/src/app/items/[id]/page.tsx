@@ -122,6 +122,7 @@ import { ItemTabs } from './item-tabs';
 import type { ItemTabSpec } from './item-tabs';
 import { ItemMetadataPanel } from './item-metadata-panel';
 import { t } from '@/lib/i18n';
+import { formatDateTime } from '@/lib/i18n/format';
 import { getServerLocale } from '@/lib/i18n/server';
 import { SharingPanel } from './sharing-panel';
 import { ItemDependencies } from './item-dependencies';
@@ -870,7 +871,7 @@ export default async function ItemDetailPage(props: Props) {
       <div className="mb-4 flex flex-wrap items-center gap-3 text-xs text-muted">
         <span className="inline-flex items-center gap-1">
           <Calendar className="h-3 w-3" />
-          Updated {new Date(item.updatedAt).toLocaleString()}
+          Updated {formatDateTime(item.updatedAt, locale)}
         </span>
         <span className="inline-flex items-center gap-1">
           <User className="h-3 w-3" />

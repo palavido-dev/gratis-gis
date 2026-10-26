@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 
 import { SkeletonRows } from '@/components/ui/skeleton';
+import { useFormat } from '@/lib/i18n/format';
 
 /**
  * Version history panel for a data_layer item.
@@ -49,6 +50,7 @@ interface Props {
 }
 
 export function VersionHistoryPanel({ itemId, canEdit, userNames }: Props) {
+  const fmt = useFormat();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
@@ -187,7 +189,7 @@ export function VersionHistoryPanel({ itemId, canEdit, userNames }: Props) {
                               title={createdAt.toISOString()}
                               className="font-medium"
                             >
-                              {createdAt.toLocaleString()}
+                              {fmt.dateTime(createdAt)}
                             </span>
                             <span className="ml-2 text-muted">by {by}</span>
                           </p>
@@ -235,7 +237,7 @@ export function VersionHistoryPanel({ itemId, canEdit, userNames }: Props) {
                       {isConfirming && !isReverting ? (
                         <p className="rounded bg-warn/10 px-2 py-1 text-2xs text-warn">
                           This replaces the current data with the
-                          version from {createdAt.toLocaleString()}. A
+                          version from {fmt.dateTime(createdAt)}. A
                           fresh snapshot of right-now is saved first,
                           so you can un-revert.
                         </p>

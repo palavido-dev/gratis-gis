@@ -19,6 +19,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { NotebookView } from './notebook-view';
+import { useFormat } from '@/lib/i18n/format';
 import {
   SCRIPT_DEFAULT_TIMEOUT_SECONDS,
   SCRIPT_MAX_TIMEOUT_SECONDS,
@@ -54,6 +55,7 @@ export function ScriptPanel({
   initial: ScriptData;
   canEdit: boolean;
 }) {
+  const fmt = useFormat();
   const [source, setSource] = useState(initial.source ?? '');
   const [notes, setNotes] = useState(initial.notes ?? '');
   const [timeout, setTimeoutSeconds] = useState(
@@ -551,7 +553,7 @@ export function ScriptPanel({
                     )}
                     <RunState state={r.state} />
                     <span className="truncate text-xs text-muted">
-                      {new Date(r.createdAt).toLocaleString()}
+                      {fmt.dateTime(r.createdAt)}
                       {r.trigger === 'schedule' ? ' (scheduled)' : ''}
                       {r.finishedAt && r.startedAt
                         ? ` · ${(

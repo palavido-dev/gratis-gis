@@ -8,6 +8,7 @@ import {
   Loader2,
   MessageSquarePlus,
 } from 'lucide-react';
+import { useFormat } from '@/lib/i18n/format';
 
 /**
  * Anonymous feedback form (#146). POSTs to /api/portal/feedback,
@@ -29,6 +30,7 @@ import {
  *     here directly.
  */
 export function FeedbackForm() {
+  const fmt = useFormat();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState('');
@@ -169,7 +171,7 @@ export function FeedbackForm() {
           placeholder="What worked, what didn't, what surprised you. Specific repros land better than general impressions."
         />
         <span className="mt-1 block text-2xs text-muted">
-          {message.length.toLocaleString()} / 10,000 characters
+          {fmt.number(message.length)} / 10,000 characters
         </span>
       </label>
 

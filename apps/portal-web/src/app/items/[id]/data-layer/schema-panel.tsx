@@ -3,6 +3,7 @@
 
 import { useState } from 'react';
 import { Braces, ChevronDown, ExternalLink, Table2 } from 'lucide-react';
+import { useFormat } from '@/lib/i18n/format';
 import type {
   FeatureField,
   DataLayerData,
@@ -127,6 +128,7 @@ function SchemaTable({
   layer?: DataLayerSublayer;
   fields: FeatureField[];
 }) {
+  const fmt = useFormat();
   return (
     <div>
       <div className="mb-1 flex items-center gap-2">
@@ -138,7 +140,7 @@ function SchemaTable({
             </span>
             {typeof layer.featureCount === 'number' ? (
               <span className="text-2xs text-muted">
-                · {layer.featureCount.toLocaleString()} feature
+                · {fmt.number(layer.featureCount)} feature
                 {layer.featureCount === 1 ? '' : 's'}
               </span>
             ) : null}

@@ -25,6 +25,7 @@ import { exportBundle } from '@/lib/bundle-export';
 import { parseApiError } from '@/lib/api-error';
 import { toast } from '@/lib/toast';
 import { useT } from '@/lib/i18n/locale-context';
+import { useFormat } from '@/lib/i18n/format';
 import type {
   FeatureRecord,
   DataLayerSublayer,
@@ -86,6 +87,7 @@ export function V3FeatureBrowser({
   canDownload,
   onRefreshCounts,
 }: Props) {
+  const fmt = useFormat();
   const [features, setFeatures] = useState<FeatureRecord[]>([]);
   const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -332,7 +334,7 @@ export function V3FeatureBrowser({
         <div className="flex items-start gap-1.5 border-b border-border bg-warning/5 px-3 py-1.5 text-2xs text-warning">
           <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
           <span>
-            Showing the first {PAGE_LIMIT.toLocaleString()} rows. This layer
+            Showing the first {fmt.number(PAGE_LIMIT)} rows. This layer
             has more than that; open it in the map editor for the full feature
             set or use the Export button for the complete table.
           </span>

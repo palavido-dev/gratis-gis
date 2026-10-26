@@ -8,6 +8,7 @@ import type {
 } from '@gratis-gis/shared-types';
 import { CopyButton } from '@/components/ui/copy-button';
 import { t } from '@/lib/i18n';
+import { formatDateTime } from '@/lib/i18n/format';
 import { getServerLocale } from '@/lib/i18n/server';
 import type { SupportedLocale } from '@/lib/i18n/locales';
 
@@ -196,14 +197,14 @@ export async function ItemMetadataPanel({
         <Row label={tr('metadataPanel.owner')}>{ownerLabel}</Row>
         <Row label={tr('metadataPanel.created')}>
           {createdAt ? (
-            new Date(createdAt).toLocaleString()
+            formatDateTime(createdAt, locale)
           ) : (
             <NotRecorded locale={locale} />
           )}
         </Row>
         <Row label={tr('metadataPanel.updated')}>
           {updatedAt ? (
-            new Date(updatedAt).toLocaleString()
+            formatDateTime(updatedAt, locale)
           ) : (
             <NotRecorded locale={locale} />
           )}

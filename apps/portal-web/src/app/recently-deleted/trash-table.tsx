@@ -7,6 +7,7 @@ import { Loader2, RotateCcw, Trash2 } from 'lucide-react';
 import type { Group, Item } from '@gratis-gis/shared-types';
 import { getItemDisplayLabel } from '@/lib/item-type-icon';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { useFormat } from '@/lib/i18n/format';
 
 /**
  * Recently-deleted bulk table (#360). Single client component that
@@ -43,6 +44,7 @@ interface Props {
 }
 
 export function TrashTable({ kind, records, retentionDays }: Props) {
+  const fmt = useFormat();
   const router = useRouter();
   const rows = useMemo<TrashRow[]>(
     () =>
@@ -286,7 +288,7 @@ export function TrashTable({ kind, records, retentionDays }: Props) {
                     ) : null}
                   </td>
                   <td className="px-4 py-3 text-xs text-muted">
-                    {r.deletedAt ? r.deletedAt.toLocaleString() : ''}
+                    {r.deletedAt ? fmt.dateTime(r.deletedAt) : ''}
                   </td>
                   <td className="px-4 py-3 text-xs text-muted">
                     {daysLeft !== null ? (
