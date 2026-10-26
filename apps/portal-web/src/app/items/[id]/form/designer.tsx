@@ -81,6 +81,14 @@ import {
 import { useConfirm } from '@/components/dialog-provider';
 import { BuilderShell } from '@/components/builder-shell/builder-shell';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   ExternalLink,
   LayoutGrid,
   Map as MapIcon,
@@ -4831,31 +4839,28 @@ function ExpressionBuilderModal({
     'fields',
   );
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-ink-0/40 p-4"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <div
-        className="grid h-[80vh] max-h-[640px] w-full max-w-4xl grid-rows-[auto_1fr_auto] overflow-hidden rounded-lg border border-border bg-surface-0 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
+      <DialogContent
+        size="xl"
+        className="grid grid-rows-[auto_1fr_auto] overflow-hidden bg-surface-0 p-0 shadow-xl"
+        style={{ height: '80vh', maxHeight: 640 }}
       >
-        <header className="flex items-center justify-between border-b border-border bg-surface-1 px-4 py-2">
-          <div>
-            <p className="text-2xs uppercase tracking-wide text-muted">
-              Expression builder
-            </p>
-            <h2 className="text-sm font-medium text-ink-0">{label}</h2>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded p-1 text-muted hover:bg-surface-2 hover:text-ink-0"
-          >
-            <X className="h-4 w-4" />
-          </button>
+        <header className="border-b border-border bg-surface-1 px-4 py-2 pr-12">
+          <p className="text-2xs uppercase tracking-wide text-muted">
+            Expression builder
+          </p>
+          <DialogTitle className="text-sm font-medium text-ink-0">
+            {label}
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            Build a visibility or calculation expression with conditions,
+            fields, operators, and functions.
+          </DialogDescription>
         </header>
         <div className="grid grid-cols-1 divide-border overflow-y-auto md:grid-cols-[1fr_280px] md:divide-x md:overflow-hidden">
           <div className="flex min-h-0 flex-col overflow-hidden">
@@ -4978,7 +4983,7 @@ function ExpressionBuilderModal({
             </div>
           </aside>
         </div>
-        <footer className="flex items-center justify-end gap-2 border-t border-border bg-surface-1 px-4 py-2">
+        <DialogFooter className="bg-surface-1">
           <button
             type="button"
             onClick={onClose}
@@ -4993,9 +4998,9 @@ function ExpressionBuilderModal({
           >
             Save
           </button>
-        </footer>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -5447,27 +5452,21 @@ function LayerImportDialog({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <div
-        className="w-full max-w-lg rounded-lg border border-border bg-surface-1 shadow-raised"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h2 className="text-sm font-semibold tracking-tight text-ink-0">
+      <DialogContent size="md" className="p-0 shadow-raised">
+        <DialogHeader className="px-4 py-3 pr-12">
+          <DialogTitle className="text-sm font-semibold tracking-tight text-ink-0">
             Link to a data layer
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-1 hover:bg-surface-2"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            Pick a data layer to generate form questions from its schema.
+          </DialogDescription>
+        </DialogHeader>
         <div className="space-y-3 px-4 py-3 text-sm">
           {err ? (
             <p className="rounded-md border border-danger/40 bg-danger/5 px-2 py-1 text-xs text-danger">
@@ -5509,7 +5508,7 @@ function LayerImportDialog({
             <ImportPreview schema={schema} />
           )}
         </div>
-        <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
+        <DialogFooter className="px-4 py-3">
           <button
             type="button"
             onClick={onClose}
@@ -5527,9 +5526,9 @@ function LayerImportDialog({
               Generate questions
             </button>
           ) : null}
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -11,6 +11,12 @@ import {
   MessageSquarePlus,
   X,
 } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 /**
  * In-portal feedback (#146).
@@ -126,14 +132,6 @@ export function FeedbackDialog({
     messageRef.current?.focus();
   }, []);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
   function pickFile(f: File | null) {
     setError(null);
     if (!f) {
@@ -205,32 +203,24 @@ export function FeedbackDialog({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Send feedback"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
       }}
     >
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-xl border border-border bg-surface-0 p-5 shadow-xl sm:rounded-xl">
-        <div className="mb-3 flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-base font-semibold text-ink-0">Send feedback</h2>
-            <p className="mt-0.5 text-sm text-muted">
-              Found a problem, or something confusing? Tell us here. No account
-              needed.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md p-1 text-muted hover:bg-surface-2"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
+      <DialogContent
+        size="md"
+        className="max-h-[90vh] overflow-y-auto bg-surface-0 p-5 shadow-xl sm:rounded-xl"
+      >
+        <div className="mb-3 pr-8">
+          <DialogTitle className="text-base font-semibold text-ink-0">
+            Send feedback
+          </DialogTitle>
+          <DialogDescription className="mt-0.5 text-sm text-muted">
+            Found a problem, or something confusing? Tell us here. No account
+            needed.
+          </DialogDescription>
         </div>
 
         {done ? (
@@ -404,7 +394,7 @@ export function FeedbackDialog({
             </div>
           </form>
         )}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
