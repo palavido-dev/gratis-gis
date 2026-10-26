@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
+import { useFormat } from '@/lib/i18n/format';
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
@@ -231,6 +233,7 @@ interface RowProps {
 }
 
 function ImportJobRow({ job, onCancel, terminal = false }: RowProps) {
+  const fmt = useFormat();
   const total = job.totalFeatures ?? 0;
   const inserted = job.insertedFeatures;
   const pct =
@@ -241,19 +244,19 @@ function ImportJobRow({ job, onCancel, terminal = false }: RowProps) {
   if (job.status === 'queued') {
     statusEl = <Loader2 className="h-3.5 w-3.5 text-muted" />;
     detail =
-      total > 0 ? `Queued (${total.toLocaleString()} features)` : 'Queued';
+      total > 0 ? `Queued (${fmt.number(total)} features)` : 'Queued';
   } else if (job.status === 'running') {
     statusEl = <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />;
     if (pct !== null) {
-      detail = `Loaded ${inserted.toLocaleString()} of ${total.toLocaleString()} (${pct}%)`;
+      detail = `Loaded ${fmt.number(inserted)} of ${fmt.number(total)} (${pct}%)`;
     } else if (inserted > 0) {
-      detail = `Loaded ${inserted.toLocaleString()} features`;
+      detail = `Loaded ${fmt.number(inserted)} features`;
     } else {
       detail = 'Starting…';
     }
   } else if (job.status === 'succeeded') {
     statusEl = <CheckCircle2 className="h-3.5 w-3.5 text-success" />;
-    detail = `Done — loaded ${inserted.toLocaleString()} features`;
+    detail = `Done — loaded ${fmt.number(inserted)} features`;
   } else if (job.status === 'failed') {
     statusEl = <AlertTriangle className="h-3.5 w-3.5 text-danger" />;
     detail = `Failed: ${job.errorMessage ?? 'unknown error'}`;

@@ -26,6 +26,7 @@ import {
 import type { ItemType } from '@gratis-gis/shared-types';
 import { getItemTypeAccent, getItemTypeIcon } from '@/lib/item-type-icon';
 import { ReassignOwnerDialog } from '@/components/reassign-owner-dialog';
+import { useFormat } from '@/lib/i18n/format';
 
 /**
  * Wire shapes returned by /admin/housekeeping endpoints. Kept
@@ -910,35 +911,36 @@ function SummaryBar({
 }: {
   summary: HousekeepingBundle['summary'];
 }) {
+  const fmt = useFormat();
   return (
     <section className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-5">
       <StatCard
         icon={<Archive className="h-4 w-4 text-muted" />}
         label="Total items"
-        value={summary.totalItemCount.toLocaleString()}
+        value={fmt.number(summary.totalItemCount)}
       />
       <StatCard
         icon={<Clock className="h-4 w-4 text-warn" />}
         label={`Stale (${summary.staleItemDays}d+ no activity, zero shares)`}
-        value={summary.staleItemCount.toLocaleString()}
+        value={fmt.number(summary.staleItemCount)}
         tone={summary.staleItemCount > 0 ? 'warn' : 'ok'}
       />
       <StatCard
         icon={<UserIcon className="h-4 w-4 text-muted" />}
         label={`Quiet users (${summary.staleUserDays}d+ no sign-in)`}
-        value={summary.staleUserCount.toLocaleString()}
+        value={fmt.number(summary.staleUserCount)}
         tone={summary.staleUserCount > 0 ? 'warn' : 'ok'}
       />
       <StatCard
         icon={<CalendarClock className="h-4 w-4 text-warn" />}
         label={`Shares expiring (next ${summary.expiryWindowDays}d)`}
-        value={summary.expiringShareCount.toLocaleString()}
+        value={fmt.number(summary.expiringShareCount)}
         tone={summary.expiringShareCount > 0 ? 'warn' : 'ok'}
       />
       <StatCard
         icon={<Timer className="h-4 w-4 text-warn" />}
         label={`Users auto-disabling (next ${summary.expiryWindowDays}d)`}
-        value={summary.expiringUserCount.toLocaleString()}
+        value={fmt.number(summary.expiringUserCount)}
         tone={summary.expiringUserCount > 0 ? 'warn' : 'ok'}
       />
     </section>
@@ -1078,6 +1080,7 @@ function StaleItemsTable({
   onToggle: (id: string) => void;
   onToggleAll: () => void;
 }) {
+  const fmt = useFormat();
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
   return (
     <table className="w-full text-sm">
@@ -1140,17 +1143,17 @@ function StaleItemsTable({
               <td className="px-4 py-2 text-muted">{r.ownerLabel}</td>
               <td
                 className="px-4 py-2 text-muted"
-                title={`Item updated: ${new Date(r.updatedAt).toLocaleString()}${
+                title={`Item updated: ${fmt.dateTime(r.updatedAt)}${
                   dataNewer
                     ? `\n${
                         r.lastActivitySource === 'usage'
                           ? 'Last user request'
                           : 'Feature data activity'
-                      }: ${new Date(r.lastActivityAt).toLocaleString()}`
+                      }: ${fmt.dateTime(r.lastActivityAt)}`
                     : ''
                 }`}
               >
-                {new Date(r.lastActivityAt).toLocaleDateString()}
+                {fmt.date(r.lastActivityAt)}
                 {dataNewer && r.lastActivitySource !== 'item' ? (
                   <span className="ml-1 text-2xs uppercase text-muted/70">
                     ({r.lastActivitySource})
@@ -1185,6 +1188,7 @@ function StaleUsersTable({
   onToggle: (id: string) => void;
   onToggleAll: () => void;
 }) {
+  const fmt = useFormat();
   const allSelected = rows.length > 0 && rows.every((u) => selected.has(u.id));
   return (
     <table className="w-full text-sm">
@@ -1232,11 +1236,11 @@ function StaleUsersTable({
               <td className="px-4 py-2 text-muted">{r.orgRole}</td>
               <td className="px-4 py-2 text-muted">
                 {r.lastSeenAt
-                  ? new Date(r.lastSeenAt).toLocaleDateString()
+                  ? fmt.date(r.lastSeenAt)
                   : 'Never signed in'}
               </td>
               <td className="px-4 py-2 text-muted">
-                {new Date(r.createdAt).toLocaleDateString()}
+                {fmt.date(r.createdAt)}
               </td>
               <td className="px-4 py-2 text-muted">
                 {r.ownedItemCount > 0 ? (
@@ -1280,6 +1284,7 @@ function StorageCard({
 }: {
   storage: HousekeepingBundle['storage'];
 }) {
+  const fmt = useFormat();
   const host = storage.host;
   const usedBytes = host ? host.totalBytes - host.freeBytes : 0;
   const usedPct = host && host.totalBytes > 0
@@ -1369,7 +1374,7 @@ function StorageCard({
                   bucket{' '}
                   <span className="font-mono">{storage.minio.bucket}</span>
                   {' · '}
-                  {storage.minio.objectCount.toLocaleString()} object
+                  {fmt.number(storage.minio.objectCount)} object
                   {storage.minio.objectCount === 1 ? '' : 's'}
                 </>
               )}
@@ -1386,6 +1391,7 @@ function LargestDataLayersTable({
 }: {
   rows: HousekeepingBundle['largestDataLayers'];
 }) {
+  const fmt = useFormat();
   return (
     <table className="w-full text-sm">
       <thead className="bg-surface-2 text-left text-2xs uppercase tracking-wide text-muted">
@@ -1441,7 +1447,7 @@ function LargestDataLayersTable({
                 <span className="ml-1 text-2xs text-muted">approx</span>
               </td>
               <td className="px-4 py-2 font-mono text-muted">
-                {r.rows.toLocaleString()}
+                {fmt.number(r.rows)}
               </td>
             </tr>
           );
@@ -1467,6 +1473,7 @@ function ExpiringSharesTable({
   ) => void;
   onCancel: (row: HousekeepingBundle['expiringShares'][number]) => void;
 }) {
+  const fmt = useFormat();
   return (
     <table className="w-full text-sm">
       <thead className="bg-surface-2 text-left text-2xs uppercase tracking-wide text-muted">
@@ -1504,7 +1511,7 @@ function ExpiringSharesTable({
                     ? 'inline-flex items-center gap-1 rounded bg-danger/10 px-1.5 py-0.5 text-2xs font-medium text-danger'
                     : 'inline-flex items-center gap-1 rounded bg-warn/15 px-1.5 py-0.5 text-2xs font-medium text-warn'
                 }
-                title={new Date(r.expiresAt).toLocaleString()}
+                title={fmt.dateTime(r.expiresAt)}
               >
                 {r.isExpired ? 'Expired' : 'In'} {formatRelativeShort(r.expiresAt)}
               </span>
@@ -1556,6 +1563,7 @@ function ExpiringUsersTable({
   onClear: (row: HousekeepingBundle['expiringUsers'][number]) => void;
   onDisableNow: (row: HousekeepingBundle['expiringUsers'][number]) => void;
 }) {
+  const fmt = useFormat();
   return (
     <table className="w-full text-sm">
       <thead className="bg-surface-2 text-left text-2xs uppercase tracking-wide text-muted">
@@ -1586,7 +1594,7 @@ function ExpiringUsersTable({
                     ? 'inline-flex items-center gap-1 rounded bg-danger/10 px-1.5 py-0.5 text-2xs font-medium text-danger'
                     : 'inline-flex items-center gap-1 rounded bg-warn/15 px-1.5 py-0.5 text-2xs font-medium text-warn'
                 }
-                title={new Date(r.autoDisableAt).toLocaleString()}
+                title={fmt.dateTime(r.autoDisableAt)}
               >
                 {r.isExpired ? 'Past due' : 'In'}{' '}
                 {formatRelativeShort(r.autoDisableAt)}

@@ -21,6 +21,7 @@
 import { useState } from 'react';
 import { AlertTriangle, Loader2, RefreshCw, Trash2 } from 'lucide-react';
 import { formatBytes } from '@/lib/format-bytes';
+import { useFormat } from '@/lib/i18n/format';
 
 export interface OrphanedUploadsReport {
   unavailable: boolean;
@@ -64,6 +65,7 @@ interface Props {
 }
 
 export function OrphanedUploadsCard({ initial }: Props) {
+  const fmt = useFormat();
   const [report, setReport] = useState<OrphanedUploadsReport>(initial);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState<'scan' | 'purge' | null>(null);
@@ -147,11 +149,11 @@ export function OrphanedUploadsCard({ initial }: Props) {
 
       {lastPurge ? (
         <p className="mb-3 rounded border border-border bg-surface-2 px-3 py-2 text-xs">
-          Deleted {lastPurge.deletedCount.toLocaleString()} file
+          Deleted {fmt.number(lastPurge.deletedCount)} file
           {lastPurge.deletedCount === 1 ? '' : 's'} and freed{' '}
           {formatBytes(lastPurge.freedBytes)}.
           {lastPurge.failedCount > 0
-            ? ` ${lastPurge.failedCount.toLocaleString()} could not be deleted; the API log has details, and a re-scan will list them again.`
+            ? ` ${fmt.number(lastPurge.failedCount)} could not be deleted; the API log has details, and a re-scan will list them again.`
             : ''}
         </p>
       ) : null}
@@ -185,7 +187,7 @@ export function OrphanedUploadsCard({ initial }: Props) {
                     {PREFIX_LABELS[p.prefix] ?? p.prefix}
                   </td>
                   <td className="py-1.5 pr-2 text-right font-mono">
-                    {p.orphanCount.toLocaleString()}
+                    {fmt.number(p.orphanCount)}
                   </td>
                   <td className="py-1.5 text-right font-mono">
                     {formatBytes(p.orphanBytes)}
@@ -195,7 +197,7 @@ export function OrphanedUploadsCard({ initial }: Props) {
               <tr>
                 <td className="py-1.5 pr-2 font-medium">Total</td>
                 <td className="py-1.5 pr-2 text-right font-mono font-medium">
-                  {report.orphanCount.toLocaleString()}
+                  {fmt.number(report.orphanCount)}
                 </td>
                 <td className="py-1.5 text-right font-mono font-medium">
                   {formatBytes(report.orphanBytes)}
@@ -208,7 +210,7 @@ export function OrphanedUploadsCard({ initial }: Props) {
             <details className="mb-3 text-xs text-muted">
               <summary className="cursor-pointer select-none">
                 Show sample ({report.sample.length} of{' '}
-                {report.orphanCount.toLocaleString()})
+                {fmt.number(report.orphanCount)})
               </summary>
               <ul className="mt-1.5 max-h-40 space-y-0.5 overflow-y-auto font-mono">
                 {report.sample.map((s) => (
@@ -226,7 +228,7 @@ export function OrphanedUploadsCard({ initial }: Props) {
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 <span>
                   This permanently deletes{' '}
-                  {report.orphanCount.toLocaleString()} file
+                  {fmt.number(report.orphanCount)} file
                   {report.orphanCount === 1 ? '' : 's'} (
                   {formatBytes(report.orphanBytes)}) from storage.
                   There is no undo. The list is re-checked at delete
@@ -266,7 +268,7 @@ export function OrphanedUploadsCard({ initial }: Props) {
               className="inline-flex items-center gap-1.5 rounded border border-danger/40 px-2.5 py-1.5 text-xs font-medium text-danger hover:bg-danger/5 disabled:opacity-50"
             >
               <Trash2 className="h-3.5 w-3.5" />
-              Delete {report.orphanCount.toLocaleString()} orphaned file
+              Delete {fmt.number(report.orphanCount)} orphaned file
               {report.orphanCount === 1 ? '' : 's'}...
             </button>
           )}

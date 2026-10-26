@@ -11,6 +11,7 @@ import {
   PlayCircle,
   Save,
 } from 'lucide-react';
+import { useFormat } from '@/lib/i18n/format';
 
 export interface HousekeepingConfig {
   autoTrashEnabled: boolean;
@@ -78,6 +79,7 @@ export function HousekeepingScheduleCard({
   initialConfig,
   initialRuns,
 }: Props) {
+  const fmt = useFormat();
   const router = useRouter();
   const [config, setConfig] = useState<HousekeepingConfig>(initialConfig);
   const [runs, setRuns] = useState<HousekeepingRun[]>(initialRuns);
@@ -459,7 +461,7 @@ export function HousekeepingScheduleCard({
                 className="flex flex-wrap items-center gap-2 text-xs text-ink-1"
               >
                 <span className="font-mono text-2xs text-muted">
-                  {new Date(r.startedAt).toLocaleString()}
+                  {fmt.dateTime(r.startedAt)}
                 </span>
                 <StatusPill status={r.status} />
                 <span className="text-muted">

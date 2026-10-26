@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
+import { useFormat } from '@/lib/i18n/format';
+
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
@@ -408,6 +410,7 @@ function ItemsTab({
   onToggleShare: (itemId: string) => void;
   onJumpToGroup: (groupId: string) => void;
 }) {
+  const fmt = useFormat();
   // Group all "items" rows by their item type for readability.
   // Each row carries a `via` discriminator that drives both the
   // badge color and which row actions are available.
@@ -461,16 +464,16 @@ function ItemsTab({
           />
           <span>
             Show items they own (
-            <strong>{bundle.owned.length.toLocaleString()}</strong>)
+            <strong>{fmt.number(bundle.owned.length)}</strong>)
           </span>
         </label>
         {bundle.orgAccessibleCount + bundle.publicAccessibleCount > 0 ? (
           <span>
             <Globe className="mr-1 inline h-3 w-3" />
             Plus{' '}
-            <strong>{bundle.orgAccessibleCount.toLocaleString()}</strong>{' '}
+            <strong>{fmt.number(bundle.orgAccessibleCount)}</strong>{' '}
             org-wide and{' '}
-            <strong>{bundle.publicAccessibleCount.toLocaleString()}</strong>{' '}
+            <strong>{fmt.number(bundle.publicAccessibleCount)}</strong>{' '}
             public not listed (item-level setting).
           </span>
         ) : null}
@@ -661,6 +664,7 @@ type ViaBadgeProps =
     };
 
 function ViaBadge(props: ViaBadgeProps) {
+  const fmt = useFormat();
   if (props.via === 'owns') {
     return (
       <span className="rounded bg-surface-2 px-1.5 py-0.5 text-2xs font-medium text-muted">
@@ -684,7 +688,7 @@ function ViaBadge(props: ViaBadgeProps) {
         }
         {...(expiresAt
           ? {
-              title: `${expired ? 'Expired' : 'Expires'} ${new Date(expiresAt).toLocaleString()}`,
+              title: `${expired ? 'Expired' : 'Expires'} ${fmt.dateTime(expiresAt)}`,
             }
           : {})}
       >
