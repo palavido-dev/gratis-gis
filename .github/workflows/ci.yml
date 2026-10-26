@@ -331,7 +331,11 @@ jobs:
 
   python-client:
     name: Python client
-    runs-on: ubuntu-latest
+    # Pin 24.04: ubuntu-latest moved to 26.04, and actions/python-versions
+    # does not ship 3.9 builds for that OS yet. Keep testing the
+    # requires-python floor (>=3.9) rather than silently jumping to a
+    # newer interpreter.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
