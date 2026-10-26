@@ -67,30 +67,6 @@ interface Props {
   onPendingFileImport?: (entry: PendingFileImport) => void;
 }
 
-const FIELD_TYPE_OPTIONS: Array<{ value: FeatureFieldType; label: string }> = [
-  { value: 'string', label: 'Text' },
-  { value: 'number', label: 'Number' },
-  { value: 'boolean', label: 'Yes/No' },
-  { value: 'date', label: 'Date' },
-  // Multi-select stores an array of pick-list codes. A pick list is
-  // mandatory to define the legal codes; the wizard auto-prompts for
-  // one when this type is chosen via the same coded-value UI that
-  // single-select strings use.
-  { value: 'multi_select', label: 'Multi-select' },
-];
-
-const GEOMETRY_OPTIONS: Array<{
-  value: LayerGeometryType;
-  label: string;
-  Icon: typeof Circle;
-  short: string;
-}> = [
-  { value: 'point', label: 'Point layer', Icon: Circle, short: 'Point' },
-  { value: 'line', label: 'Line layer', Icon: Spline, short: 'Line' },
-  { value: 'polygon', label: 'Polygon layer', Icon: Square, short: 'Polygon' },
-  { value: null, label: 'Table (no geometry)', Icon: Table2, short: 'Table' },
-];
-
 function randomId(prefix: string): string {
   // Short opaque ids for layers. Not globally unique, just stable per
   // wizard session: the backend will assign its own uuids when it
@@ -109,11 +85,10 @@ function slugify(label: string): string {
   );
 }
 
-function newLayer(geometryType: LayerGeometryType): DataLayerSublayer {
-  const defaultLabel =
-    geometryType === null
-      ? 'New table'
-      : `New ${geometryType} layer`;
+function newLayer(
+  geometryType: LayerGeometryType,
+  defaultLabel: string,
+): DataLayerSublayer {
   return {
     id: randomId(geometryType === null ? 'tbl' : 'lyr'),
     label: defaultLabel,
@@ -148,16 +123,6 @@ export function DataLayerBuilder({
   const [collapseAllSignal, setCollapseAllSignal] = useState(0);
   const [expandAllSignal, setExpandAllSignal] = useState(0);
 
-  const fieldTypeOptions = useMemo(
-    () => [
-      { value: 'string' as const, label: t('layerBuilder.fieldTypeText') },
-      { value: 'number' as const, label: t('layerBuilder.fieldTypeNumber') },
-      { value: 'boolean' as const, label: t('layerBuilder.fieldTypeYesNo') },
-      { value: 'date' as const, label: t('layerBuilder.fieldTypeDate') },
-      { value: 'multi_select' as const, label: t('layerBuilder.fieldTypeMultiSelect') },
-    ],
-    [t],
-  );
   const geometryOptions = useMemo(
     () => [
       { value: 'point' as const, label: t('layerBuilder.geomPoint'), Icon: Circle, short: t('layerBuilder.geomPointShort') },
@@ -184,10 +149,14 @@ export function DataLayerBuilder({
 
   const addLayer = useCallback(
     (geometryType: LayerGeometryType) => {
-      updateLayers([...layers, newLayer(geometryType)]);
+      const defaultLabel =
+        geometryType === null
+          ? t('layerBuilder.newTable')
+          : t('layerBuilder.newLayer', { geometry: geometryType });
+      updateLayers([...layers, newLayer(geometryType, defaultLabel)]);
       setAddOpen(false);
     },
-    [layers, updateLayers],
+    [layers, t, updateLayers],
   );
 
   const removeLayer = useCallback(
@@ -403,7 +372,16 @@ function LayerCard({
   useEffect(() => {
     if (expandSignal > 0) setOpen(true);
   }, [expandSignal]);
-  const geom = GEOMETRY_OPTIONS.find((g) => g.value === layer.geometryType);
+  const geometryOptions = useMemo(
+    () => [
+      { value: 'point' as const, label: t('layerBuilder.geomPoint'), Icon: Circle, short: t('layerBuilder.geomPointShort') },
+      { value: 'line' as const, label: t('layerBuilder.geomLine'), Icon: Spline, short: t('layerBuilder.geomLineShort') },
+      { value: 'polygon' as const, label: t('layerBuilder.geomPolygon'), Icon: Square, short: t('layerBuilder.geomPolygonShort') },
+      { value: null, label: t('layerBuilder.geomTable'), Icon: Table2, short: t('layerBuilder.geomTableShort') },
+    ],
+    [t],
+  );
+  const geom = geometryOptions.find((g) => g.value === layer.geometryType);
   const Icon = geom?.Icon ?? Circle;
 
   // Signals for pushing collapse commands into FieldRow children
@@ -457,17 +435,17 @@ function LayerCard({
                   : layer.name,
             });
           }}
-          placeholder={geom?.label ?? 'Layer'}
+          placeholder={geom?.label ?? t('layerBuilder.layerPlaceholder')}
           className="h-8 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
         />
         <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-muted">
-          {geom?.short ?? 'Layer'}
+          {geom?.short ?? t('layerBuilder.layerPlaceholder')}
         </span>
         <button
           type="button"
           onClick={onRemove}
           className="inline-flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-danger"
-          aria-label="Remove layer"
+          aria-label={t('layerBuilder.removeLayerAria')}
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
@@ -475,7 +453,7 @@ function LayerCard({
           type="button"
           onClick={() => setOpen((v) => !v)}
           className="flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-surface-2"
-          aria-label={open ? 'Collapse' : 'Expand'}
+          aria-label={open ? t('layerBuilder.collapseAria') : t('layerBuilder.expandAria')}
           aria-expanded={open}
         >
           {open ? (
@@ -508,7 +486,7 @@ function LayerCard({
               // a tester read it as the literal value he was meant to
               // type. Showing one makes the rule obvious without
               // naming it.
-              placeholder="inspection_points"
+              placeholder={t('layerBuilder.tableNameExample')}
               className="h-7 w-full rounded border border-border bg-surface-1 px-2 font-mono text-2xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
             />
           </div>
@@ -534,11 +512,11 @@ function LayerCard({
                 className="h-3.5 w-3.5 rounded border-border"
               />
               <Pencil className="h-3.5 w-3.5 text-muted" />
-              Allow editing
+              {t('layerBuilder.allowEditing')}
             </label>
             <label
               className="inline-flex cursor-pointer items-center gap-1.5"
-              title="Attachment storage is a Phase E backend change: the toggle persists so you can opt in now."
+              title={t('layerBuilder.attachmentsTitle')}
             >
               <input
                 type="checkbox"
@@ -549,8 +527,8 @@ function LayerCard({
                 className="h-3.5 w-3.5 rounded border-border"
               />
               <Paperclip className="h-3.5 w-3.5 text-muted" />
-              Allow attachments
-              <span className="text-2xs text-muted">(storage soon)</span>
+              {t('layerBuilder.allowAttachments')}
+              <span className="text-2xs text-muted">{t('layerBuilder.attachmentsSoon')}</span>
             </label>
             {/* Layer-level row policy (#41). 'all-rows' (default)
                 lets every editor see / edit every row. 'own-rows-only'
@@ -560,9 +538,9 @@ function LayerCard({
                 further but never loosen it. */}
             <label
               className="inline-flex cursor-pointer items-center gap-1.5"
-              title="Limit editors to the rows they themselves created"
+              title={t('layerBuilder.editorScopeTitle')}
             >
-              <span className="text-muted">Editor scope</span>
+              <span className="text-muted">{t('layerBuilder.editorScope')}</span>
               <select
                 value={layer.editingPolicy ?? 'all-rows'}
                 onChange={(e) =>
@@ -574,8 +552,8 @@ function LayerCard({
                 }
                 className="h-7 rounded-md border border-border bg-surface-1 px-2 text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
               >
-                <option value="all-rows">All features</option>
-                <option value="own-rows-only">Only their own</option>
+                <option value="all-rows">{t('layerBuilder.allFeatures')}</option>
+                <option value="own-rows-only">{t('layerBuilder.onlyOwn')}</option>
               </select>
             </label>
           </div>
@@ -619,11 +597,13 @@ function FieldsTable({
   onFieldAdd,
   onCollapseAll,
 }: FieldsTableProps) {
+  const t = useT();
   return (
     <div>
       <div className="mb-1 flex items-baseline justify-between gap-2">
         <p className="text-2xs font-medium uppercase tracking-wide text-muted">
-          Fields {fields.length > 0 ? <span className="text-muted">({fields.length})</span> : null}
+          {t('layerBuilder.fieldsHeading')}{' '}
+          {fields.length > 0 ? <span className="text-muted">({fields.length})</span> : null}
         </p>
         <div className="flex items-center gap-1">
           {fields.length > 1 ? (
@@ -631,10 +611,10 @@ function FieldsTable({
               type="button"
               onClick={onCollapseAll}
               className="inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-1.5 text-2xs text-muted hover:bg-surface-2 hover:text-ink-1"
-              title="Collapse every field's settings panel"
+              title={t('layerBuilder.collapseFieldsTitle')}
             >
               <ChevronUp className="h-3 w-3" />
-              Collapse all
+              {t('layerBuilder.collapseFields')}
             </button>
           ) : null}
           <button
@@ -643,14 +623,13 @@ function FieldsTable({
             className="inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-1.5 text-2xs text-ink-1 hover:bg-surface-2"
           >
             <Plus className="h-3 w-3" />
-            Add field
+            {t('layerBuilder.addField')}
           </button>
         </div>
       </div>
       {fields.length === 0 ? (
         <p className="rounded border border-dashed border-border bg-surface-1 px-2 py-3 text-center text-2xs text-muted">
-          No fields yet. Every feature will have a stable id; add fields
-          above to store additional attributes.
+          {t('layerBuilder.noFieldsYet')}
         </p>
       ) : (
         <div className="overflow-hidden rounded border border-border">
@@ -660,12 +639,12 @@ function FieldsTable({
                 <th className="px-2 py-1.5 text-left font-medium">
                   <GripVertical className="inline h-3 w-3" />
                 </th>
-                <th className="px-2 py-1.5 text-left font-medium">Name</th>
-                <th className="px-2 py-1.5 text-left font-medium">Type</th>
-                <th className="px-2 py-1.5 text-left font-medium">Label</th>
-                <th className="px-2 py-1.5 text-center font-medium">Required</th>
+                <th className="px-2 py-1.5 text-left font-medium">{t('layerBuilder.colName')}</th>
+                <th className="px-2 py-1.5 text-left font-medium">{t('layerBuilder.colType')}</th>
+                <th className="px-2 py-1.5 text-left font-medium">{t('layerBuilder.colLabel')}</th>
+                <th className="px-2 py-1.5 text-center font-medium">{t('layerBuilder.colRequired')}</th>
                 <th className="px-2 py-1.5 text-center font-medium">
-                  <span title="Pick list / coded values">Values</span>
+                  <span title={t('layerBuilder.colValuesTitle')}>{t('layerBuilder.colValues')}</span>
                 </th>
                 <th className="px-2 py-1.5"></th>
               </tr>
@@ -697,7 +676,7 @@ function FieldsTable({
           className="mt-2 inline-flex h-7 w-full items-center justify-center gap-1 rounded border border-dashed border-border bg-surface-1 px-2 text-2xs font-medium text-muted hover:border-accent/40 hover:bg-accent/5 hover:text-ink-1"
         >
           <Plus className="h-3 w-3" />
-          Add another field
+          {t('layerBuilder.addAnotherField')}
         </button>
       ) : null}
     </div>
@@ -735,6 +714,17 @@ function FieldRow({
   onChange,
   onRemove,
 }: FieldRowProps) {
+  const t = useT();
+  const fieldTypeOptions = useMemo(
+    () => [
+      { value: 'string' as const, label: t('layerBuilder.fieldTypeText') },
+      { value: 'number' as const, label: t('layerBuilder.fieldTypeNumber') },
+      { value: 'boolean' as const, label: t('layerBuilder.fieldTypeYesNo') },
+      { value: 'date' as const, label: t('layerBuilder.fieldTypeDate') },
+      { value: 'multi_select' as const, label: t('layerBuilder.fieldTypeMultiSelect') },
+    ],
+    [t],
+  );
   const [expanded, setExpanded] = useState(false);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -812,7 +802,7 @@ function FieldRow({
             type="text"
             value={field.name}
             onChange={(e) => onChange({ name: slugify(e.target.value) })}
-            placeholder="field_name"
+            placeholder={t('layerBuilder.fieldNamePlaceholder')}
             className="h-7 w-full rounded border border-border bg-surface-1 px-1.5 font-mono text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
           />
         </td>
@@ -851,9 +841,9 @@ function FieldRow({
             }}
             className="h-7 w-full rounded border border-border bg-surface-1 px-1 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
           >
-            {FIELD_TYPE_OPTIONS.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
+            {fieldTypeOptions.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
               </option>
             ))}
           </select>
@@ -863,7 +853,7 @@ function FieldRow({
             type="text"
             value={field.label}
             onChange={(e) => onChange({ label: e.target.value })}
-            placeholder={field.name || 'Display label'}
+            placeholder={field.name || t('layerBuilder.displayLabelPlaceholder')}
             className="h-7 w-full rounded border border-border bg-surface-1 px-1.5 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
           />
         </td>
@@ -873,7 +863,7 @@ function FieldRow({
             checked={!field.nullable}
             onChange={(e) => onChange({ nullable: !e.target.checked })}
             className="h-3.5 w-3.5 rounded border-border"
-            aria-label="Required"
+            aria-label={t('layerBuilder.requiredAria')}
           />
         </td>
         <td className="px-1 py-1 text-center">
@@ -893,8 +883,8 @@ function FieldRow({
               }`}
               title={
                 hasDomain || hasConstraints
-                  ? 'Edit field settings (pick list, constraints)'
-                  : 'Add pick list or constraints'
+                  ? t('layerBuilder.editFieldSettings')
+                  : t('layerBuilder.addPickListOrConstraints')
               }
               aria-expanded={expanded}
             >
@@ -902,25 +892,25 @@ function FieldRow({
                 <>
                   <List className="h-3 w-3" />
                   {isRefDomain
-                    ? 'ref'
+                    ? t('layerBuilder.domainRefBadge')
                     : (field.domain as { values: unknown[] }).values.length}
                 </>
               ) : hasConstraints ? (
                 <>
                   <List className="h-3 w-3" />
-                  set
+                  {t('layerBuilder.domainSetBadge')}
                 </>
               ) : (
                 <>
                   <Plus className="h-3 w-3" />
-                  settings
+                  {t('layerBuilder.domainSettingsBadge')}
                 </>
               )}
             </button>
           ) : (
             <span
               className="text-2xs text-muted"
-              title="Settings apply to text or number fields"
+              title={t('layerBuilder.settingsTitle')}
             >
              
             </span>
@@ -931,7 +921,7 @@ function FieldRow({
             type="button"
             onClick={onRemove}
             className="inline-flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-danger"
-            aria-label="Remove field"
+            aria-label={t('layerBuilder.removeFieldAria')}
           >
             <Minus className="h-3 w-3" />
           </button>
@@ -951,12 +941,10 @@ function FieldRow({
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-dashed border-border bg-surface-0 px-3 py-2">
                   <div>
                     <p className="text-2xs font-medium uppercase tracking-wide text-muted">
-                      Pick list
+                      {t('layerBuilder.pickListHeading')}
                     </p>
                     <p className="text-2xs text-muted">
-                      Restrict this field to a short, authoritative list
-                      of allowed values. Type them inline or point at a
-                      shared pick-list item.
+                      {t('layerBuilder.pickListIntro')}
                     </p>
                   </div>
                   <div className="flex items-center gap-1">
@@ -966,7 +954,7 @@ function FieldRow({
                       className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2"
                     >
                       <Plus className="h-3 w-3" />
-                      Add inline
+                      {t('layerBuilder.addInline')}
                     </button>
                     <button
                       type="button"
@@ -978,7 +966,7 @@ function FieldRow({
                       className="inline-flex h-7 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2"
                     >
                       <List className="h-3 w-3" />
-                      Use shared list
+                      {t('layerBuilder.useSharedList')}
                     </button>
                   </div>
                 </div>
@@ -1013,6 +1001,7 @@ interface ConstraintsEditorProps {
  * stays tidy.
  */
 function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
+  const t = useT();
   const storage = field.storage ?? {};
 
   // Accept undefined values here explicitly: callers pass `undefined`
@@ -1047,7 +1036,7 @@ function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
   return (
     <div className="rounded border border-border bg-surface-0 p-3">
       <p className="mb-2 text-2xs font-medium uppercase tracking-wide text-muted">
-        Constraints
+        {t('layerBuilder.constraintsHeading')}
       </p>
 
       {field.type === 'string' ? (
@@ -1056,9 +1045,9 @@ function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
             htmlFor={`${field.name || 'fld'}-maxlen`}
             className="text-ink-1"
           >
-            Max length
+            {t('layerBuilder.maxLengthLabel')}
             <span className="ml-1 text-2xs text-muted">
-              characters: leave blank for unlimited
+              {t('layerBuilder.maxLengthHint')}
             </span>
           </label>
           <input
@@ -1072,7 +1061,7 @@ function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
               const n = raw === '' ? undefined : Number(raw);
               patchStorage({ maxLength: n });
             }}
-            placeholder="none"
+            placeholder={t('layerBuilder.placeholderNone')}
             className="h-7 w-24 rounded border border-border bg-surface-1 px-1.5 text-right font-mono text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
           />
         </div>
@@ -1082,9 +1071,9 @@ function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
         <div className="space-y-2 text-xs">
           <div className="grid grid-cols-[1fr_auto] items-center gap-3">
             <label className="text-ink-1">
-              Number kind
+              {t('layerBuilder.numberKindLabel')}
               <span className="ml-1 text-2xs text-muted">
-                integer = whole numbers only; decimal keeps fractional precision
+                {t('layerBuilder.numberKindHint')}
               </span>
             </label>
             <select
@@ -1096,8 +1085,8 @@ function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
               }
               className="h-7 rounded border border-border bg-surface-1 px-1 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
             >
-              <option value="decimal">Decimal</option>
-              <option value="integer">Integer</option>
+              <option value="decimal">{t('layerBuilder.numberKindDecimal')}</option>
+              <option value="integer">{t('layerBuilder.numberKindInteger')}</option>
             </select>
           </div>
           {(storage.numberKind ?? 'decimal') === 'decimal' ? (
@@ -1107,9 +1096,9 @@ function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
                   htmlFor={`${field.name || 'fld'}-prec`}
                   className="text-ink-1"
                 >
-                  Total digits (precision)
+                  {t('layerBuilder.precisionLabel')}
                   <span className="ml-1 text-2xs text-muted">
-                    e.g. 10 for 12345.6789
+                    {t('layerBuilder.precisionHint')}
                   </span>
                 </label>
                 <input
@@ -1124,7 +1113,7 @@ function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
                       precision: raw === '' ? undefined : Number(raw),
                     });
                   }}
-                  placeholder="auto"
+                  placeholder={t('layerBuilder.placeholderAuto')}
                   className="h-7 w-24 rounded border border-border bg-surface-1 px-1.5 text-right font-mono text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
                 />
               </div>
@@ -1133,9 +1122,9 @@ function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
                   htmlFor={`${field.name || 'fld'}-scale`}
                   className="text-ink-1"
                 >
-                  Digits after decimal (scale)
+                  {t('layerBuilder.scaleLabel')}
                   <span className="ml-1 text-2xs text-muted">
-                    e.g. 4 for …6789
+                    {t('layerBuilder.scaleHint')}
                   </span>
                 </label>
                 <input
@@ -1150,7 +1139,7 @@ function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
                       scale: raw === '' ? undefined : Number(raw),
                     });
                   }}
-                  placeholder="auto"
+                  placeholder={t('layerBuilder.placeholderAuto')}
                   className="h-7 w-24 rounded border border-border bg-surface-1 px-1.5 text-right font-mono text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
                 />
               </div>
@@ -1160,10 +1149,7 @@ function ConstraintsEditor({ field, onChange }: ConstraintsEditorProps) {
       ) : null}
 
       <p className="mt-2 text-2xs text-muted">
-        These are optional. PostgreSQL stores text as unlimited TEXT and
-        numbers as arbitrary-precision NUMERIC by default: set these only
-        when you need Esri/shapefile export compatibility or strict input
-        validation.
+        {t('layerBuilder.constraintsFootnote')}
       </p>
     </div>
   );
@@ -1186,6 +1172,7 @@ interface DomainEditorProps {
  * empty inline list to populate.
  */
 function DomainEditor({ field, onChange, onDisable }: DomainEditorProps) {
+  const t = useT();
   const domain = field.domain;
   if (!domain) return null;
 
@@ -1217,7 +1204,7 @@ function DomainEditor({ field, onChange, onDisable }: DomainEditorProps) {
     <div className="space-y-2">
       <div className="flex items-center justify-between">
         <p className="text-2xs font-medium uppercase tracking-wide text-muted">
-          Pick list source
+          {t('layerBuilder.pickListSource')}
         </p>
         <div className="inline-flex rounded border border-border bg-surface-1 p-0.5 text-2xs">
           <button
@@ -1229,7 +1216,7 @@ function DomainEditor({ field, onChange, onDisable }: DomainEditorProps) {
                 : 'text-muted hover:text-ink-1'
             }`}
           >
-            Inline
+            {t('layerBuilder.sourceInline')}
           </button>
           <button
             type="button"
@@ -1240,7 +1227,7 @@ function DomainEditor({ field, onChange, onDisable }: DomainEditorProps) {
                 : 'text-muted hover:text-ink-1'
             }`}
           >
-            Shared list
+            {t('layerBuilder.sourceSharedList')}
           </button>
         </div>
       </div>
@@ -1292,6 +1279,7 @@ function SharedPickListRefEditor({
   onChange,
   onDisable,
 }: SharedPickListRefEditorProps) {
+  const t = useT();
   const [lists, setLists] = useState<
     Array<{ id: string; title: string; description?: string | null }>
   >([]);
@@ -1356,22 +1344,22 @@ function SharedPickListRefEditor({
     <div className="rounded border border-border bg-surface-0 p-3">
       <div className="mb-2 flex items-center justify-between">
         <p className="text-2xs font-medium uppercase tracking-wide text-muted">
-          Shared pick list
+          {t('layerBuilder.sharedPickListHeading')}
         </p>
         <button
           type="button"
           onClick={onDisable}
           className="inline-flex h-6 items-center gap-1 rounded px-1.5 text-2xs text-muted hover:bg-surface-2 hover:text-ink-1"
-          title="Remove the pick list: any value becomes allowed again"
+          title={t('layerBuilder.pickListRemoveTitle')}
         >
           <X className="h-3 w-3" />
-          Disable
+          {t('layerBuilder.disableBtn')}
         </button>
       </div>
 
       <label className="block text-xs">
         <span className="mb-1 block uppercase tracking-wide text-muted">
-          Reference
+          {t('layerBuilder.referenceLabel')}
         </span>
         <div className="flex items-center gap-1.5">
           <select
@@ -1382,10 +1370,10 @@ function SharedPickListRefEditor({
           >
             <option value="">
               {loading
-                ? 'Loading…'
+                ? t('layerBuilder.pickListLoading')
                 : lists.length === 0
-                  ? 'No shared pick lists yet: create one below'
-                  : 'Select a pick list…'}
+                  ? t('layerBuilder.pickListEmpty')
+                  : t('layerBuilder.pickListSelect')}
             </option>
             {lists.map((l) => (
               <option key={l.id} value={l.id}>
@@ -1397,17 +1385,17 @@ function SharedPickListRefEditor({
             type="button"
             onClick={() => setCreateOpen(true)}
             className="inline-flex h-8 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2"
-            title="Create a new shared pick list without leaving the builder"
+            title={t('layerBuilder.pickListCreateTitle')}
           >
             <Plus className="h-3 w-3" />
-            New
+            {t('layerBuilder.newPickListBtn')}
           </button>
         </div>
       </label>
 
       {createOpen ? (
         <CreateSharedPickListDialog
-          defaultTitle={suggestedPickListTitle(fieldLabel)}
+          defaultTitle={suggestedPickListTitle(fieldLabel, t)}
           onClose={() => setCreateOpen(false)}
           onCreated={(newId, newTitle) => {
             // Add to the local cache so the select shows it without a
@@ -1421,9 +1409,9 @@ function SharedPickListRefEditor({
 
       {pickListItemId ? (
         <div className="mt-2 rounded border border-border bg-surface-1 p-2 text-2xs">
-          <p className="mb-1 uppercase tracking-wide text-muted">Preview</p>
+          <p className="mb-1 uppercase tracking-wide text-muted">{t('layerBuilder.previewHeading')}</p>
           {previewLoading ? (
-            <p className="text-muted">Loading entries…</p>
+            <p className="text-muted">{t('layerBuilder.loadingEntries')}</p>
           ) : preview && preview.length > 0 ? (
             <ul className="space-y-0.5">
               {preview.map((e) => (
@@ -1435,13 +1423,12 @@ function SharedPickListRefEditor({
                 </li>
               ))}
               <li className="pt-1 text-muted">
-                Showing first {preview.length}. Edits to the source list
-                flow through automatically.
+                {t('layerBuilder.previewTruncated', { count: preview.length })}
               </li>
             </ul>
           ) : (
             <p className="text-muted">
-              The list has no entries yet. Open it to add some.
+              {t('layerBuilder.previewEmpty')}
             </p>
           )}
         </div>
@@ -1479,6 +1466,7 @@ function CodedValueEditor({
   onDisable,
   onPromoteToShared,
 }: CodedValueEditorProps) {
+  const t = useT();
   const [promoteOpen, setPromoteOpen] = useState(false);
   function patch(index: number, patchObj: Partial<{ code: string | number; label: string }>) {
     const next = values.map((v, i) => (i === index ? { ...v, ...patchObj } : v));
@@ -1512,7 +1500,7 @@ function CodedValueEditor({
     <div>
       <div className="mb-1 flex items-center justify-between gap-2">
         <p className="text-2xs font-medium uppercase tracking-wide text-muted">
-          Allowed values
+          {t('layerBuilder.allowedValues')}
         </p>
         <div className="flex items-center gap-1">
           <button
@@ -1522,28 +1510,28 @@ function CodedValueEditor({
             className="inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-1.5 text-2xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
             title={
               promotable.length === 0
-                ? 'Add at least one complete code + label row first'
-                : 'Promote these values into a reusable shared pick list'
+                ? t('layerBuilder.promoteNeedRow')
+                : t('layerBuilder.promoteTitle')
             }
           >
             <ListChecks className="h-3 w-3" />
-            Save as shared list
+            {t('layerBuilder.saveAsSharedList')}
           </button>
           <button
             type="button"
             onClick={onDisable}
             className="inline-flex h-6 items-center gap-1 rounded px-1.5 text-2xs text-muted hover:bg-surface-2 hover:text-ink-1"
-            title="Remove the pick list: any value becomes allowed again"
+            title={t('layerBuilder.pickListRemoveTitle')}
           >
             <X className="h-3 w-3" />
-            Disable pick list
+            {t('layerBuilder.disablePickList')}
           </button>
         </div>
       </div>
 
       {promoteOpen ? (
         <CreateSharedPickListDialog
-          defaultTitle={suggestedPickListTitle(fieldLabel)}
+          defaultTitle={suggestedPickListTitle(fieldLabel, t)}
           seedEntries={promotable.map((v) => ({
             code: String(v.code),
             label: v.label,
@@ -1560,21 +1548,21 @@ function CodedValueEditor({
           <thead className="bg-surface-2 text-muted">
             <tr>
               <th className="w-[40%] px-2 py-1 text-left font-medium">
-                Code
+                {t('layerBuilder.colCode')}
                 <span
                   className="ml-1 text-2xs uppercase text-muted"
-                  title="The stored value"
+                  title={t('layerBuilder.codeTitle')}
                 >
-                  stored
+                  {t('layerBuilder.colCodeStored')}
                 </span>
               </th>
               <th className="w-[55%] px-2 py-1 text-left font-medium">
-                Label
+                {t('layerBuilder.colLabel')}
                 <span
                   className="ml-1 text-2xs uppercase text-muted"
-                  title="What the user sees"
+                  title={t('layerBuilder.labelTitle')}
                 >
-                  shown
+                  {t('layerBuilder.colLabelShown')}
                 </span>
               </th>
               <th className="px-1 py-1"></th>
@@ -1597,7 +1585,7 @@ function CodedValueEditor({
                           : raw;
                       patch(i, { code });
                     }}
-                    placeholder={fieldType === 'number' ? '0' : 'code'}
+                    placeholder={fieldType === 'number' ? '0' : t('layerBuilder.codePlaceholder')}
                     className="h-7 w-full rounded border border-border bg-surface-1 px-1.5 font-mono text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
                   />
                 </td>
@@ -1606,7 +1594,7 @@ function CodedValueEditor({
                     type="text"
                     value={v.label}
                     onChange={(e) => patch(i, { label: e.target.value })}
-                    placeholder="Display label"
+                    placeholder={t('layerBuilder.displayLabelPlaceholder')}
                     className="h-7 w-full rounded border border-border bg-surface-1 px-1.5 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
                   />
                 </td>
@@ -1615,7 +1603,7 @@ function CodedValueEditor({
                     type="button"
                     onClick={() => removeAt(i)}
                     className="inline-flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-danger"
-                    aria-label="Remove value"
+                    aria-label={t('layerBuilder.removeValueAria')}
                   >
                     <Minus className="h-3 w-3" />
                   </button>
@@ -1631,11 +1619,10 @@ function CodedValueEditor({
         className="mt-2 inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-1.5 text-2xs text-ink-1 hover:bg-surface-2"
       >
         <Plus className="h-3 w-3" />
-        Add value
+        {t('layerBuilder.addValue')}
       </button>
       <p className="mt-1 text-2xs text-muted">
-        The code is what&apos;s stored in the database; the label is what
-        editors see in the picker.
+        {t('layerBuilder.codeLabelFootnote')}
       </p>
     </div>
   );
@@ -1661,6 +1648,7 @@ function ParentLinkRow({
   onPatch,
   onReplace,
 }: ParentLinkProps) {
+  const t = useT();
   const parentOptions = spatialLayers;
   const defaultFkForParent = (parentId: string): string => {
     const p = parentOptions.find((l) => l.id === parentId);
@@ -1670,11 +1658,11 @@ function ParentLinkRow({
   return (
     <div className="rounded border border-border bg-surface-1 p-2">
       <p className="mb-1 text-2xs font-medium uppercase tracking-wide text-muted">
-        Related to
+        {t('layerBuilder.relatedTo')}
       </p>
       <div className="grid grid-cols-[auto_1fr] items-center gap-2 text-xs">
         <label htmlFor={`${layer.id}-parent`} className="text-muted">
-          Parent layer
+          {t('layerBuilder.parentLayerLabel')}
         </label>
         <select
           id={`${layer.id}-parent`}
@@ -1707,7 +1695,7 @@ function ParentLinkRow({
           }}
           className="h-7 w-full rounded border border-border bg-surface-1 px-1 text-xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
         >
-          <option value="">- None (standalone table) -</option>
+          <option value="">{t('layerBuilder.parentNone')}</option>
           {parentOptions.map((p) => (
             <option key={p.id} value={p.id}>
               {p.label}
@@ -1718,7 +1706,7 @@ function ParentLinkRow({
         {layer.parentLayerId ? (
           <>
             <label htmlFor={`${layer.id}-fk`} className="text-muted">
-              FK column
+              {t('layerBuilder.fkColumnLabel')}
             </label>
             <input
               id={`${layer.id}-fk`}
@@ -1727,7 +1715,7 @@ function ParentLinkRow({
               onChange={(e) =>
                 onPatch({ parentFkColumn: slugify(e.target.value) })
               }
-              placeholder="parent_global_id"
+              placeholder={t('layerBuilder.fkColumnPlaceholder')}
               className="h-7 w-full rounded border border-border bg-surface-1 px-1.5 font-mono text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30"
             />
           </>
@@ -1735,7 +1723,7 @@ function ParentLinkRow({
       </div>
       {parentOptions.length === 0 ? (
         <p className="mt-1 text-2xs text-muted">
-          Add a spatial layer above first to link this table to.
+          {t('layerBuilder.addSpatialLayerFirst')}
         </p>
       ) : null}
     </div>
@@ -1835,7 +1823,7 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
         const text = await file.text();
         const fc = JSON.parse(text);
         if (fc?.type !== 'FeatureCollection' || !Array.isArray(fc.features)) {
-          setError('File is not a valid GeoJSON FeatureCollection.');
+          setError(t('layerBuilder.invalidGeoJson'));
           return;
         }
         const first = fc.features.find(
@@ -1850,14 +1838,17 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
               ? 'polygon'
               : 'point';
         const fields = deriveFieldsFromFeatures(fc.features, 500);
-        const layer = newLayer(geometryType);
+        const layer = newLayer(
+          geometryType,
+          t('layerBuilder.newLayer', { geometry: geometryType }),
+        );
         layer.label = file.name.replace(/\.(geojson|json)$/i, '');
         layer.name = slugify(layer.label);
         layer.fields = fields;
         layer.featureCount = fc.features.length;
         onImport([layer]);
       } catch (err) {
-        setError((err as Error).message || 'Failed to parse file.');
+        setError((err as Error).message || t('layerBuilder.parseFileFailed'));
       } finally {
         setBusy(null);
       }
@@ -1921,7 +1912,7 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
       if ((err as Error).name === 'AbortError') {
         // No-op; cancelUpload already cleared state.
       } else {
-        setError((err as Error).message || 'Probe failed.');
+        setError((err as Error).message || t('layerBuilder.probeFailed'));
       }
     } finally {
       setBusy(null);
@@ -1950,7 +1941,11 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
     }> = [];
     for (const pl of toAdd) {
       const label = pl.name || fileName;
-      const layer = newLayer(pl.geometryType);
+      const defaultLabel =
+        pl.geometryType === null
+          ? t('layerBuilder.newTable')
+          : t('layerBuilder.newLayer', { geometry: pl.geometryType });
+      const layer = newLayer(pl.geometryType, defaultLabel);
       layer.label = label;
       layer.name = slugify(label);
       layer.fields = pl.fields.map((f) => ({
@@ -1975,13 +1970,13 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
   return (
     <div className="rounded-md border border-border bg-surface-0 p-3">
       <div className="mb-2 flex items-center justify-between">
-        <p className="text-xs font-medium text-ink-0">Import from file</p>
+        <p className="text-xs font-medium text-ink-0">{t('layerBuilder.importPanelTitle')}</p>
         <button
           type="button"
           onClick={onClose}
           className="text-2xs text-muted hover:text-ink-1"
         >
-          Close
+          {t('common.close')}
         </button>
       </div>
 
@@ -2062,9 +2057,7 @@ function ImportPanel({ onClose, onImport }: ImportPanelProps) {
             that into Create item itself (#98).
           */}
           <p className="mt-2 text-2xs text-muted">
-            All layers in the file will attach automatically. Schema lands
-            on Create item; load feature rows per layer afterwards from
-            the detail page.
+            {t('layerBuilder.importSchemaHint')}
           </p>
         </>
       )}
@@ -2130,8 +2123,11 @@ function humanize(name: string): string {
  * label yet. Keeps the wording neutral so the user naturally edits it
  * before saving rather than inheriting "Priority options" forever.
  */
-function suggestedPickListTitle(fieldLabel: string): string {
+function suggestedPickListTitle(
+  fieldLabel: string,
+  t: ReturnType<typeof useT>,
+): string {
   const trimmed = (fieldLabel ?? '').trim();
-  if (!trimmed) return 'Pick list';
-  return `${trimmed} options`;
+  if (!trimmed) return t('layerBuilder.pickListDefault');
+  return t('layerBuilder.pickListOptionsTitle', { label: trimmed });
 }
