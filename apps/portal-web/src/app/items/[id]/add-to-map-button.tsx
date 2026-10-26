@@ -23,7 +23,7 @@ import { useT } from '@/lib/i18n/locale-context';
  *
  * `layerKey` narrows the add to one sublayer of a multi-layer
  * data_layer (the Data tab renders one of these per row, `compact`,
- * next to Browse and Analyze). The builder reads it as `&layer=`.
+ * next to the Attributes / Map / Analyze tabs). The builder reads it as `&layer=`.
  */
 export function AddToMapButton({
   itemId,

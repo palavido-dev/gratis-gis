@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import {
   AlertTriangle,
   Check,
   ChevronDown,
-  ChevronRight,
   Database,
   FlaskConical,
+  Map as MapIcon,
   Plus,
   Table2,
   Upload,
@@ -32,6 +32,17 @@ const LayerAnalyzePanel = dynamic(
   () => import('./layer-analyze-panel').then((m) => m.LayerAnalyzePanel),
   { ssr: false },
 );
+
+// Map tab (#223): MapLibre + basemap are a real payload; only load
+// when the user opens the tab. Same dynamic() treatment as Analyze.
+const LayerMapPreview = dynamic(
+  () => import('./layer-map-preview').then((m) => m.LayerMapPreview),
+  { ssr: false },
+);
+
+/** Exclusive view inside a layer row (#223). Replaces the old
+ *  Browse/Analyze toggles that could both be open at once. */
+type LayerTab = 'attributes' | 'map' | 'analyze';
 
 /**
  * Per-layer data panel for a v3 data_layer item on the detail
@@ -111,13 +122,21 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
   // that flips through Uploading X% / Importing features so the user
   // can see what's happening at every step.
   const [busy, setBusy] = useState<UploadBusy | null>(null);
-  const [browseOpen, setBrowseOpen] = useState(false);
-  const [analyzeOpen, setAnalyzeOpen] = useState(false);
+  // Single active tab (or null = collapsed). Tabs replace the old
+  // independent Browse/Analyze toggles so only one view is open.
+  const [activeTab, setActiveTab] = useState<LayerTab | null>(null);
   const [message, setMessage] = useState<
     | { kind: 'success'; text: string }
     | { kind: 'error'; text: string }
     | null
   >(null);
+  // Table-mode sublayers have no geometry column — hide Map entirely
+  // rather than show an empty basemap (#223).
+  const hasGeometry = Boolean(layer.geometryType);
+
+  function selectTab(tab: LayerTab) {
+    setActiveTab((prev) => (prev === tab ? null : tab));
+  }
   const inputRef = useRef<HTMLInputElement | null>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
   // #248: remember which import mode the user chose when they opened
@@ -241,39 +260,44 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
         {allLayers.length > 1 && layer.geometryType ? (
           <AddToMapButton itemId={itemId} layerKey={layer.id} compact />
         ) : null}
-        <button
-          type="button"
-          onClick={() => setBrowseOpen((v) => !v)}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2 text-xs font-medium text-ink-1 hover:bg-surface-2"
-          title={browseOpen ? 'Hide features' : 'Browse & edit features'}
+        {/* #223: Attributes / Map / Analyze as exclusive tabs. Click
+            the active tab again to collapse. Map is omitted for
+            table-mode sublayers (no geometry). Analyze still gated
+            on the download tier (#175 GeoParquet path). */}
+        <div
+          role="tablist"
+          aria-label={`${layer.label} views`}
+          className="inline-flex h-8 overflow-hidden rounded-md border border-border"
         >
-          {browseOpen ? (
-            <ChevronDown className="h-3.5 w-3.5" />
-          ) : (
-            <ChevronRight className="h-3.5 w-3.5" />
-          )}
-          <Table2 className="h-3.5 w-3.5" />
-          {browseOpen ? 'Hide' : 'Browse'}
-        </button>
-        {/* Analyze (#175): in-browser SQL over the layer. Gated on
-            the download tier because the panel pulls the full layer
-            through the GeoParquet export endpoint, which 403s
-            without it; hiding beats offering a doomed button. */}
-        {canDownload ? (
-          <button
-            type="button"
-            onClick={() => setAnalyzeOpen((v) => !v)}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2 text-xs font-medium text-ink-1 hover:bg-surface-2"
-            title={
-              analyzeOpen
-                ? 'Hide analysis'
-                : 'Analyze with SQL, in your browser'
-            }
+          <TabButton
+            selected={activeTab === 'attributes'}
+            onClick={() => selectTab('attributes')}
+            title="Attribute table"
           >
-            <FlaskConical className="h-3.5 w-3.5" />
-            Analyze
-          </button>
-        ) : null}
+            <Table2 className="h-3.5 w-3.5" />
+            Attributes
+          </TabButton>
+          {hasGeometry ? (
+            <TabButton
+              selected={activeTab === 'map'}
+              onClick={() => selectTab('map')}
+              title="Map preview of the geometry"
+            >
+              <MapIcon className="h-3.5 w-3.5" />
+              Map
+            </TabButton>
+          ) : null}
+          {canDownload ? (
+            <TabButton
+              selected={activeTab === 'analyze'}
+              onClick={() => selectTab('analyze')}
+              title="Analyze with SQL, in your browser"
+            >
+              <FlaskConical className="h-3.5 w-3.5" />
+              Analyze
+            </TabButton>
+          ) : null}
+        </div>
         {canEdit ? (
           <>
             <input
@@ -318,20 +342,64 @@ function LayerRow({ itemId, layer, allLayers, canEdit, canDownload }: RowProps) 
           {message.text}
         </p>
       ) : null}
-      {analyzeOpen ? (
-        <LayerAnalyzePanel itemId={itemId} layer={layer} />
+      {activeTab === 'attributes' ? (
+        <div role="tabpanel" className="mt-2">
+          <V3FeatureBrowser
+            itemId={itemId}
+            layer={layer}
+            allLayers={allLayers}
+            canEdit={canEdit}
+            canDownload={canDownload}
+            onRefreshCounts={() => router.refresh()}
+          />
+        </div>
       ) : null}
-      {browseOpen ? (
-        <V3FeatureBrowser
-          itemId={itemId}
-          layer={layer}
-          allLayers={allLayers}
-          canEdit={canEdit}
-          canDownload={canDownload}
-          onRefreshCounts={() => router.refresh()}
-        />
+      {activeTab === 'map' && layer.geometryType ? (
+        <div role="tabpanel">
+          <LayerMapPreview
+            itemId={itemId}
+            layerId={layer.id}
+            geometryType={layer.geometryType}
+            bbox={layer.bbox}
+            featureCount={layer.featureCount}
+          />
+        </div>
+      ) : null}
+      {activeTab === 'analyze' ? (
+        <div role="tabpanel">
+          <LayerAnalyzePanel itemId={itemId} layer={layer} />
+        </div>
       ) : null}
     </li>
+  );
+}
+
+function TabButton({
+  selected,
+  onClick,
+  title,
+  children,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={selected}
+      onClick={onClick}
+      title={title}
+      className={`inline-flex h-8 items-center gap-1.5 border-r border-border px-2 text-xs font-medium last:border-r-0 ${
+        selected
+          ? 'bg-surface-2 text-ink-0'
+          : 'bg-surface-1 text-ink-1 hover:bg-surface-2'
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
