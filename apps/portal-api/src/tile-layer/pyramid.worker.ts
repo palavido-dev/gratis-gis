@@ -221,8 +221,13 @@ export class TileLayerPyramidWorker implements OnModuleInit {
     data: TileLayerData;
   }): Promise<void> {
     const { itemId, data } = claim;
+    const claimCog = { cogStorageKey: data.cogStorageKey ?? null };
     if (!data.cogStorageKey && !data.cogStorageUrl) {
-      await this.markFailed(itemId, 'COG storage reference is missing on the item.');
+      await this.markFailed(
+        itemId,
+        'COG storage reference is missing on the item.',
+        claimCog,
+      );
       return;
     }
     const maxZoom = data.maxZoom ?? 18;
@@ -308,12 +313,21 @@ export class TileLayerPyramidWorker implements OnModuleInit {
         isWebMercator &&
         info.metadata?.IMAGE_STRUCTURE?.LAYOUT === 'COG'
       ) {
-        await this.applyPatch(itemId, {
-          processingState: 'ready',
-          tileType: 'jpg',
-          tileUrl: `cog:///api/portal/tile-layer/${itemId}/file.cog`,
-        } as Partial<TileLayerData>);
-        await this.clearTilingError(itemId);
+        const stamped = await this.applyPatch(
+          itemId,
+          {
+            processingState: 'ready',
+            tileType: 'jpg',
+            tileUrl: `cog:///api/portal/tile-layer/${itemId}/file.cog`,
+          } as Partial<TileLayerData>,
+          claimCog,
+        );
+        if (stamped) await this.clearTilingError(itemId);
+        else {
+          this.log.warn(
+            `Skipped ready stamp for ${itemId}: claim no longer held (concurrent rebuild?).`,
+          );
+        }
         this.log.log(
           `Item ${itemId} is a web-tiled photo COG; serving it directly (no pyramid).`,
         );
@@ -408,16 +422,22 @@ export class TileLayerPyramidWorker implements OnModuleInit {
       // jsonb_set only patches one path per call; do them one at
       // a time so a misconfigured key doesn't blow away the
       // whole data blob.
-      await this.applyPatch(itemId, patch);
-      // Clear tilingError if it was set from a previous failed
-      // attempt.
-      await this.clearTilingError(itemId);
-      this.log.log(
-        `Pyramid build succeeded for item ${itemId}: ${pmtilesStat.size} bytes`,
-      );
+      const stamped = await this.applyPatch(itemId, patch, claimCog);
+      if (stamped) {
+        // Clear tilingError if it was set from a previous failed
+        // attempt.
+        await this.clearTilingError(itemId);
+        this.log.log(
+          `Pyramid build succeeded for item ${itemId}: ${pmtilesStat.size} bytes`,
+        );
+      } else {
+        this.log.warn(
+          `Skipped pmtiles-ready stamp for ${itemId}: claim no longer held (concurrent rebuild?).`,
+        );
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      await this.markFailed(itemId, msg).catch((patchErr) => {
+      await this.markFailed(itemId, msg, claimCog).catch((patchErr) => {
         this.log.error(
           `Failed to mark item ${itemId} as tiling-failed: ${patchErr instanceof Error ? patchErr.message : patchErr}`,
         );
@@ -429,22 +449,37 @@ export class TileLayerPyramidWorker implements OnModuleInit {
     }
   }
 
-  /** Patch one or more TileLayerData fields onto Item.data via a
-   *  single jsonb operation.  Builds the patch object as JSON and
-   *  merges it with the existing data so the worker doesn't have
-   *  to re-read the item between fields. */
+  /**
+   * Patch TileLayerData fields onto Item.data via a single jsonb
+   * merge. Success and failure stamps are gated on the claim the
+   * worker actually held (#232): `processingState = 'tiling'` and,
+   * when the claim read a cogStorageKey, that key must still match.
+   * Without the guard a concurrent mosaic rebuild that flipped the
+   * item back to `cog-ready` (or rewrote the COG) could be clobbered
+   * by a late pmtiles-ready / tiling-failed write from this build.
+   * Predicate mirror: `pyramidClaimStillHeld` in pyramid-claim.ts.
+   */
   private async applyPatch(
     itemId: string,
     patch: Partial<TileLayerData>,
-  ): Promise<void> {
+    claim?: { cogStorageKey?: string | null },
+  ): Promise<boolean> {
     // Cast through unknown to satisfy Prisma.JsonObject's index
     // signature requirement; TileLayerData is a typed interface.
     const patchJson = patch as unknown as Prisma.JsonObject;
-    await this.prisma.$executeRaw`
+    const expectedCog = claim?.cogStorageKey ?? null;
+    const rows = await this.prisma.$queryRaw<Array<{ id: string }>>`
       UPDATE "item"
       SET "data_json" = "data_json" || ${patchJson}::jsonb
       WHERE id = ${itemId}::uuid
+        AND "data_json"->>'processingState' = 'tiling'
+        AND (
+          ${expectedCog}::text IS NULL
+          OR "data_json"->>'cogStorageKey' IS NOT DISTINCT FROM ${expectedCog}::text
+        )
+      RETURNING id
     `;
+    return rows.length > 0;
   }
 
   /** Remove the tilingError and tilingAttempts keys from
@@ -456,6 +491,7 @@ export class TileLayerPyramidWorker implements OnModuleInit {
       UPDATE "item"
       SET "data_json" = "data_json" - 'tilingError' - 'tilingAttempts'
       WHERE id = ${itemId}::uuid
+        AND "data_json"->>'processingState' IN ('pmtiles-ready', 'ready')
     `;
   }
 
@@ -463,14 +499,28 @@ export class TileLayerPyramidWorker implements OnModuleInit {
    *  The item continues serving from its COG so the failure is
    *  recoverable -- an admin can hit the retry endpoint to flip
    *  back to cog-ready for another attempt. */
-  private async markFailed(itemId: string, errorMessage: string): Promise<void> {
+  private async markFailed(
+    itemId: string,
+    errorMessage: string,
+    claim?: { cogStorageKey?: string | null },
+  ): Promise<void> {
     const truncated = errorMessage.length > 2000
       ? errorMessage.slice(0, 2000) + '...'
       : errorMessage;
-    await this.applyPatch(itemId, {
-      processingState: 'tiling-failed',
-      tilingError: truncated,
-    });
+    const applied = await this.applyPatch(
+      itemId,
+      {
+        processingState: 'tiling-failed',
+        tilingError: truncated,
+      },
+      claim,
+    );
+    if (!applied) {
+      this.log.warn(
+        `Skipped tiling-failed stamp for ${itemId}: claim no longer held (concurrent rebuild?).`,
+      );
+      return;
+    }
     // A clean failure ends any crash streak: the worker survived to
     // report it, so an explicit admin retry should start with the
     // full MAX_TILING_ATTEMPTS crash-recovery budget rather than
@@ -479,6 +529,7 @@ export class TileLayerPyramidWorker implements OnModuleInit {
       UPDATE "item"
       SET "data_json" = "data_json" - 'tilingAttempts'
       WHERE id = ${itemId}::uuid
+        AND "data_json"->>'processingState' = 'tiling-failed'
     `;
   }
 
