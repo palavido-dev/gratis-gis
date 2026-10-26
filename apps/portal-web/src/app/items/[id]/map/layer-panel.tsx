@@ -55,6 +55,7 @@ import {
 } from './layer-metadata';
 import { LayerSwatch } from './layer-swatch';
 import { TabPanel, TabStrip } from '@/components/ui/tab-strip';
+import { useT } from '@/lib/i18n/locale-context';
 
 interface Props {
   layers: MapLayer[];
@@ -145,7 +146,7 @@ const DRAG_MIME = 'application/x-gg-layer';
  *   - Remove.
  *   - Expand for Symbology / Filters / Popups / Interactions.
  *
- * Layer order mirrors render order (top of list draws on top).
+ * Layer order mirrors render order (top of list draws {t('mapLayerPanel.terrain.onTop')}).
  */
 export function LayerPanel({
   layers,
@@ -161,6 +162,7 @@ export function LayerPanel({
   showAddLayer = true,
   terrain,
 }: Props) {
+  const t = useT();
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
   // Whose settings are open in the column beside the list. One at a
@@ -450,7 +452,7 @@ export function LayerPanel({
   function createGroupAndMoveLayer(layerId: string) {
     const layer = layers.find((l) => l.id === layerId);
     if (!layer) return;
-    const title = uniqueGroupTitle(layers, 'New group');
+    const title = uniqueGroupTitle(layers, t('mapLayerPanel.newGroupDefaultTitle'));
     const group = makeEmptyGroupLayer(title);
     const without = layers.filter((l) => l.id !== layerId);
     const child: MapLayer = { ...layer, groupId: group.id };
@@ -486,7 +488,7 @@ export function LayerPanel({
     >
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
-          Layers
+          {t('mapLayerPanel.title')}
         </h3>
         {canEdit && showAddLayer ? (
           <div ref={addMenuRef} className="relative inline-flex">
@@ -502,14 +504,14 @@ export function LayerPanel({
               className="inline-flex h-7 items-center gap-1 rounded-l-md border border-r-0 border-border bg-surface-1 px-2 text-xs font-medium text-ink-1 shadow-card hover:bg-surface-2"
             >
               <Plus className="h-3.5 w-3.5" />
-              Add layer
+              {t('mapLayerPanel.addLayer')}
             </button>
             <button
               type="button"
               onClick={() => setAddMenuOpen((o) => !o)}
               aria-haspopup="menu"
               aria-expanded={addMenuOpen}
-              aria-label="More add options"
+              aria-label={t('mapLayerPanel.moreAddOptions')}
               className="inline-flex h-7 w-6 items-center justify-center rounded-r-md border border-border bg-surface-1 text-xs text-ink-1 shadow-card hover:bg-surface-2"
             >
               <ChevronDown className="h-3.5 w-3.5" />
@@ -529,7 +531,7 @@ export function LayerPanel({
                   className="flex w-full items-center gap-2 px-3 py-2 text-left text-ink-1 hover:bg-surface-2"
                 >
                   <Plus className="h-3.5 w-3.5 text-muted" />
-                  Add layer
+                  {t('mapLayerPanel.addLayer')}
                 </button>
                 <button
                   type="button"
@@ -541,7 +543,7 @@ export function LayerPanel({
                   className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-ink-1 hover:bg-surface-2"
                 >
                   <FolderPlus className="h-3.5 w-3.5 text-muted" />
-                  Add group
+                  {t('mapLayerPanel.addGroup')}
                 </button>
               </div>
             ) : null}
@@ -554,10 +556,10 @@ export function LayerPanel({
           <div className="max-w-[18rem]">
             <Sparkles className="mx-auto mb-2 h-5 w-5 text-muted" />
             <p className="text-xs text-muted">
-              No layers yet.{' '}
+              {t('mapLayerPanel.emptyNoLayers')}{' '}
               {canEdit
-                ? 'Add one from a URL, the portal, or the curated catalog.'
-                : 'The owner has not added any layers.'}
+                ? t('mapLayerPanel.emptyCanEdit')
+                : t('mapLayerPanel.emptyViewer')}
             </p>
           </div>
         </div>
@@ -786,6 +788,7 @@ function TerrainSection({
 }: {
   terrain: NonNullable<Props['terrain']>;
 }) {
+  const t = useT();
   const {
     stack,
     enabled,
@@ -814,7 +817,7 @@ function TerrainSection({
   const inStack = new Set(stack.map((e) => e.itemId));
   const available = (demLayers ?? []).filter((d) => !inStack.has(d.id));
   const titleOf = (itemId: string) =>
-    (demLayers ?? []).find((d) => d.id === itemId)?.title ?? 'Elevation layer';
+    (demLayers ?? []).find((d) => d.id === itemId)?.title ?? t('mapLayerPanel.terrain.elevationLayerFallback');
 
   return (
     <div className="border-t border-border">
@@ -830,13 +833,13 @@ function TerrainSection({
           <ChevronRight className="h-3.5 w-3.5" />
         )}
         <Mountain className="h-3.5 w-3.5" />
-        <span>3D terrain</span>
+        <span>{t('mapLayerPanel.terrain.title')}</span>
         <span className="ml-auto text-2xs font-normal normal-case tracking-normal">
           {stack.length === 0
-            ? 'off'
+            ? t('mapLayerPanel.terrain.statusOff')
             : enabled
-              ? `${stack.length} surface${stack.length > 1 ? 's' : ''}`
-              : `${stack.length} surface${stack.length > 1 ? 's' : ''}, off`}
+              ? t('mapLayerPanel.terrain.statusSurfaces', { count: stack.length })
+              : t('mapLayerPanel.terrain.statusSurfacesOff', { count: stack.length })}
         </span>
       </button>
       {expanded ? (
@@ -856,7 +859,7 @@ function TerrainSection({
                     <span className="min-w-0 flex-1 truncate">{title}</span>
                     {i === 0 && stack.length > 1 ? (
                       <span className="shrink-0 text-2xs uppercase tracking-wide text-muted">
-                        on top
+                        {t('mapLayerPanel.terrain.onTop')}
                       </span>
                     ) : null}
                     <button
@@ -864,8 +867,8 @@ function TerrainSection({
                       onClick={() => onMove(entry.itemId, -1)}
                       disabled={i === 0}
                       className="shrink-0 rounded p-0.5 text-muted enabled:hover:bg-surface-2 enabled:hover:text-ink-1 disabled:opacity-30"
-                      aria-label={`Move ${title} up`}
-                      title="Move up (wins where surfaces overlap)"
+                      aria-label={t('mapLayerPanel.terrain.moveUpAria', { title })}
+                      title={t('mapLayerPanel.terrain.moveUpTitle')}
                     >
                       <ChevronUp className="h-3.5 w-3.5" />
                     </button>
@@ -874,8 +877,8 @@ function TerrainSection({
                       onClick={() => onMove(entry.itemId, 1)}
                       disabled={i === stack.length - 1}
                       className="shrink-0 rounded p-0.5 text-muted enabled:hover:bg-surface-2 enabled:hover:text-ink-1 disabled:opacity-30"
-                      aria-label={`Move ${title} down`}
-                      title="Move down"
+                      aria-label={t('mapLayerPanel.terrain.moveDownAria', { title })}
+                      title={t('mapLayerPanel.terrain.moveDownTitle')}
                     >
                       <ChevronDown className="h-3.5 w-3.5" />
                     </button>
@@ -883,8 +886,8 @@ function TerrainSection({
                       type="button"
                       onClick={() => onRemove(entry.itemId)}
                       className="shrink-0 rounded p-0.5 text-muted hover:bg-surface-2 hover:text-ink-1"
-                      aria-label={`Remove ${title} from terrain`}
-                      title="Remove"
+                      aria-label={t('mapLayerPanel.terrain.removeFromTerrainAria', { title })}
+                      title={t('mapLayerPanel.terrain.remove')}
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
@@ -895,18 +898,17 @@ function TerrainSection({
           ) : null}
           {stack.length > 1 ? (
             <p className="text-2xs leading-snug text-muted">
-              Where elevation layers overlap, the one nearer the top
-              of this list wins, same as the layers above.
+              {t('mapLayerPanel.terrain.overlapHint')}
             </p>
           ) : null}
           {demLayers === null ? (
             <p className="text-2xs text-muted">
-              Looking for elevation layers...
+              {t('mapLayerPanel.terrain.loadingElevation')}
             </p>
           ) : available.length > 0 ? (
             <div>
               <p className="px-1 py-0.5 text-2xs uppercase tracking-wide text-muted">
-                {stack.length > 0 ? 'Add elevation' : 'Turn on 3D with'}
+                {stack.length > 0 ? t('mapLayerPanel.terrain.addElevation') : t('mapLayerPanel.terrain.turnOn3dWith')}
               </p>
               <ul>
                 {available.map((d) => (
@@ -937,7 +939,7 @@ function TerrainSection({
               {enabled ? (
                 <div>
                   <label className="flex items-center justify-between text-2xs text-muted">
-                    <span>Height boost</span>
+                    <span>{t('mapLayerPanel.terrain.heightBoost')}</span>
                     <span className="font-medium text-ink-1">
                       {(exaggeration ?? 1).toFixed(2).replace(/\.?0+$/, '')}x
                     </span>
@@ -950,18 +952,15 @@ function TerrainSection({
                     value={exaggeration ?? 1}
                     onChange={(e) => onExaggeration(Number(e.target.value))}
                     className="mt-1 w-full accent-accent"
-                    aria-label="Terrain height boost"
+                    aria-label={t('mapLayerPanel.terrain.heightBoostAria')}
                   />
                   <p className="mt-0.5 text-2xs leading-snug text-muted">
-                    1x is true height. Boost it to make gentle hills
-                    easier to read. Tilt the map (right-drag) to see
-                    the 3D.
+                    {t('mapLayerPanel.terrain.heightBoostHint')}
                   </p>
                 </div>
               ) : (
                 <p className="text-2xs leading-snug text-muted">
-                  3D is off; the map renders flat. Your surfaces and
-                  their order are kept for when you turn it back on.
+                  {t('mapLayerPanel.terrain.terrainOffHint')}
                 </p>
               )}
               {/* On/off toggle, NOT a clear (user feedback): peeking
@@ -971,7 +970,7 @@ function TerrainSection({
                 onClick={onToggle}
                 className="rounded border border-border px-2 py-1 text-2xs font-medium text-ink-1 hover:bg-surface-2"
               >
-                {enabled ? 'Turn off 3D' : 'Turn on 3D'}
+                {enabled ? t('mapLayerPanel.terrain.turnOff3d') : t('mapLayerPanel.terrain.turnOn3d')}
               </button>
             </>
           ) : null}
@@ -1059,19 +1058,6 @@ type LayerTab =
   | 'popup'
   | 'interactions';
 
-const LAYER_TABS: ReadonlyArray<{ id: LayerTab; label: string }> = [
-  { id: 'style', label: 'Style' },
-  { id: 'labels', label: 'Labels' },
-  { id: 'filter', label: 'Filter' },
-  { id: 'popup', label: 'Popup' },
-  // The id follows the field it edits, `layer.interactions`. The
-  // label does not, because "Interactions" is twice the width of
-  // every other tab and five of them share one narrow column.
-  // "Actions" says the same thing from the reader's side: what you
-  // can do with this layer.
-  { id: 'interactions', label: 'Actions' },
-];
-
 /**
  * Tab strip for the layer settings.
  *
@@ -1089,12 +1075,20 @@ function LayerTabStrip({
   value: LayerTab;
   onChange: (next: LayerTab) => void;
 }) {
+  const t = useT();
+  const tabs: ReadonlyArray<{ id: LayerTab; label: string }> = [
+    { id: 'style', label: t('mapLayerPanel.tabs.style') },
+    { id: 'labels', label: t('mapLayerPanel.tabs.labels') },
+    { id: 'filter', label: t('mapLayerPanel.tabs.filter') },
+    { id: 'popup', label: t('mapLayerPanel.tabs.popup') },
+    { id: 'interactions', label: t('mapLayerPanel.tabs.actions') },
+  ];
   return (
     <TabStrip
-      tabs={LAYER_TABS}
+      tabs={tabs}
       value={value}
       onChange={onChange}
-      ariaLabel="Layer settings"
+      ariaLabel={t('mapLayerPanel.layerSettingsAria')}
       idPrefix="layer"
       variant="fill"
     />
@@ -1150,6 +1144,7 @@ function LayerRow({
   renderAs,
   anchor,
 }: RowProps) {
+  const t = useT();
   // Which half of itself to draw. The settings live in their own
   // column beside the list rather than expanding under the row, so
   // this component renders twice for the selected layer: once as a
@@ -1187,11 +1182,11 @@ function LayerRow({
   // first question anyone asks of an unfamiliar layer, and it decides
   // which of the tabs will be useful.
   const geometryLabel = isTable
-    ? 'table'
+    ? t('mapLayerPanel.geometryKind.table')
     : isPointCloud
-      ? 'point cloud'
+      ? t('mapLayerPanel.geometryKind.pointCloud')
       : isTileOverlay
-        ? 'imagery'
+        ? t('mapLayerPanel.geometryKind.imagery')
         : metadata.geometryTypes && metadata.geometryTypes.size > 0
           ? [...metadata.geometryTypes].sort().join(' + ')
           : null;
@@ -1293,7 +1288,7 @@ function LayerRow({
           <button
             type="button"
             onClick={onSelect}
-            aria-label="Close layer settings"
+            aria-label={t('mapLayerPanel.closeSettingsAria')}
             className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-1"
           >
             <X className="h-3.5 w-3.5" />
@@ -1313,7 +1308,7 @@ function LayerRow({
                  (user feedback). */
               <div className="space-y-2 px-3 py-3">
                 <label className="flex items-center justify-between gap-2 text-2xs uppercase tracking-wide text-muted">
-                  <span>Color by</span>
+                  <span>{t('mapLayerPanel.pointCloud.colorBy')}</span>
                   <select
                     value={
                       pcSource.colorScheme ??
@@ -1334,11 +1329,11 @@ function LayerRow({
                     }
                     className="rounded border border-border bg-surface-0 px-1.5 py-1 text-xs normal-case text-ink-0 disabled:opacity-50"
                   >
-                    <option value="elevation">Elevation</option>
-                    <option value="intensity">Intensity</option>
-                    <option value="classification">Classification</option>
+                    <option value="elevation">{t('mapLayerPanel.pointCloud.elevation')}</option>
+                    <option value="intensity">{t('mapLayerPanel.pointCloud.intensity')}</option>
+                    <option value="classification">{t('mapLayerPanel.pointCloud.classification')}</option>
                     <option value="rgb" disabled={!pcSource.hasRgb}>
-                      RGB {pcSource.hasRgb ? '' : '(not in file)'}
+                      {t('mapLayerPanel.pointCloud.rgb')} {pcSource.hasRgb ? '' : t('mapLayerPanel.pointCloud.rgbNotInFile')}
                     </option>
                   </select>
                 </label>
@@ -1347,7 +1342,7 @@ function LayerRow({
                 {(pcSource.colorScheme ?? 'elevation') === 'elevation' ||
                 pcSource.colorScheme === 'intensity' ? (
                   <label className="flex items-center justify-between gap-2 text-2xs uppercase tracking-wide text-muted">
-                    <span>Color ramp</span>
+                    <span>{t('mapLayerPanel.pointCloud.colorRamp')}</span>
                     <select
                       value={pcSource.colormap ?? 'viridis'}
                       disabled={!canEdit}
@@ -1362,20 +1357,20 @@ function LayerRow({
                       }
                       className="rounded border border-border bg-surface-0 px-1.5 py-1 text-xs normal-case text-ink-0 disabled:opacity-50"
                     >
-                      <option value="viridis">Viridis</option>
-                      <option value="plasma">Plasma</option>
-                      <option value="inferno">Inferno</option>
-                      <option value="magma">Magma</option>
-                      <option value="cividis">Cividis</option>
-                      <option value="turbo">Turbo</option>
-                      <option value="terrain">Terrain</option>
-                      <option value="coolwarm">Cool-warm</option>
-                      <option value="gray">Grayscale</option>
+                      <option value="viridis">{t('mapLayerPanel.colormap.viridis')}</option>
+                      <option value="plasma">{t('mapLayerPanel.colormap.plasma')}</option>
+                      <option value="inferno">{t('mapLayerPanel.colormap.inferno')}</option>
+                      <option value="magma">{t('mapLayerPanel.colormap.magma')}</option>
+                      <option value="cividis">{t('mapLayerPanel.colormap.cividis')}</option>
+                      <option value="turbo">{t('mapLayerPanel.colormap.turbo')}</option>
+                      <option value="terrain">{t('mapLayerPanel.colormap.terrain')}</option>
+                      <option value="coolwarm">{t('mapLayerPanel.colormap.coolwarm')}</option>
+                      <option value="gray">{t('mapLayerPanel.colormap.gray')}</option>
                     </select>
                   </label>
                 ) : null}
                 <label className="flex items-center justify-between text-2xs uppercase tracking-wide text-muted">
-                  <span>Point size</span>
+                  <span>{t('mapLayerPanel.pointCloud.pointSize')}</span>
                   <span className="tabular-nums">
                     {(pcSource.pointSize ?? 2).toFixed(1)}
                   </span>
@@ -1398,7 +1393,7 @@ function LayerRow({
                   className="w-full accent-accent disabled:opacity-50"
                 />
                 <label className="flex items-center justify-between text-2xs uppercase tracking-wide text-muted">
-                  <span>Opacity</span>
+                  <span>{t('mapLayerPanel.opacity')}</span>
                   <span className="tabular-nums">
                     {Math.round(layer.opacity * 100)}%
                   </span>
@@ -1414,19 +1409,17 @@ function LayerRow({
                   className="w-full accent-accent disabled:opacity-50"
                 />
                 <p className="text-2xs leading-relaxed text-muted">
-                  Streams by viewport in 3D. Tilt the map to look
-                  across the terrain.
+                  {t('mapLayerPanel.pointCloud.hint')}
                 </p>
               </div>
             ) : isTable ? (
               <div className="px-3 py-3 text-xs text-muted">
-                This is a non-spatial table. Open the attribute table
-                from the kebab menu to view its records.
+                {t('mapLayerPanel.tableLayerHint')}
               </div>
             ) : (
               <div className="px-3 py-3">
                 <label className="flex items-center justify-between text-2xs uppercase tracking-wide text-muted">
-                  <span>Opacity</span>
+                  <span>{t('mapLayerPanel.opacity')}</span>
                   <span className="tabular-nums">
                     {Math.round(layer.opacity * 100)}%
                   </span>
@@ -1477,7 +1470,7 @@ function LayerRow({
                   </div>
                   <div className="mt-3 border-t border-border pt-3">
                     <p className="mb-1.5 text-2xs font-medium uppercase tracking-wide text-muted">
-                      Visible zoom range
+                      {t('mapLayerPanel.visibleZoomRange')}
                     </p>
                     {/* The layer's own range only. The labels range
                         lives on the same object but belongs beside
@@ -1525,7 +1518,7 @@ function LayerRow({
                   <div className="space-y-1.5 pb-3 text-sm">
                     <Toggle
                       Icon={MousePointerClick}
-                      label="Click shows popup"
+                      label={t('mapLayerPanel.toggles.clickShowsPopup')}
                       checked={layer.popup.enabled}
                       onChange={(v) =>
                         onPatch({
@@ -1535,7 +1528,7 @@ function LayerRow({
                     />
                     <Toggle
                       Icon={Sparkles}
-                      label="Popup on hover"
+                      label={t('mapLayerPanel.toggles.popupOnHover')}
                       checked={layer.popup.showOnHover === true}
                       onChange={(v) =>
                         onPatch({
@@ -1565,7 +1558,7 @@ function LayerRow({
                   <div className="space-y-1.5 text-sm">
                     <Toggle
                       Icon={Sparkles}
-                      label="Highlight on hover"
+                      label={t('mapLayerPanel.toggles.highlightOnHover')}
                       checked={layer.interactions.hoverHighlight}
                       onChange={(v) =>
                         onPatch({
@@ -1578,7 +1571,7 @@ function LayerRow({
                     />
                     <Toggle
                       Icon={MousePointerClick}
-                      label="Selectable"
+                      label={t('mapLayerPanel.toggles.selectable')}
                       checked={layer.interactions.selectable !== false}
                       onChange={(v) =>
                         onPatch({
@@ -1600,7 +1593,7 @@ function LayerRow({
                     {layer.source.kind === 'data-layer' ? (
                       <Toggle
                         Icon={Pencil}
-                        label="Editable in field deployments"
+                        label={t('mapLayerPanel.toggles.editableInField')}
                         checked={layer.interactions.editingEnabled !== false}
                         onChange={(v) =>
                           onPatch({
@@ -1621,8 +1614,7 @@ function LayerRow({
                     />
                   </div>
                   <p className="mt-2 text-2xs text-muted">
-                    Feature editing unlocks when the layer&apos;s source
-                    supports writes.
+                    {t('mapLayerPanel.featureEditingHint')}
                   </p>
                 </LayerTabPanel>
               </>
@@ -1648,7 +1640,7 @@ function LayerRow({
             draggable
             onDragStart={handleDragStart}
             onDragEnd={onDragEnd}
-            aria-label="Drag to reorder"
+            aria-label={t('mapLayerPanel.dragToReorder')}
             className="inline-flex h-6 w-5 shrink-0 cursor-grab items-center justify-center text-muted hover:text-ink-1 active:cursor-grabbing"
           >
             <GripVertical className="h-3.5 w-3.5" />
@@ -1662,7 +1654,7 @@ function LayerRow({
         <button
           type="button"
           onClick={onSelect}
-          aria-label={selected ? 'Settings open' : 'Open settings'}
+          aria-label={selected ? t('mapLayerPanel.settingsOpenAria') : t('mapLayerPanel.openSettingsAria')}
           aria-pressed={selected}
           className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-surface-2 ${
             selected ? 'text-accent' : 'text-muted'
@@ -1686,7 +1678,7 @@ function LayerRow({
           <button
             type="button"
             onClick={onToggle}
-            aria-label={layer.visible ? 'Hide layer' : 'Show layer'}
+            aria-label={layer.visible ? t('mapLayerPanel.hideLayerAria') : t('mapLayerPanel.showLayerAria')}
             // Visibility is a session-local view preference, not a
             // config edit: anyone viewing the map (including share-
             // viewers and editor-runtime users) can hide layers they
@@ -1753,8 +1745,8 @@ function LayerRow({
             value={titleDraft}
             onChange={(e) => setTitleDraft(e.target.value)}
             onBlur={() => {
-              const t = titleDraft.trim();
-              if (t && t !== layer.title) onPatch({ title: t });
+              const trimmed = titleDraft.trim();
+              if (trimmed && trimmed !== layer.title) onPatch({ title: trimmed });
               else setTitleDraft(layer.title);
               setEditingTitle(false);
             }}
@@ -1776,7 +1768,9 @@ function LayerRow({
             onClick={onSelect}
             onDoubleClick={() => canEdit && setEditingTitle(true)}
             title={
-              canEdit ? `${layer.title} (double-click to rename)` : layer.title
+              canEdit
+                ? t('mapLayerPanel.titleDoubleClickRename', { title: layer.title })
+                : layer.title
             }
           >
             <span className={layer.visible ? 'text-ink-0' : 'text-muted'}>
@@ -1794,7 +1788,7 @@ function LayerRow({
             }}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
-            aria-label="Layer actions"
+            aria-label={t('mapLayerPanel.layerActionsAria')}
             className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-1"
           >
             <MoreVertical className="h-3.5 w-3.5" />
@@ -1809,7 +1803,7 @@ function LayerRow({
               {!isPointCloud && !isTileOverlay ? (
                 <MenuItem
                   Icon={TableIcon}
-                  label="Open attribute table"
+                  label={t('mapLayerPanel.menu.openAttributeTable')}
                   onClick={() => {
                     setMenuOpen(false);
                     onOpenAttributeTable();
@@ -1825,7 +1819,7 @@ function LayerRow({
                   <MenuItem
                     Icon={Tag}
                     label={
-                      layer.labels.enabled ? 'Hide labels' : 'Show labels'
+                      layer.labels.enabled ? t('mapLayerPanel.menu.hideLabels') : t('mapLayerPanel.menu.showLabels')
                     }
                     onClick={() => {
                       setMenuOpen(false);
@@ -1839,7 +1833,7 @@ function LayerRow({
                   />
                   <MenuItem
                     Icon={Focus}
-                    label="Zoom to layer extent"
+                    label={t('mapLayerPanel.menu.zoomToExtent')}
                     onClick={() => {
                       setMenuOpen(false);
                       onZoomToExtent();
@@ -1858,7 +1852,7 @@ function LayerRow({
                 <>
                   <MenuItem
                     Icon={Focus}
-                    label="Zoom to layer extent"
+                    label={t('mapLayerPanel.menu.zoomToExtent')}
                     onClick={() => {
                       setMenuOpen(false);
                       onZoomToExtent();
@@ -1884,7 +1878,7 @@ function LayerRow({
                   layer.source.preferredElevationItemId ? (
                     <MenuItem
                       Icon={Mountain}
-                      label="Use this layer's elevation"
+                      label={t('mapLayerPanel.menu.useLayerElevation')}
                       onClick={() => {
                         setMenuOpen(false);
                         onUseLayerElevation();
@@ -1901,7 +1895,7 @@ function LayerRow({
                   <div className="border-t border-border" />
                   <MenuItem
                     Icon={Pencil}
-                    label="Rename"
+                    label={t('mapLayerPanel.menu.rename')}
                     onClick={() => {
                       setMenuOpen(false);
                       setTitleDraft(layer.title);
@@ -1923,7 +1917,7 @@ function LayerRow({
                     className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-surface-2"
                   >
                     <FolderPlus className="h-3.5 w-3.5 text-muted" />
-                    <span className="flex-1">Move to group</span>
+                    <span className="flex-1">{t('mapLayerPanel.menu.moveToGroup')}</span>
                     <ChevronRight
                       className={`h-3.5 w-3.5 text-muted transition-transform ${
                         moveSubOpen ? 'rotate-90' : ''
@@ -1945,7 +1939,7 @@ function LayerRow({
                             className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-ink-1 hover:bg-surface-2"
                           >
                             <FolderMinus className="h-3.5 w-3.5 text-muted" />
-                            Top level
+                            {t('mapLayerPanel.menu.topLevel')}
                           </button>
                         </li>
                       ) : null}
@@ -1961,7 +1955,7 @@ function LayerRow({
                           className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-ink-1 hover:bg-surface-2"
                         >
                           <Plus className="h-3.5 w-3.5 text-muted" />
-                          New group
+                          {t('mapLayerPanel.menu.newGroup')}
                         </button>
                       </li>
                       {groupOptions.length > 0 ? (
@@ -1984,7 +1978,7 @@ function LayerRow({
                             <span className="truncate">{g.title}</span>
                             {g.id === layer.groupId ? (
                               <span className="ml-auto text-2xs uppercase tracking-wide text-muted">
-                                current
+                                {t('mapLayerPanel.menu.current')}
                               </span>
                             ) : null}
                           </button>
@@ -1995,7 +1989,7 @@ function LayerRow({
                 </div>
                 <MenuItem
                   Icon={Trash2}
-                  label="Remove"
+                  label={t('mapLayerPanel.menu.remove')}
                   destructive
                   onClick={() => {
                     setMenuOpen(false);
@@ -2036,6 +2030,7 @@ function ScaledSymbologyEditor({
   currentZoom: number;
   geometryTypes?: Set<GeometryFamily>;
 }) {
+  const t = useT();
   const classes = layer.scaledSymbology ?? [];
   function update(next: typeof classes): void {
     onPatch({
@@ -2050,7 +2045,7 @@ function ScaledSymbologyEditor({
         minZoom: 14,
         style: structuredClone(layer.style),
         renderer: layer.renderer,
-        label: `Class ${classes.length + 1}`,
+        label: t('mapLayerPanel.scaledSymbology.classDefault', { n: classes.length + 1 }),
       },
     ]);
   }
@@ -2073,7 +2068,7 @@ function ScaledSymbologyEditor({
     <div className="space-y-2 text-xs">
       <div className="flex items-center justify-between">
         <h3 className="text-2xs font-medium uppercase tracking-wide text-muted">
-          Scale classes
+          {t('mapLayerPanel.scaledSymbology.title')}
           {classes.length > 0 ? (
             <span className="ml-1 normal-case text-muted">
               ({classes.length})
@@ -2086,20 +2081,17 @@ function ScaledSymbologyEditor({
           data-help="scaled-symbology-add-button"
           className="inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-2 text-2xs font-medium text-ink-1 hover:bg-surface-2"
         >
-          + Add class
+          {t('mapLayerPanel.scaledSymbology.addClass')}
         </button>
       </div>
       {classes.length === 0 ? (
         <p className="text-2xs text-muted">
-          Optional.  Add classes when you want this layer to look
-          different at different zoom levels (e.g. semi-transparent
-          fill at country scale, outline-only at parcel scale)
-          without forking the layer.
+          {t('mapLayerPanel.scaledSymbology.emptyHint')}
         </p>
       ) : (
         <ul className="space-y-3">
           {classes.map((c, i) => {
-            const label = c.label ?? `Class ${i + 1}`;
+            const label = c.label ?? t('mapLayerPanel.scaledSymbology.classDefault', { n: i + 1 });
             return (
               <li
                 key={i}
@@ -2115,7 +2107,7 @@ function ScaledSymbologyEditor({
                   <button
                     type="button"
                     onClick={() => removeClass(i)}
-                    title="Remove class"
+                    title={t('mapLayerPanel.scaledSymbology.removeClassTitle')}
                     className="inline-flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-surface-2"
                   >
                     ×
@@ -2126,7 +2118,7 @@ function ScaledSymbologyEditor({
                     author works with one consistent control across
                     every zoom-bounded surface. */}
                 <ZoomRange
-                  label="Visible at"
+                  label={t('mapLayerPanel.scaledSymbology.visibleAt')}
                   minZoom={c.minZoom ?? null}
                   maxZoom={c.maxZoom ?? null}
                   currentZoom={currentZoom}
@@ -2150,7 +2142,7 @@ function ScaledSymbologyEditor({
                 {hasPolygon ? (
                   <div className="grid grid-cols-2 gap-2">
                     <Color
-                      label="Fill"
+                      label={t('mapLayerPanel.symbology.fill')}
                       value={c.style.polygon.fillColor}
                       onChange={(v) =>
                         patchClass(i, {
@@ -2162,7 +2154,7 @@ function ScaledSymbologyEditor({
                       }
                     />
                     <Slider
-                      label="Fill opacity"
+                      label={t('mapLayerPanel.symbology.fillOpacity')}
                       min={0}
                       max={1}
                       step={0.05}
@@ -2177,7 +2169,7 @@ function ScaledSymbologyEditor({
                       }
                     />
                     <Color
-                      label="Outline"
+                      label={t('mapLayerPanel.symbology.outline')}
                       value={c.style.polygon.strokeColor}
                       onChange={(v) =>
                         patchClass(i, {
@@ -2189,7 +2181,7 @@ function ScaledSymbologyEditor({
                       }
                     />
                     <Slider
-                      label="Outline width"
+                      label={t('mapLayerPanel.symbology.outlineWidth')}
                       min={0}
                       max={8}
                       step={0.5}
@@ -2208,7 +2200,7 @@ function ScaledSymbologyEditor({
                 {hasLine ? (
                   <div className="grid grid-cols-2 gap-2">
                     <Color
-                      label="Color"
+                      label={t('mapLayerPanel.symbology.color')}
                       value={c.style.line.color}
                       onChange={(v) =>
                         patchClass(i, {
@@ -2220,7 +2212,7 @@ function ScaledSymbologyEditor({
                       }
                     />
                     <Slider
-                      label="Width"
+                      label={t('mapLayerPanel.symbology.width')}
                       min={0.5}
                       max={12}
                       step={0.5}
@@ -2239,7 +2231,7 @@ function ScaledSymbologyEditor({
                 {hasPoint ? (
                   <div className="grid grid-cols-2 gap-2">
                     <Color
-                      label="Fill"
+                      label={t('mapLayerPanel.symbology.fill')}
                       value={c.style.point.color}
                       onChange={(v) =>
                         patchClass(i, {
@@ -2251,7 +2243,7 @@ function ScaledSymbologyEditor({
                       }
                     />
                     <Slider
-                      label="Radius"
+                      label={t('mapLayerPanel.symbology.radius')}
                       min={2}
                       max={24}
                       step={1}
@@ -2266,7 +2258,7 @@ function ScaledSymbologyEditor({
                       }
                     />
                     <Color
-                      label="Outline"
+                      label={t('mapLayerPanel.symbology.outline')}
                       value={c.style.point.strokeColor}
                       onChange={(v) =>
                         patchClass(i, {
@@ -2278,7 +2270,7 @@ function ScaledSymbologyEditor({
                       }
                     />
                     <Slider
-                      label="Outline width"
+                      label={t('mapLayerPanel.symbology.outlineWidth')}
                       min={0}
                       max={6}
                       step={0.5}
@@ -2359,6 +2351,7 @@ function SearchConfig({
   metadata: LayerMetadata;
   onChange: (next: MapLayerSearch) => void;
 }) {
+  const t = useT();
   const fields = metadata.fields;
   function patch(p: Partial<MapLayerSearch>) {
     onChange({ ...value, ...p });
@@ -2395,18 +2388,17 @@ function SearchConfig({
           className="h-3.5 w-3.5 rounded border-border text-accent focus:ring-accent/30"
         />
         <Search className="h-3.5 w-3.5 text-muted" />
-        <span className="text-ink-1">Searchable</span>
+        <span className="text-ink-1">{t('mapLayerPanel.search.searchable')}</span>
       </label>
       {value.enabled ? (
         <div className="space-y-2 rounded-md border border-border bg-surface-1 p-2">
           <div>
             <div className="mb-1 text-2xs uppercase tracking-wide text-muted">
-              Fields to search
+              {t('mapLayerPanel.search.fieldsToSearch')}
             </div>
             {value.fields.length === 0 ? (
               <p className="text-2xs text-muted">
-                Pick at least one field so the search bar knows what to
-                match.
+                {t('mapLayerPanel.search.pickOneField')}
               </p>
             ) : (
               <ul className="flex flex-wrap gap-1">
@@ -2419,7 +2411,7 @@ function SearchConfig({
                     <button
                       type="button"
                       onClick={() => removeField(f)}
-                      aria-label={`Remove ${f}`}
+                      aria-label={t('mapLayerPanel.search.removeFieldAria', { field: f })}
                       className="inline-flex h-4 w-4 items-center justify-center rounded-full text-muted hover:text-danger"
                     >
                       <X className="h-2.5 w-2.5" />
@@ -2439,7 +2431,7 @@ function SearchConfig({
                 className="mt-2 h-7 w-full rounded border border-border bg-surface-1 px-2 text-2xs focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30 disabled:opacity-50"
               >
                 <option value="">
-                  {unpicked.length === 0 ? 'All fields added' : 'Add a field...'}
+                  {unpicked.length === 0 ? t('mapLayerPanel.search.allFieldsAdded') : t('mapLayerPanel.search.addField')}
                 </option>
                 {unpicked.map((f) => (
                   <option key={f} value={f}>
@@ -2450,7 +2442,7 @@ function SearchConfig({
             ) : (
               <input
                 type="text"
-                placeholder="field name"
+                placeholder={t('mapLayerPanel.search.fieldNamePlaceholder')}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     addField((e.target as HTMLInputElement).value.trim());
@@ -2463,7 +2455,7 @@ function SearchConfig({
           </div>
           <div>
             <div className="mb-1 text-2xs uppercase tracking-wide text-muted">
-              Result label (optional)
+              {t('mapLayerPanel.search.resultLabelOptional')}
             </div>
             <TemplateInput
               value={value.labelTemplate}
@@ -2473,10 +2465,7 @@ function SearchConfig({
               placeholder={`{{apn}}: {{situs}}`}
             />
             <p className="mt-1 text-2xs text-muted">
-              Same{' '}
-              <code className="rounded bg-surface-2 px-1">{`{{field}}`}</code>{' '}
-              grammar as popups. Empty falls back to the first matching
-              field&apos;s value.
+              {t('mapLayerPanel.search.resultLabelGrammar')}
             </p>
           </div>
         </div>
@@ -2541,6 +2530,7 @@ function ScaleEditor({
   onChange: (next: MapLayerScale) => void;
   show?: 'all' | 'layer' | 'labels';
 }) {
+  const t = useT();
   function patch(p: Partial<MapLayerScale>) {
     onChange({ ...value, ...p });
   }
@@ -2548,7 +2538,7 @@ function ScaleEditor({
   if (show === 'labels') {
     return (
       <ZoomRange
-        label="Labels visible"
+        label={t('mapLayerPanel.scale.labelsVisible')}
         minZoom={value.labelsMinZoom}
         maxZoom={value.labelsMaxZoom}
         currentZoom={currentZoom}
@@ -2561,7 +2551,7 @@ function ScaleEditor({
   return (
     <div className="space-y-3 text-sm">
       <ZoomRange
-        label="Layer visible"
+        label={t('mapLayerPanel.scale.layerVisible')}
         minZoom={value.minZoom}
         maxZoom={value.maxZoom}
         currentZoom={currentZoom}
@@ -2570,7 +2560,7 @@ function ScaleEditor({
       />
       {show === 'all' ? (
         <ZoomRange
-          label="Labels visible"
+          label={t('mapLayerPanel.scale.labelsVisible')}
           minZoom={value.labelsMinZoom}
           maxZoom={value.labelsMaxZoom}
           currentZoom={currentZoom}
@@ -2585,12 +2575,10 @@ function ScaleEditor({
           onChange={(e) => patch({ scaleWithZoom: e.target.checked })}
           className="h-3.5 w-3.5 rounded border-border text-accent focus:ring-accent/30"
         />
-        <span className="text-ink-1">Scale icons &amp; points with zoom</span>
+        <span className="text-ink-1">{t('mapLayerPanel.scale.scaleIconsWithZoom')}</span>
       </label>
       <p className="text-2xs text-muted">
-        Off keeps the exact size you set; on shrinks markers at low zooms
-        so the map isn&apos;t overwhelmed and nudges them up at close
-        range.
+        {t('mapLayerPanel.scale.scaleIconsHint')}
       </p>
     </div>
   );
@@ -2611,6 +2599,7 @@ function ZoomRange({
   onMin: (z: number | null) => void;
   onMax: (z: number | null) => void;
 }) {
+  const t = useT();
   // Clamp nullable bounds to the slider range for positioning. Storing
   // null when a thumb rests on the extreme keeps the persisted map's
   // intent clear: "no minimum" vs. "minimum happens to be zero".
@@ -2637,9 +2626,9 @@ function ZoomRange({
       <div className="mb-2 flex items-center justify-between text-2xs uppercase tracking-wide text-muted">
         <span>{label}</span>
         <span className="tabular-nums normal-case tracking-normal text-muted">
-          {maxZoom == null ? 'any' : `z${maxZoom}`}
+          {maxZoom == null ? t('mapLayerPanel.scale.zoomAny') : `z${maxZoom}`}
           {'  –  '}
-          {minZoom == null ? 'any' : `z${minZoom}`}
+          {minZoom == null ? t('mapLayerPanel.scale.zoomAny') : `z${minZoom}`}
         </span>
       </div>
       <div className="gg-dual-range">
@@ -2661,10 +2650,13 @@ function ZoomRange({
           }
           style={{ left: `${pctCurrent}%` }}
           aria-hidden="true"
-          title={
-            `Current zoom: z${currentZoom.toFixed(1)} (${zoomToScaleLabel(currentZoom)})` +
-            `: ${inRange ? 'in range' : 'outside range'}`
-          }
+          title={t('mapLayerPanel.scale.currentZoomTitle', {
+            zoom: currentZoom.toFixed(1),
+            scale: zoomToScaleLabel(currentZoom),
+            status: inRange
+              ? t('mapLayerPanel.scale.inRange')
+              : t('mapLayerPanel.scale.outsideRange'),
+          })}
         />
         {/* Left thumb controls the zoomed-in (max) side. RTL on the
             input flips its native direction so dragging right lowers
@@ -2681,7 +2673,7 @@ function ZoomRange({
             if (n < minV) n = minV;
             onMax(n === ZOOM_MAX ? null : n);
           }}
-          aria-label={`${label} maximum zoom (zoomed-in limit)`}
+          aria-label={t('mapLayerPanel.scale.maxZoomAria', { label })}
           className="gg-dual-range__input"
         />
         {/* Right thumb controls the zoomed-out (min) side. Same RTL
@@ -2698,7 +2690,7 @@ function ZoomRange({
             if (n > maxV) n = maxV;
             onMin(n === ZOOM_MIN ? null : n);
           }}
-          aria-label={`${label} minimum zoom (zoomed-out limit)`}
+          aria-label={t('mapLayerPanel.scale.minZoomAria', { label })}
           className="gg-dual-range__input"
         />
       </div>
@@ -2706,10 +2698,10 @@ function ZoomRange({
         {/* Left label describes the zoomed-in end: large scale.
             Right label the zoomed-out end: small scale. */}
         <span className="tabular-nums">
-          {maxZoom == null ? 'building' : zoomToScaleLabel(maxZoom)}
+          {maxZoom == null ? t('mapLayerPanel.scale.building') : zoomToScaleLabel(maxZoom)}
         </span>
         <span className="tabular-nums">
-          {minZoom == null ? 'world' : zoomToScaleLabel(minZoom)}
+          {minZoom == null ? t('mapLayerPanel.scale.world') : zoomToScaleLabel(minZoom)}
         </span>
       </div>
     </div>
@@ -2790,6 +2782,7 @@ function GroupHeaderRow({
   onUngroup,
   onDropOnHeader,
 }: GroupHeaderRowProps) {
+  const t = useT();
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(layer.title);
   const [dragOverHeader, setDragOverHeader] = useState(false);
@@ -2844,9 +2837,9 @@ function GroupHeaderRow({
               onDragStart();
             }}
             onDragEnd={onDragEnd}
-            aria-label="Drag group to reorder"
+            aria-label={t('mapLayerPanel.group.dragAria')}
             className="inline-flex h-6 w-5 shrink-0 cursor-grab items-center justify-center text-warn hover:text-warn active:cursor-grabbing"
-            title="Drag group to reorder"
+            title={t('mapLayerPanel.group.dragTitle')}
           >
             <GripVertical className="h-3.5 w-3.5" />
           </span>
@@ -2856,9 +2849,9 @@ function GroupHeaderRow({
         <button
           type="button"
           onClick={onToggle}
-          aria-label={layer.visible ? 'Hide group' : 'Show group'}
+          aria-label={layer.visible ? t('mapLayerPanel.group.hideAria') : t('mapLayerPanel.group.showAria')}
           className="inline-flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-1"
-          title="Toggles every layer in this group"
+          title={t('mapLayerPanel.group.toggleTitle')}
         >
           {layer.visible ? (
             <Eye className="h-3.5 w-3.5" />
@@ -2873,8 +2866,8 @@ function GroupHeaderRow({
             value={titleDraft}
             onChange={(e) => setTitleDraft(e.target.value)}
             onBlur={() => {
-              const t = titleDraft.trim();
-              if (t && t !== layer.title) onRename(t);
+              const trimmed = titleDraft.trim();
+              if (trimmed && trimmed !== layer.title) onRename(trimmed);
               setEditingTitle(false);
             }}
             onKeyDown={(e) => {
@@ -2891,7 +2884,7 @@ function GroupHeaderRow({
             type="button"
             onClick={() => canEdit && setEditingTitle(true)}
             className="flex flex-1 items-center gap-1.5 truncate text-left text-xs font-semibold uppercase tracking-wide text-warn hover:text-warn"
-            title={canEdit ? 'Click to rename' : layer.title}
+            title={canEdit ? t('mapLayerPanel.group.clickToRename') : layer.title}
           >
             <Folder className="h-3.5 w-3.5 shrink-0 text-warn" />
             <span className="truncate">{layer.title}</span>
@@ -2905,8 +2898,8 @@ function GroupHeaderRow({
             <button
               type="button"
               onClick={onUngroup}
-              aria-label="Ungroup"
-              title="Drop the group header but keep the layers inside"
+              aria-label={t('mapLayerPanel.group.ungroupAria')}
+              title={t('mapLayerPanel.group.ungroupTitle')}
               className="inline-flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-1"
             >
               <FolderMinus className="h-3.5 w-3.5" />
@@ -2914,8 +2907,8 @@ function GroupHeaderRow({
             <button
               type="button"
               onClick={onRemove}
-              aria-label="Remove group and its layers"
-              title="Remove this group and every layer inside"
+              aria-label={t('mapLayerPanel.group.removeAria')}
+              title={t('mapLayerPanel.group.removeTitle')}
               className="inline-flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-danger/5 hover:text-danger"
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -2926,7 +2919,7 @@ function GroupHeaderRow({
       {canEdit ? (
         <div className="mt-1 flex items-center gap-2 px-1">
           <span className="text-2xs uppercase tracking-wide text-muted">
-            Opacity
+            {t('mapLayerPanel.opacity')}
           </span>
           <input
             type="range"
@@ -2961,7 +2954,7 @@ function GroupHeaderRow({
               <ChevronRight className="h-3 w-3" />
             )}
             <Telescope className="h-3 w-3" />
-            Scale
+            {t('mapLayerPanel.group.scale')}
           </button>
           {scaleOpen ? (
             <div className="rounded border border-warn/25 bg-surface-1/70 px-2 py-2">
@@ -2971,9 +2964,7 @@ function GroupHeaderRow({
                 onChange={(scale) => onPatch({ scale })}
               />
               <p className="mt-2 text-2xs text-muted">
-                Applies to every layer in this group. A child layer
-                with a tighter range stays tighter; a wider one is
-                clipped to this group&apos;s range.
+                {t('mapLayerPanel.group.scaleHint')}
               </p>
             </div>
           ) : null}
