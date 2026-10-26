@@ -132,20 +132,10 @@ ARG PMTILES_VERSION=1.30.3
 ARG PMTILES_XTEXT_VERSION=0.41.0
 # CVE-2026-46600, HIGH: go-pmtiles pulls golang.org/x/net v0.52.0, which
 # bumping PMTILES_VERSION does not clear. Fixed upstream in x/net 0.56.0.
-# Pinned here the same way as x/text so Trivy sees a patched version
-# embedded in the binary. Watch for go-pmtiles adopting >=0.56.0 itself,
-# at which point this pin can drop.
-# 0.57.0 rather than 0.56.0 for the same reason as x/text above.
-#
-# Now 0.58.0, dragged up again by the grpc bump to 1.83.2 below. The
-# assertion at the end of this stage is what caught it: the build failed
-# on the x/net check rather than quietly shipping a binary whose
-# recorded version disagreed with this line. That is the check earning
-# its keep, so leave it an exact match. Still well past the 0.56.0 that
-# fixes CVE-2026-46600.
-# CVE-2026-78669, HIGH: HTTP/2 SETTINGS-frame CPU DoS. Fixed in
-# golang.org/x/net 0.60.0. Keep above that floor even when go-pmtiles
-# still pins an older x/net.
+# CVE-2026-78669, HIGH: HTTP/2 SETTINGS-frame CPU DoS. Fixed in 0.60.0.
+# Pin exact so the post-build `go version -m` assertion catches a
+# downgrade. Watch for go-pmtiles adopting >=0.60.0 itself, at which
+# point this pin can drop.
 ARG PMTILES_XNET_VERSION=0.60.0
 # CVE-2026-56854, CRITICAL: go-pmtiles pulls golang.org/x/crypto
 # v0.53.0. Fixed upstream in 0.55.0. Same pin-and-assert treatment as
